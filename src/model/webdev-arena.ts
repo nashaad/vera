@@ -1,10 +1,3 @@
-/**
- * Hugging Face WebDev Arena snapshot: fetch, cache, parse.
- *
- * The dump is CC-BY-4.0. Scores are not baked into git. A failed fetch keeps
- * the last snapshot; nothing cached and nothing fetched means no scores, not
- * an empty model list.
- */
 
 import {
     mkdirSync,
@@ -25,7 +18,6 @@ const DATASET = "lmarena-ai/leaderboard-dataset";
 const CONFIG = "webdev";
 const SPLIT = "latest";
 const PAGE_LENGTH = 100;
-/** Whole refresh, not one timeout stacked per page onto host startup. */
 const DEFAULT_TIMEOUT_MS = 8000;
 
 export interface WebDevArenaRow {
@@ -66,10 +58,6 @@ export function webDevArenaCachePath(
     return path;
 }
 
-/**
- * The date Help prints: the dump's publish date when present, else the fetch
- * day's UTC date.
- */
 export function webDevArenaSnapshotDate(
     snapshot: WebDevArenaSnapshot | undefined,
 ): string | undefined {
@@ -121,11 +109,6 @@ export function readFreshWebDevArenaSnapshot(
     return age >= 0 && age < maxAgeMs ? snapshot : undefined;
 }
 
-/**
- * Fetches the WebDev `latest` split through the Hugging Face rows API.
- * `maxAgeMs` matches provider catalogs; `0` always asks, which is what a
- * manual refresh passes.
- */
 export async function refreshWebDevArena(
     options: WebDevArenaRefreshOptions = {},
 ): Promise<WebDevArenaSnapshot | undefined> {

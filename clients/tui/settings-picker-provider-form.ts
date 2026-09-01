@@ -57,19 +57,6 @@ import {
     type TuiSettingsPickerState,
 } from "./settings-picker-types.ts";
 
-/**
- * The declaration form for a provider Vera does not ship: an OpenAI- or
- * Anthropic-compatible endpoint the user runs or pays for themselves.
- *
- * The quirk flags a declaration can carry (`images`, `max_tokens`,
- * `thinking`) stay hand-edited in `config.json`, which remains the file this
- * form writes and never a second source of truth.
- *
- * The key field is on this screen rather than in a prompt that follows it, so
- * declaring an endpoint and giving it a key is one action in any order. It is
- * present only while the credential choice is `api_key`; the key itself goes
- * to the credential store, never to `config.json`.
- */
 export type TuiProviderFormFieldId =
     | "id"
     | "base_url"
@@ -77,7 +64,6 @@ export type TuiProviderFormFieldId =
     | "credential"
     | "api_key";
 
-/** Every field the form can show, in screen order. */
 export const TUI_PROVIDER_FORM_FIELDS: readonly TuiProviderFormFieldId[] = [
     "id",
     "base_url",
@@ -86,13 +72,9 @@ export const TUI_PROVIDER_FORM_FIELDS: readonly TuiProviderFormFieldId[] = [
     "api_key",
 ];
 
-/** The fields this form actually shows, which the credential choice decides. */
 export function tuiProviderFormFields(
     state: TuiProviderFormState,
 ): readonly TuiProviderFormFieldId[] {
-    // A provider Vera ships already owns its name and its wire protocol: the
-    // adapter is written against them. What moves is where it answers, and the
-    // key that reaches it.
     const shown = state.shipped === true
         ? TUI_PROVIDER_FORM_FIELDS.filter(
             (field) => field === "base_url" || field === "api_key",
@@ -108,44 +90,20 @@ export interface TuiProviderFormState {
     readonly baseUrl: string;
     readonly protocol: VeraProviderProtocol;
     readonly credential: VeraProviderCredential;
-    /** Held only while the form is open, and never rendered in the clear. */
     readonly apiKey: string;
     readonly field: TuiProviderFormFieldId;
-    /** Set by a refused submit, cleared by the next edit. */
     readonly error?: string;
-    /** The pane this was opened over, restored when it closes. */
     readonly parent?: TuiSettingsPickerState;
-    /**
-     * The name this form opened on, when it opened on an existing declaration.
-     * Absent on a new one. A submit whose name moved away from this is a
-     * rename, which the caller settles by moving the stored credential.
-     */
     readonly editing?: string;
-    /**
-     * Set when the form opened on a provider Vera ships. Its endpoint is the
-     * only thing it declares, so the rest of the fields are not shown and the
-     * submit is an override rather than a declaration.
-     */
     readonly shipped?: boolean;
 }
 
-/** A finished form, on its way to the caller that owns the config file. */
 export interface TuiProviderFormDeclaration {
     readonly id: string;
     readonly declaration: VeraCustomProviderConfig;
-    /**
-     * The key to store alongside the declaration, when one was entered. Absent
-     * on a declaration that carries no key, so the caller stores nothing.
-     */
     readonly apiKey?: string;
-    /** The name this declaration replaces, when the form opened on one. */
     readonly replaces?: string;
-    /**
-     * Set when this is a shipped provider's endpoint rather than a
-     * declaration. The caller writes `provider_endpoints`, not `providers`.
-     */
     readonly shipped?: boolean;
-    /** Set when a shipped provider goes back to the host Vera ships with. */
     readonly restore?: boolean;
 }
 
@@ -162,14 +120,11 @@ export interface TuiProviderFormKey {
 export interface TuiProviderFormTransition {
     readonly state?: TuiProviderFormState;
     readonly handled: boolean;
-    /** Present only on a submit that passed the form's own checks. */
     readonly submitted?: TuiProviderFormDeclaration;
 }
 
 export interface TuiProviderFormView {
-    /** The visible card; focus lives here. */
     readonly box: BoxRenderable;
-    /** Full-screen centering surface; visibility lives here. */
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
     update(state: TuiProviderFormState): void;
@@ -183,7 +138,6 @@ export function startTuiProviderForm(
         readonly protocol: VeraProviderProtocol;
         readonly credential: VeraProviderCredential;
         readonly apiKey?: string;
-        /** A provider Vera ships, opened to move its endpoint. */
         readonly shipped?: boolean;
     },
 ): TuiProviderFormState {
@@ -200,11 +154,6 @@ export function startTuiProviderForm(
     };
 }
 
-/**
- * A pasted base URL. Same reason the secret prompt takes one: the terminal
- * delivers a bracketed paste as its own event rather than as keystrokes, and a
- * URL is the field most likely to arrive that way.
- */
 export function handleTuiProviderFormPaste(
     state: TuiProviderFormState,
     text: string,
@@ -233,10 +182,6 @@ export function handleTuiProviderFormKey(
     if (binding === "previous_form_field") {
         return { state: movedProviderFormField(state, -1), handled: true };
     }
-    // Swallowed rather than passed down, for the same reason the name prompt
-    // swallows them: the pane behind this card is a list with its own
-    // bindings, and a key falling through would move a row nobody can see.
-    // Interrupt is decided ahead of every overlay and never reaches here.
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return { state, handled: true };
     }
@@ -284,7 +229,6 @@ export function handleTuiProviderFormKey(
     };
 }
 
-/** One step through the shown fields, wrapping at either end. */
 export function movedProviderFormField(
     state: TuiProviderFormState,
     step: 1 | -1,
@@ -295,14 +239,6 @@ export function movedProviderFormField(
     return { ...state, field: fields[next]! };
 }
 
-/**
- * What the form can decide on its own: a name that is usable as a key and a
- * URL that is there at all. Whether the URL is one Vera will accept is the
- * config writer's call, and its refusal comes back on the same error line.
- *
- * Checks run here rather than on every edit, so a half-typed field never
- * blocks moving to another one.
- */
 export function submittedProviderForm(
     state: TuiProviderFormState,
 ): TuiProviderFormTransition {
@@ -324,8 +260,6 @@ export function submittedProviderForm(
     if (state.shipped !== true && isVeraProviderId(id)) {
         return providerFormError(state, "id", `${id} is a provider Vera ships`);
     }
-    // A shipped provider always has a host to fall back to, so an emptied
-    // field is the way back to it rather than a mistake.
     if (baseUrl.length === 0 && state.shipped !== true) {
         return providerFormError(state, "base_url", "a base URL is required");
     }
@@ -339,8 +273,6 @@ export function submittedProviderForm(
                 base_url: baseUrl,
                 credential: state.credential,
             },
-            // An empty key field is a declaration without a key yet, not an
-            // empty key, so it is left off rather than stored as "".
             ...(apiKey.length === 0 ? {} : { apiKey }),
             ...(state.editing === undefined || state.editing === id
                 ? {}
@@ -400,24 +332,11 @@ export function toggledProviderFormChoice(
                 : "openai-chat",
         };
     }
-    // Turning the key off drops what was typed rather than keeping it out of
-    // sight, so a declaration saved as keyless carries no key anywhere.
     return state.credential === "api_key"
         ? { ...rest, credential: "none", apiKey: "" }
         : { ...rest, credential: "api_key" };
 }
 
-/**
- * The shown rows as they read on screen, cursor and all.
- *
- * The key is drawn in the clear. A field being filled in shows its literal
- * value, so a paste that arrived truncated is visible while it can still be
- * fixed. Masking would belong to a stored key shown back to a passer-by, and
- * no surface does that.
- *
- * A field standing empty shows its placeholder softened, so nothing on this
- * card reads as a value already there.
- */
 export function tuiProviderFormRows(
     state: TuiProviderFormState,
 ): readonly StyledText[] {
@@ -431,13 +350,7 @@ export function tuiProviderFormRows(
             ? "API key"
             : "none";
         const empty = value.length === 0;
-        // A key already stored is covered until the cursor is on it. Typing
-        // one stays in the clear: a row of dots hides whether a paste landed
-        // whole, which is the mistake this field exists to catch.
         const shown = field === "api_key" && !focused
-            // A fixed count rather than one dot per character: the real length
-            // wraps the card at any real key, and it is a fact about the
-            // secret that the field has no reason to publish.
             ? "•".repeat(Math.min(value.length, 12))
             : value;
         return new StyledText([
@@ -563,15 +476,10 @@ export function createTuiProviderFormView(
             const lines = tuiProviderFormRows(state);
             rows.forEach((row, index) => {
                 const line = lines[index];
-                // A field the credential choice hides leaves the card
-                // entirely rather than sitting there greyed out.
                 row.visible = line !== undefined;
                 row.content = line ?? new StyledText([]);
             });
             error.content = state.error ?? "";
-            // ←→ picks between the choices on a toggle row and moves the
-            // cursor on a typed one, so the hint says whichever the field
-            // under the cursor actually does.
             footer.content = `↑↓ ${tuiKeyHint("next_form_field")} · ${
                 providerFormTextField(state.field) ? "←→ move" : "←→ change"
             } · ⏎ save · esc cancel`;

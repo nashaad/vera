@@ -20,21 +20,8 @@ import { veraRuntimeDirectory } from "../src/profile-paths.ts";
 const DEFAULT_CAPTURES_PER_PROVIDER = 3;
 const DEFAULT_PROBE_TIMEOUT_MS = 5000;
 
-/**
- * Where the credential Vera would actually spend comes from.
- *
- * `isProviderConnected` answers yes for either source, which is the right
- * answer for the connect list and the wrong one here: a provider "connected"
- * through a stale exported variable and one connected through a stored key
- * fail differently and are fixed differently.
- */
 export type ProviderCredentialSource = "stored" | "env" | "none";
 
-/**
- * The outcomes a probe has to tell apart. Only `rejected` and `authenticated`
- * say anything about the credential, and only about the model-list endpoint:
- * `models_unlisted` and `unexpected` mean the host answered without testing it.
- */
 export type ProviderReachability =
     | "unreachable"
     | "rejected"
@@ -59,7 +46,6 @@ export interface ProviderCaptureSummary {
     readonly model: string;
     readonly outcome: string;
     readonly error?: string;
-    /** Root-relative, so the line can be pasted into a public issue. */
     readonly path: string;
 }
 
@@ -69,7 +55,6 @@ export interface ProviderDiagnosis {
     readonly connected: boolean;
     readonly credentialSource: ProviderCredentialSource;
     readonly envVar?: string;
-    /** Set when the environment variable exists, whatever the stored key says. */
     readonly envVarPresent: boolean;
     readonly endpoint?: ProviderEndpoint;
     readonly probe?: ProviderProbeResult;
@@ -84,7 +69,6 @@ export interface ProviderDoctorReport {
 export interface ProviderDoctorOptions {
     readonly authStorage?: Pick<AuthStorage, "getCredential">;
     readonly env?: Readonly<Record<string, string | undefined>>;
-    /** Off by default: `vera doctor` stays offline unless asked. */
     readonly checkNetwork?: boolean;
     readonly fetch?: (
         input: string | URL | Request,
@@ -185,9 +169,6 @@ function resolveCredentialSource(
     } catch {
         stored = undefined;
     }
-    // Stored wins because that is the order the adapters read them in; saying
-    // "env" while the request spends the stored key sends the user to fix the
-    // wrong thing.
     if (stored !== undefined) return "stored";
     return envVarPresent ? "env" : "none";
 }
@@ -197,9 +178,6 @@ function endpointFor(
     env: Readonly<Record<string, string | undefined>>,
     moved?: string,
 ): ProviderEndpoint | undefined {
-    // A contributed provider owns more than its wire format. OAuth parsing,
-    // refresh, and provider-specific headers must stay on that implementation's
-    // side of the boundary, so the generic doctor cannot safely probe it.
     if (descriptor.protocol === "contributed") return undefined;
     if (descriptor.envVar === "OLLAMA_HOST") {
         const host = (moved ?? env.OLLAMA_HOST ?? "http://127.0.0.1:11434")
@@ -217,10 +195,6 @@ function endpointFor(
         protocol: doctorProtocol(descriptor),
     } satisfies ProviderEndpoint;
     if (moved === undefined) return shipped;
-    // The report probes where Vera would actually send the turn. A probe
-    // against the shipped host would carry the credential somewhere the user
-    // has said not to go, and report a reachable provider that is not the one
-    // in use.
     return { baseUrl: moved, protocol: shipped.protocol };
 }
 
@@ -230,14 +204,6 @@ function doctorProtocol(descriptor: ProviderDescriptor): VeraProviderProtocol {
         : "openai-chat";
 }
 
-/**
- * The cheapest request that separates "no host" from "host said no" from
- * "host said yes": a credentialed GET of the model list. It bills nothing and
- * needs no model name. It proves reachability and, at most, that this one
- * endpoint took the credential; a real turn carries options (max tokens,
- * reasoning effort, thinking, tools, images, streaming) it never exercises.
- */
-/** The model-listing address for a base URL, preserving its query. */
 function modelsProbeUrl(baseUrl: string): string {
     try {
         const url = new URL(baseUrl);
@@ -254,9 +220,7 @@ async function probeEndpoint(
     options: ProviderDoctorOptions,
     env: Readonly<Record<string, string | undefined>>,
 ): Promise<ProviderProbeResult> {
-    // Built by URL rather than concatenation: a base URL carrying a query
-    // string would otherwise swallow the appended path and probe the wrong
-    // address.
+    // Built by URL rather than concatenation: a base URL carrying a query string would otherwise swallow the appended path and probe the wrong address.
     const url = modelsProbeUrl(endpoint.baseUrl);
     const fetchImpl = options.fetch ?? globalThis.fetch;
     const controller = new AbortController();
@@ -289,8 +253,6 @@ async function probeEndpoint(
 function classifyStatus(status: number): ProviderReachability {
     if (status === 401 || status === 403) return "rejected";
     if (status >= 200 && status < 300) return "authenticated";
-    // A chat endpoint is under no obligation to serve `/models`, so these two
-    // statuses are an absent listing rather than a fault.
     if (status === 404 || status === 405) return "models_unlisted";
     return "unexpected";
 }
@@ -364,12 +326,6 @@ interface CaptureRow {
     readonly capture: ProviderCaptureSummary;
 }
 
-/**
- * The writer redacts before it writes; this redacts again on the way out.
- * Nothing here widens what the file holds: only the five scalar fields the
- * summary names are read, and the request and response bodies are never
- * touched.
- */
 async function readCapture(
     path: string,
     roots: readonly PathRoot[],
@@ -408,11 +364,6 @@ export interface PathRoot {
     readonly label: string;
 }
 
-/**
- * The first root that contains the path names it. Order is the caller's:
- * the home directory first, so a capture that sits under it keeps reading as
- * `~/...` even when a runtime override also covers it.
- */
 export function abbreviatePath(
     path: string,
     roots: readonly PathRoot[],
@@ -434,7 +385,6 @@ function capturePathRoots(options: ProviderDoctorOptions): PathRoot[] {
     try {
         roots.push({ root: veraRuntimeDirectory(), label: "<vera-runtime>" });
     } catch {
-        // No runtime directory to name; the remaining roots still apply.
     }
     if (options.captureDirectory !== undefined) {
         roots.push({ root: options.captureDirectory, label: "<captures>" });
@@ -458,11 +408,6 @@ function describeError(error: unknown): string {
 
 const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s)\]}"'`,]+/gi;
 
-/**
- * A URL with everything that can carry a credential removed: userinfo, query
- * values, and the fragment. `validProviderUrl` accepts any https URL, so a
- * configured base URL can hold a key in any of the three.
- */
 export function sanitizeUrlForReport(raw: string): string {
     let parsed: URL;
     try {
@@ -477,26 +422,16 @@ export function sanitizeUrlForReport(raw: string): string {
         ? ""
         : `?${keys.map((key) => `${key}=${REDACTED}`).join("&")}`;
     const fragment = parsed.hash.length === 0 ? "" : `#${REDACTED}`;
-    // `URL` supplies a root path the input did not have; dropping it again
-    // keeps a bare host reading the way it was configured.
     const path = parsed.pathname === "/" && !raw.split(/[?#]/)[0]?.endsWith("/")
         ? ""
         : parsed.pathname;
     return `${parsed.protocol}//${parsed.host}${path}${query}${fragment}`;
 }
 
-/** Every URL inside a free-text line, sanitized in place. */
 function sanitizeUrlsInText(text: string): string {
     return text.replace(URL_IN_TEXT, (match) => sanitizeUrlForReport(match));
 }
 
-/**
- * The provider section of `vera doctor`, written to be pasted into a public
- * issue unedited: names of environment variables, never their values, no
- * absolute path that carries a directory the user owns, and no URL that still
- * carries its userinfo, query, or fragment. Sanitizing happens here rather
- * than at construction so a new caller cannot route around it.
- */
 export function renderProviderDoctor(report: ProviderDoctorReport): string {
     const lines: string[] = ["Providers"];
     if (report.providers.length === 0) {
@@ -553,11 +488,6 @@ function describeCredential(provider: ProviderDiagnosis): string {
         : `not connected (no stored key, ${provider.envVar} unset)`;
 }
 
-/**
- * Every line says which endpoint answered and stops there. The probe is a GET
- * of the model list, so a success is evidence about that endpoint and that
- * credential, not about a turn the provider has yet to be asked to run.
- */
 function describeProbe(probe: ProviderProbeResult): string {
     const target = sanitizeUrlForReport(probe.url);
     if (probe.reachability === "unreachable") {

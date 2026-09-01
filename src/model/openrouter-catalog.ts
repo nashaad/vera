@@ -16,46 +16,16 @@ const PROVIDER = "openrouter";
 
 const MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
 
-/**
- * A cap on how long a fetch can hold up whatever asked for it, which on a
- * stale start is the host coming up. The response is around half a megabyte
- * and normally arrives in well under a second; the cap is set for the case
- * where the network is not there at all, where the cost is one wait of this
- * length before falling back to the last snapshot.
- */
 const DEFAULT_TIMEOUT_MS = 2500;
 
 export interface OpenRouterCatalogRefreshOptions {
-    /** Overrides the endpoint, so tests never reach the network. */
     readonly endpoint?: string;
-    /** Where the snapshot is written and read back. Defaults to Vera's cache. */
     readonly cacheDir?: string;
     readonly timeoutMs?: number;
     readonly fetch?: typeof globalThis.fetch;
-    /**
-     * How old the snapshot may be and still answer on its own. `0` always
-     * fetches, which is what a manual refresh passes. Absent means the same,
-     * so a caller that has not thought about staleness keeps the old
-     * behaviour rather than silently holding a list back.
-     */
     readonly maxAgeMs?: number;
 }
 
-/**
- * Fetches OpenRouter's model list and republishes it as a Vera discovery
- * snapshot. Unlike Codex, which keeps a cache on disk that Vera can simply
- * read, OpenRouter's list only exists over the network, so this is a real
- * request and can fail for reasons that have nothing to do with the user.
- *
- * A failed refresh falls back to the last snapshot rather than to nothing: the
- * model list changes slowly, and a list from yesterday is a far better answer
- * to "which models can I run" than an empty picker. `undefined` means there is
- * no answer at all, neither fresh nor remembered.
- *
- * `maxAgeMs` is what keeps this off the network on an ordinary start: a
- * snapshot younger than it is returned as-is and no request is made. Passing
- * `0` is the manual refresh, which always asks.
- */
 export async function refreshOpenRouterCatalog(
     options: OpenRouterCatalogRefreshOptions = {},
 ): Promise<ProviderCatalog | undefined> {
@@ -85,21 +55,14 @@ export async function refreshOpenRouterCatalog(
     }
 
     const fetched = normalizeOpenRouterModels(raw);
-    // Release dates accumulate rather than being refetched, so the snapshot
-    // Vera already holds is consulted even on a successful fetch.
     const catalog = mergeCatalogReleaseDates(fetched, cachedCatalog(cacheOptions));
     if (catalog.models.length === 0) {
-        // A reachable endpoint that answered with nothing usable is the same
-        // situation as an unreachable one, and the remembered list is still
-        // the better answer.
         return cachedCatalog(cacheOptions);
     }
 
     try {
         writeProviderCatalogSnapshot(catalog, cacheOptions);
     } catch {
-        // A snapshot Vera cannot write is not a reason to hide models it has
-        // already fetched. The next start tries again.
     }
     return catalog;
 }
@@ -111,11 +74,6 @@ function cachedCatalog(
     return cached.models.length === 0 ? undefined : cached;
 }
 
-/**
- * Only models that accept `tools` are published. Vera drives every turn through
- * tool calls, so a model without them cannot do the job at all, and offering it
- * in the picker offers a model that fails on its first turn.
- */
 export function normalizeOpenRouterModels(raw: unknown): ProviderCatalog {
     const data = isRecord(raw) && Array.isArray(raw.data) ? raw.data : [];
     const models: CatalogModel[] = [];
@@ -161,10 +119,6 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         && value.context_length > 0
         ? value.context_length
         : undefined;
-    // OpenRouter states this as seconds since the epoch. A listing without one,
-    // or with one Vera cannot read, yields no date rather than a made-up one:
-    // the reduction treats a missing date as "keep the model", so a guess here
-    // would hide a model on invented evidence.
     const created = typeof value.created === "number"
             && Number.isSafeInteger(value.created)
             && value.created > 0
@@ -194,7 +148,6 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
     };
 }
 
-/** OpenRouter publishes decimal USD-per-token strings under prompt/completion. */
 function readPricing(
     value: unknown,
 ): ModelPricing | undefined {
@@ -224,21 +177,6 @@ function perMillion(value: unknown): number | undefined {
         : undefined;
 }
 
-/**
- * The levels a model announces, and the level it picks when asked for none.
- *
- * OpenRouter states both under a per-model `reasoning` object. A model whose
- * `supported_parameters` names `reasoning` or `reasoning_effort` but carries
- * no such object accepts an effort whose vocabulary the listing does not
- * state, so it falls back to the three values OpenRouter documents; that is a
- * guess, and it is only ever made where the alternative is offering no level
- * at all. A model that announces no reasoning parameter gets no levels.
- *
- * `none` is dropped. It means "do not think", which is Vera's `off`, and a row
- * for it beside Low and Medium reads as a fourth depth rather than a switch. A
- * model whose whole vocabulary is `none` is left with no levels: it stated
- * what it takes, and the documented three are not what it said.
- */
 function readReasoning(
     value: unknown,
     acceptsEffort: boolean,
@@ -256,9 +194,6 @@ function readReasoning(
     }
     const efforts = announced.filter((entry) => entry !== "none");
     if (efforts.length === 0) {
-        // The model stated its vocabulary and it holds nothing Vera offers as
-        // a level. That is an answer, not a gap, so the documented three are
-        // not put in its mouth.
         return { levels: [] };
     }
     const levels = strongestFirst(dedupe(efforts)).map((id) => ({
@@ -284,12 +219,6 @@ function dedupe(ids: readonly string[]): readonly string[] {
     return [...new Set(ids)];
 }
 
-/**
- * `CatalogModel.levels` requires strongest first. Vera's ladder decides that
- * for the levels it knows; anything else keeps the order the listing gave and
- * sorts after them, since a level Vera cannot place on the ladder is one it
- * cannot claim is stronger or weaker than another.
- */
 function strongestFirst(ids: readonly string[]): readonly string[] {
     const ladder: readonly string[] = EFFORT_LADDER;
     const known = ladder.filter((level) => ids.includes(level)).reverse();
@@ -315,19 +244,12 @@ const LEVEL_LABELS: Readonly<Record<string, string>> = {
     off: "Off",
 };
 
-/** The three values OpenRouter documents, strongest first. */
 const DOCUMENTED_LEVELS: readonly ReasoningLevel[] = [
     { id: "high", label: "High" },
     { id: "medium", label: "Medium" },
     { id: "low", label: "Low" },
 ];
 
-/**
- * OpenRouter states input modalities per model under `architecture`. A listing
- * that omits the field, or states modalities Vera cannot read, yields no
- * answer rather than a false one: "text-only" and "unstated" are different
- * claims, and only the first should keep an image from being sent.
- */
 function readImageSupport(architecture: unknown): boolean | undefined {
     if (!isRecord(architecture)) {
         return undefined;
@@ -344,15 +266,6 @@ function readImageSupport(architecture: unknown): boolean | undefined {
 
 const DESCRIPTION_MAX_LENGTH = 96;
 
-/**
- * OpenRouter descriptions run to paragraphs of markdown; a picker row has one
- * line of plain text. The first sentence is nearly always the "what is this
- * model" sentence, which is the question the row is answering.
- *
- * The markdown is unwrapped rather than rendered: a row that reads
- * "identical to [Opus 5](/anthropic/claude-opus-5)" is showing the reader a URL
- * they cannot click in place of the words they wanted.
- */
 function summarize(value: unknown): string | undefined {
     if (typeof value !== "string") {
         return undefined;
@@ -369,9 +282,7 @@ function summarize(value: unknown): string | undefined {
 
 function plainText(markdown: string): string {
     return markdown
-        // Links keep their text and lose their target.
         .replaceAll(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-        // Bare autolinks, which OpenRouter writes as <https://example.com>.
         .replaceAll(/<(https?:\/\/[^>]*)>/g, "$1")
         .replaceAll(/[*_`]/g, "")
         .replaceAll(/\s+/g, " ")

@@ -4,11 +4,9 @@ import type { InboxAdmissionPolicy } from "./inbox-admission.ts";
 import { SOURCE_GAP_KIND } from "../watch/source.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 
-/** Largest unread count exposed by an arrival notice. */
 export const MAX_INBOX_NOTICE_COUNT = 99;
 
 export interface InboxNotice {
-    /** Bounded count only. Foreign entry metadata and content stay in the log. */
     readonly unreadCount: number;
 }
 
@@ -32,21 +30,17 @@ export interface AttachInboxConsumerRequest {
     readonly label: string;
     readonly actor?: string | null;
     readonly session: string;
-    /** Workspace whose project admission overlay applies to this consumer. */
     readonly projectRoot?: string;
     readonly notify: (notice: InboxNotice) => void;
-    /** True only while a real client is attached to this resident session. */
     readonly canStartTurn?: () => boolean;
     readonly startTurn?: () => void;
     readonly requestAdmission?: (
         candidate: InboxAdmissionCandidate,
         signal: AbortSignal,
     ) => Promise<InboxAdmissionDecision | undefined>;
-    /** Reports a failed durable admission while the entry remains held. */
     readonly onAdmissionFailure?: (candidate: InboxAdmissionCandidate) => void;
 }
 
-/** One live session's bookkeeping-only view of inbox arrival. */
 export class InboxDeliverySession {
     private readonly coordinator: InboxDeliveryCoordinator;
     private readonly handle: ConsumerHandle;
@@ -69,7 +63,6 @@ export class InboxDeliverySession {
         AbortController
     >();
 
-    /** @internal Minted by `InboxDeliveryCoordinator.attach`. */
     constructor(
         coordinator: InboxDeliveryCoordinator,
         handle: ConsumerHandle,
@@ -90,7 +83,6 @@ export class InboxDeliverySession {
         return this.handle;
     }
 
-    /** Emits count-only UI bookkeeping. It never records content or advances. */
     pump(): Promise<void> {
         if (this.released) return Promise.resolve();
         const next = this.queue.then(() => this.inspect());
@@ -105,7 +97,6 @@ export class InboxDeliverySession {
         this.coordinator.forget(this);
     }
 
-    /** Session-scoped choices disappear as soon as the client detaches. */
     clientAttachmentChanged(attached: boolean): void {
         if (attached) return;
         this.sessionFamilies.clear();
@@ -118,7 +109,6 @@ export class InboxDeliverySession {
         this.pendingAdmissionFamilies.clear();
     }
 
-    /** Whether this attached session has admitted unread work to deliver. */
     hasAdmittedPending(): boolean {
         if (this.released || !this.canStartTurn()) return false;
         const entries = this.handle.read({
@@ -134,7 +124,6 @@ export class InboxDeliverySession {
         return false;
     }
 
-    /** Used by the legacy agent-send result while the inbox path is active. */
     isAdmittedSource(sourceFamily: string): boolean {
         return this.admission?.allows(sourceFamily) === true
             || this.sessionFamilies.has(sourceFamily);
@@ -224,7 +213,6 @@ export class InboxDeliverySession {
             try {
                 this.onAdmissionFailure?.(candidate);
             } catch {
-                // Admission reporting cannot make the delivery queue fail.
             }
         }).finally(() => {
             if (
@@ -245,7 +233,6 @@ export interface InboxDeliveryOptions {
     ) => InboxAdmissionPolicy | undefined;
 }
 
-/** Coordinates count-only arrival notices for attached sessions. */
 export class InboxDeliveryCoordinator {
     private readonly consumers: ConsumerRegistry;
     private readonly sessions = new Set<InboxDeliverySession>();
@@ -326,12 +313,10 @@ export class InboxDeliveryCoordinator {
         for (const session of [...this.sessions]) session.release();
     }
 
-    /** @internal */
     now(): number {
         return this.clock();
     }
 
-    /** @internal */
     forget(session: InboxDeliverySession): void {
         this.sessions.delete(session);
     }

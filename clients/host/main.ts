@@ -37,9 +37,7 @@ try {
         })
         : await start();
 } catch (error) {
-    // Losing the startup race is another host winning it, which is a working
-    // outcome for the user and must not be counted against the build. Its own
-    // exit code separates it from a host that could not start at all.
+    // Losing the startup race is another host winning it, which is a working outcome for the user and must not be counted against the build.
     if (anotherHostIsServing(error)) {
         process.stderr.write(`${error.message}\n`);
         process.exit(HOST_STARTUP_RACE_EXIT_CODE);

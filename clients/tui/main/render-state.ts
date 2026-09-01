@@ -25,25 +25,14 @@ export function renderState(rt: TuiRuntime): void {
         && isConfigurationRequiredUiRequestUpdate(uiRequest);
     rt.experimentalTuiHost.render();
 
-    // Home says what to do in the middle of the screen; the transcript's
-    // own invitation would be a second one, over an empty conversation
-    // that does not exist yet.
     rt.placeholder.visible = rt.state.entries.length === 0
         && !isHomeClient(rt.client);
-    // The transcript tip appears in the gap after a turn, which is the one
-    // moment the user is reading rather than typing, and it is gone by the
-    // time the next turn starts. Armed by the turn ending rather than by
-    // the idle state itself, so the line does not come straight back in
-    // the frames between a submit and the turn actually starting.
     if (rt.tipsEnabled && rt.workingLastRender && !rt.state.working) {
         rt.composerTip = takeTip(rt, false);
     }
     rt.workingLastRender = rt.state.working;
     rt.composerTipText.content = rt.composerTip === undefined
         ? new StyledText([])
-        // Text nodes lay their content out from column zero, so the
-        // optical indent beside the composer is written in rather than
-        // set as padding.
         : new StyledText([
             fg(TUI_ACCENT)(
                 `${" ".repeat(rt.appearance.composerTipIndent)}Tip `,
@@ -69,9 +58,6 @@ export function renderState(rt: TuiRuntime): void {
         === "tool_approval";
     rt.questionView.box.visible = uiRequest?.request.type
         === "user_question";
-    // A model, directory, and approval mode do not explain either pending
-    // request. Both cards replace the composer and status band until the
-    // user answers, so no status text can paint across their final row.
     rt.statusText.visible = !(rt.approvalView.box.visible
         || rt.questionView.box.visible);
     rt.statusBand.visible = !(rt.approvalView.box.visible
@@ -84,8 +70,6 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.requestOptionsEditor !== undefined;
-    // Over the connect pane it was opened from, so the pane is still there
-    // to go back to when the key is saved or the prompt is abandoned.
     rt.providerFormView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
@@ -157,11 +141,6 @@ export function renderState(rt: TuiRuntime): void {
     applyWorkspaceRail(rt);
     const sessionRequestVisible = rt.approvalView.box.visible
         || rt.questionView.box.visible;
-    /*
-     * A session-owned request replaces that session's composer, not the
-     * navigator beside it. Narrow terminals still have a sidebar card
-     * rather than a rail, so the request keeps the screen there.
-     */
     const workspaceSidebarAllowed = uiRequest === undefined
         || (sessionRequestVisible && rt.workspaceRail !== undefined);
     rt.workspaceSidebarView.surface.visible = workspaceSidebarAllowed
@@ -272,9 +251,6 @@ export function renderState(rt: TuiRuntime): void {
         || rt.standingNudgesView.surface.visible
         || rt.commandPaletteView.surface.visible
         || rt.workTabView.surface.visible
-        // A rail stands beside the transcript rather than over it, so the
-        // scrim that dims the screen behind a card would be dimming the
-        // half of it the reader is still reading.
         || (rt.workspaceSidebarView.surface.visible && rt.workspaceRail === undefined)
         || rt.searchOverlayView.surface.visible
         || rt.helpView.box.visible
@@ -292,10 +268,6 @@ export function renderState(rt: TuiRuntime): void {
         || rt.requestOptionsEditorView.surface.visible
         || rt.secretPromptView.box.visible
         || rt.experimentalTuiHost.hasModal();
-    // The scrim carries the whole fade: its translucent fill composites
-    // the glyphs behind it as well as the cell backgrounds, so the chrome
-    // needs no attenuation of its own. Fading it a second time left the
-    // composer and status band darker than the transcript beside them.
     rt.overlayScrim.visible = overlayVisible;
     const requestUsesRail = sessionRequestVisible
         && rt.workspaceSidebarView.surface.visible;
@@ -304,10 +276,6 @@ export function renderState(rt: TuiRuntime): void {
         : 0;
     rt.overlayScrim.left = requestRailColumns;
     rt.overlayScrim.width = Math.max(1, rt.renderer.width - requestRailColumns);
-    // Ordinary modals leave the conversation and composer in place as
-    // dimmed context. The scrim sits above them and below the active card.
-    // Approval and question cards are different: they replace the composer
-    // until the pending engine request is answered.
     rt.composerBox.visible = uiRequest === undefined
         && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode);
     rt.resumeOverlay.surface.visible = uiRequest === undefined
@@ -327,9 +295,6 @@ export function renderState(rt: TuiRuntime): void {
     ) {
         rt.questionView.update(uiRequest);
     }
-    // Approval and question boxes are absolute children, so app padding
-    // does not move them with the transcript. Seat session-owned cards in
-    // the transcript column explicitly when the docked rail stays up.
     rt.approvalView.box.left = requestRailColumns;
     rt.questionView.box.left = requestRailColumns;
     if (rt.timelinePicker !== undefined) {
@@ -339,14 +304,8 @@ export function renderState(rt: TuiRuntime): void {
         rt.pickerTipKind = undefined;
         rt.settingsPickerView.tip = undefined;
         rt.settingsPickerView.verification = undefined;
-        // The run reports itself in the transcript. Closing the pane is
-        // the end of the console, so reopening it does not bring back a
-        // check that finished a while ago.
         rt.verificationConsole = undefined;
     } else if (rt.tipsEnabled && rt.pickerTipKind !== rt.settingsPicker.kind) {
-        // One tip per pane, chosen when the pane opens. Rechoosing on
-        // every keystroke would make the line flicker under the search
-        // query, and the pane is one place, not one place per row.
         rt.pickerTipKind = rt.settingsPicker.kind;
         rt.settingsPickerView.tip = takeTip(rt, rt.settingsPicker.kind === "model");
     }
@@ -444,41 +403,23 @@ export function showSearchTarget(rt: TuiRuntime): void {
         entry.kind !== "diff"
         && transcriptMessageId(entry.entryId) === target.entryId
     );
-    // Nothing on screen yet means the session is still loading, so the
-    // target waits. A drawn transcript without the row means the row is
-    // gone, and chasing it through later paints of the same session would
-    // scroll the reader away from wherever they had moved to.
     if (index === -1) {
         if (rt.state.entries.length > 0) rt.pendingSearchTarget = undefined;
         return;
     }
     const node = rt.entryNodes[index];
     if (node === undefined) {
-        // Built in one step rather than a batch a frame: the target stays
-        // outside the window until the scroll reaches it, and the window
-        // would release each batch again before the next one arrived.
         setTranscriptWindowAround(rt, rt.state.entries, index);
-        // The rows have no measured height until the next layout, so the
-        // scroll waits a frame for one.
         return;
     }
-    // A row built this frame has no position yet, and the frame that gives
-    // it one also claims the bottom for a session that just opened. So the
-    // scroll waits for the measurement, which is the frame after both.
     if (rt.measuredEntryRows[index] === undefined) return;
     rt.pendingSearchTarget = undefined;
     rt.searchLanding = {
         sessionId: target.sessionId,
         entryId: target.entryId,
     };
-    // The node exists already and is about to be scrolled to, so the
-    // glyph goes on in place; later rebuilds of this row read the id.
     const landed = rt.state.entries[index];
     if (landed !== undefined) markSearchLanding(rt, landed, node);
-    // The row goes to the top of the pane rather than merely on screen: a
-    // message taller than the pane would otherwise be shown by its end,
-    // which is not where the match is, and one already on screen would not
-    // move at all even though the reader came here to look at it.
     rt.transcript.scrollTo(
         rt.transcript.scrollTop + node.screenY - rt.transcript.viewport.screenY,
     );

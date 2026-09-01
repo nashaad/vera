@@ -217,7 +217,6 @@ export function createReconnectingAgentClient(
             try {
                 listener(index);
             } catch {
-                // One client-local observer cannot invalidate a reattach.
             }
         }
     }
@@ -275,7 +274,6 @@ export function createReconnectingAgentClient(
                     try {
                         listener(next.backgroundAgents);
                     } catch {
-                        // One client-local observer cannot invalidate a reattach.
                     }
                 }
                 return next;

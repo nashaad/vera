@@ -1,21 +1,8 @@
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 
-/**
- * What an attached client is told about background work, and nothing else.
- *
- * The whole agent list used to be pulled once a second to derive these three
- * facts. They are pushed instead, so the wire carries the derived facts rather
- * than the list they came from: a client that wants the list still asks for it.
- */
 export interface BackgroundAgentsSnapshot {
-    /** Background agents working or waiting anywhere in this host. */
     readonly running: number;
-    /**
-     * Display names of the running background children of the attached agent,
-     * newest listing order, already resolved to a title or an id.
-     */
     readonly children: readonly string[];
-    /** Whether the attached agent is itself a background child of a session. */
     readonly has_parent: boolean;
 }
 
@@ -29,9 +16,6 @@ export function backgroundAgentsSnapshot(
     agents: readonly RegisteredAgentSummary[],
     attachedAgentId: string,
 ): BackgroundAgentsSnapshot {
-    // Running, not merely present and not merely live: every background
-    // session the host restored at startup is present, and one being read
-    // through an attachment is live, but neither is doing anything.
     const running = agents.filter(isRunningBackgroundAgent);
     return {
         running: running.length,

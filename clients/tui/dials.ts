@@ -1,90 +1,46 @@
-/**
- * The dial strip: model × effort, flipped from one visible line.
- *
- * Replaces quickslots, and the difference is the point. A quickslot was a
- * numbered box you cycled blind; a dial is a pair you can see before you take
- * it. Nothing here changes state on its own — the strip only ever proposes,
- * and Enter is the only thing that commits.
- *
- * Everything in this file is pure. The strip's whole behaviour is a function
- * from a snapshot and a keypress to the next snapshot, which is what makes it
- * testable without a terminal.
- */
 
 import { isTuiDialTabKey } from "./keymap.ts";
 
-/** A model with the effort it runs at, when the model has an effort dial. */
 export interface DialPair {
     readonly provider?: string;
     readonly model: string;
-    /** Absent when the model publishes no levels at all. Its own value. */
     readonly effort?: string;
 }
 
-/** What the strip needs to know about one model the user has admitted. */
 export interface DialPoolEntry {
     readonly provider: string;
     readonly model: string;
     readonly poolName?: string;
     readonly levels: readonly string[];
-    /** The level the model runs at when no effort is chosen, when it says. */
     readonly defaultLevel?: string;
-    /**
-     * False on an entry that cannot run right now. Such an entry states no
-     * levels, so it must not stand in for the catalog's.
-     */
+    /** False on an entry that cannot run right now. Such an entry states no levels, so it must not stand in for the catalog's. */
     readonly available?: boolean;
 }
 
-/** Internal separator: the TUI paints the provider suffix in a quieter tone. */
 export const DIAL_PROVIDER_SEPARATOR = "\u001f";
 
-/**
- * Marks the default chip that sits in the gutter beside the effort track.
- *
- * Default is not a point on the Faster/Smarter axis, it is the choice to let
- * the model decide, so it is painted in its own colour rather than reading as
- * one more stop on the line.
- */
 export const DIAL_DEFAULT_SEPARATOR = "\u001d";
-/** Internal separator for the independently styled, right-aligned exit cue. */
 export const DIAL_EXIT_SEPARATOR = "\u001e";
 
 export type DialSlotSource = "current" | "recent" | "pool";
 
 export interface DialSlot {
-    /** The pool name when present, otherwise a shortened model id. */
     readonly label: string;
-    /** The model/provider pair this row selects. */
     readonly pair?: DialPair;
     readonly source: DialSlotSource;
-    /** The levels this model publishes, empty when it has no effort dial. */
     readonly efforts: readonly string[];
-    /** What choosing default resolves to, when the model says. */
     readonly defaultEffort?: string;
-    /** Why it cannot be selected, when it cannot. */
     readonly unavailable?: "not in your pool";
 }
 
 export interface DialStripComposition {
     readonly slots: readonly DialSlot[];
-    /** The three most recently used pairs, newest first, for the HUD shortcut. */
     readonly recent: readonly DialSlot[];
-    /** Slots beyond the cap, shown as a trailing ellipsis rather than dropped. */
     readonly overflow: number;
 }
 
-/** How many slots fit on one line before the rest become an ellipsis. */
 export const DIAL_STRIP_CAP = 6;
 
-/**
- * How many rows the HUD offers, and how many of them recents may take.
- *
- * Five and five is a shape, not a promise. Recents are usually pool models
- * too, and a row is only ever shown once, so the pool backfills whatever the
- * recents did not use. Guaranteeing a true 5+5 would mean printing one model
- * on two rows under two digits, which is worse than a floating split.
- */
 export const DIAL_HUD_CAP = 10;
 export const DIAL_HUD_RECENT_CAP = 5;
 
@@ -96,26 +52,12 @@ function pairOf(entry: DialPoolEntry, effort: string | undefined): DialPair {
     };
 }
 
-/**
- * The strip, in order.
- *
- * Position 1 is always the pair the session is committed to, by construction,
- * so "the pair I am on is not in the list" cannot happen. Favourites follow in
- * the order they were written, then recents newest first, and a pair already
- * shown is not shown twice.
- */
 export function composeDialStrip(options: {
     readonly current: DialPair | undefined;
-    /** The session's model settings over time, oldest first. */
     readonly recents: readonly DialPair[];
     readonly pool: readonly DialPoolEntry[];
-    /**
-     * Level facts for models the pool has no ready entry for. Facts only: a
-     * catalog entry never becomes a row on the strip.
-     */
     readonly catalog?: readonly DialPoolEntry[];
     readonly cap?: number;
-    /** How many recents may take rows before the pool backfills the rest. */
     readonly recentCap?: number;
     readonly includePool?: boolean;
 }): DialStripComposition {
@@ -133,10 +75,6 @@ export function composeDialStrip(options: {
     let recentRows = 0;
     for (const pair of [...options.recents].reverse()) {
         if (recentRows >= recentCap) break;
-        // Recents dedupe on the model rather than the pair: one model turned
-        // through three efforts is one model, and each row carries the whole
-        // effort scale anyway. Keying on the pair would spend the recent rows
-        // on a single model and leave nothing for the pool to backfill into.
         const key = modelKey(pair);
         if (seen.has(key)) continue;
         seen.add(key);
@@ -170,12 +108,10 @@ export function composeDialStrip(options: {
     };
 }
 
-/** One model, whatever effort it is turned to. */
 export function modelKey(pair: DialPair): string {
     return `${pair.provider ?? ""}/${pair.model}`;
 }
 
-/** Absent effort is its own value: a model with no dial has exactly one pair. */
 export function pairKey(pair: DialPair): string {
     return `${pair.provider ?? ""}/${pair.model}/${pair.effort ?? ""}`;
 }
@@ -190,10 +126,6 @@ function findEntry(
     );
 }
 
-/**
- * Where each ladder level sits on the faster-to-smarter axis, used only to
- * check that a list arrived the way its contract promises.
- */
 const EFFORT_RANK: Readonly<Record<string, number>> = {
     off: 0,
     none: 0,
@@ -205,23 +137,6 @@ const EFFORT_RANK: Readonly<Record<string, number>> = {
     max: 6,
 };
 
-/**
- * The model's levels, faster first, which is the direction the track is
- * labelled in.
- *
- * Every level named: rank them, which repairs any order they arrive in.
- *
- * Otherwise the names cannot decide it, and `CatalogModel.levels` already
- * requires strongest first of every producer, so reversing that is the answer.
- * The rank check then acts as a guard rather than as the ordering: if the
- * levels that can be ranked come out running the wrong way, a producer broke
- * the contract and the list is flipped back. This keeps the axis honest
- * without knowing what an unrecognised level means, and leaves such a level
- * beside the neighbours the provider gave it, which is the only claim anyone
- * has made about where it belongs. Fewer than two rankable levels, or
- * rankable levels that do not run cleanly one way, say nothing, so the list
- * stands.
- */
 function orderEfforts(levels: readonly string[]): readonly string[] {
     if (levels.every((level) => EFFORT_RANK[level] !== undefined)) {
         return [...levels].sort((a, b) =>
@@ -256,10 +171,6 @@ function slotFor(
     catalog: readonly DialPoolEntry[] = [],
 ): DialSlot {
     const entry = findEntry(pair, pool);
-    // A ready entry answers on its own, empty list included: that is the pool
-    // saying this model has no reasoning control. Only when no ready entry
-    // exists does the catalog answer, which is the case for a model reached
-    // by name that the pool never admitted.
     const ready = entry !== undefined && entry.available !== false;
     const facts = ready ? entry : findEntry(pair, catalog);
     return {
@@ -281,16 +192,7 @@ export interface DialStripState {
     readonly slots: readonly DialSlot[];
     readonly overflow: number;
     readonly index: number;
-    /**
-     * The effort chosen on the highlighted row but not committed.
-     *
-     * Held for the highlighted row alone: moving sideways discards it, because
-     * an edit that followed you along the strip would be a second, invisible
-     * dial. Moving away discards the pending edit.
-     */
-    /** `null` means the explicit provider-default choice; absent means unedited. */
     readonly editedEffort?: string | null;
-    /** The pair the strip opened with, which is what escape puts back. */
     readonly opened?: DialPair;
     readonly lane: DialLane;
     readonly agents: readonly string[];
@@ -325,8 +227,6 @@ export function openDialStrip(
         slots: composition.slots,
         overflow: composition.overflow,
         index: 0,
-        // The top rung, so tab walks down the HUD from where the eye starts
-        // rather than entering the stack partway and wrapping.
         lane: "effort",
         agents,
         agentIndex: Math.max(0, agents.indexOf(options.currentAgent ?? "")),
@@ -345,9 +245,6 @@ export function openDialStrip(
     };
 }
 
-// Ordered the way the rungs are stacked on screen, so tab walks down the HUD
-// rather than jumping around it.
-/** The rungs of the HUD, one of which holds the focus. */
 export type DialLane = "model" | "effort" | "agent" | "access";
 
 const DIAL_LANES = ["effort", "access", "model", "agent"] as const;
@@ -415,7 +312,6 @@ function moveChoice(
     };
 }
 
-/** Move the model highlight as a cycle. */
 export function moveDialStrip(
     state: DialStripState,
     delta: number,
@@ -426,7 +322,6 @@ export function moveDialStrip(
     return { ...rest, index: next };
 }
 
-/** Jump to a position by number, 1-based. Out of range does nothing. */
 export function jumpDialStrip(
     state: DialStripState,
     position: number,
@@ -435,12 +330,6 @@ export function jumpDialStrip(
     return moveDialStrip(state, position - 1 - state.index);
 }
 
-/**
- * Move the effort on the highlighted row, by ordinal, without wrapping.
- *
- * A row whose model publishes no levels is a no-op rather than an error: the
- * pair is the model, and there is no dial to turn.
- */
 export function adjustDialEffort(
     state: DialStripState,
     delta: number,
@@ -458,7 +347,6 @@ export function adjustDialEffort(
     return { ...state, editedEffort: next ?? null };
 }
 
-/** The pair Enter would commit, or nothing when the row cannot be taken. */
 export function dialStripSelection(
     state: DialStripState,
 ): DialPair | undefined {
@@ -476,20 +364,12 @@ export function dialStripSelection(
     };
 }
 
-/** Whether left/right has changed the highlighted model's pending effort. */
 export function dialEffortPending(state: DialStripState): boolean {
     if (state.editedEffort === undefined) return false;
     const applied = state.slots[state.index]?.pair?.effort;
     return (state.editedEffort ?? undefined) !== applied;
 }
 
-/**
- * The strip as one line, plus the line under it that names the keys.
- *
- * The hints are text the caller passes in, not chords written here: a user who
- * moved `dials.effort.up` must see their own chord, and the merged keymap is
- * the only thing that knows what it is.
- */
 export function renderDialStrip(
     state: DialStripState,
     hints: string,
@@ -498,15 +378,11 @@ export function renderDialStrip(
 ): readonly string[] {
     const cells = state.slots.map((slot, index) => {
         const label = slot.label;
-        // Filled for the pair in use, hollow for one merely shortlisted, and a
-        // return arrow for one used earlier this session.
         const source = slot.source === "current"
             ? "●"
             : slot.source === "recent"
                     ? "↺"
                     : "○";
-        // The marker stays outside the brackets: it says where the row came
-        // from, which is true whether or not the row is the highlighted one.
         const choice = `${source} ${index + 1} ${label}`;
         const provider = slot.pair?.provider;
         return provider === undefined
@@ -625,12 +501,6 @@ export function renderDialStrip(
     ];
 }
 
-/**
- * A small visual explanation of the effort axis. It is deliberately omitted
- * when the terminal is narrow: the ordinary effort row remains the compact
- * fallback, rather than letting decoration crowd out the agent and access
- * lanes.
- */
 export function renderEffortScale(
     efforts: readonly string[],
     selected: string | undefined,
@@ -643,11 +513,7 @@ export function renderEffortScale(
     if (choices.length < 2 || !Number.isFinite(width) || width < 56) {
         return [];
     }
-    // Wide enough that the lane name and the default chip both sit to the left
-    // of the track, with the axis labels above still aligned to its start.
     const indent = defaultCell === undefined ? DIAL_CHOICE_COLUMN : 30;
-    // Keep the scale a compact HUD element; it should explain the axis without
-    // stretching a short control panel across the whole terminal.
     const trackWidth = Math.min(36, Math.max(20, width - indent - 2));
     const labelGap = Math.max(1, trackWidth - "Faster".length - "Smarter".length);
     const labels = `${" ".repeat(indent)}Faster${" ".repeat(labelGap)}Smarter`;
@@ -667,8 +533,6 @@ export function renderEffortScale(
     let nextStart = 0;
     choices.forEach((choice, index) => {
         const position = Math.round(index * (trackLength - 1) / (choices.length - 1));
-        // The marker above is the selection cue; leaving the labels unbracketed
-        // keeps the short scale legible when default and low are adjacent.
         const label = choice;
         const start = Math.max(
             nextStart,
@@ -680,11 +544,6 @@ export function renderEffortScale(
         }
         nextStart = start + label.length + 1;
     });
-    // The chip sits in the gutter, joined to the track by a dotted lead-in. The
-    // dots say it belongs to this control while the solid line does not reach
-    // it: choosing default is not a point on the Faster/Smarter axis.
-    // Padded to the same width every other rung uses, so the chip starts in
-    // the column the access and agent choices start in.
     const laneLabel = `${active ? "›" : " "} EFFORT`.padEnd(
         DIAL_CHOICE_COLUMN - 1,
     );
@@ -697,18 +556,12 @@ export function renderEffortScale(
         : `${laneLabel}${DIAL_DEFAULT_SEPARATOR}${defaultCell}${
             DIAL_DEFAULT_SEPARATOR
         } ${"·".repeat(dots)} `;
-    // The chip says the model chooses; the note under it says what it chose.
     const note = defaultCell === undefined || defaultEffort === undefined
         ? ""
         : `(${defaultEffort})`;
-    // Default sits off the track, so its selection marker sits under the chip
-    // rather than on the line, in the same place the track labels sit under
-    // their own marker.
     const chipMarker = defaultCell !== undefined && selected === undefined
         ? "\u25b2"
         : "";
-    // One past the label so the mark sits under the chip's text and not under
-    // the pick-mark column that opens it.
     const noteLead = laneLabel.length + 1;
     const gutterMarks = [chipMarker, note].filter((part) => part !== "");
     const gutterText = gutterMarks.join(" ");
@@ -774,8 +627,6 @@ function renderExpandedModelLane(
             cell.split(DIAL_PROVIDER_SEPARATOR)[1]?.length ?? 0
         ),
     );
-    // Measured without the leading source marker, which sits before the pick
-    // mark and so is not part of the name column.
     const widestChoice = Math.max(
         0,
         ...cells.map((cell) =>
@@ -791,16 +642,11 @@ function renderExpandedModelLane(
     const modelRow = (cell: string, rowIndex: number, right = "") => {
         const [choice = "", provider] = cell.split(DIAL_PROVIDER_SEPARATOR);
         const compact = leftWidth < 42;
-        // The source marker sits in the two columns before the choice column, so
-        // the pick mark lands where the access and agent pick marks land.
         const indent = rowIndex === 0
             ? compact
                 ? `${active ? "›" : " "} `
                 : `${active ? "›" : " "} MODEL`.padEnd(12)
             : " ".repeat(compact ? 2 : 12);
-        // The pick mark leads the row, so the name and its provider stay on the
-        // same columns whether or not the dial is sitting on them. Unpicked
-        // rows spend the same column on a space.
         const picked = start + rowIndex === selected;
         const marker = choice.slice(0, 1);
         const name = choice.slice(2);
@@ -849,24 +695,13 @@ function renderExpandedModelLane(
     ];
 }
 
-/**
- * The mark on the choice a rung is currently set to. It leads the cell instead
- * of enclosing it, so an unpicked cell spends the same column on a space and
- * the rung's choices stay on fixed columns as the dial moves.
- */
 export const DIAL_PICK_MARKER = "\u203a";
 
 function dialChoiceCell(label: string, picked: boolean): string {
     return `${picked ? DIAL_PICK_MARKER : " "}${label}`;
 }
 
-/**
- * The column every rung's first choice starts in. The model rung spends the
- * four columns before it on its source marker and pick mark, so the other
- * rungs pad their labels out to the same place.
- */
 const DIAL_CHOICE_COLUMN = 16;
-/** The same column once the labels are dropped on a narrow terminal. */
 const DIAL_CHOICE_COLUMN_COMPACT = 6;
 
 function renderDialLane(
@@ -877,10 +712,6 @@ function renderDialLane(
     width: number,
     hiddenAfter = false,
 ): string {
-    // Keep the controls on a shared label gutter, then let choices remain
-    // compact; fixed-width choices become excessively airy on wide terminals.
-    // Every cell opens with its own pick-mark column, so the label gutter is one
-    // column shorter than the column the choices themselves start in.
     const prefix = Number.isFinite(width) && width < 42
         ? `${active ? "›" : " "} `.padEnd(DIAL_CHOICE_COLUMN_COMPACT - 1)
         : `${active ? "›" : " "} ${
@@ -923,12 +754,6 @@ function cycleIndex(index: number, delta: number, length: number): number {
     return (index + delta % length + length) % length;
 }
 
-/**
- * What a keypress means to the open strip.
- *
- * The HUD is modal: Enter applies and Escape cancels. Printable keys never
- * leak into the composer while it is open; h/j/k/l mirror the arrow keys.
- */
 export type DialStripAction =
     | { readonly kind: "state"; readonly state: DialStripState }
     | {
@@ -950,7 +775,6 @@ export interface DialStripKey {
 export function handleDialStripKey(
     state: DialStripState,
     key: DialStripKey,
-    /** What the merged keymap says this chord means in the `dials` scope. */
     bindingId: string | undefined,
 ): DialStripAction {
     if (key.name === "escape" || key.name === "esc") {
@@ -991,11 +815,6 @@ export function handleDialStripKey(
             return { kind: "state", state: moveChoice(state, -1) };
         case "dials.pair.next":
             return { kind: "state", state: moveChoice(state, 1) };
-        // Inside the model lane, up/down walks its own list, the way left/
-        // right walks the current lane's own choices everywhere else. On
-        // every other lane there is no vertical list to walk, so up/down
-        // does what tab does instead: move to the next rung. Tab still
-        // works everywhere, including out of the model lane's list.
         case "dials.effort.up":
             return {
                 kind: "state",

@@ -1,6 +1,5 @@
 import type { ProviderFailure } from "./provider-failure.ts";
 
-/** The request parameter a provider refused. */
 export type CapabilityParameter =
     | "reasoning_effort"
     | "thinking"
@@ -9,15 +8,9 @@ export type CapabilityParameter =
 
 export interface CapabilityRejection {
     readonly parameter: CapabilityParameter;
-    /** The provider's own wording, kept for the learned record. */
     readonly message: string;
 }
 
-/**
- * Failure kinds that can never be a capability rejection. A retry of the same
- * request would fix these, so treating one as evidence about the model would
- * record a fact that is not true.
- */
 const NON_CAPABILITY_KINDS: ReadonlySet<ProviderFailure["kind"]> = new Set([
     "connection",
     "timeout",
@@ -29,12 +22,6 @@ const NON_CAPABILITY_KINDS: ReadonlySet<ProviderFailure["kind"]> = new Set([
     "request_too_large",
 ]);
 
-/**
- * Status codes a capability rejection arrives on. 400 and 422 are the usual
- * ones. 404 is included only for the tool-support case, where OpenRouter
- * answers "no endpoints found that support tool use" rather than a 400; the
- * text match below is what keeps a plain missing-model 404 out.
- */
 const CAPABILITY_STATUS_CODES: ReadonlySet<number> = new Set([400, 404, 422]);
 
 const REJECTION_PHRASE =
@@ -45,11 +32,6 @@ interface ParameterPattern {
     readonly pattern: RegExp;
 }
 
-/**
- * Ordered because provider text often names more than one thing. Thinking is
- * checked before effort so an Ollama "does not support thinking" is recorded
- * against the capability the daemon actually named.
- */
 const PARAMETER_PATTERNS: readonly ParameterPattern[] = [
     {
         parameter: "thinking",
@@ -70,16 +52,6 @@ const PARAMETER_PATTERNS: readonly ParameterPattern[] = [
     },
 ];
 
-/**
- * Decides whether a provider failure is the provider refusing a capability
- * parameter, rather than a rate limit or a transport problem.
- *
- * Returning a rejection is what licences coarsening and a learned record, so
- * the test is deliberately narrow: a non-retryable failure, on a status code
- * providers use for parameter refusals, whose text both names a capability and
- * says it was refused. Anything else returns undefined and the request follows
- * the ordinary retry path.
- */
 export function classifyCapabilityRejection(
     failure: ProviderFailure,
 ): CapabilityRejection | undefined {
@@ -108,7 +80,6 @@ export function classifyCapabilityRejection(
     if (matched === undefined) {
         return undefined;
     }
-    // A 404 that never names tool support is a missing model, not a refusal.
     if (failure.statusCode === 404 && matched.parameter !== "tools") {
         return undefined;
     }

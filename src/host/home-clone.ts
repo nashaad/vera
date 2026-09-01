@@ -27,10 +27,6 @@ export interface ClonedVeraHome {
     readonly databases: readonly string[];
 }
 
-/**
- * A short instance root so the candidate socket stays under the unix-path
- * ceiling even when the worktree path is long.
- */
 export function hashedInstanceRoot(
     identity: string,
     temporaryRoot = join(tmpdir(), "vera-dev"),
@@ -39,10 +35,6 @@ export function hashedInstanceRoot(
     return join(temporaryRoot, hash);
 }
 
-/**
- * Copy one Vera home into a private destination, then strip live process
- * identity so the clone cannot attach to the daily host.
- */
 export async function cloneVeraHome(
     options: CloneVeraHomeOptions,
 ): Promise<ClonedVeraHome> {

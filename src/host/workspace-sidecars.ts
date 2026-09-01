@@ -31,11 +31,6 @@ interface WorkspaceSidecarLease {
     readonly sidecars: SidecarRuntime | null;
 }
 
-/**
- * One sidecar runtime per workspace, shared by every live session in that
- * checkout. The host does not own a project list; sessions acquire and
- * release a workspace key.
- */
 export function createWorkspaceSidecarSupervisor(
     options: WorkspaceSidecarSupervisorOptions,
 ): WorkspaceSidecarSupervisor {

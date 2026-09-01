@@ -2,95 +2,42 @@ import type { VeraClientSession } from "../../src/sdk/extensions.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 import { tuiBrailleSpinner } from "./activity-pulse.ts";
 
-/**
- * The workspace list, described rather than drawn.
- *
- * `sidebar` in this client means the pair agent, so the left column is named
- * `workspace` throughout. This module takes session facts and returns rows;
- * it holds no state, keeps nothing between calls, and reads nothing beyond the
- * sessions it is handed.
- */
-
 export type WorkspacePanelWidth = "wide" | "medium" | "narrow";
 
-/**
- * Column budget, on the dashboard's breakpoints so the two surfaces change
- * shape at the same terminal widths.
- *
- * `narrow` does not mean a narrower column. It means there is no column: the
- * same rows are presented as a centred dialog.
- */
 export function workspacePanelWidth(columns: number): WorkspacePanelWidth {
     if (columns >= 110) return "wide";
     return columns >= 74 ? "medium" : "narrow";
 }
 
-/** Content columns each width gives a row, before markers. */
 const CONTENT_COLUMNS: Record<WorkspacePanelWidth, number> = {
     wide: 34,
     medium: 24,
     narrow: 46,
 };
 
-/** One status glyph and the space between it and the title. */
 const ROW_PREFIX_COLUMNS = 2;
 
-/**
- * Columns the longest row takes at this width, markers included.
- *
- * A surface that draws the listing in a column of its own can size that column
- * without laying the rows out first.
- */
 export function workspaceRowColumns(width: WorkspacePanelWidth): number {
     return CONTENT_COLUMNS[width] + ROW_PREFIX_COLUMNS;
 }
 
-/** The dormant group pinned sessions collect under when pinning returns. */
 export const PINNED_GROUP = "PINNED";
-/**
- * Pinning is deliberately dormant during the state-grouped rail trial.
- *
- * Keep the pin state, toggle, persistence, and grouping branch intact: pins
- * return later once their relationship to attention-state groups is settled.
- */
 export const WORKSPACE_PINS_ENABLED = false;
 export const NEEDS_YOU_GROUP = "NEEDS YOU";
 export const WORKING_GROUP = "WORKING";
 export const IDLE_GROUP = "IDLE";
-/** Session files with no worker, newest first. */
 export const RECENT_GROUP = "RECENT";
 
-/** Shown in a title's place when a session has no title. The id never is. */
 export const UNTITLED_SESSION = "untitled";
 
-/**
- * Column one, as text. Colour may ride on top of it and may never replace it:
- * waiting, working, completed, and idle have to survive a monochrome render.
- * Every row gets a visible glyph so none reserve an empty left rail.
- */
 export type WorkspaceRowMarker = string;
 
 export type WorkspaceSessionStatus = VeraClientSession["status"];
 
-/**
- * A listed session, as this view needs it.
- *
- * `VeraClientSession` plus the one fact that separates a durable session from
- * an ephemeral one. The host knows it (`RegisteredAgentEntry.ephemeral`) and
- * neither `RegisteredAgentSummary` nor the extension projection carries it
- * yet, so the field is optional and an absent one means durable.
- */
 export interface WorkspaceSession extends VeraClientSession {
     readonly ephemeral?: boolean;
 }
 
-/**
- * Waiting and any other needs-you state. Working spins. A live session whose
- * turn landed in the last ten minutes is a tick, whether the roster says
- * completed or idle, so looking at it does not blank the mark. A file view is
- * never ticked, even when the work index still calls it completed. Older live
- * idle returns to the idle dot; closed files use the recent middle dot.
- */
 export const WORKSPACE_WAITING_MARKER = "!";
 export const WORKSPACE_COMPLETED_MARKER = "✓";
 export const WORKSPACE_IDLE_MARKER = ".";
@@ -131,7 +78,6 @@ function recentlyFinished(
 
 export interface WorkspaceGroupRow {
     readonly kind: "group";
-    /** The workspace path, or `background` for the background group. */
     readonly group: string;
     readonly sessions: number;
     readonly text: string;
@@ -139,23 +85,15 @@ export interface WorkspaceGroupRow {
 
 export interface WorkspaceSessionRow {
     readonly kind: "session";
-    /**
-     * The session id. Selection is held by id rather than by index, so a
-     * refresh that reorders the listing leaves the selection on the same
-     * session.
-     */
     readonly id: string;
     readonly group: string;
-    /** A running session, whichever group holds it; digits address these. */
     readonly active: boolean;
     readonly status: WorkspaceSessionStatus;
     readonly marker: WorkspaceRowMarker;
     readonly title: string;
-    /** Empty on the widths that do not show an age. */
     readonly age: string;
     readonly selected: boolean;
     readonly text: string;
-    /** Right-side metadata: workspace when needed, or age for history. */
     readonly detail: string;
 }
 
@@ -164,9 +102,7 @@ export type WorkspaceRow = WorkspaceGroupRow | WorkspaceSessionRow;
 export interface WorkspacePanelLayout {
     readonly width: WorkspacePanelWidth;
     readonly rows: readonly WorkspaceRow[];
-    /** Session ids in listing order. Group headers are never selectable. */
     readonly selectable: readonly string[];
-    /** Absent when nothing is selectable. */
     readonly selectedId?: string;
 }
 
@@ -174,63 +110,25 @@ export interface WorkspacePanelInput {
     readonly sessions: readonly WorkspaceSession[];
     readonly columns: number;
     readonly now: Date;
-    /** Override the row's content budget for a user-resized rail. */
     readonly contentColumns?: number;
-    /** Override the breakpoint's age policy for a user-resized rail. */
     readonly showAge?: boolean;
-    /** Kept when it still names a listed session, replaced when it does not. */
     readonly selectedId?: string;
-    /** Session ids the reader pinned. Client state; never sent anywhere. */
     readonly pinnedIds?: readonly string[];
-    /**
-     * The listing order the selection was last made against.
-     *
-     * When the selected session leaves the listing, selection lands on its
-     * nearest surviving neighbour in this order rather than at the top.
-     */
     readonly previousSelectable?: readonly string[];
-    /**
-     * The session whose transcript is on screen. The cursor can sit on another
-     * row without switching; this is the membership key, not a title wrap.
-     */
     readonly currentId?: string;
-    /** Advances the working spinner. Ignored for every other status. */
     readonly animationFrame?: number;
-    /**
-     * Which sessions have a worker up. Defaults to the session's own `live`,
-     * status, and named worker; the sidebar passes its wider test.
-     */
     readonly isActive?: (session: WorkspaceSession) => boolean;
 }
 
-/**
- * Whether a session is one a person can switch to.
- *
- * A durable session is an ordinary one and belongs in the list. An ephemeral
- * session keeps its transcript in a temporary directory that is removed when
- * the pane closes, so it is derived from the conversation already on screen
- * and has no life of its own to switch to.
- *
- * The test is what the session is, never a flag the caller chose to pass. A
- * session that does not say it is ephemeral is listed.
- */
 export function isSwitchableSession(session: WorkspaceSession): boolean {
     return session.ephemeral !== true;
 }
 
-/** A named worker is still an attach, even if `live` flickered off. */
 function namedWorker(session: WorkspaceSession): boolean {
     return "workerPid" in session
         && typeof (session as { workerPid?: number }).workerPid === "number";
 }
 
-/**
- * Groups, orders, marks, and truncates the listing in one pass.
- *
- * Runs on every pushed status transition, so it does the work proportional to
- * the sessions it is handed and keeps nothing derived from a session that is
- * not selected.
- */
 export function layoutWorkspacePanel(
     input: WorkspacePanelInput,
 ): WorkspacePanelLayout {
@@ -277,14 +175,6 @@ export function layoutWorkspacePanel(
     };
 }
 
-/**
- * The session `steps` rows away from the current one, counting only sessions.
- *
- * Group headers are skipped rather than landed on, so moving down off the last
- * session of a group lands on the first session of the next one. The ends do
- * not wrap: a list that wraps loses the reader's place when a refresh reorders
- * it.
- */
 export function moveWorkspaceSelection(
     layout: WorkspacePanelLayout,
     steps: number,
@@ -311,7 +201,6 @@ function defaultActive(session: WorkspaceSession): boolean {
         || namedWorker(session);
 }
 
-/** A failed row needs the user only where the failure can still be acted on. */
 function actionableFailure(
     session: WorkspaceSession,
     isActive: (session: WorkspaceSession) => boolean,
@@ -321,11 +210,6 @@ function actionableFailure(
         && isActive(session);
 }
 
-/**
- * Sessions split by attention state, never by workspace. Each group is most
- * recent first. The dormant pin branch stays here so restoring pins does not
- * require reconstructing their ordering behavior.
- */
 function groupSessions(
     sessions: readonly WorkspaceSession[],
     pinned: ReadonlySet<string>,
@@ -363,7 +247,6 @@ function groupSessions(
     return groups;
 }
 
-/** Most recent first, falling back to the id so the order is total. */
 function byRecency(left: WorkspaceSession, right: WorkspaceSession): number {
     const difference = timestamp(right.updatedAt) - timestamp(left.updatedAt);
     return difference === 0 ? left.id.localeCompare(right.id) : difference;
@@ -374,13 +257,6 @@ function timestamp(value: string | undefined): number {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/**
- * The session the selection lands on for this listing.
- *
- * A listing with nothing in it hands the selection back untouched: a roster
- * that arrives empty for one frame is a listing that has not loaded, not a
- * session that has gone away.
- */
 function resolveSelection(
     selectable: readonly string[],
     selectedId: string | undefined,
@@ -394,10 +270,6 @@ function resolveSelection(
         ?? selectable[0];
 }
 
-/**
- * The listed session closest to where the lost one sat, searching outward from
- * its old position and preferring the row below it.
- */
 function nearestSurvivor(
     selectable: readonly string[],
     selectedId: string | undefined,
@@ -476,11 +348,6 @@ function sessionRow(
     };
 }
 
-/**
- * The path a listing groups by. A git worktree under `.worktrees/` belongs
- * with its parent checkout, so a session started from `vera/.worktrees/aside`
- * does not get its own `aside` heading.
- */
 export function workspaceGroupPath(workspace: string): string {
     const marker = "/.worktrees/";
     const at = workspace.indexOf(marker);

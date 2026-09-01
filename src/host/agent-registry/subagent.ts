@@ -1,4 +1,3 @@
-// Lifted subagent methods from AgentRegistry. Callers keep registry.foo().
 import { randomUUID } from "node:crypto";
 import type { VeraExtensionConfig } from "../../config.ts";
 import { AsyncQueue } from "../../engine/async-queue.ts";
@@ -19,12 +18,6 @@ import { startWorker } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
-/**
-     * How this session's worker would build its adapter, or nothing.
-     *
-     * A spec is the default. Nothing means the turn runs in this process,
-     * which happens when the owner cannot rebuild the adapter from JSON.
-     */
 export function workerAdapterSpecFor(reg: AgentRegistry, store: SessionStore, entry: RegisteredAgentEntry): WorkerAdapterSpec | undefined {
         if (reg.options.workerAdapterSpec === undefined) {
             return undefined;
@@ -36,20 +29,6 @@ export function workerAdapterSpecFor(reg: AgentRegistry, store: SessionStore, en
         });
     }
 
-/**
-     * Runs the turn loop in a separate process, and reports how it stopped.
-     *
-     * The client channel is pumped in both directions here rather than by the
-     * loop, and every durable service stays on this side. A `kill -9` on the
-     * worker therefore lands on `handle.outcome` as one typed value, and the
-     * session file it was writing through is already complete on disk.
-     */
-    /**
-     * The extensions a worker should load for itself, or nothing.
-     *
-     * Nothing is the default: the tools stay in this process and the worker
-     * reaches them over the boundary.
-     */
 export function workerExtensions(reg: AgentRegistry, workspace: string): readonly VeraExtensionConfig[] | undefined {
         if ((process.env[WORKER_EXTENSIONS_ENV] ?? "") !== "1") {
             return undefined;
@@ -59,12 +38,6 @@ export function workerExtensions(reg: AgentRegistry, workspace: string): readonl
         return configured.length === 0 ? undefined : configured;
     }
 
-/**
-     * Sends this session's worker the owner state as it now stands.
-     *
-     * A no-op for a session whose loop runs in this process, which reads the
-     * same values directly.
-     */
 export function pushWorkerState(reg: AgentRegistry, id: string): void {
         const entry = reg.agents.get(id);
         const worker = entry?.worker;
@@ -72,12 +45,10 @@ export function pushWorkerState(reg: AgentRegistry, id: string): void {
         worker.pushState(loopStateOf(entry.loopServices));
     }
 
-/** Sends every running worker the owner state as it now stands. */
 export function pushWorkerStateEverywhere(reg: AgentRegistry): void {
         for (const id of reg.agents.keys()) reg.pushWorkerState(id);
     }
 
-/** Sessions whose loop currently runs in a separate process. */
 export function liveWorkerCount(reg: AgentRegistry): number {
         let count = 0;
         for (const entry of reg.agents.values()) {
@@ -125,8 +96,6 @@ export async function runInWorker(reg: AgentRegistry, options: {
                 ? {}
                 : {
                     extensionTools: options.extensionTools,
-                    // An extension tool runs on this side, against a runtime
-                    // built from the same workspace the loop was given.
                     toolRuntime: new ToolRuntime(
                         store.header.cwd,
                         undefined,
@@ -162,10 +131,6 @@ export async function runInWorker(reg: AgentRegistry, options: {
         options.entry.worker = handle;
         store.watchRecords(handle.server.pushRecord);
         const pumping = new AbortController();
-        // Closing the agent stops its command channel, and a worker with no
-        // channel left has nothing to run. The process is ended the same way
-        // any other worker ends, so the outcome below is expected, not a
-        // failure to report on a session that already stopped.
         let stopping = false;
         const ownerCommands = new AsyncQueue<EngineCommand>();
         options.entry.workerOwnerRouter = new InboundCommandRouter(
@@ -286,7 +251,6 @@ export function requestMissingSubagentConfiguration(reg: AgentRegistry, entry: R
         return result;
     }
 
-/** One event-loop turn admits siblings; later arrivals queue behind it. */
 export function scheduleSubagentConfigurationBatch(reg: AgentRegistry, batch: PendingSubagentConfigurationBatch): void {
         const queue = reg.pendingSubagentConfigurations.get(batch.entryId);
         if (
@@ -363,9 +327,6 @@ export async function processMissingSubagentConfiguration(reg: AgentRegistry, ba
                 return;
             }
 
-            // The settings write and its owner-side refresh precede the response
-            // on one command stream. Push once more before answering a worker so
-            // its next policy read cannot observe the pre-dialog snapshot.
             reg.pushWorkerState(entry.agent.id);
             choices = active().map((action) =>
                 reg.resolveConfiguredSubagentLaunch(entry, action));
@@ -450,9 +411,6 @@ export function resolveConfiguredSubagentLaunch(reg: AgentRegistry, entry: Regis
             policy,
             action.request.agentDefault,
         );
-        // This one-time substitution is authorized by the confirmation that
-        // follows. A request made while policy already existed never enters
-        // this workflow and remains a loud out-of-policy refusal.
         if (
             !resolution.ok
             && resolution.reason === "not_permitted"
@@ -628,10 +586,6 @@ export async function spawnAsyncSubagent(reg: AgentRegistry, parentStore: Sessio
             child.close();
             throw new Error(`Async subagent ${child.id} was not registered`);
         }
-        // Tracked here rather than on every queued prompt: a completion
-        // belongs to the parent only for work the parent asked for. A client
-        // attaching to the child and prompting it is a conversation the user
-        // is already reading, not an assignment to report back on.
         try {
             child.sendPrompt(effect.description);
         } catch (error) {
@@ -847,10 +801,6 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
                         entry.pendingAsyncTurns - 1,
                     );
                     if (entry.pendingAsyncTurns === 0) {
-                        // Mark the completion write pending at the same boundary
-                        // that ends this assignment. A later prompt becomes a
-                        // new assignment, while parent trash remains blocked
-                        // until this result has been saved.
                         entry.pendingCompletionDeliveries += 1;
                         break;
                     }
@@ -869,7 +819,6 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
                 content = summary;
             }
         } catch {
-            // The durable failure delivery below is safer than exposing host internals.
         } finally {
             attachment.detach();
         }
@@ -881,9 +830,6 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
             childEntry.pendingCompletionDeliveries = 0;
             return;
         }
-        // A substitution the parent cannot see is a silent success on the
-        // wrong model, so it rides the completion the parent actually reads,
-        // not only the spawn call it made turns ago.
         const substitution = reg.spawnNotices.get(childId);
         if (substitution !== undefined) {
             content = `${substitution}\n\n${content}`;
@@ -938,7 +884,6 @@ export async function relayChildToolApproval(_reg: AgentRegistry, parent: Regist
         return result?.behavior === "allow" ? "allow_once" : "deny";
     }
 
-/** Keeps shutdown waiting on a delivery that is mid-flight. */
 export function trackDelivery(reg: AgentRegistry, task: Promise<void>): void {
         reg.deliveryTasks.add(task);
         void task.then(() => reg.deliveryTasks.delete(task));

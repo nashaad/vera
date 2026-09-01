@@ -311,7 +311,6 @@ export function createTuiTimelinePickerView(
     return view;
 }
 
-/** Apply text already edited by the native timeline search field. */
 export function updateTuiTimelineSearch(
     state: TuiTimelinePickerState,
     query: string,
@@ -328,11 +327,6 @@ export function updateTuiTimelineSearch(
         });
 }
 
-// The rewind flow is several screens: a searchable boundary list, an action
-// menu, and a set of informational panels (loading/previewing/confirm/
-// applying). The list and action screens render as highlight-bar rows; the
-// informational screens are plain body text. Every screen shares the same
-// unbordered card header so the flow reads as one dialog.
 function timelineNodes(
     renderer: RenderContext,
     state: TuiTimelinePickerState,

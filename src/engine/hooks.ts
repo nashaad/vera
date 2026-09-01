@@ -192,11 +192,6 @@ function applyPreTurnMutate(
     };
 }
 
-/**
- * A named subset keeps only tools this turn already offered. An empty list
- * is an explicit "none". Names that were never offered are dropped; if that
- * leaves nothing from a non-empty request, the offer is unchanged.
- */
 export function restrictOfferedToolNames(
     offered: readonly string[],
     requested: readonly string[],

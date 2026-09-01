@@ -34,14 +34,10 @@ export interface TuiTheme {
     readonly notice: string;
     readonly danger: string;
     readonly success: string;
-    /** Irreversible or unsandboxed action that must stay louder than danger. */
     readonly critical: string;
-    /** Alternate semantic value, such as read-only access. */
     readonly secondary: string;
-    /** Active pane or navigation boundary. */
     readonly focus: string;
     readonly inactive: string;
-    /** Vera's branded motion trail, separate from success. */
     readonly activityTrail: string;
     readonly dangerSurface: string;
     readonly diffAdded: string;
@@ -50,9 +46,7 @@ export interface TuiTheme {
     readonly background: string;
     readonly panel: string;
     readonly element: string;
-    /** Editing surface when it should be distinct from the desktop. */
     readonly input: string;
-    /** Transient completion/menu surface when it should float above the desktop. */
     readonly menu: string;
     readonly chrome: "plain" | "norton";
     readonly selectionText: string;
@@ -110,10 +104,6 @@ function catalogTheme(name: keyof typeof themeCatalog.themes): TuiTheme {
 
 export const VERA_TUI_THEME = catalogTheme("vera");
 
-// The four palette roles shown as a per-row swatch in the theme picker, so the
-// list is made of the themes it offers rather than a generic select dialog.
-// "system" is terminal-derived and unknown until applied, so it has no static
-// swatch; callers render a neutral placeholder for it.
 export function tuiThemeSwatch(name: TuiThemeName): readonly string[] | undefined {
     if (name === "system") {
         return undefined;
@@ -122,9 +112,7 @@ export function tuiThemeSwatch(name: TuiThemeName): readonly string[] | undefine
     return [theme.accent, theme.notice, theme.success, theme.text];
 }
 
-// Dark-mode role colors adapted from OpenCode's MIT-licensed themes.
-// Palette detection follows OpenCode's system-theme mechanism (MIT, © 2025
-// opencode): ask OpenTUI for the terminal palette and retain Vera's own roles.
+// Dark-mode role colors adapted from OpenCode's MIT-licensed themes. Palette detection follows OpenCode's system-theme mechanism (MIT, © 2025 opencode): ask OpenTUI for the.
 export async function resolveTuiTheme(
     renderer: Pick<CliRenderer, "getPalette">,
     name: TuiThemeName = "default",
@@ -157,8 +145,6 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
 
     return {
         accent: paletteColor(colors, 6, VERA_TUI_THEME.accent),
-        // Pulled off the terminal's foreground rather than taken raw: a white
-        // default is brighter than anything a transcript should be read in.
         text: mixHex(background, text, 0.85),
         muted: mixHex(background, text, 0.55),
         notice: paletteColor(colors, 3, VERA_TUI_THEME.notice),
@@ -183,33 +169,19 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
     };
 }
 
-/**
- * A ground that sits under the conversation rather than on top of it, for a
- * region that is beside the transcript instead of part of it. Darker than the
- * background, because a lighter panel reads as a card in front.
- */
 export function tuiRecessColor(theme: TuiTheme): string {
     return mixHex(theme.background, "#000000", 0.45);
 }
 
-/**
- * The grab strip between transcript and sidebar. Lighter than either side,
- * because the only thing it has to say is that it can be moved.
- */
 export function tuiHandleColor(theme: TuiTheme): string {
     return mixHex(theme.background, theme.text, 0.07);
 }
 
-/** The strip while it is held. */
 export function tuiHandleActiveColor(theme: TuiTheme): string {
     return mixHex(theme.background, theme.text, 0.30);
 }
 
-/**
- * Quiet semantic grounds for unified diff rows. Keep these derived from the
- * active background so they stay subordinate to syntax highlighting across
- * Vera's dark themes instead of using OpenTUI's much brighter defaults.
- */
+/** Quiet semantic grounds for unified diff rows. Keep these derived from the active background so they stay subordinate to syntax highlighting across Vera's dark themes instead. */
 export function tuiDiffBackgroundColors(
     background: string,
     added: string,
@@ -232,7 +204,6 @@ function paletteColor(
     return colors.palette[index] ?? fallback;
 }
 
-/** Blends `overlay` toward `base` by `amount`, 0 being all base. */
 export function mixHex(
     base: string,
     overlay: string,

@@ -1,16 +1,7 @@
 import type { WorkRow } from "../../src/host/work-index.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 
-/**
- * The jump menu's presentation model, with no OpenTUI in it.
- *
- * The menu lists only the places there are to go from the current session:
- * the session the user jumped here from, sessions waiting on the user, and
- * the current session's parent and children. Facts come from the host (the
- * work index and the agent listing); the selection and the way back are
- * client state, so a GUI renders the same rows as a popover with its own
- * back affordance.
- */
+/** The jump menu's presentation model, with no OpenTUI in it. The menu lists only the places there are to go from the current session: the session the user jumped here from. */
 
 export interface JumpOrigin {
     readonly sessionId: string;
@@ -24,9 +15,7 @@ export interface JumpRow {
     readonly kind: JumpRowKind;
     readonly sessionId: string;
     readonly sessionPath: string;
-    /** What the row wants or is, not just which session it names. */
     readonly label: string;
-    /** The session name, muted after the label when it adds anything. */
     readonly detail?: string;
 }
 
@@ -41,13 +30,6 @@ const REASON_LABELS: Readonly<Record<string, string>> = {
     failure: "failed",
 };
 
-/**
- * Every row the menu can offer right now, in the order they are shown: back
- * first (so open-then-enter is the whole return trip), then what needs the
- * user, then the current session's own tree. The current session never lists
- * itself, and a needs-you row for the back target keeps the needs-you label,
- * because why you would go matters more than how you got here.
- */
 export function buildJumpRows(input: {
     readonly currentId: string | undefined;
     readonly back: JumpOrigin | undefined;
@@ -166,12 +148,10 @@ const KIND_GROUPS: Readonly<Record<JumpRowKind, string>> = {
 export interface JumpMenuLine {
     readonly text: string;
     readonly role: "header" | "row";
-    /** Present on a row line: its index into the state's rows. */
     readonly rowIndex?: number;
     readonly selected?: boolean;
 }
 
-/** The menu as lines, group headers interleaved, ready to mount. */
 export function jumpMenuLines(
     state: JumpMenuState,
     width: number,

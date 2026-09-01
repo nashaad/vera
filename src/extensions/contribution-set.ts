@@ -17,7 +17,6 @@ export interface OwnedSidecarContribution {
     readonly id: string;
     readonly localId: string;
     readonly extensionId: string;
-    /** Realpath of the extension directory; relative cwd resolves here. */
     readonly extensionDirectory: string;
     readonly definition: SidecarContribution;
 }

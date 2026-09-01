@@ -159,12 +159,6 @@ export const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
 ];
 
-/**
- * The one-line description of a mode, in the same words the picker offers it in.
- * Shared rather than reworded so the `/permissions` notice and the picker it
- * opens cannot describe the same mode two different ways. Undefined for a custom
- * mode, which nobody wrote a description for.
- */
 export function tuiPermissionModeDescription(
     mode: string,
 ): string | undefined {
@@ -211,9 +205,6 @@ export function startTuiSettingsPicker(
             ? undefined
             : providerModelKey(currentProvider, currentModel)
         : currentPermissions;
-    // The pane opens on Pool whenever there is one: it is the short list the
-    // user built for exactly this moment. All only when the pool is empty,
-    // since an empty tab answers no question at all.
     const pooledOptions = modelTabRows(allOptions, "pool");
     const openingTab: TuiModelPickerTab = pooledOptions.length > 0
         ? "pool"
@@ -243,11 +234,6 @@ export function startTuiSettingsPicker(
     };
 }
 
-/**
- * A short list of files that actually exist, plus the profile config the
- * editor is allowed to create. The caller owns discovery so this picker stays
- * a pure projection of the filesystem snapshot it was handed.
- */
 export function startTuiConfigurePicker(
     files: readonly TuiConfigureFile[],
 ): TuiSettingsPickerState {
@@ -272,13 +258,6 @@ export function startTuiConfigurePicker(
     };
 }
 
-/**
- * Rebuilds an open model pane from a fresh settings snapshot, keeping the
- * user where they were. The highlighted model is restored by identity rather
- * than by index: adding or removing a pool row shifts every index below it,
- * so an index would move the cursor to a different model than the one the
- * user just acted on.
- */
 export function syncTuiModelPicker(
     state: TuiSettingsPickerState,
     settings: {
@@ -305,13 +284,9 @@ export function syncTuiModelPicker(
         undefined,
         settings?.pooled,
     );
-    // The tab is the user's own place in the pane, so a snapshot arriving from
-    // the host must not move them out of it. Adding a model from the Pool tab
-    // would otherwise drop them back onto All mid-action.
+    // The tab is the user's own place in the pane, so a snapshot arriving from the host must not move them out of it.
     const tab = state.tab ?? "all";
-    // Closed sections are the user's own place in the pane too, for the same
-    // reason the tab is: a snapshot arriving from the host must not reopen
-    // them under the user mid-action.
+    // Closed sections are the user's own place in the pane too, for the same reason the tab is: a snapshot arriving from the host must not reopen them under the user mid-action.
     const collapsed = state.collapsed ?? [];
     const actionOptions = settings?.actionOptions ?? state.actionOptions ?? [];
     const onTab = {
@@ -334,8 +309,6 @@ export function syncTuiModelPicker(
         ...(settings?.webdevArenaSnapshot === undefined
             ? {}
             : { webdevArenaSnapshot: settings.webdevArenaSnapshot }),
-        // Slot rows are read from config and the pool rather than from the
-        // host, so a rebuild has nothing to put back and has to carry them.
         ...(state.assignmentOptions === undefined
             ? {}
             : { assignmentOptions: state.assignmentOptions }),
@@ -362,9 +335,7 @@ export function syncTuiModelPicker(
         ...onTab,
         options,
         query: state.query,
-        // The pane it was opened from survives a snapshot. A rebuild is the host
-        // answering an edit made inside this pane, not a fresh way in, so
-        // adding a model must not turn escape into "close everything".
+        // The pane it was opened from survives a snapshot. A rebuild is the host answering an edit made inside this pane, not a fresh way in, so adding a model must not turn escape into "…
         ...(state.parent === undefined ? {} : { parent: state.parent }),
         ...(state.canUndoPoolChange === true
             ? { canUndoPoolChange: true }
@@ -375,30 +346,12 @@ export function syncTuiModelPicker(
     };
 }
 
-/**
- * The level pane. Renders exactly what the model's own `levels` list
- * contains, no synthesized rows: an empty list means the model has no
- * reasoning control at all, and the caller checks for that before opening
- * this pane rather than opening an empty one.
- *
- * The pre-highlight reuses `inferReasoningSelection`, the same placement
- * rule the engine uses to resolve a requested level against a model's own
- * list, so what lights up here and what a turn actually resolves to are the
- * same sentence: the current effort if valid for this model, else the
- * model's own default, else its top level.
- *
- * `pendingModel` is set only when this pane was opened from the model pane:
- * its presence is what tells `pickerSelection` and Escape-handling that this
- * is pane two of a chain, not the standalone `/effort` picker.
- */
 export function startTuiReasoningPicker(
     levels: readonly ReasoningLevel[],
     defaultLevel: ReasoningLevelId | undefined,
     currentReasoningEffort: ModelReasoningEffort | undefined,
     pendingModel: TuiPendingModelChoice | undefined = undefined,
 ): TuiSettingsPickerState {
-    // One row per level a request can actually name. A repeated id is one
-    // choice listed twice, and picking either row sends the same string.
     const seen = new Set<ReasoningLevelId>();
     const options = levels
         .filter((level) => {
@@ -424,8 +377,6 @@ export function startTuiReasoningPicker(
         options,
         selectedIndex,
         query: "",
-        // A chained pane is a step inside the model choice, so the model pane
-        // is both what Escape returns to and what `pendingModel` folds into.
         ...(pendingModel === undefined ? {} : {
             pendingModel,
             parent: pendingModel.modelPaneState,
@@ -581,11 +532,6 @@ export const DEVELOPER_VALUE_ROWS: readonly DeveloperValueRow[] = [
     },
 ];
 
-/**
- * The developer pane. The toggle is the only row while the block is off: the
- * overrides are not shown as things to set and then ignored, because a row
- * that reads as a setting and changes nothing is worse than an absent one.
- */
 export function startTuiDeveloperMenu(
     developer: DeveloperSettings | undefined,
 ): TuiSettingsPickerState {
@@ -623,7 +569,6 @@ export function startTuiDeveloperMenu(
     };
 }
 
-/** The value pane for one developer override. */
 export function startTuiDeveloperValuePicker(
     target: TuiSettingsMenuTarget,
     developer: DeveloperSettings | undefined,
@@ -664,20 +609,10 @@ export const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
 ];
 
-/**
- * The connect pane: every provider Vera ships, grouped by how the user gets
- * access. Connected rows say so in words rather than relying on a mark.
- *
- * The list is short and hand-picked rather than fetched, so it opens with the
- * cursor on the first unconnected row: with this few rows, the one thing left
- * to do is the thing worth landing on.
- */
 export function startTuiProviderPicker(
     providers: readonly TuiProviderRow[],
     options: {
-        /** The row to open on, for a caller that just changed one. */
         readonly selected?: string;
-        /** A line under the title, for something the pane has to say. */
         readonly subtitle?: string;
     } = {},
 ): TuiSettingsPickerState {
@@ -703,9 +638,6 @@ export function startTuiProviderPicker(
         (option) => option.connected !== true,
     );
     const allOptions = [...rows, TUI_DECLARE_PROVIDER_OPTION];
-    // A named row wins over the first unconnected one: a caller that just
-    // declared or forgot something is pointing at the row the user will act on
-    // next, and the default only applies when nobody said.
     const named = options.selected === undefined
         ? -1
         : allOptions.findIndex((option) => option.value === options.selected);
@@ -721,12 +653,6 @@ export function startTuiProviderPicker(
     };
 }
 
-/**
- * The last row on the connect pane: the way in that does not need the chord.
- *
- * It sits below the groups because it is not one of them, and it survives
- * search because it is the answer to a query that matched nothing.
- */
 export const TUI_DECLARE_PROVIDER_OPTION: TuiSettingsPickerOption = {
     value: TUI_DECLARE_PROVIDER_VALUE,
     label: "Declare a provider…",
@@ -735,17 +661,6 @@ export const TUI_DECLARE_PROVIDER_OPTION: TuiSettingsPickerOption = {
     action: true,
 };
 
-/**
- * Which pane, if any, is left on screen once a selection has been applied.
- *
- * Most answered panes step back to the menu they were opened from, so changing
- * the theme and then the permissions is one trip through `/settings`.
- *
- * A model choice is the exception. Applying it reports into the transcript, and
- * work started by it keeps reporting after the keypress: admitting the model,
- * then whatever verifying it turns up. A card left over that transcript hides
- * exactly the feedback the keypress asked for, so the whole chain closes.
- */
 export function tuiPickerAfterSelection(
     selection: TuiSettingsPickerSelection,
     previous: TuiSettingsPickerState | undefined,
@@ -753,9 +668,6 @@ export function tuiPickerAfterSelection(
     if (selection.kind === "model" || previous === undefined) {
         return undefined;
     }
-    // Turning the developer block on is answered by the rows it reveals, so
-    // the pane that asked stays put rather than stepping back to `/settings`
-    // and leaving the keypress looking like it did nothing.
     if (
         selection.kind === "developer"
         && previous.kind === "developer_settings"
@@ -776,10 +688,6 @@ export function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
         : `${selection.model} · ${selection.provider}`;
 }
 
-/**
- * Two rows, because the reviewer route is ordered: the failsafe is simply the
- * next entry the router tries when the primary cannot answer.
- */
 export function startTuiReviewerMenu(
     reviewerDefault?: ReviewerModelDefault,
 ): TuiSettingsPickerState {
@@ -809,18 +717,12 @@ export function startTuiReviewerMenu(
     };
 }
 
-/**
- * Any model is offered. The reviewer is the user's call, so pooled entries are
- * a convenience list rather than a gate.
- */
 export function startTuiReviewerPicker(
     slot: TuiReviewerSlot,
     pooled: readonly PooledModel[] = [],
     current?: ReviewerModelSelection,
     availableModels: readonly SuggestedModel[] = [],
 ): TuiSettingsPickerState {
-    // Pooled entries first, then everything else the host knows about, so a
-    // user who has pooled nothing still has a list to choose from.
     const seen = new Set<string>();
     const rows: TuiSettingsPickerOption[] = [];
     for (const entry of [...pooled, ...availableModels]) {
@@ -862,11 +764,6 @@ export function startTuiReviewerPicker(
     };
 }
 
-/**
- * Asked before a sweep because the two answers cost differently. Re-probing a
- * model that already answered spends a call to learn what is already recorded,
- * so the cheaper one leads and the list says how many each covers.
- */
 export function startTuiPoolVerifyScopePicker(
     unverified: number,
     total: number,
@@ -894,25 +791,15 @@ export function startTuiPoolVerifyScopePicker(
     };
 }
 
-/**
- * Asked after the refresh row, because which providers to ask is a separate
- * question from whether to ask at all. Each row says how many models that
- * provider holds now, which is the number the refresh is about to change.
- */
 export function startTuiCatalogRefreshScopePicker(
     providers: readonly { readonly name: string; readonly models: number }[],
 ): TuiSettingsPickerState {
     const total = providers.reduce((sum, entry) => sum + entry.models, 0);
-    // The catalog is the whole list a provider offers, which is larger than the
-    // model tab's count, since that one is folded. Saying which is which keeps
-    // the two numbers from reading as a contradiction.
     const rows: TuiSettingsPickerOption[] = providers.map((entry) => ({
         value: entry.name,
         label: entry.name,
         description: `${entry.models} in its catalog`,
     }));
-    // One provider needs no row for all of them: it would be the same call
-    // twice under two names.
     const options: readonly TuiSettingsPickerOption[] = providers.length < 2
         ? rows
         : [
@@ -1039,8 +926,6 @@ export function startTuiModelAssignmentPicker(
         : Math.max(0, options.findIndex((option) => option.value === selectedValue));
     return {
         kind: "model_assignment",
-        // What this assignment is for belongs to the pane, not to one of its
-        // rows: read on a row it looks like a description of that row.
         title: assignment === "subagents"
             ? "Subagent models"
             : `Assign a model to ${label}`,
@@ -1059,7 +944,6 @@ export function startTuiModelAssignmentPicker(
     };
 }
 
-/** What leaving an assignment unset does, which is the row's real meaning. */
 export function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
     if (assignment === "subagents") return "subagent spawns are refused";
     return isJobAssignmentId(assignment)
@@ -1067,11 +951,6 @@ export function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
         : "uses this session's model";
 }
 
-/**
- * The menu, with the developer row saying so while the block is on. An
- * override that changes what the whole session does must be visible from the
- * menu, not only from inside the pane that set it.
- */
 export function settingsMenuOptions(
     developer: DeveloperSettings | undefined,
 ): readonly TuiSettingsPickerOption[] {
@@ -1111,9 +990,6 @@ export function startTuiSessionPicker(
     enterDisposition: TuiSessionLeaveDisposition = "stop",
     nothingToLeave = false,
 ): TuiSettingsPickerState {
-    // The current session is listed rather than hidden. Switching is a
-    // re-attach with the screen left up, so its row costs nothing and answers
-    // "which one am I in" without the user having to remember.
     const options = agents
         .filter((agent) => sessionPickerLists(agent, includeUntitled))
         .toSorted((left, right) =>
@@ -1183,12 +1059,6 @@ export function markSharedSessionOptions(
     return result;
 }
 
-/**
- * A client extension supplies semantic rows and actions, while this module
- * owns the cursor, focus, rendering, and terminal-key details. Search is
- * intentionally omitted so the action key `s` remains available to the
- * extension.
- */
 export function startTuiExtensionPicker(
     title: string,
     rows: readonly TuiExtensionPickerRow[],
@@ -1219,32 +1089,15 @@ export function startTuiExtensionPicker(
     };
 }
 
-// The workspace column does not shrink, so its budget is in terminal cells
-// rather than characters: a name of wide glyphs would otherwise take twice the
-// columns it was measured for and push the row past the terminal edge.
+// The workspace column does not shrink, so its budget is in terminal cells rather than characters: a name of wide glyphs would otherwise take twice the columns it was measured for…
 export const SESSION_WORKSPACE_CELLS = 14;
 
-/**
- * The longest title the picker will hold. Titles are shown whole at any width a
- * terminal has, so this is not a display measure: it is a bound on what one
- * malformed row can make the renderer pad and lay out on every visible row.
- */
 export const SESSION_TITLE_LIMIT = 200;
 
-/**
- * Order forks under the session they came from, each one deeper than its parent.
- *
- * A fork is only threaded when its parent is on the list: a fork of a session
- * that has since been trashed is a session in its own right, and hanging it off
- * nothing would say otherwise. The rest of the list keeps the order it arrived
- * in, so threading rearranges a fork and nothing else.
- */
 export function threadSessionOptions(
     options: readonly TuiSettingsPickerOption[],
 ): TuiSettingsPickerOption[] {
-    // Rows are tracked by position rather than by session id. A host that
-    // reported the same id twice would otherwise lose a row here, and a list
-    // that silently drops a session is worse than one that threads it oddly.
+    // Rows are tracked by position rather than by session id. A host that reported the same id twice would otherwise lose a row here, and a list that silently drops a session is worse…
     const byParent = new Map<string, number[]>();
     const listed = new Set(options.map((option) => option.sessionId));
     options.forEach((option, index) => {
@@ -1259,8 +1112,6 @@ export function threadSessionOptions(
     }
     const threaded: TuiSettingsPickerOption[] = [];
     const placed = new Set<number>();
-    // An explicit stack rather than recursion: a long enough chain of forks is
-    // a valid list, and walking it on the call stack would overflow.
     const place = (root: number): void => {
         const pending: (readonly [number, number])[] = [[root, 0]];
         while (pending.length > 0) {
@@ -1272,8 +1123,6 @@ export function threadSessionOptions(
             const option = options[index]!;
             threaded.push(depth === 0 ? option : { ...option, depth });
             const children = byParent.get(option.sessionId ?? "") ?? [];
-            // Reversed, because the stack pops what went on last and children
-            // keep the order they arrived in.
             for (let at = children.length - 1; at >= 0; at -= 1) {
                 pending.push([children[at]!, depth + 1]);
             }
@@ -1285,8 +1134,6 @@ export function threadSessionOptions(
             place(index);
         }
     });
-    // A cycle has no root, so nothing above reached it. Those rows are still
-    // sessions and still belong on the list.
     options.forEach((_option, index) => place(index));
     return threaded;
 }
@@ -1329,20 +1176,9 @@ export function sessionActivity(agent: RegisteredAgentSummary, now: Date): strin
     if (agent.kind === "background" && agent.status === "completed") {
         return "completed";
     }
-    // A live session with nothing running is one someone has open, which is
-    // worth saying: the rest of the column is how long ago a row was last
-    // touched, and "3h" under a conversation being read right now is wrong.
     return agent.live ? "open" : relativeTime(agent.updated_at, now, "saved");
 }
 
-/**
- * Whether the session list shows this row.
- *
- * A conversation that was opened and never spoken to has no title and no turns
- * to title it by, so listing it would name something that never happened.
- * Anything asking whether there is a list worth opening asks this too, or it
- * offers a way into an empty list.
- */
 export function sessionPickerLists(
     agent: RegisteredAgentSummary,
     includeUntitled = false,

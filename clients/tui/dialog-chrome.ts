@@ -29,50 +29,21 @@ import {
     syncTuiSingleLineTextarea,
 } from "./single-line-editor.ts";
 
-// Shared building blocks for Vera's overlay dialogs. Every picker/dialog is an
-// unbordered card: a bold title with an "esc" affordance, an optional search
-// line, highlight-bar rows, and a muted footer of key hints. Keeping these in
-// one place means the model picker, theme picker, question, approval, and
-// rewind dialogs stay visually identical instead of drifting apart.
-
-// Rows start on the card's own left padding. A row's leading text, when it has
-// any, is content: a fold arrow, a connected tick, a session's time column. No
-// row reserves columns for a marker it may never draw, so a title, a search
-// line and a list of rows all begin on the same column.
 export const DIALOG_GUTTER_WIDTH = 0;
 
-/** Kept for the nodes that align themselves against a row's leading text. */
 export const DIALOG_GUTTER = "";
 
-// How many rows a card spends on chrome rather than on rows: the header, the
-// three-line search block, the footer and the blank line above it, and the
-// card's own top padding. Cards size themselves from their content, so this is
-// only the row budget a list windows itself to, never a card's height.
 export const DIALOG_CHROME_HEIGHT = 9;
 
-/** How far a card holds its content off its own left and right edges. */
 export const DIALOG_CARD_PADDING = 4;
 
-// One stacking contract for every modal surface. Conversation chrome stays
-// below the scrim, and every active card stays above it; individual dialogs do
-// not negotiate z-order with the status band or with one another.
 export const DIALOG_BACKGROUND_Z_INDEX = 4;
 export const DIALOG_SCRIM_Z_INDEX = 10;
 export const DIALOG_CARD_Z_INDEX = 20;
 
-// Below this height an overlay cannot spare a row. The question overlay draws
-// the same line for its own height cap, so "short" means one thing in the TUI
-// rather than two.
 export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
 
-/** The blank row the screen keeps above its first surface. */
 export const APP_PADDING_TOP = 1;
-/**
- * The blank row the screen keeps under its last line. A terminal fills the
- * leftover pixels below its final row with its own background and nothing can
- * paint there, so the screen ends on ground rather than on words. Overlays are
- * laid out inside the app, so the row is not theirs to grow into.
- */
 export const APP_PADDING_BOTTOM = 1;
 
 const dialogCards = new Set<BoxRenderable>();
@@ -83,39 +54,19 @@ interface DialogHeaderRecord {
     readonly plainHint: string;
 }
 const dialogHeaders = new Set<DialogHeaderRecord>();
-/**
- * How far above the bottom a bottom-anchored overlay sits.
- *
- * Bottom-anchored cards hold one row above the terminal edge when room allows,
- * keeping their final hint row clear of terminal chrome. On a short terminal
- * that row has to stay with the content instead, so short terminals use the
- * smaller offset.
- *
- * Overlays re-read this on update, not on resize: `RenderContext` exposes no
- * resize hook, and the adjacent `maxHeight` short-terminal rule already works
- * this way. So a terminal resized across the threshold with an overlay already
- * open keeps the old offset until that overlay next updates.
- */
 export function dialogBottomOffset(renderer: RenderContext): number {
     return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT ? 1 : 2;
 }
 
-/**
- * Shared vertical start for inset dialog cards: the screen's top padding
- * row. Bottom clearance still collapses on a short terminal; this inset
- * does not.
- */
 export function dialogInsetTop(renderer: RenderContext): number {
     return APP_PADDING_TOP;
 }
 
-/** Clear rows kept below an inset card when the terminal has room. */
 export function dialogInsetBottomOffset(renderer: RenderContext): number {
     if (renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT) return 1;
     return Math.min(5, Math.max(2, Math.floor(renderer.height / 8) + 1));
 }
 
-/** Full-screen flex surface that keeps a variable-height dialog card centered. */
 export function centeredDialogSurface(
     renderer: RenderContext,
     id: string,
@@ -141,14 +92,11 @@ export function centeredDialogSurface(
 }
 
 function applyDialogCardChrome(card: BoxRenderable): void {
-    // Retro chromes keep dialogs borderless to match positioning with the plain theme.
     card.border = false;
 }
 
 export function registerDialogCard(card: BoxRenderable): void {
     dialogCards.add(card);
-    // A destroyed card would otherwise sit in the set for the life of the
-    // process, keeping the renderable and its yoga node reachable.
     card.once("destroyed", () => dialogCards.delete(card));
     applyDialogCardChrome(card);
 }
@@ -223,7 +171,6 @@ export function createDialogSearchNode(
     return createDialogTextFieldNode(renderer, id, "Search");
 }
 
-/** Native one-line editor with the spacing and ground used inside a card. */
 export function createDialogTextFieldNode(
     renderer: RenderContext,
     id: string,
@@ -238,7 +185,6 @@ export function createDialogTextFieldNode(
     });
 }
 
-/** Keep a persistent native search editor aligned with its presentation state. */
 export function updateDialogSearchNode(
     node: TextareaRenderable,
     query: string,
@@ -249,7 +195,6 @@ export function updateDialogSearchNode(
     updateDialogTextFieldNode(node, query, placeholder, live, cursor);
 }
 
-/** Keep a persistent native card editor aligned with its presentation state. */
 export function updateDialogTextFieldNode(
     node: TextareaRenderable,
     value: string,
@@ -272,10 +217,6 @@ export function dialogFooterNode(
     renderer: RenderContext,
     hint: string,
 ): TextRenderable {
-    // marginTop, not paddingTop: these text nodes lay their content out from
-    // the first line of the box, so padding would put the blank line under the
-    // hints rather than above them. The margin also collapses first when the
-    // card runs short, which keeps the hints on screen.
     return new TextRenderable(renderer, {
         content: hint,
         fg: TUI_MUTED,
@@ -300,17 +241,11 @@ export function dialogGroupHeaderNode(
     });
 }
 
-/**
- * One run of the meta column. A tone rather than a color: rows do not pick
- * palette entries, so an affirmative fact reads the same here as everywhere
- * else and still flips for contrast on the highlighted row.
- */
 export interface DialogMetaPart {
     readonly text: string;
     readonly tone?: "detail" | "positive";
 }
 
-/** A plain meta string is the whole column in the detail tone. */
 export type DialogMeta = string | readonly DialogMetaPart[];
 
 function metaParts(meta: DialogMeta): readonly DialogMetaPart[] {
@@ -325,58 +260,22 @@ function metaLength(meta: DialogMeta): number {
 
 export interface DialogRowContent {
     readonly label: string;
-    // Fixed gutter text before the label (a current-choice dot, a choice
-    // number, a group name). Accent-toned unless the row is active, or muted
-    // when the gutter names something the eye should pass over.
     readonly leading?: string;
     readonly leadingTone?: "accent" | "muted" | "positive";
-    // A blank line above the row, for lists that separate runs of rows with a
-    // gap rather than a heading.
     readonly spaced?: boolean;
-    // A one- or two-cell mark that hangs in the card's left padding: the dot on
-    // the choice in effect, a section's fold arrow, a provider's tick. It sits
-    // outside the flow, so a list where only one row is marked still starts
-    // every label on the column the title and the search line start on.
     readonly marker?: string;
-    // Follows the label inline in the muted tone.
     readonly description?: string;
-    // A run inside the label drawn heavier than the rest, given as a start
-    // column and a length. Bold and underlined rather than coloured: every
-    // tone collapses into the highlight bar on the active row, and the whole
-    // label is bold there, so the underline is what is left to mark it with.
     readonly emphasis?: { readonly start: number; readonly length: number };
-    // Right-aligned trailing column in the muted tone (e.g. a provider name).
-    // A list of parts lets one fact in the column carry its own tone.
     readonly meta?: DialogMeta;
     readonly active: boolean;
     readonly current?: boolean;
-    // Alternating band, for lists long enough that blank separators would cost
-    // more rows than they earn. Ignored while the row is active.
     readonly tint?: boolean;
-    // Wrapping rows grow to fit their label; the highlight bar covers every
-    // wrapped line. Non-wrapping rows stay one line and clip.
     readonly wrap?: boolean;
-    // Two-line card instead of a row: the label on its own line and the meta
-    // column on the next, still right-aligned. For lists whose meta column
-    // carries several facts, where one line packs the two into a width that
-    // reads as a wall.
     readonly card?: boolean;
-    // A click on the row. Rows are the only thing an overlay does, so a click
-    // means the same as moving the cursor here and pressing ⏎ rather than a
-    // separate "select, then confirm" step.
     readonly onSelect?: () => void;
-    // The pointer entering the row. Moving the highlight under the pointer is
-    // what makes the row look clickable, since these dialogs have no other
-    // hover state.
     readonly onHover?: () => void;
 }
 
-/**
- * The label as one chunk, or as three when a run of it is emphasised.
- *
- * A run past the end of the label draws nothing: the label is clipped to the
- * pane before it gets here, so a match beyond the cut has no columns left.
- */
 function labelWithEmphasis(
     label: string,
     color: string,
@@ -395,22 +294,11 @@ function labelWithEmphasis(
     ];
 }
 
-/**
- * What an overlay does with the pointer, in the overlay's own row indices.
- *
- * Views take one of these and hand it to their rows; they never see a
- * `MouseEvent`. `activate` means the same as ⏎ on that row and `hover` the same
- * as moving the cursor to it, so a surface only has to say which index a row
- * is, not what clicking one means.
- */
 export interface DialogRowPointer {
     readonly activate?: (index: number) => void;
     readonly hover?: (index: number) => void;
 }
 
-/**
- * The `onSelect`/`onHover` pair for one row, ready to spread into its content.
- */
 export function dialogRowPointer(
     pointer: DialogRowPointer | undefined,
     index: number,
@@ -428,12 +316,6 @@ export function dialogRowPointer(
     };
 }
 
-/**
- * The same wiring for a row a surface built itself rather than through
- * `dialogOptionRow` (the theme picker draws its own palette swatches). Handlers
- * live in one place either way, so pointer behaviour cannot drift between the
- * two kinds of row.
- */
 export function attachDialogRowPointer(
     row: Renderable,
     pointer: DialogRowPointer | undefined,
@@ -442,10 +324,6 @@ export function attachDialogRowPointer(
     attachRowPointer(row, dialogRowPointer(pointer, index));
 }
 
-/**
- * Exported for the surfaces that lay out their own lines rather than build
- * rows through this module. Mouse behaviour stays in one place either way.
- */
 export function attachRowPointer(
     row: Renderable,
     handlers: Pick<DialogRowContent, "onSelect" | "onHover">,
@@ -458,9 +336,6 @@ export function attachRowPointer(
         };
     }
     if (handlers.onHover !== undefined) {
-        // `over` also fires when a newly opened or rebuilt row appears beneath
-        // a stationary pointer. Using it would move a fresh picker's cursor
-        // away from index zero before the user moves the mouse.
         row.onMouseMove = (event: MouseEvent) => {
             event.stopPropagation();
             if (!pointerMoved(event.x, event.y)) {
@@ -471,29 +346,9 @@ export function attachRowPointer(
     }
 }
 
-/**
- * Whether the pointer itself moved, as opposed to a row moving under it.
- *
- * These lists window around the cursor, so a hover that moves the cursor
- * re-centres the window and slides a different row beneath a pointer that never
- * moved. That row reports a hover of its own, moving the cursor again: the
- * highlight runs away, several rows per row the user actually travelled. Only
- * the first hover at a given position is the user's, so the rest are dropped.
- *
- * One module-level position rather than one per row: there is a single pointer,
- * and rows are rebuilt on every render, so per-row state would reset exactly
- * when the loop is running.
- */
 let lastHoverX: number | undefined;
 let lastHoverY: number | undefined;
 
-/**
- * Forget where the pointer was.
- *
- * The tracker is process-wide because the pointer is. That is right for the
- * TUI, which has one of each, and wrong for a test file, where the position
- * left by one test would suppress the first hover of the next.
- */
 export function resetDialogPointerTracking(): void {
     lastHoverX = undefined;
     lastHoverY = undefined;
@@ -508,11 +363,6 @@ function pointerMoved(x: number, y: number): boolean {
     return true;
 }
 
-/**
- * Build a group of rows with one shared label column. Dialogs can pass their
- * whole option list here, so descriptions remain readable when labels vary in
- * length without each picker inventing its own padding.
- */
 export function dialogOptionRows(
     renderer: RenderContext,
     contents: readonly DialogRowContent[],
@@ -529,11 +379,6 @@ export function dialogOptionRows(
             content.meta === undefined ? 0 : metaLength(content.meta)
         ),
     );
-    // Neither column shrinks on its own: the layout takes any overflow out of
-    // the label, mid-word and without an ellipsis, and then cuts whatever meta
-    // still hangs off the right edge. So both columns are sized here. The name
-    // is what a row is picked on, so it keeps its share of a narrow pane even
-    // when the meta column would rather have it.
     const labelWidth = contentWidth === undefined ? widestLabel : Math.min(
         widestLabel,
         Math.max(
@@ -544,26 +389,17 @@ export function dialogOptionRows(
     const metaWidth = contentWidth === undefined || widestMeta === 0
         ? widestMeta
         : Math.max(0, Math.min(widestMeta, contentWidth - labelWidth - META_GAP));
-    // Without a width the description simply runs until the layout clips it,
-    // which is what it did before rows carried a meta column: the two met with
-    // no gap, and a sentence sheared mid-word against a provider name reads as
-    // one mangled word rather than as two columns.
     const budget = contentWidth === undefined
         ? undefined
         : contentWidth - labelWidth - DESCRIPTION_GAP
             - (metaWidth === 0 ? 0 : metaWidth + META_GAP);
     return contents.map((content) => {
-        // A card spends a whole line on its label and another on its meta, so
-        // it takes the full row width without changing the shared columns of
-        // the inline rows around it.
         if (content.card === true) {
             return dialogOptionRow(renderer, {
                 ...content,
                 ...(contentWidth === undefined
                     ? {}
                     : { label: clipped(content.label, contentWidth) }),
-                // Left under the label, not right-aligned: the two lines are a
-                // name and what is known about it.
                 ...(content.meta === undefined || contentWidth === undefined
                     ? {}
                     : {
@@ -581,8 +417,6 @@ export function dialogOptionRows(
             ...(budget === undefined || content.description === undefined
                 ? {}
                 : { description: clipped(content.description, budget) }),
-            // The column is padded to one width so it reads as a column. Rows
-            // without a meta value keep none, since a blank column is not a fact.
             ...(content.meta === undefined ? {} : {
                 meta: clippedMeta(metaParts(content.meta), metaWidth),
             }),
@@ -590,11 +424,6 @@ export function dialogOptionRows(
     });
 }
 
-/**
- * One row's meta column, clipped to the column and padded to its right edge.
- * Parts are dropped from the end so a fact is either whole or gone, and the
- * last one kept carries the ellipsis when it had to be cut.
- */
 function clippedMeta(
     parts: readonly DialogMetaPart[],
     width: number,
@@ -614,8 +443,6 @@ function clippedMeta(
             used += part.text.length;
             continue;
         }
-        // The first part that does not fit takes the ellipsis and ends the
-        // column: a part after a cut would read as though nothing was lost.
         const text = clipped(part.text, room);
         cut = true;
         if (text.length > 0) {
@@ -624,8 +451,6 @@ function clippedMeta(
         }
         break;
     }
-    // A column cut on a part boundary is still a column with facts missing, so
-    // it says so the same way a cut mid-word does.
     const last = kept.at(-1);
     if (cut && last !== undefined && !last.text.endsWith("…")) {
         const trimmed = last.text.trimEnd();
@@ -640,13 +465,10 @@ function clippedMeta(
         : kept;
 }
 
-/** The two spaces `dialogOptionRow` puts between the label and description. */
 const DESCRIPTION_GAP = 2;
 
-/** The gap that keeps the description off the meta column. */
 const META_GAP = 2;
 
-/** The share of a narrow row the label column keeps from the meta column. */
 const LABEL_SHARE = 0.4;
 
 function clipped(text: string, budget: number): string {
@@ -684,13 +506,8 @@ export function dialogOptionRow(
         backgroundColor: background,
         ...(content.spaced === true ? { marginTop: 1 } : {}),
     });
-    // Every dialog row in the TUI is built here, so pointer support is one
-    // wiring rather than one per overlay. A row without handlers behaves
-    // exactly as it did before.
     attachRowPointer(row, content);
     addMarker(renderer, row, content.marker, TUI_ACCENT);
-    // Only when there is leading text to draw: an empty text node still takes
-    // a column, which would push every label one off the title above it.
     if (content.leading !== undefined && content.leading.length > 0) {
         const leadingColor = content.leadingTone === "muted"
             ? detail
@@ -724,9 +541,6 @@ export function dialogOptionRow(
             : { wrapMode: "none" as const, overflow: "hidden" as const }),
     }));
     if (content.meta !== undefined) {
-        // The active row paints its whole width in the accent, so every tone
-        // collapses to the background color there: a green on accent is the
-        // one combination in this column that cannot be read.
         const positive = content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS;
         row.add(new TextRenderable(renderer, {
             content: new StyledText(metaParts(content.meta).map((part) =>
@@ -739,12 +553,6 @@ export function dialogOptionRow(
     return row;
 }
 
-
-/**
- * A card row: the label on one line, what is known about it on the next, and
- * a blank line to the card below. Two lines rather than one so the facts read
- * as facts instead of as a wall against the name.
- */
 function cardRow(
     renderer: RenderContext,
     content: DialogRowContent,
@@ -760,8 +568,6 @@ function cardRow(
         width: "100%",
         height: content.meta === undefined ? 2 : 3,
         flexDirection: "column",
-        // The blank line to the next card sits inside this box, painted in
-        // the panel colour, so the highlight ends with the facts.
         backgroundColor: TUI_PANEL,
     });
     attachRowPointer(card, content);
@@ -773,8 +579,6 @@ function cardRow(
             : [fg(detail)(`  ${content.description}`)]),
     ], content.active || content.current === true ? 1 : 0));
     if (content.meta !== undefined) {
-        // The active row paints its whole width in the accent, so every tone
-        // collapses to the background color there.
         const positive = content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS;
         card.add(cardLine(renderer, background, accent, "", [
             ...metaParts(content.meta).map((part) =>
@@ -785,11 +589,6 @@ function cardRow(
     return card;
 }
 
-/**
- * The hanging mark, drawn in the padding to the left of the label column. It
- * sits outside the row's box, so it stays on the panel colour even while the
- * row is highlighted and keeps the accent the rest of the gutter uses.
- */
 function addMarker(
     renderer: RenderContext,
     row: BoxRenderable,
@@ -807,11 +606,6 @@ function addMarker(
     }));
 }
 
-/**
- * One line of a card: the gutter, then the line's own chunks. A box holding
- * the text rather than the text alone, because a text node paints only the
- * cells it fills and the highlight has to reach the card's edge.
- */
 function cardLine(
     renderer: RenderContext,
     background: string,

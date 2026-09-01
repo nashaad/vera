@@ -1,11 +1,5 @@
 import type { SkillMetadata } from "./package.ts";
 
-/**
- * Refuses a disable-model-invocation skill unless this exact top-level turn
- * came from its trusted slash command. A parent description can read exactly
- * like a human request, so neither prompt wording nor subagent input can carry
- * this boundary.
- */
 export function invocationRefusal(
     metadata: SkillMetadata,
     isSubagent: boolean,

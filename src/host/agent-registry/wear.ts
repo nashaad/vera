@@ -1,4 +1,3 @@
-// Lifted wear methods from AgentRegistry. Callers keep registry.foo().
 import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../../agents/catalog.ts";
 import { DEFAULT_AGENT, type AgentDefinition } from "../../agents/definition.ts";
 import { agentSnapshotDrift, resolveAgentSnapshot } from "../../agents/wear.ts";
@@ -12,7 +11,6 @@ import { delegationAllows } from "./helpers.ts";
 import { RESUME_WEAR_REQUEST_ID, resolveInstructionRoot, samePair, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
-/** The posture for this session alone, leaving the host default alone. */
 export async function updateSessionPermissionMode(reg: AgentRegistry, id: string, mode: ApprovalMode): Promise<ApprovalMode | undefined> {
         const result = await reg.applySessionPermissionMode(id, mode);
         reg.pushWorkerState(id);
@@ -42,14 +40,6 @@ export async function applySessionPermissionMode(reg: AgentRegistry, id: string,
         return entry.approvalMode;
     }
 
-/**
-     * An explicit permission choice wins over an incompatible agent.
-     *
-     * The host owns this transition so `/permissions`, the HUD, and other
-     * clients cannot disagree. The agent update is deliberately loud and
-     * durable: the client receives a sticky transcript notice explaining why
-     * the session returned to default.
-     */
 export async function leaveAgentThatForbidsAccess(reg: AgentRegistry, entry: RegisteredAgentEntry, id: string, mode: ApprovalMode): Promise<void> {
         const active = entry.agentWear;
         if (active?.forbiddenAccess?.includes(mode) !== true) return;
@@ -66,13 +56,6 @@ export async function leaveAgentThatForbidsAccess(reg: AgentRegistry, entry: Reg
         });
     }
 
-/**
-     * The worn agent's default pair, resolved against the pool as it stands.
-     *
-     * Undefined when the agent names none, or names one the pool no longer
-     * has: in both cases the effective default is the host's own, which is
-     * what row 7 and row 9 of the origin table say.
-     */
 export function wornAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry): ModelTurnSettings | undefined {
         const pair = entry.agentWear?.defaultPair;
         if (pair === undefined) return undefined;
@@ -87,11 +70,6 @@ export function wornAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentE
         } as ModelTurnSettings;
     }
 
-/**
-     * The worn agent's posture. Omitted on the agent means the host's current
-     * default, resolved now rather than frozen at wear: editing the default
-     * has to reach the sessions that never named one.
-     */
 export function wornAgentPosture(reg: AgentRegistry, entry: RegisteredAgentEntry): ApprovalMode | undefined {
         const named = entry.agentWear?.posture;
         return named !== undefined && isApprovalMode(named)
@@ -99,7 +77,6 @@ export function wornAgentPosture(reg: AgentRegistry, entry: RegisteredAgentEntry
             : reg.defaultApprovalMode;
     }
 
-/** Every agent this session could wear, with the one in force named. */
 export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
         readonly worn: string;
         readonly agents: readonly {
@@ -194,11 +171,6 @@ export async function agentCatalogFor(reg: AgentRegistry, entry: RegisteredAgent
         });
     }
 
-/**
-     * Put an agent on. Records the resolved definition, adopts its default
-     * pair when nobody has dialled this session, and answers with what is now
-     * in force.
-     */
 export async function wearAgentFor(reg: AgentRegistry, id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
@@ -265,12 +237,6 @@ export async function applyAgentWear(reg: AgentRegistry, id: string, name: strin
         };
     }
 
-/**
-     * Rows 7 to 9 of the origin table, in one place.
-     *
-     * A session the user has dialled keeps its pair: the override survives an
-     * agent switch, which is the difference between a dial and a default.
-     */
 export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry, definition: AgentDefinition): Promise<string | undefined> {
         const origin = entry.store.modelSettingsOrigin();
         if (origin === "user") return undefined;
@@ -293,13 +259,6 @@ export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: Registere
             : undefined;
     }
 
-/**
-     * Table 8.2: what a resumed session does about the agent it was wearing.
-     *
-     * Agents are by reference, so a definition that moved is worn as it is
-     * now. The notice is what stops that from being a silent change of what
-     * the session can reach.
-     */
 export async function reconcileResumedAgentWear(reg: AgentRegistry, entry: RegisteredAgentEntry, events: EngineEventBus): Promise<void> {
         const recorded = entry.agentWear;
         if (recorded === undefined) return;
@@ -344,12 +303,9 @@ export async function reconcileResumedAgentWear(reg: AgentRegistry, entry: Regis
                 });
             }
         } catch {
-            // A catalog that will not load leaves the recorded snapshot in
-            // force, which is the scope the session already had.
         }
     }
 
-/** The narrow writer: one key, one file, temp-and-rename. */
 export async function updateAgentDefaultPairFor(reg: AgentRegistry, id: string, name: string, pair: { readonly name: string; readonly effort?: string } | null): Promise<string | undefined> {
         const entry = reg.agents.get(id);
         if (entry === undefined) return "No such session";
@@ -364,8 +320,6 @@ export async function updateAgentDefaultPairFor(reg: AgentRegistry, id: string, 
         } catch (error) {
             return error instanceof Error ? error.message : String(error);
         }
-        // The pair now IS the default, so the session record is reclassified
-        // in the same operation rather than left showing an override.
         if (entry.agentWear?.name === name) {
             entry.agentWear = {
                 ...entry.agentWear,
@@ -411,10 +365,6 @@ export async function applyApprovalMode(reg: AgentRegistry, id: string, mode: Ap
         return entry.approvalMode;
     }
 
-/**
-     * The posture a session ran under, for a spawn that has one to inherit.
-     * `undefined` when the id names no session here, which is the cold case.
-     */
 export function approvalModeOf(reg: AgentRegistry, agentId: string): ApprovalMode | undefined {
         return reg.agents.get(agentId)?.approvalMode;
     }

@@ -1,4 +1,3 @@
-// Lifted settings methods from AgentRegistry. Callers keep registry.foo().
 import { isVeraProviderId } from "../../config.ts";
 import type { PoolAdmissionVerdict } from "../../engine/events.ts";
 import { isModelReasoningEffort, publishedReasoningLevels, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../../engine/model-settings.ts";
@@ -26,13 +25,6 @@ export function isKnownProvider(reg: AgentRegistry, provider: string): boolean {
             || reg.options.customProviderIds?.().includes(provider) === true;
     }
 
-/**
-     * The model settings a client sees when it has no session behind it.
-     *
-     * The catalog, the shortlist and the defaults are the host's, not any
-     * conversation's, so they can be read before one exists. The pair reported
-     * is the host default: nobody has dialed anything yet.
-     */
 export function readHostModelSettings(reg: AgentRegistry, workspace?: string): ModelTurnSettings {
         return settingsForClient(
             {
@@ -60,20 +52,12 @@ export function reviewerDefault(reg: AgentRegistry): ReviewerModelDefault {
         return reviewerDefaultOf(reg.readReviewer());
     }
 
-/** The reviewer route agents read at each review, not once at start. */
 export function readReviewer(reg: AgentRegistry): ToolReviewerSettings | undefined {
         return reg.options.readReviewer === undefined
             ? reg.reviewerSettings
             : reg.options.readReviewer();
     }
 
-/**
-     * Applies a reviewer choice to every running agent and writes it to the
-     * config file, so the session the user is in changes with the file rather
-     * than at the next start. Any model may be a reviewer: nothing here checks
-     * the pool or the catalog, because a reviewer that turns out to be
-     * unreachable falls through to the failsafe on its own.
-     */
 export function applyReviewerPatch(reg: AgentRegistry, patch: ReviewerSettingsPatch | null): boolean {
         if (patch === null) {
             reg.reviewerSettings = undefined;
@@ -97,13 +81,6 @@ export function applyReviewerPatch(reg: AgentRegistry, patch: ReviewerSettingsPa
         return true;
     }
 
-/**
-     * Validate a pair patch and answer with the settings it resolves to.
-     *
-     * Shared by the global write and the session-scoped one so a chord and a
-     * picker cannot disagree about which levels a model publishes, or coerce an
-     * unpublished level differently.
-     */
 export function resolveModelPatch(reg: AgentRegistry, entry: RegisteredAgentEntry, patch: ModelSettingsPatch): {
         readonly settings: ModelTurnSettings;
         readonly requestedReasoningEffort?: ModelReasoningEffort;
@@ -133,9 +110,6 @@ export function resolveModelPatch(reg: AgentRegistry, entry: RegisteredAgentEntr
         ) {
             return undefined;
         }
-        // Pool membership does not gate this. The pool is the user's curated
-        // shortlist, not the set of models they are allowed to run: choosing a
-        // model from the catalog runs it and adds nothing.
         try {
             entry.adapter?.prepareProvider(provider);
         } catch {
@@ -146,9 +120,6 @@ export function resolveModelPatch(reg: AgentRegistry, entry: RegisteredAgentEntr
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
-        // Checked against exactly what the picker was served, through the
-        // same reader: a level published for this model is always acceptable
-        // here, whichever layer published it.
         const scope = {
             ...reg.catalog,
             projectRoot: entry.store.header.cwd,
@@ -168,19 +139,6 @@ export function resolveModelPatch(reg: AgentRegistry, entry: RegisteredAgentEntr
                 scope,
             ),
         };
-        // A level the model does not publish is coerced rather than promoted:
-        // the model's own default, else a middle level, never the top. Same
-        // rule as request-time resolution, so a switch and a turn place an
-        // unknown level identically. The coerced level comes back in the
-        // returned settings, which is how the client learns of the
-        // substitution.
-        //
-        // A model that publishes no levels at all is the one case an
-        // effort-only patch still refuses: there is no dial to move, and
-        // there the level is the whole request.
-        // The level asked for, kept so the client can say what it asked for
-        // beside what it got. Undefined again the moment a change validates
-        // as published, which is how the note clears.
         let requestedReasoningEffort: ModelReasoningEffort | undefined;
         if (
             reasoningEffort !== undefined
@@ -294,8 +252,6 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                 && patch.model === undefined
                 && patch.reasoningEffort === undefined
             ) {
-                // A reviewer-only patch changes no running model, so the reply
-                // is the current settings carrying the new reviewer.
                 return settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? reg.defaultProvider,
@@ -343,13 +299,6 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
         );
     }
 
-/**
-     * The pair a session falls back to when nobody has dialed it.
-     *
-     * Today that is the host default. Once an agent can carry a `default_pair`
-     * the worn agent's answer comes first, and everything that compares against
-     * "the default" goes through here so there is one answer to compare with.
-     */
 export function effectiveDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry): ModelTurnSettings {
         const agentPair = reg.wornAgentDefaultPair?.(entry);
         return agentPair ?? {
@@ -361,24 +310,12 @@ export function effectiveDefaultPair(reg: AgentRegistry, entry: RegisteredAgentE
         };
     }
 
-/**
-     * Derived at write time on every path, never carried forward.
-     *
-     * Reclassifying here is what makes dialing back to the default clear the
-     * override: a stale `user` origin sitting on a pair that equals the default
-     * would show a marker the user could not get rid of by any means except
-     * knowing about the record.
-     */
 export function originFor(reg: AgentRegistry, entry: RegisteredAgentEntry, settings: ModelTurnSettings): SessionSettingOrigin {
         return samePair(settings, reg.effectiveDefaultPair(entry))
             ? "agent-default"
             : "user";
     }
 
-/**
-     * Dial one session. The host's defaults, and every session that is not this
-     * one, are left exactly as they were.
-     */
 export async function updateSessionModelSettings(reg: AgentRegistry, id: string, patch: ModelSettingsPatch): Promise<
         { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
     > {
@@ -435,12 +372,6 @@ export function sessionModelSettingsHistory(reg: AgentRegistry, id: string): rea
         }));
     }
 
-/**
-     * Editing the pool never changes which model runs, so the settings that
-     * come back are unchanged apart from the new pool. It refuses an unknown
-     * agent for the same reason every other command does: the reply is that
-     * agent's snapshot, and there is none to send.
-     */
 export async function poolAdd(reg: AgentRegistry, id: string, entry: { readonly provider: string; readonly model: string }, onStep: Parameters<
             NonNullable<AgentRegistryOptions["admitToPool"]>
         >[1], options?: { readonly verify?: boolean }): Promise<{
@@ -484,12 +415,6 @@ export async function poolAdd(reg: AgentRegistry, id: string, entry: { readonly 
         };
     }
 
-/**
-     * The `pool_add` tool's effect: the same admission hook the client's
-     * checklist calls, one model at a time, reported back as per-model
-     * verdict lines. Verdicts land in the tool result rather than as
-     * progress updates: the transcript is the surface the agent path owns.
-     */
 export async function applyPoolAddEffect(reg: AgentRegistry, effect: { readonly models: readonly string[] }): Promise<ToolOutput> {
         if (reg.options.admitToPool === undefined) {
             return {
@@ -526,13 +451,6 @@ export async function applyPoolAddEffect(reg: AgentRegistry, effect: { readonly 
         return { kind: "output", output: lines.join("\n"), isError: failed };
     }
 
-/**
-     * Refetches a provider's list on the user's say-so and answers with the
-     * settings the refreshed list produces, so the pane that asked can redraw
-     * from one reply. A provider that cannot be asked leaves the list alone:
-     * a stale list beats an empty one, which is the same rule discovery
-     * itself follows on a failed fetch.
-     */
 export async function refreshCatalog(reg: AgentRegistry, id: string, provider: string): Promise<ModelTurnSettings | undefined> {
         const agentEntry = reg.agents.get(id);
         if (

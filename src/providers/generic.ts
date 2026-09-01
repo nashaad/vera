@@ -27,7 +27,6 @@ export interface GenericProviderOptions {
     readonly imageSupport?: ImageSupportLookup;
 }
 
-/** Builds an adapter from protocol and credential facts, without vendor code. */
 export function createGenericProviderAdapter(
     options: GenericProviderOptions,
 ): ModelAdapter {

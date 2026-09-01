@@ -17,65 +17,21 @@ export interface ModelTurnSettings {
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
-    /**
-     * The level the user asked for, present only while it differs from the
-     * one in effect because the model does not publish it. Absent is the
-     * normal case and is what tells a client the note has cleared, so never
-     * fill it in with the effective level.
-     *
-     * Client-facing only: it describes a substitution, not a stored choice,
-     * and is never persisted with the session's settings.
-     */
     readonly requestedReasoningEffort?: ModelReasoningEffort;
-    /**
-     * The efforts the running model accepts, as flat strings. Kept alongside
-     * the per-model levels below until clients have moved onto them.
-     */
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly AvailableModel[];
-    /** Provider IDs the host can ask for a new model list, including empty lists. */
     readonly refreshableProviders?: readonly string[];
-    /**
-     * The pool: the models the user admitted, newest first. Separate from
-     * `availableModels` because it answers a different question and carries
-     * entries that are not currently runnable.
-     */
     readonly pooled?: readonly PooledModel[];
-    /**
-     * WebDev Arena snapshot date the TUI prints in Help (`YYYY-MM-DD`). The
-     * client must not read the cache itself.
-     */
+    /** WebDev Arena snapshot date the TUI prints in Help (`YYYY-MM-DD`). The client must not read the cache itself. */
     readonly webdevArenaSnapshot?: string;
     readonly contextWindow?: number;
-    /** Model's uncapped declared capacity, when a global limit is in force. */
     readonly modelContextWindow?: number;
-    /** User-configured global ceiling; absent means automatic. */
     readonly contextLimit?: number;
-    /**
-     * The settings a spawn without an explicit model will use. This is
-     * runtime inspection data, not part of the session's persisted model
-     * choice.
-     */
     readonly subagentDefault?: SubagentModelDefault;
-    /**
-     * The reviewer auto mode consults, and the failsafe tried only when the
-     * first cannot answer. Runtime inspection data like `subagentDefault`:
-     * the reviewer is a user-level setting, not part of the session's own
-     * model choice, so it is reported here and stored in the config file.
-     */
     readonly reviewerDefault?: ReviewerModelDefault;
-    /**
-     * Developer overrides in force, reported so a client can show what they
-     * have been moved to. Runtime inspection data like `reviewerDefault`:
-     * these are user-level settings, not part of the session's model choice.
-     */
     readonly developer?: DeveloperSettings;
 }
 
-/**
- * What a developer has turned on to test Vera itself. Absent values mean the
- * normal behaviour, and `enabled: false` means every one of them is ignored.
- */
 export interface DeveloperSettings {
     readonly enabled: boolean;
     readonly contextLimit?: number;
@@ -84,7 +40,6 @@ export interface DeveloperSettings {
     readonly summaryWordCap?: number;
 }
 
-/** One developer field written at a time. `null` clears that field. */
 export interface DeveloperSettingsPatch {
     readonly enabled?: boolean;
     readonly contextLimit?: number | null;
@@ -129,7 +84,6 @@ export interface ReviewerModelSelection {
 }
 
 export interface ReviewerModelDefault {
-    /** `agent` means no reviewer is configured, so it runs on the agent's own model. */
     readonly mode: "agent" | "fixed";
     readonly primary?: ReviewerModelSelection;
     readonly fallback?: ReviewerModelSelection;
@@ -146,21 +100,13 @@ export interface ModelSettingsPatch {
     readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort | null;
-    /** `null` restores automatic model-sized context. */
     readonly contextLimit?: number | null;
-    /**
-     * Both reviewer slots, written whole rather than one at a time: a partial
-     * patch would have to say what "leave the other slot alone" means when
-     * the other slot is empty. `null` clears the reviewer.
-     */
     readonly reviewer?: ReviewerSettingsPatch | null;
-    /** Developer overrides, merged field by field. `null` clears the block. */
     readonly developer?: DeveloperSettingsPatch | null;
 }
 
 export interface ReviewerSettingsPatch {
     readonly primary: ReviewerModelSelection;
-    /** `null` clears the failsafe and leaves the primary alone. */
     readonly fallback?: ReviewerModelSelection | null;
 }
 
@@ -260,27 +206,6 @@ const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
     "max",
 ];
 
-/**
- * The efforts a provider can actually be asked for on this model.
- *
- * Discovery is consulted first because it is the same source the picker offers
- * levels from, and the two disagreeing is a rejection the user cannot act on:
- * the shipped verified list named two levels for `z-ai/glm-5.2` while discovery
- * named four, so choosing the medium the picker had just listed was refused as
- * unsupported. The shipped list is a seed for models discovery has not
- * described, never a ceiling on one it has.
- *
- * A model discovery describes with no levels at all falls through to the
- * shipped list rather than settling on empty, because empty is the answer that
- * removes the dial entirely and a shipped entry is direct evidence the model
- * has one.
- *
- * The optimistic fallback below is only safe where the adapter can cope with an
- * effort it has no mapping for. OpenRouter can: it looks the model up and
- * infers a level. Ollama maps every effort itself. A custom OpenAI endpoint
- * and `openai-codex` cannot: they either pass the word through or reject it,
- * and advertising a six-rung dial from that is a claim nobody proved.
- */
 export function availableReasoningEfforts(
     provider: string,
     model: string,
@@ -307,18 +232,6 @@ function providerInfersReasoningEffort(provider: string): boolean {
     return provider === "openrouter" || provider === "ollama";
 }
 
-/**
- * The levels published for a model, and the level to settle on when a
- * requested one is not among them.
- *
- * This is the single authority behind both the list a client is served and the
- * list a settings change is checked against. Reading it twice through two
- * different orderings is what let a level be offered in the picker and then
- * refused on the way back in.
- *
- * A ready pool entry wins outright: admission measured what this key can
- * actually send, so it beats both discovery and the shipped list.
- */
 export function publishedReasoningLevels(
     provider: string,
     model: string,
@@ -348,18 +261,9 @@ export function publishedReasoningLevels(
 
 export interface PublishedReasoningLevels {
     readonly efforts: readonly ModelReasoningEffort[];
-    /** The model's own default level, when one is recorded. */
     readonly defaultLevel?: string;
 }
 
-/**
- * Undefined means discovery has never described this model, which is the only
- * case the optimistic fallback above is for. A model discovery does describe
- * with no levels has no reasoning control at all, and saying so is what keeps
- * the dial off a model that would refuse it: most of OpenRouter's list is
- * chat-only, and the optimistic list used to offer all four efforts on every
- * one of them.
- */
 function discoveredReasoningEfforts(
     provider: string,
     model: string,
@@ -370,16 +274,6 @@ function discoveredReasoningEfforts(
         ?.levels.map((level) => level.id);
 }
 
-/**
- * The reasoning effort to carry onto a model the user did not choose: a
- * fallback target, or settings restored from config.
- *
- * The test is emptiness rather than membership on purpose. A narrower list is
- * the menu a person is offered, not the limit of what the adapter can resolve,
- * and OpenRouter infers a level for an effort its catalog entry does not list.
- * Only a model with no efforts at all cannot be asked, and asking anyway fails
- * the request inside the adapter.
- */
 export function reasoningEffortForModel(
     provider: string | undefined,
     model: string,
@@ -405,13 +299,6 @@ export function availableModels(): readonly SuggestedModel[] {
         }));
 }
 
-/**
- * The window the model accepts, or undefined for one Vera has no entry for.
- *
- * Undefined is a real answer, not a failure: a model reached through discovery
- * or run locally may have a window nobody has recorded, and a guessed
- * denominator would render a confident percentage of nothing.
- */
 export function contextWindowForModel(
     provider: string | undefined,
     model: string,
@@ -432,7 +319,6 @@ export function contextWindowForModel(
     return undefined;
 }
 
-/** The known model capacity after the user's global cap. Unknown stays unknown. */
 export function effectiveContextWindow(
     declared: number | undefined,
     limit: number | undefined,
@@ -441,10 +327,6 @@ export function effectiveContextWindow(
     return limit === undefined ? declared : Math.min(declared, limit);
 }
 
-/**
- * An upper bound for turn budgeting. The user ceiling may cap a request when
- * the model window is unknown; that cap is not a capacity fact.
- */
 export function budgetContextWindow(
     declared: number | undefined,
     limit: number | undefined,
@@ -452,25 +334,12 @@ export function budgetContextWindow(
     return effectiveContextWindow(declared, limit) ?? limit;
 }
 
-/**
- * Discovered models and shipped ones are searched through the same shape: a
- * locally served model's window is measured at discovery and appears in no
- * shipped list.
- */
 interface ModelWindowEntry {
     readonly provider: string;
     readonly model: string;
     readonly contextWindow?: number;
 }
 
-/**
- * `levels` is required, and an entry without it is rejected rather than read
- * as empty. Do not loosen this: empty already means "this model has no
- * reasoning control at all", so accepting absent and normalising it would make
- * a producer that forgot the field render every model with no levels at all.
- * A rejected update is visible and debuggable; a silently missing level list
- * is neither.
- */
 function isAvailableModel(value: unknown): boolean {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;

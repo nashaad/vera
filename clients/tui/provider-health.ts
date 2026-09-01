@@ -1,9 +1,3 @@
-/**
- * On-demand provider ladder health for the inspect dialog.
- *
- * The probe is `admitModel`, the same call `verify_pool` drives. This module
- * classifies those live answers. It does not write the pool.
- */
 
 import type { VeraConfig } from "../../src/config.ts";
 import { loadOptionalVeraConfig } from "../../src/config.ts";
@@ -56,10 +50,6 @@ export function rungLabel(rung: HealthRung): string {
     return `${rung.provider}/${rung.model}`;
 }
 
-/**
- * Shortlist order is the ladder: newest first, last entry last resort.
- * With an empty shortlist, the session or config default is the one rung.
- */
 export function healthRungsOf(
     settings: ModelTurnSettings | undefined,
     config: Pick<VeraConfig, "provider" | "model" | "providers"> | undefined =
@@ -107,17 +97,11 @@ export function hasConfiguredProvider(
                 return true;
             }
         } catch {
-            // An unreadable store is "not connected", not a crash in inspect.
         }
     }
     return false;
 }
 
-/**
- * Yellow for a stored OAuth expiry that is already past. There is no rolling
- * window. Codex access tokens refresh on their own; this is the record's
- * `expires_at`, not a guess at renewability.
- */
 export function expiredOAuthProvider(
     storage: Pick<AuthStorage, "getCredential">,
     now = Date.now(),
@@ -206,10 +190,6 @@ export function summarizeProviderHealth(options: {
     };
 }
 
-/**
- * Shorten from the head so a clipped `provider/model` still ends on the
- * model id. A missing prefix is honest; a cut tail names the wrong model.
- */
 export function ellipsizeHealthTail(text: string, max: number): string {
     if (max <= 0) return "";
     if (text.length <= max) return text;
@@ -308,7 +288,6 @@ export async function runProviderHealthCheck(options: {
     return ready;
 }
 
-/** Live `admitModel` probe. Does not write the pool file. */
 export async function admitHealthRung(
     rung: HealthRung,
     options: {

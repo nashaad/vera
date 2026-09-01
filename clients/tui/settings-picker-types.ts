@@ -78,11 +78,6 @@ export type TuiSettingsPickerKind =
     | "pool_verify_scope"
     | "catalog_refresh_scope";
 
-/**
- * Where a menu row leads. The menu kinds carry no value of their own: choosing
- * a row opens another surface, so the selection names a destination instead of
- * a setting.
- */
 export type TuiSettingsMenuTarget =
     | "model"
     | "reasoning"
@@ -105,145 +100,67 @@ export type TuiSettingsMenuKind = Extract<
     "settings" | "permission_settings" | "reviewer_settings"
 >;
 
-/** Which developer override a value pane is choosing. */
 export type TuiDeveloperKey =
     | "contextLimit"
     | "compactionTriggerFraction"
     | "postCompactionTargetFraction"
     | "summaryWordCap";
 
-/** Which reviewer a pane is choosing for. */
 export type TuiReviewerSlot = "primary" | "fallback";
 
 export interface TuiSettingsPickerOption {
     readonly value: string;
     readonly label: string;
     readonly description: string;
-    /** A full sentence about the row, drawn in the column beside the list. */
     readonly note?: string;
-    /** The row's name for that column, when the row's label is a table line. */
     readonly detailTitle?: string;
-    /** The row's own facts, for a row the model facts do not describe. */
     readonly detailFacts?: readonly (readonly [string, string])[];
     readonly searchText?: string;
     readonly provider?: string;
     readonly model?: string;
-    /** A two-line row whose second line gets the full card width. */
     readonly card?: boolean;
     readonly rowMeta?: DialogMeta;
     readonly sessionId?: string;
-    /** Unclipped current session name, used to seed the rename field. */
     readonly sessionName?: string;
-    /**
-     * Session rows carry their own columns rather than folding activity and
-     * workspace into the description: a session is recognised by its title, so
-     * the title gets every column the other two do not need.
-     */
     readonly activity?: string;
     readonly workspace?: string;
-    /** Transcript bytes on disk, shown beside the workspace on session rows. */
     readonly sizeBytes?: number;
-    /** True on the session the user is attached to right now. */
     readonly current?: boolean;
-    /** The session this one was forked from, when the host reported one. */
     readonly forkedFrom?: string;
-    /** Parent used to place a fork or async subagent under its source. */
     readonly threadParent?: string;
-    /** How deep under its parent a forked row sits. Absent at the top level. */
     readonly depth?: number;
-    /** One end of the non-hierarchical group currently open in both panes. */
     readonly sharedEdge?: "start" | "end";
     readonly sharedGroup?: string;
-    /**
-     * Position in the user's pool, absent on a row outside it. A rank rather
-     * than a flag because the pool is ordered by when each model was added and
-     * the provider list is ordered by provider: the Pool tab has to be able to
-     * restore the order the store keeps, which sorting by provider destroys.
-     */
     readonly pooledRank?: number;
-    /**
-     * The user's own name for this pool entry. The row reads by it, and the
-     * model id stays on the row's meta line so the slug is never lost.
-     */
     readonly poolName?: string;
-    /** True on a pool row whose model cannot run right now. */
     readonly unavailable?: boolean;
-    /** Set only when a source says the model takes images. */
     readonly images?: boolean;
-    /** WebDev Arena overall rating, integer. Absent is a blank cell. */
     readonly waScore?: number;
     readonly pricing?: ModelPricing;
-    /** True when this model is on or near Vera's listed-output front. */
     readonly onPareto?: boolean;
-    /** True on a pool row with no probe or rejection evidence behind it. */
     readonly unverified?: boolean;
-    /**
-     * Why this row is folded away until the user asks for everything. A batch
-     * row names a submission mode rather than a model, an alias row duplicates
-     * a concrete row already listed, and an old row is one the provider listed
-     * long enough ago that the newer models have moved past it.
-     */
     readonly hiddenByDefault?: ReductionReason;
-    /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
-    /**
-     * The level the curation recommends this model at. Shown in the meta
-     * column and nothing more: the row selects the same way on every tab, so
-     * the level is still chosen on the level pane that follows.
-     */
     readonly recommendedLevel?: string;
-    /** Host-computed provider capability, carried on provider and model rows. */
     readonly refreshable?: boolean;
-    /**
-     * The heading this row belongs under. Model rows leave it unset and are
-     * grouped by their provider instead, which is the same idea: a heading is
-     * whatever one fact a run of rows shares.
-     */
     readonly group?: string;
-    /** Set only on provider rows: whether Vera already holds a credential. */
     readonly connected?: boolean;
-    /**
-     * A row that does something rather than naming a thing. It carries no
-     * heading, no marker of its own, and nothing that counts providers or
-     * models may include it.
-     */
     readonly action?: boolean;
-    /** A provider row whose endpoint the user wrote and can rewrite. */
     readonly declared?: boolean;
-    /** A provider row whose endpoint the user may point elsewhere. */
     readonly endpointEditable?: boolean;
-    /**
-     * Set only on a section header row: the section it opens and closes. A
-     * header is an option like any other so the cursor reaches it by moving,
-     * and ⏎ on it collapses the run of rows underneath.
-     */
     readonly section?: string;
-    /** Set on a header whose rows are hidden. */
     readonly sectionCollapsed?: boolean;
-    /**
-     * A copy of a model row listed in the Top picks section. The section mixes
-     * providers, so its rows name theirs even though a row under a provider
-     * heading does not.
-     */
     readonly inTopPicks?: boolean;
 }
 
-/** A concrete file `/configure` can hand to the user's editor. */
 export interface TuiConfigureFile {
     readonly label: string;
     readonly path: string;
     readonly displayPath: string;
     readonly scope: "Profile" | "Project";
-    /** Profile config may be created by the editor; optional files may not. */
     readonly createIfMissing: boolean;
 }
 
-/**
- * A provider as the connect pane shows it, which is the registry plus the one
- * fact the registry cannot know on its own. Passed in rather than read here:
- * whether a provider is connected comes off disk, and this module stays a pure
- * function of what it is handed.
- */
 export interface TuiProviderRow {
     readonly id: string;
     readonly label: string;
@@ -251,12 +168,7 @@ export interface TuiProviderRow {
     readonly hint?: string;
     readonly connected: boolean;
     readonly refreshable?: boolean;
-    /** Declared in config rather than shipped, so its endpoint is editable. */
     readonly declared?: boolean;
-    /**
-     * Whether the endpoint is the user's to move. False for a provider reached
-     * over a flow bound to the account it signs in to.
-     */
     readonly endpointEditable?: boolean;
 }
 
@@ -273,7 +185,6 @@ export const TUI_PROVIDER_GROUP_RANK: Readonly<Record<TuiProviderGroup, number>>
     "Added in config": 3,
 };
 
-/** Maps a provider fact to this client's connect-list heading. */
 export function tuiProviderGroup(
     access: ProviderAccessKind,
     declared = false,
@@ -284,15 +195,6 @@ export function tuiProviderGroup(
     return "Local";
 }
 
-/**
- * Two questions, two views of one list. "All models" is what can run; "Pool" is
- * the short list the user keeps. Both filter the same rows, so a model has
- * exactly one row however many views it appears on.
- *
- * Vera's own recommendations are not a third view. They open All models as its
- * first section, above the providers, and the same models keep their rows in
- * the provider sections below.
- */
 export type TuiModelPickerTab =
     | "all"
     | "pool"
@@ -304,15 +206,11 @@ export interface TuiExtensionPickerRow {
     readonly id: string;
     readonly label: string;
     readonly description?: string;
-    /** The row the extension says is already in effect. */
     readonly current?: boolean;
 }
 
 export type TuiExtensionPickerActionKey =
     | "enter"
-    // `d` is the /agent surface's "save the session's pair as this agent's
-    // default". It is a named action key like the others, not a binding: it
-    // exists only while a picker that declares it is open.
     | "d"
     | "s"
     | "delete"
@@ -330,18 +228,13 @@ export interface TuiSettingsPickerState {
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
     readonly query: string;
-    /** Absent on older/fixed states; an active search defaults to its end. */
     readonly queryCursor?: number;
-    /** Overrides the name the pane draws for its kind. */
     readonly title?: string;
-    /** A line under the title, for a pane whose rows need the context. */
     readonly subtitle?: string;
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly loading?: boolean;
-    /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
-    /** Which part of a model collection owns the arrow keys. */
     readonly modelFocus?:
         | "list"
         | "list_action"
@@ -349,100 +242,31 @@ export interface TuiSettingsPickerState {
         | "page_entry"
         | "page"
         | "intelligence";
-    /** Which page action is highlighted while the page view holds focus. */
     readonly modelPageIndex?: number;
-    /**
-     * Set when the pane was opened with no conversation behind it. The catalog
-     * arrives on a session snapshot, so there is nothing to list and no chord
-     * that would fill it: the empty state has to say that rather than report
-     * an empty catalog the user could act on.
-     */
     readonly modelCatalogUnavailable?: boolean;
-    /** The focused action in the selected model's inspector. */
     readonly modelActionIndex?: number;
-    /** Provider-owned context for the generic request-options action. */
     readonly requestOptionsProviders?: Readonly<Record<
         string,
         TuiModelRequestOptionsSupport
     >>;
-    /** Exact provider/model refs with a stored profile entry. */
     readonly configuredRequestOptions?: readonly string[];
-    /**
-     * The Defaults tab's rows, which are jobs rather than models and so cannot be
-     * filtered out of `allOptions` the way the other tabs are. Set by the
-     * client after the pane opens, since assignments come from config and the
-     * pool rather than from the settings snapshot the pane is built from.
-     */
     readonly assignmentOptions?: readonly TuiSettingsPickerOption[];
-    /**
-     * The Actions tab's rows: the things this pane can do that are not
-     * choosing a model. They are rows so they can be read and searched for
-     * by name, rather than only being reachable by a chord the user has to
-     * already know about.
-     */
     readonly actionOptions?: readonly TuiSettingsPickerOption[];
-    /**
-     * WebDev Arena snapshot date for Help (`YYYY-MM-DD`). Carried from the
-     * settings snapshot so the TUI does not read the cache.
-     */
     readonly webdevArenaSnapshot?: string;
-    /** The caller has one confirmed pool change it can reverse. */
     readonly canUndoPoolChange?: boolean;
-    /**
-     * `/resume` Enter stops the conversation being left. `/subagents` Enter
-     * keeps it running, the same leave as a rail click: opening a child is
-     * not leaving the work.
-     */
     readonly enterDisposition?: TuiSessionLeaveDisposition;
-    /**
-     * The picker was opened with no conversation on screen, so Enter is not a
-     * switch away from anything: it opens the row and nothing else happens.
-     */
     readonly nothingToLeave?: boolean;
-    /**
-     * The sections the user has closed, by heading. It rides on the pane so a
-     * tab switch and back finds the list the way it was left, and it lasts as
-     * long as the pane does: which providers are worth hiding is a question
-     * about this visit to the picker rather than a setting.
-     */
     readonly collapsed?: readonly string[];
-    /**
-     * The pane this one was opened from, absent when a slash command or a
-     * palette row opened it directly. Escape steps back to it rather than
-     * closing the stack, so a wrong turn into a submenu costs one key instead
-     * of reopening `/settings`.
-     */
     readonly parent?: TuiSettingsPickerState;
-    /**
-     * Set only on a level pane opened from the model pane. Its presence is
-     * what tells this pane it is pane two of a chain rather than the
-     * standalone `/effort` picker: Escape steps back to `modelPaneState`
-     * instead of closing, and Enter folds the level into the model
-     * selection instead of returning a bare reasoning selection.
-     */
     readonly pendingModel?: TuiPendingModelChoice;
-    /** Set only on a reviewer pane: which slot the chosen row fills. */
     readonly reviewerSlot?: TuiReviewerSlot;
-    /** Set only on a developer value pane: which override the row writes. */
     readonly developerKey?: TuiDeveloperKey;
-    /** The snapshot a developer pane was built from, so it can rebuild. */
     readonly developerSettings?: DeveloperSettings;
-    /** Set only on an assignment pane: which assignment the chosen row binds. */
     readonly modelAssignment?: ModelAssignmentId;
-    /** Ordered refs already assigned, used by the subagents toggle list. */
     readonly assignedModels?: readonly string[];
     readonly assignmentAllowsSelf?: boolean;
-    /**
-     * Set on the model pane once the user has asked for the folded rows. Like
-     * `collapsed`, it lasts as long as the pane: wanting the whole catalog is
-     * a question about this visit rather than a setting to carry forward.
-     */
     readonly revealAll?: boolean;
-    /**
-     * All models WA Score floor for this visit. Absent means `any`.
-     */
     readonly intelligenceCutoff?: IntelligenceCutoff;
-    /** The file identities behind a configure pane's display rows. */
     readonly configureFiles?: readonly TuiConfigureFile[];
 }
 
@@ -455,11 +279,6 @@ export interface TuiPendingModelChoice {
     readonly provider: string;
     readonly model: string;
     readonly modelPaneState: TuiSettingsPickerState;
-    /**
-     * Set when the chain started on an assignment pane rather than the model
-     * pane, so the folded result binds the assignment instead of changing the
-     * session's own model.
-     */
     readonly assignment?: ModelAssignmentId;
 }
 
@@ -490,7 +309,6 @@ export type TuiSettingsPickerSelection =
         readonly kind: "model";
         readonly provider: string;
         readonly model: string;
-        // Present only when this selection folded in a chained level pane.
         readonly reasoningEffort?: ModelReasoningEffort;
     }
     | {
@@ -516,30 +334,22 @@ export type TuiSettingsPickerSelection =
     | {
         readonly kind: "reviewer";
         readonly slot: TuiReviewerSlot;
-        /** Absent clears the slot. */
         readonly provider?: string;
         readonly model?: string;
     }
-    /** How much of the kept collection the probe sweep should cover. */
     | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean }
-    /** Which providers to ask for their model lists. Empty names them all. */
     | {
         readonly kind: "catalog_refresh_scope";
         readonly providers: readonly string[];
     }
-    /** The Defaults pane was left for the collection defaults are chosen from. */
     | { readonly kind: "model_assignment_browse" }
-    /** A Defaults-tab row was chosen: open the model list for it. */
     | { readonly kind: "model_assignment_open"; readonly assignment: ModelAssignmentId }
     | {
         readonly kind: "model_assignment";
         readonly assignment: ModelAssignmentId;
-        /** Absent unbinds the assignment. */
         readonly provider?: string;
         readonly model?: string;
-        /** Present only when this selection folded in a chained level pane. */
         readonly reasoningEffort?: ModelReasoningEffort;
-        /** The one-key toggle accepts the model/provider default without pinning it. */
         readonly acceptDefaultReasoning?: true;
         readonly remove?: boolean;
         readonly clear?: boolean;
@@ -552,15 +362,12 @@ export interface TuiPoolToggle {
     readonly model: string;
 }
 
-/** The selected pool row, on its way to the name prompt. */
 export interface TuiPoolNameCandidate {
     readonly provider: string;
     readonly model: string;
-    /** The row as it reads now, shown while the name is typed. */
     readonly label: string;
 }
 
-/** The selected pool row, sent off to be probed on the user's say-so. */
 export interface TuiPoolVerify {
     readonly provider: string;
     readonly model: string;
@@ -583,58 +390,23 @@ export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
-    /**
-     * The pane does not edit the pool itself. It reports the intent and waits
-     * for the settings snapshot to come back, so the list the user sees is
-     * always the list the host actually stored.
-     */
     readonly poolToggle?: TuiPoolToggle;
-    /** The caller owns the confirmed change and applies its inverse. */
     readonly undoPoolChange?: boolean;
-    /** Same contract as `poolToggle`: reported, not applied here. */
     readonly poolVerify?: TuiPoolVerify;
-    /** The sweep key was pressed: ask how much of the collection it covers. */
     readonly poolVerifySweep?: boolean;
-    /** Same contract again: the pane asks for the prompt, it does not name. */
     readonly poolName?: TuiPoolNameCandidate;
-    /** The selected model whose profile request body should be edited. */
     readonly requestOptions?: TuiModelRequestOptionsCandidate;
-    /** A reorder of one pool entry, by places, for the client to send on. */
     readonly poolMove?: {
         readonly provider: string;
         readonly model: string;
         readonly delta: number;
     };
-    /**
-     * The model pane asking for the connect pane over it. A request rather than
-     * a state: which providers are connected is a fact about the disk, and only
-     * the caller can read it.
-     */
     readonly openProviders?: boolean;
-    /**
-     * The connect pane asking for a provider's stored credential to be
-     * forgotten. A request rather than a state, for the same reason
-     * `openProviders` is: only the caller can read or write the store.
-     */
     readonly forgetProvider?: string;
-    /**
-     * The connect pane asking for the declaration form over it. A request for
-     * the same reason `forgetProvider` is one: the form ends in a write to
-     * `config.json`, and only the caller touches the disk.
-     */
     readonly declareProvider?: boolean;
-    /**
-     * The provider whose model list should be asked for again now. Named
-     * rather than boolean because the answer is always "the one under the
-     * cursor": on the connect pane that is the row itself, and on a model
-     * list it is the provider the highlighted model belongs to.
-     */
     readonly refreshCatalog?: string;
-    /** Ask which providers to refresh before asking any of them. */
     readonly refreshCatalogScope?: boolean;
-    /** A declared provider whose form should reopen filled in. */
     readonly editProvider?: string;
-    /** A shipped provider whose endpoint the user wants to move. */
     readonly editEndpoint?: string;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
@@ -667,23 +439,15 @@ export type TuiAnySettingsPickerState =
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
-    /**
-     * The tip line drawn above the key hints, or nothing. Set before `update`;
-     * the pane redraws from scratch on every update and reads it then.
-     */
     tip?: string;
-    /** A live model check drawn as an inset console above the footer. */
     verification?: {
         readonly subject: string;
-        /** The checks the engine has reported so far, in arrival order. */
         readonly steps?: readonly {
             readonly label: string;
             readonly status: "running" | "passed" | "failed" | "skipped";
         }[];
     };
-    /** What clicking a tab chip does, in the same terms as the ⇥ key. */
     onTab?: (tab: TuiModelPickerTab) => void;
-    /** Opens provider connection without changing which model tab is active. */
     onConfigure?: () => void;
     focus(): void;
     handleEditorKey(
@@ -694,29 +458,11 @@ export interface TuiSettingsPickerView {
         state: TuiSettingsPickerState,
         text: string,
     ): TuiSettingsPickerTransition;
-    /**
-     * `railInset` is the width, in columns, of a workspace rail the picker is
-     * drawn beside rather than over. Omit or pass 0 when nothing occupies the
-     * card's left edge.
-     */
     update(state: TuiAnySettingsPickerState, railInset?: number): void;
 }
 
-/**
- * The value of the row that opens the declaration form.
- *
- * Prefixed so it cannot collide with a provider id, which is what every other
- * row on this pane carries.
- */
 export const TUI_DECLARE_PROVIDER_VALUE = "action:declare_provider";
 
-/**
- * The pane, remembering where it was opened from.
- *
- * Kept out of the `start*` functions so the parent is one thing set at the one
- * place that knows it, rather than a trailing argument every opener has to
- * thread through whether or not it has one.
- */
 export function withTuiPickerParent(
     state: TuiSettingsPickerState,
     parent: TuiSettingsPickerState | undefined,
@@ -724,16 +470,6 @@ export function withTuiPickerParent(
     return parent === undefined ? state : { ...state, parent };
 }
 
-/**
- * The nearest menu above this pane, and where a finished choice lands.
- *
- * Escape steps back exactly one level, since a wrong turn should cost one key.
- * A completed choice skips further: dropping the user back onto the model pane
- * they just answered, or the level pane that folded into it, re-asks a question
- * they are done with. A menu is the only ancestor still worth returning to,
- * because it was a list of other things to change rather than a step in this
- * one.
- */
 export function tuiPickerMenuAncestor(
     state: TuiSettingsPickerState,
 ): TuiSettingsPickerState | undefined {
@@ -752,27 +488,14 @@ export function tuiPickerMenuAncestor(
     return undefined;
 }
 
-/** The row that empties a reviewer slot rather than choosing a model. */
 export const REVIEWER_CLEAR_VALUE = "\u0000clear";
 
-/**
- * The row that leaves this pane for the collection a default is chosen from.
- *
- * A default can only name a model the user has already kept, so a user whose
- * model is not kept yet finds a list that does not contain it and no reason
- * given. The row says the reason and goes to the place that fixes it.
- */
 export const MODEL_ASSIGNMENT_BROWSE_VALUE = "\u0000browse";
 
 export const MODEL_ASSIGNMENT_SELF_VALUE = "\u0000allow-self";
 
-/**
- * Slot rows share a list with model rows, so their values are namespaced to
- * keep an assignment named like a model from ever being mistaken for one.
- */
 export const MODEL_ASSIGNMENT_VALUE_PREFIX = "\u0000assignment:";
 
-/** The session's own model, which is a row here but is not an assignment. */
 export const SESSION_MODEL_VALUE = "\u0000session-model";
 
 export const MODEL_ACTION_VALUE_PREFIX = "\u0000action:";
@@ -783,16 +506,6 @@ export function tuiModelAssignmentValue(assignment: ModelAssignmentId): string {
     return `${MODEL_ASSIGNMENT_VALUE_PREFIX}${assignment}`;
 }
 
-/**
- * The rows the Actions tab holds, and the same rows a search on any model tab
- * can turn up. Each is a sentence about what will happen, with the chord that
- * also does it on the right, so the pane teaches its own keys instead of
- * relying on a footer that truncates.
- *
- * Only actions that stand on their own are here. A key that acts on whichever
- * model the cursor is over has no meaning as a row, since selecting the row
- * moves the cursor off the model.
- */
 export function tuiModelActionOptions(
     providers: readonly string[],
     options: {
@@ -804,8 +517,6 @@ export function tuiModelActionOptions(
         };
     } = {},
 ): readonly TuiSettingsPickerOption[] {
-    // One row, not one per provider: which providers to ask is the second
-    // question, and asking it here would repeat the same chord down the list.
     const rows: TuiSettingsPickerOption[] = [];
     if (options.currentModel?.shortlisted === false) {
         const current = options.currentModel;
@@ -875,7 +586,6 @@ export function tuiModelActionValue(action: string): string {
     return `${MODEL_ACTION_VALUE_PREFIX}${action}`;
 }
 
-/** The action a row stands for, or undefined when the row is not one. */
 export function tuiModelActionOfValue(value: string): string | undefined {
     return value.startsWith(MODEL_ACTION_VALUE_PREFIX)
         ? value.slice(MODEL_ACTION_VALUE_PREFIX.length)
@@ -888,16 +598,6 @@ export function modelAssignmentOfValue(value: string): ModelAssignmentId | undef
         : undefined;
 }
 
-/**
- * The Defaults tab's rows: the session's own model first, because it is the
- * model most of Vera's work runs on and a tab claiming to show everything that
- * would omit it is lying, then one row per assignment.
- *
- * A row is its name and one status word. Model names, route names and the
- * reason behind either are all longer than half a card, so they live in the
- * block beside the list, which is sized for them: a name cut to "m…" tells the
- * user less than nothing.
- */
 export function tuiModelAssignmentOptions(
     rows: readonly ModelAssignmentRow[],
     sessionModel?: string,
@@ -954,7 +654,6 @@ export function formatContextLimitOption(tokens: number): string {
         : `${Math.round(tokens / 1_024)}k`;
 }
 
-/** The session's model named the same way an assignment's model is. */
 export function sessionRunsFact(
     model: string | undefined,
     reasoningEffort: ModelReasoningEffort | undefined,
@@ -965,11 +664,6 @@ export function sessionRunsFact(
         : `${model} (${reasoningEffort})`;
 }
 
-/**
- * The row's state in one everyday word, which is all the list carries. The
- * vocabulary is closed and short enough to fit the narrowest list: anything
- * that would need a sentence is a sentence, in the block beside the list.
- */
 export function assignmentStatusWord(row: ModelAssignmentRow): string {
     if (row.assignment === "subagents") {
         if (row.declared.length === 0) {
@@ -988,11 +682,8 @@ export function assignmentStatusWord(row: ModelAssignmentRow): string {
         : `uses ${row.inherits}`;
 }
 
-/** What runs the row, with the substitute named when it is not what was set. */
 export function assignmentRunsFact(row: ModelAssignmentRow): string {
     const running = row.models[0];
-    // Nothing bound anywhere still runs: the session's model is the last rung
-    // and there is no rung below it.
     if (running === undefined) {
         return row.assignment === "subagents"
             ? row.allowSelf === true ? "parent model" : "not configured"
@@ -1001,13 +692,11 @@ export function assignmentRunsFact(row: ModelAssignmentRow): string {
     const named = running.reasoning_effort === undefined
         ? running.model
         : `${running.model} (${running.reasoning_effort})`;
-    // What ran is not what this row names, so the row says whose model it is.
     return row.source === "assignment"
         ? named
         : `${named} (via ${row.inherits ?? "this session"})`;
 }
 
-/** The row as a fact block, for the column beside the list. */
 export function assignmentFacts(
     row: ModelAssignmentRow,
 ): readonly (readonly [string, string])[] {
@@ -1025,8 +714,6 @@ export function assignmentFacts(
         ["Runs", assignmentRunsFact(row)],
         ["Set to", setTo],
         ["If unset", ifUnset],
-        // Only where something is set: whether a model the user has not named
-        // is in the pool is not a fact about this row.
         ...(row.bound
             ? [[
                 "Shortlisted",
@@ -1036,10 +723,6 @@ export function assignmentFacts(
     ];
 }
 
-/**
- * The row in full sentences: what this assignment is for, and, when that is
- * not the whole story, what is running it and what to do about it.
- */
 export function assignmentNote(row: ModelAssignmentRow): string {
     const purpose = `${row.label}: ${row.intent}.`;
     if (!row.bound) {
@@ -1059,25 +742,12 @@ export function assignmentNote(row: ModelAssignmentRow): string {
         + ` Add that model to your shortlist, or point ${row.label} at one that is.`;
 }
 
-/**
- * The models offered for one assignment, which is the pool and nothing else. An
- * binds only what can run, and reachability is pool membership, so offering a
- * assignment set from outside it would read back as
- * unreachable the moment it is written. Widening the choice means adding to
- * the pool first.
- */
-/** The two answers to "how much of it", which is the only question a sweep has. */
 export const POOL_VERIFY_UNVERIFIED_VALUE = "unverified";
 
 export const POOL_VERIFY_ALL_VALUE = "all";
 
-/** The one row that stands for every provider at once. */
 export const CATALOG_REFRESH_ALL_VALUE = "\u0000all";
 
-/**
- * Three significant figures at most, so the column stays the same width from
- * a fresh session to a long one and the unit carries the magnitude.
- */
 export function formatSessionSize(bytes: number): string {
     if (bytes < 1_000) {
         return `${bytes}B`;
@@ -1088,5 +758,4 @@ export function formatSessionSize(bytes: number): string {
     return `${(bytes / 1_000_000).toFixed(1)}M`;
 }
 
-/** The heading the recommended models are listed under. */
 export const TUI_TOP_PICKS_SECTION = "Top picks";

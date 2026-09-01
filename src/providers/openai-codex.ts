@@ -45,7 +45,6 @@ export interface OpenAICodexAdapterOptions extends OpenAICodexAuthorizationOptio
 export class OpenAICodexAdapter implements ModelAdapter {
     readonly supportsImageInput = true;
     private readonly sendResponse: SendOpenAICodexResponse;
-    /** Where the model catalog is read from, so a test can name its own. */
     private readonly catalogCacheDir: string | undefined;
 
     constructor(sendResponse: SendOpenAICodexResponse, cacheDir?: string) {
@@ -90,8 +89,6 @@ export class OpenAICodexAdapter implements ModelAdapter {
             }
             const providerRequest: OpenAICodexRequest = {
                 model: request.model,
-                // request.maxTokens is dropped rather than sent: this backend
-                // answers a request carrying an output cap with a 400.
                 instructions: request.systemPrompt ?? "",
                 input: encodeOpenAICodexInput(messages, request.model),
                 tools: encodeOpenAICodexTools(request.tools ?? []),
@@ -323,16 +320,6 @@ function toError(value: unknown): Error {
     return value instanceof Error ? value : new Error(String(value));
 }
 
-/**
- * The model's own reasoning levels, from the catalog Vera already publishes
- * from the Codex cache.
- *
- * `resolveReasoningSelection` takes a level list from its caller and returns no
- * provider effort without one, so a request made without this carries no
- * `effort` at all: the level the user picked is accepted, displayed, and never
- * sent. A model the catalog has not heard of still yields nothing, which is the
- * honest answer rather than a guessed ladder.
- */
 function codexReasoningLevels(
     model: string,
     cacheDir: string | undefined,

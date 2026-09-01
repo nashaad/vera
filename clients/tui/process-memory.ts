@@ -1,10 +1,8 @@
-/** Resident memory for a process, sampled from the operating system. */
 export interface ProcessMemorySample {
     readonly pid: number;
     readonly rssBytes: number;
 }
 
-/** Parse the portable `ps -o pid=,rss=` shape. RSS is reported in KiB. */
 export function parseProcessMemory(source: string): ProcessMemorySample[] {
     return source.split("\n").flatMap((line) => {
         const match = line.match(/^\s*(\d+)\s+(\d+)\s*$/);
@@ -16,12 +14,6 @@ export function parseProcessMemory(source: string): ProcessMemorySample[] {
     });
 }
 
-/**
- * Read several process sizes in one bounded OS query.
- *
- * This is diagnostic-only. A process that exits during the sample is simply
- * absent, and a failed probe never affects the client or its session.
- */
 export async function readProcessMemory(
     pids: readonly number[],
 ): Promise<ReadonlyMap<number, number>> {

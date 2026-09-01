@@ -1,16 +1,3 @@
-/**
- * Where tip history lives: `~/.vera/tips.json`.
- *
- * Two fields, both counters. `launches` increments once per TUI start and is
- * the clock every cooldown is measured against, so a cooldown of five means
- * five starts rather than five minutes: a long-lived session does not
- * re-earn a tip by staying open, and a user who opens Vera twice a day does
- * not see the same line twice a day.
- *
- * A missing or unreadable file reads as an empty history. Tips are a
- * convenience, so nothing here may fail a start, and every write is
- * best-effort for the same reason.
- */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -57,7 +44,6 @@ export function loadTuiTipState(
     return { launches, history };
 }
 
-/** The state for this run, with the launch counter already advanced. */
 export function beginTuiTipLaunch(
     path: string = defaultTuiTipsPath(),
 ): TuiTipState {
@@ -76,13 +62,9 @@ export function saveTuiTipState(
 ): void {
     try {
         mkdirSync(dirname(path), { recursive: true });
-        // Written beside the target and moved into place: a start that dies
-        // mid-write leaves the previous history rather than a truncated file
-        // that would read as no history at all.
         const temporary = `${path}.${process.pid}.tmp`;
         writeFileSync(temporary, `${JSON.stringify(state, null, 4)}\n`, "utf8");
         renameSync(temporary, path);
     } catch {
-        // History is an optimization. Losing it costs a repeated tip.
     }
 }

@@ -280,17 +280,6 @@ export async function removePublishedBranchAttachments(
     await rmdir(publication.path).catch(() => {});
 }
 
-/**
- * Drops a reasoning effort the provider cannot be asked for on this model.
- *
- * `updateModelSettings` already refuses an unsupported combination, but config
- * defaults and settings stored by an older build reach an agent without
- * passing through it. Without this the combination would survive to the
- * adapter and fail the first turn, which is a worse answer than starting with
- * the dial off. `reasoningEffortForModel` is deliberately looser than the
- * picker's menu: config is not a menu choice, so it keeps anything the adapter
- * can still resolve.
- */
 export function supportedModelSettings(
     settings: ModelTurnSettings,
     catalog: EffectiveCatalogOptions = {},
@@ -308,11 +297,6 @@ export function supportedModelSettings(
     return supported;
 }
 
-/**
- * The levels are resolved here rather than where the runnable list is built,
- * so every client sees the catalog as it is now, and a client can show the
- * levels of a model the user is only looking at.
- */
 export function settingsForClient(
     settings: ModelTurnSettings,
     provider: string,
@@ -342,16 +326,7 @@ export function settingsForClient(
         pooled,
         catalog,
     );
-    // A running session's stored effort can outlive discovery deciding the
-    // model has no levels at all; serving it anyway shows a dial the model
-    // cannot have. Same emptiness rule as `reasoningEffortForModel`.
     const { reasoningEffort, ...rest } = settings;
-    // The picker and the check a settings change goes through read one
-    // admission rule, so a level cannot be dropped from one and kept by the
-    // other. A pool entry's own list is already narrowed, so this is a no-op
-    // there and only bites the catalog fallback. The stored level rides along
-    // in the same read: it is served when admission has not refused it, which
-    // includes a level config set that was never published.
     const asked = reasoningEffort !== undefined
             && !efforts.includes(reasoningEffort)
         ? [...efforts, reasoningEffort]
@@ -374,9 +349,6 @@ export function settingsForClient(
     return {
         ...rest,
         ...(served ? { reasoningEffort } : {}),
-        // Only alongside a level that is actually served, and only while the
-        // two still disagree: on its own it would name a level nothing is
-        // running at.
         ...(served
                 && requestedReasoningEffort !== undefined
                 && requestedReasoningEffort !== reasoningEffort
@@ -414,12 +386,6 @@ export function settingsForClient(
     };
 }
 
-/**
- * The reviewer route as the client sees it. The first entry is the reviewer
- * auto mode oneshots; a second is the failsafe, tried only when the first
- * cannot answer. No configured reviewer means auto mode reviews on the
- * agent's own model, which is `agent` rather than an empty selection.
- */
 export function reviewerDefaultOf(
     settings: ToolReviewerSettings | undefined,
 ): ReviewerModelDefault {
@@ -435,10 +401,6 @@ export function reviewerDefaultOf(
     };
 }
 
-/**
- * A oneshot carries plain text in both directions, so the peer turns it
- * replays are reconstructed rather than taken from a transcript.
- */
 export function oneshotModelMessage(message: OneshotMessage): ModelMessage {
     const content = [{ type: "text" as const, text: message.content }];
     if (message.role === "user") {
@@ -453,7 +415,6 @@ export function oneshotModelMessage(message: OneshotMessage): ModelMessage {
     };
 }
 
-/** Set to `0` to run each session's turn loop in the host process. */
 export const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
 
 export function cancelledSubagentConfiguration(): SpawnModelResolution {
@@ -495,12 +456,6 @@ export function subagentResolutionLabel(
         : `${model} (${resolution.reasoningEffort})`;
 }
 
-/**
- * One reading of everything the owner may change while a turn is running.
- *
- * Taken at spawn and again after every host-side change, because a worker
- * answers each read from its last copy rather than calling back.
- */
 export function loopStateOf(services: RunHeadlessLoopServices): LoopState {
     const compaction = loopCompactionState(services.compaction?.diagnostics);
     return {
@@ -524,7 +479,6 @@ export function loopStateOf(services: RunHeadlessLoopServices): LoopState {
     };
 }
 
-/** A delegated session can narrow with current policy, never widen past birth. */
 export function delegatedSubagentPolicy(
     current: SubagentPoolPolicy,
     delegation: SessionDelegation | undefined,
@@ -536,9 +490,6 @@ export function delegatedSubagentPolicy(
         ...current,
         assigned: (current.assigned ?? []).filter((entry) =>
             boundary.has(`${entry.provider ?? ""}/${entry.model}`)),
-        // The persisted parent pair is already represented in `models`.
-        // Recomputing self from a resumed child's current parent would mint a
-        // new candidate that was never authorized at this child's spawn.
         allowSelf: false,
     };
 }
@@ -554,18 +505,6 @@ export function delegationAllows(
         && providerKey(allowed.provider) === providerKey(settings.provider));
 }
 
-/**
- * Commands the host answers itself while the loop runs in a worker.
- *
- * Each one reads or writes state this process owns outright: the catalog, the
- * pool, the roster, the session header, oneshots, and the dials. The loop keeps
- * no copy it could answer from, and every dial change is pushed into the worker
- * as a new `LoopState` before the next read.
- *
- * Wear is not here on purpose. It is queued FIFO with the prompts, so the loop
- * decides when it takes effect; the worker keeps it and asks the host for the
- * agent over the boundary.
- */
 export const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "get_model_settings",
     "get_session_model_settings_history",
@@ -587,13 +526,6 @@ export const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "remove_permission_preference",
 ]);
 
-/**
- * Measured on 2026-08-22: a worker is about 280 MB resident and its
- * supervisor about 27 MB, nearly all of it runtime rather than session state.
- * The default cap spends about a quarter of the machine on isolated sessions
- * and is clamped so a small machine keeps a usable number and a large one does
- * not spawn without bound.
- */
 export const WORKER_FOOTPRINT_BYTES = 320 * 1024 * 1024;
 
 export const MIN_WORKER_CAP = 2;
@@ -621,11 +553,6 @@ export class WorkerCapReachedError extends Error {
     }
 }
 
-/**
- * The session file as a worker is given it: the header verbatim, then every
- * record after it in file order. The worker folds a projection out of these
- * and never opens the file itself.
- */
 export async function readSessionSeed(path: string): Promise<WorkerSessionSeed> {
     const lines = (await Bun.file(path).text())
         .split("\n")

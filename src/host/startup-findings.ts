@@ -1,7 +1,6 @@
 import type { PromptContribution } from "../engine/prompt-contributions.ts";
 import { redactSecretShapedText } from "../extensions/literal-secret.ts";
 
-/** Beyond this the note is more noise than help. */
 const MAX_FINDINGS = 32;
 
 export interface StartupFinding {
@@ -9,11 +8,6 @@ export interface StartupFinding {
     readonly detail: string;
 }
 
-/**
- * What extension startup found, held for the sessions that come after it.
- * Startup happens before any session exists, so without this the findings
- * reach only `host.jsonl`, where nothing acts on them.
- */
 export class StartupFindings {
     private readonly findings: StartupFinding[] = [];
     private truncated = 0;
@@ -60,7 +54,6 @@ export function renderStartupFindings(
     return lines.join("\n");
 }
 
-/** How a literal credential in extension config reads in the note. */
 export function literalSecretDetail(
     configPath: string,
     prefix: string,

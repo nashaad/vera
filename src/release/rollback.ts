@@ -23,11 +23,6 @@ export interface RolledBackRelease {
     readonly releaseRoot: string;
 }
 
-/**
- * Point `current` at the pinned known-good release. Same atomic symlink
- * swap as activation. Does not pack, does not talk to Git, and does not
- * use the network.
- */
 export function rollbackLocalInstall(
     prefix = defaultInstallPrefix(),
 ): RolledBackRelease {

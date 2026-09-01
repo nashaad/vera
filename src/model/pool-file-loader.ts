@@ -1,14 +1,3 @@
-/**
- * Reads the declarative pool file at both scopes and merges them.
- *
- * Merging is per field, not per document: a project file that names only
- * `deny` leaves the user's `subagent` and `allow` intact. Replacing a whole
- * section would make a project file that tightens one rule silently discard
- * every unrelated user setting.
- *
- * A missing file is not an error. An unreadable or malformed file yields an
- * empty contribution plus issues, so one broken scope never erases the other.
- */
 
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,21 +30,11 @@ export interface LoadedPoolFile {
 }
 
 export interface LoadPoolFileOptions {
-    /** Overrides `~/.vera/pool.json`. */
     readonly userPath?: string;
-    /** Overrides `<projectRoot>/.vera/pool.json`. */
     readonly projectPath?: string;
-    /** Directory the project-scope file is looked for in. */
     readonly projectRoot?: string;
 }
 
-/**
- * One line per issue, for a client to show at startup.
- *
- * Non-blocking on purpose: a pool file with a bad entry still yields a pool,
- * and the alternative to saying so is a setting the user wrote and Vera never
- * applied. The scope is named because the same path can appear in two files.
- */
 export function poolFileIssueNotices(
     issues: readonly ScopedPoolIssue[],
 ): readonly string[] {
@@ -69,12 +48,7 @@ export function poolFileIssueNotices(
     });
 }
 
-/**
- * A test run gets a scratch file per process instead of the developer's own
- * pool. A test that resolves this path without meaning to would otherwise
- * write entries into that pool for the developer to find and delete by hand.
- * `VERA_POOL_FILE` points the path somewhere chosen, test run or not.
- */
+/** A test run gets a scratch file per process instead of the developer's own pool. A test that resolves this path without meaning to would otherwise write entries into that pool. */
 export function userPoolFilePath(): string {
     const override = process.env.VERA_POOL_FILE;
     if (override !== undefined && override.length > 0) {
@@ -110,7 +84,6 @@ export function loadPoolFile(
     return { merged: mergePoolFiles(user, project), user, project, issues };
 }
 
-/** `over` wins field by field; anything it omits keeps `under`'s value. */
 export function mergePoolFiles(under: PoolFile, over: PoolFile): PoolFile {
     const models: Record<string, PoolFileModel> = { ...under.models };
     for (const [id, entry] of Object.entries(over.models)) {
@@ -136,11 +109,6 @@ function mergeDefaults(
     };
 }
 
-/**
- * Effort and learned maps merge key by key so a project file can forbid one
- * level without redeclaring the rest of the ladder. `fallback` is a single
- * ordered decision, so the project list replaces the user's outright.
- */
 function mergeModel(
     under: PoolFileModel,
     over: PoolFileModel,

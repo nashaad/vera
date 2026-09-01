@@ -63,19 +63,11 @@ export class TuiComposer extends TextareaRenderable {
     private imageChipStyleId?: number;
     private imageChipTypeId?: number;
     onImagePathPaste?: (path: string) => void;
-    /** Typed edits may grow the shared composer; paste deliberately may not. */
     onTypedRowsChange?: (rows: number) => void;
-    /** A chip the user deleted, so its attachment can be dropped too. */
     onImageChipRemoved?: (requestId: string) => void;
     /** Called before OpenTUI's word-delete binding handles Command-Delete. */
     onCommandDelete?: () => boolean;
 
-    /**
-     * Show an attached image as an atomic `[Image N]` chip at the cursor.
-     *
-     * The chip is a virtual extmark, so the cursor steps over it and one
-     * backspace takes the whole marker rather than a character of it.
-     */
     attachImageChip(requestId: string): void {
         this.ensureImageChipStyle();
         const marker = imageChipMarker(this.imageChips.length + 1);
@@ -93,12 +85,10 @@ export class TuiComposer extends TextareaRenderable {
         this.syncImageChips();
     }
 
-    /** The attach requests still shown in the composer, in document order. */
     imageChipRequestIds(): readonly string[] {
         return this.imageChips.map((chip) => chip.requestId);
     }
 
-    /** Drop a chip the engine refused, without reporting it as user removal. */
     removeImageChip(requestId: string): void {
         if (!this.imageChipExtmarks.has(requestId)) return;
         this.rebuildTrackedMarkers(requestId);
@@ -185,12 +175,6 @@ export class TuiComposer extends TextareaRenderable {
         ));
     }
 
-    /**
-     * Reconcile the chips with the extmarks that survived the last edit.
-     *
-     * Deleting inside a virtual extmark removes the whole extmark, so an
-     * extmark that is gone is a chip the user deleted.
-     */
     private syncImageChips(): void {
         this.syncCollapsedPastes();
         if (this.imageChips.length === 0) return;
@@ -275,7 +259,6 @@ export class TuiComposer extends TextareaRenderable {
         ].toSorted((left, right) => left.start - right.start);
     }
 
-    /** Rebuild marker text from extmark identity, never from a text search. */
     private rebuildTrackedMarkers(omitImageRequestId?: string): void {
         const cursor = this.cursorOffset;
         const original = this.plainText;
@@ -413,12 +396,6 @@ export class TuiComposer extends TextareaRenderable {
         this.collapsedPasteExtmarks.set(id, extmarkId);
     }
 
-    /**
-     * The prompt to submit.
-     *
-     * Image chips are removed: the attachments travel as IDs alongside the
-     * prompt, so leaving `[Image 1]` in the text would only label them twice.
-     */
     expandedText(): string {
         this.syncImageChips();
         let expanded = this.plainText;
@@ -451,11 +428,6 @@ export class TuiComposer extends TextareaRenderable {
         this.setComposerText("");
     }
 
-    /**
-     * Insert extension-produced text as an ordinary edit. Unlike setComposerText,
-     * this respects the cursor or selection and keeps image chips and collapsed
-     * paste state intact.
-     */
     insertComposerText(text: string): void {
         this.submittedTextIndex = undefined;
         this.insertText(normalizeLineEndings(text));
@@ -484,15 +456,12 @@ export class TuiComposer extends TextareaRenderable {
         this.imageChipExtmarks.clear();
         this.extmarks.clear();
         this.setText(text);
-        // OpenTUI resets the editor cursor to offset 0 after setText(). Keep
-        // completion and picker-driven text edits natural by placing it at
-        // the end of the inserted value.
+        // OpenTUI resets the editor cursor to offset 0 after setText(). Keep completion and picker-driven text edits natural by placing it at the end of the inserted value.
         this.cursorOffset = text.length;
         this.onTypedRowsChange?.(TUI_COMPOSER_MIN_TEXT_ROWS);
     }
 }
 
-/** What the composer says when the agent is the recipient. */
 export const COMPOSER_PLACEHOLDER = "Message Vera\u2026";
 
 export function createTuiComposer(
@@ -517,8 +486,6 @@ export function createTuiComposer(
             { name: "return", shift: true, action: "newline" },
             { name: "enter", shift: true, action: "newline" },
             { name: "kpenter", shift: true, action: "newline" },
-            // Terminals outside the kitty protocol cannot encode shift+enter
-            // and send ESC CR instead (option+enter, or a shift+enter remap).
             { name: "return", meta: true, action: "newline" },
             { name: "enter", meta: true, action: "newline" },
             { name: "kpenter", meta: true, action: "newline" },
@@ -529,12 +496,6 @@ export function createTuiComposer(
     return composer;
 }
 
-/**
- * How tall the composer panel is: three rows of text, a rule, and the row of
- * session state that sits inside the frame. Anything that reserves room for
- * the composer measures from this rather than from a number of its own, which
- * is free to disagree with it.
- */
 export const TUI_COMPOSER_PANEL_ROWS = tuiComposerPanelRows(
     TUI_COMPOSER_MIN_TEXT_ROWS,
 );
@@ -545,14 +506,8 @@ export function tuiComposerPanelRows(textRows: number): number {
 
 export interface TuiComposerPanel {
     readonly panel: BoxRenderable;
-    /** The row inside the frame, written by whoever owns the status line. */
     readonly status: TextRenderable;
-    /** The line between the text and that row, repainted with the theme. */
     readonly rule: BoxRenderable;
-    /**
-     * Muted usage ghost after a finished slash name and a space. Not buffer
-     * text: submitting `/context ` still runs `/context`.
-     */
     readonly argumentHint: TextRenderable;
 }
 
@@ -574,26 +529,16 @@ export function createTuiComposerPanel(
         borderStyle: "rounded",
         borderColor: boundaryColor,
         focusedBorderColor: boundaryColor,
-        // The same ground the theme change paints, so the frame looks the
-        // same at startup as after the first theme apply.
         backgroundColor: TUI_INPUT,
         height: TUI_COMPOSER_PANEL_ROWS,
         paddingLeft: appearance.paddingHorizontal ?? 1,
         paddingRight: appearance.paddingHorizontal ?? 1,
-        // Indented to where the lines under it start, so the frame and what it
-        // says about the session read as one column.
         marginLeft: appearance.marginHorizontal ?? 2,
         marginRight: appearance.marginHorizontal ?? 2,
-        // Reserve the rows under the frame; whoever draws them sizes this to
-        // what they actually take.
         marginBottom: 2,
         flexDirection: "column",
-        // OpenCode focuses its textarea from mouse-down. Vera extends that
-        // mechanic to the padded panel because the whole panel reads as input.
         onMouseDown: () => composer.focus(),
     });
-    // A bordered box rather than a row of glyphs: the rule then spans the
-    // panel at whatever width it is drawn, with nothing to recompute.
     const rule = new BoxRenderable(renderer, {
         id: "composer-rule",
         border: ["top"],

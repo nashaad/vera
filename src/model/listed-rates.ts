@@ -1,9 +1,5 @@
 import type { ModelPricing } from "./catalog-shape.ts";
 
-/**
- * OpenRouter listed in/out as `3/15`, with no dollar sign. Absent pricing is
- * a blank cell, never a guessed free model.
- */
 export function formatListedRates(
     pricing: ModelPricing | undefined,
 ): string | undefined {
@@ -13,11 +9,6 @@ export function formatListedRates(
     return `${formatListedRate(pricing.input)}/${formatListedRate(pricing.output)}`;
 }
 
-/**
- * AA-style blend of listed cache-hit, input, and output at 7:2:1, USD per
- * million, no dollar sign. A missing cache-hit rate uses the listed input
- * rate (no discount), not a guessed cache price from another board.
- */
 export function formatBlendedRate(
     pricing: ModelPricing | undefined,
 ): string | undefined {

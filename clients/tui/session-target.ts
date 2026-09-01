@@ -21,7 +21,6 @@ export interface ContinueTuiTarget {
     readonly type: "continue";
 }
 
-/** No conversation at all: the home card, until the user picks something. */
 export interface HomeTuiTarget {
     readonly type: "home";
     readonly workspace: string;

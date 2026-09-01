@@ -36,7 +36,6 @@ export function applyModelRequestOptions(
     );
 }
 
-/** A fixed config snapshot for one bounded operation such as model admission. */
 export function createRequestOptionsSnapshotAdapter(
     createAdapter: (provider: string) => ModelAdapter,
     defaultProvider: string,
@@ -76,17 +75,8 @@ export function mergeModelRequestBody(
     };
 }
 
-/**
- * How this adapter's cached client can be told apart from one built against
- * a different identity. Absent when the provider has none to speak of.
- */
 export type CredentialFingerprint = (provider: string) => string | undefined;
 
-/**
- * The cache identity for a provider's client: credentials plus the live
- * declaration. A custom endpoint's URL can change with no credential at all,
- * and a credential-only key would keep spending the old host.
- */
 export function adapterCacheFingerprint(
     config: Pick<VeraConfig, "providers" | "provider_endpoints">,
     credential: string | undefined,
@@ -126,15 +116,6 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         Map<string, Promise<ModelRequest>>
     >();
 
-    /**
-     * Every client is built on demand, including the default provider's.
-     *
-     * Building it up front meant a configured provider with no credential threw
-     * while the agent was being created, so Vera could not start at all: no
-     * agent, no TUI, and the connect pane that fixes it lives inside the TUI.
-     * Deferred, the same failure arrives on the first turn instead, where it can
-     * be read and acted on.
-     */
     constructor(
         private readonly createAdapter: (provider: string) => ModelAdapter,
         private readonly defaultProvider: string,
@@ -142,15 +123,6 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         private readonly prepareRequest?: PrepareModelRequest,
     ) {}
 
-    /**
-     * A client that cannot be built is a failed turn, not a failed agent.
-     *
-     * Building one is where a missing credential is noticed, and the adapter
-     * contract already says provider failures belong in the stream's terminal
-     * error event. Throwing out of here instead would take the whole agent down
-     * on the first prompt, which is the opposite of being able to connect a
-     * provider and carry on.
-     */
     stream(request: ModelRequest): ModelStream {
         const provider = request.provider ?? this.defaultProvider;
         if (this.prepareRequest !== undefined) {
@@ -205,12 +177,6 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         }
     }
 
-    /**
-     * Recovery retries the same request object. Retaining its prepared value
-     * makes one logical request a snapshot even when the profile changes while
-     * the provider is backing off. A fallback builds a new request object (and
-     * may select another model), so it receives that model's current options.
-     */
     private preparedRequest(
         request: ModelRequest,
         provider: string,
@@ -234,9 +200,6 @@ export class ProviderRoutingAdapter implements ModelAdapter {
             const perModel = adapter.imageInputSupport?.(model);
             return perModel ?? adapter.supportsImageInput !== false;
         } catch {
-            // Unknown rather than unsupported: the turn should reach the stream
-            // and fail there, with the reason, instead of being turned away
-            // here with a message about images.
             return true;
         }
     }
@@ -245,16 +208,7 @@ export class ProviderRoutingAdapter implements ModelAdapter {
         this.adapter(provider);
     }
 
-    /**
-     * The cached client for a provider, rebuilt when its identity changed.
-     *
-     * A client captures the credential and the declaration it was built with,
-     * so signing in again, moving a custom URL, or deleting the provider while
-     * an agent is running would otherwise keep spending the old client until
-     * the host restarted, with nothing on screen to explain it. Checking on
-     * the way past makes that impossible rather than making it somebody's job
-     * to remember.
-     */
+    /** The cached client for a provider, rebuilt when its identity changed. A client captures the credential and the declaration it was built with, so signing in again, moving a. */
     private adapter(provider: string): ModelAdapter {
         const fingerprint = this.fingerprint?.(provider);
         const cached = this.adapters.get(provider);
@@ -267,7 +221,6 @@ export class ProviderRoutingAdapter implements ModelAdapter {
     }
 }
 
-/** A stream that carries one failure, in the shape the engine already handles. */
 function failedStream(error: Error): ModelStream {
     const message: AssistantMessage = {
         role: "assistant",
@@ -275,8 +228,6 @@ function failedStream(error: Error): ModelStream {
         source: { provider: "unavailable", api: "none", model: "none" },
         usage: emptyUsage(),
         stopReason: "error",
-        // The turn's terminal detail, which is how the reason reaches the
-        // client: without it the turn ends as a bare "error".
         errorMessage: error.message,
     };
     const event: ModelStreamEvent = { type: "error", error, message };

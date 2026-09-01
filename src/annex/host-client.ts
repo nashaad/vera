@@ -4,11 +4,6 @@ export type AnnexUrlResult =
     | { readonly url: string }
     | { readonly unavailable: string };
 
-/**
- * The annex base URL. One request, one answer, connection closed. That close
- * is the helper finishing, not a lost host. Routes are the annex's business;
- * this call does not name them.
- */
 export async function readAnnexUrlThroughHost(
     socketPath: string,
     responseTimeoutMs = 2_000,

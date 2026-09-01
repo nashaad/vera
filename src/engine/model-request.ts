@@ -33,7 +33,6 @@ export interface ModelRequestSnapshot {
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
-    /** The worn agent's instructions, which live in the stable prefix. */
     readonly agentInstructions?: string;
     readonly signal: AbortSignal;
 }
@@ -127,11 +126,6 @@ export function projectModelRequest(
     });
 }
 
-/**
- * Terminal failures stay in the durable transcript, but a provider cannot be
- * given an assistant message with no content. Replaying one poisons every
- * later request in the session even though the user can otherwise continue.
- */
 function isReplayableModelMessage(message: ModelMessage): boolean {
     if (message.role !== "assistant") {
         return true;

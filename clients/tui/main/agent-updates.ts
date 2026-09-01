@@ -14,9 +14,6 @@ import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
-    // The session this pump belongs to. A switch bumps the counter, and the
-    // await below can still resolve afterwards with an update from the
-    // session the user just left.
     const generation = rt.clientGeneration;
     const source = rt.client;
     try {
@@ -159,9 +156,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                             >= rt.transcript.scrollHeight
                                 - rt.transcript.viewport.height;
                     }
-                    // Requests must reveal the pane that owns them. A
-                    // hidden question otherwise disables composer UI while
-                    // looking like neither agent needs an answer.
                     if (!(
                         isConfigurationRequiredUiRequestUpdate(update)
                         && rt.activeConfigurationRequest !== undefined
@@ -321,10 +315,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 update.type === "compaction"
                 && update.phase === "finished"
                 && update.outcome !== "busy"
-                // The turn that took this compaction down with it is still
-                // unwinding, and it is the one the user asked to stop.
-                // Clearing here drops the stop indicator while the thing
-                // being stopped is still running.
                 && update.stoppedWithTurn !== true
             ) {
                 rt.abortRequested = false;
@@ -426,9 +416,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 update.type === "model_settings"
                 && rt.settingsPicker?.kind === "model"
             ) {
-                // The same route the permissions list takes below: the
-                // open pane is rebuilt from the snapshot the host sent,
-                // never from a local guess about what the edit did.
                 const pickerSettings = modelSettingsForOpenPicker(rt, 
                     rt.state.modelSettings,
                 );
@@ -456,7 +443,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     update.type === "model_settings",
                 )
             ) {
-                // The sweep owns its own reporting.
             } else if (
                 (update.type === "model_settings"
                     || update.type === "model_settings_rejected")
@@ -465,9 +451,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 const provider = rt.catalogRefreshes.get(update.requestId)!;
                 rt.catalogRefreshes.delete(update.requestId);
                 if (update.type === "model_settings_rejected") {
-                    // The remembered list is still in place: a provider
-                    // that could not be asked is not a provider whose
-                    // models went away.
                     showStatusNotice(rt, 
                         `could not ask ${provider}, its saved list stands`,
                     );
@@ -482,18 +465,12 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 update.type === "model_settings"
                 && rt.settingsPicker?.kind === "reviewer_settings"
             ) {
-                // Same rule: the rows read the host's snapshot, not a
-                // local guess about what the choice did.
                 rt.settingsPicker = withTuiPickerParent(
                     startTuiReviewerMenu(rt.state.modelSettings?.reviewerDefault),
                     rt.settingsPicker.parent,
                 );
             }
             if (update.type === "permissions" && rt.preferencesList !== undefined) {
-                // How a removal becomes visible: the engine answers with a
-                // full refreshed inspection rather than an acknowledgement,
-                // so the list is never rebuilt from a local guess about
-                // what the removal did.
                 rt.preferencesList = syncTuiPreferencesList(
                     rt.preferencesList,
                     rt.state.permissionInspection,
@@ -503,9 +480,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 rt.requestedPermissionChanges.delete(update.requestId);
             }
             if (update.type === "permissions_rejected") {
-                // A mode change and a preferences-list removal share this
-                // update, so the request decides which one is being
-                // reported rather than whichever pane happens to be open.
                 const subject = rt.requestedPermissionChanges.get(
                     update.requestId,
                 );
@@ -532,19 +506,11 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 if (userTexts[0] !== undefined) {
                     adoptFallbackSessionTitle(rt, userTexts[0]);
                 }
-                // Clearing here would leave the transcript with no entry
-                // nodes for any frame that paints before the rebuilding
-                // render pass runs, and a rebuilt markdown row paints
-                // empty until its first layout.
                 rt.pendingTranscriptReseed = true;
                 rt.transcriptSeeded = true;
                 for (const notice of rt.deferredKeymapNotices.splice(0)) {
                     rt.state = appendTuiNotice(rt.state, notice);
                 }
-                // An attach delivers empty rebuilds before the real one;
-                // placing the end copy on one of those stacks it against
-                // the arrival copy at the top instead of after the
-                // transcript.
                 if (
                     rt.pendingBackNotice !== undefined
                     && update.entries.length > 0
@@ -566,8 +532,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 rt.abortRequested = false;
             }
             if (update.type === "user_prompt") {
-                // user_prompt is turn_started. A follow-up that opened is
-                // a new abort target, not the stop still in flight.
                 rt.abortRequested = false;
             }
             if (
@@ -598,8 +562,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     rt.activity = "ready";
                 }
             }
-            // State is applied per update above; the repaint is what
-            // coalesces, so a burst of deltas paints once a frame.
             rt.renderCoalescer.request(update.type);
 
             if (update.type === "agent_failed") {
@@ -609,9 +571,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     new Error(update.detail),
                 );
                 focusActiveSurface(rt);
-                // The agent stream is terminal, but the attachment also
-                // carries host lifecycle. Keep listening so `host stop`
-                // becomes the ordinary recoverable disconnected state.
                 continue;
             }
 
@@ -624,8 +583,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             }
         }
     } catch (error) {
-        // A pump left behind by a switch fails on its closed connection.
-        // That is the switch working, not the new session losing its host.
         if (generation === rt.clientGeneration) {
             failPendingSkillInvocations(rt);
             rejectPendingExtensionSettingsFor(rt, rt.client, error);

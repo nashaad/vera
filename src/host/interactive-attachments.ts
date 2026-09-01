@@ -1,5 +1,4 @@
 export interface InteractiveAttachmentLease {
-    /** Release exactly once and return the distinct clients still on this agent. */
     release(): number;
 }
 
@@ -8,7 +7,6 @@ export interface StopIfLastDecision {
     readonly rootsToStop: readonly string[];
 }
 
-/** Host-owned client identities used to make stop-if-last one decision. */
 export class InteractiveAttachmentRegistry {
     private readonly agents = new Map<string, Map<string, number>>();
     private readonly pendingStopRoots = new Set<string>();
@@ -34,7 +32,6 @@ export class InteractiveAttachmentRegistry {
         };
     }
 
-    /** Count distinct clients across a tree, optionally ignoring its owner. */
     clientCount(
         agentIds: readonly string[],
         excludingClientId?: string,

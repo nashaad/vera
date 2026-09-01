@@ -106,6 +106,5 @@ function append(path: string, entry: Record<string, unknown>): void {
             ...entry,
         })}\n`, { encoding: "utf8", mode: 0o600 });
     } catch {
-        // The observer has nowhere else safe to report a failed diagnostic write.
     }
 }

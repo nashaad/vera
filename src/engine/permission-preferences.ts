@@ -1,16 +1,3 @@
-/**
- * Preferences are a third, durable persistence tier for permission
- * decisions, distinct from in-memory session grants
- * (`permission-grants.ts`). A preference shares the grant's predicate shape
- * and the same safety rail — it can only lower a matching `ask`/`review` to
- * `allow`, never override a `deny` or the accident guard — but it survives
- * across sessions because it is stored on disk at `~/.vera/preferences.json`
- * rather than in a session's event log.
- *
- * Preferences are additive on top of whichever policy is active; they are
- * not a policy/profile of their own, so a user never has to author a
- * profile just to persist one allow decision.
- */
 
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -48,13 +35,6 @@ export function isPermissionPreference(
         && isPermissionPredicate(value.when);
 }
 
-/**
- * Reads every preference from disk. A missing file reads as no preferences;
- * a present-but-unparseable file also reads as no preferences rather than
- * failing startup, since a preferences file is an optional convenience, not
- * something Vera depends on to run. Malformed individual entries are
- * dropped rather than rejecting the whole file.
- */
 export async function loadPermissionPreferences(
     path: string = defaultPermissionPreferencesPath(),
 ): Promise<readonly PermissionPreference[]> {
@@ -102,7 +82,6 @@ export async function listPermissionPreferences(
     return loadPermissionPreferences(path);
 }
 
-/** Returns `true` if a preference with that ID was removed. */
 export async function removePermissionPreference(
     id: string,
     path: string = defaultPermissionPreferencesPath(),
@@ -116,20 +95,7 @@ export async function removePermissionPreference(
     return true;
 }
 
-/**
- * A loaded preferences file, held in memory so the synchronous classifier can
- * read it.
- *
- * The free functions above are each a self-contained read-modify-write, which
- * is fine for a one-shot CLI call but not for the host: `decideToolPermission`
- * is synchronous and cannot await a file read per tool call. So the host opens
- * the store once at startup, reads through `list()`, and mutates through
- * `add`/`remove`, which keep the cache and the file in step.
- *
- * Writes are serialized through `pending` because two concurrent `add` calls
- * would otherwise both read the pre-write file and the second would clobber
- * the first.
- */
+/** A loaded preferences file, held in memory so the synchronous classifier can read it. */
 export class PermissionPreferenceStore {
     private preferences: readonly PermissionPreference[];
     private pending: Promise<unknown> = Promise.resolve();
@@ -162,7 +128,6 @@ export class PermissionPreferenceStore {
         });
     }
 
-    /** Returns `true` if a preference with that ID was removed. */
     async remove(id: string): Promise<boolean> {
         return this.serialize(async () => {
             const removed = await removePermissionPreference(id, this.path);
@@ -177,8 +142,6 @@ export class PermissionPreferenceStore {
 
     private serialize<T>(operation: () => Promise<T>): Promise<T> {
         const result = this.pending.then(operation, operation);
-        // Swallowed here only to keep one failed write from poisoning the
-        // chain; the caller still sees the rejection through `result`.
         this.pending = result.catch(() => undefined);
         return result;
     }
@@ -192,12 +155,6 @@ async function savePermissionPreferences(
     await writeFile(path, `${JSON.stringify(preferences, null, 2)}\n`, "utf8");
 }
 
-/**
- * Same safety rail as `applyPermissionGrant`: only ever lowers `ask` or
- * `review` to `allow`. A `deny` is never touched here — a profile denial is
- * left alone, and the accident guard has already returned before any of
- * this runs.
- */
 export function applyPermissionPreference(
     decision: PermissionActionDecision,
     preferences: readonly PermissionPreference[],

@@ -1,24 +1,4 @@
-/**
- * The declarative pool file: the user-editable record of which models exist,
- * what they can do, and what may be selected.
- *
- * Two hands write this file. Everything outside `learned` is declared: either
- * a hand edit or a write Vera made on the user's explicit instruction. The
- * `learned` map holds only facts Vera concluded on its own (a provider
- * rejection, a probe result), so a machine conclusion can never present itself
- * as user intent. Declared values are never rewritten to match evidence; a
- * contradiction is recorded in `learned` instead.
- *
- * Parsing is lenient by design: a single malformed entry in a hand-edited file
- * drops that entry and reports an issue rather than failing the whole file and
- * leaving the user with no pool at all. Leniency is a read-side rule only: a
- * file that produced issues must never be written back, because the write
- * would serialize the reduced parse over the user's own text.
- *
- * `//` and block comments are accepted. The documented example of this file is
- * annotated, so a user who copies it must not end up with a file Vera treats
- * as broken.
- */
+/** The declarative pool file: the user-editable record of which models exist, what they can do, and what may be selected. */
 
 import {
     EFFORT_LADDER,
@@ -26,17 +6,7 @@ import {
     isEffortLevel,
 } from "./effort-ladder.ts";
 
-/**
- * A fact Vera concluded on its own, with the evidence that produced it.
- *
- * `wire` is the provider string the probe actually sent for a passing effort
- * level. A learned level with no declared counterpart would otherwise have no
- * way to say which word worked, and guessing the provider's word from Vera's
- * ladder name is exactly the translation the pool exists to avoid.
- *
- * `checked` names who vouches: `user_key` for a probe run against the user's
- * own credentials, `vera` for a centrally tested result.
- */
+/** A fact Vera concluded on its own, with the evidence that produced it. `wire` is the provider string the probe actually sent for a passing effort level. */
 export interface LearnedFact {
     readonly ok: boolean;
     readonly seen: string;
@@ -45,65 +15,32 @@ export interface LearnedFact {
     readonly checked?: "user_key" | "vera";
 }
 
-/**
- * Keys are dotted paths into the declared shape (`efforts.xhigh`, `tools`), so
- * a learned fact and the declared field it contradicts are addressable the
- * same way.
- */
 export type LearnedFacts = Readonly<Record<string, LearnedFact>>;
 
-/**
- * The model answered at all. Absent means it has never been probed. Its `wire`
- * carries whatever model string the provider answered with, recorded verbatim
- * and never gated on: aggregator routes legitimately alias and version names.
- */
 export const PROBE_LEARNED_KEY = "probe";
 
-/** The model called a tool when asked to. */
 export const TOOLS_LEARNED_KEY = "tools";
 
-/** The model accepted an image in the input. */
 export const IMAGES_LEARNED_KEY = "images";
 
 export function effortLearnedKey(level: string): string {
     return `efforts.${level}`;
 }
 
-/**
- * What a pool name may look like.
- *
- * Slug-shaped so a name can stand in for a model id without ambiguity: no
- * slash, because a ref containing one is read as `provider/model` and never
- * as a name.
- */
 export const POOL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 export interface PoolFileModel {
-    /**
-     * The user put this model in their pool. Written by `pool_add` and by
-     * nothing else, which is what tells a curated entry apart from one that
-     * exists only to hold facts learned about a model the user never pooled.
-     */
     readonly added?: boolean;
-    /**
-     * A name the user gave this entry, usable anywhere a model string is.
-     * Identity, not configuration: it names the model, never the effort.
-     * Only a curated entry may carry one, so a name can never point at a
-     * model the user did not pool.
-     */
     readonly name?: string;
-    /** Declared label bounding sibling search inside one provider. */
     readonly family?: string;
     readonly tools?: boolean;
     readonly images?: boolean;
     readonly context?: number;
     readonly efforts?: EffortMap;
-    /** Same-provider model ids only. */
     readonly fallback?: readonly string[];
     readonly learned?: LearnedFacts;
 }
 
-/** `"self"`, `"lowest"`, `"equal"`, or an explicit ladder level. */
 export type SubagentEffort = string;
 
 export interface PoolFileDefaults {
@@ -115,23 +52,14 @@ export interface PoolFileDefaults {
 
 export interface PoolFile {
     readonly defaults: PoolFileDefaults;
-    /** Keyed by `<provider>/<model>`. */
     readonly models: Readonly<Record<string, PoolFileModel>>;
 }
 
-/**
- * `error` means a value was dropped. `warning` means everything was kept but
- * something in the file has no effect, which is what a typo looks like: an
- * unknown key is silently ignored by a lenient parser, so the only way the
- * user learns of it is an issue that says so.
- */
 export type PoolFileIssueSeverity = "error" | "warning";
 
-/** Where a rejected value sat, as a dotted path, plus why it was rejected. */
 export interface PoolFileIssue {
     readonly path: string;
     readonly message: string;
-    /** Absent reads as `error`; only a warning has to say so. */
     readonly severity?: PoolFileIssueSeverity;
 }
 
@@ -139,15 +67,9 @@ export function issueSeverity(issue: PoolFileIssue): PoolFileIssueSeverity {
     return issue.severity ?? "error";
 }
 
-/**
- * The fields the parser does not model, kept verbatim so a write can put them
- * back where they were. They are deliberately not part of `PoolFile`: nothing
- * reading the pool should see them, and only the writer needs them.
- */
 export interface PreservedPoolFields {
     readonly root: Readonly<Record<string, unknown>>;
     readonly defaults: Readonly<Record<string, unknown>>;
-    /** Keyed by model id, holding that entry's own unknown fields. */
     readonly models: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
 }
 
@@ -228,14 +150,6 @@ const MODEL_KEYS = [
     "learned",
 ] as const;
 
-/**
- * A key the parser does not model has no effect, so a mistyped field looks
- * exactly like a field that does nothing. The warning is the only thing
- * standing between a typo and a setting the user believes is in force.
- *
- * Returns those keys with their values, which is what lets a write put them
- * back rather than drop them on the user's behalf.
- */
 function warnUnknownKeys(
     record: Record<string, unknown>,
     known: readonly string[],
@@ -259,27 +173,15 @@ function warnUnknownKeys(
     return unknown;
 }
 
-/**
- * Whether the user put this entry in their pool, as opposed to it existing only
- * to hold what Vera learned about a model that was run without being pooled.
- *
- * `added` says so outright. So does any other declared field, and so does an
- * empty entry: a hand-written `{}` is a user naming a model, and only an entry
- * that holds nothing but `learned` was written without being asked for.
- */
 export function isCuratedPoolEntry(entry: PoolFileModel): boolean {
     return entry.learned === undefined || Object.keys(entry).length > 1;
 }
 
-/** Whether a probe has run against this entry and answered. */
 export function isVerifiedPoolEntry(entry: PoolFileModel): boolean {
     return entry.learned?.[PROBE_LEARNED_KEY]?.ok === true;
 }
 
-/**
- * The provider half of a pool id. Fallback validation and sibling search both
- * need it, and both must refuse to cross it.
- */
+/** The provider half of a pool id. Fallback validation and sibling search both need it, and both must refuse to cross it. */
 export function providerOf(modelId: string): string | undefined {
     const separator = modelId.indexOf("/");
     if (separator <= 0 || separator === modelId.length - 1) {
@@ -288,7 +190,6 @@ export function providerOf(modelId: string): string | undefined {
     return modelId.slice(0, separator);
 }
 
-/** The wire-model half of a pool id: everything after the first slash. */
 export function splitModelId(
     modelId: string,
 ): { readonly provider: string; readonly model: string } | undefined {
@@ -381,11 +282,6 @@ function parseModels(
     return models;
 }
 
-/**
- * Two entries answering to one name make the name useless: a ref would pick
- * whichever the object happened to enumerate first. Both are reported, and
- * resolution refuses the name rather than guessing.
- */
 function warnDuplicateNames(
     models: Readonly<Record<string, PoolFileModel>>,
     issues: PoolFileIssue[],
@@ -541,11 +437,6 @@ function parseEfforts(
     return { efforts };
 }
 
-/**
- * Fallback never leaves the provider of the model that declares it. A model on
- * one host is a different deployment from the same-named model on another, so
- * a cross-provider reference is dropped rather than followed.
- */
 function parseFallback(
     value: unknown,
     provider: string,
@@ -645,13 +536,6 @@ function parseStringList(
     });
 }
 
-/**
- * Blanks `//` and block comments outside string literals, keeping every other
- * character at its original offset so a parse error still points at the line
- * the user is looking at. Escapes inside strings are honoured, so a `"//"` or
- * a trailing backslash cannot end a string early and swallow the rest of the
- * file.
- */
 export function stripJsonComments(text: string): string {
     const out = [...text];
     let index = 0;

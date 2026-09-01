@@ -1,19 +1,3 @@
-/**
- * NDJSON request/reply/notification framing over one duplex byte pipe.
- *
- * Both ends run the same code. A frame is one JSON object on one line:
- *
- * - `{ id, body }` is a request and expects exactly one reply.
- * - `{ id, ok }` or `{ id, error }` is that reply.
- * - `{ body }` with no id is a notification and expects nothing.
- *
- * The envelope carries no method name of its own. `body` is a
- * `host-protocol.ts` message, which already names its own method, so nothing
- * here has to agree with that file about what the methods are.
- *
- * `null` and absent stay distinct: nothing here copies, defaults, or reshapes
- * a body. It is stringified as given and parsed back as written.
- */
 
 export interface PipeStreams {
     readonly input: NodeJS.ReadableStream;
@@ -26,7 +10,6 @@ export type PipeNotificationHandler = (body: unknown) => void;
 export interface JsonPipe {
     request(body: unknown): Promise<unknown>;
     notify(body: unknown): void;
-    /** Resolves when the peer closes its end. */
     readonly closed: Promise<void>;
     close(): void;
 }
@@ -73,8 +56,6 @@ export function createJsonPipe(
         try {
             frame = JSON.parse(line) as Record<string, unknown>;
         } catch {
-            // A frame this end cannot parse is a broken peer, not a recoverable
-            // state: every later frame is suspect too.
             fail(new Error(`Unparseable frame on the worker pipe: ${line}`));
             return;
         }

@@ -18,15 +18,8 @@ import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 
-/** What a command's first argument names, so the composer can complete it. */
 export type TuiCommandArgumentKind = "model" | "mention";
 
-/**
- * Where a slash command came from, which is the only grouping the list needs:
- * nothing is filed by hand, nothing goes stale, and it answers the question
- * that actually gets asked, which is whether the thing just installed showed
- * up.
- */
 export const TUI_SLASH_GROUPS = ["built in", "extensions", "skills"] as const;
 
 export type TuiSlashGroup = (typeof TUI_SLASH_GROUPS)[number];
@@ -35,7 +28,6 @@ export interface TuiCommandCatalogEntry {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
-    /** Absent on the definitions themselves; the registry fills it in. */
     readonly group?: TuiSlashGroup;
     readonly arguments?: TuiCommandArgumentKind;
 }
@@ -61,12 +53,6 @@ export interface UpdateReasoningTuiCommandAction {
 export interface UpdatePermissionsTuiCommandAction {
     readonly type: "update_permissions";
     readonly mode: string;
-    /**
-     * Whether the host default moves too.
-     *
-     * The normal TUI action changes the persistent host default. The explicit
-     * field remains for callers that need to name that scope in a typed action.
-     */
     readonly scope?: "global";
 }
 
@@ -75,13 +61,6 @@ export interface OpenSettingsDestinationTuiCommandAction {
     readonly destination: SettingsDestination;
 }
 
-/**
- * Open the agent surface, or wear one by name.
- *
- * Both go through the same wear path: the picker is a readout of what is live
- * as much as it is a way to change it, and `/agent <name>` is the shortcut for
- * people who already know which one they want.
- */
 export interface WearAgentTuiCommandAction {
     readonly type: "wear_agent";
     readonly name: string;
@@ -108,12 +87,6 @@ export interface OpenHelpTuiCommandAction {
     readonly tab?: "general" | "keys";
 }
 
-/**
- * Put text in the composer and leave the cursor there. The palette needs this
- * for actions that cannot complete without typing (renaming a conversation has
- * no picker to open), so the row starts the command instead of running a
- * half-finished one.
- */
 export interface PrefillComposerTuiCommandAction {
     readonly type: "prefill_composer";
     readonly text: string;
@@ -156,7 +129,6 @@ export interface CreateSessionTuiCommandAction {
     readonly sourceDisposition?: TuiSessionLeaveDisposition;
 }
 
-/** Start a worker for the closed session file on screen. */
 export interface ResumeViewedSessionTuiCommandAction {
     readonly type: "resume_viewed_session";
 }
@@ -208,7 +180,6 @@ export interface ReloadClientExtensionsTuiCommandAction {
     readonly type: "reload_client_extensions";
 }
 
-/** `/shortlist add`: pins the running model, the same write ^s makes. */
 export interface AddCurrentModelToPoolTuiCommandAction {
     readonly type: "pool_current_model";
 }
@@ -274,10 +245,6 @@ export type TuiCommandAction =
 
 export type TuiCommandScope = "focused_agent" | "main_session" | "application";
 
-/**
- * Which owner a slash command is allowed to affect. Keep this exhaustive so a
- * newly added command cannot silently inherit Vera while another agent is focused.
- */
 export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
     switch (action.type) {
         case "update_model":
@@ -330,11 +297,6 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
     }
 }
 
-/**
- * Palette rows are grouped under these headings, in this order. Ordering lives
- * with the group names because the palette's whole job is scanability: a stable
- * heading order matters more than registration order.
- */
 export const TUI_PALETTE_GROUPS = [
     "Session",
     "Settings",
@@ -344,13 +306,10 @@ export const TUI_PALETTE_GROUPS = [
 export type TuiPaletteGroup = (typeof TUI_PALETTE_GROUPS)[number];
 
 export interface TuiPaletteActionDefinition {
-    /** Stable identity, never shown. */
     readonly name: string;
-    /** The verb phrase the row shows: "Switch model", not "/model". */
     readonly label: string;
     readonly description: string;
     readonly group: TuiPaletteGroup;
-    /** Keybinding shown in the row's right column, when the action has one. */
     readonly keyHint?: string;
     readonly slashName?: string;
     readonly action: TuiCommandAction;
@@ -716,18 +675,11 @@ export class TuiCommandRegistry {
         const matching = this.registeredCommands().filter((command) =>
             command.name.startsWith(prefix)
         );
-        // Registration order is an implementation detail. Within a group the
-        // commands keep it, since that is the order they are defined in.
         return TUI_SLASH_GROUPS.flatMap((group) =>
             matching.filter((command) => slashGroup(command) === group)
         );
     }
 
-    /**
-     * The half-typed first argument of a command that declares one, or
-     * undefined anywhere else. Only the first argument completes: `/add gpt as
-     * m1` is past it by the second word.
-     */
     argumentPrefix(
         input: string,
     ): { kind: TuiCommandArgumentKind; prefix: string } | undefined {
@@ -957,14 +909,6 @@ function sharedPrefix(values: readonly string[]): string {
     return prefix;
 }
 
-/**
- * The slice of a long suggestion list that is on screen.
- *
- * The box used to grow to the length of the list, so on a short terminal the
- * bottom commands were drawn off the top of the pane and could not be reached
- * at all. It scrolls instead, and gives up one row to say how many are still
- * below, because a list that silently ends reads as the whole catalog.
- */
 export function tuiSuggestionWindow(
     count: number,
     selectedIndex: number,
@@ -976,7 +920,6 @@ export function tuiSuggestionWindow(
     }
     const rows = Math.max(1, room - 1);
     const selected = Math.max(0, Math.min(selectedIndex, count - 1));
-    // Keep the highlighted row on screen, scrolling by as little as possible.
     const start = Math.max(0, Math.min(selected - rows + 1, count - rows));
     return {
         start: selected < start ? selected : start,
@@ -985,19 +928,11 @@ export function tuiSuggestionWindow(
     };
 }
 
-/**
- * The width of the group column, wide enough for every group name so each
- * command starts on the same column whichever group it is in.
- */
 const SLASH_GROUP_WIDTH = Math.max(
     0,
     ...TUI_SLASH_GROUPS.map((group) => group.length),
 ) + 2;
 
-/**
- * The blank lines a grouped list spends separating its groups, which the box
- * has to know about because it is sized in lines rather than in commands.
- */
 function slashGroup(command: TuiCommandCatalogEntry): TuiSlashGroup {
     return command.group ?? "built in";
 }
@@ -1013,27 +948,13 @@ export function tuiSuggestionGaps(
         && commands[index - 1] !== undefined
         && slashGroup(commands[index - 1]!) !== slashGroup(command)
     ).length;
-    // Compact drops the group name into its own line above the group's rows
-    // instead of sharing the first row with a command, which costs one extra
-    // line per group (including the first, which owns no gap of its own).
     return compact && commands.length > 0
         ? transitions + (transitions + 1)
         : transitions;
 }
 
-/**
- * Below this the group column and a description cannot both fit beside the
- * command names without a row running past the available width. Compact mode
- * drops both rather than let a row overflow.
- */
 export const SLASH_COMPACT_WIDTH = 36;
 
-/**
- * Ghost argument text after a finished command name and exactly one trailing
- * space. The slash list is the name only; this is what sits on the input
- * line, so `/context ` shows `[all]`. Commands that already complete a live
- * first argument keep that list instead of a usage ghost.
- */
 export function tuiCommandArgumentHint(
     commands: readonly TuiCommandCatalogEntry[],
     input: string,
@@ -1073,13 +994,9 @@ export function renderTuiCommandSuggestions(
             if (index > 0) {
                 chunks.push(fg(TUI_MUTED)(opensGroup ? "\n\n" : "\n"));
             }
-            // The group's own line, not shared with a row: a shared row is
-            // what forced the group column into every line below it.
             if (opensGroup) {
                 chunks.push(fg(TUI_MUTED)(`${slashGroup(command)}\n`));
             }
-            // Selection still needs a text marker, not just the accent
-            // colour, so the row reads the same with colour off.
             chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
             chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(
                 `/${command.name}`,
@@ -1096,9 +1013,6 @@ export function renderTuiCommandSuggestions(
     );
     const gutter = grouped ? SLASH_GROUP_WIDTH : 0;
     const markerWidth = grouped || selectedIndex >= 0 ? 2 : 0;
-    // Each row stays one row: a description that would wrap is cut with an
-    // ellipsis instead, because a wrapped row breaks the one-line-per-command
-    // height the box is sized by.
     const descriptionWidth = maxWidth === undefined
         ? Number.POSITIVE_INFINITY
         : Math.max(
@@ -1114,14 +1028,9 @@ export function renderTuiCommandSuggestions(
         if (index > 0) {
             chunks.push(fg(TUI_MUTED)(opensGroup ? "\n\n" : "\n"));
         }
-        // Quiet selection: a chevron marker plus an accent command name, the
-        // lightest device that marks the row without a loud full-width bar.
         if (markerWidth > 0) {
             chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
         }
-        // Printed once, on the group's first row. The gap below it and the
-        // word reappearing at the left margin are the whole separator: no
-        // heading row, which is the scarce axis, and no rule.
         if (grouped) {
             chunks.push(fg(TUI_MUTED)(
                 (opensGroup ? slashGroup(command) : "").padEnd(gutter),
@@ -1141,13 +1050,6 @@ export function renderTuiCommandSuggestions(
     return new StyledText(chunks);
 }
 
-/**
- * Columns the slash-command strip may actually paint beside a dock.
- *
- * The renderer still reports the whole terminal after the app reserves a
- * left rail. Measuring against that whole width lets descriptions run under
- * the rail and wrap inside the narrower strip, breaking one-command-per-row.
- */
 export function tuiCommandSuggestionWidth(
     terminalColumns: number,
     horizontalInset: number,
@@ -1159,7 +1061,6 @@ export function tuiCommandSuggestionWidth(
     );
 }
 
-/** The values that could finish a half-typed argument, best match first. */
 export function tuiArgumentSuggestions(
     values: readonly string[],
     prefix: string,
@@ -1178,7 +1079,6 @@ export function tuiArgumentSuggestions(
     return [...starts, ...contains];
 }
 
-/** What Tab should type, or undefined when there is nothing left to add. */
 export function tuiArgumentCompletion(
     values: readonly string[],
     prefix: string,
@@ -1193,8 +1093,6 @@ export function tuiArgumentCompletion(
     if (completed.length > prefix.length) {
         return completed;
     }
-    // Nothing left to type and the name is whole: Tab moves past it instead
-    // of doing nothing, so `as <alias>` can be typed straight after.
     return suggestions.some((value) =>
             value.toLowerCase() === prefix.toLowerCase()
         )
@@ -1202,7 +1100,6 @@ export function tuiArgumentCompletion(
         : undefined;
 }
 
-/** Swaps the half-typed trailing argument for the chosen one. */
 export function tuiWithArgument(input: string, value: string): string {
     return input.replace(/\S*$/, value);
 }
@@ -1294,10 +1191,6 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             label: "Change reasoning effort",
             description: "how much the model thinks before answering",
             group: "Settings",
-            // The binding belongs to the reasoning-cycle extension, not to
-            // this command. It is advertised here because a keybinding with no
-            // command of its own has nowhere else to appear, and a binding
-            // nobody can find is a binding nobody has.
             keyHint: tuiKeyHint("cycle-reasoning"),
             slashName: "effort",
             action: {
@@ -1555,8 +1448,6 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             description: "give this conversation a name",
             group: "Session",
             slashName: "rename",
-            // A bare /rename clears the name, so the palette row starts the
-            // command in the composer rather than running it.
             action: { type: "prefill_composer", text: "/rename " },
         },
     });
@@ -1768,7 +1659,6 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         group: "Settings",
         action: { type: "open_help", tab: "keys" },
     });
-    // The palette does not list itself: you are already looking at it.
     registry.registerCommand({
         ...PALETTE_COMMAND,
         action: { type: "open_command_palette" },

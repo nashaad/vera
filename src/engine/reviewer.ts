@@ -195,12 +195,6 @@ export function createEscalatingToolReviewer(
             return fastDecision;
         }
 
-        // The fast tier settles low and medium risk allows, including the
-        // fast-path reply that carries no grades and defaults to a low-risk
-        // allow. The strong tier owns everything else: an allow the fast
-        // model itself rated high or critical, and every denial, so a cheap
-        // model's false denial gets a second opinion before it costs the
-        // agent a turn against the denial circuit breaker.
         if (
             fastDecision.decision === "allow"
             && fastDecision.riskLevel !== "high"
@@ -445,9 +439,6 @@ export function parseReviewDecision(
     const rationale = typeof value.rationale === "string"
         ? value.rationale.trim()
         : "";
-    // Missing grades default asymmetrically, mirroring codex: the fast-path
-    // reply `{"outcome":"allow"}` reads as a low-risk allow, while a deny
-    // that skipped its grades is presumed high-risk.
     return {
         decision,
         reason: rationale.length > 0

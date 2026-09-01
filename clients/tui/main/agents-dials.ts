@@ -173,8 +173,6 @@ export function openDials(rt: TuiRuntime): void {
         type: "get_session_model_settings_history",
         requestId: randomUUID(),
     }).catch(() => {
-        // A history the host would not answer leaves the strip with the
-        // current pair and admitted pool, which is still useful.
     });
     const composition = composeDialStrip({
         current: committedDialPair(rt),
@@ -324,9 +322,6 @@ export async function openAgentPicker(rt: TuiRuntime, selectedName?: string): Pr
                     || entry.provider === pair.provider),
         )?.poolName;
         if (named === undefined) {
-            // The agent file names a pool entry, so a model with no pool
-            // name has nothing to write. Saying so beats writing an id the
-            // format does not carry.
             rt.state = appendTuiNotice(
                 rt.state,
                 "Name this model in /model before saving it as an agent default.",

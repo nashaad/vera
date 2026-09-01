@@ -1,12 +1,3 @@
-/**
- * An agent is a thing you wear: instructions, what it may reach, and how it
- * asks. It is not a dial. Nothing here holds a model except an optional
- * default pair, and nothing here is edited by dialling.
- *
- * The file format is the skills convention — YAML frontmatter for the
- * structured keys, the body for the instructions — because a user who has
- * written one has written the other.
- */
 
 import { basename } from "node:path";
 
@@ -15,9 +6,7 @@ const MAX_DESCRIPTION_CHARACTERS = 1024;
 
 export const AGENT_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-/** A tool the agent's instructions may not have anticipated. */
 export interface AgentNudge {
-    /** A tool name, or `*` for every denial this agent sees. */
     readonly on: string;
     readonly text: string;
 }
@@ -25,23 +14,10 @@ export interface AgentNudge {
 export interface AgentDefinition {
     readonly name: string;
     readonly description?: string;
-    /**
-     * Omitted means every tool, present and future. A present list is a
-     * restriction to exactly those names — never a hint, never a preference.
-     */
     readonly tools?: readonly string[];
-    /** Same omitted-means-all rule, kept separate from tools on purpose. */
     readonly skills?: readonly string[];
-    /**
-     * A permission mode by name, resolved at wear and turn time rather than
-     * frozen here: editing a mode has to reach the agents that name it.
-     * Omitted means the host's current default, and that is dynamic on
-     * purpose.
-     */
     readonly posture?: string;
-    /** Permission modes this agent cannot coexist with. */
     readonly forbiddenAccess?: readonly string[];
-    /** Reserved. Only `"full"` is accepted today. */
     readonly context?: "full";
     readonly defaultPair?: {
         readonly name: string;
@@ -51,15 +27,6 @@ export interface AgentDefinition {
     readonly instructions: string;
 }
 
-/**
- * The agent that is worn when nothing else is.
- *
- * Virtual: every key omitted, so all tools, all skills, the host's own
- * posture, and no pair of its own. Shipping it as a file would make "reset to
- * default" mean "restore a file you may have edited"; shipping it as nothing
- * would leave no bottom to the stack. A file named `default.md` in either
- * scope shadows this, which is what "editable" means.
- */
 export const DEFAULT_AGENT: AgentDefinition = {
     name: "default",
     description: "every tool, every skill, the host's own posture",
@@ -91,21 +58,10 @@ const DEFINITION_KEYS = new Set([
 ]);
 
 export interface ParseAgentOptions {
-    /** The names the host will accept for `posture`, when it can say. */
     readonly permissionModes?: readonly string[];
-    /**
-     * Whether the consumer can show a nudge at all. A spawn cannot, so an
-     * agent carrying nudges is a validation error there rather than a silent
-     * no-op.
-     */
     readonly interactive?: boolean;
 }
 
-/**
- * Validates a definition where application code declares it and returns the
- * normalized value. File-backed and module-level definitions share the same
- * field validator so the two forms cannot drift.
- */
 export function defineAgent(definition: AgentDefinition): AgentDefinition {
     const value = definition as unknown as Record<string, unknown>;
     for (const key of Object.keys(value)) {
@@ -137,8 +93,6 @@ export function parseAgentDefinition(
         throw new Error(`Agent ${name} exceeds the ${MAX_AGENT_BYTES}-byte limit`);
     }
     const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
-    // A body with no frontmatter is a legal agent: instructions alone, every
-    // key omitted, which is the smallest thing worth wearing.
     const frontmatter = match === null ? {} : parseFrontmatter(name, match[1] ?? "");
     const instructions = (match === null ? source : source.slice(match[0].length))
         .trim();
@@ -271,7 +225,6 @@ function validateInstructions(
     return instructions;
 }
 
-/** The name an agent file carries, which is the filename without `.md`. */
 export function agentNameFromPath(path: string): string {
     return basename(path).replace(/\.md$/i, "");
 }
@@ -327,7 +280,6 @@ function optionalNameList(
     ) {
         throw new Error(`Agent ${agent}: ${key} must be a list of names`);
     }
-    // An empty list is a real answer: this agent may reach none of them.
     return value.map((entry) => (entry as string).trim());
 }
 
@@ -345,8 +297,6 @@ function parseDefaultPair(
         throw new Error(`Agent ${agent}: default_pair needs a pool name`);
     }
     const effort = optionalText(agent, "default_pair.effort", pair.effort, 64);
-    // An effort-less pair is legal: plenty of models publish no levels, and a
-    // default that had to invent one would be a default that cannot apply.
     return { name, ...(effort === undefined ? {} : { effort }) };
 }
 

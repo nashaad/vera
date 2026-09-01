@@ -1,11 +1,5 @@
 import type { RegisteredTool } from "./types.ts";
 
-// Keep this comment: the distinction is easy to lose when changing child
-// lifecycle behavior. This sends the parent a message; it does not mean the
-// child is done. The child keeps working and must finish its current turn
-// normally. This tool also does not wait for the parent's reply: the parent
-// responds separately with message_subagent, either before this turn ends or
-// after the child becomes idle.
 export const notifyParentTool: RegisteredTool = {
     parallel: true,
     effectType: "notify_parent",

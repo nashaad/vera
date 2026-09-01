@@ -66,7 +66,6 @@ export class AgentRegistry {
     readonly agents = new Map<string, RegisteredAgentEntry>();
     readonly startingIds = new Set<string>();
     readonly deliveryTasks = new Set<Promise<void>>();
-    /** Kept for the entry's lifetime so overlapping monitors all suppress. */
     readonly suppressedCompletionDeliveries = new WeakSet<
         RegisteredAgentEntry
     >();
@@ -75,13 +74,11 @@ export class AgentRegistry {
     defaultProvider: string;
     defaultReasoningEffort: ModelReasoningEffort | undefined;
     defaultApprovalMode: ApprovalMode;
-    /** Fixed classifier route for embedded callers without a live reader. */
     reviewerSettings: ToolReviewerSettings | undefined;
     isClosed = false;
     readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
     readonly maxConcurrentBackgroundAgents: number;
     readonly startingBackgroundAgents = new Map<string, number>();
-    /** Child id to the ladder notice its spawn produced, if any. */
     readonly spawnNotices = new Map<string, string>();
     readonly pendingSubagentConfigurations = new Map<
         string,
@@ -126,42 +123,18 @@ export class AgentRegistry {
         return registryLifecycle.create(this, options);
     }
 
-    /**
-     * Stop one agent and forget it, leaving its session on disk.
-     *
-     * Distinct from `abort`, which cancels a turn and leaves the agent
-     * running, and from `trashSession`, which is this plus deleting what the
-     * session wrote. Idempotent: the second call finds nothing to close, which
-     * is what makes "closed exactly once" checkable.
-     */
     async closeAgent(id: string): Promise<"closed" | "not_found"> {
         return registryLifecycle.closeAgent(this, id);
     }
 
-    /** Root plus every live descendant whose execution it owns. */
     ownedTreeIds(id: string): readonly string[] {
         return registryLifecycle.ownedTreeIds(this, id);
     }
 
-    /**
-     * Close one agent and every live agent descended from it.
-     *
-     * Fence first, quiesce second. `agent.close()` is synchronous and shuts
-     * admission, so every member of the subtree is fenced in one pass before
-     * anything is awaited; awaiting a child first would leave the parent live
-     * for the seconds that child takes to exit, long enough to spawn a
-     * subagent nothing is walking any more. Fencing is then repeated to a
-     * fixpoint, because a spawn can still have raced the very first pass.
-     * Roster entries are removed only at the end, so the parent links the
-     * walk follows are still intact while the subtree is being quiesced.
-     * Idempotent for the same reason `closeAgent` is: a second call finds
-     * nothing left to close and says so.
-     */
     async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
         return registryLifecycle.closeAgentTree(this, id);
     }
 
-    /** Close one live descendant while preserving the caller and its peers. */
     async closeDescendantTree(
         callerId: string,
         targetId: string,
@@ -169,7 +142,6 @@ export class AgentRegistry {
         return registryLifecycle.closeDescendantTree(this, callerId, targetId);
     }
 
-    /** Release what a quiesced entry still holds and take it off the roster. */
     async reapClosedAgent(
         id: string,
         entry: RegisteredAgentEntry,
@@ -177,7 +149,6 @@ export class AgentRegistry {
         return registryLifecycle.reapClosedAgent(this, id, entry);
     }
 
-    /** Every live agent under `id`, deepest first. */
     liveDescendantsOf(id: string): readonly string[] {
         return registryLifecycle.liveDescendantsOf(this, id);
     }
@@ -231,18 +202,10 @@ export class AgentRegistry {
         return registryLifecycle.syncBranchContext(this, targetId);
     }
 
-    /** The identity name a live session posts under, `undefined` when gone. */
     arcNameOf(id: string): string | undefined {
         return registryLifecycle.arcNameOf(this, id);
     }
 
-    /**
-     * Resolves an identity `session` value to the live session it names.
-     * Matching uses the identity extension's key when one is loaded, so a
-     * purpose tail does not change addressing; a value that is not a name
-     * still resolves as a raw agent id, because entries recorded before
-     * naming carry ids.
-     */
     agentIdForArcSession(value: string): string | undefined {
         return registryLifecycle.agentIdForArcSession(this, value);
     }
@@ -267,13 +230,6 @@ export class AgentRegistry {
         return registryLifecycle.claimSessionIdentityKey(this, sessionId, key);
     }
 
-    /**
-     * The model settings a client sees when it has no session behind it.
-     *
-     * The catalog, the shortlist and the defaults are the host's, not any
-     * conversation's, so they can be read before one exists. The pair reported
-     * is the host default: nobody has dialed anything yet.
-     */
     readHostModelSettings(workspace?: string): ModelTurnSettings {
         return registrySettings.readHostModelSettings(this, workspace);
     }
@@ -282,29 +238,14 @@ export class AgentRegistry {
         return registrySettings.reviewerDefault(this);
     }
 
-    /** The reviewer route agents read at each review, not once at start. */
     readReviewer(): ToolReviewerSettings | undefined {
         return registrySettings.readReviewer(this);
     }
 
-    /**
-     * Applies a reviewer choice to every running agent and writes it to the
-     * config file, so the session the user is in changes with the file rather
-     * than at the next start. Any model may be a reviewer: nothing here checks
-     * the pool or the catalog, because a reviewer that turns out to be
-     * unreachable falls through to the failsafe on its own.
-     */
     applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean {
         return registrySettings.applyReviewerPatch(this, patch);
     }
 
-    /**
-     * Validate a pair patch and answer with the settings it resolves to.
-     *
-     * Shared by the global write and the session-scoped one so a chord and a
-     * picker cannot disagree about which levels a model publishes, or coerce an
-     * unpublished level differently.
-     */
     resolveModelPatch(
         entry: RegisteredAgentEntry,
         patch: ModelSettingsPatch,
@@ -329,27 +270,12 @@ export class AgentRegistry {
         return registrySettings.applyModelSettings(this, id, patch);
     }
 
-    /**
-     * The pair a session falls back to when nobody has dialed it.
-     *
-     * Today that is the host default. Once an agent can carry a `default_pair`
-     * the worn agent's answer comes first, and everything that compares against
-     * "the default" goes through here so there is one answer to compare with.
-     */
     effectiveDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings {
         return registrySettings.effectiveDefaultPair(this, entry);
     }
 
-    /**
-     * Derived at write time on every path, never carried forward.
-     *
-     * Reclassifying here is what makes dialing back to the default clear the
-     * override: a stale `user` origin sitting on a pair that equals the default
-     * would show a marker the user could not get rid of by any means except
-     * knowing about the record.
-     */
     originFor(
         entry: RegisteredAgentEntry,
         settings: ModelTurnSettings,
@@ -357,10 +283,6 @@ export class AgentRegistry {
         return registrySettings.originFor(this, entry, settings);
     }
 
-    /**
-     * Dial one session. The host's defaults, and every session that is not this
-     * one, are left exactly as they were.
-     */
     async updateSessionModelSettings(
         id: string,
         patch: ModelSettingsPatch,
@@ -387,7 +309,6 @@ export class AgentRegistry {
         return registrySettings.sessionModelSettingsHistory(this, id);
     }
 
-    /** The posture for this session alone, leaving the host default alone. */
     async updateSessionPermissionMode(
         id: string,
         mode: ApprovalMode,
@@ -402,14 +323,6 @@ export class AgentRegistry {
         return registryWear.applySessionPermissionMode(this, id, mode);
     }
 
-    /**
-     * An explicit permission choice wins over an incompatible agent.
-     *
-     * The host owns this transition so `/permissions`, the HUD, and other
-     * clients cannot disagree. The agent update is deliberately loud and
-     * durable: the client receives a sticky transcript notice explaining why
-     * the session returned to default.
-     */
     async leaveAgentThatForbidsAccess(
         entry: RegisteredAgentEntry,
         id: string,
@@ -418,31 +331,18 @@ export class AgentRegistry {
         return registryWear.leaveAgentThatForbidsAccess(this, entry, id, mode);
     }
 
-    /**
-     * The worn agent's default pair, resolved against the pool as it stands.
-     *
-     * Undefined when the agent names none, or names one the pool no longer
-     * has: in both cases the effective default is the host's own, which is
-     * what row 7 and row 9 of the origin table say.
-     */
     wornAgentDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings | undefined {
         return registryWear.wornAgentDefaultPair(this, entry);
     }
 
-    /**
-     * The worn agent's posture. Omitted on the agent means the host's current
-     * default, resolved now rather than frozen at wear: editing the default
-     * has to reach the sessions that never named one.
-     */
     wornAgentPosture(
         entry: RegisteredAgentEntry,
     ): ApprovalMode | undefined {
         return registryWear.wornAgentPosture(this, entry);
     }
 
-    /** Every agent this session could wear, with the one in force named. */
     async listAgentsFor(id: string): Promise<{
         readonly worn: string;
         readonly agents: readonly {
@@ -481,11 +381,6 @@ export class AgentRegistry {
         return registryWear.agentCatalogFor(this, entry);
     }
 
-    /**
-     * Put an agent on. Records the resolved definition, adopts its default
-     * pair when nobody has dialled this session, and answers with what is now
-     * in force.
-     */
     async wearAgentFor(id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
@@ -510,12 +405,6 @@ export class AgentRegistry {
         return registryWear.applyAgentWear(this, id, name);
     }
 
-    /**
-     * Rows 7 to 9 of the origin table, in one place.
-     *
-     * A session the user has dialled keeps its pair: the override survives an
-     * agent switch, which is the difference between a dial and a default.
-     */
     async adoptAgentDefaultPair(
         entry: RegisteredAgentEntry,
         definition: AgentDefinition,
@@ -523,13 +412,6 @@ export class AgentRegistry {
         return registryWear.adoptAgentDefaultPair(this, entry, definition);
     }
 
-    /**
-     * Table 8.2: what a resumed session does about the agent it was wearing.
-     *
-     * Agents are by reference, so a definition that moved is worn as it is
-     * now. The notice is what stops that from being a silent change of what
-     * the session can reach.
-     */
     async reconcileResumedAgentWear(
         entry: RegisteredAgentEntry,
         events: EngineEventBus,
@@ -537,7 +419,6 @@ export class AgentRegistry {
         return registryWear.reconcileResumedAgentWear(this, entry, events);
     }
 
-    /** The narrow writer: one key, one file, temp-and-rename. */
     async updateAgentDefaultPairFor(
         id: string,
         name: string,
@@ -546,12 +427,6 @@ export class AgentRegistry {
         return registryWear.updateAgentDefaultPairFor(this, id, name, pair);
     }
 
-    /**
-     * Editing the pool never changes which model runs, so the settings that
-     * come back are unchanged apart from the new pool. It refuses an unknown
-     * agent for the same reason every other command does: the reply is that
-     * agent's snapshot, and there is none to send.
-     */
     async poolAdd(
         id: string,
         entry: { readonly provider: string; readonly model: string },
@@ -568,28 +443,12 @@ export class AgentRegistry {
         return registrySettings.poolAdd(this, id, entry, onStep, options);
     }
 
-    /**
-     * The `pool_add` tool's effect: the same admission hook the client's
-     * checklist calls, one model at a time, reported back as per-model
-     * verdict lines. Verdicts land in the tool result rather than as
-     * progress updates: the transcript is the surface the agent path owns.
-     */
     async applyPoolAddEffect(
         effect: { readonly models: readonly string[] },
     ): Promise<ToolOutput> {
         return registrySettings.applyPoolAddEffect(this, effect);
     }
 
-    /**
-     * The `agent_roster` tool's effect: the host's live session table, cut to
-     * the caller's workspace and to the sessions still running in it.
-     *
-     * Every field is observed. The name was minted when the session
-     * registered, the activity time is the last thing written to that
-     * session's log, and the path is where the log lives. Nothing here is
-     * declared by an agent and nothing is stored, so a host that is gone and
-     * an empty roster mean the same thing.
-     */
     applyAgentRosterEffect(
         callerId: string,
         details: boolean,
@@ -604,17 +463,6 @@ export class AgentRegistry {
         return registryRoster.applyAgentSendEffect(this, callerId, effect);
     }
 
-    /**
-     * Wakes the recipient for a peer message it just received, when the host
-     * is willing to. Three things can hold it back, and the sender is told
-     * which: a session that does not run tools on its own does not get its
-     * turn taken by another agent either, a chain of messages may only run so
-     * deep, and no session may be woken faster than a person could follow.
-     *
-     * What arrives is a notice, never the message. The text stays in the inbox
-     * until the recipient reads it there, so the read receipt keeps meaning
-     * what it says.
-     */
     async wakeForPeerMessage(
         caller: RegisteredAgentEntry,
         recipient: RegisteredAgentEntry,
@@ -638,13 +486,6 @@ export class AgentRegistry {
         return registryRoster.applyAgentInboxEffect(this, callerId, effect);
     }
 
-    /**
-     * Refetches a provider's list on the user's say-so and answers with the
-     * settings the refreshed list produces, so the pane that asked can redraw
-     * from one reply. A provider that cannot be asked leaves the list alone:
-     * a stale list beats an empty one, which is the same rule discovery
-     * itself follows on a failed fetch.
-     */
     async refreshCatalog(
         id: string,
         provider: string,
@@ -689,22 +530,10 @@ export class AgentRegistry {
         return registryWear.applyApprovalMode(this, id, mode);
     }
 
-    /**
-     * The posture a session ran under, for a spawn that has one to inherit.
-     * `undefined` when the id names no session here, which is the cold case.
-     */
     approvalModeOf(agentId: string): ApprovalMode | undefined {
         return registryWear.approvalModeOf(this, agentId);
     }
 
-    /**
-     * Rename a session by id rather than through an attachment.
-     *
-     * An attached session is refused: its client holds the name it is
-     * displaying and learns of a change only by replying to its own
-     * `update_session_name`, so writing the store from here would leave that
-     * client showing a name the session no longer has.
-     */
     async renameSession(
         targetId: string,
         name: string | null,
@@ -719,14 +548,6 @@ export class AgentRegistry {
         return registryRoster.updateSessionName(this, id, name);
     }
 
-    /**
-     * Watch for anything that would change what `list` answers about who is
-     * registered and what is running: a session registered or forgotten, and
-     * any agent starting or stopping a turn.
-     *
-     * Returns the unsubscribe. Listeners are told that something changed, not
-     * what changed, because the only reader wants a fresh derivation anyway.
-     */
     onRosterChanged(listener: () => void): () => void {
         return registryRoster.onRosterChanged(this, listener);
     }
@@ -739,27 +560,10 @@ export class AgentRegistry {
         return registryRoster.list(this);
     }
 
-    /**
-     * The live facts the work index is built from, one entry per listed agent.
-     *
-     * A separate reading rather than more fields on the listing: these are the
-     * facts of a running process (what it is blocked on, what tool is in
-     * flight) and they are meaningless for the sessions that are merely on
-     * disk, which is most of what a listing returns.
-     */
     workFacts(): readonly WorkAgentFacts[] {
         return registryRoster.workFacts(this);
     }
 
-    /**
-     * Turn emitted schedule runs into work rows, dropping the ones with no
-     * session behind them.
-     *
-     * A schedule addresses a consumer label, and a session's label is its
-     * agent id, so a run that named a session this host holds resolves here.
-     * One that named anything else is left out: a row whose enter key opens
-     * nothing is worse than no row.
-     */
     scheduleWorkFacts(
         runs: readonly EmittedScheduleRun[],
         agents: readonly WorkAgentFacts[],
@@ -807,8 +611,6 @@ export class AgentRegistry {
                 ...(projectExtensions?.tools() ?? []),
             ]
             : [];
-        // Named so the getters below can reach the registry's own options:
-        // inside an object literal `this` is the literal, not the registry.
         const registry = this;
         const disabledPromptContributions = () =>
             disabledContributionsForProfile(
@@ -886,10 +688,6 @@ export class AgentRegistry {
                 this.catalog,
             ),
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
-            // Resume wears the recorded agent immediately, so the first turn
-            // after a restart runs under the same scope the last one did. The
-            // comparison against the current definition happens below, once
-            // the catalog can be read.
             ...(store.agentWear() === undefined
                 ? {}
                 : { agentWear: store.agentWear()!.snapshot }),
@@ -945,8 +743,6 @@ export class AgentRegistry {
                         ...BUILT_IN_PERMISSION_MODE_NAMES,
                         ...Object.keys(this.options.permissionModes ?? {}),
                     ],
-                    // A spawn has no surface for a nudge, and the parser is
-                    // what says so.
                     interactive: false,
                     ...(this.options.registeredAgents === undefined
                         ? {}
@@ -1026,8 +822,6 @@ export class AgentRegistry {
                 ? {}
                 : { permissionModes: this.options.permissionModes }),
         });
-        // Read at each compact, not copied for the session: an assignment the
-        // user changes has to reach a compact already in this session.
         const boundCompaction = (): ReturnType<typeof bindCompaction> =>
             bindCompaction(
                 this.options.compaction,
@@ -1038,9 +832,6 @@ export class AgentRegistry {
                         : { provider: entry.modelSettings.provider }),
                     model: entry.modelSettings.model,
                 },
-                // The registry the host assembled. Extension-registered
-                // strategies join this list when activation lands; binding
-                // stays agnostic.
                 BUNDLED_COMPACTION_STRATEGIES,
                 this.options.compactionModels,
                 this.options.compactionOverrides,
@@ -1109,9 +900,6 @@ export class AgentRegistry {
         const loopData: RunHeadlessLoopData = {
                 eventLogPath,
                 approvalMode: entry.approvalMode,
-                // Every shell this session spawns carries its identity name,
-                // so arc stamps the session's posts with it and self-echo
-                // suppression matches with no manual export.
                 toolEnv: entry.identity?.env ?? {},
                 instructionRoot,
                 enabledToolEffects: kind === "interactive"
@@ -1170,8 +958,6 @@ export class AgentRegistry {
                         loadContextualContributions:
                             this.options.loadContextualContributions,
                     }),
-                // Read at each use, not copied for the session: a setting the
-                // user changes has to reach a session already running.
                 readPolicy: () => {
                     const reviewer = this.readReviewer();
                     return {
@@ -1262,9 +1048,6 @@ export class AgentRegistry {
                         this.poolMove(agent.id, poolEntry, delta),
                     ...(adapter === undefined ? {} : {
                         oneshot: (request, signal) => {
-                            // One candidate, so the route cannot fall back:
-                            // the caller named a model and gets that model or
-                            // an error.
                             const complete = createRoutedCompletionService(
                                 adapter,
                                 {
@@ -1308,9 +1091,6 @@ export class AgentRegistry {
                             addPermissionPreference: async (when) => {
                                 const added = await this.options
                                     .permissionPreferences!.add(when);
-                                // Preferences are the host's, not the
-                                // session's, so every worker needs the new
-                                // list, not just this one.
                                 this.pushWorkerStateEverywhere();
                                 return added;
                             },
@@ -1354,17 +1134,12 @@ export class AgentRegistry {
             if (!agent.closed) {
                 entry.failure = error;
                 const failureId = randomUUID();
-                // A refused start is a decision with a next action, so it
-                // reaches the client as itself rather than as the generic
-                // outcome used when a running agent stops.
                 const detail = error instanceof WorkerCapReachedError
                     ? error.message
                     : "Resident agent stopped unexpectedly";
                 try {
                     await store.appendAgentFailure(failureId, detail);
                 } catch {
-                    // Live clients still need a terminal outcome when the
-                    // failure record itself cannot be persisted.
                 }
                 agent.fail(failureId, detail);
             }
@@ -1376,9 +1151,6 @@ export class AgentRegistry {
                 label: agent.id,
                 actor: this.options.inboxActorForSession?.(agent.id) ?? null,
                 projectRoot: agent.workspace,
-                // The minted name, not the agent id: arc stamps posts with
-                // the ARC_SESSION the shell carries, which is this name, so
-                // the self-echo pair must hold the same value.
                 session: entry.identity?.name ?? agent.id,
                 notify: (notice) => {
                     if (!agent.closed && !agent.failed) {
@@ -1437,12 +1209,6 @@ export class AgentRegistry {
         return agent;
     }
 
-    /**
-     * How this session's worker would build its adapter, or nothing.
-     *
-     * A spec is the default. Nothing means the turn runs in this process,
-     * which happens when the owner cannot rebuild the adapter from JSON.
-     */
     workerAdapterSpecFor(
         store: SessionStore,
         entry: RegisteredAgentEntry,
@@ -1450,42 +1216,20 @@ export class AgentRegistry {
         return registrySubagent.workerAdapterSpecFor(this, store, entry);
     }
 
-    /**
-     * Runs the turn loop in a separate process, and reports how it stopped.
-     *
-     * The client channel is pumped in both directions here rather than by the
-     * loop, and every durable service stays on this side. A `kill -9` on the
-     * worker therefore lands on `handle.outcome` as one typed value, and the
-     * session file it was writing through is already complete on disk.
-     */
-    /**
-     * The extensions a worker should load for itself, or nothing.
-     *
-     * Nothing is the default: the tools stay in this process and the worker
-     * reaches them over the boundary.
-     */
     workerExtensions(
         workspace: string,
     ): readonly VeraExtensionConfig[] | undefined {
         return registrySubagent.workerExtensions(this, workspace);
     }
 
-    /**
-     * Sends this session's worker the owner state as it now stands.
-     *
-     * A no-op for a session whose loop runs in this process, which reads the
-     * same values directly.
-     */
     pushWorkerState(id: string): void {
         return registrySubagent.pushWorkerState(this, id);
     }
 
-    /** Sends every running worker the owner state as it now stands. */
     pushWorkerStateEverywhere(): void {
         return registrySubagent.pushWorkerStateEverywhere(this);
     }
 
-    /** Sessions whose loop currently runs in a separate process. */
     liveWorkerCount(): number {
         return registrySubagent.liveWorkerCount(this);
     }
@@ -1519,7 +1263,6 @@ export class AgentRegistry {
         return registrySubagent.requestMissingSubagentConfiguration(this, entry, request, context, signal);
     }
 
-    /** One event-loop turn admits siblings; later arrivals queue behind it. */
     scheduleSubagentConfigurationBatch(
         batch: PendingSubagentConfigurationBatch,
     ): void {
@@ -1634,7 +1377,6 @@ export class AgentRegistry {
         return registrySubagent.relayChildToolApproval(this, parent, update, sourceAgentId, sourceTask, signal);
     }
 
-    /** Keeps shutdown waiting on a delivery that is mid-flight. */
     trackDelivery(task: Promise<void>): void {
         return registrySubagent.trackDelivery(this, task);
     }

@@ -1,20 +1,3 @@
-/**
- * The configured provider adapter, built inside the worker.
- *
- * The adapter is a live object holding a client and a credential, so it is
- * never sent. What crosses is this module's path plus plain options, and the
- * worker calls the export below to build the same adapter the host would have
- * built in process.
- *
- * The split of what each side holds:
- *
- * - The config snapshot crosses as a starting picture. The worker also
- *   receives the config path and rereads it, so a provider declared after
- *   spawn is usable without replacing the worker.
- * - The credential does not cross. The worker opens the machine tier's auth
- *   store itself, from the `VERA_HOME` it inherits, so no
- *   API key is ever written to a pipe or an argument list.
- */
 
 import { createFailedRequestCapture } from
     "../../providers/failed-request-capture.ts";
@@ -39,9 +22,7 @@ import {
 
 export interface WorkerAdapterOptions {
     readonly config: VeraConfig;
-    /** Test or embedded override; production workers use the active profile. */
     readonly configPath?: string;
-    /** The session's provider, which the config's own may not match. */
     readonly provider: string;
     readonly projectRoot: string;
     readonly sessionId: string;

@@ -36,10 +36,6 @@ export interface VeraProcessSample {
     readonly startedAt: string;
     readonly command: string;
     readonly kind: VeraProcessKind;
-    /**
-     * Set when this process named a private `VERA_HOME`. Tests and UAT use
-     * that override.
-     */
     readonly isolated?: boolean;
     readonly runtimeDir?: string;
 }
@@ -47,13 +43,7 @@ export interface VeraProcessSample {
 export interface DiagnosedVeraProcess extends VeraProcessSample {
     readonly currentHost: boolean;
     readonly sustainedHighCpu: boolean;
-    /**
-     * Orphaned and safe to stop without asking what it was for: a worker,
-     * supervisor, or test fixture with no live parent to reclaim it, or a
-     * host with neither a matching lock nor a parent shell of its own.
-     */
     readonly stray: boolean;
-    /** Session this worker or supervisor is running, when the host named one. */
     readonly sessionId?: string;
     readonly sessionTitle?: string;
 }
@@ -73,20 +63,10 @@ export interface VeraDoctorOptions {
     readonly sampleIntervalMs?: number;
     readonly highCpuPercent?: number;
     readonly doctorPid?: number;
-    /**
-     * Runtime directory this doctor may inspect and stop. Defaults to this
-     * home's runtime. Processes that named a different home are foreign.
-     */
     readonly runtimeDir?: string;
-    /**
-     * Running sessions from the current host listing, used to title workers.
-     * Tests inject this. Live doctor reads the host when sampling real
-     * processes, and skips the listing when the process table is injected.
-     */
     readonly listWorkerSessions?: () => Promise<readonly VeraWorkerSession[]>;
 }
 
-/** A session the current host has actually spawned a worker for. */
 export interface VeraWorkerSession {
     readonly id: string;
     readonly title?: string;
@@ -172,8 +152,6 @@ export async function diagnoseVeraProcesses(
         && !processes.some((sample) =>
             sample.kind === "host" && sample.pid === currentHostPid
         );
-    // The lock names a pid the listing did not include. That is unknown,
-    // not proof the process is dead.
     const unrecognizedHosts = processes.filter((sample) =>
         sample.kind === "host"
         && !sample.currentHost
@@ -230,8 +208,6 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
         }
         renderProcessRows(lines, shownIssues);
     }
-    // Stray hosts are already listed under Issues as unrecognized hosts;
-    // workers and test fixtures have no other section, so they go here.
     const nonHostStrays = strays.filter((process) => process.kind !== "host");
     if (nonHostStrays.length > 0) {
         lines.push(
@@ -277,10 +253,6 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     return `${lines.join("\n")}\n`;
 }
 
-/**
- * SIGKILLs each stray's process group (falling back to the bare pid), for
- * the caller to run only once the user has agreed to it.
- */
 export function stopStrayVeraProcesses(
     strays: readonly DiagnosedVeraProcess[],
 ): number {
@@ -291,11 +263,7 @@ export function stopStrayVeraProcesses(
     return stopped;
 }
 
-/**
- * Unattended SIGKILL of leftovers. Launch must not call this. The only
- * supported path is `vera doctor` after the caller confirms, or
- * `vera doctor --yes`.
- */
+/** Unattended SIGKILL of leftovers. Launch must not call this. */
 export async function sweepStrayVeraProcesses(
     options: Pick<
         VeraDoctorOptions,
@@ -323,14 +291,12 @@ function killProcessAndGroup(pid: number, pgid: number): boolean {
             process.kill(-pgid, "SIGKILL");
             signaled = true;
         } catch {
-            // Not a group leader after all, or already gone.
         }
     }
     try {
         process.kill(pid, "SIGKILL");
         signaled = true;
     } catch {
-        // Already gone, which still counts if the group signal above landed.
     }
     return signaled;
 }
@@ -365,12 +331,7 @@ interface HostStrayInput {
     readonly isolated?: boolean;
 }
 
-/**
- * A process belongs here when its env names this runtime, or when it is the
- * lockfile host (or in that host's bun tree) and has no runtime env at all.
- * Missing env must not mean "this home": that would let a private-home
- * doctor SIGKILL a daily host that never set VERA_HOME.
- */
+/** A process belongs here when its env names this runtime, or when it is the lockfile host (or in that host's bun tree) and has no runtime env at all. */
 function belongsToHome(
     sample: {
         readonly pid: number;
@@ -483,10 +444,7 @@ async function enrichRuntimeIdentity(
     });
 }
 
-/**
- * Pull only Vera runtime overrides out of a `ps eww` command line. The rest
- * of the environment can hold credentials; this function must not return it.
- */
+/** Pull only Vera runtime overrides out of a `ps eww` command line. The rest of the environment can hold credentials; this function must not return it. */
 export function veraRuntimeFromPsLine(commandAndEnv: string): {
     readonly isolated: boolean;
     readonly runtimeDir?: string;
@@ -515,12 +473,6 @@ async function hostOwnership(runtimeDir: string): Promise<VeraHostOwnership> {
     return currentHostPid === undefined ? {} : { currentHostPid };
 }
 
-/**
- * The pid a lockfile names, if that process is still the one that wrote it.
- * This does not talk to the socket: a busy or wedged host still owns its
- * runtime, and treating silence as absence is what made launch sweep SIGKILL
- * the resident host mid-turn.
- */
 export async function livePidFromHostLockFile(
     path: string,
 ): Promise<number | undefined> {
@@ -641,7 +593,6 @@ export type DoctorLineEmphasis =
     | "tally"
     | "body";
 
-/** Color is decoration; words still name the state when this is stripped. */
 export function doctorLineEmphasis(line: string): DoctorLineEmphasis {
     if (DOCTOR_HEADINGS.has(line) || line.startsWith("Stray processes:")) {
         return "heading";

@@ -20,11 +20,6 @@ import {
     TUI_COMPOSER_PANEL_ROWS,
 } from "./composer.ts";
 
-/**
- * Transcript movement that still works while a conversation is only a file.
- * Ctrl+up/down are the line chords; half-page and jump-to-bottom are the
- * same job at a larger grain.
- */
 export const JSONL_VIEW_SCROLL_IDS = [
     "scroll_line_up",
     "scroll_line_down",
@@ -35,17 +30,9 @@ export const JSONL_VIEW_SCROLL_IDS = [
 
 export type JsonlViewScrollId = (typeof JSONL_VIEW_SCROLL_IDS)[number];
 
-/**
- * The one line in the composer slot.
- *
- * It names the two ways back into the conversation and nothing else: the slot
- * is where a person's attention already is, so anything further from the task
- * belongs above it rather than inside it.
- */
 export const RESUME_OVERLAY_TEXT =
     "Start typing or enter to continue this session";
 
-/** The active ways to resume stand out; the explanation stays quiet. */
 export function resumeOverlayLabelText(
     textColor: string,
     mutedColor: string,
@@ -58,12 +45,6 @@ export function resumeOverlayLabelText(
     ]);
 }
 
-/**
- * Why the screen looks quieter than a live one.
- *
- * Typing wakes the conversation, so this is not a door to open: it says what
- * the state is, says it ends by itself, and gets out of the way.
- */
 export const IDLE_NOTICE_PROSE =
     "This conversation is idle. It picks up where it left off as soon as you "
     + "type, and a few in-session actions stay quiet until then.";
@@ -73,7 +54,6 @@ export interface IdleNoticeChord {
     readonly label: string;
 }
 
-/** Actions available while the conversation on screen is idle. */
 export const IDLE_NOTICE_CHORDS: readonly IdleNoticeChord[] = [
     { key: "enter", label: "continue" },
     { key: "esc", label: "home" },
@@ -82,17 +62,10 @@ export const IDLE_NOTICE_CHORDS: readonly IdleNoticeChord[] = [
     { key: "ctrl+p", label: "commands" },
 ];
 
-/** The chord row as one string, for a reader that cannot take renderables. */
 export const IDLE_NOTICE_CHORD_LINE = IDLE_NOTICE_CHORDS
     .map((chord) => `${chord.key} ${chord.label}`)
     .join(" · ");
 
-/**
- * The prose broken to the columns it has.
- *
- * Never fewer than one line, so the block keeps its height on a terminal too
- * narrow to hold a word.
- */
 export function idleNoticeProseLines(columns: number): readonly string[] {
     const width = Math.max(8, Math.floor(columns));
     const lines: string[] = [];
@@ -135,14 +108,6 @@ export interface JsonlViewKey {
     readonly hyper?: boolean;
 }
 
-/**
- * What a key does while the on-screen conversation is a session file.
- *
- * Scroll the transcript, resume (Enter, or any printable key, which resumes
- * with that key as the first character), open the full session list, start a
- * new chat, open the palette or search, open a slash command, leave through
- * the rail, go back to home, or do nothing.
- */
 export function jsonlViewKeyAction(
     key: JsonlViewKey,
     options: {
@@ -150,7 +115,6 @@ export function jsonlViewKeyAction(
         readonly globalBinding?: string;
         readonly workspaceBinding?: string;
         readonly sidebarFocused: boolean;
-        /** Whether a rail is drawn beside the file, focused or not. */
         readonly sidebarVisible?: boolean;
     },
 ): JsonlViewKeyAction {
@@ -181,8 +145,6 @@ export function jsonlViewKeyAction(
     if (options.sidebarFocused) {
         return "sidebar";
     }
-    // A file claims every key, so the switch into the rail beside it has to be
-    // named here or Left would be swallowed like any other unhandled key.
     if (
         options.sidebarVisible === true
         && isUnmodified(key)
@@ -199,8 +161,6 @@ export function jsonlViewKeyAction(
     if (isPrintable(key)) {
         return key.name === "/" ? "command" : "type";
     }
-    // Nothing here is being edited, so Escape has no draft to clear and can
-    // mean the one thing it means everywhere else: back out of this.
     if (isUnmodified(key) && key.name === "escape") {
         return "home";
     }
@@ -236,19 +196,10 @@ function isUnmodified(key: JsonlViewKey): boolean {
 }
 
 export interface TuiResumeOverlayView {
-    /** The band and the composer-shaped slot together, as one column. */
     readonly surface: BoxRenderable;
     readonly box: BoxRenderable;
     readonly label: TextRenderable;
-    /**
-     * Re-breaks the prose to the columns the chat has and returns whether the
-     * band changed height, which is what the layout around it has to know.
-     */
     setColumns(columns: number): boolean;
-    /**
-     * Moves the caret's blink to where the given clock reading puts it. Cheap
-     * enough to call on every tick: it writes only when the phase turns over.
-     */
     blink(now: number): void;
     applyAppearance(appearance: {
         readonly marginHorizontal: number;
@@ -262,43 +213,24 @@ export interface TuiResumeOverlayView {
     }): void;
 }
 
-/** Rows the band spends on something other than a line of its own text. */
 const NOTICE_CHROME_ROWS = 4;
 
-/** The row between the prose and the chords. */
 const NOTICE_GAP_ROWS = 1;
 
-/** Bold: the chord is the part a reader acts on. */
 const CHORD_ATTRIBUTES = 1;
 
-/** Where typing would go. */
 export const RESUME_CARET = "› ";
 
-/** A caret that held still would read as a glyph rather than as a cursor. */
 export const RESUME_CARET_BLINK_MS = 530;
 
-/**
- * Whether the caret is drawn at this reading of the clock.
- *
- * The phase comes off the clock rather than off a counter so a redraw that
- * skipped a tick, or one that ran twice, lands where the eye expects it.
- */
 export function resumeCaretVisible(now: number): boolean {
     return Math.floor(now / RESUME_CARET_BLINK_MS) % 2 === 0;
 }
 
-/** The columns one chord takes, separator included for all but the first. */
 function chordColumns(chord: IdleNoticeChord, first: boolean): number {
     return chord.key.length + 1 + chord.label.length + (first ? 0 : 3);
 }
 
-/**
- * The chords that fit, in order, dropping from the right.
- *
- * A row that runs off its own edge reads as a chord that was cut in half, so
- * the last ones are left out rather than half-drawn. Enter leads because it
- * is the direct action for the conversation on screen.
- */
 export function idleNoticeChordsFor(
     columns: number,
 ): readonly IdleNoticeChord[] {
@@ -327,9 +259,6 @@ export function createTuiResumeOverlayView(
     let columns = 80;
     let indent = 3;
     let caretOn = true;
-    // The slot is built out of the composer's own parts at the composer's own
-    // measurements: a person looking at it should not be able to tell that
-    // this is a different thing until they read it.
     const caret = new TextRenderable(renderer, {
         id: "resume-overlay-caret",
         content: RESUME_CARET,
@@ -400,9 +329,6 @@ export function createTuiResumeOverlayView(
     box.add(filler);
     box.add(rule);
     box.add(status);
-    // Tinted and edge to edge, like the transcript's own blocks, but on the
-    // panel ground rather than the one a user message uses and with no caret:
-    // this is the room talking, not something anybody said.
     const notice = new BoxRenderable(renderer, {
         id: "resume-overlay-notice",
         border: false,
@@ -452,8 +378,6 @@ export function createTuiResumeOverlayView(
             width: "100%",
             height: 1,
         }));
-        // The chords sit on one row of their own so each can be drawn heavier
-        // than the word beside it: one text renderable takes one colour.
         const chordRow = new BoxRenderable(renderer, {
             id: "resume-overlay-chords",
             width: "100%",
@@ -538,9 +462,6 @@ export function createTuiResumeOverlayView(
             caret.bg = appearance.backgroundColor;
             status.fg = appearance.mutedColor;
             notice.backgroundColor = appearance.noticeColor;
-            // The band runs to both edges, so only its own padding holds the
-            // prose in: set that to where the composer's text starts and the
-            // two read as one column despite the different widths.
             indent = appearance.marginHorizontal + appearance.paddingHorizontal
                 + 1;
             notice.paddingLeft = indent;

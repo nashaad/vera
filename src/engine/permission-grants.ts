@@ -36,10 +36,6 @@ const PREDICATE_FIELDS = [
 
 const VERBS = ["read", "write", "delete", "unknown"];
 
-/**
- * Grants only ever lower `review` or `ask` to `allow`. They can never override
- * a profile denial, and they are consulted after the accident guard.
- */
 export function applyPermissionGrant(
     decision: PermissionActionDecision,
     grants: readonly PermissionGrant[],
@@ -133,7 +129,6 @@ export function isPermissionPredicate(
             || isNonEmptyString(value.executable));
 }
 
-/** Every field present on the predicate must match; absent fields are ignored. */
 export function permissionPredicateMatches(
     predicate: PermissionPredicate,
     action: PermissionAction,
@@ -152,11 +147,6 @@ export function permissionPredicateMatches(
             || predicate.executable === action.executable);
 }
 
-/**
- * Matches a glob (only `*` is special, meaning "zero or more characters")
- * against an action's basename, e.g. `.env.*` matches `/repo/.env.local`.
- * Case-sensitive, and never matches when the action has no resolved path.
- */
 function pathBasenameMatchesGlob(glob: string, path: string | undefined): boolean {
     if (path === undefined) {
         return false;

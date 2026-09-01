@@ -1,11 +1,3 @@
-/**
- * Where agents come from, and which one wins when two share a name.
- *
- * Three sources, in decreasing precedence: the project, the user's profile,
- * and whatever extensions registered. A collision is a notice rather than an
- * error — a project agent shadowing a personal one is the normal way to say
- * "here, use this one".
- */
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,9 +16,7 @@ export type AgentScope = "project" | "user" | "extension";
 export interface CatalogAgent {
     readonly definition: AgentDefinition;
     readonly scope: AgentScope;
-    /** Where it was read from. Absent for an extension's registration. */
     readonly path?: string;
-    /** Extension-registered agents are read-only: the writer refuses them. */
     readonly writable: boolean;
 }
 
@@ -35,15 +25,10 @@ export interface AgentCatalog {
     readonly notices: readonly string[];
 }
 
-/**
- * Profile-scoped, like skills and memory. `$VERA_HOME/agents` would be
- * machine-wide and would step straight past whichever profile is in use.
- */
 export function userAgentDirectory(): string {
     return join(veraProfileDirectory(), "agents");
 }
 
-/** Parallel to project skills, discovered the same way from the same root. */
 export function projectAgentDirectory(projectRoot: string): string {
     return join(projectRoot, ".vera", "agents");
 }
@@ -52,7 +37,6 @@ export interface LoadAgentCatalogOptions extends ParseAgentOptions {
     readonly projectRoot: string;
     readonly userDirectory?: string;
     readonly projectDirectory?: string;
-    /** Agents an extension registered at activation, lowest precedence. */
     readonly registered?: readonly AgentDefinition[];
 }
 
@@ -69,7 +53,6 @@ export async function loadAgentCatalog(
             writable: false,
         });
     }
-    // Later roots win, so they are read in increasing precedence.
     for (
         const root of [
             {
@@ -126,7 +109,6 @@ async function readRoot(
     try {
         names = await readdir(directory);
     } catch {
-        // No directory is the ordinary case, not a problem to report.
         return [];
     }
     const agents: CatalogAgent[] = [];
@@ -145,8 +127,6 @@ async function readRoot(
                 writable: true,
             });
         } catch (error) {
-            // A broken agent file is named and skipped. Refusing to start
-            // because one agent has a typo would take the other agents with it.
             notices.push(
                 `agent ${path}: ${
                     error instanceof Error ? error.message : String(error)

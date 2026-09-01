@@ -30,7 +30,6 @@ export interface TuiHostedSidebarAdoption {
     ) => void;
 }
 
-/** Owns the attachment and metadata behind the TUI's shared agent sidebar. */
 export class TuiHostedSidebarAgent {
     owner: string | undefined;
     pane: TuiAgentPane<IdentifiedTuiAgentClient> | undefined;

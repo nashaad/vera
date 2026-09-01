@@ -12,20 +12,6 @@ import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const AUTH_STORAGE_SCHEMA_VERSION = 2;
 
-/**
- * How a provider is connected, not just that it is.
- *
- * The distinction is user-facing, not bookkeeping: the same provider can often
- * be reached either through a subscription the user already pays for or through
- * an API key billed per token. A connect pane that only knows "connected" cannot
- * say which of the two is about to be spent, cannot offer a disconnect that
- * means the right thing, and cannot tell the user a subscription has expired
- * rather than simply failing the next turn.
- *
- * An OAuth token stays an opaque string because its shape belongs to the
- * provider that minted it: Codex keeps its own versioned record in there. The
- * tag is what this file owns.
- */
 export type StoredCredential =
     | { readonly type: "oauth"; readonly token: string }
     | { readonly type: "api_key"; readonly key: string };
@@ -38,11 +24,9 @@ interface StoredAuth {
 export interface AuthStorage {
     getCredential(provider: string): StoredCredential | undefined;
     setCredential(provider: string, credential: StoredCredential): void;
-    /** Forgets a provider's credential. A provider with none stored is a no-op. */
     deleteCredential(provider: string): void;
 }
 
-/** The OAuth token for a provider, absent when it is connected another way. */
 export function oauthToken(
     storage: Pick<AuthStorage, "getCredential">,
     provider: string,
@@ -51,20 +35,11 @@ export function oauthToken(
     return credential?.type === "oauth" ? credential.token : undefined;
 }
 
-/**
- * A short stand-in for a provider's stored credential, safe to hold and compare.
- *
- * Hashed rather than kept whole so that a cache keyed on it never has the secret
- * itself sitting in a map key. It changes whenever the credential does, which is
- * the only property anything asks of it.
- */
 export function credentialFingerprint(
     storage: Pick<AuthStorage, "getCredential">,
     provider: string,
 ): string | undefined {
-    // Every provider lookup passes through here, including ones that need no
-    // credential at all, so an unreadable store must not take them down with it.
-    // The read that actually spends the credential still throws and says why.
+    // Every provider lookup passes through here, including ones that need no credential at all, so an unreadable store must not take them down with it.
     let credential;
     try {
         credential = storage.getCredential(provider);
@@ -83,7 +58,6 @@ export function credentialFingerprint(
         .slice(0, 16);
 }
 
-/** The API key for a provider, absent when it is connected another way. */
 export function apiKey(
     storage: Pick<AuthStorage, "getCredential">,
     provider: string,
@@ -94,12 +68,6 @@ export function apiKey(
 
 export interface AuthStorageOptions {
     readonly path?: string;
-    /**
-     * Called with the new path when an unreadable store was moved aside.
-     *
-     * A callback rather than a log line, because the only place worth saying it
-     * is wherever the user is looking when it happens.
-     */
     readonly onQuarantine?: (quarantinePath: string) => void;
 }
 
@@ -133,9 +101,6 @@ export function createAuthStorage(
 
         deleteCredential(provider: string): void {
             const auth = readForWrite(path, options.onQuarantine);
-            // Rebuilt without the key rather than set to undefined: the read
-            // side asks `Object.hasOwn`, which a present-but-undefined key
-            // still answers yes to.
             const credentials: Record<string, StoredCredential> = {};
             for (const [id, credential] of Object.entries(auth.credentials)) {
                 if (id !== provider) {
@@ -150,12 +115,6 @@ export function createAuthStorage(
     };
 }
 
-/**
- * The path of the store when it cannot be read, absent when it can.
- *
- * A missing file is readable: it means nothing is connected yet, which is where
- * everyone starts.
- */
 export function unreadableAuthStoragePath(
     options: AuthStorageOptions = {},
 ): string | undefined {
@@ -168,17 +127,6 @@ export function unreadableAuthStoragePath(
     }
 }
 
-/**
- * The credentials to merge into, with an unreadable file moved aside first.
- *
- * Reads already fail soft, so a broken store shows every provider as
- * unconnected. Letting the write fail too would leave the user staring at a pane
- * that says nothing is connected and refuses to connect anything, with no way
- * out but editing JSON by hand. Connecting a provider is the fix instead.
- *
- * Renamed rather than deleted: the file may hold a recoverable credential, and
- * it is not ours to throw away.
- */
 function readForWrite(
     path: string,
     onQuarantine?: (quarantinePath: string) => void,
@@ -222,9 +170,6 @@ function readStoredAuth(path: string): StoredAuth {
         };
     }
     if (isLegacyAuth(value)) {
-        // The oldest shape was already tagged. Version 1 dropped the tag and
-        // flattened everything to a string, so this reads as a restoration
-        // rather than a new idea.
         return {
             schema_version: AUTH_STORAGE_SCHEMA_VERSION,
             credentials: Object.fromEntries(
@@ -243,14 +188,6 @@ function readStoredAuth(path: string): StoredAuth {
     throw new Error(`Invalid Vera auth storage at ${path}`);
 }
 
-/**
- * Recover the tag version 1 threw away.
- *
- * Every writer of that shape stored a JSON record of OAuth tokens, so anything
- * that parses as an object is one. A bare string was never written by anything,
- * but reading it as an API key is the safe reading: keys are opaque strings and
- * OAuth records are not.
- */
 function retagToken(token: string): StoredCredential {
     try {
         const value: unknown = JSON.parse(token);
@@ -258,7 +195,6 @@ function retagToken(token: string): StoredCredential {
             return { type: "oauth", token };
         }
     } catch {
-        // Not JSON, so not one of the OAuth records described above.
     }
     return { type: "api_key", key: token };
 }
@@ -298,7 +234,6 @@ function isStoredCredential(value: unknown): value is StoredCredential {
         : credential.type === "api_key" && typeof credential.key === "string";
 }
 
-/** The version 1 shape: a provider to opaque string map, with the tag dropped. */
 function isUntaggedAuth(
     value: unknown,
 ): value is { readonly tokens: Readonly<Record<string, string>> } {
@@ -376,7 +311,6 @@ function writeStoredAuth(path: string, auth: StoredAuth): void {
         try {
             unlinkSync(temporaryPath);
         } catch {
-            // The write may have failed before the temporary file existed.
         }
         throw error;
     }

@@ -25,12 +25,6 @@ export interface HostLoggerOptions {
     readonly now?: () => Date;
 }
 
-/**
- * Append-only JSONL diagnostics for host-level work that happens outside any
- * session, such as provider discovery at startup. Session-scoped diagnostics
- * belong to the per-session event log; this file holds what has no session.
- * A failed write is swallowed: diagnostics must never block the host.
- */
 export function createHostLogger(options: HostLoggerOptions = {}): HostLog {
     const path = options.path ?? defaultHostLogPath();
     const now = options.now ?? (() => new Date());
@@ -51,8 +45,6 @@ export function createHostLogger(options: HostLoggerOptions = {}): HostLog {
                 { encoding: "utf8", mode: 0o600 },
             );
         } catch {
-            // Nothing: a full disk or unwritable directory loses diagnostics,
-            // not the host.
         }
     };
 }

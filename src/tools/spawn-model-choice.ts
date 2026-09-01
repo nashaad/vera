@@ -5,15 +5,6 @@ export interface SpawnModelChoice {
     readonly reasoningEffort?: ModelReasoningEffort;
 }
 
-/**
- * The optional model override both spawn tools accept, validated once.
- *
- * Both fields are suggestions, and a spawn that names neither is the normal
- * case: it falls through to the configured subagent default and the ladder's
- * self logic. `null` and blank strings are read as "not given" rather than
- * rejected, because failing the call costs a whole model round trip to say
- * something the defaults already answer.
- */
 export function spawnModelChoice(
     toolName: string,
     input: Readonly<Record<string, unknown>>,

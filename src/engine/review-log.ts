@@ -56,14 +56,6 @@ export interface ReviewLoggerOptions {
     readonly now?: () => Date;
 }
 
-/**
- * Append-only JSONL record of every reviewer model call, one line per call, so
- * a two-tier review writes two. It holds the exact prompt sent and the exact
- * text returned, because a decision cannot be judged after the fact from its
- * verdict alone. That makes the file as sensitive as the transcript it quotes:
- * it is written 0600 under a 0700 directory and never leaves the machine.
- * A failed write is swallowed, so diagnostics never block a review.
- */
 export function createReviewLogger(options: ReviewLoggerOptions = {}): ReviewLog {
     const path = options.path ?? defaultReviewLogPath();
     const now = options.now ?? (() => new Date());
@@ -84,7 +76,6 @@ export function createReviewLogger(options: ReviewLoggerOptions = {}): ReviewLog
                 { encoding: "utf8", mode: 0o600 },
             );
         } catch {
-            // Nothing: an unwritable log loses the record, not the review.
         }
     };
 }

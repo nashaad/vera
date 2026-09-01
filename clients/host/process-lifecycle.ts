@@ -8,12 +8,6 @@ interface ShutdownSignalWait {
 export interface ResidentHostProcessOptions {
     readonly waitForSignal?: () => ShutdownSignalWait;
     readonly exit?: (code: number) => void;
-    /**
-     * Removes the crash guard. Called once shutdown begins, so a failure to
-     * close is not absorbed as a survivable fault: the host would then sit
-     * alive with its server closed and its signal handlers disposed, which is
-     * the wedged shape recovery exists to clean up.
-     */
     readonly stopAbsorbingFaults?: () => void;
 }
 
@@ -32,8 +26,6 @@ export async function runResidentHostProcess(
         try {
             await host.close();
         } catch (error) {
-            // Nothing above will handle this, and staying up with the server
-            // closed is worse than dying loudly.
             process.stderr.write(
                 `Resident Vera host failed to close: ${
                     error instanceof Error ? error.message : String(error)
@@ -43,8 +35,6 @@ export async function runResidentHostProcess(
         }
     }
 
-    // This process owns nothing after close. Exit explicitly because Bun can
-    // retain a macOS network-monitor handle after its application sockets close.
     (options.exit ?? ((code) => process.exit(code)))(0);
 }
 

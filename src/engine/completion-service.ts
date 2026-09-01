@@ -7,16 +7,6 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 
-/**
- * One bounded model call, for code that needs an answer rather than a turn.
- *
- * This is the whole surface a strategy or an extension is given. It cannot
- * name a provider, reach an adapter, read credentials, register tools, stream,
- * or continue a conversation: Vera resolves the route, binds the models, and
- * hands back a function that turns messages into text. Everything a caller
- * would need in order to spend somebody else's key on something other than the
- * job it was bound for is on the other side of this boundary.
- */
 export type CompleteText = (
     request: CompletionRequest,
     signal: AbortSignal,
@@ -25,13 +15,11 @@ export type CompleteText = (
 export interface CompletionRequest {
     readonly systemPrompt: string;
     readonly messages: readonly ModelMessage[];
-    /** Clamped to `maxOutputTokens`; the binding decides the ceiling. */
     readonly maxTokens?: number;
 }
 
 export interface CompletionResult {
     readonly text: string;
-    /** Which of the route's models answered. Diagnostic only. */
     readonly model: string;
     readonly provider?: string;
     readonly usage?: ModelUsage;
@@ -41,11 +29,6 @@ export interface CompletionModel {
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
-    /**
-     * The window this model accepts, when Vera has an entry for it. A route
-     * can mix sizes, and a request built for the session's window is not
-     * automatically one a smaller model in the route can read.
-     */
     readonly contextWindow?: number;
 }
 
@@ -58,17 +41,7 @@ export interface CompletionServiceSettings {
 export const COMPLETION_TIMEOUT_MS = 120_000;
 export const COMPLETION_MAX_OUTPUT_TOKENS = 8_192;
 
-/**
- * Failure is an exception rather than a union member because a caller has no
- * partial answer to work with: the one thing it asked for did not happen.
- */
 export class CompletionUnavailableError extends Error {
-    /**
-     * True when a smaller request would have had somewhere to go: a candidate
-     * was passed over only because the request did not fit its window. The
-     * compaction ladder reads this to decide whether a shorter span is worth
-     * a second call.
-     */
     readonly roomRelated: boolean;
 
     constructor(reason: string, roomRelated = false) {
@@ -78,11 +51,6 @@ export class CompletionUnavailableError extends Error {
     }
 }
 
-/**
- * Binds a resolved route. The models are tried in order and the first one that
- * answers wins, which is the same fallback shape `createRoutedToolReviewer`
- * uses: a route is a preference list, not a pool.
- */
 export function createRoutedCompletionService(
     adapter: ModelAdapter,
     settings: CompletionServiceSettings,
@@ -108,9 +76,6 @@ export function createRoutedCompletionService(
         let skippedForWindow = 0;
         const requestTokens = measureRequest(request);
         for (const candidate of settings.models) {
-            // Sending a request the model cannot read costs a round trip to
-            // be told so, in a provider's own words, at the moment the window
-            // is already full. Skipping says which model and by how much.
             if (
                 candidate.contextWindow !== undefined
                 && requestTokens + maxTokens > candidate.contextWindow
@@ -135,10 +100,6 @@ export function createRoutedCompletionService(
                 combined,
                 timeout,
             );
-            // A provider that names a smaller output allowance than the one
-            // asked for gets one more call at that allowance. The ceiling
-            // leaves room for reasoning; it is not a claim every model can
-            // fill it.
             if (
                 outcome.kind === "failed"
                 && outcome.allowance !== undefined
@@ -163,19 +124,11 @@ export function createRoutedCompletionService(
             reasons.length === 0
                 ? "The model route produced no answer."
                 : `The model route produced no answer (${reasons.join("; ")}).`,
-            // Only when room is the whole story. A candidate that was tried
-            // and failed for its own reasons will fail the same way on a
-            // shorter span, and saying otherwise spends the ladder's calls
-            // collecting one answer three times.
             skippedForWindow > 0 && skippedForWindow === settings.models.length,
         );
     };
 }
 
-/**
- * The request as the estimator sees it. Coarse on purpose: it decides whether
- * to spend a call, and the provider remains the authority on the answer.
- */
 function measureRequest(request: CompletionRequest): number {
     return measureMessages(request.messages)
         + Math.ceil(request.systemPrompt.length / 4);
@@ -190,7 +143,6 @@ type AttemptOutcome =
     | {
         readonly kind: "failed";
         readonly reason: string;
-        /** Output tokens the provider said it would accept, when it said. */
         readonly allowance?: number;
     };
 
@@ -221,17 +173,11 @@ async function attempt(
         if (signal.aborted) {
             throw new CompletionUnavailableError("Cancelled.");
         }
-        // An adapter that turns the deadline into an aborted message rather
-        // than a throw would otherwise be reported as the model's own stop
-        // reason, which names the symptom and hides the cause.
+        // An adapter that turns the deadline into an aborted message rather than a throw would otherwise be reported as the model's own stop reason, which names the symptom and hides.
         if (timeout.aborted) {
             return { kind: "failed", reason: `${candidate.model} timed out` };
         }
         if (message.stopReason !== "stop") {
-            // A truncated answer is not a cheaper answer. A summary cut at
-            // the token ceiling would be accepted as a projection and silently
-            // lose whatever came after the cut. The provider's own message
-            // when it left one: "stopped with error" alone names no cause.
             return {
                 kind: "failed",
                 reason: `${candidate.model} stopped with ${message.stopReason}`

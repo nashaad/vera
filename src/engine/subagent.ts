@@ -72,14 +72,8 @@ import {
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
-    /** Durable identity of the session that owns spawned children. */
     readonly parentSessionId?: string;
-    /**
-     * The parent's instruction root, handed down so a child keys project
-     * memory where its parent does. Absent falls back to the workspace.
-     */
     readonly instructionRoot?: InstructionRoot;
-    /** Shared with children: one session, one scratch space. */
     readonly scratchDir?: string;
     readonly processRegistry?: ManagedProcessRegistry;
     readonly disabledPromptContributions?: readonly string[];
@@ -96,28 +90,15 @@ export interface CreateSubagentEffectApplierOptions {
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
-    /** Makes the spawn tools' model override resolvable; absent, it is refused. */
     readonly readPool?: () => readonly PooledModel[];
-    /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
-    /** Allow/deny, the failsafe list and families; absent, nothing is gated. */
     readonly readPolicy?: () => SubagentPoolPolicy;
-    /** Host-owned, coalesced configuration + confirmation for an empty policy. */
     readonly requestMissingConfiguration?: RequestMissingSubagentConfiguration;
-    /**
-     * The same reviewer settings the parent runs under. Settings, not the
-     * parent's reviewer instance: a reviewer keeps a running conversation
-     * about one transcript, and each child has its own.
-     */
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    /**
-     * Resolves an agent a spawn named. Absent means this host has no agents,
-     * and a spawn that names one is refused rather than run without it.
-     */
     readonly loadAgent?: (
         name: string,
     ) => Promise<AgentDefinition | undefined>;
@@ -148,9 +129,7 @@ export type SpawnModelResolution =
         readonly provider?: string;
         readonly model: string;
         readonly reasoningEffort?: ModelReasoningEffort;
-        /** A transcript line about a request that fell through the pool. */
         readonly notice?: string;
-        /** The same substitutions the notice reads out, as typed rows. */
         readonly substitutions?: readonly ModelSubstitution[];
     }
     | {
@@ -163,36 +142,15 @@ export type SpawnModelResolution =
         readonly error: string;
     };
 
-/**
- * The policy fields of the pool file that only the ladder reads.
- *
- * SEAM: the pool file loader owns parsing and validation and hands this
- * shape over; nothing here opens a file. `families` maps `provider/model`
- * to the declared family label used to bound sibling search.
- */
 export interface SubagentPoolPolicy {
-    /** Ordered, shortlist-admitted authorization boundary. */
     readonly assigned?: readonly SpawnModelDefault[];
-    /** Appends the exact parent provider/model as the final candidate. */
     readonly allowSelf?: boolean;
     readonly allow?: readonly string[];
     readonly deny?: readonly string[];
-    /** Verified pool entries in file order, the failsafe rung's candidates. */
     readonly failsafe?: readonly string[];
     readonly families?: Readonly<Record<string, string>>;
-    /**
-     * Resolved tool-call support per `provider/model`, for the models the
-     * pool failsafe may reach. A model missing from this map is not known
-     * to call tools, which is why the map is not a set of the ones that do.
-     */
     readonly tools?: Readonly<Record<string, boolean>>;
-    /** `defaults.subagentEffort`, applied to the self rung. */
     readonly selfEffort?: RelativeEffort;
-    /**
-     * `defaults.subagent`: the model the default rung tries, or `"self"`.
-     * It wins over the host's own configured default, because the pool file
-     * is where the user states this and the host config is the older answer.
-     */
     readonly subagentDefault?: string;
 }
 
@@ -231,15 +189,6 @@ export function subagentModelBoundary(
     });
 }
 
-/**
- * Turns a spawn tool's optional model suggestion into runnable settings.
- *
- * The suggestion is a suggestion, never a contract: a model that cannot run
- * falls through the ladder in `subagent-ladder.ts` rather than failing the
- * spawn, because nobody is watching a subagent to retry it. Every
- * substitution the ladder makes comes back as a notice, which the caller
- * prefixes to the child's result.
- */
 export function resolveSpawnModelChoice(
     effect: { readonly model?: string; readonly reasoningEffort?: string },
     context: ToolEffectContext,
@@ -330,12 +279,6 @@ export function resolveSpawnModelChoice(
     };
 }
 
-/**
- * Projects the runtime pool into the ladder's view, plus the two models that
- * are runnable without being pooled: the session's own model, which is
- * running right now by definition, and the configured subagent default,
- * which the user declared by hand.
- */
 function ladderPool(
     context: ToolEffectContext,
     pool: readonly PooledModel[],
@@ -378,9 +321,6 @@ function ladderPool(
         if (models.some((known) => modelRef(known.provider, known.model) === ref)) {
             continue;
         }
-        // No `levels`: nothing here knows this model's ladder. A synthesized
-        // one-element list would make every other level look unsupported and
-        // report a substitution the user never had done to them.
         models.push({
             provider: entry.provider,
             model: entry.model,
@@ -402,11 +342,6 @@ function ladderPool(
     };
 }
 
-/**
- * The `provider/model` a pool name stands for. A ref with a slash is already
- * an id, and an unmatched ref is left alone so the ladder reports it as the
- * user wrote it.
- */
 function poolNamed(
     ref: string,
     pool: readonly PooledModel[],
@@ -420,11 +355,6 @@ function poolNamed(
         : `${entry.provider}/${entry.model}`;
 }
 
-/**
- * Splits `provider/model` at the first separator only: an aggregator model id
- * carries its own slashes, so `openrouter/deepseek/deepseek-chat` is one model
- * on one provider. A bare name belongs to the session's provider.
- */
 export interface RunSubagentOptions {
     readonly adapter: ModelAdapter;
     readonly provider?: string;
@@ -432,7 +362,6 @@ export interface RunSubagentOptions {
     readonly description: string;
     readonly workspace: string;
     readonly parentSessionId?: string;
-    /** Inherited from the parent. Absent falls back to the workspace. */
     readonly instructionRoot?: InstructionRoot;
     readonly scratchDir?: string;
     readonly processRegistry?: ManagedProcessRegistry;
@@ -458,13 +387,7 @@ export interface RunSubagentOptions {
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    /**
-     * The agent this child wears, already intersected with what the parent
-     * could reach. Delegation never widens: a tool the agent grants but the
-     * parent does not have is not in this list.
-     */
     readonly agentWear?: AgentWearSnapshot;
-    /** The parent's mode, which clamps every action the child takes. */
     readonly clampPermissionMode?: ApprovalMode;
 }
 
@@ -501,9 +424,6 @@ export function createSubagentEffectApplier(
                 isError: true,
             };
         }
-        // The agent's own default pair is the fallback between the explicit
-        // arguments and the ladder: it is a default, so it loses to what the
-        // caller asked for and beats what nobody asked for.
         let wear: AgentWearSnapshot | undefined;
         let agentDefault: SpawnModelDefault | undefined;
         if (effect.agent !== undefined) {
@@ -523,8 +443,6 @@ export function createSubagentEffectApplier(
                 };
             }
             if (definition.nudges !== undefined) {
-                // A spawn has no surface to show one on, so carrying nudges
-                // here is a validation error rather than a silent no-op.
                 return {
                     kind: "output",
                     output:
@@ -586,9 +504,6 @@ export function createSubagentEffectApplier(
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
         }
-        // Configuration may have kept several calls waiting while no child
-        // counted as active. Re-check at the admission boundary so they cannot
-        // all pass the earlier snapshot and exceed the limit together.
         if (activeChildren >= maxConcurrentChildren) {
             return {
                 kind: "output",
@@ -601,9 +516,6 @@ export function createSubagentEffectApplier(
         const substitutions = resolved.substitutions ?? [];
         activeChildren += 1;
         const sessionId = randomUUID();
-        // Read once here. These come from the host and can change while the
-        // session runs, so a child gets one coherent set of settings rather
-        // than one field from before an edit and the next from after it.
         const {
             disabledPromptContributions,
             reviewer,
@@ -660,9 +572,6 @@ export function createSubagentEffectApplier(
                 ...(resolved.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: resolved.reasoningEffort }),
-                // A generic fallback can name a model outside the persisted
-                // delegation boundary. Provider retry of this exact model is
-                // still handled by recovery; cross-model fallback is not.
                 ...(options.sessionPathForId === undefined
                     ? {}
                     : { sessionPath: options.sessionPathForId(sessionId) }),
@@ -676,8 +585,6 @@ export function createSubagentEffectApplier(
                     : { readReviewer: options.readReviewer }),
                 ...(permissionModes === undefined ? {} : { permissionModes }),
                 ...(wear === undefined ? {} : { agentWear: wear }),
-                // The parent's mode clamps every action the child takes, per
-                // action. Delegation narrows; it never widens.
                 clampPermissionMode: context.approvalMode,
             });
             return {
@@ -736,14 +643,6 @@ export async function runSubagent(
         events.subscribe(protocol);
         const instructionRoot: InstructionRoot = options.instructionRoot
             ?? { path: options.workspace, source: "workspace" };
-        // The child builds its own reviewer instances rather than borrowing
-        // the parent's: a reviewer keeps a running conversation about one
-        // transcript, and interleaving two transcripts would read as a rewind
-        // on every review. Without configured settings the reviewer runs on
-        // the child's own model, mirroring the parent's fallback. Leaving it
-        // unwired is not an option in `auto`: every non-routine action would
-        // fall back to a human approval prompt, or a denial when nobody is
-        // attached, which quietly turns the child's auto mode into ask.
         const reviewToolCall = createRoutedToolReviewer(
             options.adapter,
             {
@@ -905,13 +804,6 @@ function finalText(message: AssistantMessage): string {
         || `Subagent stopped with ${message.stopReason}.`;
 }
 
-/**
- * The child's lists, narrowed by the parent's.
- *
- * An agent that grants a tool the parent does not have does not hand it over:
- * the child's scope is the intersection, and an absent list on either side
- * means "everything that side can reach", not "everything".
- */
 export function narrowAgainstParent(
     child: AgentWearSnapshot,
     parent: AgentWearSnapshot | undefined,

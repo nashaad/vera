@@ -7,21 +7,9 @@ import {
     type WatchRuntimeContext,
 } from "./source.ts";
 
-/**
- * The first connector: arc's event log over SSE.
- *
- * arc is the only inter-node bus, and this watch is the one bridge in. The
- * connector holds no state of its own. It reads the cursor the host persisted,
- * hands it back as `Last-Event-ID`, and lets the host advance it from the `id`
- * arc stamps on each frame.
- */
-
 export const ARC_SOURCE_FAMILY = "arc";
-/** Frames larger than this are dropped rather than buffered without bound. */
 export const MAX_FRAME_BYTES = 64 * 1024;
 
-/** Resolves the bearer token for a watch. The host holds credentials; the
- * definition is committed data and never carries one. */
 export type WatchSecretResolver = (watchId: string) => string | null;
 
 export type FetchLike = (
@@ -84,10 +72,6 @@ export function createArcConnector(
             if (body === null) {
                 throw new Error("arc events response carried no body");
             }
-            // Not healthy yet. A connection that opens and dies carries no
-            // data, and calling it healthy here would clear the backoff ladder
-            // on every attempt, so a source that only ever connects would never
-            // back off and never quarantine.
             let admittedAny = false;
 
             for await (const item of readFrames(body, context.signal)) {
@@ -124,11 +108,6 @@ interface SseFrame {
     readonly data: string;
 }
 
-/**
- * `config.server` is the arc base URL; the rest are arc's own request-scoped
- * filters. Nothing here is interpolated into anything but query parameters,
- * and an unknown key is a load error rather than a silently ignored filter.
- */
 export function arcEventsUrl(config: JsonObject): string {
     const server = config.server;
     if (typeof server !== "string" || server.trim() === "") {
@@ -185,20 +164,11 @@ interface ParsedFrameItem {
     readonly frame: SseFrame;
 }
 
-/** One frame too large to hold, reported so the hole reaches the log. */
 interface DiscardedFrameItem {
     readonly kind: "discarded";
     readonly bytes: number;
 }
 
-/**
- * The cap is on bytes, not characters, because the buffer is a memory bound and
- * one character can be four bytes. An overlong frame is discarded up to the
- * next frame boundary and no further: clearing the buffer at whatever chunk
- * boundary happened to overflow it would splice the remainder of the discarded
- * frame onto the front of the next one and produce a plausible-looking frame
- * out of two halves.
- */
 async function* readFrames(
     body: ReadableStream<Uint8Array>,
     signal: AbortSignal,
@@ -240,8 +210,6 @@ async function* readFrames(
                 bufferBytes = Buffer.byteLength(buffer, "utf8");
                 const blockBytes = Buffer.byteLength(block, "utf8");
                 if (blockBytes > MAX_FRAME_BYTES) {
-                    // Complete but still over the cap. Arriving whole is not a
-                    // reason to accept it.
                     yield { kind: "discarded", bytes: blockBytes };
                 } else {
                     const frame = parseFrame(block);
@@ -285,11 +253,6 @@ function parseFrame(block: string): SseFrame | null {
     return { id, data: data.join("\n") };
 }
 
-/**
- * One arc event becomes one inbox entry. `actor` and `session` are copied so
- * the causality guard downstream is a query rather than agent-side logic; an
- * event arc could not attribute gets the watch itself as a stable actor.
- */
 export function toSourceEvent(frame: SseFrame): SourceEvent | null {
     let event: ArcEvent;
     try {
@@ -304,10 +267,6 @@ export function toSourceEvent(frame: SseFrame): SourceEvent | null {
     ) {
         return null;
     }
-    // No id, no cursor. The cursor goes back to arc as `Last-Event-ID`, so a
-    // token synthesised here would be one arc never issued and could not
-    // resume from. A frame without an id leaves the cursor at the last real
-    // one and the events after it are redelivered, which consumers tolerate.
     return {
         id: `arc:${event.seq}`,
         kind: `arc.${event.kind}`,
@@ -316,8 +275,6 @@ export function toSourceEvent(frame: SseFrame): SourceEvent | null {
             ? event.actor
             : "source:arc",
         session: event.session !== undefined && event.session !== ""
-            // Identity names match on `slug:hex4` alone, so a purpose tail is
-            // stripped here at the bridge; the payload keeps the full text.
             ? agentNameKey(event.session) ?? event.session
             : null,
         ...(frame.id === null ? {} : { cursor: frame.id }),
@@ -348,7 +305,6 @@ function arcPayload(event: ArcEvent): JsonObject {
     return payload;
 }
 
-/** arc carries its own payload as a JSON string; unparseable text stays text. */
 function parseDetail(raw: string): JsonValue {
     try {
         const parsed: unknown = JSON.parse(raw);

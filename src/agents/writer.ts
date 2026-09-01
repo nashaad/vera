@@ -1,11 +1,3 @@
-/**
- * The one thing a wire command may write into an agent file: its default pair.
- *
- * Deliberately narrow. Everything else about an agent is edited with your
- * editor, so the file stays the definition rather than a cache of one. The
- * write is temp-and-rename, so a crash leaves the old file rather than half a
- * new one.
- */
 
 import { randomUUID } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
@@ -16,13 +8,6 @@ export interface AgentDefaultPair {
     readonly effort?: string;
 }
 
-/**
- * Rewrite (or clear) `default_pair` in an agent file, leaving every other
- * line of frontmatter and the whole body byte-identical.
- *
- * Rewriting the file from a parsed object would reformat somebody's YAML and
- * drop their comments, so the key is edited in place as text.
- */
 export async function writeAgentDefaultPair(
     path: string,
     pair: AgentDefaultPair | null,
@@ -32,8 +17,6 @@ export async function writeAgentDefaultPair(
     const line = pair === null ? undefined : renderDefaultPair(pair);
     let next: string;
     if (match === null) {
-        // No frontmatter yet: an agent that is instructions alone. Clearing a
-        // key it does not have is a no-op rather than a reason to add a block.
         if (line === undefined) return;
         next = `---\n${line}\n---\n${source}`;
     } else {
@@ -55,10 +38,6 @@ function renderDefaultPair(pair: AgentDefaultPair): string {
     return `default_pair: { name: ${JSON.stringify(pair.name)}${effort} }`;
 }
 
-/**
- * Replace one top-level key's line (and any lines indented under it), or
- * append the key when it was not there. `undefined` removes it.
- */
 function replaceKey(
     body: string,
     key: string,

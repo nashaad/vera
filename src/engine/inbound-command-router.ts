@@ -40,18 +40,11 @@ import type { ModelMessage } from "../model/types.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type { PromptQueueState } from "./prompt-queue.ts";
 
-/** A session-scoped model write, and how it was classified. */
 export interface SessionModelSettingsResult {
     readonly settings: ModelTurnSettings;
     readonly origin: SessionSettingOrigin;
 }
 
-/**
- * What the approval is actually agreeing to. The line is the last thing read
- * before allowing, so it names the authority the tool takes rather than the
- * authority a shell takes: a fetch that warns about child processes teaches
- * the reader to skip the warning.
- */
 const AUTHORITY_WARNINGS: Readonly<Record<string, string>> = {
     bash: "If allowed, this command and its child processes run with your"
         + " full user permissions.",
@@ -152,12 +145,10 @@ interface PendingConfigurationRequired {
 
 export interface InboundTurn {
     readonly prompt: PromptCommand;
-    /** Later user messages admitted to the same model turn, in FIFO order. */
     readonly additionalPrompts?: readonly PromptCommand[];
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
     readonly triggeredByDelivery?: true;
-    /** Authority minted only by the router's typed skill-command path. */
     readonly userInvokedSkill?: string;
 }
 
@@ -180,13 +171,6 @@ interface QueuedDeliveryTurn extends QueuedTurnContext {
     readonly skillInvocation?: never;
 }
 
-/**
- * A wear waiting its turn in the same queue as the prompts.
- *
- * It is not a turn: `startTurn` applies it and keeps waiting. That is what
- * makes "applies after the current work" true without hybridising a prompt
- * that was queued before it.
- */
 interface QueuedWear extends Partial<QueuedTurnContext> {
     readonly wear: { readonly requestId: string; readonly name: string };
     readonly prompt?: never;
@@ -194,13 +178,6 @@ interface QueuedWear extends Partial<QueuedTurnContext> {
     readonly skillInvocation?: never;
 }
 
-/**
- * A typed skill command waiting behind any earlier turns and wear changes.
- *
- * Validation happens when this item reaches the front of the queue. Doing it
- * on socket arrival would validate against the agent worn before an earlier
- * queued `/agent` command, then run the turn under the agent worn after it.
- */
 interface QueuedSkillInvocation extends QueuedTurnContext {
     readonly skillInvocation: {
         readonly requestId: string;
@@ -248,16 +225,11 @@ export interface InboundCommandRouterOptions {
         },
     ) => Promise<void>;
     readonly hasPendingDeliveryTurn?: () => boolean;
-    /** Clears a resident wake that was discarded because its work was drained. */
     readonly onDeliveryTurnDiscarded?: () => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
-    /**
-     * Writes the session's own model settings and answers with the origin the
-     * write was classified as. Undefined means the patch did not apply.
-     */
     readonly updateSessionModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<SessionModelSettingsResult | undefined>;
@@ -270,7 +242,6 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
-    /** Applies the wear and answers with what is now in force. */
     readonly wearAgent?: (name: string) => Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
@@ -307,17 +278,10 @@ export interface InboundCommandRouterOptions {
         | { readonly allowed: true }
         | { readonly allowed: false; readonly reason: string }
     >;
-    /** Answers with why the write was refused, or nothing when it happened. */
     readonly updateAgentDefaultPair?: (
         name: string,
         pair: { readonly name: string; readonly effort?: string } | null,
     ) => Promise<string | undefined>;
-    /**
-     * Admits one model and returns the verdict, with the settings snapshot as
-     * it stands afterwards so the reply carries the new pool. `verify` asks
-     * for the probes, and only then does `onStep` fire per check for the
-     * client's checklist.
-     */
     readonly poolAdd?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
@@ -333,35 +297,17 @@ export interface InboundCommandRouterOptions {
         readonly statusCode?: number;
         readonly settings?: ModelTurnSettings;
     }>;
-    /**
-     * Returns the settings snapshot as it stands after the removal.
-     * `undefined` means the edit did not happen.
-     */
     readonly poolRemove?: (
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
-    /**
-     * Returns the settings snapshot as it stands after the name is set or
-     * cleared. `undefined` means the name was refused and nothing changed.
-     */
     readonly poolName?: (
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
     ) => Promise<ModelTurnSettings | undefined>;
-    /**
-     * Returns the settings snapshot as it stands after the move. `undefined`
-     * means the move was refused and nothing changed.
-     */
     readonly poolMove?: (
         entry: { readonly provider: string; readonly model: string },
         delta: number,
     ) => Promise<ModelTurnSettings | undefined>;
-    /**
-     * Asks the named provider (or every askable one) for its list now and
-     * returns the settings snapshot the refreshed list produces. `undefined`
-     * means nothing could be asked, which is a refusal rather than an empty
-     * list: the remembered list stays.
-     */
     readonly refreshCatalog?: (
         provider: string,
     ) => Promise<ModelTurnSettings | undefined>;
@@ -377,11 +323,6 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionName?: (
         name: string | null,
     ) => Promise<string | null | undefined>;
-    /**
-     * Runs one bounded call against the named model and returns its text. The
-     * named model answers or the call fails: this never falls back to another
-     * model, because the caller asked for a specific one.
-     */
     readonly oneshot?: (
         request: {
             readonly provider?: string;
@@ -408,13 +349,7 @@ export interface InboundCommandRouterOptions {
     readonly addPermissionGrants?: (
         grants: readonly PermissionGrantProposal[],
     ) => Promise<void>;
-    /** Resolves false when the ID names no live grant. */
     readonly removePermissionGrant?: (id: string) => Promise<boolean>;
-    /**
-     * Absent when the session cannot compact, so an asked-for compaction on a
-     * session with no strategy bound does nothing rather than reporting a
-     * failure the user cannot act on.
-     */
     readonly compactNow?: (
         turnActive: boolean,
         signal?: AbortSignal,
@@ -488,10 +423,6 @@ export class InboundCommandRouter {
                 claimedItem = this.queuedTurns.shift()!;
                 queued = claimedItem;
                 this.claimedQueueRelease = claimedRelease;
-                // Keep the item counted while it waits for a background
-                // compaction (and while a queued wear is applying). Timeline
-                // commands must see the claimed prompt as in flight until it
-                // is safe to hand the turn to the engine.
                 try {
                     const compaction = this.compactionInFlight;
                     if (compaction !== undefined) {
@@ -543,10 +474,6 @@ export class InboundCommandRouter {
             claimedItem.prompt !== undefined
             && claimedRelease.mode === "all"
         ) {
-            // One provider turn has one model-settings snapshot. The oldest
-            // prompt supplies it; later ordinary prompts remain distinct
-            // messages. Queue controls are retained to settle after the batch,
-            // so they cannot split one send-all claim into multiple turns.
             const boundaryIndex = this.queuedTurns.indexOf(
                 claimedRelease.boundary,
             );
@@ -625,8 +552,6 @@ export class InboundCommandRouter {
         this.activeTurn = undefined;
         this.activeQueueTurn = undefined;
 
-        // A release or plain stop accepted during this turn already chose what
-        // may run next. The old turn's terminal event cannot overwrite it.
         if (this.release?.id !== active.releaseId) {
             this.emitPromptQueue();
             this.signalTurnAvailable();
@@ -676,8 +601,6 @@ export class InboundCommandRouter {
     }
 
     private releaseQueuedPrompts(mode: "one" | "all"): void {
-        // Key-repeat and concurrent attachments cannot expand a release that
-        // has already been accepted but has not reached its fence yet.
         if (
             this.release?.mode === "one"
             || this.release?.mode === "all"
@@ -718,8 +641,6 @@ export class InboundCommandRouter {
 
         this.release = this.newRelease(mode, boundary);
         this.resumeAfterAbort = false;
-        // Publish the atomic claim before the abort can produce a terminal
-        // update and make the client paint the next boundary.
         this.emitPromptQueue();
         if (this.activeTurn !== undefined) {
             this.events.emit({ type: "abort_requested" });
@@ -753,8 +674,6 @@ export class InboundCommandRouter {
         this.release = undefined;
         this.emitPromptQueue();
 
-        // A running compaction claims an ordinary stop. Queue releases use a
-        // separate path because steering must stop the containing turn.
         const compaction = this.automaticCompactionAbort
             ?? this.compactionAbort;
         if (compaction !== undefined) {
@@ -795,8 +714,6 @@ export class InboundCommandRouter {
             || mode === "automatic"
             || mode === "all"
         ) {
-            // A completed ordinary or send-all turn holds later prompts for
-            // Escape or Enter, while queued controls still settle before them.
             const heldPromptIndex = this.queuedTurns.findIndex(
                 (queued) => queued.prompt !== undefined,
             );
@@ -915,7 +832,6 @@ export class InboundCommandRouter {
             || this.pendingConfigurations.size > 0;
     }
 
-    /** Whether this router, rather than a remote loop, owns the response ID. */
     ownsUiRequest(requestId: string): boolean {
         return this.pendingApprovals.has(requestId)
             || this.pendingQuestions.has(requestId)
@@ -1091,8 +1007,6 @@ export class InboundCommandRouter {
                     continue;
                 }
                 if (command.type === "owned_oneshot_command") {
-                    // Not awaited: a oneshot is a side call, and blocking the
-                    // command loop on it would stall the user's own turn.
                     void this.oneshot(command.ownerId, command.command);
                     continue;
                 }
@@ -1154,8 +1068,7 @@ export class InboundCommandRouter {
                             command.tone,
                         );
                     } catch {
-                        // The originating client already showed the line. A
-                        // persistence failure must not stop later commands.
+                        // The originating client already showed the line. A persistence failure must not stop later commands.
                     }
                     continue;
                 }
@@ -1192,8 +1105,6 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "wear_agent") {
-                    // Queued, never applied here: FIFO with the prompts is
-                    // the whole point.
                     this.enqueueTurn({
                         wear: {
                             requestId: command.requestId,
@@ -1321,8 +1232,6 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "oneshot") {
-                    // Not awaited: a oneshot is a side call, and blocking the
-                    // command loop on it would stall the user's own turn.
                     void this.oneshot("direct-client", command);
                     continue;
                 }
@@ -1337,13 +1246,6 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "compact") {
-                    // Compaction runs between turns, never inside one: the
-                    // span it replaces has to be finished and durable. A
-                    // queued prompt counts as a turn already underway, since
-                    // it can be claimed while the compaction is still running.
-                    // Start it in the background so an abort command can
-                    // reach the operation while its model call is pending;
-                    // startTurn waits before handing a queued prompt over.
                     this.startCompaction(
                         this.activeTurn !== undefined
                             || this.pendingPromptCount > 0,
@@ -1370,10 +1272,6 @@ export class InboundCommandRouter {
         }
     }
 
-    /**
-     * Registers the controller for a compaction the turn loop started, so an
-     * abort command can reach it without taking the turn down with it.
-     */
     beginAutomaticCompaction(controller: AbortController): void {
         this.automaticCompactionAbort = controller;
     }
@@ -1467,14 +1365,6 @@ export class InboundCommandRouter {
         });
     }
 
-    /**
-     * Dial the session, leaving the host's defaults where they are.
-     *
-     * The reply never carries `updatedDefaults`. A client that saw both flags
-     * on one update would have no way to tell which of the two writes actually
-     * happened, and "the strip quietly rewrote my defaults" is precisely the
-     * outcome this command exists to make impossible.
-     */
     private async updateSessionModelSettings(
         requestId: string,
         patch: ModelSettingsPatch,
@@ -1629,8 +1519,6 @@ export class InboundCommandRouter {
             requestId,
             name,
             prompt,
-            // Validation happens only when this item is about to become the
-            // active turn, after every earlier queue item has settled.
             queued: false,
         });
         return {
@@ -1787,8 +1675,6 @@ export class InboundCommandRouter {
         try {
             settings = await this.options.refreshCatalog?.(provider);
         } catch {
-            // Asking a provider is a network call, and one that throws is not
-            // a reason to stop reading this session's commands.
             settings = undefined;
         }
         if (settings === undefined) {
@@ -2050,9 +1936,6 @@ export class InboundCommandRouter {
             return;
         }
         if (!removed) {
-            // Same split as the preference path: an unknown or already revoked
-            // ID is `invalid` because the surface exists, while a host with no
-            // session log behind it is `unavailable`.
             this.emitPermissionsRejected(
                 requestId,
                 this.options.removePermissionGrant === undefined
@@ -2077,8 +1960,6 @@ export class InboundCommandRouter {
             return;
         }
         if (!removed) {
-            // An unknown ID is `invalid` rather than `unavailable`: the surface
-            // exists, the caller just named a preference that is not there.
             this.emitPermissionsRejected(
                 requestId,
                 this.options.removePermissionPreference === undefined
@@ -2104,11 +1985,6 @@ export class InboundCommandRouter {
         ) {
             const pending = this.pendingApprovals.get(command.requestId)!;
             const decision = command.response.decision;
-            // Both remembering decisions need a predicate to remember and a
-            // sink to put it in. With either missing the keypress is ignored
-            // rather than downgraded to a plain allow, so the prompt stays up
-            // and the user is never told a preference was saved when it was
-            // not.
             if (
                 (decision === "allow_similar" || decision === "allow_always")
                 && (
@@ -2135,9 +2011,6 @@ export class InboundCommandRouter {
             }
             if (decision === "allow_always") {
                 try {
-                    // One preference per proposal, reusing the predicate the
-                    // session row would have stored, so the durable row
-                    // silences exactly the prompts its neighbour would.
                     for (const proposal of pending.permissionGrants!) {
                         await this.options.addPermissionPreference!(
                             proposal.when,
@@ -2162,11 +2035,6 @@ export class InboundCommandRouter {
                 approvalResult(command.response),
             );
             if (decision === "allow_always") {
-                // Unsolicited refresh, because the client's cached inspection
-                // is now stale and it only fetches one at startup. Sent after
-                // the approval closes, and carrying the approval's own request
-                // ID rather than a fresh one, so the update is traceable to the
-                // keypress that caused it instead of appearing out of nowhere.
                 this.sendPermissions(command.requestId);
             }
             return;

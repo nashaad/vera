@@ -1,10 +1,4 @@
 export const EXTENSION_COMMAND_RESULT_VERSION = 1;
-/**
- * Names an extension cannot take, because a client surface answers to them
- * first: `/help` is the bundled help extension, `/palette` and `/settings` are
- * client built-ins. Taking one would be silently shadowed rather than
- * overriding, so the registry refuses the extension at load instead.
- */
 export const RESERVED_EXTENSION_COMMAND_NAMES = [
     "help",
     "palette",
@@ -22,7 +16,6 @@ export interface ExtensionCommandTextBody {
     readonly text: string;
 }
 
-/** The command already rendered its result into a client-owned surface. */
 export interface ExtensionCommandHandledBody {
     readonly kind: "handled";
 }
@@ -38,11 +31,6 @@ export interface ExtensionCommandResult {
     readonly body: ExtensionCommandBody;
 }
 
-/**
- * What a command's first argument names, so a client can complete it. Only
- * `model` today: the client owns the pool, the extension only says it wants a
- * model there.
- */
 export type ExtensionCommandArgumentKind = "model" | "mention";
 
 export interface ExtensionCommandDescriptor {

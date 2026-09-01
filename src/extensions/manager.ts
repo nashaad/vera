@@ -40,7 +40,6 @@ export interface ManagedExtensionRecord {
     readonly version: string;
     readonly source: ManagedExtensionSource;
     readonly digest: string;
-    /** Relative to the scope root, normally `extensions/<id>`. */
     readonly directory: string;
     readonly enabled: boolean;
     readonly installedAt: string;
@@ -124,7 +123,6 @@ export function extensionRegistryPathFor(
     return join(dirname(extensionDirectoryFor(target, options)), "extensions.json");
 }
 
-/** Reject scope boundaries that would make a manager write through a symlink. */
 export function assertSafeExtensionDirectory(directory: string): void {
     const resolvedDirectory = resolve(directory);
     const scopeRoot = dirname(resolvedDirectory);
@@ -186,10 +184,6 @@ export function readExtensionRegistry(
     return parsed;
 }
 
-/**
- * Marker state is hidden from ordinary discovery and lets a missing central
- * registry fail closed instead of re-enabling a disabled managed directory.
- */
 export function managedExtensionConfigs(
     directory: string,
     registryPath = join(dirname(directory), "extensions.json"),
@@ -270,9 +264,6 @@ export function installExtension(
                 enabled: true,
                 installedAt: new Date().toISOString(),
             };
-            // The marker exists before the final rename. A crash at any point
-            // therefore leaves either an inert missing-path record or a fully
-            // recoverable installed extension.
             writeManagedMarker(directory, record);
             markerWritten = true;
             writeExtensionRegistry(directory, registryPath, {
@@ -291,14 +282,12 @@ export function installExtension(
                         extensions: activeRecords,
                     });
                 } catch {
-                    // A missing-path record is inert and fails closed.
                 }
             }
             if (markerWritten) {
                 try {
                     removeManagedMarker(directory, record!.id);
                 } catch {
-                    // A marker for a missing final path cannot activate code.
                 }
             }
             rmSync(staging, { recursive: true, force: true });
@@ -347,9 +336,6 @@ export function setExtensionEnabled(
             );
         }
         const updated = { ...record, enabled };
-        // Disable first: a crash before the central registry swap remains
-        // disabled. Enable central state first: an old marker can only keep it
-        // disabled until the marker update completes.
         if (!enabled) writeManagedMarker(directory, updated);
         writeExtensionRegistry(directory, registryPath, {
             schema_version: EXTENSION_REGISTRY_SCHEMA_VERSION,
@@ -493,7 +479,6 @@ function listScopeExtensions(
                 capabilities: manifest.capabilities,
             });
         } catch {
-            // A directory without a manifest is not an extension installation.
         }
     }
     return entries.toSorted((left, right) =>
@@ -594,9 +579,7 @@ function readManagedExtensionRecords(
     const records = central.map((record) => {
         const marker = markerById.get(record.id);
         if (marker === undefined) {
-            // Backfill the crash-safe marker for registries written by the
-            // first manager version. If the registry later disappears, a
-            // disabled record must not become ordinary enabled discovery.
+            // Backfill the crash-safe marker for registries written by the first manager version.
             writeManagedMarker(directory, record);
             return record;
         }

@@ -36,11 +36,6 @@ const MODELS: readonly CatalogModel[] = [
     },
 ];
 
-/**
- * DeepSeek has no model-list endpoint Vera needs to call. Its supported API
- * models are a small, provider-owned list, so publish the known native models
- * and cache the same catalog shape used by network discovery.
- */
 export function refreshDeepSeekCatalog(
     options: { readonly cacheDir?: string } = {},
 ): ProviderCatalog {

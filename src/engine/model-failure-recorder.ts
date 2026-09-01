@@ -11,15 +11,6 @@ export interface ModelFailureRecorderOptions {
     readonly now?: () => Date;
 }
 
-/**
- * Records the failures a user actually sees: one per failed turn, not one per
- * retry underneath it. A stream error that the engine recovers from never
- * reaches a terminal turn, so it never reaches the ledger either.
- *
- * Vera's own synthesised failures (a review it interrupted, an attachment it
- * could not read) are not the model failing and are left out, because the
- * ledger's purpose is telling someone their model or provider is the problem.
- */
 export function createModelFailureRecorder(
     options: ModelFailureRecorderOptions,
 ): EngineEventSubscriber {

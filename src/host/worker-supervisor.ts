@@ -1,43 +1,10 @@
-/**
- * One process per worker. It holds a deadline, ticks, and sends SIGKILL.
- *
- * Run as its own program: `bun src/host/worker-supervisor.ts`. It is not a
- * library the host calls; the host spawns it and talks to it over pipes.
- *
- * The whole contract:
- *
- *   - stdin carries newline-delimited JSON from the host, and only from the
- *     host. The worker has no file descriptor to this process, which is why a
- *     worker cannot extend its own deadline: there is no channel on which to
- *     ask, not merely a rule against asking.
- *   - stdout carries newline-delimited JSON events back to the host.
- *   - At the deadline the worker is killed with SIGKILL. No SIGTERM, no grace
- *     window, no notice. A grace window is a request, and a wedged loop
- *     ignores requests.
- *   - A negative deadline means no deadline. The timer never fires; the two
- *     switches below stay armed.
- *   - stdin closing means the host is gone: kill the worker and exit, so a
- *     crashed host leaves no orphan.
- *   - The worker disappearing means this process exits.
- *
- * The deadline is absolute wall-clock milliseconds since the epoch, or
- * NO_DEADLINE. Policy
- * about how long a lease should be, and in what units it is granted, lives in
- * the host; by the time it reaches here it is one number and a clock.
- *
- * Nothing here signs, verifies, parses model output, or decides anything. A
- * reimplementation in another language has to honour the JSON above and the
- * signal below, and nothing else.
- */
 
 import { installLiveProcess } from "../live-process.ts";
 
 const PROTOCOL_VERSION = 1;
 
-/** A deadline that never arrives. Any negative value behaves the same way. */
 export const NO_DEADLINE = -1;
 
-/** How often the deadline and the worker's liveness are re-checked. */
 export const SUPERVISOR_TICK_MS = 100;
 
 export type KillReason = "deadline" | "host_gone" | "requested";
@@ -54,10 +21,6 @@ interface Watched {
     deadlineMs: number;
 }
 
-/**
- * Runs the supervisor until the worker is dealt with. Resolves with the
- * reason the process should exit, which the caller turns into an exit.
- */
 export async function runSupervisor(
     options: SupervisorOptions,
 ): Promise<string> {
@@ -71,11 +34,6 @@ export async function runSupervisor(
         emit(`${JSON.stringify({ v: PROTOCOL_VERSION, ...event })}\n`);
     };
 
-    /**
-     * Read through a function so the declared type survives. Assignments in
-     * the reader task are invisible to control-flow analysis, which otherwise
-     * concludes the worker is still unset in this loop.
-     */
     const readWatched = (): Watched | null => watched;
 
     const alive = (pid: number): boolean => {
@@ -197,9 +155,6 @@ export async function runSupervisor(
                 break;
             }
             if (!alive(current.pid)) {
-                // An external SIGKILL can remove the group leader before the
-                // supervisor acts. The detached group can still contain tools
-                // the worker started, so reap that group before exiting.
                 if (current.processGroup) {
                     sendSignal(-current.pid);
                 }
@@ -219,15 +174,10 @@ export async function runSupervisor(
     return finished;
 }
 
-/**
- * SIGKILL cannot be caught, blocked, or ignored, so one send is the whole
- * escalation. A failure here means the process was already gone.
- */
 function sendSignal(pid: number): void {
     try {
         process.kill(pid, "SIGKILL");
     } catch {
-        // Already gone.
     }
 }
 
@@ -241,11 +191,6 @@ function asDeadline(value: unknown): number | null {
     return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/**
- * Splits the stream into lines and yields the objects among them. A line that
- * is not a JSON object is dropped rather than thrown: the supervisor's job is
- * to outlive bad input, not to validate the host.
- */
 async function* jsonLines(
     input: AsyncIterable<Uint8Array | string>,
 ): AsyncGenerator<Record<string, unknown>> {

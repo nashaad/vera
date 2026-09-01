@@ -10,41 +10,14 @@ import { veraProfileDirectory } from "../profile-paths.ts";
 
 const PEER_MESSAGE_KIND = "peer.message";
 
-/**
- * Starting a session because an entry arrived, rather than waking one that is
- * already running.
- *
- * Two gates, both required. The experimental subsystem flag is the config
- * switch checked where the inbox is opened; with it off there is no inbox and
- * this file never runs. The spawn toggle is a separate durable confirmation
- * the user gives once. A config file cannot set it, so a machine that only
- * copies configuration around never gains the ability to start sessions.
- *
- * Outgoing risk stays with the permission posture. A cold spawn always gets the
- * most restrictive posture the host supports and asks for everything. Nothing
- * an entry carries can widen it: the address is producer-supplied, so keying a
- * posture off it would let an entry author choose how permissive the session it
- * started is. Inheritance returns only once the host itself maps an address to
- * a live session it owns.
- */
-
-/** The strictest built-in posture. Every spawn gets it. */
 export const COLD_SPAWN_APPROVAL_MODE = "ask";
 
-/**
- * The floor between two spawns for one address. Stricter than the wake floor:
- * a noisy source that only wakes a session costs one turn, while the same
- * source spawning costs a whole session each time.
- */
 export const DEFAULT_MIN_SPAWN_INTERVAL_MS = 60_000;
 
-/** How many entries one spawn scan reads. */
 export const DEFAULT_MAX_ENTRIES_PER_SCAN = 100;
 
-/** How many held entries are remembered before the oldest are forgotten. */
 export const MAX_HELD_ENTRIES = 1_000;
 
-/** The consumer label the controller reads the log under. */
 export const SPAWN_CONSUMER_LABEL = "host:spawn";
 
 export type HeldReason =
@@ -61,33 +34,24 @@ export interface HeldEntry {
 }
 
 export interface SpawnRequest {
-    /** The consumer label the entry was addressed to. */
     readonly address: string;
-    /** The entry that triggered the spawn. */
     readonly entry: InboxEntry;
-    /** Entries coalesced into this one spawn, including `entry`. */
     readonly coalesced: number;
-    /** The posture the spawned session starts under. */
     readonly approvalMode: string;
-    /** Which entry, which source, which consumer. */
     readonly provenance: string;
 }
 
 export interface SpawnedSession {
     readonly label: string;
-    /** Recorded before the session's first turn. */
     recordProvenance(text: string): Promise<void>;
 }
 
-/** `null` when the host has no target to start the session against. */
 export type SpawnSessionFn = (
     request: SpawnRequest,
 ) => Promise<SpawnedSession | null>;
 
 export interface SpawnGates {
-    /** `experimental.inbox`, checked where the inbox is opened. */
     readonly subsystemEnabled: boolean;
-    /** The durable confirmation. Never set by config. */
     readonly userConfirmed: boolean;
 }
 
@@ -100,9 +64,7 @@ export interface InboxSpawnOptions {
     readonly consumers: ConsumerRegistry;
     readonly spawnSession: SpawnSessionFn;
     readonly consent: SpawnConsent;
-    /** `experimental.inbox`. Required, because a default would fail open. */
     readonly subsystemEnabled: boolean;
-    /** True when the entry was caused by a session this host knows. */
     readonly causedByKnownSession?: (entry: InboxEntry) => boolean;
     readonly minSpawnIntervalMs?: number;
     readonly maxEntriesPerScan?: number;
@@ -111,14 +73,12 @@ export interface InboxSpawnOptions {
     readonly clearTimer?: (timer: unknown) => void;
 }
 
-/** The confirmation, as a value the controller reads on every scan. */
 export interface SpawnConsent {
     readonly confirmed: boolean;
 }
 
 interface ScannedEntry {
     readonly entry: InboxEntry;
-    /** The address whose spawn outcome decides this entry, `null` when settled. */
     readonly address: string | null;
     readonly final: boolean;
 }
@@ -177,17 +137,14 @@ export class InboxSpawnController {
         });
     }
 
-    /** Everything a scan declined to spawn for, oldest first. */
     held(): readonly HeldEntry[] {
         return [...this.heldEntries];
     }
 
-    /** Held entries forgotten to the cap, so the loss is countable. */
     heldDroppedCount(): number {
         return this.heldDropped;
     }
 
-    /** Serialized so two overlapping scans cannot spawn twice for one entry. */
     scan(): Promise<void> {
         if (this.released) {
             return Promise.resolve();
@@ -218,15 +175,6 @@ export class InboxSpawnController {
         }, Math.max(1, delayMs));
     }
 
-    /**
-     * One pass over the unread tail.
-     *
-     * The offset moves only over a prefix of entries whose outcome is final:
-     * spawned, or held for a reason no later retry can change. An entry held
-     * because consent is off or because the address is rate limited leaves the
-     * offset where it is, so turning consent on, or waiting out the interval,
-     * still reaches it. The rescan costs one bounded read.
-     */
     private async run(): Promise<void> {
         const id = {
             nodeId: this.consumers.nodeId,
@@ -238,8 +186,6 @@ export class InboxSpawnController {
         if (entries.length === 0) {
             return;
         }
-        // Unadvanced entries are read again next scan, so coalescing restarts
-        // here rather than accumulating a count across scans.
         for (const state of this.addresses.values()) {
             state.pending = null;
             state.coalesced = 0;
@@ -257,17 +203,12 @@ export class InboxSpawnController {
             advanceTo = item.entry.seq;
         }
         if (advanceTo > 0) {
-            // The controller's own offset. Every real consumer keeps its own,
-            // so moving this one never consumes an entry a dormant session
-            // still has coming to it.
             this.options.inbox.advance(id, advanceTo);
         }
     }
 
     private classify(entry: InboxEntry): ScannedEntry {
         const address = entry.address;
-        // A gap record is a status entry about the source itself; a session
-        // must never be spawned to react to one.
         if (entry.kind === SOURCE_GAP_KIND || entry.kind === PEER_MESSAGE_KIND) {
             return { entry, address: null, final: true };
         }
@@ -291,14 +232,11 @@ export class InboxSpawnController {
             state.pending = entry;
             state.coalesced = 1;
         } else {
-            // Nothing queues a second spawn: the extra entries raise the count
-            // on the one pending spawn and the session sees them all at once.
             state.coalesced += 1;
         }
         return { entry, address, final: false };
     }
 
-    /** Per address: true when this scan finished with it, false when it holds. */
     private async drainPending(): Promise<Map<string, boolean>> {
         const now = this.clock();
         const outcomes = new Map<string, boolean>();
@@ -310,8 +248,7 @@ export class InboxSpawnController {
             if (!this.maySpawn(state, now)) {
                 this.hold(address, entry, "rate-limited");
                 outcomes.set(address, false);
-                // A held entry must not depend on another append to be seen
-                // again: rescan when this address's cooldown expires.
+                // A held entry must not depend on another append to be seen again: rescan when this address's cooldown expires.
                 this.scheduleRetry(
                     (state.lastSpawnMs ?? now) + this.minSpawnIntervalMs - now,
                 );
@@ -320,8 +257,6 @@ export class InboxSpawnController {
             const request = this.requestFor(address, entry, state.coalesced);
             const session = await this.options.spawnSession(request);
             if (session === null) {
-                // The host has no target for this address and will not grow one
-                // by being asked again with the same entry.
                 this.hold(address, entry, "no-target");
                 outcomes.set(address, true);
                 state.pending = null;
@@ -358,16 +293,6 @@ export class InboxSpawnController {
         return nowMs - state.lastSpawnMs >= this.minSpawnIntervalMs;
     }
 
-    /**
-     * An entry a session caused can never start a session to react to it.
-     *
-     * The host predicate is the load-bearing half: it asks the host whether it
-     * owns the session named on the entry. The address comparison is only
-     * trusted when the entry also carries the complete (actor, session) pair of
-     * a live consumer, because both fields come from whatever produced the
-     * entry and a bare match would let a producer suppress any address it can
-     * name.
-     */
     private isSelfCaused(entry: InboxEntry, address: string): boolean {
         if (this.options.causedByKnownSession?.(entry) ?? false) {
             return true;
@@ -417,7 +342,6 @@ export class InboxSpawnController {
     }
 }
 
-/** Payloads are not interpolated here either; nothing of the entry body is read. */
 function renderProvenance(
     address: string,
     entry: InboxEntry,
@@ -433,11 +357,7 @@ function renderProvenance(
     ].join("\n");
 }
 
-/**
- * The second gate, on disk. It is a separate file from the config on purpose:
- * loading, copying or generating configuration must not be able to turn
- * spawning on, so the only writer is an explicit confirmation.
- */
+/** The second gate, on disk. It is a separate file from the config on purpose: loading, copying or generating configuration must not be able to turn spawning on, so the only. */
 export class SpawnConsentStore implements SpawnConsent {
     private readonly path: string;
     private confirmedAt: string | null;
@@ -454,23 +374,16 @@ export class SpawnConsentStore implements SpawnConsent {
         return new SpawnConsentStore(path);
     }
 
-    /**
-     * Read through to the file rather than cached at open. Deleting the file is
-     * how consent is withdrawn, and a withdrawal that only takes effect at the
-     * next host start is not a withdrawal.
-     */
     get confirmed(): boolean {
         this.refresh();
         return this.confirmedAt !== null;
     }
 
-    /** The timestamp the user confirmed at, or `null` when consent is absent. */
     get confirmedAtIso(): string | null {
         this.refresh();
         return this.confirmedAt;
     }
 
-    /** Call only from a surface where the user answered, not from config load. */
     confirm(at: string = new Date().toISOString()): void {
         this.write(at);
         this.refresh(true);
@@ -497,15 +410,12 @@ export class SpawnConsentStore implements SpawnConsent {
             null,
             2,
         )}\n`;
-        // Written whole or not at all: a torn file would read as no consent on
-        // one host start and as consent on the next.
         const temporary = `${this.path}.tmp-${process.pid}`;
         writeFileSync(temporary, body);
         renameSync(temporary, this.path);
     }
 }
 
-/** Size and mtime, so a scan can skip the parse when nothing changed. */
 function fileStamp(path: string): string | null {
     try {
         const stats = statSync(path);
@@ -519,11 +429,6 @@ export function defaultSpawnConsentPath(): string {
     return join(veraProfileDirectory(), "spawn-consent.json");
 }
 
-/**
- * Consent is exactly `{"spawn_on_event": {"confirmed_at": "<ISO timestamp>"}}`.
- * The shape is strict because anything looser makes stray text a yes: a file
- * that happens to hold a non-empty string would have granted it.
- */
 function readConfirmedAt(path: string): string | null {
     let text: string;
     try {
@@ -546,7 +451,6 @@ function readConfirmedAt(path: string): string | null {
         }
         return at;
     } catch {
-        // An unreadable consent file is no consent, never an assumed yes.
         return null;
     }
 }

@@ -19,25 +19,12 @@ import {
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 
-/**
- * The verification run this dialog reports on. It exists only once the probes
- * are on the wire: adding a model never opens it, because adding never waits
- * on a provider.
- */
 export interface TuiAdmissionDialogState {
     readonly provider: string;
     readonly model: string;
     readonly requestId: string;
 }
 
-/**
- * What each phase means for the keys:
- *
- * `running`: probes are on the wire and cannot be aborted, so esc hides the
- * dialog and lets the transcript notice carry the outcome.
- * `done`: the verdict is on screen. Enter retries an unavailable run and
- * dismisses the other two; esc always dismisses.
- */
 export type TuiAdmissionDialogPhase = "running" | "done";
 
 export type TuiAdmissionDialogAction =

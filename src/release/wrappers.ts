@@ -28,11 +28,6 @@ export function releaseSourceEntries(sourceRoot: string): ReleaseWrapperSources 
     };
 }
 
-/**
- * Wrappers at the release root. Each one execs the release bun against a
- * TypeScript entry inside that same release. Spawners use these paths, never
- * `bun` from PATH.
- */
 export function writeSelfContainedWrappers(releaseRoot: string): void {
     const bun = `"$here/${RELEASE_BUN_NAME}"`;
     writeWrapper(join(releaseRoot, RELEASE_CLI_NAME), bun, `"$here/clients/cli/main.ts"`);
@@ -54,10 +49,6 @@ export function writeSelfContainedWrappers(releaseRoot: string): void {
     );
 }
 
-/**
- * Wrappers that point at an external bun and source tree. Tests use this so
- * in-process hosts can spawn helpers without packing a full release.
- */
 export function writeExternalWrappers(
     releaseRoot: string,
     bunPath: string,
@@ -83,10 +74,6 @@ export function writeExternalWrappers(
     );
 }
 
-/**
- * Checkout `dist/release` helpers. The host stays this bun and
- * `clients/host/main.ts`; a `host` wrapper here would hide that.
- */
 export function writeCheckoutPackWrappers(
     releaseRoot: string,
     bunPath: string,

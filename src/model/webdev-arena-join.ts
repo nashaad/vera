@@ -1,7 +1,3 @@
-/**
- * One WA Score per picker row: shipped aliases, then a unique exact Arena
- * name match. No fuzzy match, no stripping of effort suffixes.
- */
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -46,10 +42,6 @@ function shippedAliases(): WebDevArenaAliases {
     return shipped;
 }
 
-/**
- * The overall rating rounded to the nearest integer, or undefined when nothing
- * joins. Undefined is a blank cell, never `0`.
- */
 export function joinWaScore(
     ref: WebDevJoinRef,
     snapshot: WebDevArenaSnapshot | undefined,

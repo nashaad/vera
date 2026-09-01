@@ -35,18 +35,6 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
-/**
- * The prompt takes the composer's slot at the bottom of the screen: a
- * notice-toned bar down the left edge, a "Permission required" header with the
- * reason, the exact call and its grant predicates in the body, and the answers
- * as a column. The answers keep their digits, so the keys that always answered
- * the prompt still do; ↑/↓ and ⏎ select the same answers by highlight.
- *
- * The answers stack. A row of them side by side was tried and read as a grid
- * the moment one label grew or the terminal narrowed, and it disagreed with the
- * question card, which stacks. Both cards stack, and the column leaves the
- * right of the panel free.
- */
 const APPROVAL_ROWS = [
     { key: "1", label: "Allow once" },
     { key: "2", label: "Session" },
@@ -54,17 +42,6 @@ const APPROVAL_ROWS = [
     { key: "4", label: "Always" },
 ] as const;
 
-/**
- * Rows 2 and 4 derive the same predicate and differ only in where it is stored,
- * so they carry matching labels: a durable row that silenced a different set of
- * future prompts than the session row above it would be unpredictable from the
- * label alone.
- *
- * The durable row is `4` and deny stays on `3`, out of escalating order on
- * purpose. Renumbering deny would retrain an existing keypress toward the more
- * permissive direction, and a mis-hit there grants a permission that outlives
- * the session.
- */
 export type TuiApprovalDecision =
     | "allow_once"
     | "allow_similar"
@@ -85,8 +62,6 @@ export interface TuiApprovalKeyResult {
 
 export interface TuiApprovalView {
     readonly box: BoxRenderable;
-    // Buttons carry their own digit, so a click sends the digit the keyboard
-    // would have sent rather than a second decision path.
     pointer?: DialogRowPointer;
     readonly bar: BoxRenderable;
     readonly headerText: TextRenderable;
@@ -107,19 +82,11 @@ export function createTuiApprovalView(
 ): TuiApprovalView {
     let currentRequestId: string | undefined;
     let lastUpdate: ToolApprovalUiRequestUpdate | undefined;
-    // Highlighted answer for ↑/↓ and ⏎. Client-local: the engine only ever
-    // sees the decision.
     let selectedKey: string = "1";
-    // Whether the body is showing past its cap. Reset per request: an expanded
-    // panel that stayed expanded would push the next call's answers down.
     let expanded = false;
-    /** Whether the cap is holding anything back, which is what ctrl+r is for. */
     let capped = false;
-    /** Whether the row is wide enough to carry the predicate it would remember. */
     let scopeInline = true;
 
-    // Match the question card's thin rail. A filled background cell reads as
-    // a full-column slab because terminal cells cannot be partially painted.
     const bar = new BoxRenderable(renderer, {
         id: "approval-bar",
         width: 1,
@@ -289,8 +256,6 @@ export function createTuiApprovalView(
                 ]
                 : []),
         ]);
-        // Narrow terminals give the hints' columns to the buttons: the keys
-        // still work unlabelled, an answer pushed off the screen does not.
         hints.visible = renderer.width >= 60;
         renderButtons(update);
     }
@@ -318,7 +283,6 @@ export function createTuiApprovalView(
             details.marginTop = approvalDetailsMargin(renderer);
             hints.visible = renderer.width >= 60;
             if (currentRequestId === update.requestId) {
-                // A resize can take the predicate off the row or give it back.
                 if (inline !== scopeInline) {
                     scopeInline = inline;
                     renderBody(update);
@@ -400,11 +364,6 @@ function approvalChromeVisible(renderer: RenderContext): boolean {
     return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
 }
 
-/**
- * Whether the remembering row can carry its predicate. An answer that outruns
- * its row is clipped, and a clipped path claims a scope narrower than what
- * would be stored, so the label gives it up and the body states it instead.
- */
 function scopeFitsRow(
     renderer: RenderContext,
     update: ToolApprovalUiRequestUpdate,
@@ -424,7 +383,6 @@ function scopeFitsRow(
     return approvalRowText(update, row, true).length <= available;
 }
 
-/** A button's own cell: its digit, its label, and the padding around them. */
 function approvalRowText(
     update: ToolApprovalUiRequestUpdate,
     action: (typeof APPROVAL_ROWS)[number],
@@ -446,18 +404,11 @@ export function renderTuiApproval(update: ToolApprovalUiRequestUpdate): string {
     ].join("\n");
 }
 
-/**
- * What "Session" and "Always" would remember, on the row that offers them.
- * Stating it twice, once as a label and once as a body block, said the same
- * thing in two registers.
- */
 function approvalRowLabel(
     update: ToolApprovalUiRequestUpdate,
     action: (typeof APPROVAL_ROWS)[number],
     inlineScope = true,
 ): string {
-    // Both remembering rows share the predicate, so it is written once, on the
-    // first one that offers it.
     if (action.key !== "2" || !inlineScope) {
         return action.label;
     }
@@ -465,11 +416,6 @@ function approvalRowLabel(
     return scope === undefined ? action.label : `${action.label} ${scope}`;
 }
 
-/**
- * The predicate as a label, only when one label can say the whole of it. Every
- * proposal is stored on the decision, so a set the label cannot hold goes to
- * the body instead of being summarized by its first member.
- */
 function grantScope(
     update: ToolApprovalUiRequestUpdate,
 ): string | undefined {
@@ -548,21 +494,16 @@ export function applyTuiApprovalUpdate(
 }
 
 function toneColor(tone: TuiApprovalTone): string {
-    // A diff is a diff regardless of theme: removals and additions use the
-    // diff role colors, never the notice/success palette. Every theme defines
-    // diffRemoved red-family and diffAdded green-family; only the shade varies.
     if (tone === "add") return TUI_DIFF_ADDED;
     if (tone === "del") return TUI_DIFF_REMOVED;
     if (tone === "muted" || tone === "path") return TUI_MUTED;
     return TUI_TEXT;
 }
 
-/** Rows whose meaning comes from the derived grant predicate, not the tool. */
 function isDerivedRow(key: string): boolean {
     return key === "2" || key === "4";
 }
 
-/** The digits ←/→ and a click can land on: derived rows need a predicate. */
 export function selectableApprovalKeys(
     update: ToolApprovalUiRequestUpdate,
 ): readonly string[] {
@@ -590,10 +531,6 @@ function visibleApprovalRows(
         : APPROVAL_ROWS.filter((action) => !isDerivedRow(action.key));
 }
 
-/**
- * The reason, when it says something the header does not. The mode-derived
- * form only restates that approval is required, which is what the header is.
- */
 function specificReason(reason: string): string | undefined {
     return reason.startsWith("Permission mode ") ? undefined : reason;
 }

@@ -1,17 +1,3 @@
-/**
- * The client-facing projections of the model catalog (nash-50).
- *
- * Two lists reach a client, and they answer different questions.
- * `availableModels` is what discovery describes, in catalog order. The pool is
- * the runtime set the user admitted, newest first, and it keeps an entry that
- * cannot run right now rather than dropping it: the user put it there
- * deliberately, so only the user takes it out.
- *
- * Both carry the model's reasoning levels, resolved through
- * `effectiveCatalog`, narrowed by whatever the pool entry declares or has
- * learned. An empty level list is a fact, not a gap: it means the model has
- * no reasoning control.
- */
 
 import { effectiveCatalog, type EffectiveCatalogOptions } from "./catalog.ts";
 import type {
@@ -44,28 +30,14 @@ export interface AvailableModel {
     readonly description: string;
     readonly contextWindow?: number;
     readonly pricing?: ModelPricing;
-    /** WebDev Arena overall rating, integer. Absent is a blank cell, never 0. */
     readonly waScore?: number;
-    /** True when this model is on or near Vera's WA Score × listed-output front. */
     readonly onPareto?: boolean;
-    /**
-     * Whether the catalog listing says the model takes image input. Absent
-     * means the listing did not say.
-     */
     readonly imageSupport?: boolean;
-    /** True when the owning host can refresh this provider's model list. */
     readonly refreshable?: boolean;
-    /**
-     * Why the picker folds this row away until the user reveals everything.
-     * Absent means the row is shown.
-     */
     readonly hiddenByDefault?: ReductionReason;
-    /** Empty means the model has no reasoning control at all. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
-    /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
-    /** The level the curation recommends it at. A note, not a gate. */
     readonly recommendedLevel?: ReasoningLevelId;
 }
 
@@ -73,42 +45,21 @@ export interface PooledModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
-    /** The user's own name for this entry, when it has one. */
     readonly poolName?: string;
-    /**
-     * False when the model cannot run right now, never a reason to omit it.
-     * Availability is about the provider still listing the model, not about
-     * evidence: an unverified entry is usable the moment it is admitted.
-     */
     readonly available: boolean;
-    /**
-     * True once a probe or a live rejection has established facts about this
-     * model on this key. False is not a warning, only an absence of evidence.
-     */
     readonly verified: boolean;
     readonly description?: string;
     readonly contextWindow?: number;
     readonly pricing?: ModelPricing;
-    /** WebDev Arena overall rating, integer. Absent is a blank cell, never 0. */
     readonly waScore?: number;
-    /** True when this model is on or near Vera's WA Score × listed-output front. */
     readonly onPareto?: boolean;
-    /**
-     * Whether the model takes image input, resolved the same way everything
-     * else about it is. Absent means no source has said, which a row shows as
-     * nothing rather than as a no.
-     */
     readonly imageSupport?: boolean;
-    /** Empty means the model has no reasoning control, or is unavailable. */
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
-    /** True on a model Vera's shipped curation recommends. */
     readonly recommended?: boolean;
-    /** The level the curation recommends it at. A note, not a gate. */
     readonly recommendedLevel?: ReasoningLevelId;
 }
 
-/** The recommendation an entry carries, in the client-facing spelling. */
 function recommendation(
     model: CatalogModel | undefined,
 ): Pick<AvailableModel, "recommended" | "recommendedLevel"> {
@@ -126,11 +77,7 @@ function recommendation(
 export interface CatalogViewOptions
     extends LoadPoolFileOptions, EffectiveCatalogOptions {}
 
-/**
- * Adds each model's levels to the host's runnable list. Label and description
- * stay as the host supplied them: discovery knows names for models the shipped
- * catalog has never heard of, and the catalog must not overwrite them.
- */
+/** Adds each model's levels to the host's runnable list. Label and description stay as the host supplied them: discovery knows names for models the shipped catalog has never. */
 export function availableModelsWithLevels(
     models: readonly SuggestedModel[],
     options: CatalogViewOptions = {},
@@ -171,15 +118,6 @@ export function availableModelsWithLevels(
     });
 }
 
-/**
- * Availability comes from the host's runnable list rather than the catalog:
- * the catalog still describes a model whose provider has no credentials, and
- * describing a model is not being able to run it. The facts still come from
- * the catalog, so a runnable model the catalog has never heard of falls back
- * to what the runnable list already knows about it. An entry's level list is
- * the catalog's levels resolved through the pool's own precedence, so a level
- * a probe or a live rejection ruled out drops away.
- */
 export function pooledModels(
     available: readonly SuggestedModel[],
     options: CatalogViewOptions = {},
@@ -249,21 +187,7 @@ export function pooledModels(
     });
 }
 
-/**
- * The levels an entry may actually be asked for, resolved through the
- * pool's own precedence. The catalog supplies each level's presentation where
- * it knows the Vera id; a level only the pool knows keeps that id and carries
- * a distinct provider `wire` when one exists. Picker values are Vera ids.
- *
- * Two ladder levels can resolve to one wire string, which is one choice for
- * the user however many ladder rungs reach it, so the first wins and the
- * repeat is dropped. Dedupe runs along the ladder, weakest first, so the
- * cheapest rung that reaches a wire string is the one kept.
- *
- * Ordered strongest first, which is what `CatalogModel.levels` requires of
- * every producer. A caller that wants the other direction reverses; none may
- * re-derive the order from the level names.
- */
+/** Ordered strongest first. Callers reverse; none may re-derive order from names. */
 function resolvedLevels(
     model: CatalogModel,
     entry: PoolFileModel,
@@ -292,14 +216,6 @@ function resolvedLevels(
     ).reverse();
 }
 
-/**
- * Whether this key may still be asked for a level, given what the pool knows.
- *
- * A rejection recorded against a level is a fact about this key, and the
- * catalog does not overrule it: the provider answered 400 for that word. What
- * the pool entry declares does overrule it, matching `resolveEffort`, so a
- * user who wrote the level in by hand keeps it.
- */
 function isAdmitted(level: string, entry: PoolFileModel | undefined): boolean {
     if (entry === undefined) {
         return true;
@@ -317,11 +233,6 @@ function admittedLevels(
     return levels.filter((level) => isAdmitted(level.id, entry));
 }
 
-/**
- * The same narrowing over bare level ids, for the published list a settings
- * change is checked against. Both lists read one rule, so a level cannot be
- * missing from the picker and still accepted on the way back in.
- */
 export function admittedEffortIds<T extends string>(
     provider: string,
     model: string,
@@ -335,7 +246,6 @@ export function admittedEffortIds<T extends string>(
     return levels.filter((level) => isAdmitted(level, entry));
 }
 
-/** One catalog read per provider, however many models are looked up. */
 function catalogLookup(
     options: EffectiveCatalogOptions,
 ): (provider: string, model: string) => CatalogModel | undefined {
@@ -362,20 +272,7 @@ function suggestedAsCatalogModel(model: SuggestedModel): CatalogModel {
     };
 }
 
-/**
- * Which level list applies to one model, given only the two projections a
- * client holds.
- *
- * A ready pool entry wins outright, including when its level list is empty:
- * admission narrowed it to what this key actually verified, and an empty
- * result there means the model has no reasoning control. Only when no ready
- * entry exists does the catalog answer, which is the case for a model the
- * pool never admitted, reached through the `/model <name>` escape hatch.
- *
- * This is the same precedence `publishedReasoningLevels` applies host-side,
- * over the wire projections instead of the files. Both exist because they read
- * different inputs; they must not read them in a different order.
- */
+/** Which level list applies to one model, given only the two projections a client holds. */
 export function levelsForModel(
     provider: string | undefined,
     model: string,

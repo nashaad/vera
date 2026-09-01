@@ -43,10 +43,6 @@ interface SourceCatalog {
 
 export interface EffectiveCatalogOptions {
     readonly cacheDir?: string;
-    /**
-     * The curation that stamps `recommended` onto matching entries. Defaults to
-     * the file Vera ships; passing a list keeps a caller (and a test) off disk.
-     */
     readonly recommended?: readonly RecommendedModel[];
     /** Test seam. Absent reads the shipped overlay file. */
     readonly overlay?: SettingsOverlay;
@@ -60,11 +56,6 @@ export function loadDiscoveryCatalog(
     return catalog === undefined ? undefined : toProviderCatalog(catalog);
 }
 
-/**
- * What Vera knows about a provider's models. Discovery is the listing
- * authority. The settings overlay may replace a mute or fabricated thinking
- * map after that, field by field, and never invents a window.
- */
 export function effectiveCatalog(
     provider: string,
     options: EffectiveCatalogOptions = {},
@@ -105,11 +96,7 @@ function withSettingsOverlay(
     };
 }
 
-/**
- * The shipped curation, read once. A missing or damaged file leaves every entry
- * unflagged: a recommendation is a note, so losing it must not cost the user
- * the model list itself.
- */
+/** A missing recommendation file must not cost the user the model list. */
 let shipped: readonly RecommendedModel[] | undefined;
 
 function shippedRecommendations(): readonly RecommendedModel[] {
@@ -219,10 +206,7 @@ function parseModel(value: unknown): SourceModel | undefined {
     } as unknown as SourceModel;
 }
 
-/**
- * A malformed pricing object is omitted for that row. It must not drop the
- * model, and it must not empty the catalog.
- */
+/** A malformed pricing object is omitted for that row. It must not drop the model, and it must not empty the catalog. */
 function optionalPricing(value: unknown): ModelPricing | undefined {
     if (value === undefined) {
         return undefined;

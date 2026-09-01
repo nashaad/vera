@@ -137,11 +137,6 @@ function createCompactPreviewRow(
     return row;
 }
 
-/**
- * Rewrites a row in place. A repeated call raises the count on the row already
- * on screen, and rebuilding the node instead would move it to the end of the
- * transcript.
- */
 export function updateTuiToolRow(
     node: BoxRenderable,
     entry: TuiTextTranscriptEntry,
@@ -165,11 +160,6 @@ export function updateTuiToolRow(
     }
 }
 
-/**
- * One call under its group header. The gutter is its own column, so a row that
- * wraps, or a command that spans lines, hangs under itself rather than falling
- * back to the left edge of the transcript.
- */
 export function createTuiToolRow(
     renderer: RenderContext,
     id: string,

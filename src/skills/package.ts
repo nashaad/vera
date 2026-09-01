@@ -20,13 +20,6 @@ const MAX_DESCRIPTION_CHARACTERS = 1024;
 export interface SkillMetadata {
     readonly name: string;
     readonly description: string;
-    /**
-     * `disable-model-invocation: true` in frontmatter. The skill still
-     * appears in the catalog so an explicit request can name it, but the
-     * catalog marks it invoke-only instead of describing it as something to
-     * reach for on judgment. Reads and scripts require the trusted slash
-     * invocation carried by the current top-level turn.
-     */
     readonly disableModelInvocation: boolean;
     readonly extra: Readonly<Record<string, unknown>>;
 }

@@ -36,9 +36,7 @@ export interface AttachAgentOptions {
     readonly requestedCapabilities?: readonly string[];
     readonly afterSequence?: number;
     readonly signal?: AbortSignal;
-    /** Interactive viewers participate in stop-if-last release decisions. */
     readonly interactive?: boolean;
-    /** Required for interactive attachments and stable across reconnects. */
     readonly clientId?: string;
 }
 
@@ -51,26 +49,15 @@ export interface AttachmentReleaseResult {
 export interface AttachedAgentClient {
     readonly agentId: string;
     readonly workspace: string;
-    /** True once the attached resident has reached terminal failure. */
     readonly failed?: boolean;
-    /** Last sequenced update delivered to the caller. */
     readonly lastSequence: number | undefined;
     readonly capabilities: readonly string[];
     supportsHostCapability(capability: string): boolean;
-    /**
-     * Background work as the host last reported it, correct from the attach
-     * onwards. Read it to draw, and subscribe to be told when it changes.
-     */
     readonly backgroundAgents: BackgroundAgentsSnapshot;
     onBackgroundAgents(
         listener: (agents: BackgroundAgentsSnapshot) => void,
     ): () => void;
-    /**
-     * The machine-wide work inbox as the host last reported it, undefined
-     * until the first report and on any attachment that did not negotiate
-     * `work.index.v1`. Undefined means unavailable, never empty: a client that
-     * cannot see the inbox must not draw one saying there is no work.
-     */
+    /** The machine-wide work inbox as the host last reported it, undefined until the first report and on any attachment that did not negotiate `work.index.v1`. */
     readonly workIndex: WorkIndexSnapshot | undefined;
     onWorkIndex(listener: (index: WorkIndexSnapshot) => void): () => void;
     send(command: ClientCommand): Promise<void>;
@@ -682,10 +669,6 @@ function isAttached(
         && (response.failed === undefined || response.failed === true);
 }
 
-/**
- * The one shape background work arrives in, whether it rode the attach
- * response or a later notification.
- */
 function parseBackgroundAgents(
     value: unknown,
 ): BackgroundAgentsSnapshot | undefined {
@@ -783,8 +766,6 @@ function parseAttachmentReleaseRejected(
 
 function isProtocolError(value: unknown): boolean {
     const response = asRecord(value);
-    // Matching on the type alone keeps a reason added later readable by a
-    // client built before it existed.
     return response?.type === "protocol_error";
 }
 

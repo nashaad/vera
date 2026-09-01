@@ -17,11 +17,6 @@ export class McpRpcError extends Error {
 
 export const METHOD_NOT_FOUND = -32601;
 
-/**
- * One JSON-RPC connection to an MCP server. Both transports resolve requests
- * by id; `close` rejects everything still pending so a caller is never left
- * awaiting a dead server.
- */
 export interface McpTransport {
     request(
         method: string,
@@ -153,9 +148,6 @@ function dispatch(line: string, pending: Map<number, PendingRequest>): void {
         result?: unknown;
         error?: unknown;
     };
-    // Server-initiated requests and notifications are unsupported in v1 and
-    // are dropped rather than answered, which the protocol tolerates for
-    // notifications; no configured server has needed the request form yet.
     if (typeof id !== "number") {
         return;
     }
@@ -171,11 +163,6 @@ function dispatch(line: string, pending: Map<number, PendingRequest>): void {
     }
 }
 
-/**
- * Streamable HTTP transport: every request is one POST that answers either
- * with plain JSON or with an SSE stream, and the session id handed out on
- * the first response is echoed on every later request.
- */
 export function startHttpTransport(
     url: string,
     headers: Readonly<Record<string, string>>,
@@ -250,9 +237,6 @@ async function readSseResponse(
     id: number,
 ): Promise<unknown> {
     const text = await response.text();
-    // An SSE body carries `data:` lines; the response to our request is the
-    // event whose JSON-RPC id matches. Other events on the stream (progress,
-    // server logs) are dropped in v1.
     for (const block of text.split("\n\n")) {
         const data = block
             .split("\n")

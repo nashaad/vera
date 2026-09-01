@@ -25,7 +25,6 @@ export function defaultVeraExtensionDirectory(): string {
     return join(veraProfileDirectory(), "extensions");
 }
 
-/** Project `.vera/extensions` discovered for this workspace, including managed. */
 export function discoverProjectExtensionConfigs(
     projectRoot: string,
 ): readonly VeraExtensionConfig[] {
@@ -77,11 +76,6 @@ export function discoverExtensionConfigs(
         }));
 }
 
-/**
- * Managed installs overlay ordinary directory discovery so a disabled copy
- * remains on disk without being loaded. Hand-managed directories keep the
- * existing discovery behavior and are intentionally not adopted.
- */
 export function discoverManagedExtensionConfigs(
     directory: string,
 ): readonly VeraExtensionConfig[] {
@@ -89,7 +83,6 @@ export function discoverManagedExtensionConfigs(
     return managedExtensionConfigs(directory);
 }
 
-/** Project scope wins when both scopes provide the same manifest ID. */
 export function mergeExtensionScopes(
     profile: readonly VeraExtensionConfig[],
     project: readonly VeraExtensionConfig[],

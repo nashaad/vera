@@ -17,37 +17,12 @@ export type {
     ContextProjectionPart,
 } from "./context-parts.ts";
 
-/**
- * How much of the model's context window the next request occupies.
- *
- * Measured from the projected request rather than read off the last response.
- * A response reports the size of the request before it, so by the time one
- * arrives the transcript has already grown by that response, its tool results,
- * any deliveries that landed while it ran, and the prompt the user just typed.
- * Through a long tool loop that gap is the whole of what the number was being
- * watched for.
- */
 export interface ContextMeasurement {
     readonly tokens: number;
-    /** Absent for a model whose window Vera has no entry for. */
     readonly capacity?: number;
-    /**
-     * True while `tokens` comes from counting characters. Vera ships no
-     * tokenizer, so a measurement taken before a request is always an
-     * estimate; the provider's own count replaces it as soon as a response
-     * reports one.
-     */
     readonly estimated: boolean;
-    /**
-     * What the request costs beyond its messages: the system prompt, the tool
-     * definitions, the project instructions. Stated rather than recovered by
-     * subtracting a message count from `tokens`, because `tokens` may carry a
-     * calibration factor that the subtraction would silently absorb.
-     */
     readonly overheadTokens?: number;
-    /** Optional safe facts about the exact request that was measured. */
     readonly projection?: ContextProjectionMeasurement;
-    /** The effective runtime policy that is active for this request. */
     readonly compaction?: ContextCompactionMeasurement;
 }
 
@@ -72,18 +47,8 @@ export interface ContextCompactionMeasurement {
     readonly triggerTokens?: number;
 }
 
-/**
- * Characters per token. Coarse on purpose: it is close enough across the
- * languages and code a session carries to size a bar and to decide there is
- * headroom, and it is why the result travels labelled as an estimate.
- */
 const CHARACTERS_PER_TOKEN = 4;
 
-/**
- * What the wire framing around each message costs beyond its text. Small, but
- * a long tool loop is hundreds of short messages, and ignoring it biases the
- * estimate low exactly where the window is tightest.
- */
 const TOKENS_PER_MESSAGE = 4;
 
 export function measureProjectedRequest(
@@ -145,11 +110,6 @@ export function measureProjectedRequest(
     };
 }
 
-/**
- * Messages alone, on the same scale as a full request. Used to size a
- * candidate context against a target without a system prompt or tools to
- * attribute, so a strategy is judged on the part it produced.
- */
 export function measureMessages(messages: readonly ModelMessage[]): number {
     let characters = 0;
     for (const message of messages) {
@@ -159,12 +119,6 @@ export function measureMessages(messages: readonly ModelMessage[]): number {
         + messages.length * TOKENS_PER_MESSAGE;
 }
 
-/**
- * The part of the next request contributed by a completed response. Provider
- * output usage sees hidden reasoning and encoded content that the visible
- * message estimate cannot; the message estimate supplies framing and remains
- * the fallback for providers that report no output count.
- */
 export function measureCompletedAssistant(message: AssistantMessage): number {
     return Math.max(
         measureMessages([message]),
@@ -174,10 +128,6 @@ export function measureCompletedAssistant(message: AssistantMessage): number {
     );
 }
 
-/**
- * The provider's own count for the request it just answered, which supersedes
- * the estimate for that same request.
- */
 export function measureReportedUsage(
     usage: ModelUsage,
     capacity?: number,
@@ -266,7 +216,6 @@ function renderContribution(contribution: PromptContribution): string {
     return `## ${contribution.title}\n${contribution.content}`;
 }
 
-/** Keep extension-provided labels useful without putting prompt text on the wire. */
 function safeContributionDisplayName(
     contribution: PromptContribution,
 ): string {
@@ -320,11 +269,6 @@ function reconcileParts(
     return components;
 }
 
-/**
- * Keep a last-request recipe when the provider's count disagrees with the
- * character estimate. Parts stay named; their tokens are stretched to the
- * new total so the wire still adds up.
- */
 export function scaleProjectionTo(
     projection: ContextProjectionMeasurement,
     targetTokens: number,
@@ -502,11 +446,6 @@ function safeToolLabel(value: string): string {
     return label;
 }
 
-/**
- * Image attachments are not counted. The projection holds their ids, not their
- * bytes, and no honest number can be derived from an id, so a turn carrying
- * images reads low until the provider reports the real count.
- */
 function measureMessage(message: ModelMessage): number {
     if (message.role === "tool_result") {
         return message.toolName.length
@@ -530,12 +469,6 @@ function sum<T>(items: readonly T[], size: (item: T) => number): number {
     return items.reduce((total, item) => total + size(item), 0);
 }
 
-/**
- * The tool-result share of a request, in bytes rather than estimated tokens:
- * this number exists to be compared against itself across requests, and an
- * estimate would put a made-up divisor between the measurement and the thing
- * measured.
- */
 export function measureToolResultBytes(
     messages: readonly ModelMessage[],
 ): number {

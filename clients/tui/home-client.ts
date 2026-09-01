@@ -7,13 +7,6 @@ import type {
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { TuiAgentClient } from "./agent-client.ts";
 
-/**
- * The home screen: no conversation, no session file, no worker.
- *
- * It is a client so the TUI still has exactly one thing on screen at all
- * times. Everything it offers (a new conversation, the session picker, the
- * palette) creates or attaches the real client that replaces it.
- */
 export interface HomeClient extends TuiAgentClient {
     readonly viewOnly: true;
     readonly home: true;
@@ -24,12 +17,6 @@ export function isHomeClient(client: TuiAgentClient): client is HomeClient {
 }
 
 export interface HomeClientOptions {
-    /**
-     * Reads the catalog, the shortlist and the defaults from the host.
-     *
-     * All three are host state, so home can show them with no conversation
-     * behind it. Absent, or failing, home simply has none to show.
-     */
     readonly readModelSettings?: (
         workspace: string,
     ) => Promise<ModelTurnSettings | undefined>;
@@ -74,9 +61,6 @@ export function createHomeClient(
         const settings = await options.readModelSettings?.(workspace)
             .catch(() => undefined);
         seq += 1;
-        // Home is replaced the moment a conversation opens, so a read that
-        // was already in flight has nowhere left to land. That is the end of
-        // the answer, not a fault worth reporting against the new client.
         if (closed) return;
         outgoing.push(
             settings === undefined
@@ -99,7 +83,6 @@ export function createHomeClient(
     return client;
 }
 
-/** Reads and listings answer with nothing; anything else needs a session. */
 function commandNeedsRunningLoop(command: ClientCommand): boolean {
     switch (command.type) {
         case "get_model_settings":

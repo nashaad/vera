@@ -486,7 +486,6 @@ function startOpenAICodexCallback(
             });
             break;
         } catch {
-            // Try the other callback port registered for the Codex client.
         }
     }
     if (server === undefined) {
@@ -521,7 +520,6 @@ async function openBrowser(url: string): Promise<void> {
     try {
         Bun.spawn(command, { stdout: "ignore", stderr: "ignore" });
     } catch {
-        // The CLI prints the URL, so login can continue without a browser helper.
     }
 }
 

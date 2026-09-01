@@ -37,9 +37,6 @@ export function rowPointer(rt: TuiRuntime,
     key: "return" | "digit" = "return",
 ): DialogRowPointer {
     if (key === "digit") {
-        // No hover: these rows carry their own number and are not reached
-        // by a moving highlight, so there is nothing for the pointer to
-        // preview.
         return { activate: (index) => pressKey(rt, String(index)) };
     }
     let hoverTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,9 +63,6 @@ export function requestAgentSettings(rt: TuiRuntime, target: TuiAgentClient): vo
     if (target.failed === true) {
         return;
     }
-    // Home has no session but the model pane still reads the catalog and
-    // the shortlist, which are the host's. Every other view-only client
-    // has nothing to answer with.
     const home = isHomeClient(target);
     if (target.viewOnly === true && !home) {
         return;

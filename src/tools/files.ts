@@ -8,15 +8,8 @@ import { findSkillByPath, loadSkillCatalog } from "../skills/catalog.ts";
 import { invocationRefusal } from "../skills/invocation-gate.ts";
 import { SKILL_FILENAME } from "../skills/package.ts";
 
-/**
- * How many lines one read call may return. A file longer than this is read
- * from the requested line and told how to continue, rather than returned
- * whole: the page stays small enough to be re-sent on every later round of
- * the session without drowning the transcript.
- */
 export const READ_MAX_LINES = 1000;
 
-/** How much of the head is inspected before deciding a file is not text. */
 const BINARY_PROBE_BYTES = 8 * 1024;
 
 export const readTool: RegisteredTool = {
@@ -82,9 +75,6 @@ export const readTool: RegisteredTool = {
             }
         }
         const file = Bun.file(safePath);
-        // Stat first: the size decides whether this is a refusal, and asking
-        // costs nothing next to reading. The text is read whole so that line
-        // boundaries and the total are exact; a page is then cut from it.
         const size = file.size;
 
         const binary = await binaryRefusal(file, path, size);
@@ -99,7 +89,6 @@ export const readTool: RegisteredTool = {
             : lines.length - (text.endsWith("\n") ? 1 : 0);
 
         if (totalLines === 0) {
-            // An empty file has no pages; its empty content is the whole file.
             context.recordFileSnapshot(safePath, text);
             return { kind: "output", output: "", isError: false };
         }
@@ -117,9 +106,6 @@ export const readTool: RegisteredTool = {
         const page = lines.slice(start, end);
         const reachesEnd = end === totalLines;
         if (reachesEnd) {
-            // Only a read to the end of the file is a snapshot: `edit`
-            // compares its own read of the file against this, and a page that
-            // stops short would never match.
             context.recordFileSnapshot(safePath, text);
         }
 
@@ -139,13 +125,6 @@ export const readTool: RegisteredTool = {
     },
 };
 
-/**
- * Bytes a text decoder cannot make sense of, probed on the head rather than
- * the whole file. A NUL is the giveaway no text format has, and an invalid
- * UTF-8 sequence in the first pages means the rest is not going to decode
- * either. The message names the size and a way through, because "not text" is
- * usually the start of a question about what the file is, not the end of one.
- */
 async function binaryRefusal(
     file: ReturnType<typeof Bun.file>,
     path: string,
@@ -167,11 +146,6 @@ async function binaryRefusal(
         + "bash (for example `file` or `xxd`).";
 }
 
-/**
- * A probe cut off mid-character is not evidence of anything, so a truncated
- * probe is decoded leniently at its tail: only bytes no UTF-8 sequence can
- * start count against the file.
- */
 function isDecodableUtf8(probe: Uint8Array, partial: boolean): boolean {
     try {
         new TextDecoder("utf-8", { fatal: true }).decode(probe);

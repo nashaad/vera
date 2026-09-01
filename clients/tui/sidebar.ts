@@ -10,28 +10,17 @@ import {
     type SyntaxStyle,
 } from "@opentui/core";
 
-/** Below this the sidebar has no room to say anything. */
 export const MIN_SIDEBAR_WIDTH = 20;
-/** The transcript keeps at least this much, whatever the divider is dragged to. */
 export const MIN_TRANSCRIPT_WIDTH = 30;
 export const DEFAULT_SIDEBAR_WIDTH = 44;
-/** The grab strip: one column, so it reads as an edge and not as a bar. */
 const DIVIDER_WIDTH = 1;
-/** One quiet row keeps a pane identity from running into its transcript. */
 const PANE_HEADER_GAP = 1;
 
-/**
- * Under this the split has no room for both halves, so the sidebar steps
- * aside until the terminal is wide again. It stays open the whole time: this
- * is layout, not a close.
- */
 export const MIN_SPLIT_WIDTH = MIN_SIDEBAR_WIDTH + MIN_TRANSCRIPT_WIDTH
     + DIVIDER_WIDTH;
 
 export interface TuiSidebarTheme {
-    /** The strip between the two, the only part that says it can be dragged. */
     readonly handle: string;
-    /** The same strip while it is held. */
     readonly handleActive: string;
     readonly muted: string;
     readonly text: string;
@@ -42,85 +31,51 @@ export interface TuiSidebarTheme {
 export interface TuiSidebarOptions {
     readonly renderer: CliRenderer;
     readonly transcript: Renderable;
-    /** Called when the column itself is clicked, not the strip beside it. */
     readonly onPanelClick?: () => void;
-    /** Called after any click or selection gesture ends in the column. */
     readonly onPanelRelease?: () => void;
     readonly theme: TuiSidebarTheme;
     readonly syntaxStyle: SyntaxStyle;
-    /** Called when the attached pane's visible identity is clicked. */
     readonly onHeaderClick?: () => void;
-    /** Called when the primary pane's visible identity is clicked. */
     readonly onMainHeaderClick?: () => void;
-    /** The width to open at, when one was remembered. */
     readonly initialWidth?: number;
-    /** Called when a drag settles, so the width outlives the session. */
     readonly onWidthChanged?: (columns: number) => void;
-    /** Called whenever the layout changed and the frame needs redrawing. */
     readonly onLayoutChanged?: () => void;
 }
 
-/** A block in the column, paired with the label drawn above it. */
 export interface TuiSidebarBlock {
     readonly node: Renderable;
-    /** Who a quotation taken from this block is attributed to. */
     readonly speaker: string;
 }
 
 export interface TuiSidebar {
-    /** Holds the transcript and the sidebar side by side. */
     readonly body: BoxRenderable;
-    /** What a selection can land in, and who said it. */
     blocks(): readonly TuiSidebarBlock[];
     isOpen(): boolean;
-    /** True while the split is actually drawn: false when narrow or hidden. */
     isShown(): boolean;
     layout(): "main" | "split" | "sidebar";
-    /** Cycles split -> sidebar-only -> main-only -> split. */
     cycleLayout(): "main" | "split" | "sidebar";
-    /** Marks this surface as the current composer target. */
     setFocused(focused: boolean): void;
     isFocused(): boolean;
-    /** Persistent identity and permission text above the attached surface. */
     setHeader(text: string | undefined): void;
-    /** Persistent identity and permission text above the primary transcript. */
     setMainHeader(text: string | undefined): void;
     open(): void;
     close(): void;
     append(label: string, text: string, speaker?: string): void;
-    /** Replaces every transcript block with one layout notification. */
     replace(blocks: readonly {
         readonly label: string;
         readonly text: string;
         readonly speaker?: string;
     }[]): void;
-    /** Reconciles caller-rendered transcript nodes without rebuilding them. */
     replaceRendered(blocks: readonly TuiSidebarBlock[]): void;
     clear(): void;
-    /**
-     * Repaints the column, and every block already in it, in a new palette.
-     *
-     * The syntax style comes with it: the old one is destroyed when the theme
-     * changes, and a block drawn against a destroyed style throws.
-     */
     setTheme(theme: TuiSidebarTheme, syntaxStyle: SyntaxStyle): void;
-    /** Re-reads the terminal width; call it on resize. */
     refit(): void;
-    /** True while the column is pinned to its newest block. */
     isFollowing(): boolean;
     scrollToBottom(): void;
-    /** Where the scrolling region sits, for an overlay pinned to its foot. */
     bounds(): { x: number; y: number; width: number; height: number };
     width(): number;
 }
 
-/**
- * A region beside the transcript that something other than the transcript owns.
- *
- * It is deliberately not a multi-lane pane: it takes labelled blocks of text,
- * so the next thing that needs a second column does not need a second
- * implementation.
- */
 export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     const { renderer } = options;
     let theme = options.theme;
@@ -130,21 +85,14 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         renderer.terminalWidth,
     );
     let open = false;
-    // Layout is explicit so a hidden pane can never remain the composer target.
     let layout: "main" | "split" | "sidebar" = "split";
     let focused = false;
     let headerText: string | undefined;
     let mainHeaderText: string | undefined;
     let blocks = 0;
     const appended: TuiSidebarBlock[] = [];
-    // The parts of each block that carry a colour. A block is built once and
-    // the theme can change under it, so the pieces have to stay reachable.
     const painted: { label: TextRenderable; text: MarkdownRenderable }[] = [];
 
-    // The divider is grabbed on mouse-down, and every drag after that resizes
-    // wherever the pointer went. A fast drag reports its first motion well
-    // clear of the three columns, which is why the drag is not read off the
-    // divider itself.
     let dragging = false;
 
     const body = new BoxRenderable(renderer, {
@@ -176,13 +124,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         border: ["left"],
         borderColor: theme.handle,
         onMouseDown: (event: MouseEvent) => {
-            // Claimed before the transcript's selection sees it, or dragging
-            // the divider would paint a selection across the transcript.
             event.preventDefault();
             event.stopPropagation();
             dragging = true;
-            // Lit while held, so a drag that runs past the strip still shows
-            // what is being moved.
             divider.borderColor = theme.handleActive;
         },
     });
@@ -193,8 +137,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         stickyScroll: true,
         stickyStart: "bottom",
         scrollY: true,
-        // Reserve a column inside the scrollbar. Content padding does not
-        // shrink OpenTUI's full-width rows, so it would still paint flush.
+        // Reserve a column inside the scrollbar. Content padding does not shrink OpenTUI's full-width rows, so it would still paint flush.
         wrapperOptions: { paddingRight: 1 },
         contentOptions: {
             flexDirection: "column",
@@ -209,9 +152,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         flexDirection: "column",
         visible: false,
-        // Own the whole column, including the focus rail. Otherwise a click on
-        // the rail itself reaches the app behind it and switches focus back to
-        // the transcript.
         onMouseDrag: () => {
             panelDragged = true;
         },
@@ -234,8 +174,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexGrow: 1,
         flexDirection: "column",
         paddingLeft: 1,
-        // The app supplies the shared top inset. Keep only a line at the foot
-        // so the last block does not sit on the edge.
         paddingTop: 0,
         paddingBottom: 1,
     });
@@ -379,12 +317,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             id: `sidebar-block-${number}`,
             width: "100%",
             flexDirection: "column",
-            // Blocks carry their own spacing: the scroll container has none,
-            // so caller-rendered entries keep the main transcript's rhythm.
             marginTop: number > 1 ? 1 : 0,
         });
-        // The label is drawn, not parsed: markdown would eat the brackets and
-        // asterisks that model names and aliases are full of.
         const labelNode = new TextRenderable(renderer, {
             id: `sidebar-block-${number}-label`,
             content: label,
@@ -442,9 +376,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         setFocused(nextFocused): void {
             focused = nextFocused;
-            // Keep the row mounted. OpenTUI can retain stale flex geometry
-            // when a child is repeatedly hidden and restored, which made the
-            // rail appear on first focus but not on later focus cycles.
+            // Keep the row mounted. OpenTUI can retain stale flex geometry when a child is repeatedly hidden and restored, which made the rail appear on first focus but not on later focus.
             paintFocusRails();
             options.onLayoutChanged?.();
         },
@@ -466,7 +398,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         open(): void {
             open = true;
             layout = "split";
-            // The terminal may have been resized while the sidebar was closed.
             resize(width);
             apply();
         },
@@ -487,9 +418,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             options.onLayoutChanged?.();
         },
         replace(nextBlocks): void {
-            // Markdown layout finishes asynchronously. Recreating every node
-            // on each streamed update exposes labels before their bodies are
-            // ready, so retain the common prefix and update it in place.
             const retained = Math.min(appended.length, nextBlocks.length);
             for (let index = 0; index < retained; index += 1) {
                 const next = nextBlocks[index]!;
@@ -535,8 +463,6 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
                 const removed = appended.pop()!;
                 content.remove(removed.node.id);
             }
-            // Caller-rendered nodes carry their own palette and are not part
-            // of the sidebar's label/Markdown paint list.
             painted.length = 0;
             for (const block of nextBlocks.slice(retained)) {
                 appended.push(block);
@@ -575,8 +501,6 @@ export function clampSidebarWidth(
 ): number {
     const room = terminalWidth - MIN_TRANSCRIPT_WIDTH - DIVIDER_WIDTH;
     if (room < MIN_SIDEBAR_WIDTH) {
-        // Too narrow to split at all: the sidebar keeps its floor and the
-        // transcript gives up what is left, rather than both collapsing.
         return MIN_SIDEBAR_WIDTH;
     }
     return Math.min(Math.max(Math.round(requested), MIN_SIDEBAR_WIDTH), room);

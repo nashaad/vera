@@ -32,13 +32,6 @@ export interface SchedulerRuntimeOptions {
     readonly setTimer?: (callback: () => void, delayMs: number) => unknown;
     readonly clearTimer?: (timer: unknown) => void;
     readonly onError?: (error: unknown) => void;
-    /**
-     * Called after a run is recorded as emitted, never before.
-     *
-     * The recording is what makes the run visible to anything reading the
-     * store, so a listener told at emit time would look and find the run
-     * still pending.
-     */
     readonly onRunEmitted?: () => void;
     readonly autoStart?: boolean;
 }
@@ -176,8 +169,6 @@ export class SchedulerRuntime {
                 const now = this.clock();
                 const nowIso = now.toISOString();
                 for (const schedule of this.options.store.due(nowIso)) {
-                    // One occurrence is retained after downtime; later missed
-                    // occurrences are coalesced by calculating from `now`.
                     if (!isCanonicalTimestamp(schedule.nextRunAt)) {
                         this.pauseInvalidSchedule(
                             schedule,
@@ -254,8 +245,7 @@ export class SchedulerRuntime {
                 try {
                     this.options.onRunEmitted?.();
                 } catch {
-                    // A listener that throws must not stop the schedule that
-                    // triggered it from continuing to fire.
+                    // A listener that throws must not stop the schedule that triggered it from continuing to fire.
                 }
             } catch (error) {
                 firstFailure ??= new Error(

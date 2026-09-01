@@ -149,8 +149,6 @@ export function routeVisibleAgentPrompt(rt: TuiRuntime, prompt: string): boolean
                     submitPrompt(rt, route.text);
                     return;
                 }
-                // The send above can resolve after the renderer is
-                // destroyed; the composer's EditBuffer is gone with it.
                 if (rt.shuttingDown) return;
                 if (rt.composer.expandedText().trim() === prompt) {
                     rt.composer.rememberSubmittedText(prompt);

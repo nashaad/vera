@@ -23,7 +23,6 @@ interface StartupLogEntry {
     readonly duration_ms?: unknown;
 }
 
-/** Reads only the latest completed host start, bounded so diagnostics stays cheap. */
 export function readLatestHostStartupTiming(
     path = defaultHostLogPath(),
 ): HostStartupTimingSnapshot | undefined {

@@ -1,4 +1,3 @@
-// Lifted roster methods from AgentRegistry. Callers keep registry.foo().
 import { statSync } from "node:fs";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
 import { sessionChangedFiles } from "../../store/preimage-stash.ts";
@@ -12,16 +11,6 @@ import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage,
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
-/**
-     * The `agent_roster` tool's effect: the host's live session table, cut to
-     * the caller's workspace and to the sessions still running in it.
-     *
-     * Every field is observed. The name was minted when the session
-     * registered, the activity time is the last thing written to that
-     * session's log, and the path is where the log lives. Nothing here is
-     * declared by an agent and nothing is stored, so a host that is gone and
-     * an empty roster mean the same thing.
-     */
 export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
         if (caller === undefined) {
@@ -31,8 +20,6 @@ export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, det
                 isError: true,
             });
         }
-        // Keyed rather than path-compared, so a session started under a
-        // symlinked or differently-spelled path lands in the same workspace.
         const here = workspaceKey(caller.agent.workspace);
         const rows = [...reg.agents.entries()]
             .filter(([id, entry]) =>
@@ -163,17 +150,6 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         };
     }
 
-/**
-     * Wakes the recipient for a peer message it just received, when the host
-     * is willing to. Three things can hold it back, and the sender is told
-     * which: a session that does not run tools on its own does not get its
-     * turn taken by another agent either, a chain of messages may only run so
-     * deep, and no session may be woken faster than a person could follow.
-     *
-     * What arrives is a notice, never the message. The text stays in the inbox
-     * until the recipient reads it there, so the read receipt keeps meaning
-     * what it says.
-     */
 export async function wakeForPeerMessage(_reg: AgentRegistry, caller: RegisteredAgentEntry, recipient: RegisteredAgentEntry, seq: number): Promise<{
         readonly delivered: boolean;
         readonly reason?:
@@ -282,14 +258,6 @@ export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string
         };
     }
 
-/**
-     * Rename a session by id rather than through an attachment.
-     *
-     * An attached session is refused: its client holds the name it is
-     * displaying and learns of a change only by replying to its own
-     * `update_session_name`, so writing the store from here would leave that
-     * client showing a name the session no longer has.
-     */
 export async function renameSession(reg: AgentRegistry, targetId: string, name: string | null): Promise<RenameSessionOutcome> {
         const requested = normalizeSessionName(name);
         if (requested === undefined) {
@@ -321,14 +289,6 @@ export async function updateSessionName(reg: AgentRegistry, id: string, name: st
         return entry.store.name() ?? null;
     }
 
-/**
-     * Watch for anything that would change what `list` answers about who is
-     * registered and what is running: a session registered or forgotten, and
-     * any agent starting or stopping a turn.
-     *
-     * Returns the unsubscribe. Listeners are told that something changed, not
-     * what changed, because the only reader wants a fresh derivation anyway.
-     */
 export function onRosterChanged(reg: AgentRegistry, listener: () => void): () => void {
         reg.rosterListeners.add(listener);
         return (): void => {
@@ -351,8 +311,6 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
             try {
                 return statSync(path).size;
             } catch {
-                // A session whose file is gone still belongs on the list; it
-                // just has no size to report.
                 return undefined;
             }
         };
@@ -390,17 +348,6 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                             : entry.completed && entry.agent.status === "idle"
                                 ? "completed" as const
                                 : entry.agent.status,
-                    // A session someone has open counts as live even between
-                    // turns: it is on screen and one keystroke from running.
-                    // A background child with no client of its own counts only
-                    // while it is working, which is the whole of its life.
-                    //
-                    // Both terms settle on their own, which is what makes this
-                    // safe to show: an attachment ends when its client goes,
-                    // and every turn resolves to idle. State that only clears
-                    // when a particular update arrives was deliberately left
-                    // out, because a turn ending without that update would
-                    // strand a row reading as live with nothing running in it.
                     live: !entry.agent.closed
                         && !entry.agent.failed
                         && entry.failure === undefined
@@ -425,9 +372,6 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                     ...(entry.store.header.origin === undefined
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),
-                    // Parent is a fact about this session even when that
-                    // parent is no longer live. `/parent` and `/subagents`
-                    // read it from the listing, not from the live registry.
                     ...(entry.parentId === undefined
                         ? {}
                         : { parent_id: entry.parentId }),
@@ -440,14 +384,6 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
             .sort((left, right) => left.id.localeCompare(right.id));
     }
 
-/**
-     * The live facts the work index is built from, one entry per listed agent.
-     *
-     * A separate reading rather than more fields on the listing: these are the
-     * facts of a running process (what it is blocked on, what tool is in
-     * flight) and they are meaningless for the sessions that are merely on
-     * disk, which is most of what a listing returns.
-     */
 export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
         const unreadResults = new Set<string>();
         for (const entry of reg.agents.values()) {
@@ -462,9 +398,6 @@ export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
             if (entry === undefined) return [];
             const failure = entry.store.agentFailure()?.detail;
             const activeTool = entry.agent.activeTool;
-            // Only for a session that has stopped: a session still working is
-            // still changing things, and counting its files mid-flight would
-            // put a number on screen that is wrong the moment it is drawn.
             const changed = summary.status === "working"
                     || summary.status === "waiting"
                 ? 0
@@ -493,19 +426,7 @@ export function workFacts(reg: AgentRegistry): readonly WorkAgentFacts[] {
         });
     }
 
-/**
-     * Turn emitted schedule runs into work rows, dropping the ones with no
-     * session behind them.
-     *
-     * A schedule addresses a consumer label, and a session's label is its
-     * agent id, so a run that named a session this host holds resolves here.
-     * One that named anything else is left out: a row whose enter key opens
-     * nothing is worse than no row.
-     */
 export function scheduleWorkFacts(_reg: AgentRegistry, runs: readonly EmittedScheduleRun[], agents: readonly WorkAgentFacts[]): readonly WorkScheduleFacts[] {
-        // Resolved against the facts the caller already read rather than a
-        // second listing: a listing stats every session on disk, and two of
-        // them per index build could also disagree with each other.
         const listed = new Map(agents.map((agent) => [agent.id, agent]));
         return runs.flatMap((run) => {
             const agent = listed.get(run.address);

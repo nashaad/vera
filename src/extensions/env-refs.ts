@@ -1,6 +1,5 @@
 import type { JsonValue } from "./contributions.ts";
 
-/** A whole string value of exactly this shape resolves from the environment. */
 const ENV_REFERENCE = /^\{env:([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
 export class EnvReferenceError extends Error {
@@ -18,11 +17,6 @@ export class EnvReferenceError extends Error {
     }
 }
 
-/**
- * Replaces `{env:NAME}` values with what the environment holds. Only a string
- * that is entirely one reference resolves; a reference inside a longer string
- * is left alone, so a resolved value is never concatenated with anything.
- */
 export function resolveEnvReferences(
     value: JsonValue,
     extensionId: string,

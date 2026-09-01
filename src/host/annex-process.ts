@@ -22,10 +22,6 @@ export interface StartAnnexProcessOptions {
     readonly onExit?: (reason: string) => void;
 }
 
-/**
- * Spawns vera-annex as a child of the host. The child binds loopback and
- * prints its base URL on stdout. The host holds that URL and reaps the child.
- */
 export async function startAnnexProcess(
     options: StartAnnexProcessOptions,
 ): Promise<AnnexProcess> {

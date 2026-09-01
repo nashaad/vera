@@ -281,9 +281,6 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    // Ahead of the modifier bail-out below, and deliberately a modifier key:
-    // the model pane sends every bare printable key to its search box, and "-"
-    // is a character in most model ids, so no unmodified key is available.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "toggle_pooled"
@@ -310,8 +307,6 @@ export function handleTuiSettingsPickerKey(
             ? { state, handled: true, undoPoolChange: true }
             : unchanged(state, true);
     }
-    // A name belongs to a pool entry, so the key does nothing on a row the
-    // user has not pooled.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "name_pooled"
@@ -333,9 +328,6 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
-    // Order belongs to the pool, so like a name this does nothing on a row the
-    // user has not pooled. Order is not decoration: the failsafe rung walks
-    // the pool in this order too.
     if (
         state.kind === "model"
         && (tuiBindingId("model_picker", key) === "move_pooled_up"
@@ -360,9 +352,6 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
-    // A refresh spends no model call and cannot change a setting, so unlike
-    // the probe keys below it asks nothing first: the only question it could
-    // ask is which provider, and the cursor has already answered that.
     if (
         (state.kind === "model" || state.kind === "provider")
         && tuiBindingId("model_picker", key) === "refresh_catalog"
@@ -376,16 +365,12 @@ export function handleTuiSettingsPickerKey(
         }
         return { state, handled: true, refreshCatalog: provider };
     }
-    // The sweep asks how much of the collection it covers before it spends
-    // anything, so the key is safe to press to find out what it would do.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "verify_pool"
     ) {
         return { state, handled: true, poolVerifySweep: true };
     }
-    // Verification is on demand and never on the way in: adding a model is
-    // instant, and this is the key that spends probe calls deliberately.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "verify_model"
@@ -403,9 +388,6 @@ export function handleTuiSettingsPickerKey(
             },
         };
     }
-    // The fold is a default, not a filter: this key is the whole reason the
-    // list can open short without the short list claiming the other models do
-    // not exist. It only ever adds rows, so it never needs an undo.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "reveal_all_models"
@@ -429,16 +411,12 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    // Also ahead of the modifier bail-out, and modified for the same reason as
-    // ctrl+s above: every bare key on the model pane belongs to its search box.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "open_providers"
     ) {
         return { state, handled: true, openProviders: true };
     }
-    // Tab walks right across the strip and Shift+Tab walks left. The model
-    // pane's scoped binding overrides the global quickslot chord while open.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
@@ -464,11 +442,6 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
         }
-        // Providers is the last stop, and it swaps what the card lists rather
-        // than what the model list shows, so the list under it wraps to the
-        // first tab. Both ways out of that pane then land on the start of the
-        // strip; parking the list on Help would send the next ⇥ straight back
-        // into the pane the user just left.
         if (at === cycle.length - 1) {
             return {
                 state: switchedModelTab(state, cycle[0]!),
@@ -481,9 +454,6 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    // ⇥ off the connect pane and back onto the collections. It resumes the pane
-    // that opened it rather than a fixed tab: arriving by ^e from All models
-    // and leaving by ⇥ should not silently move the list somewhere else.
     if (
         state.kind === "provider"
         && state.parent?.kind === "model"
@@ -496,7 +466,6 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    // Ahead of the modifier bail-out below, because the chord carries shift.
     if (
         state.kind === "provider"
         && tuiBindingId("model_picker", key) === "declare_provider"
@@ -515,8 +484,6 @@ export function handleTuiSettingsPickerKey(
             ? { state, handled: true, editProvider: selected.value }
             : { state, handled: true, editEndpoint: selected.value };
     }
-    // Forgetting is a fact about the store, so the pane only names the row and
-    // the caller decides whether there is anything there to forget.
     if (
         state.kind === "provider"
         && tuiBindingId("model_picker", key) === "forget_provider"
@@ -533,8 +500,6 @@ export function handleTuiSettingsPickerKey(
             state.modelPageIndex ?? 0,
             Math.max(0, actions.length - 1),
         );
-        // Escape here has a level to give back, so it does that rather than
-        // closing the dialog from under a view the user opened on purpose.
         if (key.name === "left" || key.name === "escape") {
             return {
                 state: { ...state, modelFocus: "page_entry" },
@@ -703,10 +668,6 @@ export function handleTuiSettingsPickerKey(
             return unchanged(state, true);
         }
     }
-    // Fold and unfold everything, ahead of the modifier bail-out below because
-    // both chords carry shift. Either one replaces whatever mix of open and
-    // closed sections the user had: it is one answer to "show me less" or
-    // "show me all of it", not an edit to each section in turn.
     const foldAll = state.kind !== "model"
         ? undefined
         : tuiBindingId("model_picker", key);
@@ -732,10 +693,6 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    // Half-page movement, ahead of the modifier bail-out below. The cursor
-    // travels with the jump rather than the window sliding out from under it,
-    // so ctrl+d is ↓ held down and nothing new has to be learned about where
-    // the highlight went.
     const halfPage = tuiBindingId("picker", key);
     if (halfPage === "half_page_down" || halfPage === "half_page_up") {
         const next = {
@@ -753,21 +710,14 @@ export function handleTuiSettingsPickerKey(
         return unchanged(state, false);
     }
     if (key.name === "escape") {
-        // Leaving a theme pane puts back the theme the user came in with,
-        // whether that lands them in the parent menu or out of the pane.
         const preview = state.kind === "theme" && state.initialTheme !== undefined
             ? { previewTheme: state.initialTheme }
             : {};
-        // Escape inside a pane opened from another one steps back rather than
-        // closing outright, so a wrong turn costs one key instead of reopening
-        // whatever led there.
         if (state.parent !== undefined) {
             return { state: state.parent, handled: true, ...preview };
         }
         return { handled: true, ...preview };
     }
-    // Digits pick the numbered row directly on the short panes. Only while
-    // the search is empty: a query that contains a digit is still a search.
     if (
         digitQuickSelect(state)
         && state.query === ""
@@ -782,9 +732,6 @@ export function handleTuiSettingsPickerKey(
             handled: true,
         };
     }
-    // This short policy list reserves bare p for assignment. It has no search
-    // field, so every other printable key is swallowed instead of building an
-    // invisible query and moving the cursor away from the row just toggled.
     if (
         state.kind === "model_assignment"
         && state.modelAssignment === "subagents"
@@ -795,9 +742,6 @@ export function handleTuiSettingsPickerKey(
     if (key.name.length === 1 || key.name === "space") {
         return unchanged(state, true);
     }
-    // Left and right open and close a section, the shape a tree has everywhere
-    // else. On a row inside a section they act on the heading above it, so
-    // closing a long provider does not first mean scrolling back up to it.
     if (key.name === "left" || key.name === "right") {
         if (
             state.kind === "model"
@@ -897,19 +841,12 @@ export function handleTuiSettingsPickerKey(
         if (state.kind === "model" && selected.section !== undefined) {
             return toggledSection(state, selected.section);
         }
-        // The same request ctrl+shift+n makes, from a row anyone can see.
         if (state.kind === "provider" && selected.action === true) {
             return { state, handled: true, declareProvider: true };
         }
-        // A declared row carries an endpoint the user wrote, so opening it
-        // means opening what they wrote. The form's key field covers the
-        // credential, which is the only thing a shipped row has to offer.
         if (state.kind === "provider" && selected.declared === true) {
             return { state, handled: true, editProvider: selected.value };
         }
-        // The session's model is shown on the Slots tab but is not changed
-        // there: choosing it moves to the list that does change it, which is
-        // the same list every other way in reaches.
         const action = state.kind === "model"
             ? modelActionTransition(state as TuiSettingsPickerState, selected)
             : undefined;
@@ -930,14 +867,6 @@ export function handleTuiSettingsPickerKey(
     return unchanged(state, false);
 }
 
-/**
- * The wheel over an open pane.
- *
- * It moves the cursor rather than sliding the window under it, which is the
- * same rule ctrl+d and ctrl+u follow: the pane windows itself around
- * `selectedIndex`, so a window that moved on its own would leave ⏎ pointing at
- * a row that is no longer on screen.
- */
 export function handleTuiSettingsPickerScroll(
     state: TuiAnySettingsPickerState,
     scroll: { readonly direction: "up" | "down" | "left" | "right"; readonly delta: number },
@@ -959,7 +888,6 @@ export function handleTuiSettingsPickerScroll(
     return { state: next, handled: true, ...themePreview(next) };
 }
 
-/** Apply text already edited by the native search field to the active pane. */
 export function updateTuiSettingsPickerSearch(
     state: TuiSettingsPickerState,
     query: string,
@@ -978,9 +906,6 @@ export function createTuiSettingsPickerView(
     const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
-        // No borderColor here. OpenTUI's BoxRenderable constructor reads any
-        // border styling option as "this box wants a border" and overrides an
-        // explicit `border: false`, so passing a color is what draws the box.
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
@@ -1073,12 +998,6 @@ export function createTuiSettingsPickerView(
                 );
                 return;
             }
-            // A session is recognised by its title, and titles are the one row
-            // value with no natural length, so this list gets the whole
-            // terminal rather than the inset card the settings panes use. It
-            // starts at the top edge too: an inset card is read against the
-            // scrimmed transcript around it, but a full-width panel with a
-            // strip of transcript over it reads as a row that leaked through.
             box.top = state.kind === "session" ? 0 : dialogInsetTop(renderer);
             box.left = state.kind === "session" ? 0 : "10%";
             box.width = state.kind === "session" ? "100%" : "80%";
@@ -1100,20 +1019,8 @@ export function createTuiSettingsPickerView(
     return view;
 }
 
-/**
- * Half-page distance when nobody measured the window. Only callers that have no
- * renderer land here, which today is tests: the TUI always measures.
- */
 export const FALLBACK_JUMP = 5;
 
-/**
- * How many rows the card can show without running off the bottom.
- *
- * Group headers cost more than one line, so this is a row budget rather than a
- * line budget and a heavily grouped list can still overrun by a line or two.
- * The alternative is a window whose size changes as you scroll past headers,
- * which is worse to use than an occasional tight fit.
- */
 export function pickerMaxRows(
     renderer: RenderContext,
     extraChrome: number,
@@ -1130,18 +1037,8 @@ export function pickerMaxRows(
     return Math.max(LIST_MIN_ROWS, Math.floor(lines / rowLines));
 }
 
-// Header, search block, footer with its blank line, and the card's vertical
-// padding (or padding plus border on the retro chromes, which add up to the
-// same three lines). The theme list never windows, so the card's height is a
-// straight function of how many themes it offers.
 export const THEME_CARD_CHROME_LINES = 9;
 
-/**
- * Where the theme card starts: the shared picker offset, pulled up only as far
- * as needed for the whole list to fit above the bottom padding row. One
- * formula for every chrome, so the card does not jump when the theme under the
- * cursor changes the chrome out from beneath it.
- */
 export function themePickerTop(renderer: RenderContext, themeRows: number): number {
     const height = themeRows + THEME_CARD_CHROME_LINES;
     return Math.max(
@@ -1153,13 +1050,6 @@ export function themePickerTop(renderer: RenderContext, themeRows: number): numb
     );
 }
 
-/**
- * How far the half-page keys move, which is half of what is currently on
- * screen. The key handler is a pure function of state and cannot see the
- * terminal, so whoever owns the renderer measures this and passes it in: a
- * second constant here would be free to disagree with the window the user is
- * actually looking at.
- */
 export function tuiPickerViewportRows(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
@@ -1216,11 +1106,6 @@ export function renderListPickerRows(
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     const stripPane = modelStripPane(state);
     const stop = modelStripStop(state);
-    // The help page keeps the field so that tabbing onto it does not lift the
-    // tabs and everything under them by three lines. It draws inert, without
-    // the caret, since this page holds nothing to filter.
-    // A pane whose whole list is two fixed answers has nothing to filter, and
-    // an empty field above them reads as a row the cursor has landed on.
     const searchable = pickerIsSearchable(state);
     const header = dialogHeaderNode(
         renderer,
@@ -1228,8 +1113,6 @@ export function renderListPickerRows(
             state.kind,
             state.kind === "extension"
                 ? state.title
-                // The connect pane keeps the model pane's name while it draws
-                // inside it: one card that changes what it lists, not two.
                 : stop === "providers"
                 ? pickerTitle("model")
                 : state.title,
@@ -1249,9 +1132,6 @@ export function renderListPickerRows(
         });
         box.add(subtitleNode);
         nodes.push(subtitleNode);
-        // A blank line above and below separates this standing explanation
-        // from both the title and the rows. Count its margin as well as its
-        // two wrapped text lines and trailing blank when sizing the list.
         subtitleLines = 4;
     }
     if (searchable && search !== undefined) {
@@ -1307,8 +1187,6 @@ export function renderListPickerRows(
         return;
     }
 
-    // The list and the facts about the highlighted row sit side by side, so the
-    // rows go into a column of their own rather than straight onto the card.
     const split = modelPaneSplit(renderer, state, railInset);
     const detailed = split !== undefined;
     let body: BoxRenderable | undefined;
@@ -1323,8 +1201,6 @@ export function renderListPickerRows(
             width: split.listWidth,
             flexShrink: 0,
             flexDirection: "column",
-            // The rows hold off the rule, so a right-aligned mark on one of
-            // them does not touch it.
             paddingRight: MODEL_LIST_RULE_GAP,
         });
         body.add(listColumn);
@@ -1374,15 +1250,9 @@ export function renderListPickerRows(
             : availableRows,
     );
     let lines = 0;
-    // The activity column is padded to the widest value on screen, so the
-    // titles beside it start on one column even though "just now" and "3d ago"
-    // do not measure the same.
     const activityWidth = Math.max(0, ...rows.map((row) =>
         row.kind === "option" ? row.option.activity?.length ?? 0 : 0));
-    // A fork is drawn under its parent only while the parent is on the list.
-    // Search filters the threaded order without rebuilding it, so a fork whose
-    // parent was filtered out would otherwise appear to hang off whichever
-    // unrelated row the search left above it.
+    // A fork is drawn under its parent only while the parent is on the list. Search filters the threaded order without rebuilding it, so a fork whose parent was filtered out would oth…
     const onScreen = new Set(state.options.map((option) => option.sessionId));
     const sharedOnScreen = new Map<string, number>();
     for (const option of state.options) {
@@ -1445,15 +1315,9 @@ export function renderListPickerRows(
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }
                     : {}),
-                // Model and session rows carry no description. A model's
-                // marketing line is not what anyone picks on, and at these
-                // widths it only ever arrived clipped to a few characters; a
-                // session's facts are its own columns.
                 ...(state.kind === "model" || state.kind === "session"
                     ? {}
                     : { description: row.option.description }),
-                // With the pane beside it, a row keeps only what tells it apart
-                // from its neighbours. Everything else is one cursor move away.
                 meta: row.option.rowMeta
                     ?? optionMeta(state, row.option, detailed, listedPrefixWidth),
                 card: row.option.card,
@@ -1467,8 +1331,6 @@ export function renderListPickerRows(
             : []
         ),
     ], rowWidth);
-    // With no second column the page has nowhere to sit beside the list, so it
-    // takes the list's place the way it takes the inspector's when there is one.
     const stackedPage = split === undefined && state.kind === "model"
         && state.modelFocus === "page";
     const pageEntry = modelPageEntry(state);
@@ -1594,9 +1456,6 @@ export function renderListPickerRows(
         body.height = lines;
     }
 
-    // The same block the column would have carried, under the list instead of
-    // beside it. The pane keeps what it says at every width and gives up only
-    // the second column, which is what the terminal actually ran out of.
     if (stackedPage) {
         const title = new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_MUTED)("More")]),
@@ -1685,8 +1544,6 @@ export function renderListPickerRows(
         }
     }
 
-    // Above the hints, below the rows: the tip is about the pane, so it sits
-    // with the pane's other standing text rather than floating over the list.
     if (tip !== undefined && tip.length > 0) {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
@@ -1715,8 +1572,6 @@ export function renderListPickerRows(
     box.add(footer);
     nodes.push(footer);
     if (state.kind === "model") {
-        // The chords above are a legend, and a legend is easy to read past.
-        // This line says the thing in words instead.
         const arrows = new TextRenderable(renderer, {
             content: `${DIALOG_GUTTER}${MODEL_ARROW_HINT}`,
             fg: TUI_MUTED,
@@ -1729,26 +1584,15 @@ export function renderListPickerRows(
     box.height = "auto";
 }
 
-/** At most this many checks are kept on screen, newest last. */
 export const VERIFICATION_CONSOLE_STEPS = 3;
 
 export type VerificationConsole = NonNullable<TuiSettingsPickerView["verification"]>;
 
-/** What the console occupies: the subject line and the checks under it. */
 export function verificationConsoleLines(console_: VerificationConsole): number {
     const steps = console_.steps ?? [];
-    // The margin above, a padded row on each side of the block, the subject
-    // line, and one line per check it is showing.
     return 4 + Math.max(1, Math.min(VERIFICATION_CONSOLE_STEPS, steps.length));
 }
 
-/**
- * The live provider check, as a short list of what has happened.
- *
- * One line names what is being checked and stays put; under it each check
- * reports itself once it is done, and the one still running carries the
- * spinner. Nothing is repeated, so the block says only what has changed.
- */
 export function verificationConsoleNode(
     renderer: RenderContext,
     console_: VerificationConsole,
@@ -1803,7 +1647,6 @@ export function verificationConsoleNode(
     return consoleBox;
 }
 
-/** Each ending a check can have, spelled out for a terminal without colour. */
 export const VERIFICATION_STEP_MARKS: Record<string, string> = {
     passed: "✓",
     failed: "✗",
@@ -1811,21 +1654,11 @@ export const VERIFICATION_STEP_MARKS: Record<string, string> = {
     running: "",
 };
 
-/**
- * One hint per entry, in reading order, each with the order it is dropped in
- * when the row will not fit: 0 is kept longest. A hint that wrapped would split
- * a chord from its label, so the row sheds whole hints instead.
- */
 export interface PickerHint {
     readonly text: string;
     readonly drop: number;
 }
 
-/**
- * The text cut to the room there is for it, with an ellipsis where it was cut.
- * A footer line that overflows its card wraps onto the padding line under it,
- * so the pane loses its bottom margin rather than the sentence losing a word.
- */
 export function clippedToWidth(text: string, width: number): string {
     if (width <= 0 || Bun.stringWidth(text) <= width) return text;
     if (width === 1) return "\u2026";
@@ -1858,11 +1691,6 @@ export function fittedHints(hints: readonly PickerHint[], width: number): string
     }
 }
 
-/**
- * The hint line, never wider than the card it sits in. A line that overflows
- * wraps onto the blank line under it and the pane loses its bottom padding, so
- * a branch that cannot shed a hint has its line cut instead.
- */
 export function pickerFooter(
     state: TuiAnySettingsPickerState,
     width = 0,
@@ -1875,8 +1703,6 @@ export function pickerFooterText(
     width = 0,
 ): string {
     if (state.kind === "session") {
-        // With nothing on screen to leave, opening a row in the background
-        // and opening it are the same act, so only one of them is offered.
         const leavingSomething = state.nothingToLeave !== true;
         return [
             "↑↓ ^d^u move",
@@ -1925,10 +1751,6 @@ export function pickerFooterText(
             ...(selected?.connected === true
                 ? [tuiKeyHint("forget_provider")]
                 : []),
-            // The chord and ⏎ are the same action, so the row that already
-            // offers it on ⏎ does not advertise it twice.
-            // The chord and ⏎ are the same action on a declared row, which
-            // already says "⏎ edit", so only a shipped row advertises it.
             ...(selected?.endpointEditable === true
                 && selected.declared !== true
                 ? [tuiKeyHint("edit_endpoint")]
@@ -1961,10 +1783,6 @@ export function pickerFooterText(
             : "p assign";
         return `↑↓ move · ${action} · esc done`;
     }
-    // The Defaults tab's rows are jobs, and a two-word state cell cannot say
-    // what to do about one, so the cursor's row explains itself down here.
-    // The Defaults tab's rows explain themselves in the column beside the
-    // list, so the footer stays keys.
     if (
         state.kind === "model"
         && (state.tab === "defaults" || state.tab === "actions")
@@ -2040,14 +1858,9 @@ export function pickerFooterText(
         const pool = selected === undefined || selected.provider === undefined
             ? undefined
             : isPooled(state, selected)
-                // Removal is the same key saying the opposite thing, which is
-                // the one hint the table cannot hold for us.
                 ? tuiKeyHint("toggle_pooled").replace("pin", "unpin")
                 : tuiKeyHint("toggle_pooled");
         return fittedHints([
-            // The movement entry carries the half-page keys rather than taking
-            // a separate assignment: they are the same movement, and this footer is
-            // already the longest one in the pane.
             { text: "↑↓ ^d^u move", drop: 0 },
             { text: "⏎ select", drop: 0 },
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
@@ -2060,21 +1873,11 @@ export function pickerFooterText(
             ...(modelDetailActions(state, selected).length === 0
                 ? []
                 : [{ text: "→ actions", drop: 2 }]),
-            // Only while the cursor is on a heading: the keys do nothing on a
-            // model row, and a hint for them there would be a lie.
-            // The whole-list keys are worth a slot behind the row's own keys;
-            // on a heading, where ← and → do something too, the entry moves up
-            // because folding is then what the highlighted row is for.
-            // The shortlist never groups, so folding keys would name something
-            // that is not on screen.
             ...(state.tab === "pool" ? [] : [
                 selected?.section === undefined
                     ? { text: "⇧←→ fold all", drop: 5 }
                     : { text: "←→ ⇧←→ fold", drop: 1 },
             ]),
-            // Only where there is something folded to reveal, and it names the
-            // direction the key would take you rather than the state you are
-            // in, so the hint stays an instruction on both passes.
             ...(state.tab !== "pool" && hasFoldedRows(state)
                 ? [{
                     text: state.revealAll === true
@@ -2086,8 +1889,6 @@ export function pickerFooterText(
                     drop: 4,
                 }]
                 : []),
-            // Sheds early, because the strip's own chip carries this chord and
-            // is on screen whatever the footer had room for.
             { text: tuiKeyHint("open_providers"), drop: 6 },
             { text: "⇥ tabs", drop: 3 },
             { text: "esc close", drop: 0 },
@@ -2096,11 +1897,6 @@ export function pickerFooterText(
     return "↑↓ move · ⏎ select · esc close";
 }
 
-/**
- * Whether the pane is holding rows back, which is what makes the reveal key
- * worth a slot in the footer. A pooled row is shown whatever its mark says, so
- * it does not count as folded.
- */
 export function hasFoldedRows(state: TuiSettingsPickerState): boolean {
     return state.allOptions.some((option) =>
         option.hiddenByDefault !== undefined
@@ -2121,9 +1917,6 @@ export function extensionPickerKeyLabel(
 export function listDisplayRows(
     state: TuiAnySettingsPickerState,
 ): readonly PickerDisplayRow[] {
-    // The model pane carries its headings as rows of its own, so that the
-    // cursor can reach one and fold the section under it. Everything else has
-    // its headings derived here.
     const grouped = state.kind === "provider"
         || state.kind === "configure"
         || (state.kind === "model" && state.tab === "defaults")
@@ -2162,17 +1955,10 @@ export function windowedDisplayRows(
         return rows;
     }
     const start = rows.indexOf(window[0]!);
-    // A window that opens partway down a group would show provider rows with no
-    // provider above them, which is the one thing the grouping exists to say.
-    // Reprinting the heading costs the window's first row and is what makes the
-    // list readable from anywhere in it rather than only from the top.
     const stuck = stickyGroupRow(rows, start);
     if (stuck === undefined) {
         return window;
     }
-    // The heading takes a row from the end unless that is where the cursor is,
-    // in which case it takes the top row instead. Either way the highlighted row
-    // stays on screen, which is the one row that cannot be spared.
     const cursorAtEnd = window.at(-1)?.kind === "option"
         && (window.at(-1) as { readonly index: number }).index === selectedIndex;
     return cursorAtEnd
@@ -2205,9 +1991,6 @@ export function isCurrentOption(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
 ): boolean {
-    // The extension says which row is in effect. `selectedId` is the cursor
-    // and moves with the arrow keys, so reading the marker off it would draw a
-    // dot that follows the highlight instead of marking anything.
     if (state.kind === "extension") {
         return option.current === true;
     }
@@ -2218,12 +2001,6 @@ export function isCurrentOption(
     return state.kind === "model" && option.value === state.initialModel;
 }
 
-/**
- * The panes short enough that a digit names a row faster than moving to it.
- * The model and session panes stay out: their names carry digits, so a digit
- * there is search input. On the panes below, digits select only while the
- * search is empty, and the numbers hide once a query starts filtering.
- */
 export function digitQuickSelect(state: TuiAnySettingsPickerState): boolean {
     return state.kind === "reasoning"
         || state.kind === "permissions"
@@ -2231,7 +2008,6 @@ export function digitQuickSelect(state: TuiAnySettingsPickerState): boolean {
         || state.kind === "permission_settings";
 }
 
-/** The mark that hangs left of a row's label, if the row has one. */
 export function optionMarker(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
@@ -2245,7 +2021,6 @@ export function optionMarker(
     if (state.kind === "provider") {
         return undefined;
     }
-    // A filled dot, at the weight of the fold arrows it shares a column with.
     return isCurrentOption(state, option) ? "●" : undefined;
 }
 
@@ -2262,10 +2037,6 @@ export function optionLeading(
     if (state.kind !== "session") {
         return "";
     }
-    // The session list turns the marker column into a marker, a fork gutter and
-    // a time column, so the facts a row is worth reading for sit left of the
-    // title rather than after it. A fork indents under its parent, which is
-    // what makes the list read as a history rather than a pile.
     const depth = threaded ? option.depth ?? 0 : 0;
     const thread = shared && option.sharedEdge !== undefined
         ? `${option.sharedEdge === "start" ? "┌" : "└"} `
@@ -2316,12 +2087,7 @@ export function renderThemePickerRows(
     box.add(search);
     nodes.push(header);
 
-    // Show the curated catalog even while filtering: unmatched rows dim rather
-    // than vanish, so the list keeps its stable palette-card shape.
     const matches = new Set(state.options.map((option) => option.value));
-    // The theme list is filtered but never shortened, so a row's position in
-    // `allOptions` is not its cursor index: only matched rows are selectable,
-    // and their index is the one the filtered list uses.
     const selectableIndex = new Map(
         state.options.map((option, index) => [option.value, index]),
     );
@@ -2377,7 +2143,6 @@ export function themeRowContent(
 export function themeSwatchChunks(name: TuiThemeName, matched: boolean): TextChunk[] {
     const swatch = tuiThemeSwatch(name);
     if (swatch === undefined) {
-        // System inherits the terminal palette, unknown until applied.
         return [fg(TUI_MUTED)("░░ ░░ ░░ ░░")];
     }
     return swatch.flatMap((color, index) => [

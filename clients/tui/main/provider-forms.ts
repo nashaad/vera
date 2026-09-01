@@ -46,9 +46,6 @@ export function forgetProvider(rt: TuiRuntime,
             ? undefined
             : process.env[provider.envVar],
     );
-    // A row that cannot be forgotten answers on the pane itself, under the
-    // title, with the cursor still on the row the key was pressed on.
-    // Nothing is being confirmed, so nothing has to be stepped away from.
     if (decision.kind === "explain") {
         openProviderPicker(rt, pane, {
             selected: provider.id,
@@ -92,8 +89,6 @@ export function forgetProviderCredential(rt: TuiRuntime, candidate: {
         `forgot the stored ${candidate.label} credential`,
     );
     requestAgentSettings(rt, focusedAgentClient(rt));
-    // Reopened rather than patched: the mark on every row is read from the
-    // store, and the store just changed.
     openProviderPicker(rt, candidate.pane, { selected: candidate.providerId });
 }
 
@@ -256,9 +251,6 @@ export function applyProviderFormTransition(rt: TuiRuntime,
         focusActiveSurface(rt);
         return;
     }
-    // A rename is a move, not a second declaration: the old entry and the
-    // credential under the old name both go, or the pane comes back
-    // showing a provider nobody asked for.
     if (submitted.replaces !== undefined) {
         try {
             updateVeraConfigDefaults({
@@ -290,8 +282,6 @@ export function applyProviderFormTransition(rt: TuiRuntime,
             ? `declared ${submitted.id}`
             : `updated ${submitted.id}`,
     );
-    // The key entered on the form goes to the credential store, which is a
-    // separate file from the declaration that just landed in config.json.
     if (submitted.apiKey !== undefined) {
         try {
             rt.authStorage.setCredential(submitted.id, {
@@ -312,9 +302,6 @@ export function applyProviderFormTransition(rt: TuiRuntime,
         }
     }
     requestAgentSettings(rt, focusedAgentClient(rt));
-    // Rebuilt rather than patched: the connect list is read from the config
-    // file, and the file just changed. It opens on the row that was just
-    // declared, which is the one the user came here to act on.
     openProviderPicker(rt, form.parent?.parent, { selected: submitted.id });
 }
 
@@ -344,8 +331,6 @@ export function applySecretPromptTransition(rt: TuiRuntime,
             );
         }
     }
-    // Back to the pane the prompt was opened over, rebuilt so the row it
-    // came from carries its new mark.
     if (prompt.parent?.kind === "provider") {
         openProviderPicker(rt, prompt.parent.parent);
         return;
@@ -367,9 +352,6 @@ export function applySessionRenamePromptTransition(rt: TuiRuntime,
         renderState(rt);
         return;
     }
-    // A pool name leaves the pane it was opened over alone: the settings
-    // snapshot that follows the write rebuilds it, and the captured parent
-    // is the list as it read before the name existed.
     const parent = prompt.parent;
     rt.settingsPicker = prompt.target.kind === "pool"
         ? rt.settingsPicker ?? parent
@@ -450,8 +432,6 @@ export async function performSessionRename(rt: TuiRuntime,
         }),
     ]);
     clearTimeout(timeout);
-    // The session on screen may have been swapped underneath while the
-    // host was answering, and this result belongs to the one that left.
     if (rt.shuttingDown || generation !== rt.clientGeneration) return;
     rt.state = result.status === "renamed"
         ? appendTuiNotice(
@@ -501,8 +481,6 @@ export async function refreshSessionPicker(rt: TuiRuntime): Promise<void> {
         );
         renderState(rt);
     } catch {
-        // The pane keeps the rows it has: a failed refresh is not a
-        // reason to close what the user is working in.
     }
 }
 

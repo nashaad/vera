@@ -1,13 +1,6 @@
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { connectHost } from "./connection.ts";
 
-/**
- * The catalog, shortlist and defaults, read without attaching to a session.
- *
- * A client that has no conversation open still shows the model pane, and what
- * it shows there is host state. One request, one answer, connection closed:
- * there is nothing to stay subscribed to.
- */
 export async function readModelSettingsThroughHost(
     socketPath: string,
     workspace?: string,

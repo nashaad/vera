@@ -74,7 +74,6 @@ export function createTuiFlightRecorder(
                 mode: 0o600,
             });
         } catch {
-            // Diagnostics must never become a new reason for the client to fail.
         }
     };
 
@@ -101,7 +100,6 @@ export function createTuiFlightRecorder(
                 mode: 0o600,
             });
         } catch {
-            // The lifecycle log remains useful when the heartbeat file cannot write.
         }
     };
     writeHeartbeat();
@@ -196,6 +194,5 @@ function sweepOldClientDiagnostics(directory: string, nowMs: number): void {
             unlinkSync(path);
         }
     } catch {
-        // Retention is best-effort for the same reason diagnostic writes are.
     }
 }

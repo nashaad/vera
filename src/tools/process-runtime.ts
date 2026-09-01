@@ -48,9 +48,7 @@ export interface ManagedProcessRunOptions {
     readonly cwd: string;
     readonly env: Readonly<Record<string, string | undefined>>;
     readonly signal?: AbortSignal;
-    /** Undefined is reserved for direct low-level callers; model Bash always yields. */
     readonly yieldAfterMs?: number;
-    /** Spawn-time choice reserved for permission-gated writes; PTYs are not implied. */
     readonly interactive: boolean;
 }
 
@@ -60,17 +58,12 @@ export interface ManagedProcessRegistryOptions {
     readonly exitRetentionMs?: number;
     readonly now?: () => number;
     readonly id?: () => string;
-    /** A full host-generation component keeps transcript ids restart-safe. */
     readonly generation?: string;
     readonly stopWaitMs?: number;
     readonly groupPollMs?: number;
-    /** Test seam for otherwise unrepeatable OS termination failures. */
     readonly signalProcessTree?: (pid: number) => string | undefined;
-    /** Test seam for process-group lifetime checks. */
     readonly processGroupAlive?: (pid: number) => boolean;
-    /** Reports a new process-group leader to an external owner. */
     readonly onProcessStarted?: (pid: number) => void;
-    /** Reports that the process group no longer exists. */
     readonly onProcessSettled?: (pid: number) => void;
 }
 
@@ -114,10 +107,6 @@ interface StreamCapture {
     cancel(): void;
 }
 
-/**
- * Host-owned process table. A scope limits every operation to one session,
- * while the root can stop all scopes during host shutdown.
- */
 export class ManagedProcessRegistry {
     private readonly records = new Map<string, ManagedProcessRecord>();
     private readonly maxLivePerOwner: number;
@@ -216,8 +205,7 @@ export class ManagedProcessRegistry {
         }
         this.makeRetainedRoom(ownerId);
 
-        // Allocate before spawn: an allocator failure must not leave an
-        // unregistered child that no caller can address.
+        // Allocate before spawn: an allocator failure must not leave an unregistered child that no caller can address.
         const processId = this.uniqueId();
         const subprocess = Bun.spawn(["bash", "-lc", options.command], {
             cwd: options.cwd,
@@ -314,8 +302,7 @@ export class ManagedProcessRegistry {
             return { kind: "exited", snapshot };
         }
 
-        // Ownership has moved out of the foreground turn. A later abort of
-        // that turn must not kill a process whose ID was already returned.
+        // Ownership has moved out of the foreground turn. A later abort of that turn must not kill a process whose ID was already returned.
         record.visible = true;
         if (record.finishedAt !== undefined) {
             const snapshot = this.snapshot(record);
@@ -686,7 +673,6 @@ function capture(
             try {
                 reader.releaseLock();
             } catch {
-                // The stream already released its lock while reporting the error.
             }
         }
     })();
@@ -747,9 +733,6 @@ function stopProcessTree(pid: number): string | undefined {
         return undefined;
     } catch (error) {
         if (isMissingProcess(error)) return undefined;
-        // Never fall back to a positive PID. Once the group leader exits that
-        // number can be reused by an unrelated process, while a live original
-        // group remains safely addressable by its negative PGID.
         return errorMessage(error);
     }
 }

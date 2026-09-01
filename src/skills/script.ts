@@ -53,10 +53,6 @@ export const skillScriptTool: RegisteredTool = {
             projectRoot: context.instructionRoot,
         });
         const skill = findSkill(catalog, skillName);
-        // A skill the worn agent's list leaves out is refused the same way a
-        // skill that does not exist is. Naming it differently would tell the
-        // model what it cannot have, which is the catalog's job, not a
-        // refusal's.
         if (
             skill === undefined
             || (context.allowedSkills !== undefined
@@ -256,7 +252,6 @@ function killProcessTree(pid: number): void {
             process.kill(-pid, "SIGKILL");
         }
     } catch {
-        // The process may have exited between the timer or abort and the kill.
     }
 }
 

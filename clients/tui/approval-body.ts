@@ -4,11 +4,6 @@ import type { PermissionPredicate } from "../../src/engine/permissions.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { tuiDisplayPath } from "./state.ts";
 
-/**
- * The body of the permission panel: the call itself, rendered as the tool
- * means it rather than as its serialized arguments. A JSON dump is what an
- * unknown tool falls back to, not what every tool gets.
- */
 export type TuiApprovalTone = "text" | "muted" | "path" | "add" | "del";
 
 export interface TuiApprovalLine {
@@ -18,23 +13,11 @@ export interface TuiApprovalLine {
 
 export interface TuiApprovalBody {
     readonly lines: readonly TuiApprovalLine[];
-    /** Lines the cap is holding back, zero when everything is on screen. */
     readonly hidden: number;
 }
 
-/**
- * How tall the body may grow before it is capped. The panel sits above the
- * footer and may not push it off the screen, so a long call scrolls behind a
- * count rather than pressing the answers down.
- */
 export const TUI_APPROVAL_BODY_LINES = 15;
 
-/**
- * How many unchanged lines frame each change cluster in an edit hunk. Enough
- * to place the change without re-emitting the surrounding block: a one-line
- * edit in a long file reads as a few dimmed lines, the red and green lines,
- * and nothing else.
- */
 const EDIT_DIFF_CONTEXT = 3;
 
 export function tuiApprovalBody(
@@ -60,7 +43,6 @@ export function tuiApprovalBody(
     };
 }
 
-/** The panel body as plain text, for the headless renderer and for tests. */
 export function tuiApprovalBodyText(
     update: ToolApprovalUiRequestUpdate,
     expanded = false,
@@ -121,8 +103,6 @@ function bashLines(
             text: index === 0 ? `$ ${line}` : `  ${line}`,
             tone: "text" as const,
         })),
-        // The authority warning is about running a process, so it belongs to
-        // the tool that runs one.
         { text: "", tone: "muted" },
         { text: warning, tone: "muted" },
     ];
@@ -139,9 +119,6 @@ function editLines(
     const lines: TuiApprovalLine[] = [
         { text: tuiApprovalPath(path), tone: "path" },
     ];
-    // The file's own line numbers are not in the call, and the client does not
-    // read a workspace that may not be on this machine, so the hunks are shown
-    // in the order the call makes them rather than against a numbered file.
     edits.forEach((edit, index) => {
         const hunk = edit as Record<string, unknown>;
         if (index > 0) {
@@ -155,14 +132,7 @@ function editLines(
     return lines;
 }
 
-/**
- * The change between two strings as plain-data hunks: unchanged lines dimmed
- * with one leading space and no marker, removed lines `-`, added lines `+`.
- * The same `diff` library OpenTUI's `DiffRenderable` parses with, so a
- * one-line insertion renders as its real hunk instead of the whole surrounding
- * block deleted and recreated. A run of unchanged lines longer than the
- * context window collapses behind a `…` gap.
- */
+/** The change between two strings as plain-data hunks: unchanged lines dimmed with one leading space and no marker, removed lines `-`, added lines `+`. */
 export function tuiEditHunkLines(
     oldString: string,
     newString: string,
@@ -173,15 +143,9 @@ export function tuiEditHunkLines(
     const lines: TuiApprovalLine[] = [];
     patch.hunks.forEach((hunk, index) => {
         if (index > 0) {
-            // One leading space puts the gap in the content column, where a
-            // context line would have sat, so the collapsed run reads as
-            // missing content rather than a gutter mark.
             lines.push({ text: " …", tone: "muted" });
         }
         for (const raw of hunk.lines) {
-            // A missing trailing newline is a file-ending detail, not a line
-            // of the change; showing it would read as a role the hunk does not
-            // have.
             if (raw === "\\ No newline at end of file") {
                 continue;
             }
@@ -214,25 +178,14 @@ function writeLines(
             text: `${lines.length} ${lines.length === 1 ? "line" : "lines"}`,
             tone: "muted",
         },
-        // What is about to be written is the thing being approved, so it is in
-        // the body. The cap is what keeps a large file out of the panel.
         ...lines.map((line) => ({ text: `+ ${line}`, tone: "add" as const })),
     ];
 }
 
-/**
- * A path the user can place at a glance: relative inside the project, absolute
- * outside it, where the absolute form is the part that matters.
- */
 export function tuiApprovalPath(path: string): string {
     return tuiDisplayPath(path);
 }
 
-/**
- * A predicate in full, since a decision stores all of it. Every field that
- * narrows the grant is written, so the label can never claim less than what is
- * being remembered.
- */
 export function describeGrantPredicate(
     when: PermissionPredicate,
 ): string {
@@ -250,10 +203,6 @@ export function describeGrantPredicate(
     return parts.length === 0 ? "similar actions" : parts.join(" ");
 }
 
-/**
- * What the remembering rows cannot offer. When a predicate rides on the choice
- * label the body says nothing, so the same scope is never stated twice.
- */
 function scopeLines(
     update: ToolApprovalUiRequestUpdate,
     inlineScope: boolean,
@@ -268,9 +217,6 @@ function scopeLines(
             { text: "Session and always are unavailable.", tone: "muted" },
         ];
     }
-    // One predicate rides on the choice label when the row can hold it. A set
-    // of them never can, so it is written out rather than summarized by
-    // whichever one came first.
     if (grants.length === 1 && inlineScope) {
         return [];
     }

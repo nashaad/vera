@@ -82,7 +82,6 @@ export interface StartExtensionRegistryOptions {
     readonly handlerTimeoutMs?: number;
     readonly disposeTimeoutMs?: number;
     readonly onFailure?: (failure: ExtensionRegistryFailure) => void;
-    /** Receives a config value that holds a credential literally. */
     readonly onLiteralSecret?: (finding: LiteralSecretFinding) => void;
     readonly onActivationTiming?: (timing: {
         readonly extensionId: string;
@@ -200,22 +199,16 @@ export async function startExtensionRegistry(
                     `Duplicate extension ID: ${manifest.manifest.id}`,
                 );
             }
-            // Read from the config as written, before references resolve: a
-            // resolved value is meant to look like a credential.
             for (const finding of findLiteralSecrets(
                 configured.config,
                 manifest.manifest.id,
             )) {
                 safelyReportLiteralSecret(options.onLiteralSecret, finding);
             }
-            // Resolved before admission, so an unset variable runs no
-            // extension code and leaves the reference in the parsed config.
             const resolvedConfig = resolveEnvReferences(
                 configured.config,
                 manifest.manifest.id,
             ) as typeof configured.config;
-            // Contributions are admitted before the entrypoint is imported, so a
-            // rejected contribution runs no extension code.
             contributions.admit(
                 manifest.manifest.id,
                 applyWatchConfigOverrides(
@@ -503,9 +496,6 @@ async function activateExtension(
                         "Extension did not declare agents.register",
                     );
                 }
-                // Parsed through the same rules a file goes through, and a
-                // failure fails activation: an agent that half-parsed would be
-                // an agent whose scope nobody can state.
                 const definition = parseExtensionAgent(spec);
                 if (agentNames.has(definition.name)) {
                     throw new Error(
@@ -1123,7 +1113,6 @@ async function runDisposers(
     return failures;
 }
 
-/** Normalize before the command adapter applies its exact argv bounds. */
 function normalizeCommandHookSpec(
     spec: VeraExtensionCommandHookSpec,
 ): CommandHookSpec {
@@ -1138,7 +1127,6 @@ function normalizeCommandHookSpec(
     };
 }
 
-/** Extension failures are isolated from the engine's built-in hook chain. */
 function safePreToolHook(hook: PreToolUseHook): PreToolUseHook {
     return async (payload: PreToolUseHookPayload): Promise<PreToolUseHookResult> => {
         try {
@@ -1281,7 +1269,6 @@ function safelyReportLiteralSecret(
     try {
         report?.(finding);
     } catch {
-        // Optional reporting cannot affect registry lifecycle.
     }
 }
 
@@ -1292,7 +1279,6 @@ function safelyReportFailure(
     try {
         report?.(failure);
     } catch {
-        // Optional reporting cannot affect registry lifecycle.
     }
 }
 
@@ -1300,12 +1286,6 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * An extension's agent, through the same parser a file goes through.
- *
- * Round-tripped as markdown rather than hand-mapped, so an extension cannot
- * express an agent a file could not, and the rules only live in one place.
- */
 function parseExtensionAgent(spec: VeraExtensionAgentSpec): AgentDefinition {
     if (
         typeof spec !== "object" || spec === null

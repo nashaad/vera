@@ -3,12 +3,6 @@ import type { TuiTranscriptEntry } from "./state.ts";
 export const TUI_TRANSCRIPT_INITIAL_WINDOW = 48;
 export const TUI_TRANSCRIPT_MATERIALIZE_BATCH = 24;
 export const TUI_TRANSCRIPT_MATERIALIZE_BUFFER = 2;
-/**
- * Materialized rows kept above the viewport before any are released, in
- * viewports. It has to stay clear of `TUI_TRANSCRIPT_MATERIALIZE_BUFFER` by
- * more than a batch is tall, or the row the reader just crossed would be
- * released and rebuilt on alternate frames.
- */
 export const TUI_TRANSCRIPT_EVICT_BUFFER = 6;
 
 export interface TuiTranscriptRange {
@@ -38,13 +32,6 @@ export function tuiTranscriptPrependRange(
     };
 }
 
-/**
- * How many materialized rows above the viewport may be released.
- *
- * The spacer stands for every entry before the window, so the materialized
- * rows above the viewport are what is left of `scrollTop` once the spacer is
- * taken off. Everything within the buffer stays.
- */
 export function tuiTranscriptEvictableRows(input: {
     readonly scrollTop: number;
     readonly viewportHeight: number;
@@ -86,12 +73,6 @@ export function tuiTranscriptNeedsEarlierEntries(input: {
             >= materializedEdge;
 }
 
-/**
- * Whether an entry is laid out at all.
- *
- * A completed tool row folded behind its group header draws nothing, so it
- * occupies no rows for a spacer to stand in for.
- */
 export function tuiTranscriptEntryIsVisible(
     entry: TuiTranscriptEntry | undefined,
 ): boolean {
@@ -99,13 +80,7 @@ export function tuiTranscriptEntryIsVisible(
     return entry.kind !== "tool" || entry.hidden !== true;
 }
 
-/**
- * Whether this row is the answer still arriving.
- *
- * OpenTUI leaves the trailing markdown block unstable while `streaming` is
- * on. Only the last assistant row of a working turn should pay that; every
- * other assistant row is finished prose and has to be created settled.
- */
+/** Whether this row is the answer still arriving. OpenTUI leaves the trailing markdown block unstable while `streaming` is on. */
 export function tuiTranscriptEntryStreams(
     entries: readonly TuiTranscriptEntry[],
     index: number,
@@ -119,15 +94,6 @@ export function tuiTranscriptEntryStreams(
     return true;
 }
 
-/**
- * Two rows are the same transcript block, even when a rebuild adds store
- * fields the live row did not have.
- *
- * A delivered history repeats what is already on screen, often with an
- * `entryId` the optimistic row lacked. Matching on the visible identity is
- * what lets the existing markdown node stay mounted; rebuilding it paints
- * empty until its first layout.
- */
 export function tuiTranscriptEntriesEquivalent(
     left: TuiTranscriptEntry | undefined,
     right: TuiTranscriptEntry | undefined,
@@ -154,14 +120,6 @@ export function tuiTranscriptEntriesEquivalent(
         && left.prefix === right.prefix;
 }
 
-/**
- * How many materialized rows at the tail still stand after a rebuild.
- *
- * History can insert or drop rows above the answer (a thinking window
- * becoming a summary, the stored prompt replacing the echo). Matching from
- * the newest row keeps the answer mounted and rebuilds only what actually
- * changed.
- */
 export function tuiTranscriptReusableTail(input: {
     readonly previous: readonly (TuiTranscriptEntry | undefined)[];
     readonly next: readonly TuiTranscriptEntry[];

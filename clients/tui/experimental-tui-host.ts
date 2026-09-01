@@ -62,11 +62,9 @@ export interface TuiExperimentalHostOptions {
     readonly transcript: () => VeraExperimentalTuiContext["transcript"];
     readonly onFailure: (extensionId: string, message: string) => void;
     readonly onRenderRequested: () => void;
-    /** Appends and removes a node in the native transcript. */
     readonly appendTranscriptRenderable?: (
         node: Renderable,
     ) => VeraExtensionDisposer;
-    /** Opens the shared markdown inspect dialog owned by the TUI. */
     readonly openDocument?: (document: VeraExperimentalTuiDocument) => void;
 }
 
@@ -81,11 +79,9 @@ export interface TuiExperimentalHost {
     render(): void;
     setTheme(theme: TuiTheme): void;
     conversationChanged(): void;
-    /** Remove non-durable transcript renderables before a history rebuild. */
     clearTranscriptRenderables(): void;
     agentEvent(event: VeraExperimentalTuiAgentEvent): void;
     hasModal(): boolean;
-    /** Shows a line of client feedback on the focused overlay's title row. */
     showNotice(message: string): boolean;
     hasFocus(): boolean;
     focus(): void;

@@ -15,40 +15,17 @@ import { tuiBindingId, tuiKeyChord } from "./keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 
-/**
- * The workspace side bar's presentation model, with no OpenTUI in it.
- *
- * `workspace-panel.ts` decides rows, order and markers. This module holds the
- * little that a drawn side bar adds: which row the cursor is on, dormant jump
- * and pin behavior, and the lines the shared card mounts.
- */
+/** The workspace side bar's presentation model, with no OpenTUI in it. `workspace-panel.ts` decides rows, order and markers. */
 
-/** Rows the dormant digit-target algorithm retains. */
 export const WORKSPACE_JUMP_ROWS = 9;
-/**
- * Number jumps are dormant while their global interaction is designed.
- *
- * Keep the bindings, target calculation, and focused-pane handler intact. If
- * they return, the shortcut should work from chat, file view, or a hidden rail
- * rather than requiring the user to focus the sidebar first.
- */
 export const WORKSPACE_JUMPS_ENABLED = false;
-/** Text-readable cursor/current mark, appended so row titles stay flush-left. */
 export const WORKSPACE_SELECTION_MARKER = "›";
 
-/**
- * Idle jsonl rows kept in the rail, newest first.
- *
- * Live sessions have no cap. Older idle history stays in `/resume`. The
- * session on screen and any pin are always kept, even when they are idle.
- */
 export const WORKSPACE_RECENT_IDLE = 5;
 
-/** Text-safe controls at the right edge of the branded rail header. */
 export const WORKSPACE_HEADER_ALL_ACTION = "workspace:all-sessions";
 export const WORKSPACE_HEADER_NEW_ACTION = "workspace:new-session";
 
-/** Resolves a header hit without letting its synthetic id become a row id. */
 export function workspaceHeaderAction(
     id: string,
 ): WorkspaceSidebarAction | undefined {
@@ -57,34 +34,19 @@ export function workspaceHeaderAction(
     return undefined;
 }
 
-/** What the rail says when there is nothing to list. */
 export const WORKSPACE_EMPTY_LINES: readonly string[] = [
     "No sessions yet.",
     "ctrl+n new session",
     "ctrl+r all sessions",
 ];
 
-/** Status glyph and the space before every title. */
 const ROW_PREFIX_COLUMNS = 2;
-/** The divider occupies the rail's final rendered cell. */
 const RAIL_DIVIDER_COLUMNS = 1;
-/** Eight age columns plus the space before them. */
 const AGE_WITH_GAP_COLUMNS = 9;
-/** Keep a readable title before preserving age in a squeezed rail. */
 const MIN_TITLE_WITH_AGE_COLUMNS = 8;
-/** Narrowest useful rail; titles truncate after their markers when narrower. */
 export const MIN_RAIL_COLUMNS = 28;
-/** The conversation stays useful while the explorer is resized. */
 const MIN_CHAT_COLUMNS = 35;
 
-/**
- * The columns a row needs when the listing is drawn beside the transcript, or
- * nothing at the width where there is no room for two columns.
- *
- * Wide enough for the longest row the listing can draw, so the answer is the
- * same for every listing and the transcript beside it does not reflow as
- * sessions come and go. The surface adds its own padding to this.
- */
 export function workspaceRailColumns(
     columns: number,
     preferred?: number,
@@ -95,7 +57,6 @@ export function workspaceRailColumns(
     return clampWorkspaceRailColumns(preferred ?? natural, columns);
 }
 
-/** A dragged rail cannot consume the conversation or become unreadable. */
 export function clampWorkspaceRailColumns(
     requested: number,
     columns: number,
@@ -105,16 +66,8 @@ export function clampWorkspaceRailColumns(
     return Math.min(Math.max(Math.round(requested), MIN_RAIL_COLUMNS), maximum);
 }
 
-/**
- * A listed session plus where its transcript lives.
- *
- * Opening uses this row's own facts, not a second listing: looking it up
- * again afterwards could name a session the row no longer describes, or
- * treat a timeout as "already running" and start a worker.
- */
 export interface WorkspaceSidebarSession extends WorkspaceSession {
     readonly sessionPath: string;
-    /** Live process hosting this session, when the listing named one. */
     readonly workerPid?: number;
 }
 
@@ -122,7 +75,6 @@ export interface WorkspaceSidebarState {
     readonly sessions: readonly WorkspaceSidebarSession[];
     readonly pinnedIds: readonly string[];
     readonly selectedId?: string;
-    /** The session on screen, marked so the list says where you already are. */
     readonly currentId?: string;
 }
 
@@ -141,7 +93,6 @@ export type WorkspaceSidebarAction =
         readonly kind: "open_session";
         readonly session_id: string;
         readonly session_path: string;
-        /** Attach to a running worker; otherwise paint the session file. */
         readonly active: boolean;
     }
     | { readonly kind: "pin"; readonly pinnedIds: readonly string[] };
@@ -152,14 +103,10 @@ export interface WorkspaceSidebarTransition {
     readonly handled: boolean;
 }
 
-/** The registry listing as this view needs it. */
 export function workspaceSidebarSessions(
     agents: readonly RegisteredAgentSummary[],
 ): readonly WorkspaceSidebarSession[] {
     return agents
-        // A header-only transcript is an implementation shell, not workspace
-        // history. Keep it while live so a running or attached session remains
-        // reachable; keep an unknown value for compatibility with older hosts.
         .filter((agent) => agent.has_user_content !== false || agent.live)
         .map((agent) => ({
             id: agent.id,
@@ -178,13 +125,6 @@ export function workspaceSidebarSessions(
         }));
 }
 
-/**
- * Whether a listed session is live work, not idle jsonl.
- *
- * `live` is the host's fact. Waiting, working, and a named worker are kept
- * even if that flag flickers, so a needs-you row cannot vanish from the rail
- * and a parked worker is an attach rather than a file view.
- */
 export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
     return session.live
         || session.status === "waiting"
@@ -192,15 +132,6 @@ export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
         || session.workerPid !== undefined;
 }
 
-/**
- * The rows the agent sidebar draws from a roster.
- *
- * Live sessions are the working set and have no cap. Idle jsonl rows keep
- * the last few by recency. The session on screen and pinned rows are always
- * kept, even when they are idle, and they do not consume a recents slot: the
- * five are besides those rows, so a second project's idle chat does not
- * vanish when you look at one that already made the cut.
- */
 export function workspaceWorkingSet(
     sessions: readonly WorkspaceSidebarSession[],
     currentId?: string,
@@ -230,15 +161,6 @@ export function workspaceWorkingSet(
     );
 }
 
-/**
- * The next or previous live session in rail order, or nothing when there is
- * nowhere to go.
- *
- * Live means a worker is up: working, waiting, attached-idle, or a named
- * pid. Parked jsonl rows are skipped. Looking at one of those still lands
- * on a live neighbour. One live session that is already on screen is a
- * no-op.
- */
 export function workspaceCycleTarget(
     state: WorkspaceSidebarState,
     direction: 1 | -1,
@@ -288,14 +210,6 @@ export function startWorkspaceSidebar(
     };
 }
 
-/**
- * The status a pushed work index gives a session, or nothing when it says
- * nothing about it.
- *
- * The index is the only status channel the side bar has, and it is pushed on
- * every roster transition whether or not anyone is attached. Nothing here polls
- * and nothing here adds a field to the wire.
- */
 export function workIndexStatus(
     index: WorkIndexSnapshot,
     sessionId: string,
@@ -305,23 +219,11 @@ export function workIndexStatus(
     if (row.reason === "failure") return "failed";
     if (row.section === "needs_you") return "waiting";
     if (row.section === "working") return "working";
-    // Both of the finished sections read as completed: the work in them is
-    // over, and what separates them is whether anyone has looked yet.
     if (row.section === "done_recently") return "completed";
     if (row.section === "ready_to_review") return "completed";
     return "idle";
 }
 
-/**
- * A re-read roster, folded onto the pane already open.
- *
- * The listing is read again on the same push that carries status, because that
- * push fires on the transition that changes the roster: a session created while
- * the pane is open is in the new listing and was not in the old one. Selection
- * and pins are the reader's and survive the re-read; a selected session that
- * has gone away is resolved by the layout, on the same rule as any other row
- * that leaves the listing.
- */
 export function refreshWorkspaceSidebarSessions(
     state: WorkspaceSidebarState,
     sessions: readonly WorkspaceSidebarSession[],
@@ -329,7 +231,6 @@ export function refreshWorkspaceSidebarSessions(
     return { ...state, sessions };
 }
 
-/** A fresh index from the host, folded onto the rows already listed. */
 export function applyWorkspaceWorkIndex(
     state: WorkspaceSidebarState,
     index: WorkIndexSnapshot,
@@ -337,10 +238,7 @@ export function applyWorkspaceWorkIndex(
     return {
         ...state,
         sessions: state.sessions.map((session) => {
-            // The roster owns terminal lifecycle. The work index calls a
-            // non-actionable failure a completed item because its job is to
-            // organize attention; that must not repaint a failed session as
-            // successful in the workspace navigator.
+            // The roster owns terminal lifecycle. The work index calls a non-actionable failure a completed item because its job is to organize attention; that must not repaint a failed.
             const status = session.status === "failed"
                     || session.status === "closed"
                 ? session.status
@@ -390,15 +288,11 @@ export function workspaceSidebarLayout(
             ? {}
             : { selectedId: state.selectedId }),
         ...(state.currentId === undefined ? {} : { currentId: state.currentId }),
-        // Being on screen is not activity. A session file is read from disk
-        // with no worker behind it, so the row for the one being read belongs
-        // under recent like every other file, and no digit addresses it.
         isActive: (session) =>
             isWorkspaceActive(session as WorkspaceSidebarSession),
     });
 }
 
-/** Digits address active rows only, counting from the top of the listing. */
 export function workspaceJumpTargets(
     layout: WorkspacePanelLayout,
 ): readonly string[] {
@@ -408,7 +302,6 @@ export function workspaceJumpTargets(
         .slice(0, WORKSPACE_JUMP_ROWS);
 }
 
-/** The session a digit addresses, or nothing past the end of the listing. */
 export function workspaceJumpTarget(
     layout: WorkspacePanelLayout,
     position: number,
@@ -417,7 +310,6 @@ export function workspaceJumpTarget(
     return workspaceJumpTargets(layout)[position - 1];
 }
 
-/** The pin list after toggling one session, order preserved. */
 export function toggleWorkspacePin(
     pinnedIds: readonly string[],
     sessionId: string,
@@ -434,16 +326,6 @@ export interface WorkspaceSidebarKey {
     readonly shift?: boolean;
 }
 
-/**
- * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * r renames the selected row, ctrl+r opens the full resume picker, and ctrl+n
- * starts a new chat while keeping this one running. Dormant digit handling
- * remains below for a future global jump interaction.
- * None of the movement keys switch the viewed session.
- *
- * Every chord this does not claim is passed back unhandled, which is what lets
- * ctrl+e close the pane it opened and ctrl+c reach the client from inside it.
- */
 export function handleWorkspaceSidebarKey(
     state: WorkspaceSidebarState,
     key: WorkspaceSidebarKey,
@@ -451,11 +333,6 @@ export function handleWorkspaceSidebarKey(
     columns: number,
     viewportRows?: number,
 ): WorkspaceSidebarTransition {
-    // Half-page movement, ahead of the modifier bail-out below. The cursor
-    // travels with the jump rather than the window sliding out from under it,
-    // so ctrl+d is ↓ held down and nothing new has to be learned about where
-    // the highlight went. The chords are the picker's half-page ids, inherited
-    // into this scope, so remapping one list movement remaps both.
     const binding = tuiBindingId("workspace", key);
     if (binding === "half_page_down" || binding === "half_page_up") {
         const layout = workspaceSidebarLayout(state, { columns, now });
@@ -557,14 +434,9 @@ export function handleWorkspaceSidebarKey(
             ? { state, handled: true }
             : { action, handled: true };
     }
-    // A bare key belongs to the focused pane even when the pane has nothing to
-    // do with it, or it would reach the surface behind. Chords carry a
-    // modifier and are passed back, which is what lets ctrl+e close the pane
-    // that ctrl+e opened and ctrl+c reach the client from inside it.
     return { state, handled: true };
 }
 
-/** What activating a row means. Enter or a click switches the viewed session; moving the highlight does not. */
 export function openWorkspaceSelection(
     state: WorkspaceSidebarState,
     sessionId: string | undefined,
@@ -581,7 +453,6 @@ export function openWorkspaceSelection(
     };
 }
 
-/** The wordmark at the head of the rail. */
 export const WORKSPACE_SIDEBAR_WORDMARK = "VERA";
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
@@ -595,13 +466,6 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
         : `${WORKSPACE_SIDEBAR_WORDMARK} · ${listed}`;
 }
 
-/**
- * The footer hint, in the pickers' shape.
- *
- * Drawn in full only while the rail holds the keyboard. Most of these chords
- * are the rail's own, and beside a conversation a block the glance cannot use
- * reads as instructions for the screen it sits next to.
- */
 export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
     return [
         { label: "Move", value: "↑↓  j/k" },
@@ -618,12 +482,6 @@ export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
     ];
 }
 
-/**
- * What the rail says while the keyboard is in the conversation beside it.
- *
- * The chords that answer from there: the live session cycle, which is global,
- * the one that hands the rail the keys, and the one that puts it away.
- */
 export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Cycle", value: "ctrl+shift+[ ]" },
     { label: "Focus", value: "←" },
@@ -642,13 +500,6 @@ export function workspaceSidebarFooter(
         .join("\n");
 }
 
-/**
- * The side bar as the shared card draws it.
- *
- * `columns` is the terminal's width, not the surface's: it decides whether the
- * listing is a rail or a card, and the rail is narrower than the terminal that
- * earns it. The footer is measured against whichever of the two is drawn.
- */
 export function workspaceSidebarViewState(
     state: WorkspaceSidebarState,
     columns: number,
@@ -698,9 +549,6 @@ export function workspaceSidebarViewState(
             });
             continue;
         }
-        // The digit is drawn on the active row it addresses. Positional and
-        // churning as the list reorders, which is why it is a shortcut and not
-        // the way a row is picked. Idle rows carry none.
         if (WORKSPACE_JUMPS_ENABLED && row.active) position += 1;
         const showDigit = WORKSPACE_JUMPS_ENABLED
             && row.active
@@ -725,9 +573,6 @@ export function workspaceSidebarViewState(
                     },
                 }
                 : {}),
-            // The background helps while the rail owns the keyboard. The
-            // suffix above remains in plain-text captures and while chat has
-            // focus, without adding the empty left gutter this layout removed.
             ...(row.selected ? { selected: true } : {}),
         });
     }
@@ -738,9 +583,6 @@ export function workspaceSidebarViewState(
         ? workspaceSidebarFooterTable()
         : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
-        // The wordmark is what the rail is called, so it says the same thing
-        // whichever side holds the keyboard. Focus accents the wordmark, the
-        // rule under it, and the edge beside it without moving the title.
         title: workspaceSidebarHeader(state),
         titleLeading: {
             text: WORKSPACE_SIDEBAR_WORDMARK,
@@ -751,8 +593,6 @@ export function workspaceSidebarViewState(
             { id: WORKSPACE_HEADER_NEW_ACTION, text: "+" },
         ],
         ...(focused ? { focused: true } : {}),
-        // The rail's footer already names esc. The chip on the title is
-        // dialog chrome and crowds a 28-column column.
         ...(railColumns === undefined ? {} : { hint: "" }),
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines,
@@ -780,7 +620,6 @@ function clipRow(text: string, columns: number): string {
     return `${text.slice(0, columns - 1)}…`;
 }
 
-/** The lines as one block of text, for the headless renderer and for tests. */
 export function workspaceSidebarText(
     state: WorkspaceSidebarState,
     width: number,

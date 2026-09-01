@@ -16,13 +16,6 @@ export class SessionSearchUnavailableError extends Error {
     }
 }
 
-/**
- * Ask the host to scan its transcripts.
- *
- * A one-shot request on the host socket, the same shape as the agent listing,
- * rather than anything on an attachment: even a search narrowed to one session
- * reads durable transcript data owned by the host, not an agent attachment.
- */
 export async function searchSessionsThroughHost(
     socketPath: string,
     query: SessionSearchQuery,
@@ -62,11 +55,6 @@ export async function searchSessionsThroughHost(
     }
 }
 
-/**
- * Rejects rather than repairs, and enforces the same bounds the host applies:
- * a result set the client cannot trust field by field would put transcript
- * text on screen under a session name that may not be the one it came from.
- */
 export function parseSearchResults(
     value: unknown,
     maxHitsPerSession = MAX_HITS_PER_SESSION,

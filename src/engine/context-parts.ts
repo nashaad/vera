@@ -28,11 +28,6 @@ export interface ContextProjectionPart {
     readonly imported?: boolean;
 }
 
-/**
- * Per-file inventories for prompt contributions whose bodies are concatenated
- * in the prompt. The prompt text is unchanged; these seeds only name what
- * already went into a lump so a client can show the files.
- */
 export function contextContributionParts(input: {
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly memory?: MemorySnapshot;

@@ -35,10 +35,6 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.timelinePicker !== undefined) {
         return () => rt.timelinePickerView.focus();
     }
-    // A rename prompt is a modal child of the sidebar or settings pane it
-    // was opened from. Its editor must win while the parent remains open
-    // underneath it, then the parent's existing focus state can resume
-    // when the prompt closes.
     if (rt.namePrompt !== undefined) {
         return () => rt.namePromptView.focus();
     }
@@ -196,9 +192,6 @@ export function withSessionSwitchDeadline<T>(rt: TuiRuntime,
             timedOut = true;
             reject(new Error("timed out"));
         }, rt.dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
-        // The deadline only matters to a TUI that is still on screen.
-        // Left referenced, quitting mid-switch would hold the process open
-        // until it fired.
         timeout.unref?.();
     });
     void request.then((value) => {
@@ -367,8 +360,6 @@ export function beginFork(rt: TuiRuntime, boundaryId: string): void {
             void result.client.detach().catch(() => result.client.close());
             return;
         }
-        // The prompt the fork was taken before comes back to the composer,
-        // which is the whole point of forking there rather than cloning.
         switchToClient(rt, result.client, {
             text: result.prompt.content
                 .filter((part) => part.type === "text")
@@ -522,16 +513,11 @@ export function reportConnectionError(rt: TuiRuntime, error: unknown): void {
         return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    // Home answers reads and refuses everything else. A write it cannot
-    // carry says something about this screen, not about a host that went
-    // away, so it is reported and the connection is left alone.
     if (isHomeClient(rt.client)) {
         rt.state = appendTuiError(rt.state, message);
         renderState(rt);
         return;
     }
-    // A jsonl view and a session that already died are not a dropped host.
-    // Restarting the host here is what froze the TUI in a reconnect loop.
     if (
         rt.client.viewOnly === true
         || rt.client.failed === true

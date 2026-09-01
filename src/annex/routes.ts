@@ -1,7 +1,3 @@
-/**
- * Annex HTTP routes. A new page is another entry here. The host never sees
- * these paths; it only holds the annex base URL.
- */
 
 export interface AnnexRequestContext {
     readonly request: Request;

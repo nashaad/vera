@@ -1,14 +1,3 @@
-/**
- * How long ago something happened, for a list a person is scanning.
- *
- * Coarse on purpose: a session list answers "recent or not", so the ladder
- * stops at days rather than growing calendar formatting. Shared because the
- * CLI and the TUI both list sessions, and two copies drifted into two formats
- * once already.
- *
- * `absent` is what to print when there is no usable timestamp, which each
- * caller words for its own surface.
- */
 export function relativeTime(
     value: string | undefined,
     now: Date,

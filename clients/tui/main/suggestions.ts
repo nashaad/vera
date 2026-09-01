@@ -29,7 +29,6 @@ export function activeCompletion(rt: TuiRuntime): {
     if (argument !== undefined) {
         return {
             prefix: argument.prefix,
-            // Bare names: the argument is the name itself, not a mention.
             values: argument.kind === "mention"
                 ? visibleMentions(rt)
                 : pooledModelNames(rt),
@@ -56,12 +55,6 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         ? 0
         : Bun.stringWidth(rt.composer.plainText);
     const extensionBottomRows = rt.experimentalTuiHost.bottomInsetRows();
-    // Measured off the composer's own margin, which the status card below
-    // it grows and shrinks: a fixed offset here lands inside the composer
-    // as soon as that card is taller than the single line it replaced.
-    // These transient lines sit above the composer in normal flow, so the
-    // overlay clears whichever of them are currently visible instead of
-    // painting over quote/address context.
     positionCommandSuggestions(rt);
     if (rt.composer.plainText.length === 0) {
         rt.commandSuggestionIndex = 0;
@@ -100,7 +93,6 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
     rt.argumentSuggestions = [];
     const suggestions = availableCommandSuggestions(rt, rt.composer.plainText);
     if (rt.composer.plainText !== "/") {
-        // A list that just opened has a first row, not a chosen one.
         rt.commandSuggestionMoved = false;
     }
     rt.commandSuggestionIndex = Math.min(
@@ -110,26 +102,12 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
     const selected = rt.composer.plainText === "/"
         ? rt.commandSuggestionIndex
         : -1;
-    // The transcript, the composer and the status rows all want the same
-    // screen. What is left over is what the list may take, and it never
-    // takes so much that its own bottom row is off the pane.
-    // The unfiltered list is grouped by where each command came from; a
-    // half-typed name is one flat run, where the group column would be
-    // dead width and the gaps would separate nothing.
     const grouped = rt.composer.plainText === "/";
-    // Less the box's own margin and padding, or the last word of a
-    // just-too-long row wraps anyway. The renderer reports the whole
-    // terminal even when the workspace rail has reserved its left side,
-    // so the rail has to come out of the same budget.
     const suggestionWidth = tuiCommandSuggestionWidth(
         rt.renderer.width,
         rt.composerHorizontalInset,
         rt.workspaceSidebarView.railColumns() ?? 0,
     );
-    // Below a rail-narrowed strip the group column and a description
-    // cannot both fit beside the command names, so the list drops to a
-    // bare "group heading, then one /command per line" style instead of
-    // letting every row run past the strip.
     const compact = suggestionWidth < SLASH_COMPACT_WIDTH;
     const window = tuiSuggestionWindow(
         suggestions.length,
@@ -161,9 +139,6 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         ? undefined
         : activeComposeSuggester(rt);
     if (suggester !== undefined) {
-        // One line, under the composer, from an extension the user chose
-        // to install. Core never reads composer text; this does, and it
-        // only exists because installing the extension said it could.
         rt.commandSuggestionsText.content = new StyledText([
             fg(TUI_MUTED)(
                 `${suggester.hint} · enter switch to ${suggester.agent} · esc dismiss`,
@@ -203,9 +178,6 @@ export function overlaysClearOfSuggestions(rt: TuiRuntime): boolean {
 }
 
 export function finishStreamingAssistant(rt: TuiRuntime): void {
-    // Entries other than user prompts are wrapped in a gutter box, so the
-    // markdown sits below the node held in entryNodes. Assigning the flag
-    // rebuilds every block; a settled entry is left alone.
     const settle = (node: Renderable): void => {
         if (node instanceof MarkdownRenderable) {
             if (node.streaming) node.streaming = false;

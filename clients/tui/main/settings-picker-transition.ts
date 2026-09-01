@@ -19,10 +19,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         | TuiExtensionPickerTransition,
 ): void {
     const extensionPickerWasOpen = rt.settingsPicker?.kind === "extension";
-    // Captured before the reassignment below so a model selection that
-    // needs to chain into a level pane can hand the model pane back to
-    // Escape: `handleTuiSettingsPickerKey` returns no `state` on Enter,
-    // so this is the only place that still has it.
     const previousPicker = rt.settingsPicker;
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
@@ -111,11 +107,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if ("openProviders" in transition && transition.openProviders === true) {
-        // The model pane stays underneath: connecting a provider is a
-        // detour on the way to picking a model, not a change of subject.
-        // The pane it returns to is the one the transition left behind, not
-        // the one the key arrived on: ⇥ onto Providers wraps the list back
-        // to its first tab, and Escape has to land on that.
         openProviderPicker(rt, 
             rt.settingsPicker?.kind === "model"
                 ? rt.settingsPicker
@@ -174,9 +165,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         "refreshCatalog" in transition
         && transition.refreshCatalog !== undefined
     ) {
-        // The chord names a row, and a row names one provider, so it asks
-        // that one. Choosing which providers to ask is what the More page
-        // action is for.
         requestCatalogRefresh(rt, transition.refreshCatalog);
         return;
     }
@@ -211,8 +199,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if ("poolMove" in transition && transition.poolMove !== undefined) {
-        // Same rule as the toggle: the pane is rebuilt from the snapshot
-        // that comes back, not from a guess about where the row landed.
         const move = transition.poolMove;
         sendCommand(rt, {
             type: "pool_move",
@@ -224,9 +210,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if ("poolToggle" in transition && transition.poolToggle !== undefined) {
-        // The pane stays open and stays on the same row. It is not updated
-        // here: the settings snapshot that comes back rebuilds it, so what
-        // the user sees is what the host stored rather than a guess.
         const toggle = transition.poolToggle;
         rt.poolChangeUndo = undefined;
         if (rt.settingsPicker?.kind === "model") {
@@ -263,8 +246,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 renderState(rt);
                 return;
             }
-            // The name prompt follows the verdict, not the keypress: a
-            // model that never made it into the pool cannot be named.
             const requestId = requestPoolAdmission(rt, 
                 toggle.provider,
                 toggle.model,
@@ -350,9 +331,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             return;
         }
         if (selection.kind === "model") {
-            // Choosing a model runs it and nothing else. The pool is the
-            // user's own shortlist, so it is only ever written by the key
-            // that says so.
             const chosenLevels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)
                 : undefined;
@@ -361,8 +339,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 && chosenLevels.levels.length > 0
                 && previousPicker?.kind === "model"
             ) {
-                // A model with levels opens the level pane instead of
-                // closing: Enter there folds both choices into one patch.
                 rt.settingsPicker = startTuiReasoningPicker(
                     chosenLevels.levels,
                     chosenLevels.defaultLevel,
@@ -441,8 +417,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 rt.settingsPickerAgent,
             );
         } else if (selection.kind === "menu") {
-            // A menu row opens the next surface over this one, which stays
-            // remembered as its parent so leaving comes back here.
             rt.settingsPicker = undefined;
             openSettingsMenuTarget(rt, 
                 selection.target,
@@ -472,15 +446,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             startCatalogRefreshSweep(rt, selection.providers);
             return;
         } else if (selection.kind === "model_assignment_browse") {
-            // Keeping a model is what makes it available as a default, so
-            // the row that says so lands on the collection it is kept in
-            // rather than leaving the user to find it.
             openSettingsDestination(rt, { kind: "model_shortlist" });
             return;
         } else if (selection.kind === "model_assignment_open") {
-            // The pane the row was chosen on, which Enter has already
-            // cleared from `settingsPicker`: without it Escape closes the
-            // card instead of stepping back to the list.
             openSettingsDestination(rt, 
                 {
                     kind: "model_assignment",
@@ -494,10 +462,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             );
             return;
         } else if (selection.kind === "model_assignment") {
-            // A model with levels asks for one before the write, the same
-            // chain the session's own model goes through: an assignment
-            // that named a model but no level would run the provider's
-            // default rather than the one the user meant.
             const assignedLevels = selection.model === undefined
                 || selection.remove === true
                 || selection.reasoningEffort !== undefined
@@ -528,9 +492,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             }
             const bindingError = bindModelAssignmentFromPicker(rt, selection);
             if (bindingError !== undefined) {
-                // The request is still waiting and the setting did not
-                // change, so keep the picker retryable and make the
-                // terminal failure visible outside its card.
                 rt.settingsPicker = previousPicker?.kind === "model_assignment"
                     ? { ...previousPicker, subtitle: bindingError }
                     : previousPicker;
@@ -564,9 +525,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 return;
             }
         } else {
-            // Picking a session from the list is where the person meant
-            // to go, not a hop taken to answer something: there is no trip
-            // to offer them back from.
             beginSessionResume(rt, 
                 selection.sessionPath,
                 selection.sessionId,
@@ -577,9 +535,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             );
             return;
         }
-        // Where the stack goes next is `tuiPickerAfterSelection`'s rule.
-        // A confirmation overrides it: it is its own modal level, and the
-        // menu would sit open behind it.
         rt.settingsPicker = rt.confirmingFullAccess
                 || previousPicker?.kind === "extension"
             ? undefined

@@ -1,20 +1,3 @@
-/**
- * Lifting the pool out of `~/.vera/config.json` and into `~/.vera/pool.json`.
- *
- * The pool used to live in `config.json` under `pool`. That key is not
- * modelled by the pool file, so without this the first write to `pool.json`
- * would leave those entries stranded in a file nothing reads any more.
- *
- * Two rules make this safe to run at every startup:
- *
- * - it runs only when `pool.json` does not exist yet, so it can never
- *   overwrite a pool the user has since written or hand-edited
- * - it never touches `config.json`, so the old keys stay where they are and a
- *   downgrade still finds them
- *
- * The old verification record was a probe result, so it lands in `learned`,
- * not in the declared half: it was Vera's conclusion, never the user's claim.
- */
 
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -34,16 +17,12 @@ import { veraProfileDirectory } from "../profile-paths.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface PoolMigrationOptions {
-    /** Overrides `~/.vera/config.json`. */
     readonly configPath?: string;
-    /** Overrides `~/.vera/pool.json`. */
     readonly poolPath?: string;
 }
 
 export interface PoolMigrationOutcome {
-    /** Pool ids lifted, in the order they were written. */
     readonly migrated: readonly string[];
-    /** One sentence for the user, absent when nothing moved. */
     readonly notice?: string;
 }
 
@@ -69,8 +48,6 @@ export function migrateConfigPool(
         return { migrated: [] };
     }
 
-    // Oldest first, because `addPoolModel` puts each new entry at the front:
-    // writing in reverse leaves the pool in the order config.json had it.
     const migrated: string[] = [];
     for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index] as LegacyEntry;
@@ -113,7 +90,6 @@ function readConfig(path: string): Record<string, unknown> | undefined {
     }
 }
 
-/** The `pool` key of the old config, which is the only shape lifted. */
 function legacyEntries(
     config: Record<string, unknown>,
 ): readonly LegacyEntry[] {
@@ -155,8 +131,6 @@ function learnedFromVerification(value: unknown): LearnedFacts {
         ? record.verified_at
         : undefined;
     if (seen === undefined || record.needs_reverify === true) {
-        // A record flagged for reverification is evidence the old code had
-        // already stopped trusting. It carries nothing worth keeping.
         return {};
     }
     const checked = record.checked === "user_key" || record.checked === "vera"

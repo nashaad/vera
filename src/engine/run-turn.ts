@@ -189,24 +189,9 @@ const PRE_TURN_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
-/**
- * The last measurement taken, held so the next turn can decide whether to
- * compact before it starts. Deliberately the previous turn's reading: a turn
- * that has already been compacted must not be judged by the number that
- * triggered the compaction, which is the stale-trigger loop.
- */
-/**
- * How much a session must grow after a failed automatic compaction before it
- * is worth attempting again. Small enough that a session recovers within a
- * few tool boundaries, large enough that an unreachable route is not called
- * on every one of them.
- */
+/** The last measurement taken, held so the next turn can decide whether to compact before it starts. */
 export const COMPACTION_RETRY_GROWTH_TOKENS = 10_000;
 
-/**
- * The assignment the latch is holding. A later compact with a different
- * value is not a retry of the route that failed.
- */
 function compactionAssignmentKey(
     compaction: SessionCompactionOptions,
     announced: {
@@ -236,47 +221,20 @@ async function persistContextRecipe(
     await store.appendContextMeasurement(measurement);
 }
 
-/** The most the estimator is ever corrected by. */
 const MAX_CONTEXT_SCALE = 3;
 
 export interface ContextWatch {
     measurement?: ContextMeasurement;
-    /**
-     * How far the estimator undershoots what the provider counts, from the
-     * last request that reported usage. Never below 1: a provider that bills
-     * cached input separately reports less than the estimate, and believing
-     * that would move the compaction trigger the wrong way.
-     */
     scale?: number;
-    /**
-     * The messages' own share of `measurement.tokens`, kept so the fixed
-     * overhead (system prompt, tools, instructions) can be read back out as
-     * the difference. The transcript grows between requests; the overhead is
-     * the part of the reading that stays true.
-     */
     messageTokens?: number;
-    /**
-     * Set when a provider refused a request for being too large. The estimate
-     * said there was room and the provider says there is not, so the reading
-     * the compaction latch was holding out for is the wrong reading to trust.
-     */
     refusedForSize?: boolean;
 }
 
-/**
- * The turn a compaction is running inside, when it is running inside one.
- * Without this a compaction cannot tell a stop it was given from a stop it
- * caught: both arrive as an aborted signal, and only one of them means the
- * user is still waiting for something to carry on.
- */
 export interface CompactionTurnLink {
-    /** Registered so an abort command can reach the compaction alone. */
     readonly controller: AbortController;
-    /** The turn's own signal, aborted only when the turn itself was stopped. */
     readonly turnSignal: AbortSignal;
 }
 
-/** The model and window a turn's next request will use for compaction. */
 export interface CompactionContext {
     readonly model: string;
     readonly capacity?: number;
@@ -286,10 +244,6 @@ export interface RunTurnState {
     readonly sessionId?: string;
     readonly messages: ModelMessage[];
     readonly store: SessionMessageStore;
-    /**
-     * What to send the model, which compaction replaces. Absent means the
-     * transcript itself, which is what a session without compaction sends.
-     */
     readonly modelContext?: (
         context?: CompactionContext,
     ) => readonly ModelMessage[];
@@ -305,10 +259,6 @@ export interface RunTurnState {
     };
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
-    /**
-     * Where project-scoped memory is keyed. Absent falls back to the
-     * workspace, which is what a caller with no repository to resolve gets.
-     */
     readonly instructionRoot?: InstructionRoot;
     readonly inbound: InboundCommandRouter;
     readonly events: EngineEventBus;
@@ -320,34 +270,16 @@ export interface RunTurnState {
     readonly enableUserInteraction?: boolean;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly modelFallback?: ModelFallbackPolicy;
-    /**
-     * Supplies the effort levels a model is known to accept and takes the
-     * refusals back. Absent leaves a refused level on the terminal path.
-     */
     readonly effortPool?: EffortPool;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
-    /**
-     * The worn agent as it resolved when it went on. Absent is the `default`
-     * agent: every tool, every skill, the host's own posture.
-     */
     readonly readAgentWear?: () => AgentWearSnapshot | undefined;
-    /**
-     * The parent's effective mode, on a delegated turn. Every action is
-     * evaluated under both modes and the stricter outcome wins, so delegation
-     * can only narrow what is allowed.
-     */
     readonly clampPermissionMode?: ApprovalMode;
-    /**
-     * Nudges already shown this user turn, so one does not repeat itself
-     * inside a single stretch of work. Cleared when the user speaks again.
-     */
     readonly firedNudges?: Set<string>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    /** Automatic approval reviewer used by `auto`. */
     readonly reviewToolCall?: ReviewToolCall;
     readonly reviewToolCallForProfile?: (
         profile: string,
@@ -357,16 +289,13 @@ export interface RunTurnState {
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly scratchDir?: string;
-    /** Where a truncated tool result's full output goes. */
     readonly toolResultSpill?: ToolResultSpill;
     readonly disabledPromptContributions?: readonly string[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
-        /** The skills the worn agent may see. Absent means all of them. */
         allowedSkills?: readonly string[],
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
-    /** First successful host contribution load, reused for this user turn. */
     contextualContributionsForTurn?: readonly PromptContribution[];
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
@@ -376,25 +305,13 @@ export interface SessionCompactionOptions {
     readonly strategy: CompactionStrategyDefinition;
     readonly models: Readonly<Record<string, CompleteText>>;
     readonly diagnostics?: SessionCompactionDiagnostics;
-    /** Defaults apply for anything left unset. */
     readonly trigger?: CompactionTrigger;
-    /** Token target for a session whose window is unknown. */
     readonly targetTokens?: number;
-    /** Share of the window a compaction aims to land under. */
     readonly postCompactionTargetFraction?: number;
-    /** Ceiling on the words a strategy asks a summarizer for. */
     readonly summaryWordCap?: number;
-    /** Complete user turns preferred verbatim after compaction. */
     readonly retainedUserTurns?: number;
 }
 
-/**
- * Creates the session's scratch directory and returns its canonical path.
- * Canonical because permission checks compare realpath-resolved tool paths
- * against it, and macOS spells the temp dir through a symlink. Synchronous
- * so session startup keeps its event order: an extra await lets a client's
- * first prompt race the initial history checkpoint.
- */
 export function sessionScratchDir(sessionId: string): string {
     const dir = join(tmpdir(), "vera", sessionId);
     mkdirSync(dir, { recursive: true });
@@ -442,9 +359,6 @@ function latestCompactionContext(
     ) {
         return undefined;
     }
-    // A later provider response is a newer, authoritative measurement. Let
-    // the protocol reconstruct it from the transcript rather than replacing
-    // it with this older compaction baseline.
     if (store.activeEntries().some((entry) =>
         entry.timestamp > compaction.timestamp
         && entry.message.role === "assistant"
@@ -500,19 +414,11 @@ export async function runHeadlessLoop(
     services: RunHeadlessLoopServices = {},
     hostBoundary?: HostBoundary,
 ): Promise<void> {
-    // The one seam to the owner. `createLocalHostBoundary` is the in-process
-    // implementation and the default; a pipe implementation carrying
-    // `host-protocol.ts` messages is the other, and the loop cannot tell them
-    // apart.
     const boundary: HostBoundary = hostBoundary
         ?? createLocalHostBoundary(services);
     const owned = boundary.owned;
     const router = owned.router;
-    // Read at each use rather than captured: an owner may change any of these
-    // while the loop runs, and the change has to reach the next turn.
     const policy = (): LoopPolicy => boundary.readState().policy;
-    // Undefined when the owner offers no settings at all, which the loop and
-    // the router both treat differently from an owner that offers them.
     const readModelSettings: (() => ModelTurnSettings) | undefined =
         boundary.offers.modelSettings
             ? (): ModelTurnSettings => {
@@ -617,8 +523,6 @@ export async function runHeadlessLoop(
             return budgetContextWindow(declared, settings?.contextLimit);
         },
     );
-    // Before the wire encoder: the ledger writes synchronously, so a client
-    // reading it when the failure reaches the screen already sees this turn.
     if (owned.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({
             ledger: owned.modelFailureLedger,
@@ -626,9 +530,6 @@ export async function runHeadlessLoop(
         }));
     }
     events.subscribe(protocol);
-    // A caller that names no path gets no log. The host names one for every
-    // agent it starts, so only direct engine callers opt out, and they cannot
-    // reach the home directory by omission.
     if (data.eventLogPath !== undefined) {
         events.subscribe(createJsonlEventLogger({
             path: data.eventLogPath,
@@ -637,9 +538,6 @@ export async function runHeadlessLoop(
     }
     const messages = [...store.messages()];
     let inbound: InboundCommandRouter;
-    // Assigned once the compaction closure exists, further down. Undefined
-    // while the session has no strategy bound, which makes an asked-for
-    // compaction a no-op rather than an error.
     let compactOnRequest: (
         (turnActive: boolean, signal?: AbortSignal) => Promise<void>
     ) | undefined;
@@ -769,9 +667,6 @@ export async function runHeadlessLoop(
             scratchDir,
             processRegistry,
             parentSessionId: store.header.id,
-            // Settings the host may rewrite while this session runs are read
-            // here rather than copied, so a subagent spawned later is given
-            // what the settings say now, not what they said at start.
             get disabledPromptContributions() {
                 return policy().disabledPromptContributions;
             },
@@ -800,16 +695,6 @@ export async function runHeadlessLoop(
                 effect.type === "spawn_subagent"
                     ? applySubagentEffect(effect, signal, context)
                     : applyHostToolEffect(effect, signal, context));
-    // A configured reviewer wins, because the point of configuring one is to
-    // pay for a cheaper model than the agent. Without it the reviewer reads the
-    // agent's model settings at review time, not the model this loop started
-    // with, and it does not follow a fallback model the turn may have switched
-    // to.
-    //
-    // The reviewer instance is kept across reviews so it can send transcript
-    // deltas instead of the whole turn every time. Its conversation belongs to
-    // the model that answered it, so changed settings start a new one rather
-    // than continuing someone else's session.
     let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
     const reviewToolCall: ReviewToolCall = boundary.reviewToolCall
         ?? ((request, signal) => {
@@ -844,27 +729,13 @@ export async function runHeadlessLoop(
             return activeReviewer.review(request, signal);
         });
     const contextWatch: ContextWatch = {};
-    // Read at each compact rather than once: an assignment the user changes
-    // has to reach this session, not only a session that starts afterwards.
     const currentCompaction = (): SessionCompactionOptions | undefined =>
         owned.compaction;
-    // A failed automatic compaction must not turn every later tool boundary
-    // into another request to the same unavailable route. Growth, a full
-    // window, a size refusal, or a new assignment reopen it. A new user
-    // turn that adds nothing does not.
+    // A failed automatic compaction must not turn every later tool boundary into another request to the same unavailable route.
     let automaticCompactionBlocked = false;
-    /** The context reading when the latch closed, for the growth check. */
     let automaticCompactionBlockedAt: number | undefined;
-    /** The assignment that failed, so a different one is not treated as a retry. */
     let latchedAssignmentKey: string | undefined;
-    // A prompt can arrive before there is a finished boundary to compact.
-    // Permit one retry after that prompt is durable, then latch if the same
-    // structural problem remains at a real tool boundary.
     let automaticCompactionRetryAfterPending = false;
-    // Read at each compaction rather than once: the user can switch models
-    // between turns, and the window that matters is the one the next request
-    // will be sent into. The settings carry a window the catalog may not
-    // have: a locally served model's was measured at discovery.
     const compactionCapacity = (
         context?: CompactionContext,
     ): number | undefined => {
@@ -878,11 +749,6 @@ export async function runHeadlessLoop(
                 settings?.model ?? model,
             );
     };
-    // A fresh reading over the next context, including a user prompt that has
-    // passed attachment validation but is not durable yet. Without that
-    // pending message, one large prompt can jump from below the trigger to
-    // beyond the provider's window. The last request's fixed overhead (system
-    // prompt, tools, instructions) is carried over because it remains true.
     const fixedOverhead = (): number => {
         const watched = contextWatch.measurement;
         return watched === undefined
@@ -909,7 +775,6 @@ export async function runHeadlessLoop(
             ...(pendingUserTurns === 0 ? {} : { pendingUserTurns }),
         };
     };
-    /** The most recent unscaled reading, for comparisons across turns. */
     let lastRawEstimate = 0;
     const measureContextNow = (
         pendingMessages: readonly ModelMessage[] = [],
@@ -924,23 +789,14 @@ export async function runHeadlessLoop(
             ...modelContext,
             ...pendingMessages,
         ]) + overheadTokens;
-        // Kept unscaled for the retry latch below. `scale` moves in both
-        // directions between turns, so a reading frozen in provider units
-        // would be compared against later ones taken at a different factor.
         lastRawEstimate = estimate;
         return {
             overheadTokens,
-            // Scaled into the provider's units. Characters over four is the
-            // only measure available before a request is sent, and it reads
-            // low against real tokenizers, so a session can pass the window
-            // while the trigger still believes there is room.
             tokens: Math.ceil(estimate * (contextWatch.scale ?? 1)),
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
     };
-    // Reported once. The mismatch is a fact about the configuration, not news
-    // on every turn that hits it.
     let budgetWarned = false;
     const budgetWarning = (
         measurement: ContextMeasurement,
@@ -980,27 +836,11 @@ export async function runHeadlessLoop(
             const measurement = measureContextNow(pendingMessages, context);
             const announced = boundary.readState().compaction;
             const assignmentKey = compactionAssignmentKey(compaction, announced);
-            // A failed automatic compaction stops the retry loop, but it must
-            // not stop compaction for the rest of the session. A turn that
-            // never shows a user prompt, a parent waiting on subagents chief
-            // among them, would otherwise grow past the window in silence.
-            // Growth since the failure is the signal that the conditions are
-            // no longer the ones that failed. A new assignment is a different
-            // route, not a retry of the one that failed.
+            // A failed automatic compaction stops the retry loop, but it must not stop compaction for the rest of the session.
             if (!force && automaticCompactionBlocked) {
-                // Past the window there is nothing left to protect: the
-                // request will be refused whatever happens, so a retry that
-                // might work costs one call against a turn that certainly
-                // fails. This also covers a switch to a model with a smaller
-                // window, and a window small enough that the growth the latch
-                // waits for could never arrive before the window did.
                 const overWindow = measurement.capacity !== undefined
                     && measurement.tokens >= measurement.capacity;
                 const assignmentChanged = latchedAssignmentKey !== assignmentKey;
-                // A provider refusal outranks both. The estimate is what the
-                // growth rule reads, and the refusal is the provider saying
-                // that estimate is wrong, so waiting for it to grow waits for
-                // a number that already lost its authority.
                 if (
                     !assignmentChanged
                     && !overWindow
@@ -1023,14 +863,6 @@ export async function runHeadlessLoop(
                 ?? compactionModel;
             const summarizerProvider = announced?.provider
                 ?? compaction.diagnostics?.provider;
-            // Forced only when a user asked. Compacting early is the whole
-            // point of asking, so the trigger fraction does not apply, but
-            // every other rule still does.
-            // The refusal outranks the trigger for the same reason it outranks
-            // the latch: both read the estimate, and the provider has just
-            // said the estimate is wrong. Without this a session under the
-            // trigger keeps sending requests that are refused, with nothing
-            // left to raise the number that would have saved it.
             if (
                 !force
                 && !contextWatch.refusedForSize
@@ -1038,9 +870,6 @@ export async function runHeadlessLoop(
             ) {
                 return;
             }
-            // Spent here rather than on success: it bought this attempt, and
-            // leaving it set would let it buy another one long afterwards,
-            // against a latch it has nothing to do with.
             contextWatch.refusedForSize = false;
             events.emit({
                 type: "compaction_started",
@@ -1101,11 +930,6 @@ export async function runHeadlessLoop(
                     signal,
                 );
             } finally {
-                // Ended here rather than around the whole call, because the
-                // early returns above leave without emitting anything: an
-                // abort arriving in that window would cancel a compaction
-                // that never started and leave the client waiting for a
-                // finish that has nobody to send it.
                 if (turn !== undefined) {
                     inbound.endAutomaticCompaction(turn.controller);
                 }
@@ -1125,9 +949,6 @@ export async function runHeadlessLoop(
                     : { provider: reportedProvider }),
                 model: resultModel ?? summarizerModel,
                 outcome: result.outcome,
-                // A turn-originated abort takes the compaction down with it.
-                // Saying so is what lets a client keep showing the stop it was
-                // asked for until the turn itself reports back.
                 ...(result.outcome === "cancelled"
                         && turn?.turnSignal.aborted === true
                     ? { stoppedWithTurn: true }
@@ -1149,32 +970,18 @@ export async function runHeadlessLoop(
                 && !stoppedWithTurn
                 && !(result.outcome === "no_boundary" && hasPendingUserTurn)
             ) {
-                // Cancelled latches with the failures. The trigger is still
-                // over its line, so without this the next tool boundary opens
-                // another one and the user is pressing escape every few
-                // seconds against a session that will not stop asking. Growth
-                // or a new assignment reopens it, and the over-window escape
-                // above still saves a session that would otherwise be unable
-                // to send anything.
+                // Cancelled latches with the failures. Without this the next tool boundary opens another compaction and the user is pressing escape every few seconds.
                 automaticCompactionBlocked = true;
                 automaticCompactionBlockedAt = lastRawEstimate;
                 latchedAssignmentKey = assignmentKey;
             }
             if (result.outcome === "compacted") {
-                // The compaction result already measured the next request,
-                // including the fixed prompt overhead. Publish it now so a
-                // client does not keep showing the pre-compaction estimate
-                // until another model request happens.
                 const refreshedMeasurement: ContextMeasurement = {
                     tokens: result.after,
                     ...(measurement.capacity === undefined
                         ? {}
                         : { capacity: measurement.capacity }),
                     estimated: measurement.estimated,
-                    // The old request's component projection is no longer
-                    // truthful after compaction. The next model request will
-                    // publish a fresh one; keep the active policy visible in
-                    // the interim measurement.
                     compaction: contextCompactionPolicy(
                         compaction.trigger,
                         measurement.capacity,
@@ -1185,9 +992,6 @@ export async function runHeadlessLoop(
                     model: compactionModel,
                     measurement: refreshedMeasurement,
                 });
-                // The measurement that triggered this described the request
-                // that no longer exists. Leaving it in place is the stale
-                // trigger that makes a session compact every turn.
                 contextWatch.measurement = undefined;
                 contextWatch.messageTokens = undefined;
             }
@@ -1251,15 +1055,11 @@ export async function runHeadlessLoop(
         extensionTools: owned.extensionTools ?? [],
         offerTools: data.offerTools ?? true,
         loadOptionalContext: data.loadOptionalContext ?? true,
-        // Asked at each turn, not captured for the session: a setting the
-        // user changes mid-session reaches the next turn with no restart.
         get modelFallback() { return policy().modelFallback; },
         ...(owned.effortPool === undefined
             ? {}
             : { effortPool: owned.effortPool }),
         ...(readModelSettings === undefined ? {} : { readModelSettings }),
-        // Read rather than captured: a wear applied between turns has to
-        // reach the next turn without rebuilding the loop.
         ...(readAgentWear === undefined ? {} : { readAgentWear }),
         firedNudges: new Set<string>(),
         readApprovalMode,
@@ -1319,13 +1119,6 @@ export async function runHeadlessLoop(
     }
 }
 
-/**
- * `readProfiles` is asked at each review rather than read once, so a profile
- * the user repoints between turns reaches the next review in this session. The
- * reviewer instance is still kept, keyed by the settings it was built from:
- * changed settings start a new conversation instead of continuing one that
- * belongs to a model no longer in use.
- */
 export function createReviewerProfileRouter(
     defaultReviewer: ReviewToolCall,
     adapter: ModelAdapter,
@@ -1362,10 +1155,6 @@ export function createReviewerProfileRouter(
     };
 }
 
-/**
- * One read of a setting the host may rewrite between turns, so the test and the
- * value passed on cannot come from two different answers.
- */
 function fallbackFor(
     fallback: RunTurnState["modelFallback"],
     provider: string | undefined,
@@ -1385,9 +1174,7 @@ export async function runTurn(
     state: RunTurnState,
     reasoningEffort?: ModelReasoningEffort,
 ): Promise<AssistantMessage> {
-    // The permission classifier is synchronous but the bash parser it uses
-    // loads a wasm grammar asynchronously. Awaiting it here means no client
-    // has a boot-order dependency to remember; the work happens once.
+    // The permission classifier is synchronous but the bash parser it uses loads a wasm grammar asynchronously.
     await initBashParser();
     const turn = await state.inbound.startTurn();
     let assistantMessage!: AssistantMessage;
@@ -1402,24 +1189,13 @@ export async function runTurn(
                 ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
             };
         let activeModel = modelSettings.model;
-        // A fallback can land on a model with no reasoning effort at all, and
-        // it stays active for the rest of the turn. The effort has to follow
-        // the model, or the next request in the tool loop would restore an
-        // effort the fallback model cannot be asked for.
         let turnReasoningEffort = modelSettings.reasoningEffort;
-        // Substitutions settled before the round's message exists. They are
-        // drained into that message once it does.
         const pendingSubstitutions: ModelSubstitution[] = [];
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const reviewBreaker = createReviewCircuitBreaker();
-        // A safety property, so it is constructed here with the turn and has
-        // no configuration seam: no agent, extension, or wear can lift it.
+        // A safety property, so it is constructed here with the turn and has no configuration seam: no agent, extension, or wear can lift it.
         const denialBreaker = createToolDenialBreaker();
-        // Fixed here, with the rest of the agent's snapshot, so the turn runs
-        // under exactly one agent from the tools it is offered to the skills
-        // its scripts can reach. A pre-turn hook may then only narrow that
-        // snapshot for this user turn.
         const wear = state.readAgentWear?.();
         state.firedNudges?.clear();
         if (turn.triggeredByDelivery !== true) {
@@ -1438,12 +1214,6 @@ export async function runTurn(
                 state.extensionTools,
                 state.toolRuntime.invocation,
             );
-        // A tool the agent does not offer is not described to the model, so
-        // the ordinary case is that it is never called. Gate A is what makes
-        // the extraordinary case safe.
-        // Wear and the offered catalog are the ceiling. A pre-turn hook may
-        // only narrow this snapshot; it cannot add a tool the agent does not
-        // already have.
         let scopedTools = wear?.tools === undefined
             ? offered
             : offered.filter((tool) => turnAllowsTool(wear, tool.name));
@@ -1472,10 +1242,6 @@ export async function runTurn(
                 activeModel,
             )
         ) {
-            // Keep the user's prompt in the session even when this model
-            // cannot run it. The attachment is already durable, and a model
-            // switch can then retry the same turn instead of losing it during
-            // the capability preflight.
             for (const message of userMessages) {
                 await commitMessage(state, message);
                 state.events.emit({ type: "turn_started", message });
@@ -1484,9 +1250,6 @@ export async function runTurn(
                 activeModel,
                 "the selected model provider does not support image input",
             );
-            // Committed so the refusal survives a rebuild or resume: an
-            // emitted-only reply leaves the session showing a user message
-            // with no answer at all.
             await commitMessage(state, assistantMessage);
             state.events.emit({ type: "turn_finished", message: assistantMessage });
             return assistantMessage;
@@ -1508,10 +1271,6 @@ export async function runTurn(
             return assistantMessage;
         }
         await drainPendingDeliveries(state);
-        // Before the prompt is accepted, so a compaction that fails cannot
-        // strand a message the user has already sent, and after the deliveries
-        // are drained, so nothing pending disappears into a projection that
-        // was assembled without it.
         await compactDuringTurn(
             state,
             turn.signal,
@@ -1555,9 +1314,6 @@ export async function runTurn(
                     return assistantMessage;
                 }
                 if (promptIndex === 0) {
-                    // A batch has one provider settings snapshot. Later
-                    // prompts still pass every blocking and tool-scope hook,
-                    // but cannot replace the oldest prompt's model or effort.
                     activeModel = applied.activeModel;
                     turnReasoningEffort = applied.turnReasoningEffort;
                 }
@@ -1568,15 +1324,7 @@ export async function runTurn(
             }
         }
 
-        // Read once for the turn rather than per model round: the catalog is
-        // parsed from disk on every call, and a long tool loop would pay for
-        // it on each pass to answer a question whose only moving part is which
-        // model a fallback landed on.
         const catalogModels = availableModels();
-        // The settings carry a window neither list always has: the configured
-        // model's was measured at discovery when it is served locally. The
-        // discovered list covers the models a fallback can land on, and the
-        // shipped catalog covers the rest.
         const capacityForModel = (model: string): number | undefined => {
             const declared = (model === modelSettings.model
                 ? modelSettings.contextWindow
@@ -1591,9 +1339,7 @@ export async function runTurn(
         };
 
         while (true) {
-            // Before the request, not after a refusal: a level the pool
-            // already knows this model rejects would otherwise be sent again
-            // every single turn, buying the same refusal each time.
+            // Before the request, not after a refusal: a level the pool already knows this model rejects would otherwise be sent again every single turn, buying the same refusal each time.
             const preflight = state.effortPool === undefined
                     || turnReasoningEffort === undefined
                 ? undefined
@@ -1684,8 +1430,6 @@ export async function runTurn(
                 state.contextualContributionsForTurn =
                     additionalContextualContributions;
             }
-            // Recomputed each request: a tool the breaker withheld earlier in
-            // this turn simply stops being described to the model.
             const tools = denialBreaker.filterOffered(scopedTools);
             const projection = projectModelRequest({
                 ...(modelSettings.provider === undefined
@@ -1715,8 +1459,6 @@ export async function runTurn(
                 ...(additionalContextualContributions === undefined ? {} : {
                     additionalContextualContributions,
                 }),
-                // Fixed at turn start with the rest of the agent's snapshot,
-                // so a turn always runs under one complete agent.
                 ...(wear?.instructions === undefined
                         || wear.instructions.length === 0
                     ? {}
@@ -1787,13 +1529,8 @@ export async function runTurn(
                     request.messages,
                 );
             }
-            // Reset per model round: they ride on the message that round
-            // produced, which is where a replayed transcript reads them from.
-            // Anything decided before the request was built is carried in.
             const substitutions: ModelSubstitution[] = pendingSubstitutions
                 .splice(0, pendingSubstitutions.length);
-            // Asking whether the model reads images can reach the provider, so
-            // it is only asked when the request carries one.
             const carriesImage = request.messages.some((message) =>
                 message.role === "user"
                 && message.content.some(
@@ -1840,13 +1577,6 @@ export async function runTurn(
                                     === "request_too_large"
                                 && state.contextWatch !== undefined
                             ) {
-                                // Recorded rather than acted on here: this
-                                // request is already lost, and the next one
-                                // is the one that needs the room. Without
-                                // this a compaction the user cancelled stays
-                                // cancelled while every later request is
-                                // refused for a reason nothing connects back
-                                // to the escape they pressed.
                                 state.contextWatch.refusedForSize = true;
                             }
                             state.events.emit({
@@ -1945,9 +1675,6 @@ export async function runTurn(
                             ...fallback,
                             failure: sanitizedProviderFailure(fallback.failure),
                         });
-                        // The same request is sent again to a model with its
-                        // own window, so the share of it that is filled moves
-                        // even though nothing was added to the request.
                         const remeasured = remeasuredAgainst(
                             measurement,
                             capacityForModel(activeModel),
@@ -2114,9 +1841,6 @@ export async function runTurn(
                 }
             }
             if (interrupt !== undefined) {
-                // The results are already committed, so the transcript shows
-                // what was denied. The turn stops here rather than handing the
-                // model another chance to work around the reviewer.
                 assistantMessage = reviewInterruptedMessage(
                     activeModel,
                     interrupt,
@@ -2124,9 +1848,6 @@ export async function runTurn(
                 await commitMessage(state, assistantMessage);
                 break;
             }
-            // Every call and result is now durable. This is the only safe
-            // boundary inside a tool turn: compacting any earlier could put a
-            // call in the summary while its result was still being produced.
             const capacity = capacityForModel(activeModel);
             await compactDuringTurn(state, turn.signal, [], {
                 model: activeModel,
@@ -2156,11 +1877,6 @@ export async function runTurn(
     return assistantMessage;
 }
 
-/**
- * Runs the turn's compaction under a signal of its own, linked to the turn's.
- * Aborting the turn still stops the compaction, but stopping the compaction
- * leaves the turn alive to carry on with the span it already has.
- */
 async function compactDuringTurn(
     state: RunTurnState,
     turnSignal: AbortSignal,
@@ -2397,20 +2113,12 @@ const REVIEW_TIMEOUT_INSTRUCTIONS =
 interface CompletedToolCall {
     readonly result: ToolResultMessage;
     readonly afterCommit?: CommitEffect;
-    /** Set when the turn must stop after this result is committed. */
     readonly interrupt?: string;
 }
 
 interface PreparedToolCall {
     readonly toolCall: ToolCallContent;
     readonly hookResult: PreToolUseHookResult;
-    /**
-     * Why the worn agent does not offer this tool.
-     *
-     * Set before the hooks run, and the hooks do not run when it is set: a
-     * tool the agent does not have is not a tool call to be rewritten, it is
-     * one that never happens.
-     */
     readonly scopeDenial?: string;
 }
 
@@ -2424,8 +2132,6 @@ function turnAllowsTool(
     tool: string,
 ): boolean {
     return agentAllowsTool(wear, tool)
-        // Bash may yield an owned process, so its control plane is part of
-        // the Bash capability rather than a separately optional privilege.
         || (tool === "process" && wear?.tools?.includes("bash") === true);
 }
 
@@ -2449,10 +2155,6 @@ async function prepareAssistantToolCalls(
             continue;
         }
         const original = hookToolCall(block);
-        // Gate A, on the name, before anything else touches the call. A
-        // pre-tool hook cannot rename a call, so the name checked here is the
-        // name that would execute. A pre-turn restriction is the same gate:
-        // a tool dropped from this turn's offer is not a call to rewrite.
         if (!turnAllowsTool(state.readAgentWear?.(), block.name)) {
             preparedById.set(block.id, {
                 toolCall: block,
@@ -2552,9 +2254,6 @@ async function executePreparedTool(
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
-    // Only the harness's own refusals are counted. A denial the user typed is
-    // deliberately not routed through here: saying no twice in a row is
-    // ordinary interactive use, not the unattended loop this bounds.
     const autoDenial = (
         reason: string,
         note: string | undefined,
@@ -2614,9 +2313,6 @@ async function executePreparedTool(
         state.toolRuntime.workspace,
         hookCall,
     );
-    // Permission mode is policy over the action about to run, not a model
-    // setting. Re-evaluate after every asynchronous allow so a second dial
-    // change made during review or approval cannot authorize stale policy.
     let approvalMode = state.approvalMode;
     permissionCheck: while (true) {
         approvalMode = state.readApprovalMode?.() ?? state.approvalMode;
@@ -2635,9 +2331,6 @@ async function executePreparedTool(
             state.readPermissionGrants?.() ?? [],
             permissionOptions,
         );
-        // A delegated turn is clamped by the parent's mode, per action. The
-        // parent's grants and preferences are deliberately absent: a grant the
-        // user gave one session is not a grant to everything it spawns.
         const permission = state.clampPermissionMode === undefined
             ? ownPermission
             : stricterToolPermission(
@@ -2768,9 +2461,6 @@ async function executePreparedTool(
         break permissionCheck;
     }
 
-    // The run of denials is broken by this tool being allowed to run, not by
-    // some other tool succeeding: the incident shape is one tool refused while
-    // hundreds of calls to other tools succeed around it.
     denialBreaker.recordAllowed(toolCall.name);
     state.events.emit({ type: "tool_execution_started", toolCall });
     const startedAt = performance.now();
@@ -2803,9 +2493,6 @@ async function executePreparedTool(
                     : { agentWear: state.readAgentWear() }),
             },
         );
-    // Emitted from here rather than from either spawn path, so both the
-    // in-process subagent and the host registry report a substitution the
-    // same way.
     for (const substitution of applied.output.substitutions ?? []) {
         state.events.emit({ type: "model_substituted", substitution });
     }
@@ -2826,11 +2513,6 @@ async function executePreparedTool(
     );
 }
 
-/**
- * A model that reasoned and then said nothing has failed the turn, and the
- * reasoning is where a fake tool call hides. A model that produced nothing at
- * all has answered a prompt that asked for nothing, so the turn ends quietly.
- */
 function requireVisibleTerminalResponse(
     message: AssistantMessage,
 ): AssistantMessage {
@@ -3020,7 +2702,6 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-/** Returns the interrupt reason when one of the calls asked the turn to stop. */
 async function finishToolCalls(
     state: RunTurnState,
     pending: readonly Promise<CompletedToolCall>[],
@@ -3148,24 +2829,9 @@ async function commitMessage(
     message: ModelMessage,
 ): Promise<void> {
     const entry = await state.store.appendMessage(message);
-    // The store persists a snapshot, so the in-memory line tracks that snapshot
-    // rather than the caller's object. A resumed session already holds the
-    // stored copies, and transcript IDs are keyed off them.
     state.messages.push(entry.message);
 }
 
-/**
- * A denial the harness decided, with the worn agent's nudge on the end.
- *
- * Three classes fire a nudge: the agent's own scope, the permission mode, and
- * the reviewer. A denial the user typed does not, because the user knows why;
- * a pre-tool hook's block does not, because the hook wrote its own message and
- * a second voice under it would be Vera talking over an extension.
- *
- * The nudge is appended, never substituted: the original denial is what the
- * model has to act on, and the nudge is the sentence that says what to do
- * about it.
- */
 function deniedByPolicy(
     state: RunTurnState,
     toolCall: ToolCallContent,
@@ -3187,13 +2853,6 @@ function deniedByPolicy(
     );
 }
 
-/**
- * The agent's nudge for this tool, once per user turn.
- *
- * Matching is by exact tool name or `*`. The cooldown is the user's next
- * message: a model that keeps trying the same denied tool inside one stretch
- * of work hears the sentence once, not once per attempt.
- */
 function nudgeFor(
     state: RunTurnState,
     toolName: string,
@@ -3226,15 +2885,6 @@ function deniedToolResult(
     };
 }
 
-/**
- * A refused write outside the workspace has an unrefused neighbour, and the
- * model only needs to hear about it when it hits the wall. Naming the scratch
- * directory in the result keeps the alternative out of the standing prompt,
- * where it would cost context on every turn that never sees a denial.
- *
- * Only for paths that are actually blocked and actually elsewhere: a refusal
- * inside the scratch directory has no scratch alternative to offer.
- */
 function scratchAlternativeNote(
     decision: ToolPermissionDecision,
     scratchDir: string | undefined,
@@ -3256,11 +2906,6 @@ function scratchAlternativeNote(
         : undefined;
 }
 
-/**
- * The same measured request, against a different model's window. Dropping the
- * capacity when the new model has none keeps a percentage from being drawn
- * against the window of a model that is no longer running.
- */
 function remeasuredAgainst(
     measurement: ContextMeasurement,
     capacity: number | undefined,
@@ -3278,12 +2923,6 @@ function remeasuredAgainst(
     };
 }
 
-/**
- * Routed providers answer per model and per provider at once; a single-provider
- * adapter answers per model, then falls back to its blanket flag. An adapter
- * with nothing to say lets the request through, so an unstated model fails with
- * the provider's own reason rather than being turned away here.
- */
 function acceptsImageInput(
     adapter: ModelAdapter,
     provider: string | undefined,
@@ -3296,17 +2935,6 @@ function acceptsImageInput(
         ?? adapter.supportsImageInput !== false;
 }
 
-/**
- * Teaches the estimator what the provider actually counted.
- *
- * The engine measures a request as characters over four, which reads low
- * against real tokenizers and does not see reasoning blocks or images at all.
- * The response reports what the request really cost, and the ratio between the
- * two is the correction the next estimate carries. Only ever upward: a
- * provider that reports cached input separately reports a number under the
- * estimate, and taking that for truth would push the compaction trigger the
- * wrong way.
- */
 function calibrateContextWatch(
     state: RunTurnState,
     measurement: ContextMeasurement,

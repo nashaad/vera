@@ -12,14 +12,6 @@ import type {
 
 const MAX_LIMIT = 500;
 
-/**
- * Projects host listing rows onto the plain shape extensions see.
- *
- * A projection rather than a pass-through: the host row names a session file
- * on disk and carries registry-shaped field names, neither of which an
- * extension may depend on. Only facts survive the crossing, and an absent
- * fact stays absent rather than becoming a zero.
- */
 export async function listSessionsForExtension(
     listPage: (options: ListAgentsOptions) => Promise<ListedAgentsPage>,
     request: VeraClientSessionListRequest,

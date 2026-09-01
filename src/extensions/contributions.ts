@@ -26,11 +26,6 @@ export interface WatchContribution {
     readonly flood: WatchFloodPolicy;
 }
 
-/**
- * A process the host launches when it starts and tears down when it stops.
- * The command runs with the extension directory as its default working
- * directory and learns the host socket through VERA_SOCKET.
- */
 export interface SidecarContribution {
     readonly id: string;
     readonly command: readonly string[];
@@ -299,17 +294,8 @@ function parseWatchContribution(
     });
 }
 
-/**
- * The key inside an extension entry's `config` that addresses its watch
- * contributions. Reserved: an extension cannot use it for its own config.
- */
 export const WATCH_CONFIG_OVERRIDE_KEY = "watches";
 
-/**
- * Applies a user's per-watch config overrides from `~/.vera/config.json` onto
- * the config each watch declares in its manifest. Top-level keys replace
- * wholesale, and a key the manifest never declared is added.
- */
 export function applyWatchConfigOverrides(
     contributions: ExtensionContributions,
     extensionConfig: unknown,
@@ -363,10 +349,6 @@ export function applyWatchConfigOverrides(
     });
 }
 
-/**
- * Strips the reserved override key so an extension's own `activate` never sees
- * config addressed to the host.
- */
 export function stripWatchConfigOverrides(extensionConfig: unknown): unknown {
     if (
         !isPlainObject(extensionConfig)

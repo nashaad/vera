@@ -1,9 +1,5 @@
 const MAX_DIAGNOSTIC_LENGTH = 4_096;
 
-/**
- * Provider errors are useful diagnostics but remain untrusted text. Remove
- * credential-shaped values and encoded payloads before they reach a log.
- */
 export function sanitizeDiagnosticText(value: string): string {
     const redacted = value
         .replace(/\bBearer\s+[^\s,;}]+/gi, "Bearer [REDACTED]")

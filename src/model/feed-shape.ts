@@ -1,16 +1,3 @@
-/**
- * The pinned wire shape of the custodian model feed.
- *
- * One JSON file, published centrally, consumed during admission. Every row is
- * a provider-side fact: verified levels are the provider's own wire strings,
- * never Vera's ladder words, so the file stays useful to consumers that do not
- * share Vera's vocabulary. The consumer derives its own presentation with the
- * same mapping local admission uses.
- *
- * Both halves of the pipeline import this file: the probe entrypoint builds
- * rows from an `AdmissionVerdict`, and the feed cache validates them on the
- * way back in. There is no second definition of the row anywhere.
- */
 
 import type { AdmissionVerdict } from "./admission.ts";
 import type { CatalogModel } from "./catalog-shape.ts";
@@ -25,13 +12,9 @@ export interface ModelFeedRow {
     readonly provider: string;
     readonly model: string;
     readonly verdict: FeedVerdict;
-    /** Provider wire strings the probe verified, least effort first. */
     readonly verified_levels: readonly string[];
-    /** The provider's own default level id, when its listing names one. */
     readonly provider_default_level?: string;
-    /** The raw model string the provider answered with, verbatim. */
     readonly response_model?: string;
-    /** Present on a failure verdict only. Provider-originated text. */
     readonly reason?: string;
     readonly verified_at: string;
 }
@@ -50,7 +33,6 @@ export interface FeedRowInput {
     readonly verifiedAt: string;
 }
 
-/** One admission outcome as one feed row. A failure is still a valid row. */
 export function feedRowForVerdict(input: FeedRowInput): ModelFeedRow {
     const base = {
         provider: input.provider,

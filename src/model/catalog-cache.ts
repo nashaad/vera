@@ -16,12 +16,6 @@ export interface ProviderCatalogCacheOptions {
     readonly cacheDir?: string;
 }
 
-/**
- * The directory discovery snapshots live in. A snapshot's filename is always
- * derived from its provider, so callers override the directory, never the
- * filename: that is what lets one options object configure both the writer
- * here and the loader in `catalog.ts`.
- */
 export function providerCatalogCacheDir(): string {
     return join(veraRuntimeDirectory(), "cache");
 }
@@ -60,23 +54,8 @@ export function writeProviderCatalogSnapshot(
     renameSync(temporaryPath, path);
 }
 
-/**
- * How long a discovery snapshot answers for before the provider is asked
- * again. A week: model lists change slowly, and a week-old list is a far
- * better answer to "which models can I run" than a network call on every
- * start, which is what launching Vera used to cost.
- */
 export const DEFAULT_CATALOG_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/**
- * The snapshot when it is young enough to answer without asking the provider,
- * and `undefined` when the caller has to fetch.
- *
- * A snapshot with no models, no `fetched_at`, or an unreadable one is not
- * fresh: none of them can say when they were taken, and an empty picker is
- * worse than one wait. A `fetched_at` in the future is not fresh either, so a
- * clock that jumped forward once cannot pin a stale list there permanently.
- */
 export function readFreshProviderCatalogSnapshot(
     provider: string,
     maxAgeMs: number,
@@ -111,11 +90,6 @@ export function readProviderCatalogSnapshot(
     }
 }
 
-/**
- * The providers discovery has ever written a snapshot for. A missing or
- * unreadable directory is an empty list, not an error: discovery may simply
- * never have run.
- */
 export function listDiscoveredProviders(
     options: ProviderCatalogCacheOptions = {},
 ): readonly string[] {

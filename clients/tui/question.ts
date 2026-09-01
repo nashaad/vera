@@ -36,10 +36,6 @@ import {
     tuiTextareaKey,
 } from "./single-line-editor.ts";
 
-/**
- * Below this the panel is too narrow to seat a choice list and a preview box
- * side by side, so the preview goes under the choices instead.
- */
 const QUESTION_TWO_COLUMN_WIDTH = 80;
 
 export interface TuiQuestionKey {
@@ -58,8 +54,6 @@ export interface TuiQuestionKeyResult {
     readonly response?: UiResponseCommand;
 }
 
-// Two row-padding cells and the three-cell number gutter leave at most 87
-// cells for choice text, while `width: "100%"` still fills narrow terminals.
 export const QUESTION_CHOICE_MAX_WIDTH = 92;
 
 function displayedQuestionChoices(
@@ -78,8 +72,6 @@ function displayedQuestionChoices(
 }
 
 export interface TuiQuestionView {
-    // Rows are numbered, so a click carries the same digit the keyboard would
-    // have sent rather than a second decision path.
     pointer?: DialogRowPointer;
     readonly box: BoxRenderable;
     readonly bar: BoxRenderable;
@@ -94,7 +86,6 @@ export interface TuiQuestionView {
         update: UserQuestionUiRequestUpdate,
         key: TuiQuestionKey,
     ): TuiQuestionKeyResult;
-    /** Paste only while the custom-answer or notes field owns input. */
     handlePaste(text: string): boolean;
     repaint(): void;
 }
@@ -104,8 +95,6 @@ export function createTuiQuestionView(
 ): TuiQuestionView {
     let currentRequestId: string | undefined;
     let lastUpdate: UserQuestionUiRequestUpdate | undefined;
-    // Highlighted choice for arrow/Enter selection. Purely client-local: it
-    // never travels to the engine, which only ever sees the chosen choiceId.
     let selectedIndex = 0;
     let enteringCustom = false;
     let enteringNotes = false;
@@ -116,8 +105,6 @@ export function createTuiQuestionView(
         content: "",
         fg: TUI_ACCENT,
         attributes: 1,
-        // The gutter the choice rows below already carry, so the question and
-        // the answers to it start on the same column.
         marginLeft: DIALOG_GUTTER_WIDTH,
         height: "auto",
         wrapMode: "word",
@@ -168,9 +155,6 @@ export function createTuiQuestionView(
         wrapMode: "none",
         selectable: true,
     });
-    // The preview is the asker's own rendering of a choice, so it keeps a
-    // monospace grid and no styling of its own. No frame either: the gap
-    // between the columns already says where the choices end.
     const preview = new BoxRenderable(renderer, {
         id: "question-preview",
         height: "auto",
@@ -190,8 +174,6 @@ export function createTuiQuestionView(
     });
     previewContent.add(previewText);
     preview.add(previewContent);
-    // Choices and their preview sit side by side while the panel is wide
-    // enough for both, and stack when it is not.
     const choicesRow = new BoxRenderable(renderer, {
         id: "question-choices-row",
         width: "100%",
@@ -230,9 +212,6 @@ export function createTuiQuestionView(
     notes.add(notesLabel);
     notes.add(notesEditor);
 
-    // The question sits above the scroll region, not in it: it is the card's
-    // heading, and a heading that scrolls away leaves a list of answers to a
-    // question the reader can no longer see.
     details.add(choicesRow);
     details.add(notes);
 
@@ -258,16 +237,12 @@ export function createTuiQuestionView(
         height: "auto",
         maxHeight: 2,
         flexShrink: 0,
-        // The hints are a separate register from the answers, so they get a
-        // blank row rather than sitting against the last one.
         marginTop: questionBottomPadding(renderer),
         flexDirection: "row",
         flexWrap: "wrap",
     });
     actions.add(choiceAction);
     actions.add(cancelAction);
-    // The same heavy left edge the composer draws, rather than a filled cell:
-    // a filled cell is a whole character wide and reads as a slab next to it.
     const bar = new BoxRenderable(renderer, {
         id: "question-bar",
         width: 1,
@@ -300,11 +275,6 @@ export function createTuiQuestionView(
         left: questionSideInset(renderer),
         right: questionSideInset(renderer),
         height: "auto",
-        // Short terminals need the final row that the normal overlay margin
-        // would consume. Larger terminals retain the calmer 90% cap. The cap
-        // counts the row the card is held off the floor by: a full-height card
-        // that also sits one row up overhangs the top, and the first row is the
-        // question.
         maxHeight: questionMaxHeight(renderer),
         zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "row",
@@ -347,7 +317,6 @@ export function createTuiQuestionView(
         renderNotes();
     }
 
-    /** The highlighted choice's own rendering, when it brought one. */
     function renderPreview(update: UserQuestionUiRequestUpdate): void {
         const content = displayedQuestionChoices(update)[selectedIndex]?.preview;
         const ownPane = previewWantsOwnPane(content);
@@ -361,12 +330,6 @@ export function createTuiQuestionView(
         notes.visible = enteringNotes || notesEditor.plainText.length > 0;
     }
 
-    /**
-     * Two columns need room for both. Below that the preview keeps its box but
-     * takes the full width under the choices, which is the same fallback the
-     * approval panel makes for a predicate its row cannot hold: content that
-     * does not fit moves, it is not clipped away.
-     */
     function applyLayout(): void {
         const stacked = renderer.width < QUESTION_TWO_COLUMN_WIDTH;
         choicesRow.flexDirection = stacked ? "column" : "row";
@@ -417,8 +380,6 @@ export function createTuiQuestionView(
         handleKey(update, key): TuiQuestionKeyResult {
             const choices = displayedQuestionChoices(update);
             const count = choices.length + 1;
-            // Notes ride alongside a choice rather than replacing it, so the
-            // highlight stays where it is and ⏎ still answers.
             if (enteringNotes) {
                 if (key.name === "escape" || notesBinding(key)) {
                     enteringNotes = false;
@@ -644,12 +605,6 @@ interface QuestionChoiceRow {
     readonly pointer?: DialogRowPointer;
 }
 
-/**
- * A choice as two stacked lines: a numbered label, and under it what picking it
- * means. The highlight sits behind the label rather than across the card, so a
- * short answer does not paint a bar into empty space; the number keeps its own
- * colour either way, so the column reads as a column down the whole list.
- */
 function questionChoiceRow(
     renderer: RenderContext,
     content: QuestionChoiceRow,
@@ -673,11 +628,7 @@ function questionChoiceRow(
         content: new StyledText([fg(TUI_ACCENT)(content.label)]),
         bg: content.active ? TUI_ELEMENT : TUI_PANEL,
         attributes: content.active ? 1 : 0,
-        // The node takes the row's remaining width, which is what gives a long
-        // label a boundary to wrap on; shrinking it to its own text instead
-        // leaves the wrap nothing to measure against and the label is cut at
-        // one line. The highlight still ends where the answer does, because a
-        // text node paints only the cells its glyphs fill.
+        // The node takes the row's remaining width, which is what gives a long label a boundary to wrap on; shrinking it to its own text instead leaves the wrap nothing to measure.
         flexGrow: content.answerEditor === undefined ? 1 : 0,
         flexShrink: content.answerEditor === undefined ? 1 : 0,
         height: "auto",
@@ -702,8 +653,6 @@ function questionChoiceRow(
     if (content.description !== undefined) {
         row.add(new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_MUTED)(content.description)]),
-            // Under the label, not under the number: the description belongs to
-            // the answer, and the number column stays clear down the list.
             marginLeft: QUESTION_NUMBER_WIDTH,
             width: "100%",
             height: "auto",
@@ -713,11 +662,6 @@ function questionChoiceRow(
     return row;
 }
 
-/**
- * A single line is not a visual preview, even when fenced as one. Multiline
- * renderings keep their own pane so diagrams, diffs, and snippets preserve
- * their grid; stray prose stays out of the question entirely.
- */
 function previewWantsOwnPane(content: string | undefined): boolean {
     if (content === undefined) {
         return false;
@@ -753,11 +697,8 @@ function previewHeight(content: string): number {
     return Math.max(1, content.split("\n").length);
 }
 
-/** The number, its period, and the space after it. */
 const QUESTION_NUMBER_WIDTH = 3;
 
-
-/** Tab is claimed through the table, so nothing else can quietly take it. */
 function notesBinding(key: TuiQuestionKey): boolean {
     return tuiBindingId("question", key) === "write_notes";
 }
@@ -768,7 +709,6 @@ function questionMaxHeight(renderer: RenderContext): number | `${number}%` {
         : "90%";
 }
 
-/** How far the card is held off the floor, in rows. */
 const QUESTION_BOTTOM_OFFSET = 0;
 
 function questionBottomPadding(renderer: RenderContext): number {
@@ -779,8 +719,6 @@ function questionChromeVisible(renderer: RenderContext): boolean {
     return renderer.height > DIALOG_SHORT_TERMINAL_HEIGHT;
 }
 
-// The card spans the terminal. A gutter around it reads as a frame, and a
-// frame is the one thing the card is not: it is the bottom of the session.
 function questionSideInset(_renderer: RenderContext): number {
     return 0;
 }

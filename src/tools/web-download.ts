@@ -5,11 +5,6 @@ import { join } from "node:path";
 import { downloadPublicFile } from "./web-fetch.ts";
 import type { RegisteredTool, ToolOutput } from "./types.ts";
 
-/**
- * The destination is fixed rather than taken from the model: an approval that
- * names one folder stays true for every download, and there is no path input
- * to aim somewhere else.
- */
 export function downloadDirectory(workspace: string): string {
     const downloads = join(homedir(), "Downloads");
     return existsSync(downloads) ? downloads : workspace;

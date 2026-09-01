@@ -15,14 +15,6 @@ const USER_PATH = /\/(Users|home)\/[^/\s"'`]+/g;
 const URL_USERINFO = /(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi;
 const URL_QUERY = /(\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`?]+)\?[^\s"'`]*/gi;
 
-/**
- * What leaves the machine. `sanitizeDiagnosticText` already removes credential
- * shapes; this adds the parts that identify a person rather than authorise
- * them, because the report is written to be read by a stranger.
- *
- * Applied to the text handed to a model as much as to the file: a summary
- * written by a model that saw the unredacted version is the same leak.
- */
 export function sanitizeReportText(
     value: string,
     home: string = homedir(),
@@ -45,15 +37,9 @@ export interface FailureReportOptions {
     readonly records: readonly ModelFailureRecord[];
     readonly at: Date;
     readonly home?: string;
-    /** A model's summary of the same scrubbed text, when one could be had. */
     readonly summary?: string;
 }
 
-/**
- * The report body, in plain markdown because it is meant to be read and pasted
- * by hand. Everything here has been through `sanitizeReportText`, including
- * anything a model wrote about it.
- */
 export function failureReportMarkdown(options: FailureReportOptions): string {
     const scrub = (value: string): string =>
         sanitizeReportText(value, options.home);
@@ -86,11 +72,6 @@ export function failureReportMarkdown(options: FailureReportOptions): string {
     return `${lines.join("\n").trimEnd()}\n`;
 }
 
-/**
- * The text a model is asked to summarise. Scrubbed by the same rule as the
- * file, and deliberately the summary rather than the raw ledger: session ids
- * and timestamps tell a stranger nothing and a model less.
- */
 export function failureReportOneshotInput(
     records: readonly ModelFailureRecord[],
     home?: string,
@@ -110,7 +91,6 @@ export function failureReportFilename(at: Date): string {
     return `failures-${at.toISOString().replaceAll(/[:.]/g, "-")}.md`;
 }
 
-/** Returns the path written, so the caller can tell someone where to look. */
 export function writeFailureReport(
     directory: string,
     contents: string,

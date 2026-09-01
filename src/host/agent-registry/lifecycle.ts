@@ -1,4 +1,3 @@
-// Lifted lifecycle methods from AgentRegistry. Callers keep registry.foo().
 import { randomUUID } from "node:crypto";
 import { link, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,14 +22,6 @@ export async function create(reg: AgentRegistry, options: CreateRegisteredAgentO
         );
     }
 
-/**
-     * Stop one agent and forget it, leaving its session on disk.
-     *
-     * Distinct from `abort`, which cancels a turn and leaves the agent
-     * running, and from `trashSession`, which is this plus deleting what the
-     * session wrote. Idempotent: the second call finds nothing to close, which
-     * is what makes "closed exactly once" checkable.
-     */
 export async function closeAgent(reg: AgentRegistry, id: string): Promise<"closed" | "not_found"> {
         const entry = reg.agents.get(id);
         if (entry === undefined) {
@@ -43,29 +34,12 @@ export async function closeAgent(reg: AgentRegistry, id: string): Promise<"close
         return "closed";
     }
 
-/** Root plus every live descendant whose execution it owns. */
 export function ownedTreeIds(reg: AgentRegistry, id: string): readonly string[] {
         return reg.agents.has(id) ? [id, ...reg.liveDescendantsOf(id)] : [];
     }
 
-/**
-     * Close one agent and every live agent descended from it.
-     *
-     * Fence first, quiesce second. `agent.close()` is synchronous and shuts
-     * admission, so every member of the subtree is fenced in one pass before
-     * anything is awaited; awaiting a child first would leave the parent live
-     * for the seconds that child takes to exit, long enough to spawn a
-     * subagent nothing is walking any more. Fencing is then repeated to a
-     * fixpoint, because a spawn can still have raced the very first pass.
-     * Roster entries are removed only at the end, so the parent links the
-     * walk follows are still intact while the subtree is being quiesced.
-     * Idempotent for the same reason `closeAgent` is: a second call finds
-     * nothing left to close and says so.
-     */
 export async function closeAgentTree(reg: AgentRegistry, id: string): Promise<CloseAgentTreeResult> {
         const present = reg.agents.has(id);
-        // Read before the walk: an ephemeral entry is gone from the roster by
-        // the time anyone could ask, and its transcript goes with it.
         const sessionRetained = reg.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
         while (true) {
@@ -104,7 +78,6 @@ export async function closeAgentTree(reg: AgentRegistry, id: string): Promise<Cl
         };
     }
 
-/** Close one live descendant while preserving the caller and its peers. */
 export async function closeDescendantTree(reg: AgentRegistry, callerId: string, targetId: string): Promise<CloseDescendantTreeResult> {
         const target = reg.agents.get(targetId);
         if (
@@ -143,7 +116,6 @@ export async function closeDescendantTree(reg: AgentRegistry, callerId: string, 
         }
     }
 
-/** Release what a quiesced entry still holds and take it off the roster. */
 export async function reapClosedAgent(reg: AgentRegistry, id: string, entry: RegisteredAgentEntry): Promise<void> {
         entry.inbox?.release();
         await entry.projectExtensions?.close();
@@ -155,11 +127,8 @@ export async function reapClosedAgent(reg: AgentRegistry, id: string, entry: Reg
         }
     }
 
-/** Every live agent under `id`, deepest first. */
 export function liveDescendantsOf(reg: AgentRegistry, id: string): readonly string[] {
         const ordered: string[] = [];
-        // A corrupt header could name a parent cycle; without this the walk
-        // would never return.
         const seen = new Set<string>([id]);
         const visit = (parentId: string): void => {
             for (const [childId, entry] of reg.agents) {
@@ -433,7 +402,6 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
                 const store = await SessionStore.open(entry.store.path);
                 await reg.start(store, entry.kind, entry.eventLogPath);
             } catch {
-                // A partial trash failure can leave the session unavailable.
             }
             return "failed";
         }
@@ -499,9 +467,6 @@ export async function syncBranchContext(reg: AgentRegistry, targetId: string): P
         const cursorIndex = cursor === null
             ? -1
             : completed.findIndex((entry) => entry.id === cursor);
-        // A rewind of the primary drops the synced entry from its history, so
-        // the branch can never catch up again. It is a distinct outcome: the
-        // caller drops this branch instead of retrying against a dead cursor.
         if (cursor !== null && cursorIndex < 0) {
             return { status: "stale_cursor", turns: 0 };
         }
@@ -532,19 +497,11 @@ export async function syncBranchContext(reg: AgentRegistry, targetId: string): P
         return { status: "synced", turns };
     }
 
-/** The identity name a live session posts under, `undefined` when gone. */
 export function arcNameOf(reg: AgentRegistry, id: string): string | undefined {
         const entry = reg.agents.get(id);
         return entry?.agent.closed === false ? entry.identity?.name : undefined;
     }
 
-/**
-     * Resolves an identity `session` value to the live session it names.
-     * Matching uses the identity extension's key when one is loaded, so a
-     * purpose tail does not change addressing; a value that is not a name
-     * still resolves as a raw agent id, because entries recorded before
-     * naming carry ids.
-     */
 export function agentIdForArcSession(reg: AgentRegistry, value: string): string | undefined {
         for (const [id, entry] of reg.agents) {
             if (entry.agent.closed) {
@@ -594,9 +551,6 @@ export async function bindSessionIdentity(reg: AgentRegistry, store: SessionStor
             }
             return materializeSessionIdentity(stored.name, stored.key);
         }
-        // The append-only format forbids records after a terminal failure.
-        // Legacy failed sessions therefore remain unnamed rather than being
-        // made unreadable by an impossible migration.
         if (store.agentFailure() !== undefined) {
             return undefined;
         }
@@ -637,8 +591,7 @@ export async function claimSessionIdentityKey(reg: AgentRegistry, sessionId: str
         if (reg.unavailableIdentityKeys.has(key)) {
             return false;
         }
-        // Reserve locally before awaiting the durable claim. Concurrent
-        // creates in this host must not both offer the same candidate.
+        // Reserve locally before awaiting the durable claim. Concurrent creates in this host must not both offer the same candidate.
         reg.identityKeyOwners.set(key, sessionId);
         const reserve = reg.options.reserveSessionIdentity;
         if (reserve === undefined) {

@@ -23,21 +23,14 @@ export interface TuiTextEditorKey {
 
 export interface TuiSingleLineTextareaOptions {
     readonly id: string;
-    /**
-     * OpenTUI paints an empty field's cursor over its first placeholder cell,
-     * so every ordinary field needs a visible placeholder.
-     */
+    /** OpenTUI paints an empty field's cursor over its first placeholder cell, so every ordinary field needs a visible placeholder. */
     readonly placeholder: string;
     readonly backgroundColor?: string;
     readonly height?: number;
     readonly marginTop?: number;
 }
 
-/**
- * Vera's ordinary one-line fields use OpenTUI's editor directly. Keeping the
- * renderable native is what gives every field the composer's cursor,
- * selection, word movement, deletion, and undo behavior.
- */
+/** Vera's ordinary one-line fields use OpenTUI's editor directly. Keeping the renderable native is what gives every field the composer's cursor, selection, word movement. */
 export function createTuiSingleLineTextarea(
     renderer: RenderContext,
     options: TuiSingleLineTextareaOptions,
@@ -82,7 +75,6 @@ export function tuiTextareaKey(
     } as Parameters<TextareaRenderable["handleKeyPress"]>[0];
 }
 
-/** Insert clipboard text without allowing a one-line field to grow lines. */
 export function insertTuiSingleLinePaste(
     editor: TextareaRenderable,
     text: string,

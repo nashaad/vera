@@ -1,34 +1,4 @@
-/**
- * Every named key action in the TUI, in one table.
- *
- * Bindings used to be written wherever they were handled: raw byte parsing for
- * ctrl+c and ctrl+p, the global keypress handler, a `key.ctrl && key.name` test
- * inside each overlay, and a separate registry that only extensions could write
- * to. Nothing compared them, so a chord claimed twice was decided by whichever
- * handler happened to run first, and the hint text that told the user about it
- * was prose typed next to the handler rather than anything derived from it.
- *
- * What belongs here is a key with a name a user could look up: ctrl+p, delete,
- * shift+tab. What does not is structural input, meaning cursor movement, text
- * entry, and the enter/escape pair that every overlay reads as accept and
- * cancel. Those are not bindings anyone rebinds or forgets; putting them in the
- * table would triple it and describe the same thing in every row.
- */
 
-/**
- * Where a binding applies.
- *
- * `picker` is the shared behaviour of every settings pane, and the panes that
- * name themselves carry it too, which is how ctrl+d reaches all of them while
- * ctrl+s reaches only the model pane.
- *
- * `unfocused` is the state where no overlay is open and the composer does not
- * hold focus, so its keys cannot collide with the composer's own.
- *
- * `workspace` is live only while the side bar holds focus. It is a pane rather
- * than an overlay, so global chords still reach through it, which is what lets
- * the same key that opened the side bar close it.
- */
 export type TuiKeyScope =
     | "global"
     | "conversation"
@@ -49,7 +19,6 @@ export type TuiKeyScope =
     | "diagnostics"
     | "search";
 
-/** Every scope name, for validating one that arrived from an extension. */
 export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "global",
     "conversation",
@@ -75,13 +44,6 @@ export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
         && (TUI_KEY_SCOPES as readonly string[]).includes(value);
 }
 
-/**
- * The scopes that only exist while an overlay owns the screen.
- *
- * An extension's chord stands down for as long as one is open, so a binding an
- * extension owns is not reachable here and cannot collide with what the
- * overlay claims.
- */
 const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
@@ -98,7 +60,6 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "search",
 ];
 
-/** The panes that inherit every `picker` binding on top of their own. */
 const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
@@ -106,7 +67,6 @@ const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "session_picker",
 ];
 
-/** Half-page movement only: the workspace list uses the same chords. */
 const HALF_PAGE_IDS: ReadonlySet<string> = new Set([
     "half_page_down",
     "half_page_up",
@@ -114,68 +74,22 @@ const HALF_PAGE_IDS: ReadonlySet<string> = new Set([
 
 export interface TuiBinding {
     readonly id: string;
-    /** Chords in the `ctrl+shift+name` form that `tuiChord` produces. */
     readonly keys: readonly string[];
     readonly scope: TuiKeyScope;
-    /** What it does, in the words the help pane uses. */
     readonly description: string;
-    /** How it is written on screen, when a surface shows it. */
     readonly hint?: string;
-    /**
-     * Fires with any extra modifier attached, rather than only on the exact
-     * chord.
-     *
-     * Set on the escape hatches and nothing else. A terminal that delivers ESC
-     * immediately before ctrl+c reports the pair as meta+ctrl+c, and a quit key
-     * that depends on how quickly the two bytes arrived is not a quit key.
-     */
     readonly anyModifiers?: true;
-    /** A broader binding this surface intentionally replaces while it is open. */
     readonly overrides?: readonly string[];
-    /**
-     * The extension that owns this chord, when one does.
-     *
-     * Two of Vera's own keys are implemented as bundled extensions, on purpose:
-     * they exercise the same public API a user's extension gets. Listing them
-     * here is what keeps the table a complete answer to "what is this key", and
-     * the id is what stops the conflict check from reporting them against
-     * themselves.
-     */
     readonly extensionId?: string;
-    /**
-     * Whether a user may move this chord in `tui.json`.
-     *
-     * True on picker-opening ids and on movement inside a picker, and nowhere
-     * else. Interrupt, enter, escape, cursor movement, text entry and every
-     * binding that changes state without showing a picker stay where they are:
-     * a remappable silent-state key is how blind cycling gets rebuilt.
-     */
     readonly remappable?: boolean;
 }
 
-/** A chord collision between two bindings that can both be reached at once. */
 export interface TuiKeymapConflict {
     readonly chord: string;
     readonly left: string;
     readonly right: string;
 }
 
-/**
- * A bare digit, and only while the side bar holds focus.
- *
- * A terminal reports ctrl+<digit> as a distinct chord only under the kitty
- * keyboard protocol or modifyOtherKeys. Elsewhere it sends a byte that names a
- * different key: ctrl+3 arrives as escape, ctrl+8 as backspace, ctrl+1 as the
- * bare digit. A bare digit is reported the same way everywhere, and scoping it
- * to the side bar is what keeps it text in the composer.
- *
- * The numbers are positional. They address the top nine visible rows and churn
- * as the list reorders; arrow keys and the mouse are how a row is picked.
- *
- * One binding per row rather than one binding holding nine chords: a single row
- * would be written into the help card as its nine chords joined together, which
- * is wider than the card's key column.
- */
 const WORKSPACE_JUMP_BINDINGS: readonly TuiBinding[] = Array.from(
     { length: 9 },
     (_unused, index): TuiBinding => {
@@ -189,7 +103,6 @@ const WORKSPACE_JUMP_BINDINGS: readonly TuiBinding[] = Array.from(
     },
 );
 
-/** Every id `WORKSPACE_JUMP_BINDINGS` declares, in list order. */
 export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
     .map((binding) => binding.id);
 
@@ -233,9 +146,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "cycle-agent-layout",
     },
     {
-        // Cycles panes rather than agents, so a side bar joins this cycle
-        // instead of claiming a key of its own. Two stops with one column
-        // open, three with both.
         id: "switch_pane",
         keys: ["ctrl+g"],
         scope: "global",
@@ -244,10 +154,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "switch-agent-pane",
     },
     {
-        // Every terminal reports ctrl+e, so the side bar is reachable without
-        // the kitty keyboard protocol. `open_providers` also names ctrl+e, in
-        // the model picker's scope, which is live only while that overlay owns
-        // the screen.
+        // Every terminal reports ctrl+e, so the side bar is reachable without the kitty keyboard protocol.
         id: "toggle_workspace_sidebar",
         keys: ["ctrl+e"],
         scope: "global",
@@ -255,7 +162,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+e agent sidebar",
     },
     {
-        // Only the kitty-protocol encoding is bound. Plain ctrl+[ is Escape.
         id: "cycle_live_session_prev",
         keys: ["ctrl+shift+[", "ctrl+shift+{", "ctrl+{"],
         scope: "global",
@@ -263,8 +169,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+shift+[ prev session",
     },
     {
-        // Only the kitty-protocol encoding is bound. Plain ctrl+] is a
-        // terminal group-end in some emulators.
         id: "cycle_live_session_next",
         keys: ["ctrl+shift+]", "ctrl+shift+}", "ctrl+}"],
         scope: "global",
@@ -273,8 +177,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     ...WORKSPACE_JUMP_BINDINGS,
     {
-        // A pin is a sort key, not a mode, and it is client state: it orders
-        // one person's own list and never reaches the host.
         id: "toggle_workspace_pin",
         keys: ["p"],
         scope: "workspace",
@@ -296,8 +198,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         remappable: true,
     },
     {
-        // A chord rather than a letter: the rail holds the focus while home
-        // is on screen, where a bare key is the first character of a message.
         id: "workspace_resume_picker",
         keys: ["ctrl+r"],
         scope: "workspace",
@@ -324,9 +224,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "conversation",
         description: "Scroll the transcript down one line",
     },
-    // Ctrl-D/U are the familiar half-page transcript movement keys. The
-    // shifted letter aliases remain for terminals using the kitty keyboard
-    // protocol, while the arrow bindings work everywhere.
+    // Ctrl-D/U are the familiar half-page transcript movement keys. The shifted letter aliases remain for terminals using the kitty keyboard protocol, while the arrow bindings work.
     {
         id: "scroll_half_page_up",
         keys: ["ctrl+shift+up", "ctrl+shift+u", "ctrl+u"],
@@ -341,10 +239,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "jump_to_bottom",
-        // ctrl+shift+g reads as vim's G, and carries the same kitty-protocol
-        // caveat as the half-page chords above. ctrl+end is the chord an
-        // external keyboard has a key for, and the hint names it because it is
-        // the one that works everywhere.
         keys: ["ctrl+end", "ctrl+shift+g"],
         scope: "conversation",
         description: "Follow the transcript from the bottom again",
@@ -360,10 +254,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "search_sessions",
-        // Only the kitty-protocol encoding carries the shift. Elsewhere it
-        // arrives as plain ctrl+f, which opens the same pane on the
-        // conversation, and ctrl+w widens it from there: the narrower thing
-        // opens and one key reaches the wider one.
         keys: ["ctrl+shift+f"],
         scope: "global",
         description: "Search every session",
@@ -372,9 +262,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "open_model_picker",
-        // Only the kitty-protocol encoding of ctrl+shift+m is bound. Plain
-        // ctrl+m is byte-identical to Enter, so binding it would take the
-        // submit key.
         keys: ["ctrl+shift+m"],
         scope: "global",
         description: "Open the model picker",
@@ -383,9 +270,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "jump.open",
-        // Only the kitty-protocol encoding of ctrl+shift+j is bound. Plain
-        // ctrl+j is byte-identical to Enter's line feed, so binding it would
-        // take the submit key.
         keys: ["ctrl+shift+j"],
         scope: "global",
         description: "Open the jump menu: back, needs you, parent and children",
@@ -402,17 +286,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "dials.open",
-        // Ghostty and tmux commonly emit the dedicated backtab name instead
-        // of a tab event carrying shift.
         keys: ["shift+tab", "backtab"],
         scope: "global",
         description: "Open the dial strip: model and reasoning effort",
         hint: "shift+tab HUD",
         remappable: true,
     },
-    // Movement inside the strip. Remappable, because a strip is a picker and
-    // its movement is the movement of a picker; commit and cancel are not,
-    // because enter and escape are structural everywhere in the TUI.
     {
         id: "dials.pair.prev",
         keys: ["left"],
@@ -544,13 +423,9 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Connect or disconnect a provider",
         hint: "^e providers",
-        // The picker owns ctrl+e for as long as it is open, so the side bar
-        // toggle is out of reach rather than ambiguous.
         overrides: ["toggle_workspace_sidebar"],
     },
     {
-        // Connect-pane only, like `forget_provider`. `ctrl+n` already names a
-        // pool entry in this scope, so the shifted chord carries the new row.
         id: "declare_provider",
         keys: ["ctrl+shift+n"],
         scope: "model_picker",
@@ -558,9 +433,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^⇧n declare",
     },
     {
-        // Connect-pane only. Unshifted, because a terminal outside the kitty
-        // keyboard protocol never reports the shift on a ctrl+letter chord,
-        // and this is the only way to reach a provider's host.
         id: "edit_endpoint",
         keys: ["ctrl+r"],
         scope: "model_picker",
@@ -568,8 +440,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^r endpoint",
     },
     {
-        // The connect pane's rows are the only ones this acts on, so the model
-        // list ignores it rather than binding a second meaning to the key.
         id: "forget_provider",
         keys: ["delete"],
         scope: "model_picker",
@@ -642,14 +512,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "tab field",
     },
     {
-        // Terminals disagree on shift+tab: some report the shifted name, some
-        // send the dedicated backtab key.
         id: "previous_form_field",
         keys: ["shift+tab", "backtab"],
         scope: "provider_form",
         description: "Move to the previous field",
-        // The form owns shift+tab while it is open, the way the model picker
-        // does. The strip is unreachable from inside an overlay anyway.
         overrides: ["dials.open"],
     },
     {
@@ -657,9 +523,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["delete", "backspace"],
         scope: "preferences_list",
         description: "Revoke the selected grant or preference",
-        // Carries the surface's own bracket chrome: a hint is the literal text
-        // shown, so a surface that changes how it writes keys changes one row
-        // here rather than drifting from it.
         hint: "[del] remove",
     },
     {
@@ -699,8 +562,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "switch_diagnostics_scope",
-        // Terminals disagree on shift+tab: some report the shifted name, some
-        // send the dedicated backtab key.
         keys: ["tab", "shift+tab", "backtab"],
         scope: "diagnostics",
         description: "Show this session's diagnostics or the whole host's",
@@ -716,27 +577,16 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
 ];
 
-/**
- * The table as it stands after the merge in `keybindings.ts`.
- *
- * `TUI_KEYMAP` is the defaults; this is what the running TUI actually
- * dispatches, hints and documents. Holding it in one place is what keeps the
- * help pane from describing a chord the user moved: every reader below goes
- * through here rather than through the constant.
- */
 let ACTIVE_KEYMAP: readonly TuiBinding[] = TUI_KEYMAP;
 
-/** Put the merged, overlaid table in force. Called once at TUI startup. */
 export function installTuiKeymap(bindings: readonly TuiBinding[]): void {
     ACTIVE_KEYMAP = bindings;
 }
 
-/** The table in force, defaults included. */
 export function activeTuiKeymap(): readonly TuiBinding[] {
     return ACTIVE_KEYMAP;
 }
 
-/** The shape every key handler in the TUI already receives, in some form. */
 export interface TuiChordKey {
     readonly name: string;
     readonly ctrl?: boolean;
@@ -747,28 +597,18 @@ export interface TuiChordKey {
     readonly hyper?: boolean;
 }
 
-/**
- * The chord a key event names, or nothing when it carries a modifier the TUI
- * does not bind.
- *
- * Meta, option, super and hyper are excluded rather than encoded: a terminal
- * reports them inconsistently across platforms and emulators, so binding one
- * would work for some users and silently not for others.
- */
 export function tuiChord(key: TuiChordKey): string | undefined {
     return key.meta || key.option || key.super || key.hyper
         ? undefined
         : coreChord(key);
 }
 
-/** Whether the platform's Command/Super-Delete chord should clear the draft. */
 export function isTuiComposerClearKey(key: TuiChordKey): boolean {
     return key.option !== true
         && (key.meta === true || key.super === true)
         && (key.name === "delete" || key.name === "backspace");
 }
 
-/** The word-delete direction used by the focused composer. */
 export function tuiComposerWordDeleteDirection(
     key: TuiChordKey,
 ): "backward" | "forward" | undefined {
@@ -778,12 +618,10 @@ export function tuiComposerWordDeleteDirection(
     return undefined;
 }
 
-/** Backtab is how tmux and some terminals report Shift+Tab. */
 export function isTuiDialTabKey(key: TuiChordKey): boolean {
     return key.name === "tab" || key.name === "backtab";
 }
 
-/** The chord with the modifiers the TUI does not bind stripped rather than refused. */
 function coreChord(key: TuiChordKey): string {
     return [
         ...(key.ctrl ? ["ctrl"] : []),
@@ -792,13 +630,6 @@ function coreChord(key: TuiChordKey): string {
     ].join("+");
 }
 
-/**
- * The binding id a key means in a scope, or nothing when it means nothing there.
- *
- * Asking the table rather than testing `key.ctrl && key.name` at the handler is
- * the whole point: the handler stops being a place a chord can be claimed
- * without anything else knowing.
- */
 export function tuiBindingId(
     scope: TuiKeyScope,
     key: TuiChordKey,
@@ -816,36 +647,19 @@ export function tuiBindingId(
         ?? matches[0]?.id;
 }
 
-/** How a binding is written on screen, empty when it is not shown anywhere. */
 export function tuiKeyHint(id: string): string {
     return ACTIVE_KEYMAP.find((binding) => binding.id === id)?.hint ?? "";
 }
 
-/**
- * A binding's chord on its own, without the label a footer hint carries.
- *
- * Prose names a key mid-sentence, where "^n name" would read as two words of
- * the sentence rather than as one chord, so this returns the chord the way the
- * table spells it.
- */
 export function tuiKeyChord(id: string): string {
     return ACTIVE_KEYMAP.find((binding) => binding.id === id)?.keys[0] ?? "";
 }
 
-/** The chords a scope has already claimed, including the ones it inherits. */
 export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {
     return ACTIVE_KEYMAP.filter((binding) => appliesIn(binding, scope))
         .flatMap((binding) => binding.keys);
 }
 
-/**
- * The binding that already owns a chord in a scope, or nothing when it is free.
- *
- * Extensions register their own bindings at runtime, and this is what tells
- * them a chord is taken. Losing that race used to be invisible: an extension
- * claiming ctrl+p simply never fired, because the raw parser reads that chord
- * before the registry is ever consulted.
- */
 export function tuiChordOwner(
     chord: string,
     scope: TuiKeyScope = "global",
@@ -855,13 +669,6 @@ export function tuiChordOwner(
     );
 }
 
-/**
- * Two bindings claiming one chord where both can be reached.
- *
- * Held as a function over the table rather than checked once at load so a test
- * can state the invariant, and so the same comparison serves an extension
- * asking whether its chord is free.
- */
 export function tuiKeymapConflicts(
     bindings: readonly TuiBinding[] = TUI_KEYMAP,
 ): readonly string[] {
@@ -869,12 +676,6 @@ export function tuiKeymapConflicts(
         .map(({ chord, left, right }) => `${chord}: ${left} and ${right}`);
 }
 
-/**
- * The same comparison, kept in the form the overlay validator needs.
- *
- * Startup has to name both sides of a collision and then drop the user entries
- * involved, which it cannot do from a formatted string.
- */
 export function tuiKeymapConflictPairs(
     bindings: readonly TuiBinding[] = TUI_KEYMAP,
 ): readonly TuiKeymapConflict[] {
@@ -907,13 +708,11 @@ export function tuiKeymapConflictPairs(
     return conflicts;
 }
 
-/** Whether the first binding is one the second's scope silences outright. */
 function standsDownFor(binding: TuiBinding, other: TuiBinding): boolean {
     return binding.extensionId !== undefined
         && OVERLAY_SCOPES.includes(other.scope);
 }
 
-/** Whether a binding is reachable in a scope, by its own scope or by descent. */
 function appliesIn(binding: TuiBinding, scope: TuiKeyScope): boolean {
     if (binding.scope === scope) {
         return true;
@@ -921,21 +720,16 @@ function appliesIn(binding: TuiBinding, scope: TuiKeyScope): boolean {
     if (binding.extensionId !== undefined && OVERLAY_SCOPES.includes(scope)) {
         return false;
     }
-    // Global is reachable everywhere because the global handler runs first.
     if (binding.scope === "global") {
         return true;
     }
     if (binding.scope === "picker" && PICKER_SCOPES.includes(scope)) {
         return true;
     }
-    // The workspace rail and the search pane are lists, not settings panes, so
-    // they inherit only half-page movement. Stuffing them into PICKER_SCOPES
-    // would also inherit every later picker chord.
     return HALF_PAGE_IDS.has(binding.id)
         && (scope === "workspace" || scope === "search");
 }
 
-/** Whether two scopes can be active at once, so a chord in both is ambiguous. */
 function overlaps(left: TuiKeyScope, right: TuiKeyScope): boolean {
     if (left === right || left === "global" || right === "global") {
         return true;

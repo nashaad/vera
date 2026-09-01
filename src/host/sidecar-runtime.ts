@@ -10,25 +10,11 @@ import { dirname, join, resolve } from "node:path";
 
 import type { OwnedSidecarContribution } from "../extensions/contribution-set.ts";
 
-/**
- * One supervised child process per contributed sidecar. The extension
- * contributed inert data; the host owns the process, the restarts, and the
- * log. Supervision is per sidecar: one that crash-loops never reaches
- * another, and stopping the host stops them all.
- *
- * Restart versus quarantine mirrors the watch supervisor: anything a retry
- * could fix backs off and retries; a sidecar that keeps dying stops and waits
- * for the user, because a restart loop against a broken command only hides
- * the breakage.
- */
-
 export const SIDECAR_BASE_BACKOFF_MS = 1_000;
 export const SIDECAR_MAX_BACKOFF_MS = 60_000;
-/** How long a run must last before the backoff ladder resets. */
 export const SIDECAR_HEALTHY_RUN_MS = 60_000;
 export const SIDECAR_FAILURE_WINDOW_MS = 5 * 60_000;
 export const SIDECAR_FAILURES_BEFORE_QUARANTINE = 5;
-/** How long a stop waits between SIGTERM and SIGKILL. */
 export const SIDECAR_STOP_GRACE_MS = 5_000;
 
 export type SidecarState =
@@ -69,7 +55,6 @@ const DEFAULT_TIMING: SidecarTiming = {
 
 export interface SupervisedSidecarOptions {
     readonly sidecar: OwnedSidecarContribution;
-    /** Passed to the child as VERA_SOCKET. */
     readonly socketPath: string;
     readonly logPath: string;
     readonly timing?: Partial<SidecarTiming>;
@@ -135,11 +120,6 @@ export class SupervisedSidecar {
         this.loop = this.supervise(this.controller.signal);
     }
 
-    /**
-     * Stops the child and waits for it to exit. The intent is recorded before
-     * any signal is sent, so a host-initiated stop is never logged as a
-     * crash. SIGTERM first, a bounded grace, then SIGKILL.
-     */
     async stop(): Promise<void> {
         this.stopping = true;
         this.controller?.abort();
@@ -166,10 +146,6 @@ export class SupervisedSidecar {
         this.enter("stopped");
     }
 
-    /**
-     * Wrapped whole. An unhandled rejection here would kill the task while
-     * `status()` still reported the last state it reached.
-     */
     private async supervise(signal: AbortSignal): Promise<void> {
         try {
             await this.superviseLoop(signal);
@@ -216,7 +192,6 @@ export class SupervisedSidecar {
         }
     }
 
-    /** Returns null on a clean exit, otherwise a failure description. */
     private async runChild(signal: AbortSignal): Promise<string | null> {
         const definition = this.sidecar.definition;
         const cwd = definition.cwd === undefined
@@ -267,7 +242,6 @@ export class SupervisedSidecar {
         );
     }
 
-    /** A run that lasted forgets the window as well as the ladder. */
     private resetFailureLadder(): void {
         this.consecutiveFailures = 1;
         this.failureTimes = [];
@@ -281,7 +255,6 @@ export class SupervisedSidecar {
         return this.failureTimes.length >= this.timing.failuresBeforeQuarantine;
     }
 
-    /** Exponential with full jitter, so restarts of many sidecars do not align. */
     private backoffMs(): number {
         const step = Math.min(
             this.timing.maxBackoffMs,
@@ -298,14 +271,11 @@ export class SupervisedSidecar {
         this.enterUnconditionally(state);
     }
 
-    /** The state is recorded before the listener runs, so a listener that
-     * throws cannot leave `status()` describing a state the sidecar left. */
     private enterUnconditionally(state: SidecarState): void {
         this.state = state;
         try {
             this.onStateChange(this.status());
         } catch {
-            // A status listener is a diagnostic, never part of supervision.
         }
     }
 }
@@ -380,12 +350,6 @@ interface SpawnChildOptions {
     readonly log: number;
 }
 
-/**
- * Spawns the sidecar detached, so it leads its own process group and a
- * shutdown signal reaches everything it started, not just the immediate
- * child. Killing only the direct child would orphan a `sh worker.sh`
- * grandchild, leaving it holding the log and VERA_SOCKET past host death.
- */
 function spawnChild(options: SpawnChildOptions): RunningChild {
     const [executable, ...args] = options.command;
     const child = spawn(executable as string, args, {
@@ -427,7 +391,6 @@ function spawnChild(options: SpawnChildOptions): RunningChild {
                 try {
                     child.kill(name);
                 } catch {
-                    // Already gone; the exit event settles the outcome.
                 }
             }
         },

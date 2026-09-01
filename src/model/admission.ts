@@ -1,18 +1,3 @@
-/**
- * The admission service: the one place a model earns its way into the pool.
- *
- * Tier 1 is free: whatever the provider's own listing already said, carried in
- * on the catalog model. The probes only answer what metadata cannot: does this
- * model respond on this key, which reasoning levels actually work, and does it
- * call tools. Health and compatibility never mix. A retry-shaped failure
- * (connection, timeout, server, rate limit) ends the admission as unavailable
- * with no verdict recorded; only a provider rejection the user must act on
- * records an incompatibility.
- *
- * This module knows no provider endpoints. Adapters carry the protocol
- * knowledge; the pool store carries the persistence. It consumes only the
- * `ModelAdapter` interface and the failure vocabulary.
- */
 
 import type { CatalogModel } from "./catalog-shape.ts";
 import {
@@ -44,11 +29,6 @@ const PROBE_MAX_TOKENS = 2_048;
 const PROBE_TIMEOUT_MS = 60_000;
 const PROBE_TOOL_NAME = "admission_probe";
 
-/**
- * A 1x1 PNG. The smallest input that is a real image to a provider, so the
- * answer is about whether the model takes images at all and never about the
- * picture.
- */
 const PROBE_IMAGE = Uint8Array.fromBase64(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
     + "2mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -71,7 +51,6 @@ export interface AdmissionRequest {
     readonly adapter: ModelAdapter;
     readonly provider: string;
     readonly model: string;
-    /** Tier-1 metadata from discovery; absent means everything is unknown. */
     readonly catalogModel?: CatalogModel;
     readonly checked?: "user_key" | "vera";
     readonly onStep?: (step: AdmissionStep) => void;
@@ -82,13 +61,7 @@ export interface AdmissionRequest {
 export type AdmissionVerdict =
     | {
         readonly status: "added";
-        /**
-         * Machine-concluded facts, keyed for the pool's `learned` map. The
-         * probe is Vera's own conclusion, so nothing it finds is written as a
-         * declared value.
-         */
         readonly learned: LearnedFacts;
-        /** Levels the catalog offered that this key could not use. */
         readonly droppedLevels: readonly string[];
     }
     | {
@@ -168,8 +141,6 @@ async function runAdmission(
     }
 
     if (candidates.length > 0 && verified.length === 0) {
-        // Every advertised level was rejected; the model may still work with
-        // no level named at all, entering the pool without reasoning control.
         const step = stepReporter(request, "response", "Model responds");
         const outcome = await probeText(request, undefined);
         if (outcome.kind === "incompatible") {
@@ -191,10 +162,6 @@ async function runAdmission(
     }
     toolStep("passed");
 
-    // Images are a capability, not a condition of entry: a text-only model is
-    // a perfectly good pooled model. So this step records what it found and
-    // never returns a verdict, and an outage during it leaves no image fact
-    // rather than a false one.
     const imageStep = stepReporter(request, "image", "Accepts an image");
     const imageOutcome = await probeImage(request, verified[0]);
     if (imageOutcome !== undefined) {
@@ -229,7 +196,6 @@ interface IncompatibleOutcome {
     readonly kind: "incompatible";
     readonly reason: string;
     readonly verdict: AdmissionVerdict & { readonly status: "incompatible" };
-    /** Absent when the stream ended in error without a classified failure. */
     readonly failure?: ProviderFailure;
 }
 
@@ -311,12 +277,6 @@ async function probeToolCall(
     return undefined;
 }
 
-/**
- * Undefined when nothing was learned: the provider was unreachable, or it
- * refused for a reason that never named images. Only a refusal that names the
- * capability is an answer about the capability, since the fact is written once
- * and outlives every later attempt.
- */
 async function probeImage(
     request: AdmissionRequest,
     providerEffort: string | undefined,
@@ -344,8 +304,6 @@ async function probeImage(
             }],
         });
     } catch (error) {
-        // An abort is the caller leaving, not a fact about the model, and it
-        // has to keep unwinding rather than be read as "no images".
         request.signal?.throwIfAborted();
         if (!(error instanceof AdmissionUnavailable)) {
             throw error;
@@ -355,9 +313,6 @@ async function probeImage(
     if (result.kind !== "incompatible") {
         return { ok: true };
     }
-    // Only a refusal that names images is evidence about images. Every other
-    // rejection is about the request, the key, or the upstream route, and
-    // recording one as "no images" hides a capable model for good.
     if (
         result.failure === undefined
         || classifyCapabilityRejection(result.failure)?.parameter !== "images"
@@ -372,11 +327,6 @@ interface ProbeSuccess {
     readonly message: AssistantMessage;
 }
 
-/**
- * One probe call, with one retry for retry-shaped failures. A second
- * retry-shaped failure aborts the whole admission as unavailable: an outage is
- * not a fact about the model, so nothing may be recorded from it.
- */
 async function probeOnce(
     request: AdmissionRequest,
     probe: Omit<ModelRequest, "model" | "provider" | "signal">,
@@ -477,28 +427,10 @@ function stepReporter(
 }
 
 interface ProbeCandidate {
-    /** The ladder level this probe establishes. */
     readonly level: EffortLevel;
-    /** The exact string sent to the provider for it. */
     readonly wire: string;
 }
 
-/**
- * Which levels the probe spends a call on.
- *
- * Where the catalog names levels, those are the only ones probed: a catalog
- * word that maps to no rung is skipped, because sending it earns a 400 that
- * says nothing about the model. A 2xx on a named catalog level verifies that
- * metadata against this key; it does not invent a ladder.
- *
- * Where the catalog names none, whether the model is missing entirely or
- * listed without levels, nothing is probed as a graded effort. An endpoint
- * that ignores unknown fields will 2xx every ladder word, and recording those
- * as supported fabricates a six-rung map nobody proved. The response probe
- * already covers "the model answers with no level named."
- *
- * `off` is never probed either way; it means sending no level at all.
- */
 function probeCandidates(
     catalogModel: CatalogModel | undefined,
 ): readonly ProbeCandidate[] {
@@ -513,11 +445,6 @@ function probeCandidates(
     });
 }
 
-/**
- * Maps a provider's level name onto Vera's effort ladder. A word with no rung
- * is dropped rather than carried through: an unrecognized level cannot be
- * recorded as a fact about a ladder rung.
- */
 export function ladderLevelForWire(
     providerEffort: string,
 ): EffortLevel | undefined {

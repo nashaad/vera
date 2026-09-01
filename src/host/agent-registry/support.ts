@@ -246,215 +246,90 @@ export const IMAGE_ATTACHMENT_LIMITS = {
 
 export const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
-/** How many peer messages may chain before the host stops waking anyone. */
 export const MAX_PEER_HOP = 3;
 
-/** Peer wakes one session may take inside {@link PEER_WAKE_WINDOW_MS}. */
 export const MAX_PEER_WAKES_PER_WINDOW = 6;
 
 export const PEER_WAKE_WINDOW_MS = 60_000;
 
 export interface RegisteredAgentSummary {
     readonly id: string;
-    /**
-     * The identity name this session posts under, when an identity extension
-     * minted one. Carried on the listing because a list keyed by uuid is
-     * unreadable; the id stays because it is what every other command takes.
-     */
     readonly name?: string;
     readonly workspace: string;
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
-    /**
-     * Whether anything is actually happening in this session right now.
-     *
-     * Separate from `status` because the two answer different questions. The
-     * host holds every session on disk, so `idle` means the session exists,
-     * not that it is running, and a list that showed only `status` would
-     * describe a conversation from last month exactly as it describes the one
-     * being typed into. Derived from what the host already knows about itself
-     * and recomputed on every listing, so nothing durable records it.
-     */
     readonly live: boolean;
-    /** Live process hosting this session's loop, when process mode is active. */
     readonly worker_pid?: number;
-    /** External lease supervisor paired with `worker_pid`, when active. */
     readonly supervisor_pid?: number;
     readonly title?: string;
-    /** Whether the transcript contains a non-internal user message. */
     readonly has_user_content?: boolean;
     readonly updated_at?: string;
-    /** The resident parent that launched this async subagent. */
     readonly parent_id?: string;
-    /**
-     * The session this one was branched from, absent on a session that was
-     * started rather than forked. The id alone rather than the whole header
-     * `origin`: a client threads rows by parentage, and where in the parent the
-     * branch was taken is a fact about the transcript, not about the list.
-     */
     readonly forked_from?: string;
-    /**
-     * Bytes the session transcript occupies on disk, absent when the file
-     * cannot be stat'd. Read fresh on every listing rather than tracked on
-     * append: compaction and trash rewrite the file behind the store, so a
-     * running total would drift with no event to correct it.
-     */
     readonly size_bytes?: number;
-    /** The time the session was started, from its header. */
     readonly created_at?: string;
-    /**
-     * Optional facts, present only for the names the caller passed in
-     * `include`. Absent means "not asked for, or not available"; it never
-     * means zero, so a reader must distinguish the two before summing.
-     */
     readonly facts?: SessionFacts;
 }
 
 export interface AgentRegistryOptions {
-    /**
-     * The workspace is passed alongside the provider because a project pool
-     * can name levels the user pool does not, and an adapter built without it
-     * would send a request the project's own settings do not describe. The
-     * capture sink rides along because its caps are per session, and the
-     * session is known here rather than where the host builds its adapters.
-     */
     readonly createAdapter: (
         provider?: string,
         projectRoot?: string,
         captureFailedRequest?: FailedRequestCapture,
     ) => ModelAdapter;
-    /**
-     * Where a session's failed provider requests are kept. Defaults to the
-     * per-user capture directory; a test points it somewhere it owns.
-     */
     readonly createFailedRequestCapture?: (
         sessionId: string,
     ) => FailedRequestCapture;
-    /**
-     * Tells a running agent that a provider's credentials changed, so it stops
-     * spending the key it started with. Absent in tests that never sign in.
-     */
     readonly credentialFingerprint?: (provider: string) => string | undefined;
-    /**
-     * How a worker builds its own adapter, when a session runs in one.
-     *
-     * Absent means no session runs in a worker, whatever the environment says.
-     * The owner supplies it only when the adapter it would build in process
-     * can be rebuilt from plain JSON, which is what a host with an injected
-     * adapter factory or a live model-request hook cannot promise.
-     */
     readonly workerAdapterSpec?: (context: {
         readonly provider: string;
         readonly projectRoot: string;
         readonly sessionId: string;
     }) => WorkerAdapterSpec;
-    /**
-     * How many sessions may run their loop in a separate process at once.
-     * Defaults to what the machine's memory affords. A session that would
-     * exceed it fails to start rather than running unisolated, because an
-     * unisolated session is the one that cannot be killed.
-     */
     readonly maxConcurrentWorkers?: number;
     readonly provider?: string;
-    /**
-     * Config-declared provider ids accepted alongside Vera's built-ins. Read
-     * on each call, so a provider declared mid-session is usable without a
-     * restart.
-     */
     readonly customProviderIds?: () => readonly string[];
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
     readonly maxConcurrentBackgroundAgents?: number;
     readonly modelFallback?: ModelFallbackPolicy;
-    /**
-     * Reads and writes the declarative model pool. The host owns the file; the
-     * engine only ever sees this interface.
-     *
-     * Built per agent from that agent's workspace, because the pool has a
-     * project scope: one host serves agents in different checkouts, and a
-     * single pool built at startup would apply one project's overlay to all
-     * of them.
-     */
     readonly createEffortPool?: (projectRoot: string) => EffortPool;
-    /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
-    /**
-     * Reads the current classifier binding. Hosts provide this when config can
-     * change while they run; tests and embedded callers may keep using the
-     * fixed `reviewer` value above.
-     */
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
-    /** Persists a reviewer choice. `null` clears it. */
     readonly writeReviewer?: (
         reviewer: ToolReviewerSettings | null,
     ) => void;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    /** Agents an extension registered, the lowest-precedence source. */
     readonly registeredAgents?: readonly AgentDefinition[];
-    /**
-     * How a session is named. Absent means the session has no spoken identity
-     * and shells do not get ARC_SESSION. The bundled session-identity
-     * extension supplies the default.
-     */
     readonly sessionIdentity?: SessionIdentityProvider;
-    /** Durably reserves one identity key for one session. */
     readonly reserveSessionIdentity?: (
         sessionId: string,
         key: string,
     ) => Promise<"reserved" | "owned" | "taken">;
-    /** Read live, so a change reaches a compact already in this session. */
     readonly compaction?: ResolvedCompactionProfile;
-    /** Read live, so a change reaches a compact already running in this session. */
     readonly compactionModels?: readonly VeraCatalogModel[];
-    /** Read live with the bound compaction, so a developer override takes effect without a restart. */
     readonly compactionOverrides?: CompactionOverrides;
-    /**
-     * Durable preferences, deliberately one store shared by every agent:
-     * the file is per-user, not per-session, so an allow the user persists
-     * in one agent applies in the next one without a restart.
-     */
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
-    /** Rebuilds dynamic provider rows after credentials change in this process. */
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
-    /** Host-owned discovery capability, including providers with zero rows. */
     readonly refreshableProviders?: () => readonly string[];
-    /**
-     * Asks a provider for its model list now, past whatever age the snapshot
-     * would otherwise be trusted for, and returns the replacement list.
-     * `undefined` means nothing could be asked and the remembered list stands.
-     */
+    /** Asks a provider for its model list now, past whatever age the snapshot would otherwise be trusted for, and returns the replacement list. */
     readonly refreshCatalog?: (
         provider: string,
     ) => Promise<readonly SuggestedModel[] | undefined>;
-    /**
-     * Read per settings snapshot, not once at startup: the pool changes while
-     * the host runs, so a snapshot taken when it came up would freeze the
-     * list for the life of the host.
-     */
     readonly readPool?: (projectRoot?: string) => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
-    /** Shared by every session: a failing model is a fact about the machine. */
     readonly modelFailureLedger?: ModelFailureLedger;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
-    /** Read on each snapshot so a TUI change takes effect without restart. */
     readonly contextLimit?: () => number | undefined;
     readonly updateContextLimit?: (limit: number | null) => void;
-    /** Read live, so a change reaches the next snapshot without a restart. */
     readonly developerSettings?: () => DeveloperSettings;
     readonly updateDeveloperSettings?: (patch: DeveloperSettingsPatch) => void;
-    /**
-     * Writes the pool entry for one model, and probes it first when asked.
-     * Separate from `readPool` because the two have different lifetimes:
-     * reads happen on every snapshot, admission only when the user asks.
-     * Only a verifying admission reaches the provider; a plain one is the
-     * catalog copy and never blocks on a call.
-     */
     readonly admitToPool?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
@@ -472,16 +347,11 @@ export interface AgentRegistryOptions {
     readonly removeFromPool?: (
         entry: { readonly provider: string; readonly model: string },
     ) => void;
-    /** False when the name was refused, so nothing was written. */
     readonly namePoolEntry?: (
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
         projectRoot: string,
     ) => boolean;
-    /**
-     * Moves a pool entry by `delta` places in the pool's declared order.
-     * False means nothing moved.
-     */
     readonly movePoolEntry?: (
         entry: { readonly provider: string; readonly model: string },
         delta: number,
@@ -490,17 +360,8 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
-    /** First live session in a workspace starts that workspace's sidecars. */
     readonly acquireWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    /** Last closed session in a workspace stops that workspace's sidecars. */
     readonly releaseWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    /**
-     * The extension configs a worker loads for itself, so that an extension
-     * tool runs in the process a kill lands on rather than in this one.
-     *
-     * Only read when `VERA_WORKER_EXTENSIONS=1`, because loading them twice
-     * means an extension that opens a connection opens one per session.
-     */
     readonly workerExtensions?: (
         workspace: string,
     ) => readonly VeraExtensionConfig[];
@@ -510,42 +371,19 @@ export interface AgentRegistryOptions {
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
-    /** Builds each resident agent's tool hooks; absent means none. */
     readonly createToolHooks?: () => ToolHooks;
-    /** Adds extension-owned, namespaced fields before a provider request. */
     readonly prepareModelRequest?: (
         context: { readonly sessionId: string; readonly workspace: string },
     ) => PrepareModelRequest;
-    /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
-    /**
-     * Allow/deny, the failsafe list and declared families for the subagent
-     * ladder. Read per spawn for the same reason as `readPool`: the user
-     * edits the pool file while the host runs.
-     */
     readonly readPolicy?: (projectRoot?: string) => SubagentPoolPolicy;
-    /**
-     * Where discovery snapshots are read from when resolving a model's
-     * reasoning levels; absent, the per-user cache directory.
-     */
     readonly cacheDir?: string;
-    /** Absent when the experimental inbox is off; nothing downstream re-checks. */
     readonly inboxDelivery?: InboxDeliveryCoordinator;
-    /**
-     * The actor a session's own turns write into inbox entries. Self-echo
-     * suppression matches the (actor, session) pair, so a session with no
-     * known actor suppresses nothing.
-     */
     readonly inboxActorForSession?: (agentId: string) => string | null;
 }
 
 export interface CloseAgentTreeResult {
     readonly status: "closed" | "not_found";
-    /**
-     * Whether the durable transcript is still on disk afterwards. False for an
-     * ephemeral agent, whose session directory is removed with it, so a client
-     * never offers a resume that cannot work.
-     */
     readonly sessionRetained: boolean;
 }
 
@@ -563,14 +401,9 @@ export interface CreateRegisteredAgentOptions {
     readonly workspace: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
-    /** Keep this session only for the lifetime of the resident host. */
     readonly ephemeral?: boolean;
     readonly startupProfile?: StartupProfile;
-    /**
-     * The mode this agent starts in, when it must not be the host default.
-     * It is written to the session like any other approval-mode change, so a
-     * client that resumes the session later reads it back.
-     */
+    /** The mode this agent starts in, when it must not be the host default. It is written to the session like any other approval-mode change, so a client that resumes the session later… */
     readonly approvalMode?: ApprovalMode;
 }
 
@@ -586,16 +419,11 @@ export interface BranchRegisteredAgentOptions {
     readonly id?: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
-    /** Keep the branch only for the lifetime of the resident host. */
     readonly ephemeral?: boolean;
-    /** Override the approval mode copied from the source session. */
     readonly approvalMode?: ApprovalMode;
-    /** Model-visible messages appended only to the new branch before it starts. */
     readonly initialMessages?: readonly UserMessage[];
-    /** Keep inherited model context out of the branch's local transcript. */
     readonly hideInheritedMessages?: boolean;
     readonly signal?: AbortSignal;
-    /** Keep the branch out of public lookup until `commitBranch` publishes it. */
     readonly deferPublication?: boolean;
 }
 
@@ -608,11 +436,6 @@ export type RenameSessionOutcome =
     | { readonly status: "renamed"; readonly name: string | null }
     | { readonly status: "invalid" | "busy" | "not_found" | "failed" };
 
-/**
- * The checkout a workspace belongs to, so every worktree of one project reads
- * the same project-scoped state. A directory that is not a repository resolves
- * to itself, which is an ordinary case rather than a failure.
- */
 export function resolveInstructionRoot(workspace: string): InstructionRoot {
     const remembered = instructionRoots.get(workspace);
     if (remembered !== undefined) {
@@ -623,11 +446,6 @@ export function resolveInstructionRoot(workspace: string): InstructionRoot {
     return resolved;
 }
 
-/**
- * One answer per workspace for the life of the host. Resolving spawns git, and
- * restoring the stored sessions asks the same handful of directories hundreds
- * of times: without this, the spawns alone keep the host from listening.
- */
 export const instructionRoots = new Map<string, InstructionRoot>();
 
 export function readInstructionRoot(workspace: string): InstructionRoot {
@@ -645,7 +463,6 @@ export function readInstructionRoot(workspace: string): InstructionRoot {
             };
         }
     } catch {
-        // git is not required to run a session.
     }
     return { path: workspace, source: "workspace" };
 }
@@ -885,7 +702,6 @@ export function normalizeSessionName(
         : trimmed;
 }
 
-/** Rename a durable session that has no resident agent in this host. */
 export async function renameStoredSession(
     sessionPath: string,
     name: string | null,
@@ -912,13 +728,6 @@ export interface InheritedAgentSettings {
     readonly delegation?: SessionDelegation;
 }
 
-/**
- * Whether two pairs are the same dial setting.
- *
- * Absent effort is its own value rather than a wildcard: a model with no
- * effort dial has exactly one pair, and treating "no effort" as matching any
- * effort would make the override marker wrong on every such model.
- */
 export function samePair(
     left: ModelTurnSettings,
     right: ModelTurnSettings,
@@ -928,12 +737,6 @@ export function samePair(
         && left.reasoningEffort === right.reasoningEffort;
 }
 
-/**
- * The request id a resume-time wear carries.
- *
- * Nobody asked for it, so there is no request to answer; a fixed id is what
- * lets a client tell the unsolicited update from the reply to its own /agent.
- */
 export const RESUME_WEAR_REQUEST_ID = "resume";
 
 export interface BoundSessionIdentity extends SessionIdentity {
@@ -946,51 +749,25 @@ export interface RegisteredAgentEntry {
     readonly kind: RegisteredAgentKind;
     readonly ephemeral: boolean;
     pendingPublication: boolean;
-    /**
-     * The identity this session posts and is addressed under. Minted once,
-     * persisted, and stable for the session. Changing it mid-session would
-     * break self-echo suppression on the next arc post.
-     */
     readonly identity?: BoundSessionIdentity;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath?: string;
     readonly parentId?: string;
     modelSettings: ModelTurnSettings;
-    /**
-     * The level the last settings change asked for when it had to be coerced.
-     * Held beside the settings rather than inside them because it describes
-     * the request, not the choice, and must not reach the session store. It
-     * is cleared by the next change that needs no coercion, which is what
-     * makes the client's note disappear on its own.
-     */
+    /** The level the last settings change asked for when it had to be coerced. Held beside the settings rather than inside them because it describes the request, not the choice, and mu… */
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
-    /**
-     * The agent this session is wearing, resolved when it went on. Undefined
-     * is the virtual `default`: every tool, every skill, the host's posture.
-     */
     agentWear?: AgentWearSnapshot;
     inbound?: InboundCommandRouter;
-    /** Answers host-owned commands while this session's loop is in a worker. */
     workerOwnerRouter?: InboundCommandRouter;
-    /** The services the loop was built from, re-read to push owner state. */
     loopServices?: RunHeadlessLoopServices;
-    /** Last source entry incorporated after this branch was created. */
     syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
-    /**
-     * How many peer messages deep the work in this session is. A message sent
-     * while running at hop N arrives at hop N + 1, and a client prompt puts it
-     * back to zero, so two agents cannot keep each other awake forever.
-     */
     peerHop: number;
-    /** Epoch milliseconds of the peer messages that woke this session. */
     peerWakes: number[];
     run: Promise<void>;
-    /** The process running this session's loop, when it runs in one. */
     worker?: WorkerHandle;
-    /** Project extensions loaded for this session's workspace. */
     projectExtensions?: ExtensionRegistry;
     completed: boolean;
     pendingAsyncTurns: number;

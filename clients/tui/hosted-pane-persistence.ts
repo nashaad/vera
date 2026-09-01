@@ -38,7 +38,6 @@ export interface TuiHostedPaneSnapshot {
     readonly attachmentLifetime: "ephemeral" | "durable";
 }
 
-/** Persists the durable relationship between the two visible agent panes. */
 export class TuiHostedPanePersistence {
     private groupsValue: readonly TuiSharedSessionGroup[];
     private readonly saveGroups: NonNullable<
@@ -91,7 +90,6 @@ export class TuiHostedPanePersistence {
                     },
             );
         } catch {
-            // UI preference writes cannot prevent an attachment.
         }
     }
 
@@ -100,7 +98,6 @@ export class TuiHostedPanePersistence {
         try {
             this.savePane(mainAgentId, undefined);
         } catch {
-            // Preference cleanup cannot block closing a pane.
         }
     }
 

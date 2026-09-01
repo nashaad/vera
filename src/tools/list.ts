@@ -68,11 +68,6 @@ export const listTool: RegisteredTool = {
     },
 };
 
-/**
- * A recursive scan of a large tree can run to tens of thousands of entries, so
- * the window is capped and its bounds are stated. Without this the tool is a
- * context-flooding hazard and the model learns to avoid it.
- */
 function formatEntries(
     paths: readonly string[],
     maxResults: number,

@@ -21,10 +21,6 @@ export interface ReleaseReference {
     readonly reason: ReleaseReferenceReason;
 }
 
-/**
- * Builds rollback must be able to restore. The pin is the `rollback`
- * symlink next to `current`. Not a locator and not a search.
- */
 export function rollbackProtectedBuildIds(
     prefix = defaultInstallPrefix(),
 ): readonly string[] {
@@ -32,12 +28,6 @@ export function rollbackProtectedBuildIds(
     return buildId === undefined ? [] : [buildId];
 }
 
-/**
- * Every build that must stay on disk. The set is the policy: activated
- * current, a live host, an in-flight upgrade journal if one is present,
- * and the rollback pin. There is no keep-N count. A number would hide a
- * missing reference.
- */
 export function listReleaseReferences(
     prefix = defaultInstallPrefix(),
 ): readonly ReleaseReference[] {
@@ -85,12 +75,7 @@ export function referenceReasons(
         .map((item) => item.reason);
 }
 
-/**
- * File-only read of host.json. GC must not handshake: a wedged host still
- * uses its release, and a hang would block the one command that should
- * leave that release alone. A pid that cannot be inspected is treated as
- * live, because unknown is not evidence the host is gone.
- */
+/** File-only read of host.json. GC must not handshake: a wedged host still uses its release, and a hang would block the one command that should leave that release alone. */
 function liveHostBuildId(
     lockPath: string = defaultHostLockPath(),
 ): string | undefined {

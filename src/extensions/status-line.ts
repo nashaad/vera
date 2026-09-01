@@ -1,10 +1,3 @@
-/**
- * The status line's extension surface speaks in semantic segments, never in
- * finished strings. An extension says which fact a segment carries; each
- * client decides the wording, order on screen, truncation, and colour. A
- * client that renders a kind it does not know skips it rather than inventing
- * text for it.
- */
 
 export const STATUS_LINE_SNAPSHOT_VERSION = 1;
 
@@ -18,18 +11,10 @@ export interface StatusLineModelFacts {
 
 export interface StatusLineContextFacts {
     readonly tokens: number;
-    /** Absent while the model's window is unknown, so no share can be shown. */
     readonly capacity?: number;
-    /** True while Vera is counting characters instead of provider totals. */
     readonly estimated: boolean;
 }
 
-/**
- * Everything the client knows when the status line repaints. The renderer is
- * called with this and returns segments; there is no push channel and no
- * subscription, so a renderer never holds state the client has already moved
- * past.
- */
 export interface StatusLineSnapshot {
     readonly version: typeof STATUS_LINE_SNAPSHOT_VERSION;
     readonly turn: StatusLineTurnState;
@@ -74,11 +59,7 @@ export interface TurnStatusSegment {
     readonly state: StatusLineTurnState;
 }
 
-/**
- * The escape hatch for a fact Vera has no vocabulary for. The text is the
- * extension's own words, so a client may shorten or drop it, but it must not
- * be used to hand-format facts that already have a kind.
- */
+/** The escape hatch for a fact Vera has no vocabulary for. The text is the extension's own words, so a client may shorten or drop it, but it must not be used to hand-format facts. */
 export interface NoteStatusSegment {
     readonly kind: "free_note";
     readonly text: string;
@@ -96,11 +77,6 @@ export type StatusLineSegment =
 
 export const MAX_STATUS_LINE_SEGMENTS = 16;
 
-/**
- * Strict on purpose. A renderer runs inside the repaint, so garbage cannot be
- * repaired later: anything that does not parse makes the whole return value
- * invalid and the client falls back to its own rendering.
- */
 export function parseStatusLineSegments(
     value: unknown,
 ): readonly StatusLineSegment[] | undefined {

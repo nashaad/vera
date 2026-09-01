@@ -33,16 +33,8 @@ export function renderStatus(rt: TuiRuntime): void {
     const sideState = rt.hostedSidebar.pane?.state.state;
     const paneHeadersVisible = !anyOverlayOpen(rt);
     const sideWidth = rt.sidebar.width();
-    // The renderer still reports the whole terminal once the workspace
-    // rail has reserved its left side (see `tuiCommandSuggestionWidth`'s
-    // note above), so the HUD and status rows below the composer have to
-    // come out of the same budget or their content overruns the box the
-    // rail already narrowed them to.
     const railInset = rt.workspaceSidebarView.railColumns() ?? 0;
     const mainWidth = Math.max(1, rt.renderer.width - sideWidth - 1);
-    // Beside a second pane the row names each one, because the point of the
-    // row is telling the two columns apart. Alone it carries the session
-    // title, which is the only thing left worth putting there.
     rt.sidebar.setMainHeader(!paneHeadersVisible || !rt.mainHeaderVisible
         ? undefined
         : rt.hostedSidebar.pane !== undefined
@@ -213,8 +205,6 @@ export function renderStatus(rt: TuiRuntime): void {
                 "/permissions for more",
             ].join(" · "),
             dialWidth,
-            // A hidden-model ellipsis already spends the next row. Let an
-            // actual model use that row when the full composition fits.
             Math.max(3, Math.min(DIAL_HUD_CAP, rt.renderer.height - 22)),
         );
     rt.dialCard.visible = stripLines !== undefined;
@@ -276,9 +266,6 @@ export function renderStatus(rt: TuiRuntime): void {
     rt.activityHintText.content = activityHint;
     rt.activityHintText.visible = rt.statusText.visible
         && activityHint.length > 0;
-    // Pull on repaint: the renderer is handed the snapshot and answers
-    // synchronously, or it does not answer at all. Nothing here waits on
-    // an extension, and a renderer that fails leaves the built-in line.
     const extensionSegments = rt.clientExtensionRegistry?.renderStatusLine(
         tuiStatusSnapshot(
             statusState.modelSettings,
@@ -309,8 +296,6 @@ export function renderStatus(rt: TuiRuntime): void {
                 rt.hostedSidebar.pane === undefined,
                 rt.workspaceBranch.current(),
                 {
-                    // `*` reads off the recorded origin, so dialling back
-                    // to the default clears it on every path.
                     pairOverridden:
                         statusState.modelSettingsOrigin === "user",
                     ...(statusState.agent === undefined
@@ -337,8 +322,6 @@ export function renderStatus(rt: TuiRuntime): void {
                         ),
                 ),
             }]];
-    // Hosted-pane controls live at the bottom right beside the workspace
-    // row. The activity row above can then change without hiding them.
     const detailsRows = statusDetailsRows;
     const runningNames = rt.runningBackgroundAgentNames.map((name) =>
         truncateFooterLine(
@@ -346,8 +329,6 @@ export function renderStatus(rt: TuiRuntime): void {
             Math.min(72, rt.renderer.width - rt.composerHorizontalInset - railInset),
         )
     );
-    // The card's own inner width, past the band's indent, its border and
-    // its padding: notices and rules stop at the same right edge.
     const cardWidth = Math.max(
         1,
         rt.renderer.width - rt.composerHorizontalInset - railInset,
@@ -385,10 +366,6 @@ export function renderStatus(rt: TuiRuntime): void {
         );
     const rule = (glyph: string) =>
         fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
-    // The first row says what the session is answering as, and it lives
-    // inside the composer's frame: it is a property of the thing being
-    // typed into. What is left describes where the session is, and reads
-    // under the frame.
     const insideRow = detailsRows[0] ?? [];
     const outsideRows = detailsRows.slice(1);
     rt.composerStatusText.content = new StyledText(
@@ -405,8 +382,6 @@ export function renderStatus(rt: TuiRuntime): void {
             : [fg(TUI_MUTED)("\n"), rule("─")]),
     ]);
     rt.backgroundStatusText.content = new StyledText(detailChunks);
-    // Text nodes lay their content out from column zero, so the notice
-    // carries the indent the band gets as padding.
     const noticeIndent = " ".repeat(rt.composerContentIndent);
     rt.agentNoticeText.content = nudgeIndicator === undefined &&
             agentSection.length === 0
@@ -443,19 +418,11 @@ export function renderStatus(rt: TuiRuntime): void {
         (nudgeIndicator === undefined ? 0 : 1);
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
-    // A rule separates each pair of status rows under the frame.
     const cardRows = Math.max(1, outsideRows.length * 2 - 1);
     rt.backgroundStatusText.height = cardRows;
-    // The band's own rows, which the composer sits straight on top of with
-    // no gutter of its own: the card, its border lines, and whichever
-    // status lines are showing above it. Nothing here varies, so the
-    // composer keeps one height off the foot of the screen.
     setComposerMargin(rt, 
         cardRows + 1,
     );
-    // The HUD and the model picker are named here because nothing else on
-    // screen names them. The rail is named too while it is closed, for the
-    // same reason: once it is open it advertises its own chords.
     const quietHint = [
         fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
         fg(TUI_ACCENT)("HUD"),
@@ -479,8 +446,6 @@ export function renderStatus(rt: TuiRuntime): void {
             statusLine,
             {
                 active: TUI_ACCENT,
-                // ActiveGrid has its own theme role instead of borrowing
-                // the success color.
                 trail: rt.activityAnimation === "shimmer"
                     ? TUI_ELEMENT
                     : rt.theme.activityTrail,

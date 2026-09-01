@@ -39,10 +39,6 @@ interface PackedAnnexAssets {
     readonly css: string;
 }
 
-/**
- * Loopback HTTP for the annex. Binds 127.0.0.1 only. `/usage` is the first
- * page; later pages join the route table here, not in the host.
- */
 export async function startAnnexServer(
     options: StartAnnexServerOptions,
 ): Promise<AnnexServer> {

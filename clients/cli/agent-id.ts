@@ -2,9 +2,7 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 
 export interface ResolvedAgentId {
     readonly status: "resolved";
-    /** The full id every host request takes. */
     readonly id: string;
-    /** What the listing shows for it, which is what the operator typed. */
     readonly label: string;
 }
 
@@ -15,18 +13,6 @@ export interface AmbiguousAgentId {
 
 export type AgentIdResolution = ResolvedAgentId | AmbiguousAgentId;
 
-/**
- * Turn what `vera ls` prints into the id the host answers to.
- *
- * The listing's AGENT column is the identity name when a session has one, so an
- * operator who copies a row hands us `slug:hex4`, which is not an id and does
- * not even pass the id character guard. A uuid prefix is accepted for the same
- * reason: nothing on screen is the whole uuid.
- *
- * An input that matches nothing is passed through unchanged rather than
- * refused here, so a stored session the live listing cannot see still resolves,
- * and an id nobody has ever used still reaches the host's `not_found`.
- */
 export function resolveAgentIdentifier(
     input: string,
     agents: readonly RegisteredAgentSummary[],

@@ -12,46 +12,14 @@ export type PreimageRecorder = (
 
 export class ToolRuntime {
     readonly workspace: string;
-    /**
-     * The directory project-scoped state is keyed on. Equal to the workspace
-     * unless the owner resolved a repository root for it.
-     */
     readonly instructionRoot: string;
-    /** Where captured pre-images land, for messages that point at them. */
     readonly stashDirectory: string | undefined;
-    /**
-     * Extra variables layered over the inherited environment in every shell
-     * this session's tools spawn. The owner chooses the variables; the tools
-     * layer only carries them.
-     */
     readonly env: Readonly<Record<string, string>> | undefined;
-    /** Live shell processes owned by this session and no other. */
     readonly processes: ManagedProcessScope;
-    /**
-     * The skills the worn agent may reach, or `undefined` for all of them.
-     *
-     * Set on the runtime rather than passed per call because the gate is a
-     * property of the session, not of the invocation: `skill_script` has to
-     * refuse a skill the catalog never showed, however it was named.
-     */
     allowedSkills: readonly string[] | undefined;
-    /**
-     * The skill a trusted user slash command invoked for this turn.
-     *
-     * Reset at every turn boundary. Prompt text never sets it, so a model or
-     * parent agent cannot mint the authority by spelling a command.
-     */
     userInvokedSkill: string | undefined;
-    /**
-     * True for a runtime built for a spawned subagent, set once at
-     * construction and never from anything a prompt says. Invoke-only skills
-     * refuse outright when this is true; top-level turns additionally require
-     * `userInvokedSkill` from the trusted client-command path.
-     */
     readonly isSubagent: boolean;
-    /** Durable session provenance, never inferred from prompt text. */
     readonly invocation: "top_level" | "subagent";
-    /** The tools the worn agent may call, or `undefined` for all of them. */
     allowedTools: readonly string[] | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
@@ -91,10 +59,6 @@ export class ToolRuntime {
         this.fileSnapshots.set(path, content);
     }
 
-    /**
-     * Preserves a file's contents before its first mutation. Failures never
-     * block the mutation itself: the stash is a recovery aid, not a gate.
-     */
     async stashPreimage(path: string, content: string): Promise<void> {
         if (this.preimageRecorder === undefined) {
             return;

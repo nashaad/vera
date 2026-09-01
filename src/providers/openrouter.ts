@@ -40,22 +40,13 @@ export type { SendOpenRouterChat } from "./openrouter-wire.ts";
 
 export interface OpenRouterAdapterOptions {
     readonly apiKey: string;
-    /** Where requests go, when it is not the endpoint the SDK ships with. */
     readonly baseUrl?: string;
     readonly reasoningMappings?: ReadonlyMap<
         string,
         ReadonlyMap<ModelReasoningEffort, string>
     >;
-    /**
-     * The model's levels, as resolved by whoever owns that data. Supplied as a
-     * callback so this layer never reads a pool file or a catalog itself. When
-     * it answers, its answer is the one the request uses; only a model it has
-     * nothing for falls back to a live lookup.
-     */
     readonly effortLevels?: EffortLevelsLookup;
-    /** The model's image support, resolved by whoever owns that data. */
     readonly imageSupport?: ImageSupportLookup;
-    /** Where a failed request is kept. Absent keeps nothing. */
     readonly captureFailedRequest?: FailedRequestCapture;
     readonly allowanceGuard?: OpenRouterAllowanceGuard;
     readonly allowanceScope?: string;
@@ -115,8 +106,6 @@ export class OpenRouterAdapter implements ModelAdapter {
         };
         const decoder = new OpenRouterStreamDecoder(source, stream);
         stream.push({ type: "start" });
-        // Held by reference and never encoded unless the request fails, so a
-        // turn that works pays two array writes and nothing else.
         const rawChunks: unknown[] = [];
         let rawTruncated = false;
         let sentRequest: unknown;
@@ -289,8 +278,6 @@ export class OpenRouterAdapter implements ModelAdapter {
                         kind: "unknown",
                         resolution: "retry",
                         message: `Provider ${this.profile.provider} returned no visible response or structured tool call`,
-                        // No complete tool call was accepted, so this attempt
-                        // cannot have caused a tool side effect.
                         partialOutputReplaceable: true,
                     };
                     const path = capture("empty_response", {
@@ -344,8 +331,6 @@ export class OpenRouterAdapter implements ModelAdapter {
                 );
             }
             const stopReason = request.signal?.aborted ? "aborted" : "error";
-            // An abort is the user's own doing, not a provider failure, so it
-            // writes nothing.
             const path = stopReason === "aborted"
                 ? undefined
                 : capture("provider_error", {
@@ -388,7 +373,6 @@ export function createOpenRouterAdapter(
                         ? {}
                         : {
                             reasoning: {
-                                // Model metadata can advertise effort names newer than the SDK.
                                 effort: request.reasoning.effort as ChatRequestEffort,
                             },
                         }),
@@ -413,18 +397,8 @@ export function createOpenRouterAdapter(
     options.allowanceScope);
 }
 
-/**
- * How much of a stream is kept for a capture. The chunks that explain a
- * failure are at one end or the other, and a long answer that then fails is
- * not worth holding in full.
- */
 const MAX_CAPTURED_CHUNKS = 200;
 
-/**
- * A turn that ends with nothing to read. Reasoning alone counts as empty
- * because it is not what the client renders as the answer, which is the shape
- * a "no visible response" turn arrives in.
- */
 function isEmptyResponse(message: AssistantMessage): boolean {
     if (message.stopReason === "aborted") {
         return false;
@@ -447,7 +421,6 @@ function isReasoningOnlyStop(message: AssistantMessage): boolean {
         );
 }
 
-/** Names the capture so whoever reads the error can open the request. */
 function withCapturePath(message: string, path: string | undefined): string {
     return path === undefined ? message : `${message} (request captured at ${path})`;
 }

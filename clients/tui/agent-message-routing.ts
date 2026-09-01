@@ -3,11 +3,9 @@ import type { TuiAgentPane } from "./agent-attachments.ts";
 export interface TuiVisibleAgent {
     readonly agentId: string;
     readonly pane: TuiAgentPane;
-    /** Compatibility address from the legacy TUI path. */
     readonly mention?: string;
 }
 
-/** Experimental plain-data aliases for the two visible participants. */
 export interface TuiHostedAgentAddressing {
     readonly primary: string;
     readonly secondary: string;
@@ -22,7 +20,6 @@ export interface TuiHostedAgentAddressingOptions {
     readonly extensionMentions?: readonly string[];
 }
 
-/** Names offered by the composer for the currently visible agent surface. */
 export function visibleTuiAgentMentions(
     options: TuiHostedAgentAddressingOptions,
 ): readonly string[] {
@@ -43,7 +40,6 @@ export function visibleTuiAgentMentions(
         : [options.sidebarMention, "all", "vera"];
 }
 
-/** Effective aliases used to route messages over the visible agent surface. */
 export function resolveTuiHostedAgentAddressing(
     options: TuiHostedAgentAddressingOptions,
 ): TuiHostedAgentAddressing {
@@ -65,7 +61,6 @@ export type TuiAgentMessageRoute =
     | { readonly kind: "focus"; readonly pane: TuiAgentPane }
     | { readonly kind: "unknown"; readonly mention: string };
 
-/** Resolve one submitted message against only the two agents on screen. */
 export function routeTuiAgentMessage(
     text: string,
     focusedPane: TuiAgentPane,
@@ -106,7 +101,6 @@ export function routeTuiAgentMessage(
         : { kind: "message", text: body, targets: [target] };
 }
 
-/** Explicit compatibility for extensions that predate declarations. */
 function legacyAddressing(
     visible: readonly TuiVisibleAgent[],
 ): TuiHostedAgentAddressing {

@@ -48,9 +48,6 @@ export function requestExtensionModelSettingsUpdate(rt: TuiRuntime,
             reject(signal.reason);
         };
         signal.addEventListener("abort", onAbort, { once: true });
-        // An extension edit is a settings edit like any other: it says what
-        // it asked for while it is in flight, and a refusal names the same
-        // thing rather than leaving the user to guess what was tried.
         const subject = modelPatchSubject(patch);
         rt.requestedModelChanges.set(requestId, { subject, patch, target });
         showStatusNotice(rt, `model → ${describeModelPatch(patch)}`);
@@ -110,7 +107,6 @@ export function notifyExtensionSettings(rt: TuiRuntime,
         try {
             listener(structuredClone(settings));
         } catch {
-            // One extension listener cannot stop client updates.
         }
     }
 }
@@ -257,9 +253,6 @@ export async function loadExtensionCommands(rt: TuiRuntime): Promise<void> {
         if (generation !== rt.extensionCommandsGeneration) {
             return;
         }
-        // Extensions own their names ahead of skills. A skill catalog can
-        // arrive first on startup, so clear it before rebuilding the
-        // extension generation and request it again afterwards.
         rt.skillCatalogRequestId = undefined;
         rt.disposeSkillCommands();
         rt.disposeSkillCommands = () => {};

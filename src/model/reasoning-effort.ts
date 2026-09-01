@@ -10,29 +10,15 @@ export type ProviderReasoningEffort = string;
 
 export interface ReasoningSelection {
     readonly requested: ModelReasoningEffort;
-    // Absent means the model has no known levels: the turn runs with no
-    // level specified rather than guessing one.
     readonly providerEffort?: ProviderReasoningEffort;
-    /**
-     * The vera-side level `providerEffort` stands for, when the wire string
-     * for it is a different word. Notices speak in levels, the wire speaks in
-     * provider strings.
-     */
     readonly level?: string;
     readonly inferred: boolean;
 }
 
 export interface ResolveReasoningOptions {
     readonly fetch?: FetchRequest;
-    // The model's own level ids, most capable first. This is the seam a
-    // catalog loader (any provider) plugs a level list into without this
-    // module needing to know how that list was read.
     readonly supportedEfforts?: readonly string[];
-    // The model's own default level, used when the requested level is not
-    // one of its own. Matches `CatalogModel.default_level`.
     readonly defaultLevel?: string;
-    // The wire string for a level, when it differs from the level id. Only
-    // levels listed here are rewritten; anything else goes out as its own id.
     readonly providerEfforts?: Readonly<Record<string, string>>;
 }
 
@@ -42,22 +28,6 @@ export interface FetchRequest {
 
 const openRouterEffortRequests = new Map<string, Promise<readonly string[]>>();
 
-/**
- * Resolves what a model should actually be asked for.
- *
- * A verified catalog entry (today, OpenRouter models only) wins outright.
- * Otherwise, when the caller supplies the model's own level list through
- * `options.supportedEfforts`, that list is placed against the requested
- * level with no network call: this is the seam any future catalog loader,
- * for any provider, plugs a level list into.
- *
- * OpenRouter additionally falls back to a live discovery fetch when no
- * level list is supplied, matching its existing behaviour.
- *
- * A (provider, model) with no known level list at all is not an error: it
- * runs with no level specified, since a model can't be asked for a level it
- * has never announced.
- */
 export async function resolveReasoningSelection(
     provider: ReasoningProvider,
     model: string,
@@ -86,11 +56,6 @@ export async function resolveReasoningSelection(
         return { requested, inferred: false };
     }
 
-    // A caller that supplied the model's resolved effort map gets the same
-    // one-step rule request-time coarsening uses: the nearest supported
-    // neighbour, preferring less thinking. Placement's moderate fallback is
-    // for a level list with no map behind it, where there is no ladder
-    // position to step from.
     const efforts = options.providerEfforts;
     if (efforts !== undefined && !supportedEfforts.includes(requested)) {
         const next = coarsenOneStep(requested, efforts);
@@ -130,28 +95,6 @@ function onWire(
         };
 }
 
-/**
- * Places a requested level against a model's own level list. This never
- * throws: switching to a model whose vocabulary does not contain the
- * requested level degrades rather than failing the turn.
- *
- * The rule mirrors the level pane's own pre-highlight rule on purpose, so
- * resolution and what the user sees highlighted are the same sentence: the
- * requested level if it is valid for this model, else the model's own
- * default, else a moderate level, else no level specified.
- *
- * "Moderate" is deliberate and the fallback never lands on the top level.
- * A word this model does not know says nothing about how hard the user wants
- * it to think, and the cost of guessing wrong is asymmetric: silently
- * promoting an unrecognised level to maximum reasoning spends the user's
- * money and latency on an inference they never asked for. Providers
- * themselves suggest a middle setting as the default, so that is what an
- * unplaceable level settles on: a literal "medium" when the model has one,
- * otherwise the middle of its own ladder.
- *
- * Exported so the TUI's level pane can compute its pre-highlight by calling
- * this directly rather than re-implementing the placement rule a second time.
- */
 export function inferReasoningSelection(
     requested: ModelReasoningEffort,
     supportedDescending: readonly string[],
@@ -167,9 +110,6 @@ export function inferReasoningSelection(
         return { requested, providerEffort: defaultLevel, inferred: true };
     }
 
-    // "none" is a level a user chooses, never one they get handed by a
-    // fallback: settling someone on no reasoning at all is as wrong a guess
-    // as settling them on maximum.
     const usable = supported.filter((effort) => effort !== "none");
     if (usable.length === 0) {
         return { requested, inferred: true };
@@ -181,13 +121,6 @@ export function inferReasoningSelection(
     return { requested, providerEffort: moderate, inferred: true };
 }
 
-/**
- * The notice a placed selection owes the user, or undefined when the request
- * went out exactly as asked.
- *
- * Placement is the one point where a level can change without a provider ever
- * having refused anything, so it is the one point that has to say so.
- */
 export function effortSubstitutionNotice(
     selection: ReasoningSelection,
 ): EffortSubstitutedEvent | undefined {
@@ -259,11 +192,6 @@ async function fetchOpenRouterEfforts(
     if (Array.isArray(supportedEfforts)) {
         return uniqueNonEmptyStrings(supportedEfforts);
     }
-    // The same signal the catalog fetcher reads: OpenRouter names the effort
-    // parameter in `supported_parameters` on models whose entry carries no
-    // per-model effort vocabulary, and maps a level such a model does not
-    // implement onto one it does. The levels here match that fetcher's, so the
-    // two never disagree about which models take an effort.
     const parameters = Array.isArray(record?.supported_parameters)
         ? uniqueNonEmptyStrings(record.supported_parameters)
         : [];
@@ -273,11 +201,6 @@ async function fetchOpenRouterEfforts(
     ) {
         return ["high", "medium", "low"];
     }
-    // A model that announces no efforts has no reasoning control, which is a
-    // fact about the model rather than a failure to look it up: most of
-    // OpenRouter's list is in exactly this position. It runs with no level
-    // specified. Only the lookup itself failing is an error, and those throw
-    // above.
     return [];
 }
 

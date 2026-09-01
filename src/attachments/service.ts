@@ -114,7 +114,6 @@ function resolveSelectedPath(path: string, workspace: string): string {
     return isAbsolute(expanded) ? expanded : resolve(workspace, expanded);
 }
 
-/** Names the session's attachments, for transcripts that show what was sent. */
 export function sessionAttachmentName(
     session: SessionStore,
 ): AttachmentNameLookup {
@@ -140,15 +139,9 @@ export async function readSessionImageContent(
     };
 }
 
-/** Stands in for an image the active model has no way to read. */
 export const OMITTED_IMAGE_TEXT =
     "[image omitted: the active model does not read images]";
 
-/**
- * With `omitImages`, stored attachments become a text placeholder instead of
- * image content, so a session that collected images stays usable after a
- * switch to a model that cannot take them.
- */
 export async function hydrateImageAttachments(
     messages: readonly ModelMessage[],
     readImage: (attachmentId: string) => Promise<ImageContent>,

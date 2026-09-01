@@ -11,7 +11,6 @@ export interface OpenAIProviderDiscoveryOptions {
     readonly provider: string;
     readonly baseUrl: string;
     readonly credential?: "required" | "optional" | "none";
-    /** Local servers use an empty successful list to replace their rows. */
     readonly preserveEmpty?: boolean;
     readonly catalogLayers?: readonly string[];
     readonly apiKey?: string;
@@ -64,7 +63,6 @@ export type ProviderCatalogRefreshResult =
     | FailedProviderCatalogResult
     | ProviderCatalogPersistenceFailure;
 
-/** Generic authenticated/unauthenticated OpenAI-compatible `/models` ladder. */
 export async function refreshOpenAIProviderCatalog(
     options: OpenAIProviderDiscoveryOptions,
 ): Promise<ProviderCatalogRefreshResult> {

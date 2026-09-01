@@ -255,7 +255,6 @@ function providerHealthSection(
     ];
 }
 
-/** Most repeated first: the top row is the one worth acting on. */
 function modelFailureLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     const summary = snapshot.modelFailures;
     if (summary === undefined) return ["  unavailable"];

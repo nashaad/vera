@@ -9,24 +9,16 @@ import { TOOL_RESULT_VERBATIM_FLOOR_BYTES } from "../model/types.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
 import { measureMessages } from "./context-measurement.ts";
 
-/** A turn is a visible user prompt; internal continuation messages do not age results. */
 export const TOOL_RESULT_STUB_AFTER_TURNS = 3;
 
 /** Several legal per-result outputs must not compose one enormous request. */
 export const TOOL_RESULT_TOTAL_BUDGET_BYTES = 128 * 1024;
 
-/**
- * How readily old results give way, chosen by the size of the context the
- * session actually has (the configured cap, not the model's native window).
- */
 export type ToolResultAgingLevel = "relaxed" | "normal" | "tight";
 
 export interface ToolResultAgingLevelSettings {
-    /** Fraction of capacity the context must reach before any result ages. */
     readonly gateFraction: number;
-    /** Results from the most recent turns never age. */
     readonly ageAfterTurns: number;
-    /** Whether `read` results may age at all once bash, grep, and list are spent. */
     readonly ageReads: boolean;
 }
 
@@ -41,7 +33,6 @@ export const TOOL_RESULT_AGING_LEVELS: Readonly<
 export const RELAXED_AGING_MIN_CAPACITY = 400_000;
 export const NORMAL_AGING_MIN_CAPACITY = 128_000;
 
-/** Stand-in capacity when the model's window is unknown. */
 const UNKNOWN_CAPACITY_TOKENS = 100_000;
 
 export function toolResultAgingLevel(
@@ -54,20 +45,11 @@ export function toolResultAgingLevel(
 }
 
 export interface ToolResultAgingPolicy {
-    /** Context window the session runs under; unknown means a 100k stand-in. */
     readonly capacity?: number;
-    /** Tokens the request carries beyond its messages: system prompt and tools. */
     readonly overheadTokens?: number;
-    /** Overrides the level derived from `capacity`. */
     readonly level?: ToolResultAgingLevel;
-    /**
-     * The session's spill directory. A read or bash command that targets it is
-     * re-reading a spill file and never ages; absent, nothing is exempt.
-     */
     readonly spillDirectory?: string;
-    /** Overrides the level's own turn line. */
     readonly ageAfterTurns?: number;
-    /** Visible user turns that are accepted but not durable yet. */
     readonly pendingUserTurns?: number;
     readonly budgetBytes?: number;
 }
@@ -76,12 +58,6 @@ export interface ToolResultHistoryEntry {
     readonly message: ModelMessage;
 }
 
-/**
- * Builds the model-facing overlay for active history. The entries themselves
- * are never changed: callers keep the returned array only for the next model
- * request, while transcript rendering and rewind continue to use the source
- * messages.
- */
 export function assembleAgedToolResults(
     entries: readonly ToolResultHistoryEntry[],
     policy: ToolResultAgingPolicy = {},
@@ -113,16 +89,11 @@ export function assembleAgedToolResults(
             }
         }
     }
-    // A pending user prompt is already part of the request whose context is
-    // being measured. Count it for aging even though it is not in the store
-    // until compaction has had its chance to run.
     turn += Math.max(0, policy.pendingUserTurns ?? 0);
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
     let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);
 
-    // Oldest first, and reads last: the edit tool needs a read's exact text,
-    // while a bash or grep result has usually been acted on by the next turn.
     const candidates: number[] = [];
     const readCandidates: number[] = [];
     for (let index = 0; index < projected.length; index += 1) {
@@ -138,8 +109,6 @@ export function assembleAgedToolResults(
         const age = turn - (turnsAt.get(index) ?? -1);
         if (age < ageAfterTurns) continue;
         const call = calls.get(message.toolCallId);
-        // A re-read of a spill file is the recovery route every digest names;
-        // aging it would make that route circular.
         if (readsSpill(call, policy.spillDirectory)) continue;
         if (message.toolName === "read") {
             if (level.ageReads) readCandidates.push(index);
@@ -153,9 +122,6 @@ export function assembleAgedToolResults(
         const message = projected[index];
         if (message?.role !== "tool_result") continue;
         const sourceText = readSpill(message.toolResultSource?.spillPath);
-        // The spill quota is intentionally disposable. If it has gone away,
-        // retain the durable excerpt rather than replacing it with a pointer
-        // that cannot be followed (or silently discarding an extension result).
         if (sourceText === undefined) continue;
         const aged = agedToolResult(
             message,
@@ -163,8 +129,6 @@ export function assembleAgedToolResults(
             laterAssistantText(entries, index),
             sourceText,
         );
-        // A digest with provenance can outgrow a short excerpt; that swap
-        // would spend the window it is meant to recover.
         const saved = measureMessages([message]) - measureMessages([aged]);
         if (saved <= 0) continue;
         tokens -= saved;
@@ -195,10 +159,6 @@ function readsSpill(
     return false;
 }
 
-/**
- * Age is the normal replacement trigger. This second pass is the safety
- * trigger: it also applies inside one long user turn, before anything ages.
- */
 function applyToolResultBudget(
     projected: readonly ModelMessage[],
     entries: readonly ToolResultHistoryEntry[],
@@ -227,7 +187,6 @@ function applyToolResultBudget(
         }
     }
 
-    // Keep useful mechanical shape first. Unknown tools already become stubs.
     for (const index of digestible) {
         if (carriedBytes <= budgetBytes) break;
         const message = messages[index];
@@ -248,7 +207,6 @@ function applyToolResultBudget(
         );
     }
 
-    // If digests still do not fit, recoverability matters more than shape.
     for (const index of eligible) {
         if (carriedBytes <= budgetBytes) break;
         const message = messages[index];
@@ -404,8 +362,6 @@ function grepDigest(source: string, call: ToolCallContent | undefined): string {
             files.set(path, row);
             continue;
         }
-        // `files_with_matches` emits one path per line, and `count` emits
-        // path:count. Both still provide a useful per-file rollup.
         const count = /^(.*?):(\d+)$/.exec(line);
         const path = count?.[1] ?? line;
         const row = files.get(path) ?? { count: 0, lines: [] };

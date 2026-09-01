@@ -66,8 +66,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             control: key.ctrl || key.meta || key.super || key.hyper,
         });
         queueMicrotask(() => {
-            // The key may synchronously destroy the renderer (for example,
-            // ctrl+c while idle), taking the composer's EditBuffer with it.
             if (rt.shuttingDown) return;
             rt.flightRecorder?.record({
                 type: "composer_observed",
@@ -76,11 +74,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             });
         });
     }
-    // Every keypress disarms the rewind pair unless the branch below
-    // re-arms it: the pair must be two consecutive escapes with nothing
-    // between them, not even an escape that closed an overlay or cleared
-    // a draft. Captured first so the branch can still see the previous
-    // press across the disarm.
     const previousIdleEscapeAt = rt.lastIdleEscapeAt;
     rt.lastIdleEscapeAt = undefined;
     if (
@@ -151,8 +144,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         isJsonlViewClient(rt.client)
         && !rt.jsonlCommandMode
         && !rt.commandPaletteView.surface.visible
-        // A file view claims every key it is handed, so an overlay drawn
-        // over it would get none of them and sit there unable to move.
         && !anyOverlayOpen(rt)
         && parseRawInputEvent(key)?.type !== "interrupt"
     ) {
@@ -190,8 +181,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             return;
         }
         if (jsonlAction === "type") {
-            // The first character is the message's; the worker starts
-            // with it already in the composer.
             key.preventDefault();
             key.stopPropagation();
             rt.composer.setComposerText(
@@ -229,8 +218,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             || jsonlAction === "palette"
             || jsonlAction === "search"
         ) {
-            // Fall through: rail and session controls, the palette, and
-            // search all live below without starting a worker.
         } else if (
             jsonlAction === "sidebar"
             && rt.workspaceSidebar !== undefined
@@ -265,8 +252,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     if (parseRawInputEvent(key)?.type === "open_palette") {
         key.preventDefault();
         key.stopPropagation();
-        // A second ctrl+p closes the palette, so the chord toggles rather
-        // than reopening a palette that is already in front of you.
         if (rt.commandPalette !== undefined) {
             rt.commandPalette = undefined;
             rt.commandPaletteView.surface.visible = false;
@@ -311,11 +296,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
     if (parseRawInputEvent(key)?.type === "interrupt") {
-        // A trash in flight still consumes ctrl+c: it is destructive, it
-        // is bounded by its own deadline, and the confirmation card is on
-        // screen. A pending session switch does not, because the switch
-        // has no cancel and swallowing the chord left no way to quit a
-        // host that was slow to answer.
         if (rt.sessionTrashPending) {
             key.preventDefault();
             key.stopPropagation();
@@ -351,8 +331,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    // The menu owns the keyboard while it is open: arrows move, enter
-    // jumps, escape closes, and everything else is swallowed.
     if (rt.jumpMenu !== undefined) {
         key.preventDefault();
         key.stopPropagation();
@@ -368,9 +346,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    // The strip owns the keyboard while it is open, after the escape
-    // hatches above it. Every key here either moves the highlight, commits,
-    // cancels, or bounces the keystroke into the composer.
     if (rt.dialStrip !== undefined) {
         key.preventDefault();
         key.stopPropagation();
@@ -428,8 +403,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         uiRequest !== undefined
         && isUserQuestionUiRequestUpdate(uiRequest)
     ) {
-        // Arrow keys move the highlight (no engine message); numbers, Enter,
-        // and Escape resolve the question. Selection stays client-local.
         const result = rt.questionView.handleKey(uiRequest, key);
         if (result.handled) {
             key.preventDefault();
@@ -451,8 +424,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         uiRequest !== undefined
         && isToolApprovalUiRequestUpdate(uiRequest)
     ) {
-        // ←/→ move the button highlight (no engine message); digits, Enter,
-        // and Escape resolve the approval. Selection stays client-local.
         const result = rt.approvalView.handleKey(uiRequest, key);
         if (result.handled) {
             key.preventDefault();
@@ -472,8 +443,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
-    // Engine-owned prompts outrank every extension surface in key routing,
-    // matching their focus and z-order priority.
     if (uiRequest === undefined && rt.experimentalTuiHost.hasModal()) {
         key.preventDefault();
         key.stopPropagation();
@@ -578,8 +547,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
-    // Blocking like the trash confirm: every key stops here while the
-    // dialog is up, so nothing underneath can act on a stray press.
     if (rt.admissionDialog !== undefined) {
         key.preventDefault();
         key.stopPropagation();
@@ -602,19 +569,13 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             return;
         }
         if (action === "hide") {
-            // The probes keep running; the transcript notice is their
-            // surface from here.
             closeAdmissionDialog(rt, false);
             return;
         }
-        // Dismissing after an "added" verdict reopens the picker rebuilt
-        // from the refreshed pool, which is where the new row now lives.
         closeAdmissionDialog(rt, dialogAdmission(rt)?.verdict === "added");
         return;
     }
 
-    // Ahead of the picker: the prompt is drawn over the pane that opened
-    // it, so it takes the keys while it is up.
     if (rt.requestOptionsEditor !== undefined) {
         const transition = rt.requestOptionsEditorView.handleKey(
             rt.requestOptionsEditor,
@@ -742,9 +703,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.stopPropagation();
             rt.preferencesList = transition.state;
             if (transition.remove !== undefined) {
-                // The row's own kind picks the command. The two tiers live in
-                // different stores, so one command covering both would have
-                // to guess which store an ID belongs to.
                 sendCommand(rt, {
                     type: transition.remove.kind === "grant"
                         ? "remove_permission_grant"
@@ -800,10 +758,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.stopPropagation();
             rt.workTab = transition.state;
             if (transition.action !== undefined) {
-                // Resolved against the state the key was pressed in. A
-                // transition that acts carries no state, so reading the
-                // row after the assignment would read the closed tab and
-                // find nothing to open.
                 runWorkTabAction(rt, open, transition.action);
             } else {
                 renderState(rt);
@@ -854,10 +808,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 const selected = transition.selection;
                 rt.commandPalette = undefined;
                 runPaletteAction(rt, selected);
-                // The palette closed under the action, and every early
-                // return inside it would otherwise leave nothing focused.
-                // Re-reading the surface here means an action that opened a
-                // pane still lands on the pane.
                 focusActiveSurface(rt);
             } else {
                 renderState(rt);
@@ -1047,16 +997,12 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         if (key.name === "return" || key.name === "enter") {
             const typed = activeCompletion(rt)?.prefix;
             const selected = rt.argumentSuggestions[rt.commandSuggestionIndex];
-            // Already typed whole: there is nothing left to choose, so
-            // Enter sends the command instead of re-inserting the name.
             if (
                 selected !== undefined
                 && selected.toLowerCase() !== typed?.toLowerCase()
             ) {
                 key.preventDefault();
                 key.stopPropagation();
-                // Chosen, not sent: the rest of the command is still
-                // being typed.
                 rt.composer.setComposerText(
                     tuiWithArgument(rt.composer.plainText, selected),
                 );
@@ -1104,8 +1050,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 key.preventDefault();
                 key.stopPropagation();
                 rt.composer.setComposerText(`/${selected.name}`);
-                // Completing picks the command and leaves it there, since
-                // one that takes an argument is not finished being typed.
                 if (runs) submitPrompt(rt);
                 return;
             }
@@ -1132,8 +1076,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    // Ahead of clearing the composer, because putting away an offer you
-    // did not ask for should not also throw away what you were writing.
     if (
         key.name === "escape"
         && !key.ctrl
@@ -1155,8 +1097,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    // Ahead of clearing the composer, so dropping a quote does not also
-    // throw away the message being written to send it with.
     if (
         key.name === "escape"
         && !key.ctrl
@@ -1204,20 +1144,11 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    // Two plain escapes while idle open the timeline picker, the same
-    // gesture /rewind is. The clear branch above already took any escape
-    // with text, and a working agent's escape belongs to the stop handling
-    // at the end, so both keys here see an idle, empty composer. The first
-    // press only arms the window; the second one acts. Both are claimed
-    // even when they do not act, so the focused surface never receives a
-    // stray escape that could blur it and swallow the next keystroke.
     if (
         key.name === "escape"
         && !key.ctrl
         && !key.shift
         && !key.meta
-        // Home has no conversation to rewind, and a picker that opens on
-        // nothing is a dead end.
         && !isHomeClient(rt.client)
         && !anyOverlayOpen(rt)
         && !rt.sessionSwitchPending
@@ -1233,7 +1164,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         if (!doubled) return;
         rt.lastIdleEscapeAt = undefined;
         if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
-            // Rewind manages the main conversation only, matching /rewind.
             showStatusNotice(rt, 
                 "Switch to Vera with Ctrl+G to manage its conversation",
             );
@@ -1280,9 +1210,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         if (completing !== undefined) {
             key.preventDefault();
             key.stopPropagation();
-            // A highlighted row is a choice already made with the arrow
-            // keys, so Tab takes it rather than typing the shared prefix
-            // of rows the user has already moved past.
             const highlighted = rt.argumentSuggestions[rt.commandSuggestionIndex];
             if (
                 highlighted !== undefined
@@ -1316,24 +1243,15 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             return;
         }
         if (availableCommandSuggestions(rt, rt.composer.plainText).length > 0) {
-            // A complete slash command has nothing left to complete. Do
-            // not let the textarea's default Tab behavior move the
-            // cursor or change focus.
             key.preventDefault();
             key.stopPropagation();
             return;
         }
-        // Tab is command completion only. With nothing to complete it is
-        // a no-op; pane focus belongs to Left and Right.
         key.preventDefault();
         key.stopPropagation();
         return;
     }
 
-    // The toggle is one chord in both directions, so the close arm runs
-    // before the open arm and before the overlay guard: the pane is not an
-    // overlay, and the chord that opened it has to reach back through it.
-    // It shows or hides and nothing else. Left and right move the focus.
     if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
         if (rt.workspaceSidebar !== undefined) {
             key.preventDefault();
@@ -1379,8 +1297,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             renderSidebarAgent(rt, side);
         }
         renderState(rt);
-        // A reader who scrolled away from the live edge keeps that place.
-        // Expanding a fold is inspection, not new transcript activity.
         if (wasFollowing) {
             if (side === undefined) {
                 rt.transcript.scrollTo(rt.transcript.scrollHeight);
@@ -1461,8 +1377,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     ) {
         key.preventDefault();
         key.stopPropagation();
-        // Read this before the fold changes the transcript height. Once
-        // expanded, the old bottom can look like a manually scrolled view.
         const side = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
         const wasFollowing = side === undefined
             ? rt.transcript.scrollTop
@@ -1503,17 +1417,12 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    // Through the merged table rather than the registry's own chords, so a
-    // chord the user moved in tui.json reaches the extension that owns the
-    // id rather than the place the extension originally asked for.
     const extensionKey = tuiChord(key);
     const bound = extensionKey === undefined
         ? undefined
         : activeTuiKeymap().find((binding) =>
             binding.keys.includes(extensionKey)
         );
-    // A row in the static table names the extension that owns it under a
-    // different id than the row's own, so both are candidates.
     const boundId = bound?.extensionId ?? bound?.id;
     const extensionBinding = boundId === undefined
         ? undefined

@@ -78,7 +78,6 @@ export function reviewerPatchFor(rt: TuiRuntime,
         };
     }
     if (current?.mode !== "fixed" || current.primary === undefined) {
-        // A failsafe is the second entry of a route with no first entry.
         return undefined;
     }
     return { primary: current.primary, fallback: chosen ?? null };
@@ -132,10 +131,6 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
                 webdevArenaSnapshot:
                     targetState.modelSettings.webdevArenaSnapshot,
             }),
-        // Home reads the catalog from the host, so it usually has one.
-        // When the read failed there is no chord that would fill the list,
-        // and saying so beats an empty list that looks like a provider
-        // problem the user could go and fix.
         modelCatalogUnavailable: targetState.modelSettings === undefined
             && isHomeClient(focusedAgentClient(rt)),
     };
@@ -145,9 +140,6 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
             selectedIndex: 0,
         };
     }
-    // Auth changes happen outside the host's original model snapshot.
-    // Refresh here so reopening the picker also repairs a stale model pane
-    // that was kept underneath the provider picker.
     requestAgentSettings(rt, focusedAgentClient(rt));
     renderState(rt);
     focusActiveSurface(rt);
@@ -357,8 +349,6 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
                 },
             },
         });
-        // Refreshing settings also pushes the host's newly read policy to
-        // an already-running worker before another spawn can use it.
         requestAgentSettings(rt, focusedAgentClient(rt));
     } catch (error) {
         const message = `Could not write the assignment: ${
@@ -503,11 +493,6 @@ export function currentModelLevels(rt: TuiRuntime): readonly ReasoningLevel[] {
 export function openReasoningPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
     if (parent === undefined) rt.settingsPickerAgent = focusedAgentClient(rt);
     const targetState = focusedAgentState(rt);
-    // An empty (or unresolved) level list means this model has no
-    // reasoning control at all. A card with no rows is indistinguishable
-    // from the TUI ignoring the key, so say why there is nothing to pick.
-    // This is presentation only: the engine still decides what it will
-    // accept.
     const levels = currentModelLevels(rt);
     if (levels.length === 0) {
         rt.state = appendTuiNotice(
@@ -580,13 +565,7 @@ export function openThemePicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
 }
 
 export function openPreferencesList(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
-    // Opened from the cached inspection, then refreshed by the reply to
-    // this fetch. Without the fetch the list could be stale, since a
-    // client is only sent an inspection at startup and when something
-    // changes it.
     rt.preferencesList = startTuiPreferencesList(rt.state.permissionInspection);
-    // Its own overlay rather than a picker pane, so the pane it came from
-    // is held here instead of on the state, and closing puts it back.
     rt.preferencesListParent = parent;
     sendCommand(rt, { type: "get_permissions", requestId: randomUUID() });
     rt.composer.blur();
@@ -667,9 +646,6 @@ export function openProviderPicker(rt: TuiRuntime,
                     provider.access,
                     declared.has(provider.id),
                 ),
-                // A provider pointed somewhere other than where it ships
-                // says so on its own row: it is the more surprising fact
-                // about it than which credential it takes.
                 ...(moved.has(provider.id)
                     ? { hint: provider.baseUrl ?? "" }
                     : provider.hint === undefined
@@ -713,10 +689,6 @@ export function connectProvider(rt: TuiRuntime,
         focusActiveSurface(rt);
         return;
     }
-    // Everything below this point answers in the transcript, so the pane
-    // goes away first. A notice written behind an open card is a notice the
-    // user has to dismiss a modal to discover, and the sign-in URL is the
-    // one line they cannot afford to miss.
     rt.settingsPicker = undefined;
     closeSettingsPickerSurface(rt);
     if (provider.credential === "none") {
@@ -727,15 +699,11 @@ export function connectProvider(rt: TuiRuntime,
                     ? ""
                     : `, point it elsewhere with ${provider.envVar}`
             }`,
-            // A standing fact about the provider, not something to do.
             "soft",
         );
         renderState(rt);
         return;
     }
-    // Enter can still land twice, from two trips into the pane, and the
-    // callback listener binds a fixed port: a second run would fail on the
-    // first one's own server.
     if (rt.connectingProviders.has(provider.id)) {
         return;
     }
@@ -743,8 +711,6 @@ export function connectProvider(rt: TuiRuntime,
     rt.state = appendTuiNotice(
         rt.state,
         `opening a browser to sign in to ${provider.label}…`,
-        // Vera saying what it is doing. The line worth the eye is the URL
-        // that follows, which is the one the user has to act on.
         "soft",
     );
     renderState(rt);

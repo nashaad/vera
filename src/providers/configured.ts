@@ -30,22 +30,10 @@ export interface ConfiguredProviderOptions {
     readonly log?: (
         entry: { readonly type: string } & Record<string, unknown>,
     ) => void;
-    /**
-     * The model's levels for a provider that sends one on the wire. Defaults
-     * to the pool over the cached catalog, which is the same order the picker
-     * and request-time coarsening read.
-     */
     readonly effortLevels?: EffortLevelsLookup;
-    /** The model's image support. Defaults to the same pool-over-catalog read. */
     readonly imageSupport?: ImageSupportLookup;
-    /** The workspace whose pool overlays the user's, when there is one. */
     readonly projectRoot?: string;
-    /**
-     * Where a failed provider request is kept. Scoped by whoever builds the
-     * adapter, because the caps it enforces are per session.
-     */
     readonly captureFailedRequest?: FailedRequestCapture;
-    /** Host-wide, short-lived OpenRouter allowance evidence. */
     readonly openRouterAllowanceGuard?: OpenRouterAllowanceGuard;
 }
 
@@ -146,15 +134,6 @@ function customProviderApiKey(
     );
 }
 
-/**
- * A stored key first, then the environment.
- *
- * Storing is what the connect pane writes, and it is the path a user who has
- * never seen an env var takes. The environment stays as a fallback rather than a
- * migration: a setup that exported the key years ago keeps working untouched,
- * and the two can coexist because a key the user typed into Vera is the more
- * deliberate of the two.
- */
 function capture(
     options: ConfiguredProviderOptions,
 ): { captureFailedRequest?: FailedRequestCapture } {

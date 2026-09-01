@@ -22,11 +22,6 @@ export interface ExecutableProviderContribution {
     ): ModelAdapter;
 }
 
-/**
- * The typed seam for behavior that data cannot express. Plain definitions name
- * a behavior id; this local registry supplies the implementation without
- * crossing the host/client boundary with callbacks or adapter instances.
- */
 const CONTRIBUTIONS: Readonly<Record<string, ExecutableProviderContribution>> = {
     "openai-codex": {
         behaviorId: "openai-codex",

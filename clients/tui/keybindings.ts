@@ -1,16 +1,4 @@
-/**
- * One merge pipeline for every key the TUI can dispatch.
- *
- * The static table, the chords extensions register at runtime, and the user's
- * `keybindings` block in `tui.json` used to be three separate answers to "what
- * does this key do", compared by nothing. Here they become one list, in this
- * order: static rows own their metadata, an extension row of the same id
- * contributes only its handler, and the user overlay replaces chords by id.
- *
- * Nothing here is fatal. A bad entry is dropped and named in the startup
- * banner, because a typo in a preferences file must not be the reason a
- * terminal will not start.
- */
+/** One merge pipeline for every key the TUI can dispatch. The static table, the chords extensions register at runtime, and the user's `keybindings` block in `tui.json` used to be. */
 
 import {
     TUI_KEYMAP,
@@ -19,7 +7,6 @@ import {
     tuiKeymapConflictPairs,
 } from "./keymap.ts";
 
-/** A chord an extension claimed at activation, in the merge's own terms. */
 export interface TuiExtensionBindingRow {
     readonly id: string;
     readonly keys: readonly string[];
@@ -31,16 +18,13 @@ export interface TuiExtensionBindingRow {
 
 export interface TuiKeymapResolution {
     readonly bindings: readonly TuiBinding[];
-    /** One line per ignored or suspect entry, in the words the banner shows. */
     readonly notices: readonly string[];
 }
 
-/** The user's block: binding id to chords, an empty list meaning unbound. */
 export type TuiKeybindingOverlay = Readonly<
     Record<string, readonly string[]>
 >;
 
-/** Named keys a chord may end on, beside a single printable character. */
 const NAMED_KEYS: readonly string[] = [
     "tab",
     "backtab",
@@ -62,16 +46,8 @@ const NAMED_KEYS: readonly string[] = [
     ...Array.from({ length: 12 }, (_, index) => `f${index + 1}`),
 ];
 
-/** Modifiers a terminal reports the same way everywhere, so the only two bound. */
 const MODIFIERS: readonly string[] = ["ctrl", "shift"];
 
-/**
- * A chord in canonical form, or why it cannot be one.
- *
- * `alt`, `meta` and `option` are refused rather than accepted-and-ignored:
- * `tuiChord` returns nothing for those modifiers, so a chord carrying one would
- * validate here and then never fire, which is worse than being told no.
- */
 export function parseTuiChord(
     text: unknown,
 ): { readonly chord: string } | { readonly error: string } {
@@ -79,7 +55,6 @@ export function parseTuiChord(
         return { error: "not a chord" };
     }
     const parts = text.trim().toLowerCase().split("+");
-    // A bare "+" is a printable key, and splitting ate it.
     const normalized = parts.length > 1 && parts.at(-1) === ""
         ? [...parts.slice(0, -2), "+"]
         : parts;
@@ -112,13 +87,7 @@ export function parseTuiChord(
     };
 }
 
-/**
- * Whether a chord only arrives under the kitty keyboard protocol.
- *
- * A terminal outside it drops the shift on a ctrl+letter chord, so the binding
- * is simply never reached there. Worth saying once at startup; not worth
- * refusing, since plenty of people run a terminal that does report it.
- */
+/** Whether a chord only arrives under the kitty keyboard protocol. A terminal outside it drops the shift on a ctrl+letter chord, so the binding is simply never reached there. */
 export function chordNeedsExtendedKeyboard(chord: string): boolean {
     const parts = chord.split("+");
     const key = parts.at(-1) ?? "";
@@ -144,7 +113,6 @@ export function resolveTuiKeymap(options: {
 
 interface Candidate {
     readonly binding: TuiBinding;
-    /** Whether the chords in force came from the user rather than the table. */
     readonly overridden: boolean;
 }
 
@@ -155,16 +123,10 @@ function coalesce(
 ): TuiBinding[] {
     const rows = [...base];
     for (const row of extensions) {
-        // A static row names the extension that owns it, and that extension
-        // registers under its own id. Both name one binding, so the row it
-        // names is the row it merges into rather than a second claim on the
-        // same chord.
         const existing = rows.find((binding) =>
             binding.id === row.id || binding.extensionId === row.id
         );
         if (existing !== undefined) {
-            // The static row is the documented one, so it keeps the metadata
-            // and the extension keeps the handler it registered elsewhere.
             for (
                 const [what, mine, theirs] of [
                     ["scope", existing.scope, row.scope],
@@ -219,8 +181,7 @@ function applyOverlay(
             (candidate) => candidate.binding.id === id,
         );
         if (index < 0) {
-            // Forward compatibility: a block written for a newer Vera names ids
-            // this one has never heard of, and that must not brick the older.
+            // Forward compatibility: a block written for a newer Vera names ids this one has never heard of, and that must not brick the older.
             notices.push(`keybinding ignored: ${id}: unknown binding id`);
             continue;
         }
@@ -264,21 +225,12 @@ function applyOverlay(
     return candidates;
 }
 
-/**
- * Drop every user entry caught in a collision, and say which two ids collided.
- *
- * Symmetric on purpose. Picking a winner between two chords the user wrote
- * means guessing which one they meant, and the guess is invisible; dropping
- * both puts the defaults back somewhere the banner can point at.
- */
 function settleConflicts(
     candidates: readonly Candidate[],
     defaults: readonly TuiBinding[],
     notices: string[],
 ): readonly TuiBinding[] {
     let current = [...candidates];
-    // One pass per dropped entry at worst: reverting a chord can only restore
-    // a default, which may in turn collide with another user entry.
     for (let round = 0; round <= candidates.length; round += 1) {
         const conflicts = tuiKeymapConflictPairs(
             current.map((candidate) => candidate.binding),
@@ -291,8 +243,6 @@ function settleConflicts(
                 )
             );
             if (sides.length === 0) {
-                // Two defaults colliding is a bug in the table, not in the
-                // user's file, and the architecture test is where it is caught.
                 notices.push(
                     `keybinding conflict: ${conflict.chord} is claimed by both ${conflict.left} and ${conflict.right}`,
                 );
@@ -320,7 +270,6 @@ function settleConflicts(
     return current.map((candidate) => candidate.binding);
 }
 
-/** The row as the merge wrote it, which is what a dropped override falls back to. */
 function defaultFor(
     binding: TuiBinding,
     defaults: readonly TuiBinding[],

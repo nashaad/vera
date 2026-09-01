@@ -33,14 +33,9 @@ import { tuiBindingId } from "./keymap.ts";
 
 export const INSPECT_COPY_HINT = "drag a section · enter copies all";
 
-/** Cap so the report is a column, not a full-bleed pane. */
 export const INSPECT_DIALOG_MAX_WIDTH = 72;
 const INSPECT_DIALOG_GUTTER = 2;
 
-/**
- * Where the inspect card sits. Wide terminals keep a 72-column column;
- * a skinny terminal keeps a two-column gutter and uses the rest.
- */
 export function inspectDialogFrame(terminalWidth: number): {
     readonly left: number;
     readonly width: number;
@@ -96,7 +91,6 @@ export interface TuiDiagnosticsDialogOptions {
     readonly pendingText?: string;
     readonly skipFirstLine?: boolean;
     readonly showScopeTabs?: boolean;
-    /** Doctor reports paint Result / stray / role labels; copy stays plain. */
     readonly emphasis?: "doctor";
 }
 
@@ -149,9 +143,6 @@ export function createTuiDiagnosticsDialogView(
         top: "6%",
         left: frame.left,
         width: frame.width,
-        // Stop above the composer rather than at a fraction of the screen. The
-        // composer's own rows say what the session is answering as, and an
-        // overlay drawn across them reads as two surfaces fighting.
         bottom: 8,
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
@@ -231,9 +222,6 @@ export function createTuiDiagnosticsDialogView(
         minHeight: 1,
         marginTop: 1,
         scrollY: true,
-        // A horizontal scroll viewport measures its child without a width
-        // constraint, which prevents Markdown's word/character fallback from
-        // wrapping long paths. Inspect reports scroll vertically only.
         scrollX: false,
         focusable: true,
         viewportCulling: true,
@@ -281,12 +269,7 @@ export function createTuiDiagnosticsDialogView(
         const laidOut = typeof body.width === "number" && body.width > 1
             ? body.width
             : frame.width - 4;
-        // Layout catches up one paint after an absolute box is resized. Cap a
-        // stale body measurement to the new frame immediately so report
-        // builders never emit full-width rules for the old, wider viewport.
         const available = Math.min(laidOut, frame.width - 4);
-        // Leave the vertical scrollbar column out of the document width so a
-        // full-width occupancy bar does not force horizontal scroll.
         return Math.max(20, available - 1);
     };
 
@@ -300,9 +283,6 @@ export function createTuiDiagnosticsDialogView(
             return documentWidth();
         },
         update(state): void {
-            // Absolute coordinates do not follow a terminal resize. Re-read
-            // the viewport whenever the open dialog paints so the capped card
-            // remains centered instead of drifting against the right edge.
             refreshFrame();
             if (headerTitle !== undefined && state.title !== undefined) {
                 headerTitle.content = state.title;
@@ -377,7 +357,6 @@ function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
     ]);
 }
 
-/** Context occupancy remains legible as used, free, and reserved capacity. */
 export function styledInspectOccupancy(text: string): StyledText {
     const chunks: TextChunk[] = [];
     let buffer = "";
@@ -415,7 +394,6 @@ export function styledInspectOccupancy(text: string): StyledText {
 const HEALTH_TONE_LINE =
     /^(?<indent>\s*)(?<tone>green|yellow|red)(?<rest>\s+.*)$/;
 
-/** Health tone words stay in the text. Color is decoration only. */
 export function styledInspectHealth(text: string): StyledText {
     const chunks: TextChunk[] = [];
     const lines = text.split("\n");
@@ -446,7 +424,6 @@ function healthToneChunks(line: string): TextChunk[] {
     ];
 }
 
-/** Visible inspect-dialog body: the markdown, optionally without the H1 title. */
 export function inspectDocumentLines(
     text: string,
     skipFirstLine?: boolean,

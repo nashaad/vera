@@ -169,12 +169,6 @@ export function createTuiClientExtensionHostStarter(
     };
 }
 
-/**
- * Owns replaceable client generations without touching the resident host.
- * Reload is deliberately dispose-then-activate: activation APIs reach live
- * client surfaces, so pretending a candidate generation is invisible would
- * make rollback incomplete.
- */
 export function createTuiClientExtensionHostController(
     start: (signal: AbortSignal) => Promise<ClientExtensionRegistry>,
     onChange: (registry: ClientExtensionRegistry | undefined) => void,
@@ -248,7 +242,6 @@ export function configuredTuiClientExtensions(
     ];
 }
 
-/** Binds portable client-extension APIs to one TUI process generation. */
 export async function startTuiClientExtensionHost(
     options: StartTuiClientExtensionHostOptions,
 ): Promise<ClientExtensionRegistry> {

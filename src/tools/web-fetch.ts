@@ -14,12 +14,7 @@ import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
-/** HTML pages ship chrome, scripts, and inlined assets around a smaller
- * document. The byte budget has to cover that payload; the character budget
- * applies after conversion to markdown. */
 const MAX_HTML_RESPONSE_BYTES = 10 * 1024 * 1024;
-/** A PDF carries its fonts and layout in the same file as its text, so the
- * text-sized budget rejects documents that are ordinary to publish. */
 const MAX_PDF_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_CHARACTERS = 50_000;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -113,9 +108,6 @@ export async function fetchReadablePage(
                 response,
                 MAX_PDF_RESPONSE_BYTES,
             );
-            // Reading a PDF looks enough like saving one that a caller asked
-            // to download a file will report this as the file being on disk,
-            // so the text says outright that it is not.
             return `${formatReadablePage(
                 url.href,
                 await pdfText(bytes),
@@ -140,10 +132,6 @@ export async function fetchReadablePage(
     }
 }
 
-/**
- * Follows redirects with every hop re-checked against the public-address
- * rules, so a redirect cannot walk a request onto the local network.
- */
 async function openPublicResponse(
     input: string,
     signal: AbortSignal,
@@ -238,7 +226,6 @@ function injectedTransport(fetcher: Fetch): FetchTransport {
     };
 }
 
-/** Statuses the Response constructor refuses to pair with a body. */
 const NULL_BODY_STATUSES = new Set([101, 204, 205, 304]);
 
 function pinnedTransport(): FetchTransport {
@@ -265,9 +252,6 @@ function pinnedTransport(): FetchTransport {
     return {
         async request(url, init, addresses): Promise<Response> {
             pinned.set(unbracketed(url.hostname).toLowerCase(), addresses);
-            // undici's `fetch` resolves its headers here but never yields a
-            // body chunk; its core `request` streams normally, and returns
-            // redirects unfollowed the way this loop expects.
             const response = await undiciRequest(url, {
                 method: "GET",
                 headers: init.headers as Record<string, string>,
@@ -393,12 +377,6 @@ function bodyByteLimit(contentType: string): number {
         : MAX_RESPONSE_BYTES;
 }
 
-/**
- * The bytes come from an arbitrary public URL, so the parser gets no way to
- * reach the network on the document's behalf and no font handling: extracting
- * text needs neither, and a fetch driven by document contents would sidestep
- * the address checks every other request here goes through.
- */
 async function pdfText(bytes: Uint8Array): Promise<string> {
     const { extractText, getDocumentProxy } = await import("unpdf");
     let document;
@@ -525,15 +503,8 @@ function formatReadablePage(
     ].join("\n").trimEnd();
 }
 
-/** Downloads cover archives and installers, which dwarf anything the reading
- * path accepts. */
 const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
 
-/**
- * Streams a public URL to a file and returns the path written. Nothing about
- * the response body is parsed or returned: the caller asked for the file, not
- * its contents.
- */
 export async function downloadPublicFile(
     input: string,
     directory: string,
@@ -573,11 +544,6 @@ export async function downloadPublicFile(
     }
 }
 
-/**
- * The server names the file, so the name is treated as hostile: only the last
- * segment survives, and separators and leading dots cannot escape the
- * directory the caller chose.
- */
 function downloadName(url: URL, disposition: string | null): string {
     const fromHeader = disposition
         ?.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)?.[1];
@@ -590,7 +556,6 @@ function downloadName(url: URL, disposition: string | null): string {
     return safe.length === 0 ? "download" : safe;
 }
 
-/** Downloading the same file twice keeps both, the way a browser does. */
 async function unusedPath(directory: string, name: string): Promise<string> {
     const dot = name.lastIndexOf(".");
     const stem = dot > 0 ? name.slice(0, dot) : name;

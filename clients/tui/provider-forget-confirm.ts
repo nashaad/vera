@@ -19,14 +19,6 @@ import type { ProviderDescriptor } from "../../src/providers/registry.ts";
 
 export type TuiProviderForgetConfirmResult = "confirm" | "cancel" | undefined;
 
-/**
- * What `delete` on a connected row should do: ask, or say why it cannot.
- *
- * A row is marked connected whenever the provider can run, which includes one
- * reading an environment variable Vera never stored. Confirming a deletion of
- * nothing would leave the row still marked and the key still in use, so only a
- * credential Vera holds reaches the confirmation.
- */
 export type TuiProviderForgetDecision =
     | { readonly kind: "confirm" }
     | { readonly kind: "explain"; readonly message: string };

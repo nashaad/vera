@@ -29,7 +29,6 @@ export interface CustomAnthropicAdapterOptions {
     readonly captureFailedRequest?: FailedRequestCapture;
 }
 
-/** A named endpoint speaking Anthropic's Messages protocol. */
 export function createCustomAnthropicAdapter(
     options: CustomAnthropicAdapterOptions,
 ): ModelAdapter {

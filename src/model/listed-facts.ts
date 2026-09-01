@@ -1,7 +1,4 @@
-/**
- * Join WA Score onto the client projections and stamp P from one front over
- * the union. Folding or tabbing must not recompute who is on the front.
- */
+/** Join WA Score onto the client projections and stamp P from one front over the union. */
 
 import type { AvailableModel, PooledModel } from "./catalog-view.ts";
 import {

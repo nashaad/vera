@@ -21,16 +21,10 @@ interface TuiUserEntryThemeParts {
 
 const themeParts = new WeakMap<BoxRenderable, TuiUserEntryThemeParts>();
 
-/** Bands drawn with the landing rule, so a repaint does not clear it. */
 const markedBands = new WeakSet<BoxRenderable>();
 
-/** The caret every band opens with. */
 const CARET = "› ";
 
-/**
- * The user's own message, as a full-width tinted band. An accent rule down the
- * left read as an admonition, and the message is not a warning.
- */
 export function createTuiUserEntry(
     renderer: RenderContext,
     id: string,
@@ -45,9 +39,6 @@ export function createTuiUserEntry(
         backgroundColor: TUI_ELEMENT,
         marginTop,
     });
-    // A landing paints this column, so the rule runs the height of the band
-    // rather than marking only its first row. The padding lives inside the
-    // body so the rule covers the band's tinted rows too.
     const rule = new BoxRenderable(renderer, {
         id: `${id}-rule-column`,
         width: 1,
@@ -61,8 +52,6 @@ export function createTuiUserEntry(
         flexShrink: 1,
         flexDirection: "column",
         backgroundColor: TUI_ELEMENT,
-        // The band carries a row of tint above and below the text: without it
-        // the message reads as a highlighted line rather than as its own block.
         paddingTop: 1,
         paddingBottom: 1,
         paddingLeft: 1,
@@ -75,8 +64,6 @@ export function createTuiUserEntry(
         flexDirection: "row",
         backgroundColor: TUI_ELEMENT,
     });
-    // The caret sits in its own column so a message that wraps stays aligned
-    // under itself rather than under the caret.
     const caret = new TextRenderable(renderer, {
         id: `${id}-caret`,
         content: CARET,
@@ -85,9 +72,6 @@ export function createTuiUserEntry(
         flexShrink: 0,
     });
     line.add(caret);
-    // What an extension prepended is left out of the band: it was sent with
-    // the message, but the band is what the user said, and a note about the
-    // room is not that.
     const injected = entry.kind === "diff" ? 0 : entry.dimmedPrefix ?? 0;
     const text = new TextRenderable(renderer, {
         id: `${id}-text`,
@@ -103,17 +87,13 @@ export function createTuiUserEntry(
     line.add(text);
     body.add(line);
     const attachments = entry.kind === "diff" ? [] : entry.attachments ?? [];
-    // The rule is painted from the mark, not from the ground run.
     const grounds = [band, body, line];
     const accent: TextRenderable[] = [];
-    // The caret is repainted from the mark, not from the muted run.
     const muted: TextRenderable[] = [];
     attachments.forEach((name, index) => {
         const chip = new BoxRenderable(renderer, {
             id: `${id}-chip-${index}`,
             marginLeft: 2,
-            // The chips read as their own row under the message rather than as
-            // the last line of it.
             marginTop: index === 0 && entry.text.length > 0 ? 1 : 0,
             flexDirection: "row",
             backgroundColor: TUI_ELEMENT,
@@ -144,12 +124,6 @@ export function createTuiUserEntry(
     return band;
 }
 
-/**
- * Draws the landing rule on an already-built band, in place.
- *
- * Reports whether it found a band to mark, so a landing that cannot be shown
- * is a failure rather than a silent no-op.
- */
 export function markTuiUserEntry(node: BoxRenderable): boolean {
     const parts = themeParts.get(node);
     if (parts === undefined) return false;
@@ -158,7 +132,6 @@ export function markTuiUserEntry(node: BoxRenderable): boolean {
     return true;
 }
 
-/** Clears a band's landing rule. */
 export function unmarkTuiUserEntry(node: BoxRenderable): void {
     const parts = themeParts.get(node);
     if (parts === undefined) return;

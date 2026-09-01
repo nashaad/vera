@@ -6,14 +6,6 @@ import { renderTuiEntry } from "./state.ts";
 
 const windowBody = new WeakMap<BoxRenderable, TextRenderable>();
 
-/**
- * The single row reasoning still arriving is drawn into.
- *
- * One row, and one row whatever arrives: this sits in a transcript pinned to
- * its bottom, so any row it takes beyond the settled summary's one is a row
- * the whole scrollback jumps by when the phase ends. The mark that says there
- * is more rides the text itself rather than taking rows above and below it.
- */
 export function createTuiThinkingWindow(
     renderer: CliRenderer,
     id: string,
@@ -30,8 +22,6 @@ export function createTuiThinkingWindow(
         id: `${id}-body`,
         content: renderTuiEntry(entry),
         width: "100%",
-        // Reasoning still arriving is clipped at the right edge rather than
-        // wrapped, so the row stays one row however long the line runs.
         wrapMode: "none",
         overflow: "hidden",
         selectable: true,
@@ -49,4 +39,3 @@ export function updateTuiThinkingWindow(
     if (body === undefined) return;
     body.content = renderTuiEntry(entry);
 }
-

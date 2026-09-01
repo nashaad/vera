@@ -32,7 +32,6 @@ export interface TuiAgentPaneOptions<Client extends TuiAgentPaneClient> {
     readonly onFailure?: (error: Error, pane: TuiAgentPane<Client>) => void;
 }
 
-/** One attachment, its presentation state, and its independent update pump. */
 export class TuiAgentPane<Client extends TuiAgentPaneClient>
     implements TuiAgentAttachment {
     readonly client: Client;
