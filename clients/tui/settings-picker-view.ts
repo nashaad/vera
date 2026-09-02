@@ -46,8 +46,8 @@ import {
     atFirstPickerSection,
     focusedOnSection,
     focusedPickerSection,
-    pickerSections,
     repairedSectionFocus,
+    sectionHasKeys,
     steppedPickerSection,
 } from "./picker-sections.ts";
 import {
@@ -210,6 +210,14 @@ export function handleTuiSettingsPickerKey(
 ): TuiSettingsPickerTransition | TuiExtensionPickerTransition {
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
+    }
+    if (state.kind === "model") {
+        // Whoever rebuilt this pane may have taken the focused section away.
+        // Settle that once, here, so no handler below has to ask.
+        const repaired = repairedSectionFocus(state);
+        if (repaired !== state) {
+            return handleTuiSettingsPickerKey(repaired, key, viewportRows);
+        }
     }
     if (
         state.kind === "session"
@@ -1370,7 +1378,7 @@ export function renderListPickerRows(
                 // used: the actions there act on this row, and hiding it is
                 // what makes an inspector look like it belongs to nothing.
                 dimmed: state.kind === "model"
-                    && (focusedPickerSection(state) !== "list"
+                    && (!sectionHasKeys(state, "list")
                         || state.modelFocus === "list_action"),
                 current: row.option.section !== undefined
                     || isCurrentOption(state, row.option),
@@ -1386,9 +1394,7 @@ export function renderListPickerRows(
         const entry = dialogButtonNode(renderer, {
             label: modelPageEntryLabel(state, labelWidth),
             width: rowWidth,
-            focused: state.kind === "model"
-                && (state.modelFocus === "page_entry"
-                    || state.modelFocus === "page"),
+            focused: sectionHasKeys(state, "more"),
             opens: true,
         });
         attachDialogRowPointer(entry, pointer, -1);
@@ -1428,8 +1434,7 @@ export function renderListPickerRows(
         });
     }
     if (intelligenceLines > 0) {
-        const focused = state.kind === "model"
-            && state.modelFocus === "intelligence";
+        const focused = sectionHasKeys(state, "cutoff");
         const intelligence = new BoxRenderable(renderer, {
             width: rowWidth,
             height: INTELLIGENCE_SCALE_LINES,
@@ -1918,9 +1923,6 @@ export function pickerFooterText(
             return fittedHints([
                 { text: "↑ list", drop: 0 },
                 { text: "⏎ run", drop: 0 },
-                ...(modelDetailActions(state, selected).length === 0
-                    ? []
-                    : [{ text: "→ actions", drop: 1 }]),
                 { text: "⇥ section", drop: 2 },
                 { text: "esc tabs", drop: 0 },
             ], width);
@@ -1949,9 +1951,7 @@ export function pickerFooterText(
             ...(modelOptionCanVerify(state, selected)
                 ? [{ text: tuiKeyHint("verify_model"), drop: 2 }]
                 : []),
-            ...(modelDetailActions(state, selected).length === 0
-                ? []
-                : [{ text: "→ actions", drop: 2 }]),
+
             ...(state.tab === "pool" ? [] : [
                 selected?.section === undefined
                     ? { text: "⇧←→ fold all", drop: 5 }

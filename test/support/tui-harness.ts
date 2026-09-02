@@ -289,6 +289,9 @@ function pressTmuxKey(input: MockInput, key: string): void {
         case "Tab":
             input.pressTab();
             return;
+        case "BTab":
+            input.pressKey("\u001b[Z");
+            return;
         case "BSpace":
             input.pressBackspace();
             return;

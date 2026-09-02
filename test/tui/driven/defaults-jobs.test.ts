@@ -29,7 +29,11 @@ test("the defaults tab names the auto-approval job classifier", async () => {
         session.sendText("/model");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Select model");
+        // Escape climbs from the page to the tab strip, where tab switches tabs.
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("type to filter");
         session.sendKey("Tab");
+        await session.waitForVisiblePane("Actions");
         session.sendKey("Tab");
         const pane = await session.waitForVisiblePane("Dedicated jobs");
         expect(pane).toContain("classifier");
@@ -69,8 +73,8 @@ test("the palette opens Shortlist with a visible current-model action", async ()
         expect(opened).toContain("More");
         expect(opened).not.toContain("Add current model to shortl");
 
-        session.sendKey("Up");
-        session.sendKey("Right");
+        session.sendKey("BTab");
+        session.sendKey("Enter");
         const pane = await session.waitForVisiblePane(
             "Add current model",
         );
@@ -142,8 +146,10 @@ test("shortlist verification runs in a console inside the model dialog", async (
         await session.waitForVisiblePane("Open your shortlist");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Shortlist (0)");
-        session.sendKey("Up");
-        session.sendKey("Right");
+        // Shift+tab climbs from the list onto More; enter opens what it holds.
+        // Shift+tab climbs from the list onto More; enter opens what it holds.
+        session.sendKey("BTab");
+        session.sendKey("Enter");
         await session.waitForVisiblePane("Add current model");
         session.sendKey("Enter");
 
@@ -179,10 +185,11 @@ test("shortlist verification runs in a console inside the model dialog", async (
             .toHaveLength(1);
 
         session.sendKey("Escape");
-        await session.waitForVisiblePane("More");
-        // Leaving More returns to the entry row; Down steps onto the model.
-        session.sendKey("Left");
-        session.sendKey("Down");
+        await session.waitForVisiblePane("Select model");
+        // Back on the More button the page was opened from; tab steps down into
+        // the list, and right opens the row's actions beside it.
+        session.sendKey("Tab");
+        await session.waitForVisiblePane("^d^u move");
         session.sendKey("Right");
         await session.waitForVisiblePane("Verify this model");
         session.sendKey("Enter");
@@ -201,8 +208,8 @@ test("shortlist verification runs in a console inside the model dialog", async (
         );
         session.sendKey("Left");
         await session.waitForVisiblePane("^d^u move");
-        session.sendKey("Up");
-        await session.waitForVisiblePane("→ open");
+        session.sendKey("BTab");
+        await session.waitForVisiblePane("⏎ open");
         session.sendKey("Enter");
         const page = await session.waitForVisiblePane(
             "Verify shortlisted models",
@@ -211,7 +218,10 @@ test("shortlist verification runs in a console inside the model dialog", async (
         // where it is now reached from.
         expect(page).not.toContain("Verify all (1)");
         session.sendKey("Escape");
-        await session.waitForVisiblePane("→ open");
+        await session.waitForVisiblePane("⏎ open");
+        // Out of the section onto the strip, where tab switches tabs.
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("type to filter");
         session.sendKey("Tab");
         await session.waitForVisiblePane("Everything your providers offer");
         session.sendKey("Tab");

@@ -5,9 +5,10 @@ import {
     modelPageEntry,
     showsIntelligenceCutoff,
 } from "./settings-picker-model.ts";
-import type {
-    TuiAnySettingsPickerState,
-    TuiSettingsPickerState,
+import {
+    pickerPageHasKeys,
+    type TuiAnySettingsPickerState,
+    type TuiSettingsPickerState,
 } from "./settings-picker-types.ts";
 
 export type TuiPickerSectionId = "more" | "cutoff" | "list" | "details";
@@ -49,7 +50,8 @@ export function pickerSections(
     return SECTION_ORDER.filter((id) => pickerSectionPresent(state, id));
 }
 
-export function focusedPickerSection(
+/** The section the state says it is on, whether or not that section is still there. */
+function storedPickerSection(
     state: TuiAnySettingsPickerState,
 ): TuiPickerSectionId {
     const focus = state.kind === "model" ? state.modelFocus ?? "list" : "list";
@@ -57,6 +59,29 @@ export function focusedPickerSection(
     if (focus === "intelligence") return "cutoff";
     if (focus === "detail") return "details";
     return "list";
+}
+
+export function focusedPickerSection(
+    state: TuiAnySettingsPickerState,
+): TuiPickerSectionId {
+    // A rebuild can take the focused section away — a tab switch, a filter that
+    // empties the list, a row whose actions are gone. Focus reads as the first
+    // section that is there, so a card is never drawn pointing at nothing;
+    // `repairedSectionFocus` writes that back into the state on the next key.
+    const named = storedPickerSection(state);
+    return pickerSectionPresent(state, named)
+        ? named
+        : pickerSections(state)[0] ?? "list";
+}
+
+/** Whether this section holds the keyboard right now. A section keeps its remembered focus while the reader is up on the tab strip, but nothing in the page is lit while they are there. */
+export function sectionHasKeys(
+    state: TuiAnySettingsPickerState,
+    id: TuiPickerSectionId,
+): boolean {
+    if (state.kind !== "model") return false;
+    if (!pickerPageHasKeys(state)) return false;
+    return focusedPickerSection(state) === id;
 }
 
 /** The section tab reaches next, wrapping inside the page. Undefined when the page holds one section and there is nowhere to go. */
@@ -93,7 +118,7 @@ export function repairedSectionFocus(
     state: TuiSettingsPickerState,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") return state;
-    const focused = focusedPickerSection(state);
+    const focused = storedPickerSection(state);
     if (pickerSectionPresent(state, focused)) return state;
     const first = pickerSections(state)[0];
     return first === undefined ? state : focusedOnSection(state, first);

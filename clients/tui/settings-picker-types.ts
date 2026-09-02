@@ -222,6 +222,13 @@ export interface TuiExtensionPickerAction {
     readonly label: string;
 }
 
+/** Whether the page under the tab strip holds the keyboard. Nothing in the page is lit while the reader is up on the strip, even though each section still remembers where its cursor was. */
+export function pickerPageHasKeys(
+    state: { readonly pickerLevel?: "strip" | "page" },
+): boolean {
+    return (state.pickerLevel ?? "page") === "page";
+}
+
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
     readonly allOptions: readonly TuiSettingsPickerOption[];

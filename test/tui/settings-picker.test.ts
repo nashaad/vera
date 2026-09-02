@@ -1747,7 +1747,10 @@ test("the current shortlist model exposes an inspector and list action", async (
     expect(frame).toMatch(/Name this model\s+\^n/);
     expect(frame).not.toContain("Refresh model catalog from providers");
     expect(pickerFooter(shortlist)).toContain("^v verify");
-    expect(pickerFooter(shortlist)).toContain("→ actions");
+    // The way into the actions is named once, in the panel beside them, so the
+    // footer and the header cannot disagree about which key it is.
+    expect(pickerFooter(shortlist)).not.toContain("→ actions");
+    expect(await pickerFrame(shortlist)).toMatch(/Actions\s+→ actions/);
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).selection)
         .toEqual({
             kind: "model",
@@ -4587,4 +4590,45 @@ test("the list cursor stays visible, and quiet, while the inspector has the keys
     const label = shortlist.options[0]?.label ?? "";
     expect(onRow).toContain(label);
     expect(await pickerFrame(inspector)).toContain(label);
+});
+
+test("focus falls to a section that is there when the one it was on goes", () => {
+    const all = {
+        ...switchedModelTab(listedFactsPicker(), "all"),
+        selectedIndex: 0,
+        actionOptions: tuiModelActionOptions(["openrouter"]),
+    };
+    const onCutoff = handleTuiSettingsPickerKey(all, {
+        name: "tab",
+        shift: true,
+    }).state!;
+    expect(focusedPickerSection(onCutoff)).toBe("cutoff");
+
+    // Shortlist has no cutoff filter. A pane rebuilt onto it while the cursor
+    // was there must not leave the keyboard pointed at nothing.
+    const moved = { ...onCutoff, tab: "pool" as const };
+    expect(pickerSections(moved)).not.toContain("cutoff");
+    expect(focusedPickerSection(moved)).toBe(pickerSections(moved)[0]!);
+    const settled = handleTuiSettingsPickerKey(moved, { name: "down" }).state!;
+    expect(settled.modelFocus).not.toBe("intelligence");
+});
+
+test("nothing in the page is lit while the tab strip has the keys", async () => {
+    const all = {
+        ...switchedModelTab(listedFactsPicker(), "all"),
+        selectedIndex: 0,
+        actionOptions: tuiModelActionOptions(["openrouter"]),
+    };
+    const onMore = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(all, { name: "tab", shift: true }).state!,
+        { name: "tab", shift: true },
+    ).state!;
+    expect(await pickerFrame(onMore)).toContain("╔");
+
+    // Each section remembers where its cursor was, but a reader up on the strip
+    // is not in any of them, so none of them claims the keyboard.
+    const strip = onStrip(onMore);
+    const frame = await pickerFrame(strip);
+    expect(frame).not.toContain("╔");
+    expect(frame).toContain("┌");
 });

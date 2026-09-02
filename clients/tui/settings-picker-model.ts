@@ -71,6 +71,7 @@ import {
     type TuiSettingsPickerTransition,
     formatSessionSize,
     modelAssignmentOfValue,
+    pickerPageHasKeys,
     tuiModelActionOfValue,
 } from "./settings-picker-types.ts";
 
@@ -461,8 +462,11 @@ export function modelDetailNode(
                 line();
             }
             const inside = state.kind === "model"
+                && pickerPageHasKeys(state)
                 && state.modelFocus === "detail";
-            const hint = inside ? "← list" : "→ enter";
+            // One verb per direction, in one place: the panel header, which
+            // sits beside what it describes. The footer no longer repeats it.
+            const hint = inside ? "← list" : "→ actions";
             line([
                 fg(TUI_MUTED)(
                     "Actions".padEnd(
@@ -474,6 +478,7 @@ export function modelDetailNode(
         }
         actions.forEach((action, index) => {
             const active = state.kind === "model"
+                && pickerPageHasKeys(state)
                 && state.modelFocus === "detail"
                 && modelActionCursor(state, actions) === index;
             line(
