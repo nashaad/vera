@@ -119,8 +119,8 @@ export interface OnboardingStep {
 export interface StepperInput extends OnboardingInput {
     /** The provider chosen on the first step, which is not yet the configured one. */
     readonly chosen?: string;
-    /** A key the provider turned down. It is stored, and the gate is still open. */
-    readonly refusedKey?: boolean;
+    /** The step the client has open. It wins over what the stored facts imply, because that is the one the user is looking at. */
+    readonly at?: OnboardingStepId;
 }
 
 const STEP_LABELS: Record<OnboardingStepId, string> = {
@@ -137,10 +137,29 @@ function chosenProvider(input: StepperInput): ProviderDescriptor | undefined {
 function keyStepState(input: StepperInput): OnboardingStepState {
     const provider = chosenProvider(input);
     if (provider === undefined) return "locked";
-    if (input.refusedKey === true) return "current";
     return !needsCredential(provider) || holdsCredential(provider, input)
         ? "done"
         : "current";
+}
+
+const STEP_ORDER = ["provider", "key", "model"] as const;
+
+/**
+ * A stored key says the key gate is clear, but a user staring at the key card
+ * is on step two whatever the store says. The open step wins, everything
+ * before it is behind them, and a later step cannot also be current.
+ */
+function withOpenStep(
+    steps: readonly OnboardingStep[],
+    at: OnboardingStepId | undefined,
+): readonly OnboardingStep[] {
+    if (at === undefined) return steps;
+    const open = STEP_ORDER.indexOf(at);
+    return steps.map((step, index) => {
+        if (index === open) return { ...step, state: "current" };
+        if (index < open) return { ...step, state: "done" };
+        return step.state === "current" ? { ...step, state: "locked" } : step;
+    });
 }
 
 export function stepperSteps(input: StepperInput): readonly OnboardingStep[] {
@@ -156,11 +175,14 @@ export function stepperSteps(input: StepperInput): readonly OnboardingStep[] {
         key: provider === undefined ? "locked" : key,
         model,
     };
-    return (["provider", "key", "model"] as const).map((id) => ({
-        id,
-        label: STEP_LABELS[id],
-        state: states[id],
-    }));
+    return withOpenStep(
+        STEP_ORDER.map((id) => ({
+            id,
+            label: STEP_LABELS[id],
+            state: states[id],
+        })),
+        input.at,
+    );
 }
 
 /** The step the stepper opens on. Undefined once every gate is clear, which is when the flow closes. */

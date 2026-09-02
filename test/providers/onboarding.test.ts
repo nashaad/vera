@@ -267,14 +267,14 @@ test("a provider chosen that is not configured leaves the stepper on provider", 
     expect(currentStep(input)).toBe("provider");
 });
 
-test("a refused key leaves the key step open even though it is stored", () => {
+test("the step the client has open wins over the key it already holds", () => {
     const input = {
         providers: PROVIDERS,
         pool: EMPTY_POOL,
         authStorage: storage({ openrouter: "refused" }),
         env: NO_ENV,
         chosen: "openrouter",
-        refusedKey: true,
+        at: "key" as const,
     };
     expect(stateOf(stepperSteps(input), "key")).toBe("current");
     expect(stateOf(stepperSteps(input), "model")).toBe("locked");

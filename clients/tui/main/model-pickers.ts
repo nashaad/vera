@@ -7,7 +7,7 @@ import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalo
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
-import { openGate, providerAnswerLabel, stepPosition, stepperSteps, type OnboardingInput } from "../../../src/providers/onboarding.ts";
+import { openGate, providerAnswerLabel, stepPosition, stepperSteps, type OnboardingInput, type OnboardingStepId } from "../../../src/providers/onboarding.ts";
 import { configuredProviders, findConfiguredProvider, isProviderConnected } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -644,13 +644,13 @@ function onboardingRailOptions(
     return { subtitle: onboardingRail(steps, stepPosition(input)) };
 }
 
-/** The rail over the key step, which names the provider the user just chose. */
+/** The rail over a step that already knows which provider it is for. */
 function onboardingRailFor(
     rt: TuiRuntime,
     chosen: string,
-    refusedKey = false,
+    at: OnboardingStepId,
 ): string | undefined {
-    const input = { ...onboardingInput(rt), chosen, refusedKey };
+    const input = { ...onboardingInput(rt), chosen, at };
     if (openGate(input) === "ready") return undefined;
     return onboardingRail(stepperSteps(input), stepPosition(input));
 }
@@ -677,7 +677,7 @@ export function openOnboardingModelStep(
     rt.settingsPicker = startTuiOnboardingModelPicker(
         provider,
         models,
-        onboardingRailFor(rt, provider) ?? "",
+        onboardingRailFor(rt, provider, "model") ?? "",
     );
     rt.composer.blur();
     renderState(rt);
@@ -767,7 +767,7 @@ export function connectProvider(rt: TuiRuntime,
         rt.secretPrompt = startTuiSecretPrompt(
             provider,
             pane,
-            onboardingRailFor(rt, provider.id, refusal !== undefined),
+            onboardingRailFor(rt, provider.id, "key"),
             refusal,
         );
         rt.settingsPicker = undefined;
