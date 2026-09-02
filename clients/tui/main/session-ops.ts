@@ -305,6 +305,12 @@ export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
         openCommandPalette(rt);
         return;
     }
+    // A conversation with no provider fails on its first turn, so the row that
+    // asks for one leads to the gates instead.
+    if (rt.homeState.needsProvider && action.kind !== "type") {
+        openProviderPicker(rt);
+        return;
+    }
     if (action.kind !== "type") {
         beginCreateSession(rt, "stop");
         return;

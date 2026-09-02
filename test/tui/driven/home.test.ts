@@ -198,6 +198,32 @@ test("a machine with no answer leads to the provider list", async () => {
     }
 }, 15_000);
 
+test("new conversation with no provider opens the gates instead", async () => {
+    const previousPool = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = join(
+        mkdtempSync(join(tmpdir(), "vera-tui-home-cold-new-pool-")),
+        "pool.json",
+    );
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-new-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => homeDependencies(home, true),
+    });
+
+    try {
+        await session.waitForVisiblePane("Connect a provider");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("Declare a provider");
+        // The row that would open a conversation with nothing to answer it
+        // opens the gates instead.
+        expect(pane).not.toContain("Message Vera");
+    } finally {
+        await session.close();
+        process.env.VERA_POOL_FILE = previousPool;
+    }
+}, 15_000);
+
 test("ctrl+r opens the session picker from home", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-resume-"));
     const session = await startTuiTestSession({
