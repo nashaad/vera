@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 
 import {
+    chordCollidesWithNamedKey,
     chordNeedsExtendedKeyboard,
+    legacyChordDelivery,
     parseTuiChord,
     resolveTuiKeymap,
 } from "../../clients/tui/keybindings.ts";
@@ -218,4 +220,44 @@ test("the shipped table survives its own merge with nothing to say", () => {
     const { bindings, notices } = resolveTuiKeymap({});
     expect(bindings).toEqual(TUI_KEYMAP as readonly TuiBinding[]);
     expect(notices).toEqual([]);
+});
+
+test("a chord names the key a legacy terminal delivers in its place", () => {
+    expect(legacyChordDelivery("ctrl+shift+[")).toBe("esc");
+    expect(legacyChordDelivery("ctrl+shift+m")).toBe("enter");
+    expect(legacyChordDelivery("ctrl+shift+h")).toBe("backspace");
+    expect(legacyChordDelivery("ctrl+tab")).toBe("tab");
+    expect(legacyChordDelivery("ctrl+shift+tab")).toBe("backtab");
+    expect(legacyChordDelivery("ctrl+shift+f")).toBe("ctrl+f");
+    expect(legacyChordDelivery("ctrl+shift+left")).toBeUndefined();
+    expect(legacyChordDelivery("ctrl+pageup")).toBeUndefined();
+    expect(legacyChordDelivery("shift+tab")).toBeUndefined();
+});
+
+test("cycling sessions leads with a chord every terminal reports", () => {
+    const shipped = TUI_KEYMAP as readonly TuiBinding[];
+    const prev = chordsOf(shipped, "cycle_live_session_prev");
+    const next = chordsOf(shipped, "cycle_live_session_next");
+    expect(prev[0]).toBe("ctrl+shift+left");
+    expect(next[0]).toBe("ctrl+shift+right");
+    expect(chordNeedsExtendedKeyboard(prev[0]!)).toBe(false);
+    expect(chordNeedsExtendedKeyboard(next[0]!)).toBe(false);
+});
+
+// Bindings whose every chord arrives as a key the TUI already acts on, so
+// pressing one outside the kitty keyboard protocol fires that other action
+// instead: ctrl+shift+m sends the message rather than opening the picker.
+// The list may shrink as chords are given reachable primaries. It may not grow.
+const KNOWN_NAMED_KEY_COLLISIONS: readonly string[] = [
+    "jump.open",
+    "open_model_picker",
+    "toggle_session_header",
+];
+
+test("no shipped binding newly degrades into another key's action", () => {
+    const offenders = (TUI_KEYMAP as readonly TuiBinding[])
+        .filter((binding) => binding.keys.every(chordCollidesWithNamedKey))
+        .map((binding) => binding.id)
+        .sort();
+    expect(offenders).toEqual([...KNOWN_NAMED_KEY_COLLISIONS]);
 });

@@ -13,7 +13,7 @@ import {
     workspaceJumpTargets,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
-    WORKSPACE_QUIET_FOOTER_TABLE,
+    workspaceQuietFooterTable,
     workspaceSidebarFooter,
     workspaceSidebarFooterTable,
     workspaceSidebarHeader,
@@ -44,6 +44,8 @@ import {
     activeTuiKeymap,
     installTuiKeymap,
     tuiBindingId,
+    tuiChordLabel,
+    tuiChordPairLabel,
     tuiKeyChord,
 } from "../../clients/tui/keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -969,7 +971,7 @@ describe("the drawn card", () => {
             "Rename  r",
             "New     ctrl+n",
             "Resume  ctrl+r",
-            "Cycle   ctrl+shift+[ ]",
+            "Cycle   ctrl+shift+← →",
             "Chat    →",
             "Hide    ctrl+e",
         ].join("\n"));
@@ -1050,7 +1052,7 @@ describe("the drawn card", () => {
             "Rename  r",
             "New     ctrl+n",
             "Resume  ctrl+r",
-            "Cycle   ctrl+shift+[ ]",
+            "Cycle   ctrl+shift+← →",
             "Chat    →",
             "Hide    ctrl+e",
         ].join("\n"));
@@ -1073,12 +1075,16 @@ describe("the drawn card", () => {
         );
         // All three work with the cursor in the composer: cycle is global,
         // Left hands the rail the keys, and ctrl+e hides it.
+        const cycle = tuiChordPairLabel(
+            tuiKeyChord("cycle_live_session_prev"),
+            tuiKeyChord("cycle_live_session_next"),
+        );
         expect(idle.footerTable).toEqual([
-            { label: "Cycle", value: "ctrl+shift+[ ]" },
+            { label: "Cycle", value: cycle },
             { label: "Focus", value: "←" },
             { label: "Hide", value: "ctrl+e" },
         ]);
-        expect(idle.footer).toContain("ctrl+shift+[ ]");
+        expect(idle.footer).toContain(cycle);
         // The rail's own chords are not offered to a keyboard that is elsewhere.
         expect(idle.footer).not.toContain("Move");
         expect(idle.footer).not.toContain("Pin");
@@ -1097,14 +1103,14 @@ describe("the drawn card", () => {
     test("global quiet chords remain in the focused block", () => {
         // Cycle and hide work from either pane. The focus row changes because
         // directional navigation names the destination from each side.
-        for (const row of WORKSPACE_QUIET_FOOTER_TABLE.filter(
+        for (const row of workspaceQuietFooterTable().filter(
             (candidate) => candidate.label !== "Focus",
         )) {
             const wide = workspaceSidebarFooterTable()
                 .find((other) => other.value === row.value);
             expect(wide).toBeDefined();
         }
-        for (const row of WORKSPACE_QUIET_FOOTER_TABLE) {
+        for (const row of workspaceQuietFooterTable()) {
             expect(`${row.label.padEnd(8)}${row.value}`.length)
                 .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
@@ -1115,9 +1121,13 @@ describe("the drawn card", () => {
             .find((row) => row.label === "Cycle");
         // Both halves of the chord, spelled the way the keymap spells them,
         // so the row cannot drift from the keys it names.
-        expect(cycle?.value).toContain(tuiKeyChord("cycle_live_session_prev"));
         expect(cycle?.value)
-            .toContain(tuiKeyChord("cycle_live_session_next").slice(-1));
+            .toContain(tuiChordLabel(tuiKeyChord("cycle_live_session_prev")));
+        expect(cycle?.value).toContain(
+            tuiChordLabel(tuiKeyChord("cycle_live_session_next"))
+                .split("+")
+                .at(-1)!,
+        );
         expect(cycle?.value).not.toContain("/");
         for (const row of workspaceSidebarFooterTable()) {
             expect(`${row.label.padEnd(8)}${row.value}`.length)

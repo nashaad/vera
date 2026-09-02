@@ -87,13 +87,42 @@ export function parseTuiChord(
     };
 }
 
-/** Whether a chord only arrives under the kitty keyboard protocol. A terminal outside it drops the shift on a ctrl+letter chord, so the binding is simply never reached there. */
-export function chordNeedsExtendedKeyboard(chord: string): boolean {
+/** The keys whose byte ctrl already spends, and the key a terminal reports in its place. Ctrl+h is backspace and ctrl+m is return on every terminal ever built; the kitty keyboard protocol is what tells the two apart. */
+const CONTROL_BYTE_ALIASES: Readonly<Record<string, string>> = {
+    "[": "esc",
+    h: "backspace",
+    i: "tab",
+    j: "enter",
+    m: "enter",
+    tab: "tab",
+    enter: "enter",
+    backspace: "backspace",
+    space: "space",
+};
+
+/** What a terminal outside the kitty keyboard protocol delivers instead of this chord, or undefined when the chord arrives intact. Modifiers ride along on named keys through ordinary CSI encoding, so ctrl+shift+left is safe everywhere; on a character key there is no room left to carry them. */
+export function legacyChordDelivery(chord: string): string | undefined {
     const parts = chord.split("+");
     const key = parts.at(-1) ?? "";
-    return parts.includes("ctrl")
-        && parts.includes("shift")
-        && [...key].length === 1;
+    if (!parts.includes("ctrl")) return undefined;
+    const shift = parts.includes("shift");
+    const alias = CONTROL_BYTE_ALIASES[key];
+    if (alias !== undefined) {
+        return shift && key === "tab" ? "backtab" : alias;
+    }
+    // Shift is only reported alongside ctrl under the protocol, so elsewhere the chord arrives unshifted.
+    return shift && [...key].length === 1 ? `ctrl+${key}` : undefined;
+}
+
+/** Whether a chord only arrives under the kitty keyboard protocol. A terminal outside it drops the shift on a ctrl+letter chord, so the binding is simply never reached there. */
+export function chordNeedsExtendedKeyboard(chord: string): boolean {
+    return legacyChordDelivery(chord) !== undefined;
+}
+
+/** Whether the chord does not merely go missing outside the protocol but arrives as another key the TUI acts on. Ctrl+shift+m opening the model picker sends the message instead. */
+export function chordCollidesWithNamedKey(chord: string): boolean {
+    const delivered = legacyChordDelivery(chord);
+    return delivered !== undefined && !delivered.includes("+");
 }
 
 export function resolveTuiKeymap(options: {
@@ -209,9 +238,10 @@ function applyOverlay(
                 refused = true;
                 break;
             }
-            if (chordNeedsExtendedKeyboard(parsed.chord)) {
+            const delivered = legacyChordDelivery(parsed.chord);
+            if (delivered !== undefined) {
                 notices.push(
-                    `keybinding ${id}: ${parsed.chord} only arrives in terminals that speak the kitty keyboard protocol`,
+                    `keybinding ${id}: ${parsed.chord} arrives as ${delivered} in terminals that do not speak the kitty keyboard protocol`,
                 );
             }
             chords.push(parsed.chord);

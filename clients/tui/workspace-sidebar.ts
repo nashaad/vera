@@ -11,7 +11,7 @@ import {
     type WorkspaceSession,
     type WorkspaceSessionStatus,
 } from "./workspace-panel.ts";
-import { tuiBindingId, tuiKeyChord } from "./keymap.ts";
+import { tuiBindingId, tuiChordPairLabel, tuiKeyChord } from "./keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 
@@ -476,17 +476,27 @@ export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
         ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
         { label: "New", value: "ctrl+n" },
         { label: "Resume", value: "ctrl+r" },
-        { label: "Cycle", value: "ctrl+shift+[ ]" },
+        { label: "Cycle", value: sessionCycleChords() },
         { label: "Chat", value: "→" },
         { label: "Hide", value: "ctrl+e" },
     ];
 }
 
-export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
-    { label: "Cycle", value: "ctrl+shift+[ ]" },
-    { label: "Focus", value: "←" },
-    { label: "Hide", value: "ctrl+e" },
-];
+/** Both directions written as one chord, from the keymap rather than by hand, so the legend cannot name keys the table no longer binds. */
+function sessionCycleChords(): string {
+    return tuiChordPairLabel(
+        tuiKeyChord("cycle_live_session_prev"),
+        tuiKeyChord("cycle_live_session_next"),
+    );
+}
+
+export function workspaceQuietFooterTable(): readonly LinesViewFooterRow[] {
+    return [
+        { label: "Cycle", value: sessionCycleChords() },
+        { label: "Focus", value: "←" },
+        { label: "Hide", value: "ctrl+e" },
+    ];
+}
 
 export function workspaceSidebarFooter(
     _width: number,
@@ -581,7 +591,7 @@ export function workspaceSidebarViewState(
     );
     const footerTable = focused
         ? workspaceSidebarFooterTable()
-        : WORKSPACE_QUIET_FOOTER_TABLE;
+        : workspaceQuietFooterTable();
     return {
         title: workspaceSidebarHeader(state),
         titleLeading: {

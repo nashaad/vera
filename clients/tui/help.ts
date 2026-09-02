@@ -14,6 +14,7 @@ import {
 } from "@opentui/core";
 
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
+import { chordNeedsExtendedKeyboard } from "./keybindings.ts";
 import type { TuiCommandCatalogEntry } from "./commands.ts";
 import {
     DIALOG_CARD_Z_INDEX,
@@ -32,7 +33,12 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { activeTuiKeymap, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
+import {
+    activeTuiKeymap,
+    tuiBindingId,
+    tuiChordLabel,
+    type TuiKeyScope,
+} from "./keymap.ts";
 import {
     insertTuiSingleLinePaste,
     tuiTextareaKey,
@@ -101,26 +107,15 @@ const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "diagnostics", title: "Inspect" },
 ];
 
-const CHORD_SYMBOLS: Readonly<Record<string, string>> = {
-    up: "↑",
-    down: "↓",
-    left: "←",
-    right: "→",
-};
-
-function chordLabel(chord: string): string {
-    return chord
-        .split("+")
-        .map((part) => CHORD_SYMBOLS[part] ?? part)
-        .join("+");
+/** The leading chords, then a count of the rest. A binding carrying five aliases would otherwise widen this column until every description in the table is squeezed out of its row. */
+function chordListLabel(keys: readonly string[]): string {
+    const shown = keys.slice(0, 2).map(tuiChordLabel).join(" / ");
+    const rest = keys.length - 2;
+    return rest > 0 ? `${shown} (+${rest})` : shown;
 }
 
-/** Whether a terminal can be relied on to deliver the chord at all. Shift on a ctrl+letter chord is only reported under the kitty keyboard protocol; elsewhere the unshifted. */
-function needsKittyKeyboard(chord: string): boolean {
-    const parts = chord.split("+");
-    return parts.includes("ctrl") && parts.includes("shift")
-        && parts.at(-1)!.length === 1;
-}
+/** Whether a terminal can be relied on to deliver the chord at all. Shift on a ctrl+letter chord is only reported under the kitty keyboard protocol, and ctrl already spends the byte on keys like `[` and `m`. */
+const needsKittyKeyboard = chordNeedsExtendedKeyboard;
 
 function keyRows(): readonly {
     readonly label: string;
@@ -131,7 +126,7 @@ function keyRows(): readonly {
         activeTuiKeymap().filter((binding) => binding.scope === scope).map((
             binding,
         ) => ({
-            label: binding.keys.map(chordLabel).join(" / "),
+            label: chordListLabel(binding.keys),
             description: binding.description,
             meta: binding.keys.every(needsKittyKeyboard)
                 ? `${title} · kitty`

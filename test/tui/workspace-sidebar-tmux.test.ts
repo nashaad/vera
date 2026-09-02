@@ -570,9 +570,9 @@ test.skipIf(!tmuxAvailable)("the chord block narrows to what the chat can press"
     });
 
     expect(focused).toContain("Move    ↑↓  j/k");
-    expect(focused).toContain("Cycle   ctrl+shift+[ ]");
+    expect(focused).toContain("Cycle   ctrl+shift+← →");
     expect(clicked).toContain("VERA");
-    expect(clicked).toContain("Cycle  ctrl+shift+[ ]");
+    expect(clicked).toContain("Cycle  ctrl+shift+← →");
     expect(clicked).toContain("Focus  ←");
     expect(clicked).toContain("Hide   ctrl+e");
     expect(clicked).not.toContain("Move    ↑↓  j/k");

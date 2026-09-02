@@ -162,18 +162,31 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+e agent sidebar",
     },
     {
+        // Arrows carry their modifiers through ordinary CSI encoding, so these reach every terminal. The bracket chords stay as aliases for the terminals that report them, but they cannot lead: ctrl+[ is the escape byte, so outside the kitty keyboard protocol the old primary cancelled instead of cycling.
         id: "cycle_live_session_prev",
-        keys: ["ctrl+shift+[", "ctrl+shift+{", "ctrl+{"],
+        keys: [
+            "ctrl+shift+left",
+            "ctrl+pageup",
+            "ctrl+shift+[",
+            "ctrl+shift+{",
+            "ctrl+{",
+        ],
         scope: "global",
         description: "Switch to the previous live session",
-        hint: "ctrl+shift+[ prev session",
+        hint: "ctrl+shift+← prev session",
     },
     {
         id: "cycle_live_session_next",
-        keys: ["ctrl+shift+]", "ctrl+shift+}", "ctrl+}"],
+        keys: [
+            "ctrl+shift+right",
+            "ctrl+pagedown",
+            "ctrl+shift+]",
+            "ctrl+shift+}",
+            "ctrl+}",
+        ],
         scope: "global",
         description: "Switch to the next live session",
-        hint: "ctrl+shift+] next session",
+        hint: "ctrl+shift+→ next session",
     },
     ...WORKSPACE_JUMP_BINDINGS,
     {
@@ -653,6 +666,31 @@ export function tuiKeyHint(id: string): string {
 
 export function tuiKeyChord(id: string): string {
     return ACTIVE_KEYMAP.find((binding) => binding.id === id)?.keys[0] ?? "";
+}
+
+const CHORD_SYMBOLS: Readonly<Record<string, string>> = {
+    up: "↑",
+    down: "↓",
+    left: "←",
+    right: "→",
+};
+
+/** A chord as a reader sees it: arrow names become arrows. */
+export function tuiChordLabel(chord: string): string {
+    return chord
+        .split("+")
+        .map((part) => CHORD_SYMBOLS[part] ?? part)
+        .join("+");
+}
+
+/** Two chords that differ only in their last key, written once as `ctrl+shift+← →`. A narrow rail has no room to spell both in full, and spelling them by hand is how a legend drifts away from the keys it names. */
+export function tuiChordPairLabel(first: string, second: string): string {
+    const tail = second.split("+").at(-1) ?? "";
+    const shared = first.split("+").slice(0, -1).join("+");
+    if (shared.length === 0 || shared !== second.split("+").slice(0, -1).join("+")) {
+        return `${tuiChordLabel(first)} ${tuiChordLabel(second)}`;
+    }
+    return `${tuiChordLabel(first)} ${CHORD_SYMBOLS[tail] ?? tail}`;
 }
 
 export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {
