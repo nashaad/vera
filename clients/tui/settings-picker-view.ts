@@ -1353,6 +1353,11 @@ export function renderListPickerRows(
                 ...(state.kind === "session"
                     ? { tint: (tinted = !tinted) }
                     : {}),
+                // One row of air between the providers a reader picks from and
+                // the thing they can do at the end of the list.
+                ...(state.kind === "provider" && row.option.action === true
+                    ? { spaced: true }
+                    : {}),
                 ...(state.kind === "model" || state.kind === "session"
                     ? {}
                     : { description: row.option.description }),
@@ -2089,11 +2094,11 @@ export function optionMarker(
     if (option.section !== undefined) {
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
-    if (option.action === true) {
-        return "+";
-    }
     if (state.kind === "provider") {
         return undefined;
+    }
+    if (option.action === true) {
+        return "+";
     }
     return isCurrentOption(state, option) ? "●" : undefined;
 }

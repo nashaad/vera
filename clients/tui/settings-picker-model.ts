@@ -1500,6 +1500,9 @@ export function optionMeta(
         ];
     }
     if (state.kind === "provider") {
+        // The door it opens, at the trailing edge. The gutter column belongs to
+        // the cursor, and a `+` sitting in it reads as a second cursor.
+        if (option.action === true) return [{ text: "\u203a" }];
         return option.connected === true
             ? [{ text: "connected", tone: "positive" }]
             : undefined;

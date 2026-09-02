@@ -3019,6 +3019,9 @@ test("the declare row survives a search that matches no provider", async () => {
     expect(frame).toMatch(/›\s+Declare a provider/);
     expect(frame).not.toContain("›+");
     expect(frame).not.toMatch(/\+\s+Declare a provider/);
+    // The door it opens sits at the trailing edge, where every other pressable
+    // thing on the card puts it, leaving the gutter to the cursor alone.
+    expect(frame).toMatch(/Declare a provider….*›\s*$/m);
     expect(handleTuiSettingsPickerKey(filtered, { name: "enter" })
         .declareProvider).toBe(true);
 });
