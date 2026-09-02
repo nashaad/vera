@@ -164,6 +164,63 @@ export function dialogHeaderNode(
     return header;
 }
 
+export const DIALOG_BUTTON_LINES = 3;
+
+export const DIALOG_BUTTON_CHEVRON = "\u203a";
+
+export interface DialogButtonOptions {
+    readonly label: string;
+    readonly width: number;
+    readonly focused: boolean;
+    /** A door: the button opens something rather than doing it. */
+    readonly opens?: boolean;
+}
+
+/**
+ * The outlined button. Every button-shaped control uses this one, so a second
+ * outline never appears. Menus, pickers and choice strips stay compact rows.
+ */
+export function dialogButtonNode(
+    renderer: RenderContext,
+    options: DialogButtonOptions,
+): BoxRenderable {
+    const border = options.focused ? TUI_ACCENT : TUI_MUTED;
+    const box = new BoxRenderable(renderer, {
+        width: options.width,
+        height: DIALOG_BUTTON_LINES,
+        flexShrink: 0,
+        border: true,
+        // The doubled edge is the focus marker a monochrome terminal still reads.
+        borderStyle: options.focused ? "double" : "single",
+        borderColor: border,
+        focusedBorderColor: border,
+        shouldFill: false,
+        backgroundColor: TUI_PANEL,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        paddingLeft: 1,
+        paddingRight: 1,
+    });
+    box.add(new TextRenderable(renderer, {
+        content: options.label,
+        fg: options.focused ? TUI_ACCENT : TUI_TEXT,
+        bg: TUI_PANEL,
+        flexGrow: 1,
+        flexShrink: 1,
+        wrapMode: "none",
+    }));
+    if (options.opens === true) {
+        box.add(new TextRenderable(renderer, {
+            content: DIALOG_BUTTON_CHEVRON,
+            fg: options.focused ? TUI_ACCENT : TUI_MUTED,
+            bg: TUI_PANEL,
+            flexShrink: 0,
+        }));
+    }
+    return box;
+}
+
 export function createDialogSearchNode(
     renderer: RenderContext,
     id: string,

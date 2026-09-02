@@ -35,7 +35,7 @@ import {
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
-import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, registerDialogCard } from "./dialog-chrome.ts";
+import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_BUTTON_LINES, dialogButtonNode, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, registerDialogCard } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import {
     tuiThemeProperties,
@@ -1230,7 +1230,9 @@ export function renderListPickerRows(
         : split.listWidth - MODEL_LIST_RULE_GAP;
     const listAction = modelListAction(state);
     const listActionLines = listAction === undefined ? 0 : 2;
-    const pageEntryLines = modelPageEntry(state) === undefined ? 0 : 2;
+    const pageEntryLines = modelPageEntry(state) === undefined
+        ? 0
+        : DIALOG_BUTTON_LINES;
     const listedHeaderLines = showsListedFactsHeader(state)
             && state.options.length > 0
             && !stackedPage
@@ -1361,35 +1363,20 @@ export function renderListPickerRows(
     ], optionRowWidth);
     const pageEntry = modelPageEntry(state);
     if (pageEntry !== undefined) {
-        const actionWidth = Math.max(1, rowWidth - 2);
-        const entry = new TextRenderable(renderer, {
-            content: new StyledText(modelListActionLineChunks(
-                {
-                    ...pageEntry,
-                    label: modelPageEntryLabel(state, actionWidth),
-                },
-                actionWidth,
-                state.kind === "model"
-                    && (state.modelFocus === "page_entry"
-                        || state.modelFocus === "page"),
-            )),
-            bg: TUI_INPUT,
+        // Border, padding and the chevron all eat into the label's room.
+        const labelWidth = Math.max(1, rowWidth - 6);
+        const entry = dialogButtonNode(renderer, {
+            label: modelPageEntryLabel(state, labelWidth),
             width: rowWidth,
-            height: 1,
-            paddingLeft: 1,
-            paddingRight: 1,
+            focused: state.kind === "model"
+                && (state.modelFocus === "page_entry"
+                    || state.modelFocus === "page"),
+            opens: true,
         });
         attachDialogRowPointer(entry, pointer, -1);
         listColumn.add(entry);
         nodes.push(entry);
-        const rule = new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_ELEMENT)("\u2500".repeat(rowWidth))]),
-            width: rowWidth,
-            height: 1,
-        });
-        listColumn.add(rule);
-        nodes.push(rule);
-        lines += 2;
+        lines += DIALOG_BUTTON_LINES;
     }
     if (stackedPage) {
         const title = new TextRenderable(renderer, {

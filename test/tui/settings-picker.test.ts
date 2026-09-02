@@ -4299,8 +4299,8 @@ test("the More page stands in for the list it covers", async () => {
     expect(frame).not.toContain("Smarter");
     expect(frame).not.toContain("WA Score*");
     expect(frame).not.toContain("Blended price");
-    // The rows read as the entry row's own menu, so they open right under it:
-    // the rule, the gap and the "More" heading are all that sit between.
+    // The rows read as the button's own menu, so they open right under it:
+    // the bottom edge, the gap and the "More" heading are all that sit between.
     const lines = frame.split("\n");
     const entry = lines.findIndex((line) => line.includes("- More"));
     const first = lines.findIndex((line) =>
@@ -4308,6 +4308,47 @@ test("the More page stands in for the list it covers", async () => {
     );
     expect(entry).toBeGreaterThan(-1);
     expect(first - entry).toBe(4);
+});
+
+test("the More entry is a button that marks focus without color", async () => {
+    const picker = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        "high",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    const all = {
+        ...switchedModelTab(picker, "all"),
+        actionOptions: tuiModelActionOptions(["openrouter"]),
+    };
+    function buttonRows(frame: string): readonly string[] {
+        const lines = frame.split("\n");
+        const row = lines.findIndex((line) => line.includes("More \u00b7"));
+        expect(row).toBeGreaterThan(-1);
+        return lines.slice(row - 1, row + 2);
+    }
+    const resting = buttonRows(await pickerFrame({ ...all, selectedIndex: 0 }));
+    expect(resting[0]).toContain("\u250c");
+    expect(resting[1]).toContain("\u2502");
+    expect(resting[2]).toContain("\u2514");
+    // The door it opens, not an arrow the list rows also use.
+    expect(resting[1]).toContain("\u203a");
+    const focused = buttonRows(await pickerFrame(
+        handleTuiSettingsPickerKey(
+            handleTuiSettingsPickerKey(
+                { ...all, selectedIndex: 0 },
+                { name: "up" },
+            ).state!,
+            { name: "up" },
+        ).state!,
+    ));
+    // A monochrome terminal reads the doubled edge; the accent is decoration.
+    expect(focused[0]).toContain("\u2554");
+    expect(focused[1]).toContain("\u2551");
+    expect(focused[2]).toContain("\u255a");
 });
 
 test("the show-or-hide row lands on the list it changed", () => {
