@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { PoolFile } from "../../src/model/pool-file.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
+    credentialRefusal,
     currentStep,
     openGate,
     providerAnswerLabel,
@@ -264,4 +265,49 @@ test("a provider chosen that is not configured leaves the stepper on provider", 
         chosen: "not-a-provider",
     };
     expect(currentStep(input)).toBe("provider");
+});
+
+test("a refused key leaves the key step open even though it is stored", () => {
+    const input = {
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({ openrouter: "refused" }),
+        env: NO_ENV,
+        chosen: "openrouter",
+        refusedKey: true,
+    };
+    expect(stateOf(stepperSteps(input), "key")).toBe("current");
+    expect(stateOf(stepperSteps(input), "model")).toBe("locked");
+    expect(stepPosition(input)).toBe(2);
+});
+
+test("a 401 hands back the provider's own sentence, not the envelope", () => {
+    const refusal = credentialRefusal({
+        verdict: "incompatible",
+        statusCode: 401,
+        reason:
+            'deepseek returned 401 {"error":{"message":"Authentication Fails, Your api key: ****-key is invalid"}}',
+    });
+    expect(refusal).toBe(
+        "Authentication Fails, Your api key: ****-key is invalid",
+    );
+});
+
+test("a refusal with no JSON in it is shown as it came", () => {
+    expect(credentialRefusal({ verdict: "incompatible", statusCode: 403, reason: "forbidden" }))
+        .toBe("forbidden");
+    expect(credentialRefusal({ verdict: "incompatible", statusCode: 401 }))
+        .toBe("no reason given");
+});
+
+test("a failure that is not about the key keeps the user on the model step", () => {
+    expect(credentialRefusal({ verdict: "added" })).toBeUndefined();
+    expect(
+        credentialRefusal({
+            verdict: "unavailable",
+            statusCode: 503,
+            reason: "the provider is down",
+        }),
+    ).toBeUndefined();
+    expect(credentialRefusal({ verdict: "pool_write_refused" })).toBeUndefined();
 });

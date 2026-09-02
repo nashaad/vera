@@ -10,7 +10,8 @@ import { focusedAgentClient, focusedAgentState, openAgentPicker, setSidebarFocus
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface, reportConnectionError } from "../main/focus-switch.ts";
-import { currentModelAssignmentRows, modelRequestOptionsFacts, openModelAssignmentPicker, openModelPicker, openPermissionsPicker, openProviderPicker, openReasoningPicker } from "../main/model-pickers.ts";
+import { currentModelAssignmentRows, homeNeedsProvider, modelRequestOptionsFacts, openModelAssignmentPicker, openModelPicker, openPermissionsPicker, openProviderPicker, openReasoningPicker } from "../main/model-pickers.ts";
+import { enterOnboardingModelStep } from "../main/onboarding-flow.ts";
 import { renderState } from "../main/render-state.ts";
 import type { TuiNamePromptState, TuiNamePromptTransition } from "../name-prompt.ts";
 import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
@@ -336,6 +337,12 @@ export function applySecretPromptTransition(rt: TuiRuntime,
                 }`,
             );
         }
+    }
+    // A stored key is the second gate, not the last one. While no provider has
+    // answered, the flow carries straight on to the model step.
+    if (transition.submitted !== undefined && homeNeedsProvider(rt)) {
+        enterOnboardingModelStep(rt, prompt.providerId);
+        return;
     }
     if (prompt.parent?.kind === "provider") {
         openProviderPicker(rt, prompt.parent.parent);

@@ -394,6 +394,7 @@ export function resumeJsonlView(rt: TuiRuntime): void {
 export function beginCreateSession(rt: TuiRuntime, 
     sourceDisposition: TuiSessionLeaveDisposition = "stop",
     draft?: () => TuiDraft | undefined,
+    onReady?: () => void,
 ): void {
     rt.composer.clearComposer();
     const clearingSidebar = rt.sidebar.isFocused()
@@ -494,6 +495,7 @@ export function beginCreateSession(rt: TuiRuntime,
             return;
         }
         switchToClient(rt, next, draft?.());
+        onReady?.();
         if (rt.homeSubmitPending) {
             rt.homeSubmitPending = false;
             submitPrompt(rt);

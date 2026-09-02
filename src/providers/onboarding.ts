@@ -119,6 +119,8 @@ export interface OnboardingStep {
 export interface StepperInput extends OnboardingInput {
     /** The provider chosen on the first step, which is not yet the configured one. */
     readonly chosen?: string;
+    /** A key the provider turned down. It is stored, and the gate is still open. */
+    readonly refusedKey?: boolean;
 }
 
 const STEP_LABELS: Record<OnboardingStepId, string> = {
@@ -135,6 +137,7 @@ function chosenProvider(input: StepperInput): ProviderDescriptor | undefined {
 function keyStepState(input: StepperInput): OnboardingStepState {
     const provider = chosenProvider(input);
     if (provider === undefined) return "locked";
+    if (input.refusedKey === true) return "current";
     return !needsCredential(provider) || holdsCredential(provider, input)
         ? "done"
         : "current";
@@ -171,4 +174,37 @@ export function stepPosition(input: StepperInput): number | undefined {
         (step) => step.state === "current",
     );
     return index === -1 ? undefined : index + 1;
+}
+
+/** What a `pool_add` verdict says, narrowed to what the gates care about. */
+export interface AdmissionOutcome {
+    readonly verdict: string;
+    readonly reason?: string;
+    readonly statusCode?: number;
+}
+
+/**
+ * The provider's own words when it turned the key down, or undefined when the
+ * failure was not about the credential. A refusal sends the user one gate back;
+ * anything else is about the model, and the model step keeps the user.
+ */
+export function credentialRefusal(
+    outcome: AdmissionOutcome,
+): string | undefined {
+    if (outcome.statusCode !== 401 && outcome.statusCode !== 403) {
+        return undefined;
+    }
+    const reason = outcome.reason ?? "no reason given";
+    const start = reason.indexOf("{");
+    if (start === -1) {
+        return reason;
+    }
+    try {
+        const body: unknown = JSON.parse(reason.slice(start));
+        const message = (body as { error?: { message?: unknown } }).error
+            ?.message ?? (body as { message?: unknown }).message;
+        return typeof message === "string" ? message : reason;
+    } catch {
+        return reason;
+    }
 }

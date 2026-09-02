@@ -77,7 +77,8 @@ export type TuiSettingsPickerKind =
     | "reviewer"
     | "model_assignment"
     | "pool_verify_scope"
-    | "catalog_refresh_scope";
+    | "catalog_refresh_scope"
+    | "onboarding_model";
 
 export type TuiSettingsMenuTarget =
     | "model"
@@ -280,6 +281,8 @@ export interface TuiSettingsPickerState {
     readonly revealAll?: boolean;
     readonly intelligenceCutoff?: IntelligenceCutoff;
     readonly configureFiles?: readonly TuiConfigureFile[];
+    /** The provider the onboarding model step is choosing within. */
+    readonly onboardingProvider?: string;
 }
 
 export interface TuiAssignmentParentModel {
@@ -350,6 +353,11 @@ export type TuiSettingsPickerSelection =
         readonly model?: string;
     }
     | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean }
+    | {
+        readonly kind: "onboarding_model";
+        readonly provider: string;
+        readonly model: string;
+    }
     | {
         readonly kind: "catalog_refresh_scope";
         readonly providers: readonly string[];

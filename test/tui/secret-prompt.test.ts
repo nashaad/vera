@@ -187,3 +187,34 @@ test("the key card carries the onboarding rail when one is given", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("a refused key names the provider's own words and offers another try", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiSecretPromptView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        view.update(startTuiSecretPrompt(
+            OPENROUTER,
+            undefined,
+            "Provider > Key > Model    step 2 of 3",
+            "No auth credentials found",
+        ));
+        await setup.flush();
+        const refused = setup.captureCharFrame();
+        expect(refused).toContain(
+            "OpenRouter refused this key: No auth credentials found",
+        );
+        expect(refused).toContain("try again");
+        expect(refused).toContain("esc change provider");
+
+        view.update(startTuiSecretPrompt(OPENROUTER));
+        await setup.flush();
+        const clean = setup.captureCharFrame();
+        expect(clean).not.toContain("refused this key");
+        expect(clean).toContain("save");
+    } finally {
+        setup.renderer.destroy();
+    }
+});

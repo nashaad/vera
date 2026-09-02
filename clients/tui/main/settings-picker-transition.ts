@@ -5,6 +5,7 @@ import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { bindModelAssignmentFromPicker, connectProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
+import { beginOnboardingVerification } from "../main/onboarding-flow.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
@@ -525,6 +526,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 );
                 return;
             }
+        } else if (selection.kind === "onboarding_model") {
+            beginOnboardingVerification(rt, selection.provider, selection.model);
+            return;
         } else {
             beginSessionResume(rt, 
                 selection.sessionPath,

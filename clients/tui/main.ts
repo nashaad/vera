@@ -2636,6 +2636,8 @@ export async function startTui(
         readonly verify: boolean;
         readonly retry: boolean;
     }>();
+    rt.pendingOnboardingStep = undefined;
+    rt.onboardingVerification = undefined;
 
     rt.themeBindings = [
         (activeTheme) => {

@@ -450,5 +450,9 @@ export interface TuiRuntime {
     authStorage: AuthStorage;
     connectingProviders: Set<string>;
     poolAdmissionAttempts: Map<string, { readonly provider: string; readonly model: string; readonly verify: boolean; readonly retry: boolean; }>;
+    /** The provider whose model step is waiting for the new conversation's settings. */
+    pendingOnboardingStep: string | undefined;
+    /** The one real request that decides whether the last gate is clear. */
+    onboardingVerification: { readonly requestId: string; readonly provider: string; readonly model: string; } | undefined;
     themeBindings: readonly TuiThemeBinding[];
 }

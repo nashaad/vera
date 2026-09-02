@@ -2280,6 +2280,13 @@ export function pickerSelection(
             onlyUnverified: value === POOL_VERIFY_UNVERIFIED_VALUE,
         };
     }
+    if (kind === "onboarding_model") {
+        const provider = state.onboardingProvider;
+        if (provider === undefined) {
+            throw new Error("onboarding model picker is missing its provider");
+        }
+        return { kind, provider, model: value };
+    }
     if (kind === "catalog_refresh_scope") {
         return {
             kind,

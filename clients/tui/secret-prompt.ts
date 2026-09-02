@@ -26,6 +26,8 @@ export interface TuiSecretPromptState {
     readonly hint?: string;
     /** The onboarding step line, present only while the gates are unfinished. */
     readonly rail?: string;
+    /** What the provider said when it turned the last key down. */
+    readonly refusal?: string;
     readonly value: string;
     readonly parent?: TuiSettingsPickerState;
 }
@@ -61,12 +63,14 @@ export function startTuiSecretPrompt(
     },
     parent?: TuiSettingsPickerState,
     rail?: string,
+    refusal?: string,
 ): TuiSecretPromptState {
     return {
         providerId: provider.id,
         label: provider.label,
         ...(provider.hint === undefined ? {} : { hint: provider.hint }),
         ...(rail === undefined ? {} : { rail }),
+        ...(refusal === undefined ? {} : { refusal }),
         value: "",
         ...(parent === undefined ? {} : { parent }),
     };
@@ -152,6 +156,14 @@ export function createTuiSecretPromptView(
         wrapMode: "char",
         marginTop: 1,
     });
+    const refusal = new TextRenderable(renderer, {
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+        marginTop: 1,
+    });
     const footer = new TextRenderable(renderer, {
         content: `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`,
         fg: TUI_MUTED,
@@ -176,6 +188,7 @@ export function createTuiSecretPromptView(
     card.add(rail);
     card.add(hint);
     card.add(entry);
+    card.add(refusal);
     card.add(footer);
     const box = new BoxRenderable(renderer, {
         id: "secret-prompt",
@@ -198,6 +211,7 @@ export function createTuiSecretPromptView(
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
             tuiThemeProperties(rail, { fg: "muted" }),
+            tuiThemeProperties(refusal, { fg: "muted" }),
             tuiThemeProperties(hint, { fg: "muted" }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(card, { backgroundColor: "panel" }),
@@ -207,6 +221,14 @@ export function createTuiSecretPromptView(
             rail.content = state.rail ?? "";
             hint.content = state.hint ?? "";
             entry.content = tuiSecretEntryLine(state.value);
+            refusal.content = state.refusal === undefined
+                ? ""
+                : `${state.label} refused this key: ${state.refusal}`;
+            footer.content = state.refusal === undefined
+                ? `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`
+                : `⏎ try again · ${
+                    tuiKeyHint("clear_secret")
+                } · esc change provider`;
         },
     };
 }
