@@ -213,7 +213,13 @@ export function applyProviderFormTransition(rt: TuiRuntime,
 ): void {
     rt.providerForm = transition.state;
     if (rt.providerForm !== undefined) {
+        const fieldChanged = form.field !== rt.providerForm.field;
         renderState(rt);
+        // Hidden field editors keep focus until we move it. Same-field typing
+        // must not refocus or the native cursor resets.
+        if (fieldChanged) {
+            focusActiveSurface(rt);
+        }
         return;
     }
     const submitted = transition.submitted;

@@ -3440,7 +3440,11 @@ test("provider text fields use the native editor cursor", async () => {
 
         form = view.handleKey(form, { name: "down" }).state!;
         view.update(form);
+        expect(setup.renderer.currentFocusedRenderable?.id)
+            .toBe("provider-form-id-editor");
         view.focus();
+        expect(setup.renderer.currentFocusedRenderable?.id)
+            .toBe("provider-form-base_url-editor");
         form = view.handleKey(form, { name: "h", sequence: "h" }).state!;
         view.update(form);
 
