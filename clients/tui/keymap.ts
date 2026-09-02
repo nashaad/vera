@@ -467,11 +467,15 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^a show all",
     },
     {
+        // Tab does both jobs, one level apart: on the strip it switches tabs,
+        // in the page it moves between sections. Ctrl+tab says "switch tabs"
+        // from either, for the terminals that can report it; where they cannot
+        // it arrives as bare tab, which on the strip already does that.
         id: "switch_tab",
-        keys: ["tab", "shift+tab"],
+        keys: ["tab", "shift+tab", "ctrl+tab", "ctrl+shift+tab"],
         scope: "model_picker",
-        description: "Switch between the shortlist and all models",
-        hint: "tab switch",
+        description: "Move between sections, and between tabs on the strip",
+        hint: "tab section",
         overrides: ["dials.open"],
     },
     {

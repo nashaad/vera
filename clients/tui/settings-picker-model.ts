@@ -696,8 +696,9 @@ export function clippedTo(text: string, width: number): string {
 
 export const MODEL_TAB_STRIP_CHROME_HEIGHT = 3;
 
+/** The one line that teaches the shape rather than the keys: tab crosses the bands, arrows stay inside one. The footer above it names the keys of whichever band has the cursor. */
 export const MODEL_ARROW_HINT =
-    "Arrow keys move you: ↑↓ the list, → into the details, ← back";
+    "⇥ moves between sections, arrows move inside one, ⇧⇥ reaches the tabs";
 
 export const MODEL_ALL_MAX_ROWS = 28;
 
@@ -1626,7 +1627,11 @@ export function searched(
         selectedIndex: 0,
         query,
         queryCursor,
-        ...(state.kind === "model" ? { modelFocus: "list" as const } : {}),
+        // A query is about rows, so it carries the reader down out of the tab
+        // strip and into the list rather than filtering something they cannot see.
+        ...(state.kind === "model"
+            ? { modelFocus: "list" as const, pickerLevel: "page" as const }
+            : {}),
     };
     return {
         state: next,

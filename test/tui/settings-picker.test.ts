@@ -8,6 +8,10 @@ import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { resolveTuiTheme, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 import {
+    focusedPickerSection,
+    pickerSections,
+} from "../../clients/tui/picker-sections.ts";
+import {
     handleTuiSettingsPickerKey,
     handleTuiSettingsPickerScroll,
     startTuiConfigurePicker,
@@ -1486,6 +1490,11 @@ function modelPickerWithPool(
     );
 }
 
+/** On the tab strip, where shift+tab off the first section leaves you. Tab switches tabs here; in the page below it moves between sections. */
+function onStrip(state: TuiSettingsPickerState): TuiSettingsPickerState {
+    return { ...state, pickerLevel: "strip" };
+}
+
 function typedInto(
     start: TuiSettingsPickerState,
     text: string,
@@ -1525,7 +1534,7 @@ test("an empty model list says which emptiness it is", async () => {
     expect(noCatalogFrame).not.toContain("Nothing shortlisted yet");
 });
 
-test("an empty model list stays put on Down and reaches More with one Up", () => {
+test("an empty model list stays put on Down and reaches More with one ⇧⇥", () => {
     const empty = {
         ...switchedModelTab(
             modelPickerWithPool([], "z-ai/glm-5.2", "openrouter"),
@@ -1539,9 +1548,16 @@ test("an empty model list stays put on Down and reaches More with one Up", () =>
     expect(down.selectedIndex).toBe(0);
     expect(down.modelFocus).toBe("list");
 
+    // Up stays in the list, empty or not: leaving a section is tab's job.
     const up = handleTuiSettingsPickerKey(down, { name: "up" }).state!;
     expect(up.selectedIndex).toBe(0);
-    expect(up.modelFocus).toBe("page_entry");
+    expect(up.modelFocus).toBe("list");
+
+    const more = handleTuiSettingsPickerKey(down, {
+        name: "tab",
+        shift: true,
+    }).state!;
+    expect(more.modelFocus).toBe("page_entry");
 });
 
 test("a search that matches no model says so on All models", async () => {
@@ -1609,7 +1625,7 @@ test("the model tab strip keeps every stop inside the card at narrow widths", as
                 line.includes("Providers ^e")
             );
             expect(providersRow).toBeGreaterThan(firstTabRow);
-            expect(frame).toContain("Arrow keys move you");
+            expect(frame).toContain("⇥ moves between sections");
         }
     }
 });
@@ -1682,7 +1698,10 @@ test("Shortlist offers the current model as a visible action row", async () => {
     expect(shortlistFrame).not.toContain("Add current model to sh");
 
     const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(shortlist, { name: "up" }).state!,
+        handleTuiSettingsPickerKey(shortlist, {
+            name: "tab",
+            shift: true,
+        }).state!,
         { name: "return" },
     ).state!;
     expect(await pickerFrame(page)).toContain("Add current model");
@@ -1779,7 +1798,9 @@ test("right and left move between a model row and its inspector", async () => {
     expect(handleTuiSettingsPickerKey(named, { name: "left" }).state?.modelFocus)
         .toBe("list");
 
-    const nextTab = handleTuiSettingsPickerKey(detail, { name: "tab" }).state!;
+    const nextTab = handleTuiSettingsPickerKey(onStrip(detail), {
+        name: "tab",
+    }).state!;
     expect(nextTab.tab).toBe("all");
     expect(nextTab.modelFocus).toBe("list");
 });
@@ -1850,7 +1871,7 @@ test("verifying the shortlist lives on More, and every row is clickable", async 
     const page = handleTuiSettingsPickerKey(
         handleTuiSettingsPickerKey(
             { ...shortlist, selectedIndex: 0 },
-            { name: "up" },
+            { name: "tab", shift: true },
         ).state!,
         { name: "return" },
     ).state!;
@@ -1978,7 +1999,9 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
 
 test("⇥ moves to All models, which lists what can run", async () => {
     const state = modelPickerWithPool();
-    const allTab = handleTuiSettingsPickerKey(state, { name: "tab" }).state;
+    const allTab = handleTuiSettingsPickerKey(onStrip(state), {
+        name: "tab",
+    }).state;
 
     expect(allTab?.tab).toBe("all");
     // A pool model that cannot run right now is not offered here: choosing it
@@ -2082,9 +2105,9 @@ test("a tab is switched by clicking its chip, cursor and all", () => {
 
     // The click path is the key path: whatever ⇥ would do landing on that tab
     // is what a click on it does.
-    expect(switchedModelTab({ ...state, query: "glm" }, "all"))
+    expect(onStrip(switchedModelTab({ ...state, query: "glm" }, "all")))
         .toEqual(handleTuiSettingsPickerKey(
-            { ...state, query: "glm" },
+            onStrip({ ...state, query: "glm" }),
             { name: "tab" },
         ).state as TuiSettingsPickerState);
 });
@@ -2117,7 +2140,7 @@ test("the Help tab explains the pane in the pane", async () => {
     const title = lines.findIndex((line) => line.startsWith("Select model"));
     expect(lines[title + 1]).toBe("Search");
     expect(lines[title + 2]).toStartWith("Shortlist (2)");
-    expect(frame).toContain("⇥ tabs · esc close");
+    expect(frame).toContain("⇥ tabs · esc tabs");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
     expect(frame).not.toMatch(/Help \d/);
@@ -2234,7 +2257,10 @@ test("All models shows listed facts, glyphs, and a blank unmatched score", async
 
 test("All models intelligence cutoff hides rows below the WA Score floor", () => {
     const all = { ...switchedModelTab(listedFactsPicker(), "all"), selectedIndex: 0 };
-    const focused = handleTuiSettingsPickerKey(all, { name: "up" }).state!;
+    const focused = handleTuiSettingsPickerKey(all, {
+        name: "tab",
+        shift: true,
+    }).state!;
     expect(focused.modelFocus).toBe("intelligence");
 
     const floor = handleTuiSettingsPickerKey(focused, { name: "right" }).state!;
@@ -2374,10 +2400,12 @@ test("a fold survives a tab away and back, and a search opens everything", () =>
     // All -> Actions -> Defaults -> Help -> Pool, the long way round the strip.
     let pool = folded;
     for (let step = 0; step < 4; step += 1) {
-        pool = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
+        pool = handleTuiSettingsPickerKey(onStrip(pool), { name: "tab" }).state!;
     }
     expect(pool.tab).toBe("pool");
-    const back = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
+    const back = handleTuiSettingsPickerKey(onStrip(pool), {
+        name: "tab",
+    }).state!;
     expect(back.tab).toBe("all");
     expect(sectionRows(back)).toEqual([
         ["Top picks", false],
@@ -2649,7 +2677,11 @@ test("the model picker footer names the action the highlighted row would take", 
 
     // On a row nobody pooled the same key says the opposite thing.
     const onAll = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(onPoolRow, { name: "tab" }).state!,
+        handleTuiSettingsPickerKey(
+            handleTuiSettingsPickerKey(onStrip(onPoolRow), { name: "tab" })
+                .state!,
+            { name: "down" },
+        ).state!,
         { name: "right", shift: true },
     ).state!;
     const onUnpooledRow = {
@@ -2686,7 +2718,7 @@ test("a snapshot leaves the user on the tab they moved to", () => {
     // The tab is the user's own place in the pane, so a rebuild must not drop
     // them back onto the one it opens with mid-action.
     const onAllTab = handleTuiSettingsPickerKey(
-        modelPickerWithPool(),
+        onStrip(modelPickerWithPool()),
         { name: "tab" },
     ).state!;
     const synced = syncTuiModelPicker(onAllTab, {
@@ -2716,7 +2748,11 @@ test("a snapshot keeps the pane the pane was opened from", () => {
         pooled: pooledModels,
     });
 
-    expect(handleTuiSettingsPickerKey(synced, { name: "escape" }).state)
+    // Escape climbs one level at a time: out of the page onto the tab strip,
+    // and only then out of the pane to what opened it.
+    const strip = handleTuiSettingsPickerKey(synced, { name: "escape" }).state!;
+    expect(strip.pickerLevel).toBe("strip");
+    expect(handleTuiSettingsPickerKey(strip, { name: "escape" }).state)
         .toBe(menu);
     expect(tuiPickerMenuAncestor(synced)).toBe(menu);
 });
@@ -3044,7 +3080,7 @@ test("the connect pane opened from the model pane draws in the same card", async
 test("⇥ walks from the last tab onto the connect pane and back off it", () => {
     const help = switchedModelTab(modelPickerWithPool(), "help");
 
-    const onto = handleTuiSettingsPickerKey(help, { name: "tab" });
+    const onto = handleTuiSettingsPickerKey(onStrip(help), { name: "tab" });
     expect(onto.openProviders).toBe(true);
     // The list under the pane wraps, so leaving it does not drop the user back
     // on the stop that opened it.
@@ -3062,16 +3098,16 @@ test("⇥ walks from the last tab onto the connect pane and back off it", () => 
 
 test("shift+tab walks left across model tabs and the providers pane", () => {
     const all = switchedModelTab(modelPickerWithPool(), "all");
-    const pool = handleTuiSettingsPickerKey(all, {
+    const pool = handleTuiSettingsPickerKey(onStrip(all), {
         name: "tab",
         shift: true,
     });
     expect((pool.state as TuiSettingsPickerState).tab).toBe("pool");
 
-    const ontoProviders = handleTuiSettingsPickerKey(pool.state!, {
-        name: "tab",
-        shift: true,
-    });
+    const ontoProviders = handleTuiSettingsPickerKey(
+        onStrip(pool.state as TuiSettingsPickerState),
+        { name: "tab", shift: true },
+    );
     expect(ontoProviders.openProviders).toBe(true);
     expect((ontoProviders.state as TuiSettingsPickerState).tab).toBe("help");
 
@@ -3226,7 +3262,7 @@ test("the footer sheds whole hints rather than splitting a chord from its label"
     }
     // Moving, choosing and leaving are what the pane is for, so they are the
     // last hints to go.
-    expect(narrow).toContain("close");
+    expect(narrow).toContain("esc tabs");
 });
 
 test("ctrl+n asks to name a pooled row and does nothing on an unpooled one", () => {
@@ -4245,13 +4281,14 @@ test("All models puts its collection action under the list", async () => {
     expect(frame).toContain("show every model");
     expect(frame).toMatch(/More\s+.*\u203a/);
 
+    // Shift+tab climbs the ring: list, then the cutoff filter, then More.
     const page = handleTuiSettingsPickerKey(
         handleTuiSettingsPickerKey(
             handleTuiSettingsPickerKey(
                 { ...all, selectedIndex: 0 },
-                { name: "up" },
+                { name: "tab", shift: true },
             ).state!,
-            { name: "up" },
+            { name: "tab", shift: true },
         ).state!,
         { name: "return" },
     ).state!;
@@ -4287,9 +4324,9 @@ test("the More page stands in for the list it covers", async () => {
         handleTuiSettingsPickerKey(
             handleTuiSettingsPickerKey(
                 { ...all, selectedIndex: 0 },
-                { name: "up" },
+                { name: "tab", shift: true },
             ).state!,
-            { name: "up" },
+            { name: "tab", shift: true },
         ).state!,
         { name: "return" },
     ).state!;
@@ -4340,9 +4377,9 @@ test("the More entry is a button that marks focus without color", async () => {
         handleTuiSettingsPickerKey(
             handleTuiSettingsPickerKey(
                 { ...all, selectedIndex: 0 },
-                { name: "up" },
+                { name: "tab", shift: true },
             ).state!,
-            { name: "up" },
+            { name: "tab", shift: true },
         ).state!,
     ));
     // A monochrome terminal reads the doubled edge; the accent is decoration.
@@ -4439,4 +4476,98 @@ test("a developer value pane writes one field, and Off clears it", () => {
         kind: "developer",
         patch: { contextLimit: null },
     });
+});
+
+test("tab walks the sections a tab actually has, and stops at its edges", () => {
+    const all = {
+        ...switchedModelTab(listedFactsPicker(), "all"),
+        selectedIndex: 0,
+        actionOptions: tuiModelActionOptions(["openrouter"]),
+    };
+    expect(pickerSections(all)).toEqual(["more", "cutoff", "list"]);
+
+    const cutoff = handleTuiSettingsPickerKey(all, {
+        name: "tab",
+        shift: true,
+    }).state!;
+    expect(focusedPickerSection(cutoff)).toBe("cutoff");
+    // Up and down belong to the section, so they no longer walk out of it.
+    expect(
+        handleTuiSettingsPickerKey(cutoff, { name: "down" }).state?.modelFocus
+            ?? focusedPickerSection(cutoff),
+    ).toBe("intelligence");
+
+    const more = handleTuiSettingsPickerKey(cutoff, {
+        name: "tab",
+        shift: true,
+    }).state!;
+    expect(focusedPickerSection(more)).toBe("more");
+
+    // Shift+tab off the first section is the way up to the strip.
+    const strip = handleTuiSettingsPickerKey(more, {
+        name: "tab",
+        shift: true,
+    }).state!;
+    expect(strip.pickerLevel).toBe("strip");
+});
+
+test("the list keeps its cursor while another section is being used", () => {
+    const all = { ...switchedModelTab(listedFactsPicker(), "all"), selectedIndex: 2 };
+    const cutoff = handleTuiSettingsPickerKey(all, {
+        name: "tab",
+        shift: true,
+    }).state!;
+    const back = handleTuiSettingsPickerKey(cutoff, { name: "tab" }).state!;
+    expect(focusedPickerSection(back)).toBe("list");
+    expect(back.selectedIndex).toBe(2);
+});
+
+test("Shortlist has no cutoff filter, so its ring is shorter", () => {
+    const pool = {
+        ...modelPickerWithPool(),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    };
+    expect(pickerSections(pool)).not.toContain("cutoff");
+    const up = handleTuiSettingsPickerKey(pool, { name: "tab", shift: true })
+        .state!;
+    expect(focusedPickerSection(up)).toBe("more");
+});
+
+test("escape climbs to the strip before it closes the pane", () => {
+    const pool = modelPickerWithPool();
+    const strip = handleTuiSettingsPickerKey(pool, { name: "escape" }).state!;
+    expect(strip.pickerLevel).toBe("strip");
+    expect(handleTuiSettingsPickerKey(strip, { name: "escape" }).state)
+        .toBeUndefined();
+});
+
+test("the strip switches tabs, and down carries the reader into the list", () => {
+    const strip = onStrip(modelPickerWithPool());
+    const all = handleTuiSettingsPickerKey(strip, { name: "right" }).state!;
+    expect(all.tab).toBe("all");
+    expect(all.pickerLevel).toBe("strip");
+
+    const page = handleTuiSettingsPickerKey(all, { name: "down" }).state!;
+    expect(page.pickerLevel).toBe("page");
+    // The list, not the More button above it: the arrows have rows to move on.
+    expect(focusedPickerSection(page)).toBe("list");
+});
+
+test("ctrl+tab switches tabs from inside the page, where tab moves sections", () => {
+    const pool = modelPickerWithPool();
+    const section = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
+    expect(section.tab).toBe("pool");
+
+    const switched = handleTuiSettingsPickerKey(pool, {
+        name: "tab",
+        ctrl: true,
+    }).state!;
+    expect(switched.tab).toBe("all");
+});
+
+test("typing carries the reader out of the strip and into the list", () => {
+    const strip = onStrip(modelPickerWithPool());
+    const searched = updateTuiSettingsPickerSearch(strip, "glm").state!;
+    expect(searched.pickerLevel).toBe("page");
+    expect(focusedPickerSection(searched)).toBe("list");
 });

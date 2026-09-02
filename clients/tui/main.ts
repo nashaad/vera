@@ -2012,7 +2012,9 @@ export async function startTui(
         if (pane === undefined || pane.kind !== "model") {
             return;
         }
-        rt.settingsPicker = switchedModelTab(pane, tab);
+        // A click on a chip is the same act as tabbing onto it: the reader is
+        // choosing tabs, so they are left on the strip with the page beneath.
+        rt.settingsPicker = { ...switchedModelTab(pane, tab), pickerLevel: "strip" };
         renderState(rt);
     };
     rt.settingsPickerView.onConfigure = () => {

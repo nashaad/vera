@@ -235,6 +235,8 @@ export interface TuiSettingsPickerState {
     readonly initialModel?: string;
     readonly loading?: boolean;
     readonly tab?: TuiModelPickerTab;
+    /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
+    readonly pickerLevel?: "strip" | "page";
     readonly modelFocus?:
         | "list"
         | "list_action"

@@ -43,6 +43,14 @@ import {
 } from "./theme-bindings.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
+    atFirstPickerSection,
+    focusedOnSection,
+    focusedPickerSection,
+    pickerSections,
+    repairedSectionFocus,
+    steppedPickerSection,
+} from "./picker-sections.ts";
+import {
     insertTuiSingleLinePaste,
     tuiTextareaKey,
 } from "./single-line-editor.ts";
@@ -422,39 +430,48 @@ export function handleTuiSettingsPickerKey(
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
+        && key.ctrl !== true
+        && (state.pickerLevel ?? "page") === "page"
     ) {
-        const cycle: readonly TuiModelPickerTab[] = [
-            "pool",
-            "all",
-            "actions",
-            "defaults",
-            "help",
-        ];
-        const at = cycle.indexOf(state.tab ?? "all");
-        if (key.shift === true) {
-            if (at === 0) {
-                return {
-                    state: switchedModelTab(state, cycle.at(-1)!),
-                    handled: true,
-                    openProviders: true,
-                };
-            }
+        // In the page, tab belongs to the sections. Shift+tab off the first one
+        // is the way back up to the strip, so the two levels share one key
+        // without either needing a chord the terminal may not report.
+        const backward = key.shift === true;
+        if (backward && atFirstPickerSection(state)) {
             return {
-                state: switchedModelTab(state, cycle[at - 1] ?? cycle.at(-1)!),
+                state: { ...state, pickerLevel: "strip" },
                 handled: true,
             };
         }
-        if (at === cycle.length - 1) {
-            return {
-                state: switchedModelTab(state, cycle[0]!),
-                handled: true,
-                openProviders: true,
-            };
-        }
-        return {
-            state: switchedModelTab(state, cycle[at + 1] ?? cycle[0]!),
-            handled: true,
-        };
+        const next = steppedPickerSection(state, backward ? -1 : 1);
+        // A page with one section has nowhere else to put the cursor, so tab
+        // means the strip there rather than nothing at all.
+        return next === undefined
+            ? { state: { ...state, pickerLevel: "strip" }, handled: true }
+            : { state: focusedOnSection(state, next), handled: true };
+    }
+    if (
+        state.kind === "model"
+        && (state.pickerLevel ?? "page") === "strip"
+        && (key.name === "left" || key.name === "right")
+        && key.shift !== true
+        && key.ctrl !== true
+    ) {
+        return steppedModelTabTransition(state, key.name === "left");
+    }
+    if (
+        state.kind === "model"
+        && (state.pickerLevel ?? "page") === "strip"
+        && (key.name === "down" || key.name === "return"
+            || key.name === "enter")
+    ) {
+        return { state: descendedIntoPage(state), handled: true };
+    }
+    if (
+        state.kind === "model"
+        && tuiBindingId("model_picker", key) === "switch_tab"
+    ) {
+        return steppedModelTabTransition(state, key.shift === true);
     }
     if (
         state.kind === "provider"
@@ -544,25 +561,8 @@ export function handleTuiSettingsPickerKey(
                     handled: true,
                 };
         }
-        if (key.name === "escape") {
-            return {
-                state: { ...state, modelFocus: "list", selectedIndex: 0 },
-                handled: true,
-            };
-        }
-        if (key.name === "down") {
-            return {
-                state: {
-                    ...state,
-                    modelFocus: showsIntelligenceCutoff(state)
-                        ? "intelligence"
-                        : "list",
-                    selectedIndex: 0,
-                },
-                handled: true,
-            };
-        }
-        if (key.name === "up" || key.name === "left") {
+        if (key.name === "up" || key.name === "down" || key.name === "left") {
+            // The More button is a section of its own; tab is what leaves it.
             return unchanged(state, true);
         }
     }
@@ -587,19 +587,10 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
         }
-        if (key.name === "down") {
-            return {
-                state: { ...state, modelFocus: "list" },
-                handled: true,
-            };
-        }
-        if (key.name === "up") {
-            return modelPageEntry(state) === undefined
-                ? unchanged(state, true)
-                : {
-                    state: { ...state, modelFocus: "page_entry" },
-                    handled: true,
-                };
+        if (key.name === "up" || key.name === "down") {
+            // Left and right are the cutoff's own keys; up and down would be
+            // leaving the section, which is tab's job.
+            return unchanged(state, true);
         }
     }
     if (state.kind === "model" && state.modelFocus === "detail") {
@@ -711,6 +702,14 @@ export function handleTuiSettingsPickerKey(
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
+    if (
+        key.name === "escape"
+        && state.kind === "model"
+        && (state.pickerLevel ?? "page") === "page"
+    ) {
+        // Up one level, not out. A second escape closes the card.
+        return { state: { ...state, pickerLevel: "strip" }, handled: true };
+    }
     if (key.name === "escape") {
         const preview = state.kind === "theme" && state.initialTheme !== undefined
             ? { previewTheme: state.initialTheme }
@@ -776,28 +775,6 @@ export function handleTuiSettingsPickerKey(
         return toggledSection(state, heading.section);
     }
     if (key.name === "up") {
-        if (
-            state.kind === "model"
-            && state.selectedIndex === 0
-            && (state.modelFocus ?? "list") === "list"
-            && showsIntelligenceCutoff(state)
-        ) {
-            return {
-                state: { ...state, modelFocus: "intelligence" },
-                handled: true,
-            };
-        }
-        if (
-            state.kind === "model"
-            && state.selectedIndex === 0
-            && (state.modelFocus ?? "list") === "list"
-            && modelPageEntry(state) !== undefined
-        ) {
-            return {
-                state: { ...state, modelFocus: "page_entry" },
-                handled: true,
-            };
-        }
         const next = {
                 ...state,
                 selectedIndex: Math.max(0, state.selectedIndex - 1),
@@ -867,6 +844,37 @@ export function handleTuiSettingsPickerKey(
         };
     }
     return unchanged(state, false);
+}
+
+/** The tab to either side, wrapping through Providers, which is a page of its own rather than a tab in the strip. */
+function steppedModelTabTransition(
+    state: TuiSettingsPickerState,
+    backward: boolean,
+): TuiSettingsPickerTransition {
+    const cycle: readonly TuiModelPickerTab[] = [
+        "pool",
+        "all",
+        "actions",
+        "defaults",
+        "help",
+    ];
+    const at = cycle.indexOf(state.tab ?? "all");
+    const wraps = backward ? at === 0 : at === cycle.length - 1;
+    const next = backward
+        ? cycle[at - 1] ?? cycle.at(-1)!
+        : cycle[at + 1] ?? cycle[0]!;
+    return {
+        state: switchedModelTab(state, wraps ? (backward ? cycle.at(-1)! : cycle[0]!) : next),
+        handled: true,
+        ...(wraps ? { openProviders: true } : {}),
+    };
+}
+
+/** Into the page, on the list. The list is what the page is for, and the sections above it are a shift+tab away; landing on the More button instead would leave the arrows with nothing to move. */
+function descendedIntoPage(
+    state: TuiSettingsPickerState,
+): TuiSettingsPickerState {
+    return { ...focusedOnSection(state, "list"), pickerLevel: "page" };
 }
 
 export function handleTuiSettingsPickerScroll(
@@ -1838,6 +1846,14 @@ export function pickerFooterText(
             : "p assign";
         return `↑↓ move · ${action} · esc done`;
     }
+    if (state.kind === "model" && (state.pickerLevel ?? "page") === "strip") {
+        return fittedHints([
+            { text: "←→ ⇥ tabs", drop: 0 },
+            { text: "↓ list", drop: 0 },
+            { text: "type to filter", drop: 1 },
+            { text: "esc close", drop: 0 },
+        ], width);
+    }
     if (
         state.kind === "model"
         && (state.tab === "defaults" || state.tab === "actions")
@@ -1849,11 +1865,11 @@ export function pickerFooterText(
                 drop: 0,
             },
             { text: "\u21e5 tabs", drop: 1 },
-            { text: "esc close", drop: 0 },
+            { text: "esc tabs", drop: 0 },
         ], width);
     }
     if (state.kind === "model" && state.tab === "help") {
-        return "⇥ tabs · esc close";
+        return "⇥ tabs · esc tabs";
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
@@ -1862,16 +1878,15 @@ export function pickerFooterText(
                 { text: "↑↓ move", drop: 0 },
                 { text: "⏎ run", drop: 0 },
                 { text: "← list", drop: 0 },
-                { text: "⇥ tabs", drop: 2 },
-                { text: "esc close", drop: 0 },
+                { text: "⇥ section", drop: 2 },
+                { text: "esc tabs", drop: 0 },
             ], width);
         }
         if (state.modelFocus === "intelligence") {
             return fittedHints([
                 { text: "←→ cutoff", drop: 0 },
-                { text: "↓ list", drop: 0 },
-                { text: "⇥ tabs", drop: 1 },
-                { text: "esc close", drop: 0 },
+                { text: "⇥ section", drop: 1 },
+                { text: "esc tabs", drop: 0 },
             ], width);
         }
         if (state.modelFocus === "page") {
@@ -1884,10 +1899,9 @@ export function pickerFooterText(
         }
         if (state.modelFocus === "page_entry") {
             return fittedHints([
-                { text: "\u2193 list", drop: 0 },
-                { text: "\u2192 open", drop: 0 },
-                { text: "\u21e5 tabs", drop: 2 },
-                { text: "esc close", drop: 0 },
+                { text: "\u23ce open", drop: 0 },
+                { text: "\u21e5 section", drop: 2 },
+                { text: "esc tabs", drop: 0 },
             ], width);
         }
         if (state.modelFocus === "list_action") {
@@ -1897,8 +1911,8 @@ export function pickerFooterText(
                 ...(modelDetailActions(state, selected).length === 0
                     ? []
                     : [{ text: "→ actions", drop: 1 }]),
-                { text: "⇥ tabs", drop: 2 },
-                { text: "esc close", drop: 0 },
+                { text: "⇥ section", drop: 2 },
+                { text: "esc tabs", drop: 0 },
             ], width);
         }
         const action = tuiModelActionOfValue(selected?.value ?? "");
@@ -1945,8 +1959,8 @@ export function pickerFooterText(
                 }]
                 : []),
             { text: tuiKeyHint("open_providers"), drop: 6 },
-            { text: "⇥ tabs", drop: 3 },
-            { text: "esc close", drop: 0 },
+            { text: "⇥ section", drop: 3 },
+            { text: "esc tabs", drop: 0 },
         ], width);
     }
     return "↑↓ move · ⏎ select · esc close";
