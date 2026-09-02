@@ -573,7 +573,7 @@ export function dialogOptionRow(
         const leadingColor = content.leadingTone === "muted"
             ? detail
             : content.leadingTone === "positive"
-            ? content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS
+            ? lit ? TUI_SELECTION_TEXT : TUI_SUCCESS
             : accent;
         row.add(new TextRenderable(renderer, {
             content: new StyledText([

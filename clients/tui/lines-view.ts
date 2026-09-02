@@ -349,13 +349,17 @@ export function createTuiLinesView(
                 room,
             );
             if (above > 0) muted(`… ${above} above`);
-            const selectable = rail === undefined || state.focused === true;
+            // A panel that lost the keyboard keeps its cursor, quietly: the
+            // reader still needs to know where returning will land, and only
+            // the panel holding the keyboard may carry the lit fill.
+            const quiet = state.dimmed === true;
             for (const line of visible) {
                 add(lineNode(
                     renderer,
                     view,
-                    selectable ? line : { ...line, selected: false },
+                    line,
                     options.panelBackground === false,
+                    quiet,
                 ));
             }
             const below = state.lines.length - above - visible.length;
@@ -422,6 +426,7 @@ function lineNode(
     view: LinesView,
     line: LinesViewLine,
     transparent: boolean,
+    dimmed = false,
 ): Renderable {
     if (line.rowId === undefined) {
         if (line.tone === "heading") {
@@ -465,6 +470,7 @@ function lineNode(
             ? {}
             : { leading, leadingTone: line.leading?.tone }),
         active: line.selected === true,
+        ...(dimmed ? { dimmed: true } : {}),
         ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),
         ...pointer,
     });

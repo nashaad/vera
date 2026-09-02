@@ -16,7 +16,11 @@ import {
     DIALOG_CARD_Z_INDEX,
     DIALOG_SCRIM_Z_INDEX,
 } from "../../clients/tui/dialog-chrome.ts";
-import { TUI_ACCENT } from "../../clients/tui/state.ts";
+import {
+    TUI_ACCENT,
+    TUI_ELEMENT,
+    TUI_SUCCESS,
+} from "../../clients/tui/state.ts";
 
 const STATE: LinesViewState = {
     title: "VERA",
@@ -37,9 +41,13 @@ const STATE: LinesViewState = {
 
 /** Every row the surface drew on the accent ground. */
 function accentRows(box: BoxRenderable): BoxRenderable[] {
-    const accent = parseColor(TUI_ACCENT).toString();
+    return rowsOn(box, TUI_ACCENT);
+}
+
+function rowsOn(box: BoxRenderable, color: string): BoxRenderable[] {
+    const ground = parseColor(color).toString();
     return box.getChildren().filter((child): child is BoxRenderable =>
-        (child as BoxRenderable).backgroundColor?.toString() === accent
+        (child as BoxRenderable).backgroundColor?.toString() === ground
     );
 }
 
@@ -56,7 +64,7 @@ test("a rail draws its selection bar only while it holds the keyboard", async ()
         expect(accentRows(view.box)).toHaveLength(1);
 
         // Nothing about the rows changed, so the session-state glyph remains.
-        // Only the selection bar behind it is gone.
+        // Only the lit fill behind it goes; a quiet one takes its place.
         view.update({ ...STATE, dimmed: true });
         expect(accentRows(view.box)).toHaveLength(0);
 
@@ -65,6 +73,32 @@ test("a rail draws its selection bar only while it holds the keyboard", async ()
         view.setRail(undefined);
         view.update(STATE);
         expect(accentRows(view.box)).toHaveLength(1);
+    } finally {
+        renderer.destroy();
+    }
+});
+
+test("a rail that lost the keyboard still says where the cursor is", async () => {
+    const { renderer } = await createTestRenderer({ width: 100, height: 34 });
+    try {
+        const view = createTuiLinesView(renderer, "rail-quiet", {
+            railDivider: true,
+            railPadding: 2,
+        });
+        view.setRail(28);
+
+        view.update({ ...STATE, dimmed: true });
+        // The row a reader would return to is still a block, so the panel is
+        // readable with no color at all.
+        const quiet = rowsOn(view.box, TUI_ELEMENT);
+        expect(quiet).toHaveLength(1);
+
+        // The marker on that row belongs to the row, not to the fill it used
+        // to sit on, so it keeps its own tone rather than the lit one.
+        const marker = (quiet[0]!.getChildren()[0] as TextRenderable)
+            .content as StyledText;
+        expect(marker.chunks[0]?.fg?.toString())
+            .toBe(parseColor(TUI_SUCCESS).toString());
     } finally {
         renderer.destroy();
     }
