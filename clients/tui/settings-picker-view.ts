@@ -1203,6 +1203,10 @@ export function renderListPickerRows(
 
     const split = modelPaneSplit(renderer, state, railInset);
     const detailed = split !== undefined;
+    // The More page stands in for the list, so the cutoff slider, the facts
+    // header and the price card stay off while it is open.
+    const stackedPage = split === undefined && state.kind === "model"
+        && state.modelFocus === "page";
     let body: BoxRenderable | undefined;
     let listColumn = box;
     if (split !== undefined) {
@@ -1229,15 +1233,16 @@ export function renderListPickerRows(
     const pageEntryLines = modelPageEntry(state) === undefined ? 0 : 2;
     const listedHeaderLines = showsListedFactsHeader(state)
             && state.options.length > 0
+            && !stackedPage
         ? 1
         : 0;
     const modelTreePadLines = listedHeaderLines > 0
         ? ALL_MODELS_TREE_PAD_LINES
         : 0;
-    const intelligenceLines = showsIntelligenceCutoff(state)
+    const intelligenceLines = showsIntelligenceCutoff(state) && !stackedPage
         ? INTELLIGENCE_SCALE_LINES + ALL_MODELS_SECTION_GAP_LINES
         : 0;
-    const allModelsInfoLines = showsAllModelsPrices(state)
+    const allModelsInfoLines = showsAllModelsPrices(state) && !stackedPage
         ? allModelsPriceChromeLines()
         : 0;
     const stackedLines = split === undefined
@@ -1354,8 +1359,6 @@ export function renderListPickerRows(
             : []
         ),
     ], optionRowWidth);
-    const stackedPage = split === undefined && state.kind === "model"
-        && state.modelFocus === "page";
     const pageEntry = modelPageEntry(state);
     if (pageEntry !== undefined) {
         const actionWidth = Math.max(1, rowWidth - 2);
@@ -1387,6 +1390,37 @@ export function renderListPickerRows(
         listColumn.add(rule);
         nodes.push(rule);
         lines += 2;
+    }
+    if (stackedPage) {
+        const title = new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_MUTED)("More")]),
+            width: "100%",
+            height: 1,
+            marginTop: 1,
+        });
+        listColumn.add(title);
+        nodes.push(title);
+        lines += 2;
+        const actions = modelPageActions(state);
+        const selected = Math.min(
+            state.modelPageIndex ?? 0,
+            Math.max(0, actions.length - 1),
+        );
+        actions.forEach((action, index) => {
+            const node = new TextRenderable(renderer, {
+                content: new StyledText(modelActionLineChunks(
+                    { label: action.label, chord: action.description ?? "" },
+                    rowWidth,
+                    index === selected,
+                )),
+                width: "100%",
+                height: 1,
+            });
+            attachDialogRowPointer(node, pointer, -2 - index);
+            listColumn.add(node);
+            nodes.push(node);
+            lines += 1;
+        });
     }
     if (intelligenceLines > 0) {
         const focused = state.kind === "model"
@@ -1420,7 +1454,7 @@ export function renderListPickerRows(
         nodes.push(intelligence);
         lines += intelligenceLines;
     }
-    if (rows.length === 0) {
+    if (rows.length === 0 && !stackedPage) {
         const empty = new TextRenderable(renderer, {
             content: `${DIALOG_GUTTER}${emptyPickerMessage(state)}`,
             fg: TUI_MUTED,
@@ -1520,37 +1554,7 @@ export function renderListPickerRows(
         body.height = lines;
     }
 
-    if (stackedPage) {
-        const title = new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_MUTED)("More")]),
-            width: "100%",
-            height: 1,
-            marginTop: 1,
-        });
-        listColumn.add(title);
-        nodes.push(title);
-        lines += 2;
-        const actions = modelPageActions(state);
-        const selected = Math.min(
-            state.modelPageIndex ?? 0,
-            Math.max(0, actions.length - 1),
-        );
-        actions.forEach((action, index) => {
-            const node = new TextRenderable(renderer, {
-                content: new StyledText(modelActionLineChunks(
-                    { label: action.label, chord: action.description ?? "" },
-                    rowWidth,
-                    index === selected,
-                )),
-                width: "100%",
-                height: 1,
-            });
-            attachDialogRowPointer(node, pointer, -2 - index);
-            listColumn.add(node);
-            nodes.push(node);
-            lines += 1;
-        });
-    } else if (split === undefined) {
+    if (split === undefined && !stackedPage) {
         const option = state.options[state.selectedIndex];
         for (const chunks of stackedDetailLines(state, option, rowWidth)) {
             const node = new TextRenderable(renderer, {

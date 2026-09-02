@@ -4269,6 +4269,47 @@ test("All models puts its collection action under the list", async () => {
     expect(revealed?.tab).toBe("all");
 });
 
+test("the More page stands in for the list it covers", async () => {
+    const picker = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        "high",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    const all = {
+        ...switchedModelTab(picker, "all"),
+        actionOptions: tuiModelActionOptions(["openrouter"]),
+    };
+    const page = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(
+            handleTuiSettingsPickerKey(
+                { ...all, selectedIndex: 0 },
+                { name: "up" },
+            ).state!,
+            { name: "up" },
+        ).state!,
+        { name: "return" },
+    ).state!;
+    const frame = await pickerFrame(page);
+    // The cutoff slider, the facts header and the price card belong to the
+    // list, and the list is not on screen while the page is open.
+    expect(frame).not.toContain("Smarter");
+    expect(frame).not.toContain("WA Score*");
+    expect(frame).not.toContain("Blended price");
+    // The rows read as the entry row's own menu, so they open right under it:
+    // the rule, the gap and the "More" heading are all that sit between.
+    const lines = frame.split("\n");
+    const entry = lines.findIndex((line) => line.includes("- More"));
+    const first = lines.findIndex((line) =>
+        line.includes("Refresh model catalog")
+    );
+    expect(entry).toBeGreaterThan(-1);
+    expect(first - entry).toBe(4);
+});
+
 test("the show-or-hide row lands on the list it changed", () => {
     let actions = switchedModelTab(pickerWithActions(), "actions");
     actions = {
