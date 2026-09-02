@@ -4571,3 +4571,17 @@ test("typing carries the reader out of the strip and into the list", () => {
     expect(searched.pickerLevel).toBe("page");
     expect(focusedPickerSection(searched)).toBe("list");
 });
+
+test("the list cursor stays visible, and quiet, while the inspector has the keys", async () => {
+    const shortlist = { ...modelPickerWithPool(), selectedIndex: 0 };
+    const onRow = await pickerFrame(shortlist);
+    const inspector = handleTuiSettingsPickerKey(shortlist, { name: "right" })
+        .state!;
+    expect(focusedPickerSection(inspector)).toBe("details");
+
+    // The row the actions act on is still marked. It was disappearing before,
+    // which left the inspector looking like it belonged to nothing.
+    const label = shortlist.options[0]?.label ?? "";
+    expect(onRow).toContain(label);
+    expect(await pickerFrame(inspector)).toContain(label);
+});

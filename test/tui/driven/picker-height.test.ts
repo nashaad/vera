@@ -61,7 +61,7 @@ test("the model inspector stays inside a 100x40 terminal", async () => {
         expect(pane).toContain(
             "⇥ moves between sections, arrows move inside one, ⇧⇥ reaches the tabs",
         );
-        expect(pane).toContain("↑↓ move · ⏎ run · ← list · ⇥ tabs · esc close");
+        expect(pane).toContain("↑↓ move · ⏎ run · ← list · ⇥ section · esc tabs");
         expect(pane).toContain("Verify this model");
         expect(pane).toContain("Unpin");
         expect(pane).toContain("Name this model");

@@ -819,6 +819,7 @@ export function modelTabStripNode(
     note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
+    focused = true,
 ): { readonly node: BoxRenderable; readonly height: number } {
     const fullNames = MODEL_TAB_LABELS.map(([id, label]) => {
         const count = counts[id];
@@ -894,8 +895,13 @@ export function modelTabStripNode(
         const gapText = " ".repeat(gap);
         const chip = new TextRenderable(renderer, {
             content: new StyledText([
+                // Which tab is open never changes; whether it also holds the
+                // keyboard does. The plate keeps the chip's width, so nothing
+                // on the strip shifts as focus moves down into the page.
                 id === tab
-                    ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(text))
+                    ? focused
+                        ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(text))
+                        : fg(TUI_ACCENT)(bg(TUI_ELEMENT)(text))
                     : fg(TUI_ACCENT)(text),
                 fg(TUI_PANEL)(gapText),
             ]),
@@ -918,9 +924,11 @@ export function modelTabStripNode(
     const configure = new TextRenderable(renderer, {
         content: new StyledText(
             tab === "providers"
-                ? [fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(
-                    `${configureMargin}Providers ${chord}${configureMargin}`,
-                ))]
+                ? [
+                    focused
+                        ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(configureText))
+                        : fg(TUI_ACCENT)(bg(TUI_ELEMENT)(configureText)),
+                ]
                 : [fg(TUI_ACCENT)("Providers "), fg(TUI_MUTED)(chord)],
         ),
         width: Math.min(Bun.stringWidth(configureText), itemLimit),

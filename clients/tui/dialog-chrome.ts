@@ -326,6 +326,8 @@ export interface DialogRowContent {
     readonly emphasis?: { readonly start: number; readonly length: number };
     readonly meta?: DialogMeta;
     readonly active: boolean;
+    /** The cursor of a section that does not hold the keyboard. It stays visible, because what it points at is what another section is acting on, but it gives up the accent so only one fill on the card reads as focus. */
+    readonly dimmed?: boolean;
     readonly current?: boolean;
     readonly tint?: boolean;
     readonly wrap?: boolean;
@@ -542,18 +544,19 @@ export function dialogOptionRow(
     renderer: RenderContext,
     content: DialogRowContent,
 ): BoxRenderable {
-    const background = content.active
+    const lit = content.active && content.dimmed !== true;
+    const background = lit
         ? TUI_ACCENT
-        : content.tint === true
+        : content.active || content.tint === true
             ? TUI_ELEMENT
             : content.background ?? TUI_PANEL;
-    const label = content.active
+    const label = lit
         ? TUI_SELECTION_TEXT
         : content.current
             ? TUI_ACCENT
             : TUI_TEXT;
-    const accent = content.active ? TUI_SELECTION_TEXT : TUI_ACCENT;
-    const detail = content.active ? TUI_SELECTION_TEXT : TUI_MUTED;
+    const accent = lit ? TUI_SELECTION_TEXT : TUI_ACCENT;
+    const detail = lit ? TUI_SELECTION_TEXT : TUI_MUTED;
     if (content.card === true) {
         return cardRow(renderer, content, { background, label, accent, detail });
     }

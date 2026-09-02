@@ -1185,6 +1185,7 @@ export function renderListPickerRows(
             tab === undefined || tab === "help" ? undefined : modelPaneNote(state),
             onTab,
             onConfigure,
+            state.kind !== "model" || (state.pickerLevel ?? "page") === "strip",
         );
         tabStripHeight = strip.height;
         box.add(strip.node);
@@ -1359,9 +1360,13 @@ export function renderListPickerRows(
                     ?? optionMeta(state, row.option, detailed, listedPrefixWidth),
                 card: row.option.card,
                 ...(listedHeader ? { background: TUI_INPUT } : {}),
-                active: row.index === state.selectedIndex
-                    && (state.kind !== "model"
-                        || (state.modelFocus ?? "list") === "list"),
+                active: row.index === state.selectedIndex,
+                // The list keeps its cursor while another section is being
+                // used: the actions there act on this row, and hiding it is
+                // what makes an inspector look like it belongs to nothing.
+                dimmed: state.kind === "model"
+                    && (focusedPickerSection(state) !== "list"
+                        || state.modelFocus === "list_action"),
                 current: row.option.section !== undefined
                     || isCurrentOption(state, row.option),
                 ...dialogRowPointer(pointer, row.index),
