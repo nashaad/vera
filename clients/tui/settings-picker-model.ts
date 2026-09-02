@@ -771,6 +771,20 @@ export const MODEL_TAB_COMPACT_LABELS = MODEL_TAB_LABELS.map(([, label]) =>
         : label
 );
 
+export const MODEL_TAB_CONFIGURE_LABEL = "Providers ^e";
+
+/** Every stop on the strip is as wide as the widest one, so the chips read as a
+ *  row of columns and the open tab's plate never sits narrower than the rest. */
+export function evenedTabNames(names: readonly string[]): readonly string[] {
+    const cell = Math.max(
+        Bun.stringWidth(MODEL_TAB_CONFIGURE_LABEL),
+        ...names.map((name) => Bun.stringWidth(name)),
+    );
+    return names.map((name) =>
+        `${name}${" ".repeat(Math.max(0, cell - Bun.stringWidth(name)))}`
+    );
+}
+
 export function modelTabStripItemWidths(
     names: readonly string[],
     gap: number,
@@ -782,7 +796,10 @@ export function modelTabStripItemWidths(
     );
     return [
         ...tabs,
-        Bun.stringWidth("Providers ^e") + configurePad * 2,
+        Math.max(
+            Bun.stringWidth(MODEL_TAB_CONFIGURE_LABEL),
+            ...names.map((name) => Bun.stringWidth(name)),
+        ) + configurePad * 2,
     ];
 }
 
@@ -816,7 +833,7 @@ export function modelTabStripRowCount(
 export function modelTabStripHeight(width: number): number {
     return MODEL_TAB_STRIP_CHROME_HEIGHT + modelTabStripRowCount(
         width,
-        MODEL_TAB_COMPACT_LABELS,
+        evenedTabNames(MODEL_TAB_COMPACT_LABELS),
         1,
         0,
         0,
@@ -866,9 +883,11 @@ export function modelTabStripNode(
             0,
         )
         + gap * MODEL_TAB_LABELS.length
-        + Bun.stringWidth(
-            `${" ".repeat(configurePad)}Providers ^e${" ".repeat(configurePad)}`,
-        );
+        + Math.max(
+            Bun.stringWidth(MODEL_TAB_CONFIGURE_LABEL),
+            ...names.map((name) => Bun.stringWidth(name)),
+        )
+        + configurePad * 2;
     const shortened = (names: readonly string[]) =>
         names.map((name) =>
             name.startsWith("All models")
@@ -878,11 +897,19 @@ export function modelTabStripNode(
     const rungs: readonly (
         readonly [readonly string[], number, number, number]
     )[] = [
+        // Even cells cost width, so each pair spends them first and gives them
+        // up before the counts or the names go. A count a reader can act on
+        // outranks a column edge they only look at.
+        [evenedTabNames(fullNames), 2, 1, 1],
+        [evenedTabNames(fullNames), 1, 1, 1],
         [fullNames, 2, 1, 1],
         [fullNames, 1, 1, 1],
+        [evenedTabNames(shortened(fullNames)), 1, 1, 1],
         [shortened(fullNames), 1, 1, 1],
+        [evenedTabNames(namesWithoutCounts), 1, 1, 1],
         [namesWithoutCounts, 2, 1, 1],
         [namesWithoutCounts, 1, 1, 1],
+        [evenedTabNames(shortened(namesWithoutCounts)), 1, 1, 1],
         [shortened(namesWithoutCounts), 1, 1, 1],
         [shortened(namesWithoutCounts), 1, 0, 1],
         [shortened(namesWithoutCounts), 1, 0, 0],
@@ -919,7 +946,7 @@ export function modelTabStripNode(
         const named = names[index]!;
         const margin = " ".repeat(pad);
         const text = index === 0
-            ? `${named}${margin}`
+            ? `${named}${" ".repeat(pad * 2)}`
             : `${margin}${named}${margin}`;
         const gapText = " ".repeat(gap);
         const chip = new TextRenderable(renderer, {
@@ -949,7 +976,8 @@ export function modelTabStripNode(
     });
     const chord = tuiKeyHint("open_providers").split(" ")[0] ?? "";
     const configureMargin = " ".repeat(configurePad);
-    const configureText = `${configureMargin}Providers ${chord}${configureMargin}`;
+    const configureLabel = evenedTabNames([...names, `Providers ${chord}`]).at(-1)!;
+    const configureText = `${configureMargin}${configureLabel}${configureMargin}`;
     const configure = new TextRenderable(renderer, {
         content: new StyledText(
             tab === "providers"
@@ -958,7 +986,10 @@ export function modelTabStripNode(
                         ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(configureText))
                         : fg(TUI_ACCENT)(bg(TUI_ELEMENT)(configureText)),
                 ]
-                : [fg(TUI_ACCENT)("Providers "), fg(TUI_MUTED)(chord)],
+                : [
+                    fg(TUI_ACCENT)("Providers "),
+                    fg(TUI_MUTED)(configureLabel.slice("Providers ".length)),
+                ],
         ),
         width: Math.min(Bun.stringWidth(configureText), itemLimit),
         flexShrink: 0,
