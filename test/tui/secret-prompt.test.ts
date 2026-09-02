@@ -161,3 +161,29 @@ test("an empty field names what goes in it, rather than showing an ellipsis", ()
 function entryText(line: StyledText): string {
     return line.chunks.map((chunk) => chunk.text).join("");
 }
+
+test("the key card carries the onboarding rail when one is given", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiSecretPromptView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        view.update(startTuiSecretPrompt(
+            OPENROUTER,
+            undefined,
+            "Provider > Key > Model    step 2 of 3",
+        ));
+        await setup.flush();
+        const withRail = setup.captureCharFrame();
+        expect(withRail).toContain("OpenRouter API key");
+        expect(withRail).toContain("step 2 of 3");
+
+        // A user adding a second provider is not being walked through gates.
+        view.update(startTuiSecretPrompt(OPENROUTER));
+        await setup.flush();
+        expect(setup.captureCharFrame()).not.toContain("step 2 of 3");
+    } finally {
+        setup.renderer.destroy();
+    }
+});

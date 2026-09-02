@@ -24,6 +24,8 @@ export interface TuiSecretPromptState {
     readonly providerId: string;
     readonly label: string;
     readonly hint?: string;
+    /** The onboarding step line, present only while the gates are unfinished. */
+    readonly rail?: string;
     readonly value: string;
     readonly parent?: TuiSettingsPickerState;
 }
@@ -58,11 +60,13 @@ export function startTuiSecretPrompt(
         readonly hint?: string;
     },
     parent?: TuiSettingsPickerState,
+    rail?: string,
 ): TuiSecretPromptState {
     return {
         providerId: provider.id,
         label: provider.label,
         ...(provider.hint === undefined ? {} : { hint: provider.hint }),
+        ...(rail === undefined ? {} : { rail }),
         value: "",
         ...(parent === undefined ? {} : { parent }),
     };
@@ -127,12 +131,19 @@ export function createTuiSecretPromptView(
         width: "100%",
         height: 1,
     });
+    const rail = new TextRenderable(renderer, {
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: "auto",
+    });
     const hint = new TextRenderable(renderer, {
         content: "",
         fg: TUI_MUTED,
         width: "100%",
         height: "auto",
         wrapMode: "word",
+        marginTop: 1,
     });
     const entry = new TextRenderable(renderer, {
         content: "",
@@ -162,6 +173,7 @@ export function createTuiSecretPromptView(
         paddingBottom: 1,
     });
     card.add(title);
+    card.add(rail);
     card.add(hint);
     card.add(entry);
     card.add(footer);
@@ -185,12 +197,14 @@ export function createTuiSecretPromptView(
         card,
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
+            tuiThemeProperties(rail, { fg: "muted" }),
             tuiThemeProperties(hint, { fg: "muted" }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(card, { backgroundColor: "panel" }),
         ],
         update(state): void {
             title.content = `${state.label} API key`;
+            rail.content = state.rail ?? "";
             hint.content = state.hint ?? "";
             entry.content = tuiSecretEntryLine(state.value);
         },

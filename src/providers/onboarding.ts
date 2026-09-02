@@ -103,3 +103,72 @@ export function openGate(input: OnboardingInput): OnboardingGate {
         ? "key"
         : "provider";
 }
+
+/** The three steps, named for the gates they clear. */
+export type OnboardingStepId = "provider" | "key" | "model";
+
+/** `done` steps stay reachable, `locked` steps are skipped by the tab key. */
+export type OnboardingStepState = "done" | "current" | "locked";
+
+export interface OnboardingStep {
+    readonly id: OnboardingStepId;
+    readonly label: string;
+    readonly state: OnboardingStepState;
+}
+
+export interface StepperInput extends OnboardingInput {
+    /** The provider chosen on the first step, which is not yet the configured one. */
+    readonly chosen?: string;
+}
+
+const STEP_LABELS: Record<OnboardingStepId, string> = {
+    provider: "Provider",
+    key: "Key",
+    model: "Model",
+};
+
+function chosenProvider(input: StepperInput): ProviderDescriptor | undefined {
+    return input.providers.find((provider) => provider.id === input.chosen);
+}
+
+/** A step a provider makes irrelevant reads done, not hidden, so the user sees the gate existed and was already clear. */
+function keyStepState(input: StepperInput): OnboardingStepState {
+    const provider = chosenProvider(input);
+    if (provider === undefined) return "locked";
+    return !needsCredential(provider) || holdsCredential(provider, input)
+        ? "done"
+        : "current";
+}
+
+export function stepperSteps(input: StepperInput): readonly OnboardingStep[] {
+    const provider = chosenProvider(input);
+    const key = keyStepState(input);
+    const model: OnboardingStepState = key !== "done"
+        ? "locked"
+        : provider !== undefined && hasProviderAnswered(provider.id, input.pool)
+        ? "done"
+        : "current";
+    const states: Record<OnboardingStepId, OnboardingStepState> = {
+        provider: provider === undefined ? "current" : "done",
+        key: provider === undefined ? "locked" : key,
+        model,
+    };
+    return (["provider", "key", "model"] as const).map((id) => ({
+        id,
+        label: STEP_LABELS[id],
+        state: states[id],
+    }));
+}
+
+/** The step the stepper opens on. Undefined once every gate is clear, which is when the flow closes. */
+export function currentStep(input: StepperInput): OnboardingStepId | undefined {
+    return stepperSteps(input).find((step) => step.state === "current")?.id;
+}
+
+/** The rail's position, counting from one. Undefined when no step is current. */
+export function stepPosition(input: StepperInput): number | undefined {
+    const index = stepperSteps(input).findIndex(
+        (step) => step.state === "current",
+    );
+    return index === -1 ? undefined : index + 1;
+}

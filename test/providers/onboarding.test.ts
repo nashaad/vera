@@ -3,9 +3,12 @@ import { expect, test } from "bun:test";
 import type { PoolFile } from "../../src/model/pool-file.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
+    currentStep,
     openGate,
     providerAnswerLabel,
     providerAnswerState,
+    stepPosition,
+    stepperSteps,
 } from "../../src/providers/onboarding.ts";
 import {
     configuredProviders,
@@ -170,4 +173,95 @@ test("a provider whose key is optional shows no word until it is touched", () =>
         authStorage: storage({}),
         env: NO_ENV,
     })).toBe("not answering");
+});
+
+function stateOf(steps: readonly { id: string; state: string }[], id: string) {
+    return steps.find((step) => step.id === id)?.state;
+}
+
+test("a stepper with nothing chosen sits on the provider step", () => {
+    const steps = stepperSteps({
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({}),
+        env: NO_ENV,
+    });
+    expect(stateOf(steps, "provider")).toBe("current");
+    expect(stateOf(steps, "key")).toBe("locked");
+    expect(stateOf(steps, "model")).toBe("locked");
+    expect(stepPosition({
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({}),
+        env: NO_ENV,
+    })).toBe(1);
+});
+
+test("choosing a provider that needs a key moves the stepper to the key", () => {
+    const input = {
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({}),
+        env: NO_ENV,
+        chosen: "openrouter",
+    };
+    expect(stateOf(stepperSteps(input), "provider")).toBe("done");
+    expect(currentStep(input)).toBe("key");
+    expect(stateOf(stepperSteps(input), "model")).toBe("locked");
+    expect(stepPosition(input)).toBe(2);
+});
+
+test("a credential-free provider shows the key step done, not hidden", () => {
+    // The gate existed and was already clear, so the user sees it cleared.
+    const input = {
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({}),
+        env: NO_ENV,
+        chosen: "ollama",
+    };
+    expect(stateOf(stepperSteps(input), "key")).toBe("done");
+    expect(currentStep(input)).toBe("model");
+    expect(stepPosition(input)).toBe(3);
+});
+
+test("a stored key clears the key step and opens the model step", () => {
+    const input = {
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({ openrouter: "stored" }),
+        env: NO_ENV,
+        chosen: "openrouter",
+    };
+    expect(stateOf(stepperSteps(input), "key")).toBe("done");
+    expect(currentStep(input)).toBe("model");
+});
+
+test("a model that answered leaves no step current", () => {
+    // Every gate is clear, which is when the flow closes.
+    const input = {
+        providers: PROVIDERS,
+        pool: poolWith("openrouter/one/model", true),
+        authStorage: storage({ openrouter: "stored" }),
+        env: NO_ENV,
+        chosen: "openrouter",
+    };
+    expect(stepperSteps(input).map((step) => step.state)).toEqual([
+        "done",
+        "done",
+        "done",
+    ]);
+    expect(currentStep(input)).toBeUndefined();
+    expect(stepPosition(input)).toBeUndefined();
+});
+
+test("a provider chosen that is not configured leaves the stepper on provider", () => {
+    const input = {
+        providers: PROVIDERS,
+        pool: EMPTY_POOL,
+        authStorage: storage({}),
+        env: NO_ENV,
+        chosen: "not-a-provider",
+    };
+    expect(currentStep(input)).toBe("provider");
 });

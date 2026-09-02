@@ -7,7 +7,7 @@ import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalo
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
-import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
+import { openGate, providerAnswerLabel, stepPosition, stepperSteps, type OnboardingInput } from "../../../src/providers/onboarding.ts";
 import { configuredProviders, findConfiguredProvider, isProviderConnected } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -18,6 +18,7 @@ import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { renderState } from "../main/render-state.ts";
+import { onboardingRail } from "../onboarding-rail.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { renderPermissionInspection } from "../permission-inspection.ts";
 import { startTuiPreferencesList } from "../preferences-list.ts";
@@ -634,6 +635,25 @@ function onboardingInput(
     };
 }
 
+/** The rail belongs over the provider list only while onboarding is unfinished. A user who already has a working provider is adding a second one, not being walked through the gates. */
+function onboardingRailOptions(
+    input: OnboardingInput,
+): { readonly subtitle?: string } {
+    if (openGate(input) === "ready") return {};
+    const steps = stepperSteps(input);
+    return { subtitle: onboardingRail(steps, stepPosition(input)) };
+}
+
+/** The rail over the key step, which names the provider the user just chose. */
+function onboardingRailFor(
+    rt: TuiRuntime,
+    chosen: string,
+): string | undefined {
+    const input = { ...onboardingInput(rt), chosen };
+    if (openGate(input) === "ready") return undefined;
+    return onboardingRail(stepperSteps(input), stepPosition(input));
+}
+
 /** Whether any provider has answered yet. The card leads with Connect until one has. */
 export function homeNeedsProvider(rt: TuiRuntime): boolean {
     try {
@@ -689,7 +709,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         : { endpointEditable: true }),
                 };
             }),
-            options,
+            { ...onboardingRailOptions(answers), ...options },
         ),
         parent,
     );
@@ -713,7 +733,11 @@ export function connectProvider(rt: TuiRuntime,
         provider.credential === "api_key"
         || provider.credential === "api_key_optional"
     ) {
-        rt.secretPrompt = startTuiSecretPrompt(provider, pane);
+        rt.secretPrompt = startTuiSecretPrompt(
+            provider,
+            pane,
+            onboardingRailFor(rt, provider.id),
+        );
         rt.settingsPicker = undefined;
         rt.composer.blur();
         renderState(rt);
