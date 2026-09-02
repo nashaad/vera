@@ -8,7 +8,7 @@ import {
     TUI_INPUT,
     TUI_MUTED,
     TUI_TEXT,
-} from "./state.ts";
+} from "./palette.ts";
 
 export interface TuiTextEditorKey {
     readonly name: string;

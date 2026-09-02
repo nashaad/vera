@@ -23,7 +23,7 @@ import {
     TUI_SUCCESS,
     TUI_SELECTION_TEXT,
     TUI_TEXT,
-} from "./state.ts";
+} from "./palette.ts";
 import {
     createTuiSingleLineTextarea,
     syncTuiSingleLineTextarea,
