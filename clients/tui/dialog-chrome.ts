@@ -260,6 +260,7 @@ function metaLength(meta: DialogMeta): number {
 
 export interface DialogRowContent {
     readonly label: string;
+    readonly background?: string;
     readonly leading?: string;
     readonly leadingTone?: "accent" | "muted" | "positive";
     readonly spaced?: boolean;
@@ -488,7 +489,7 @@ export function dialogOptionRow(
         ? TUI_ACCENT
         : content.tint === true
             ? TUI_ELEMENT
-            : TUI_PANEL;
+            : content.background ?? TUI_PANEL;
     const label = content.active
         ? TUI_SELECTION_TEXT
         : content.current

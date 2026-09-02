@@ -67,6 +67,8 @@ import {
 } from "./settings-picker-types.ts";
 
 import {
+    ALL_MODELS_SECTION_GAP_LINES,
+    ALL_MODELS_TREE_PAD_LINES,
     INTELLIGENCE_SCALE_LINES,
     MODEL_ALL_MAX_ROWS,
     MODEL_ARROW_HINT,
@@ -999,8 +1001,16 @@ export function createTuiSettingsPickerView(
                 return;
             }
             box.top = state.kind === "session" ? 0 : dialogInsetTop(renderer);
-            box.left = state.kind === "session" ? 0 : "10%";
-            box.width = state.kind === "session" ? "100%" : "80%";
+            box.left = state.kind === "session"
+                ? 0
+                : state.kind === "model"
+                ? "2%"
+                : "10%";
+            box.width = state.kind === "session"
+                ? "100%"
+                : state.kind === "model"
+                ? "96%"
+                : "80%";
             renderListPickerRows(
                 renderer,
                 box,
@@ -1062,8 +1072,11 @@ export function tuiPickerViewportRows(
             && state.options.length > 0
         ? 1
         : 0;
+    const modelTreePadLines = listedHeaderLines > 0
+        ? ALL_MODELS_TREE_PAD_LINES
+        : 0;
     const intelligenceLines = showsIntelligenceCutoff(state)
-        ? INTELLIGENCE_SCALE_LINES
+        ? INTELLIGENCE_SCALE_LINES + ALL_MODELS_SECTION_GAP_LINES
         : 0;
     const allModelsInfoLines = showsAllModelsPrices(state)
         ? allModelsPriceChromeLines()
@@ -1073,6 +1086,7 @@ export function tuiPickerViewportRows(
         stripHeight
             + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
             + listedHeaderLines
+            + modelTreePadLines
             + intelligenceLines
             + allModelsInfoLines
             + extraChrome,
@@ -1217,8 +1231,11 @@ export function renderListPickerRows(
             && state.options.length > 0
         ? 1
         : 0;
+    const modelTreePadLines = listedHeaderLines > 0
+        ? ALL_MODELS_TREE_PAD_LINES
+        : 0;
     const intelligenceLines = showsIntelligenceCutoff(state)
-        ? INTELLIGENCE_SCALE_LINES
+        ? INTELLIGENCE_SCALE_LINES + ALL_MODELS_SECTION_GAP_LINES
         : 0;
     const allModelsInfoLines = showsAllModelsPrices(state)
         ? allModelsPriceChromeLines()
@@ -1237,6 +1254,7 @@ export function renderListPickerRows(
             + 1
             + pageEntryLines
             + listedHeaderLines
+            + modelTreePadLines
             + intelligenceLines
             + allModelsInfoLines
             + stackedLines,
@@ -1264,6 +1282,9 @@ export function renderListPickerRows(
     }
     let tinted = false;
     const listedHeader = listedHeaderLines > 0 && rows.length > 0;
+    const optionRowWidth = listedHeader
+        ? Math.max(1, rowWidth - 4)
+        : rowWidth;
     const listedPrefixWidth = listedHeader
         ? Math.max(
             0,
@@ -1281,6 +1302,7 @@ export function renderListPickerRows(
             ? [{
                 label: "",
                 active: false,
+                ...(listedHeader ? { background: TUI_INPUT } : {}),
                 meta: [{
                     text: `${" ".repeat(listedPrefixWidth)}${listedFactsHeaderText()}`,
                     tone: "detail" as const,
@@ -1321,6 +1343,7 @@ export function renderListPickerRows(
                 meta: row.option.rowMeta
                     ?? optionMeta(state, row.option, detailed, listedPrefixWidth),
                 card: row.option.card,
+                ...(listedHeader ? { background: TUI_INPUT } : {}),
                 active: row.index === state.selectedIndex
                     && (state.kind !== "model"
                         || (state.modelFocus ?? "list") === "list"),
@@ -1330,24 +1353,28 @@ export function renderListPickerRows(
             }]
             : []
         ),
-    ], rowWidth);
+    ], optionRowWidth);
     const stackedPage = split === undefined && state.kind === "model"
         && state.modelFocus === "page";
     const pageEntry = modelPageEntry(state);
     if (pageEntry !== undefined) {
+        const actionWidth = Math.max(1, rowWidth - 2);
         const entry = new TextRenderable(renderer, {
             content: new StyledText(modelListActionLineChunks(
                 {
                     ...pageEntry,
-                    label: modelPageEntryLabel(state, rowWidth),
+                    label: modelPageEntryLabel(state, actionWidth),
                 },
-                rowWidth,
+                actionWidth,
                 state.kind === "model"
                     && (state.modelFocus === "page_entry"
                         || state.modelFocus === "page"),
             )),
+            bg: TUI_INPUT,
             width: rowWidth,
             height: 1,
+            paddingLeft: 1,
+            paddingRight: 1,
         });
         attachDialogRowPointer(entry, pointer, -1);
         listColumn.add(entry);
@@ -1364,28 +1391,34 @@ export function renderListPickerRows(
     if (intelligenceLines > 0) {
         const focused = state.kind === "model"
             && state.modelFocus === "intelligence";
+        const intelligence = new BoxRenderable(renderer, {
+            width: rowWidth,
+            height: INTELLIGENCE_SCALE_LINES,
+            flexShrink: 0,
+            flexDirection: "column",
+            backgroundColor: TUI_INPUT,
+            paddingLeft: 3,
+            paddingRight: 1,
+            paddingTop: 1,
+            paddingBottom: 1,
+            marginBottom: ALL_MODELS_SECTION_GAP_LINES,
+        });
         for (const chunks of intelligenceScaleLines(
-            rowWidth,
+            Math.max(1, rowWidth - 4),
             state.kind === "model" ? state.intelligenceCutoff ?? "any" : "any",
             focused,
         )) {
             const node = new TextRenderable(renderer, {
                 content: new StyledText([...chunks]),
-                width: rowWidth,
+                bg: TUI_INPUT,
+                width: "100%",
                 height: 1,
             });
-            listColumn.add(node);
-            nodes.push(node);
-            lines += 1;
+            intelligence.add(node);
         }
-        const prices = allModelsPriceNode(
-            renderer,
-            allModelsInfoOption(state),
-            rowWidth,
-        );
-        listColumn.add(prices);
-        nodes.push(prices);
-        lines += allModelsPriceChromeLines();
+        listColumn.add(intelligence);
+        nodes.push(intelligence);
+        lines += intelligenceLines;
     }
     if (rows.length === 0) {
         const empty = new TextRenderable(renderer, {
@@ -1399,9 +1432,26 @@ export function renderListPickerRows(
         lines += 1;
     }
     let optionNodeIndex = listedHeader ? 1 : 0;
+    let modelTree = listColumn;
+    if (listedHeader) {
+        modelTree = new BoxRenderable(renderer, {
+            width: rowWidth,
+            height: "auto",
+            flexShrink: 0,
+            flexDirection: "column",
+            backgroundColor: TUI_INPUT,
+            paddingLeft: 3,
+            paddingRight: 1,
+            paddingTop: 1,
+            paddingBottom: 1,
+        });
+        listColumn.add(modelTree);
+        nodes.push(modelTree);
+        lines += ALL_MODELS_TREE_PAD_LINES;
+    }
     if (listedHeader) {
         const header = optionNodes[0]!;
-        listColumn.add(header);
+        modelTree.add(header);
         nodes.push(header);
         lines += 1;
     }
@@ -1410,9 +1460,19 @@ export function renderListPickerRows(
             ? dialogGroupHeaderNode(renderer, row.label, position > 0)
             : optionNodes[optionNodeIndex++]!;
         lines += row.kind === "group" ? (position > 0 ? 2 : 1) : 1;
-        listColumn.add(node);
+        modelTree.add(node);
         nodes.push(node);
     });
+    if (allModelsInfoLines > 0) {
+        const prices = allModelsPriceNode(
+            renderer,
+            allModelsInfoOption(state),
+            rowWidth,
+        );
+        listColumn.add(prices);
+        nodes.push(prices);
+        lines += allModelsPriceChromeLines();
+    }
     if (listAction !== undefined && !stackedPage) {
         const divider = new TextRenderable(renderer, {
             content: new StyledText([
@@ -1423,14 +1483,18 @@ export function renderListPickerRows(
         });
         listColumn.add(divider);
         nodes.push(divider);
+        const actionWidth = Math.max(1, rowWidth - 2);
         const action = new TextRenderable(renderer, {
             content: new StyledText(modelListActionLineChunks(
                 listAction,
-                rowWidth,
+                actionWidth,
                 state.kind === "model" && state.modelFocus === "list_action",
             )),
+            bg: TUI_INPUT,
             width: rowWidth,
             height: 1,
+            paddingLeft: 1,
+            paddingRight: 1,
         });
         attachDialogRowPointer(action, pointer, state.options.length);
         listColumn.add(action);

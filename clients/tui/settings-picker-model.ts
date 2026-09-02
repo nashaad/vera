@@ -178,6 +178,8 @@ export function pickerCardWidth(
     const usableWidth = Math.max(0, renderer.width - railInset);
     const cardWidth = state.kind === "session"
         ? usableWidth
+        : state.kind === "model"
+        ? Math.floor(usableWidth * 0.96)
         : Math.floor(usableWidth * 0.8);
     return Math.max(0, cardWidth - DIALOG_CARD_PADDING * 2);
 }
@@ -1043,9 +1045,9 @@ export function modelListActionLineChunks(
         ];
     }
     return [
-        fg(TUI_TEXT)(label),
-        fg(TUI_TEXT)(" "),
-        fg(TUI_ACCENT)(action.chord),
+        fg(TUI_TEXT)(bg(TUI_INPUT)(label)),
+        fg(TUI_TEXT)(bg(TUI_INPUT)(" ")),
+        fg(TUI_ACCENT)(bg(TUI_INPUT)(action.chord)),
     ];
 }
 
@@ -1289,7 +1291,11 @@ export function modelListActionTransition(
     };
 }
 
-export const INTELLIGENCE_SCALE_LINES = 3;
+export const INTELLIGENCE_SCALE_LINES = 5;
+
+export const ALL_MODELS_SECTION_GAP_LINES = 1;
+
+export const ALL_MODELS_TREE_PAD_LINES = 2;
 
 export const ALL_MODELS_PRICE_FACTS = 4;
 
@@ -1299,7 +1305,7 @@ export const ALL_MODELS_PRICE_MARGIN = 1;
 
 export type AllModelsPriceChrome = "fill" | "border";
 
-export const ALL_MODELS_PRICE_CHROME: AllModelsPriceChrome = "border";
+export const ALL_MODELS_PRICE_CHROME: AllModelsPriceChrome = "fill";
 
 export function allModelsPriceChromeLines(): number {
     const boxHeight = ALL_MODELS_PRICE_CHROME === "fill"
