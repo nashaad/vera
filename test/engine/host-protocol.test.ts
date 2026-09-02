@@ -143,7 +143,7 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
         },
         { method: "loop.detachTimelineOwner", ownerId: "o1" },
         { method: "loop.timelineBlocked" },
-        { method: "agent.wear", name: "reviewer" },
+        { method: "agent.select", name: "reviewer" },
         { method: "approval.update", mode: "ask" },
         {
             method: "review.toolCall",

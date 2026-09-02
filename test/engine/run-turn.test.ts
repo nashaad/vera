@@ -2408,7 +2408,7 @@ test("an agent scoped to Bash is also offered its process control tool", async (
         events,
         hooks: new ToolHooks(),
         approvalMode: "auto",
-        readAgentWear: () => ({
+        readSelectedAgent: () => ({
             name: "shell",
             instructions: "",
             tools: ["bash"],

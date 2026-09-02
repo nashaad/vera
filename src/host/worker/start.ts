@@ -32,7 +32,7 @@ export interface WorkerHostCapabilities {
     readonly hooks: boolean;
     readonly reviewLog: boolean;
     readonly hasPendingDeliveryTurn: boolean;
-    readonly wearAgent: boolean;
+    readonly selectAgent: boolean;
     readonly listSkills: boolean;
     readonly invokeSkill: boolean;
 }

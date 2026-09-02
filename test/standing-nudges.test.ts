@@ -187,7 +187,7 @@ test("matching is exact, disabled rules are omitted, and blocks sort by id", () 
   })).toBe(1);
 });
 
-test("agent triggers use the supplied worn agent name", () => {
+test("agent triggers use the supplied selected agent name", () => {
   const nudges: readonly StandingNudge[] = [{
     id: "explore-child",
     enabled: true,

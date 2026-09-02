@@ -27,7 +27,7 @@ With the extension installed, investigation-shaped composer text can offer:
 Explore this first? · enter switch to explore · esc dismiss
 ```
 
-Enter follows the ordinary `/agent explore` wear path. Escape dismisses the
+Enter follows the ordinary `/agent explore` select path. Escape dismisses the
 offer for the rest of the session. The agent can also be selected directly with
 `/agent explore`.
 

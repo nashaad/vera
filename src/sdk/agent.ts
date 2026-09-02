@@ -12,7 +12,7 @@ import {
     findCatalogAgent,
     loadAgentCatalog,
 } from "../agents/catalog.ts";
-import { resolveAgentSnapshot } from "../agents/wear.ts";
+import { resolveAgentSnapshot } from "../agents/snapshot.ts";
 import {
     configuredModelFallback,
     createLiveVeraConfigReader,
@@ -344,7 +344,7 @@ export class Agent {
                     provider,
                 ),
             );
-            const wear = resolveAgentSnapshot(resolved.definition);
+            const selected = resolveAgentSnapshot(resolved.definition);
             const hooks = new ToolHooks();
             if (options.prepareTurn !== undefined) {
                 hooks.registerPreTurn(options.prepareTurn);
@@ -381,7 +381,7 @@ export class Agent {
                                     resolved.config.permission_modes,
                             }),
                     }),
-                    readAgentWear: () => wear,
+                    readSelectedAgent: () => selected,
                     ...(options.prepareTurn === undefined ? {} : { hooks }),
                 },
             ).catch((caught: unknown) => {

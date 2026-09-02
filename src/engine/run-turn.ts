@@ -18,8 +18,8 @@ import {
 import { ProviderFailureError } from "../model/provider-failure.ts";
 import {
     agentAllowsTool,
-    type AgentWearSnapshot,
-} from "../agents/wear.ts";
+    type AgentSnapshot,
+} from "../agents/snapshot.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { sanitizeDiagnosticText } from "../model/diagnostic-text.ts";
 import {
@@ -277,7 +277,7 @@ export interface RunTurnState {
     readonly effortPool?: EffortPool;
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
-    readonly readAgentWear?: () => AgentWearSnapshot | undefined;
+    readonly readSelectedAgent?: () => AgentSnapshot | undefined;
     readonly clampPermissionMode?: ApprovalMode;
     readonly firedNudges?: Set<string>;
     readonly injectedContextRoutePaths?: Set<string>;
@@ -436,11 +436,11 @@ export async function runHeadlessLoop(
                 return settings;
             }
             : undefined;
-    const readAgentWear:
-        (() => AgentWearSnapshot | undefined) | undefined =
-            boundary.offers.agentWear
-                ? (): AgentWearSnapshot | undefined =>
-                    boundary.readState().agentWear
+    const readSelectedAgent:
+        (() => AgentSnapshot | undefined) | undefined =
+            boundary.offers.selectedAgent
+                ? (): AgentSnapshot | undefined =>
+                    boundary.readState().selectedAgent
                 : undefined;
     if (
         owned.sessionStore !== undefined
@@ -604,9 +604,9 @@ export async function runHeadlessLoop(
                 updateSessionPermissionMode:
                     router.updateSessionPermissionMode,
             }),
-        ...(router.wearAgent === undefined
+        ...(router.selectAgent === undefined
             ? {}
-            : { wearAgent: router.wearAgent }),
+            : { selectAgent: router.selectAgent }),
         ...(router.listAgents === undefined
             ? {}
             : { listAgents: router.listAgents }),
@@ -1067,7 +1067,7 @@ export async function runHeadlessLoop(
             ? {}
             : { effortPool: owned.effortPool }),
         ...(readModelSettings === undefined ? {} : { readModelSettings }),
-        ...(readAgentWear === undefined ? {} : { readAgentWear }),
+        ...(readSelectedAgent === undefined ? {} : { readSelectedAgent }),
         firedNudges: new Set<string>(),
         injectedContextRoutePaths,
         readApprovalMode,
@@ -1202,15 +1202,15 @@ export async function runTurn(
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const reviewBreaker = createReviewCircuitBreaker();
-        // A safety property, so it is constructed here with the turn and has no configuration seam: no agent, extension, or wear can lift it.
+        // A safety property, so it is constructed here with the turn and has no configuration seam: no agent, extension, or selection can lift it.
         const denialBreaker = createToolDenialBreaker();
-        const wear = state.readAgentWear?.();
+        const selected = state.readSelectedAgent?.();
         state.firedNudges?.clear();
         if (turn.triggeredByDelivery !== true) {
             state.contextualContributionsForTurn = undefined;
         }
-        state.toolRuntime.allowedTools = turnToolExecutionScope(wear);
-        state.toolRuntime.allowedSkills = wear?.skills;
+        state.toolRuntime.allowedTools = turnToolExecutionScope(selected);
+        state.toolRuntime.allowedSkills = selected?.skills;
         state.toolRuntime.userInvokedSkill = turn.userInvokedSkill;
         const offered = state.offerTools === false
             ? []
@@ -1222,9 +1222,9 @@ export async function runTurn(
                 state.extensionTools,
                 state.toolRuntime.invocation,
             );
-        let scopedTools = wear?.tools === undefined
+        let scopedTools = selected?.tools === undefined
             ? offered
-            : offered.filter((tool) => turnAllowsTool(wear, tool.name));
+            : offered.filter((tool) => turnAllowsTool(selected, tool.name));
         const turnPrompts = turn.triggeredByDelivery
             ? []
             : [turn.prompt, ...(turn.additionalPrompts ?? [])];
@@ -1423,7 +1423,7 @@ export async function runTurn(
                                 path: state.toolRuntime.workspace,
                                 source: "workspace",
                             },
-                        wear?.skills,
+                        selected?.skills,
                         {
                             ...(state.sessionId === undefined
                                 ? {}
@@ -1432,7 +1432,7 @@ export async function runTurn(
                                 ? "delivery"
                                 : "user",
                             workspace: state.toolRuntime.workspace,
-                            agent: wear?.name ?? "default",
+                            agent: selected?.name ?? "default",
                         },
                     );
                 state.contextualContributionsForTurn =
@@ -1467,10 +1467,10 @@ export async function runTurn(
                 ...(additionalContextualContributions === undefined ? {} : {
                     additionalContextualContributions,
                 }),
-                ...(wear?.instructions === undefined
-                        || wear.instructions.length === 0
+                ...(selected?.instructions === undefined
+                        || selected.instructions.length === 0
                     ? {}
-                    : { agentInstructions: wear.instructions }),
+                    : { agentInstructions: selected.instructions }),
                 signal: turn.signal,
             });
             const request = projection.request;
@@ -1510,10 +1510,10 @@ export async function runTurn(
                     contributionParts: contextContributionParts({
                         projectInstructions,
                         ...(memory === undefined ? {} : { memory }),
-                        ...(wear?.name === undefined ? {} : { agentName: wear.name }),
-                        ...(wear?.instructions === undefined
+                        ...(selected?.name === undefined ? {} : { agentName: selected.name }),
+                        ...(selected?.instructions === undefined
                             ? {}
-                            : { agentInstructions: wear.instructions }),
+                            : { agentInstructions: selected.instructions }),
                     }),
                     ...(state.compactionPolicy === undefined
                         ? {}
@@ -2144,21 +2144,21 @@ interface PreparedAssistantToolCalls {
 }
 
 function turnAllowsTool(
-    wear: AgentWearSnapshot | undefined,
+    selected: AgentSnapshot | undefined,
     tool: string,
 ): boolean {
-    return agentAllowsTool(wear, tool)
-        || (tool === "process" && wear?.tools?.includes("bash") === true);
+    return agentAllowsTool(selected, tool)
+        || (tool === "process" && selected?.tools?.includes("bash") === true);
 }
 
 function turnToolExecutionScope(
-    wear: { readonly tools?: readonly string[] } | undefined,
+    selected: { readonly tools?: readonly string[] } | undefined,
 ): readonly string[] | undefined {
-    if (wear?.tools === undefined) return undefined;
-    if (!wear.tools.includes("bash") || wear.tools.includes("process")) {
-        return wear.tools;
+    if (selected?.tools === undefined) return undefined;
+    if (!selected.tools.includes("bash") || selected.tools.includes("process")) {
+        return selected.tools;
     }
-    return [...wear.tools, "process"];
+    return [...selected.tools, "process"];
 }
 
 async function prepareAssistantToolCalls(
@@ -2171,7 +2171,7 @@ async function prepareAssistantToolCalls(
             continue;
         }
         const original = hookToolCall(block);
-        if (!turnAllowsTool(state.readAgentWear?.(), block.name)) {
+        if (!turnAllowsTool(state.readSelectedAgent?.(), block.name)) {
             preparedById.set(block.id, {
                 toolCall: block,
                 hookResult: { power: "observe" },
@@ -2504,9 +2504,9 @@ async function executePreparedTool(
                 ...(modelSettings.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: modelSettings.reasoningEffort }),
-                ...(state.readAgentWear?.() === undefined
+                ...(state.readSelectedAgent?.() === undefined
                     ? {}
-                    : { agentWear: state.readAgentWear() }),
+                    : { selectedAgent: state.readSelectedAgent() }),
             },
         );
     for (const substitution of applied.output.substitutions ?? []) {
@@ -2940,7 +2940,7 @@ function nudgeFor(
     state: RunTurnState,
     toolName: string,
 ): string | undefined {
-    const nudges = state.readAgentWear?.()?.nudges ?? [];
+    const nudges = state.readSelectedAgent?.()?.nudges ?? [];
     const nudge = nudges.find((candidate) =>
         candidate.on === toolName || candidate.on === "*"
     );

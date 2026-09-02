@@ -327,19 +327,19 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             }
             if (update.type === "agent_catalog") {
                 rt.agentCatalog = {
-                    worn: update.worn,
+                    selected: update.selected,
                     agents: update.agents,
                     notices: update.notices,
                 };
                 rt.pendingAgentCatalogs.get(update.requestId)?.(rt.agentCatalog);
                 rt.pendingAgentCatalogs.delete(update.requestId);
             }
-            if (update.type === "agent_worn" && rt.agentCatalog !== undefined) {
-                rt.agentCatalog = { ...rt.agentCatalog, worn: update.name };
+            if (update.type === "agent_selected" && rt.agentCatalog !== undefined) {
+                rt.agentCatalog = { ...rt.agentCatalog, selected: update.name };
             }
             if (
                 source === rt.client
-                && (update.type === "agent_worn"
+                && (update.type === "agent_selected"
                     || update.type === "turn_finished")
             ) {
                 requestSkillCommands(rt);

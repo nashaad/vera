@@ -27,7 +27,7 @@
  * becomes a stream of `call.progress` notifications ending at the reply.
  */
 
-import type { AgentWearSnapshot } from "../agents/wear.ts";
+import type { AgentSnapshot } from "../agents/snapshot.ts";
 import type { LearnedFact } from "../model/pool-file.ts";
 import type { ModelRef, ResolvedEffort } from "../model/effort-pool.ts";
 import type { ReviewLogEntry } from "./review-log.ts";
@@ -111,7 +111,7 @@ export function loopCompactionState(
 export interface LoopState {
     readonly policy: LoopPolicy;
     readonly modelSettings?: ModelTurnSettings;
-    readonly agentWear?: AgentWearSnapshot;
+    readonly selectedAgent?: AgentSnapshot;
     readonly approvalMode?: ApprovalMode;
     readonly permissionPreferences?: readonly PermissionPreference[];
     readonly reviewer?: ToolReviewerSettings;
@@ -185,7 +185,7 @@ export type HostNotification =
 //
 // These are the calls the loop supplies to `InboundCommandRouter`. The router
 // stays host-side, because it owns the client endpoint and handles model
-// settings, pool edits, wear, permission preferences and oneshot. Keeping it
+// settings, pool edits, agent selection, permission preferences and oneshot. Keeping it
 // there removes its own 23 callbacks from the wire entirely and means the
 // client endpoint never reaches the worker. What is left is the router calling
 // into the loop, which is this direction.
@@ -371,17 +371,17 @@ export interface CompactionCompleteRequest {
 }
 
 /**
- * `agent.wear`. The loop asks, because wear is queued FIFO with the prompts and
+ * `agent.select`. The loop asks, because selection is queued FIFO with the prompts and
  * only the loop knows when its turn comes; the host answers, because the agent
- * catalog and the session's worn agent are its.
+ * catalog and the session's selected agent are its.
  */
-export interface WearAgentRequest {
-    readonly method: "agent.wear";
+export interface SelectAgentRequest {
+    readonly method: "agent.select";
     readonly name: string;
 }
 
 export type WorkerRequest =
-    | WearAgentRequest
+    | SelectAgentRequest
     | UpdateApprovalModeRequest
     | ReviewToolCallRequest
     | ApplyToolEffectRequest
@@ -394,9 +394,9 @@ export type WorkerRequest =
     | PreTurnHookRequest
     | CompactionCompleteRequest;
 
-export interface WearAgentReply {
+export interface SelectAgentReply {
     /** Absent when the owner has no such agent, or declined. */
-    readonly worn?: {
+    readonly selected?: {
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -447,7 +447,7 @@ export interface CompactionCompleteReply {
 
 export type WorkerReply =
     | EmptyReply
-    | WearAgentReply
+    | SelectAgentReply
     | ApprovalModeReply
     | ReviewDecisionReply
     | AppliedEffectReply
@@ -528,7 +528,7 @@ export const HOST_PROTOCOL_METHODS = [
     "loop.timelineCommand",
     "loop.detachTimelineOwner",
     "loop.timelineBlocked",
-    "agent.wear",
+    "agent.select",
     "approval.update",
     "review.toolCall",
     "effect.apply",
@@ -559,7 +559,7 @@ export const SERVICES_THAT_DO_NOT_CROSS = {
     modelFailureLedger: "derived from events",
     /**
      * Owner-side. Its hooks stay with it, and the client endpoint it holds
-     * never reaches the worker. `agent.wear` is the one exception: wear is
+     * never reaches the worker. `agent.select` is the one exception: selection is
      * queued FIFO with the prompts, so the loop has to be the one that asks.
      */
     router: "host-owned",

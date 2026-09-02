@@ -1,10 +1,10 @@
-// Plan mode, shipped the way Codex ships it: as an agent you can wear, plus a
-// compose-time offer to wear it. No mode, no toggle, no core intent-guessing.
+// Plan mode, shipped the way Codex ships it: as an agent you can select, plus a
+// compose-time offer to switch to it. No mode, no toggle, no core intent-guessing.
 //
 // Core never reads what you are typing. This extension does, and it only does
 // so because you installed it — installing it is the consent. Accepting the
-// offer goes through the ordinary wear path, which is loud, queued, and
-// recorded like any other wear.
+// offer goes through the ordinary select path, which is loud, queued, and
+// recorded like any other agent selection.
 
 const PLAN_INSTRUCTIONS = `You are planning, not building.
 

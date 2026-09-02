@@ -1073,7 +1073,7 @@ test("a subagent inherits the parent's scratch directory in its prompt", async (
     }
 });
 
-test("a subagent loads contextual contributions with its own wear and workspace", async () => {
+test("a subagent loads contextual contributions with its own selected agent and workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-context-"));
     let context: unknown;
     let request: ModelRequest | undefined;
@@ -1103,7 +1103,7 @@ test("a subagent loads contextual contributions with its own wear and workspace"
             description: "child task",
             workspace: root,
             approvalMode: "auto",
-            agentWear: {
+            selectedAgent: {
                 name: "explore",
                 instructions: "Explore the code.",
             },

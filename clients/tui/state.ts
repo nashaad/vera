@@ -504,7 +504,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 : { modelSettingsOrigin: update.origin }),
         }, update.settings);
     }
-    if (update.type === "agent_worn") {
+    if (update.type === "agent_selected") {
         const next = {
             ...state,
             agent: {

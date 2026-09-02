@@ -16,8 +16,8 @@ import { EngineEventBus } from "./events.ts";
 import type { AgentDefinition } from "../agents/definition.ts";
 import {
     resolveAgentSnapshot,
-    type AgentWearSnapshot,
-} from "../agents/wear.ts";
+    type AgentSnapshot,
+} from "../agents/snapshot.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import type { InstructionRoot } from "./memory.ts";
@@ -387,7 +387,7 @@ export interface RunSubagentOptions {
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    readonly agentWear?: AgentWearSnapshot;
+    readonly selectedAgent?: AgentSnapshot;
     readonly clampPermissionMode?: ApprovalMode;
 }
 
@@ -424,7 +424,7 @@ export function createSubagentEffectApplier(
                 isError: true,
             };
         }
-        let wear: AgentWearSnapshot | undefined;
+        let selected: AgentSnapshot | undefined;
         let agentDefault: SpawnModelDefault | undefined;
         if (effect.agent !== undefined) {
             if (options.loadAgent === undefined) {
@@ -450,9 +450,9 @@ export function createSubagentEffectApplier(
                     isError: true,
                 };
             }
-            wear = narrowAgainstParent(
+            selected = narrowAgainstParent(
                 resolveAgentSnapshot(definition),
-                context.agentWear,
+                context.selectedAgent,
             );
             if (
                 effect.model === undefined
@@ -584,7 +584,7 @@ export function createSubagentEffectApplier(
                     ? {}
                     : { readReviewer: options.readReviewer }),
                 ...(permissionModes === undefined ? {} : { permissionModes }),
-                ...(wear === undefined ? {} : { agentWear: wear }),
+                ...(selected === undefined ? {} : { selectedAgent: selected }),
                 clampPermissionMode: context.approvalMode,
             });
             return {
@@ -680,8 +680,8 @@ export async function runSubagent(
             events,
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
-            ...(options.agentWear === undefined ? {} : {
-                readAgentWear: () => options.agentWear,
+            ...(options.selectedAgent === undefined ? {} : {
+                readSelectedAgent: () => options.selectedAgent,
             }),
             ...(options.clampPermissionMode === undefined
                 ? {}
@@ -806,9 +806,9 @@ function finalText(message: AssistantMessage): string {
 }
 
 export function narrowAgainstParent(
-    child: AgentWearSnapshot,
-    parent: AgentWearSnapshot | undefined,
-): AgentWearSnapshot {
+    child: AgentSnapshot,
+    parent: AgentSnapshot | undefined,
+): AgentSnapshot {
     return {
         ...child,
         ...narrowList("tools", child.tools, parent?.tools),

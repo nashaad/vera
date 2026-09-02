@@ -66,12 +66,12 @@ export function createWorkerBoundaryServer(
                     lineNumber = line;
                     return { lineNumber: line };
                 }
-                case "agent.wear": {
+                case "agent.select": {
                     const request = body as { readonly name: string };
-                    const worn = await services.router?.wearAgent?.(
+                    const selected = await services.router?.selectAgent?.(
                         request.name,
                     );
-                    return worn === undefined ? {} : { worn };
+                    return selected === undefined ? {} : { selected };
                 }
                 case "skills.list": {
                     if (services.router?.listSkills === undefined) {

@@ -61,7 +61,7 @@ import type { BoxRenderable, CliRenderer, MarkdownRenderable, Renderable, Scroll
 import type { AsyncLocalStorage } from "node:async_hooks";
 
 export type TuiAgentCatalog = {
-    readonly worn: string;
+    readonly selected: string;
     readonly agents: AgentCatalogUpdate["agents"];
     readonly notices: readonly string[];
 };

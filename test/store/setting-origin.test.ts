@@ -75,6 +75,6 @@ test("branching carries the origin rather than flattening it to an override", as
         reasoningEffort: "low",
     });
     // Without this the branch would show an override marker for a pair nobody
-    // ever dialed, and wearing another agent would not move off it.
+    // ever dialed, and selecting another agent would not move off it.
     expect(branch.store.modelSettingsOrigin()).toBe("agent-default");
 });

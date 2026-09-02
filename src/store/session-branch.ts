@@ -50,9 +50,9 @@ export async function createSessionBranch(
                 options.source.modelSettingsOrigin(),
             );
         }
-        const wear = options.source.agentWear();
-        if (wear !== undefined) {
-            await destination.appendAgentWear(wear.name, wear.snapshot);
+        const selected = options.source.selectedAgent();
+        if (selected !== undefined) {
+            await destination.appendSelectedAgent(selected.name, selected.snapshot);
         }
         await copySessionMessageAttachments(
             options.source,

@@ -5508,7 +5508,7 @@ test("an explicit forbidden permission switches the session back to default", as
         });
         const attachment = agent.attach();
         expect((await attachment.receive()).type).toBe("history");
-        expect(await registry.wearAgentFor(agent.id, "plan")).toMatchObject({
+        expect(await registry.selectAgentFor(agent.id, "plan")).toMatchObject({
             name: "plan",
             permissionChanged: true,
         });
@@ -5517,11 +5517,11 @@ test("an explicit forbidden permission switches the session back to default", as
         expect(await registry.updateSessionPermissionMode(agent.id, "auto"))
             .toBe("auto");
         expect(await attachment.receive()).toMatchObject({
-            type: "agent_worn",
+            type: "agent_selected",
             name: "default",
             notice: "Switched to default because plan does not allow auto access.",
         });
-        expect((await registry.listAgentsFor(agent.id)).worn).toBe("default");
+        expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

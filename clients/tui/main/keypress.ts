@@ -13,7 +13,7 @@ import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
 import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiChord, tuiComposerWordDeleteDirection } from "../keymap.ts";
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, closeWorkspaceSidebar, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, focusWorkspaceSidebar, forgetProviderCredential, leaveJsonlCommandMode, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, openWorkspaceSidebar, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, runWorkspaceSidebarAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
-import { abortFocusedAgent, closeDials, commitDials, composerIsAtLeftBoundary, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, wearAgent } from "../main/agents-dials.ts";
+import { abortFocusedAgent, closeDials, commitDials, composerIsAtLeftBoundary, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { handleTuiPermissionsConfirmKey } from "../permissions-confirm.ts";
@@ -1069,7 +1069,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         rt.dismissedComposeSuggesters.add(
             composeSuggesterDismissalKey(composeSuggester),
         );
-        wearAgent(rt, composeSuggester.agent);
+        selectAgent(rt, composeSuggester.agent);
         renderCommandSuggestions(rt);
         renderState(rt);
         rt.composer.focus();

@@ -626,11 +626,11 @@ export type VeraClientComposeFocusResult =
     | { readonly status: "ineligible" };
 
 /**
- * A compose-time offer to wear an agent this extension ships.
+ * A compose-time offer to select an agent this extension ships.
  *
  * Core never guesses intent from what you are typing. A suggester does, and it
  * exists only inside an extension you installed — installing it is the
- * consent. Accepting goes through the ordinary, loud wear path.
+ * consent. Accepting goes through the ordinary, loud select path.
  */
 export interface VeraClientExtensionComposeSuggesterSpec {
     /**
@@ -643,7 +643,7 @@ export interface VeraClientExtensionComposeSuggesterSpec {
     /** One line, shown under the composer while `match` holds. */
     readonly hint: string;
     /**
-     * Only offer while one of these agents is worn. Omit to allow every
+     * Only offer while one of these agents is selected. Omit to allow every
      * current agent. This scopes an offer; it does not change its target.
      */
     readonly fromAgents?: readonly string[];

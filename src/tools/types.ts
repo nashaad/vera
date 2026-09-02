@@ -7,7 +7,7 @@ import type {
 import type { ApprovalMode } from "../sdk/permissions.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
 import type { ToolRuntime } from "./runtime.ts";
-import type { AgentWearSnapshot } from "../agents/wear.ts";
+import type { AgentSnapshot } from "../agents/snapshot.ts";
 
 export interface ToolOutput {
     readonly kind: "output";
@@ -45,7 +45,7 @@ export interface SpawnSubagentEffect {
     readonly description: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort;
-    /** An agent the child wears, by name. */
+    /** An agent the child selects, by name. */
     readonly agent?: string;
 }
 
@@ -157,13 +157,13 @@ export interface ToolEffectContext {
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     /**
-     * The agent the spawning session is wearing.
+     * The agent the spawning session has selected.
      *
      * A spawn intersects its own agent's lists with these, so delegation can
-     * only narrow what is reachable. Absent means the parent wears `default`
+     * only narrow what is reachable. Absent means the parent is on `default`
      * and has nothing to narrow against.
      */
-    readonly agentWear?: AgentWearSnapshot;
+    readonly selectedAgent?: AgentSnapshot;
 }
 
 export interface ToolEffectRequest {

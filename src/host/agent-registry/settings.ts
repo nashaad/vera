@@ -300,7 +300,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
     }
 
 export function effectiveDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry): ModelTurnSettings {
-        const agentPair = reg.wornAgentDefaultPair?.(entry);
+        const agentPair = reg.selectedAgentDefaultPair?.(entry);
         return agentPair ?? {
             provider: reg.defaultProvider,
             model: reg.defaultModel,

@@ -243,14 +243,14 @@ export interface UpdateSessionModelSettingsCommand {
 }
 
 /**
- * Wear an agent, in FIFO order with the prompts already queued.
+ * Select an agent, in FIFO order with the prompts already queued.
  *
  * Not applied on arrival: a prompt enqueued before this one snapshotted the
  * old agent's settings and would pick up the new agent's tools at turn start,
  * which is a turn running as neither agent.
  */
-export interface WearAgentCommand {
-    readonly type: "wear_agent";
+export interface SelectAgentCommand {
+    readonly type: "select_agent";
     readonly requestId: string;
     readonly name: string;
 }
@@ -477,7 +477,7 @@ export type ClientCommand =
     | UpdateSessionModelSettingsCommand
     | GetSessionModelSettingsHistoryCommand
     | UpdateSessionPermissionModeCommand
-    | WearAgentCommand
+    | SelectAgentCommand
     | ListAgentsCommand
     | ListSkillsCommand
     | InvokeSkillCommand
@@ -791,14 +791,14 @@ export interface ModelSettingsUpdate {
 }
 
 /**
- * The agent in force, after a wear applied or a resume resolved one.
+ * The agent in force, after a selection applied or a resume resolved one.
  *
  * `notice` carries what the user has to be told: that the definition moved
- * since it was worn, that the agent is gone, or that its default pair no
+ * since it was selected, that the agent is gone, or that its default pair no
  * longer resolves. Silence is the normal case.
  */
-export interface AgentWornUpdate {
-    readonly type: "agent_worn";
+export interface AgentSelectedUpdate {
+    readonly type: "agent_selected";
     readonly requestId: string;
     readonly name: string;
     readonly tools?: readonly string[];
@@ -812,7 +812,7 @@ export interface AgentWornUpdate {
 export interface AgentCatalogUpdate {
     readonly type: "agent_catalog";
     readonly requestId: string;
-    readonly worn: string;
+    readonly selected: string;
     readonly agents: readonly {
         readonly name: string;
         readonly description?: string;
@@ -1074,7 +1074,7 @@ export type AgentUpdate =
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
     | SessionModelSettingsHistoryUpdate
-    | AgentWornUpdate
+    | AgentSelectedUpdate
     | AgentCatalogUpdate
     | AgentRejectedUpdate
     | SkillCatalogUpdate
@@ -1277,12 +1277,12 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         }
     }
     if (
-        command.type === "wear_agent"
+        command.type === "select_agent"
         && isRequestId(command.requestId)
         && isNonEmptyString(command.name)
     ) {
         return {
-            type: "wear_agent",
+            type: "select_agent",
             requestId: command.requestId,
             name: command.name,
         };
@@ -1846,9 +1846,9 @@ export function createProtocolEncoder(
             return;
         }
 
-        if (event.type === "agent_worn") {
+        if (event.type === "agent_selected") {
             seq += 1;
-            sender.send({ type: "agent_worn", ...event.update, seq });
+            sender.send({ type: "agent_selected", ...event.update, seq });
             return;
         }
 

@@ -1,6 +1,6 @@
 import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../../agents/catalog.ts";
 import { DEFAULT_AGENT, type AgentDefinition } from "../../agents/definition.ts";
-import { agentSnapshotDrift, resolveAgentSnapshot } from "../../agents/wear.ts";
+import { agentSnapshotDrift, resolveAgentSnapshot } from "../../agents/snapshot.ts";
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
 import { EngineEventBus } from "../../engine/events.ts";
 import type { ModelTurnSettings } from "../../engine/model-settings.ts";
@@ -8,7 +8,7 @@ import { BUILT_IN_PERMISSION_MODE_NAMES, builtInPermissionMode, isApprovalMode, 
 import { decideSkillInvocation, loadSkillCommandCatalog, type SkillCommandCatalog, type SkillInvocationDecision } from "../../skills/commands.ts";
 import { sessionIsSubagent } from "../../store/session-store.ts";
 import { delegationAllows } from "./helpers.ts";
-import { RESUME_WEAR_REQUEST_ID, resolveInstructionRoot, samePair, type RegisteredAgentEntry } from "./support.ts";
+import { RESUME_SELECT_REQUEST_ID, resolveInstructionRoot, samePair, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
 export async function updateSessionPermissionMode(reg: AgentRegistry, id: string, mode: ApprovalMode): Promise<ApprovalMode | undefined> {
@@ -34,19 +34,19 @@ export async function applySessionPermissionMode(reg: AgentRegistry, id: string,
         await reg.leaveAgentThatForbidsAccess(entry, id, mode);
         await entry.store.appendApprovalMode(
             mode,
-            mode === reg.wornAgentPosture(entry) ? "agent-default" : "user",
+            mode === reg.selectedAgentPosture(entry) ? "agent-default" : "user",
         );
         entry.approvalMode = mode;
         return entry.approvalMode;
     }
 
 export async function leaveAgentThatForbidsAccess(reg: AgentRegistry, entry: RegisteredAgentEntry, id: string, mode: ApprovalMode): Promise<void> {
-        const active = entry.agentWear;
+        const active = entry.selectedAgent;
         if (active?.forbiddenAccess?.includes(mode) !== true) return;
-        const switched = await reg.wearAgentFor(id, DEFAULT_AGENT.name);
+        const switched = await reg.selectAgentFor(id, DEFAULT_AGENT.name);
         if (switched === undefined) return;
         entry.events.emit({
-            type: "agent_worn",
+            type: "agent_selected",
             update: {
                 requestId: `permissions-${mode}`,
                 ...switched,
@@ -56,8 +56,8 @@ export async function leaveAgentThatForbidsAccess(reg: AgentRegistry, entry: Reg
         });
     }
 
-export function wornAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry): ModelTurnSettings | undefined {
-        const pair = entry.agentWear?.defaultPair;
+export function selectedAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentEntry): ModelTurnSettings | undefined {
+        const pair = entry.selectedAgent?.defaultPair;
         if (pair === undefined) return undefined;
         const pooled = reg.options.readPool?.(entry.store.header.cwd) ?? [];
         const pooledEntry = pooled.find((candidate) =>
@@ -70,15 +70,15 @@ export function wornAgentDefaultPair(reg: AgentRegistry, entry: RegisteredAgentE
         } as ModelTurnSettings;
     }
 
-export function wornAgentPosture(reg: AgentRegistry, entry: RegisteredAgentEntry): ApprovalMode | undefined {
-        const named = entry.agentWear?.posture;
+export function selectedAgentPosture(reg: AgentRegistry, entry: RegisteredAgentEntry): ApprovalMode | undefined {
+        const named = entry.selectedAgent?.posture;
         return named !== undefined && isApprovalMode(named)
             ? named
             : reg.defaultApprovalMode;
     }
 
 export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
-        readonly worn: string;
+        readonly selected: string;
         readonly agents: readonly {
             readonly name: string;
             readonly description?: string;
@@ -97,11 +97,11 @@ export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
     }> {
         const entry = reg.agents.get(id);
         if (entry === undefined) {
-            return { worn: DEFAULT_AGENT.name, agents: [], notices: [] };
+            return { selected: DEFAULT_AGENT.name, agents: [], notices: [] };
         }
         const catalog = await reg.agentCatalogFor(entry);
         return {
-            worn: entry.agentWear?.name ?? DEFAULT_AGENT.name,
+            selected: entry.selectedAgent?.name ?? DEFAULT_AGENT.name,
             agents: catalog.agents.map((agent) => ({
                 name: agent.definition.name,
                 ...(agent.definition.description === undefined
@@ -136,9 +136,9 @@ export async function listSkillsFor(reg: AgentRegistry, id: string): Promise<Ski
         }
         return loadSkillCommandCatalog({
             projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
-            ...(entry.agentWear?.skills === undefined
+            ...(entry.selectedAgent?.skills === undefined
                 ? {}
-                : { allowedSkills: entry.agentWear.skills }),
+                : { allowedSkills: entry.selectedAgent.skills }),
         });
     }
 
@@ -150,9 +150,9 @@ export async function decideSkillInvocationFor(reg: AgentRegistry, id: string, n
         return decideSkillInvocation({
             projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
             name,
-            ...(entry.agentWear?.skills === undefined
+            ...(entry.selectedAgent?.skills === undefined
                 ? {}
-                : { allowedSkills: entry.agentWear.skills }),
+                : { allowedSkills: entry.selectedAgent.skills }),
             isSubagent: sessionIsSubagent(entry.store.header),
         });
     }
@@ -171,7 +171,7 @@ export async function agentCatalogFor(reg: AgentRegistry, entry: RegisteredAgent
         });
     }
 
-export async function wearAgentFor(reg: AgentRegistry, id: string, name: string): Promise<{
+export async function selectAgentFor(reg: AgentRegistry, id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -180,12 +180,12 @@ export async function wearAgentFor(reg: AgentRegistry, id: string, name: string)
         readonly notice?: string;
         readonly permissionChanged?: boolean;
     } | undefined> {
-        const result = await reg.applyAgentWear(id, name);
+        const result = await reg.applySelectedAgent(id, name);
         reg.pushWorkerState(id);
         return result;
     }
 
-export async function applyAgentWear(reg: AgentRegistry, id: string, name: string): Promise<{
+export async function applySelectedAgent(reg: AgentRegistry, id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -202,8 +202,8 @@ export async function applyAgentWear(reg: AgentRegistry, id: string, name: strin
         const found = findCatalogAgent(catalog, name);
         if (found === undefined) return undefined;
         const snapshot = resolveAgentSnapshot(found.definition);
-        await entry.store.appendAgentWear(snapshot.name, snapshot);
-        entry.agentWear = snapshot;
+        await entry.store.appendSelectedAgent(snapshot.name, snapshot);
+        entry.selectedAgent = snapshot;
         let permissionChanged = false;
         if (snapshot.forbiddenAccess?.includes(entry.approvalMode) === true) {
             const fallback = snapshot.posture !== undefined
@@ -241,7 +241,7 @@ export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: Registere
         const origin = entry.store.modelSettingsOrigin();
         if (origin === "user") return undefined;
         const unresolvable = definition.defaultPair !== undefined
-            && reg.wornAgentDefaultPair(entry) === undefined;
+            && reg.selectedAgentDefaultPair(entry) === undefined;
         const target = reg.effectiveDefaultPair(entry);
         if (
             entry.store.header.delegation !== undefined
@@ -259,18 +259,18 @@ export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: Registere
             : undefined;
     }
 
-export async function reconcileResumedAgentWear(reg: AgentRegistry, entry: RegisteredAgentEntry, events: EngineEventBus): Promise<void> {
-        const recorded = entry.agentWear;
+export async function reconcileResumedSelectedAgent(reg: AgentRegistry, entry: RegisteredAgentEntry, events: EngineEventBus): Promise<void> {
+        const recorded = entry.selectedAgent;
         if (recorded === undefined) return;
         try {
             const catalog = await reg.agentCatalogFor(entry);
             const found = findCatalogAgent(catalog, recorded.name);
             if (found === undefined) {
-                entry.agentWear = undefined;
+                entry.selectedAgent = undefined;
                 events.emit({
-                    type: "agent_worn",
+                    type: "agent_selected",
                     update: {
-                        requestId: RESUME_WEAR_REQUEST_ID,
+                        requestId: RESUME_SELECT_REQUEST_ID,
                         name: DEFAULT_AGENT.name,
                         notice:
                             `The agent ${recorded.name} is gone, so this session switched to default.`,
@@ -279,13 +279,13 @@ export async function reconcileResumedAgentWear(reg: AgentRegistry, entry: Regis
                 return;
             }
             const current = resolveAgentSnapshot(found.definition);
-            entry.agentWear = current;
+            entry.selectedAgent = current;
             const drift = agentSnapshotDrift(recorded, current);
             if (drift.length > 0) {
                 events.emit({
-                    type: "agent_worn",
+                    type: "agent_selected",
                     update: {
-                        requestId: RESUME_WEAR_REQUEST_ID,
+                        requestId: RESUME_SELECT_REQUEST_ID,
                         name: current.name,
                         ...(current.tools === undefined
                             ? {}
@@ -320,14 +320,14 @@ export async function updateAgentDefaultPairFor(reg: AgentRegistry, id: string, 
         } catch (error) {
             return error instanceof Error ? error.message : String(error);
         }
-        if (entry.agentWear?.name === name) {
-            entry.agentWear = {
-                ...entry.agentWear,
+        if (entry.selectedAgent?.name === name) {
+            entry.selectedAgent = {
+                ...entry.selectedAgent,
                 ...(pair === null ? {} : { defaultPair: pair }),
             };
             if (pair === null) {
-                const { defaultPair: _cleared, ...rest } = entry.agentWear;
-                entry.agentWear = rest;
+                const { defaultPair: _cleared, ...rest } = entry.selectedAgent;
+                entry.selectedAgent = rest;
             }
             await entry.store.appendModelSettings(
                 entry.modelSettings,
