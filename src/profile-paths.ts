@@ -56,6 +56,7 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "pool.json",
     "preferences.json",
     "tui.json",
+    "tips.json",
     "extensions",
     "skills",
     "memory",

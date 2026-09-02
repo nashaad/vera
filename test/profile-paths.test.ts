@@ -65,6 +65,13 @@ test("a single-home layout is accepted", () => {
     expect(() => assertProfileLayout(root)).not.toThrow();
 });
 
+test("tip history at the home root is owned, not leftover", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera"), { recursive: true });
+    writeFileSync(join(root, ".vera", "tips.json"), "{}");
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
 test("state written outside the known root names is named", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "machine"), { recursive: true });
@@ -73,6 +80,7 @@ test("state written outside the known root names is named", () => {
 
     mkdirSync(join(root, ".vera", "chrome"));
     writeFileSync(join(root, ".vera", "tui.json"), "{}");
+    writeFileSync(join(root, ".vera", "tips.json"), "{}");
     writeFileSync(join(root, ".vera", ".DS_Store"), "");
     expect(unrecognisedHomeEntries(root)).toEqual(["chrome"]);
 });
