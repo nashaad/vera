@@ -59,7 +59,7 @@ test("the model inspector stays inside a 100x40 terminal", async () => {
         );
 
         expect(pane).toContain(
-            "⇥ moves between sections, arrows move inside one, ⇧⇥ reaches the tabs",
+            "moves between sections  tab · moves inside one  arrows · reaches the tabs  shift+tab",
         );
         expect(pane).toContain("↑↓ move · ⏎ run · ← list · ⇥ section · esc tabs");
         expect(pane).toContain("Verify this model");

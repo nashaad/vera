@@ -147,7 +147,6 @@ test("shortlist verification runs in a console inside the model dialog", async (
         session.sendKey("Enter");
         await session.waitForVisiblePane("Shortlist (0)");
         // Shift+tab climbs from the list onto More; enter opens what it holds.
-        // Shift+tab climbs from the list onto More; enter opens what it holds.
         session.sendKey("BTab");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Add current model");

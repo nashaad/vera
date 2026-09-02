@@ -123,3 +123,10 @@ export function repairedSectionFocus(
     const first = pickerSections(state)[0];
     return first === undefined ? state : focusedOnSection(state, first);
 }
+
+/** Whether the page teaches the ring. A page with one section has no crossing to explain, and the More page suspends the ring until it closes, so in both the footer alone is the truth. */
+export function teachesSectionRing(state: TuiAnySettingsPickerState): boolean {
+    if (state.kind !== "model") return false;
+    if (state.modelFocus === "page") return false;
+    return pickerSections(state).length > 1;
+}

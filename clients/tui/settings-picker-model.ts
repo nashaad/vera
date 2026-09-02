@@ -708,8 +708,26 @@ export function clippedTo(text: string, width: number): string {
 export const MODEL_TAB_STRIP_CHROME_HEIGHT = 3;
 
 /** The one line that teaches the shape rather than the keys: tab crosses the bands, arrows stay inside one. The footer above it names the keys of whichever band has the cursor. */
-export const MODEL_ARROW_HINT =
-    "⇥ moves between sections, arrows move inside one, ⇧⇥ reaches the tabs";
+/** What the ring does, and the key that does it. The key is named in words and
+ *  sits after the phrase, so it reads apart from the prose it explains. */
+export const MODEL_ARROW_HINT_PARTS: readonly (readonly [string, string])[] = [
+    ["moves between sections", "tab"],
+    ["moves inside one", "arrows"],
+    ["reaches the tabs", "shift+tab"],
+];
+
+export function modelArrowHintChunks(): readonly TextChunk[] {
+    const chunks: TextChunk[] = [];
+    MODEL_ARROW_HINT_PARTS.forEach(([phrase, key], index) => {
+        if (index > 0) chunks.push(fg(TUI_MUTED)(" · "));
+        chunks.push(fg(TUI_MUTED)(`${phrase}  `), fg(TUI_TEXT)(key));
+    });
+    return chunks;
+}
+
+export const MODEL_ARROW_HINT = MODEL_ARROW_HINT_PARTS
+    .map(([phrase, key]) => `${phrase}  ${key}`)
+    .join(" · ");
 
 export const MODEL_ALL_MAX_ROWS = 28;
 

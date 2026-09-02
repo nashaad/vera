@@ -49,6 +49,7 @@ import {
     repairedSectionFocus,
     sectionHasKeys,
     steppedPickerSection,
+    teachesSectionRing,
 } from "./picker-sections.ts";
 import {
     insertTuiSingleLinePaste,
@@ -79,7 +80,7 @@ import {
     ALL_MODELS_TREE_PAD_LINES,
     INTELLIGENCE_SCALE_LINES,
     MODEL_ALL_MAX_ROWS,
-    MODEL_ARROW_HINT,
+    modelArrowHintChunks,
     MODEL_LIST_RULE_GAP,
     allModelsInfoOption,
     allModelsPriceChromeLines,
@@ -1649,10 +1650,12 @@ export function renderListPickerRows(
     );
     box.add(footer);
     nodes.push(footer);
-    if (state.kind === "model") {
+    if (state.kind === "model" && teachesSectionRing(state)) {
         const arrows = new TextRenderable(renderer, {
-            content: `${DIALOG_GUTTER}${MODEL_ARROW_HINT}`,
-            fg: TUI_MUTED,
+            content: new StyledText([
+                fg(TUI_MUTED)(DIALOG_GUTTER),
+                ...modelArrowHintChunks(),
+            ]),
             width: "100%",
             height: 1,
         });

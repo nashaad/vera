@@ -58,6 +58,7 @@ import {
     startTuiModelAssignmentPicker,
     tuiModelAssignmentOptions,
 } from "../../clients/tui/settings-picker.ts";
+import { MODEL_ARROW_HINT } from "../../clients/tui/settings-picker-model.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
 // pane renders whatever order it is given, and `inferReasoningSelection`'s
@@ -1625,7 +1626,7 @@ test("the model tab strip keeps every stop inside the card at narrow widths", as
                 line.includes("Providers ^e")
             );
             expect(providersRow).toBeGreaterThan(firstTabRow);
-            expect(frame).toContain("⇥ moves between sections");
+            expect(frame).toContain("moves between sections  tab");
         }
     }
 });
@@ -4378,6 +4379,30 @@ test("Shortlist opens More under its button, the way All models does", async () 
     // The column the rows used to open in is a description of a list row, and
     // the list is not on screen.
     expect(lines[first]).not.toContain("\u2502");
+});
+
+test("the section hint is absent where the ring is not the way out", async () => {
+    const shortlist = {
+        ...switchedModelTab(modelPickerWithPool(), "pool"),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    } as TuiSettingsPickerState;
+    expect(await pickerFrame(shortlist)).toContain(MODEL_ARROW_HINT);
+
+    // Inside the More page the footer says "← back · esc back" and tab does
+    // nothing, so a line promising tab crosses sections would contradict it.
+    const page = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(
+            { ...shortlist, selectedIndex: 0 },
+            { name: "tab", shift: true },
+        ).state!,
+        { name: "return" },
+    ).state!;
+    expect(await pickerFrame(page)).not.toContain(MODEL_ARROW_HINT);
+
+    // A page holding one section has no crossing to teach either.
+    const single = switchedModelTab(modelPickerWithPool(), "actions");
+    expect(pickerSections(single).length).toBe(1);
+    expect(await pickerFrame(single)).not.toContain(MODEL_ARROW_HINT);
 });
 
 test("the More entry is a button that marks focus without color", async () => {
