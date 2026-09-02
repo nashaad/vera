@@ -178,3 +178,18 @@ test("a Cerebras catalog layer reads the nested context limit", () => {
         context_window: 131_072,
     });
 });
+
+test("llama.cpp discovery reads the active context window", () => {
+    const catalog = normalizeOpenAIModels("outrider", {
+        data: [{
+            id: "qwen3-1.7b",
+            owned_by: "llamacpp",
+            meta: { n_ctx: 32_768, n_ctx_train: 40_960 },
+        }],
+    });
+
+    expect(catalog.models[0]).toMatchObject({
+        id: "qwen3-1.7b",
+        context_window: 32_768,
+    });
+});

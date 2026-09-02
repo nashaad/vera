@@ -156,6 +156,7 @@ export function normalizeOpenAIModels(
         const contextWindow = positiveNumber(
             entry.context_window
             ?? entry.max_model_len
+            ?? (isRecord(entry.meta) ? entry.meta.n_ctx : undefined)
             ?? (layers.includes("cerebras-models") && isRecord(entry.limits)
                 ? entry.limits.max_context_length
                 : undefined),
