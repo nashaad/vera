@@ -238,20 +238,20 @@ export function stackedListedPriceLines(
 ): readonly (readonly TextChunk[])[] {
     const full = formatListedRates(option?.pricing);
     const blended = formatBlendedRate(option?.pricing);
-    const images = option?.images === true ? "i" : "";
-    const row = (label: string, value: string): readonly TextChunk[] => {
-        const pad = Math.max(1, 16 - label.length);
-        return [
-            fg(TUI_MUTED)(label),
-            fg(TUI_TEXT)(`${" ".repeat(pad)}${clippedTo(value, width - 16)}`),
-        ];
-    };
-    return [
-        [fg(TUI_TEXT)(clippedTo(option?.label ?? "", width))],
-        row("Full price", full ?? ""),
-        row("Blended price", blended === undefined ? "" : `${blended}  7:2:1`),
-        row("Images", images),
-    ];
+    const facts: string[] = [];
+    if (full !== undefined) facts.push(`full ${full}`);
+    if (blended !== undefined) facts.push(`blended ${blended} at 7:2:1`);
+    if (option?.images === true) facts.push("images");
+    const right = facts.join("  ");
+    const label = clippedTo(
+        option?.label ?? "",
+        Math.max(0, width - right.length - 2),
+    );
+    const gap = Math.max(1, width - label.length - right.length);
+    return [[
+        fg(TUI_TEXT)(label),
+        fg(TUI_MUTED)(`${" ".repeat(gap)}${right}`),
+    ]];
 }
 
 export function allModelsPriceNode(
@@ -552,7 +552,11 @@ export function modelHelpLines(
         ...MODEL_HELP_LINES,
         [""],
         ["Sources"],
-        ["* WA Score", "WebDev Arena (LMArena), CC-BY 4.0"],
+        ["* WA Score", "an Elo rating. How often people picked this model's"],
+        ["", "web app over another's, voted blind, side by side."],
+        ["", "Higher wins more often. Most models land 1000-1600,"],
+        ["", "and a 100-point gap is about 64% of votes."],
+        ["", "WebDev Arena (LMArena), CC-BY 4.0"],
         ["", "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset"],
         [
             "",
@@ -582,7 +586,7 @@ export const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["★", "on All models: already on your shortlist."],
     ["P", "on or near Vera's WA Score × listed-output front"],
     ["i", "the model takes image input."],
-    ["*", "on WA Score: source footnote, not the shortlist."],
+    ["*", "on WA Score: the note under Sources, not the shortlist."],
     ["top pick", "a model Vera is built and tested against."],
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
@@ -1313,9 +1317,9 @@ export const ALL_MODELS_SECTION_GAP_LINES = 1;
 
 export const ALL_MODELS_TREE_PAD_LINES = 2;
 
-export const ALL_MODELS_PRICE_FACTS = 4;
+export const ALL_MODELS_PRICE_FACTS = 1;
 
-export const ALL_MODELS_PRICE_PAD = 1;
+export const ALL_MODELS_PRICE_PAD = 0;
 
 export const ALL_MODELS_PRICE_MARGIN = 1;
 

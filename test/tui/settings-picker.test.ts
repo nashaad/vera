@@ -1957,7 +1957,7 @@ test("with an empty pool the pane opens on All models, full width", async () => 
     expect(state.tab).toBe("all");
     const frame = await pickerFrame(state);
     expect(frame).toMatch(/All(?: models)? \(\d+\)/);
-    expect(frame).not.toMatch(/│ Full price/);
+    expect(frame).not.toMatch(/│ +full /);
     expect(frame).not.toContain("┌");
     expect(frame).not.toContain("└");
 });
@@ -1988,7 +1988,7 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     try {
         await setup.flush();
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(14);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(19);
         expect(tuiPickerViewportRows(setup.renderer, state)).toBeLessThan(40);
         expect(view.box.height).toBeLessThan(
             setup.renderer.height - 4,
@@ -2130,7 +2130,7 @@ test("the Help tab explains the pane in the pane", async () => {
     expect(frame).toContain("the model takes image input");
     expect(frame).not.toContain("🖼");
     expect(frame).toContain("snapshot unavailable");
-    expect(frame).toContain("on WA Score: source footnote, not the shortlist.");
+    expect(frame).toContain("on WA Score: the note under Sources, not the shortlist.");
     expect(frame).toContain("7:2:1");
     // A page, not a list: nothing to filter, nothing to select, and the footer
     // says only what the page can do.
@@ -2226,17 +2226,16 @@ test("All models shows listed facts, glyphs, and a blank unmatched score", async
     expect(frame).not.toMatch(/Unknown Blank[^\n]*\b0\b/);
     expect(frame).not.toMatch(/shortlisted/);
     expect(frame).not.toContain("$");
-    expect(frame).toContain("Full price");
-    expect(frame).toContain("3/15");
-    expect(frame).toContain("Blended price");
-    const fullPriceAt = frame.indexOf("Full price");
-    expect(frame.slice(0, fullPriceAt)).toContain("Grok 4.6");
-    expect(frame.indexOf("Unknown Blank")).toBeLessThan(fullPriceAt);
+    const strip = frame.split("\n").find((line) => line.includes("full 3/15"))!;
+    expect(strip).toContain("Grok 4.6");
+    expect(strip).toContain("blended 4.2 at 7:2:1");
+    const stripAt = frame.indexOf("full 3/15");
+    expect(frame.indexOf("Unknown Blank")).toBeLessThan(stripAt);
     expect(frame).toContain("7:2:1");
     expect(frame).toContain("Any");
     expect(frame).toContain("Smarter");
     expect(frame).toMatch(/any\s+1400\s+1450\s+1500\s+1550\s+1600/);
-    expect(frame).not.toMatch(/│ Full price/);
+    expect(frame).not.toMatch(/│ +full /);
     expect(frame).not.toContain("┌");
     expect(frame).not.toContain("└");
     const headerLine = frame.split("\n").find((line) =>
@@ -4341,7 +4340,7 @@ test("the More page stands in for the list it covers", async () => {
     // list, and the list is not on screen while the page is open.
     expect(frame).not.toContain("Smarter");
     expect(frame).not.toContain("WA Score*");
-    expect(frame).not.toContain("Blended price");
+    expect(frame).not.toContain("blended ");
     // The rows read as the button's own menu, so they open right under it:
     // the bottom edge, the gap and the "More" heading are all that sit between.
     const lines = frame.split("\n");
