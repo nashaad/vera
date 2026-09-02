@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { extensionRegistryPathFor } from "../src/extensions/manager.ts";
 import {
     assertProfileLayout,
     legacyLayoutEntries,
@@ -69,6 +70,16 @@ test("tip history at the home root is owned, not leftover", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera"), { recursive: true });
     writeFileSync(join(root, ".vera", "tips.json"), "{}");
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
+test("the extension registry the installer writes is owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "extensions"), { recursive: true });
+    writeFileSync(
+        extensionRegistryPathFor({ scope: "profile" }, { home: root }),
+        "{}",
+    );
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 });
 
