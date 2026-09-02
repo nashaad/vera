@@ -170,6 +170,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
+import type { CatalogRefreshOutcome } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
     startExtensionRegistry,
@@ -1017,6 +1018,19 @@ export async function startResidentHost(
                 if (refreshed === undefined) return undefined;
                 return registry.readHostModelSettings(workspace);
             },
+            refreshCatalogs: () => {
+                const refreshed = catalogRefreshes.then(async () => {
+                    const config = currentConfig();
+                    const outcomes = await refreshProviderCatalogs(config, {
+                        authStorage,
+                    });
+                    models = await discoverAvailableModels(config, authStorage);
+                    registry.availableModels = models;
+                    return outcomes;
+                });
+                catalogRefreshes = refreshed.then(() => undefined, () => undefined);
+                return refreshed;
+            },
             readAnnex: () => annexUrl === undefined
                 ? {
                     unavailable: annexUnavailable
@@ -1269,12 +1283,7 @@ export function catalogMaxAgeMs(config: VeraConfig): number {
         : days * 24 * 60 * 60 * 1000;
 }
 
-export interface CatalogRefreshOutcome {
-    readonly provider: string;
-    readonly models?: number;
-    readonly failure?: CatalogRefreshFailure;
-    readonly keptModels?: number;
-}
+export type { CatalogRefreshOutcome };
 
 export type CatalogRefreshFailure =
     | ProviderCatalogFailure

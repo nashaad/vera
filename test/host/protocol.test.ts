@@ -38,6 +38,9 @@ test("host protocol parses identity requests and encodes responses", () => {
         workspace: "/work/vera",
     });
     expect(parseHostRequest('{"type":"catalog_refresh"}')).toBeUndefined();
+    expect(parseHostRequest('{"type":"refresh_catalogs"}')).toEqual({
+        type: "refresh_catalogs",
+    });
     expect(parseHostRequest(JSON.stringify({
         type: "catalog_refresh",
         provider: "",

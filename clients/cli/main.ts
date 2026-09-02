@@ -104,6 +104,10 @@ import {
 import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
+import {
+    isCatalogRefreshFallback,
+    refreshCatalogsThroughHost,
+} from "../../src/host/catalog-refresh-client.ts";
 import type { StartupProfile } from "../../src/startup-profile.ts";
 import { Vera } from "../../src/sdk/agent.ts";
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
@@ -161,13 +165,43 @@ async function defaultProviderDoctor(
     });
 }
 
-async function refreshDiscoveredCatalogs(): Promise<
-    readonly CatalogRefreshOutcome[]
-> {
+async function refreshDiscoveredCatalogs(
+    dependencies: Pick<
+        CliDependencies,
+        | "readLiveHost"
+        | "refreshCatalogsThroughHost"
+        | "refreshLocalCatalogs"
+    > = {},
+): Promise<readonly CatalogRefreshOutcome[]> {
+    const host = await (dependencies.readLiveHost ?? readAnsweringHost)();
+    if (host !== undefined) {
+        try {
+            return await (
+                dependencies.refreshCatalogsThroughHost
+                    ?? refreshCatalogsThroughHost
+            )(host.socket_path);
+        } catch (error) {
+            if (!isCatalogRefreshFallback(error)) throw error;
+        }
+    }
+    if (dependencies.refreshLocalCatalogs !== undefined) {
+        return dependencies.refreshLocalCatalogs();
+    }
     return refreshProviderCatalogs(
         loadOptionalVeraConfig() ?? startingVeraConfig(),
         { authStorage: createAuthStorage() },
     );
+}
+
+async function readAnsweringHost(): Promise<
+    { readonly socket_path: string } | undefined
+> {
+    try {
+        const host = await createHostLockfile().read();
+        return host === undefined ? undefined : { socket_path: host.socket_path };
+    } catch {
+        return undefined;
+    }
 }
 
 interface CliOutput {
@@ -247,6 +281,13 @@ export interface CliDependencies {
         options: ProviderDoctorOptions,
     ) => Promise<ProviderDoctorReport>;
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
+    readonly readLiveHost?: () => Promise<
+        { readonly socket_path: string } | undefined
+    >;
+    readonly refreshCatalogsThroughHost?: (
+        socketPath: string,
+    ) => Promise<readonly CatalogRefreshOutcome[]>;
+    readonly refreshLocalCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly listPool?: (workspace: string) => Promise<string>;
     readonly addPoolModel?: (
         workspace: string,
@@ -697,7 +738,8 @@ export async function runCli(
 
     if (args.length === 2 && args[0] === "models" && args[1] === "refresh") {
         const outcomes = await (
-            dependencies.refreshCatalogs ?? refreshDiscoveredCatalogs
+            dependencies.refreshCatalogs
+                ?? (() => refreshDiscoveredCatalogs(dependencies))
         )();
         for (const outcome of outcomes) {
             output.write(

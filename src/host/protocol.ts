@@ -81,6 +81,39 @@ export interface CatalogRefreshFailedResponse {
     readonly provider: string;
 }
 
+/**
+ * Asks the live host to refresh every provider catalog. Disk is not a second
+ * owner while this host is answering: the host fetches, updates memory, and
+ * writes the cache the next host will load.
+ */
+export interface RefreshCatalogsRequest {
+    readonly type: "refresh_catalogs";
+}
+
+export interface CatalogRefreshOutcome {
+    readonly provider: string;
+    readonly models?: number;
+    readonly failure?:
+        | "authentication"
+        | "unavailable"
+        | "malformed_response"
+        | "empty_response"
+        | "missing_credential"
+        | "persistence_failed"
+        | "invalid";
+    readonly keptModels?: number;
+}
+
+export interface RefreshCatalogsResultResponse {
+    readonly type: "refresh_catalogs_result";
+    readonly outcomes: readonly CatalogRefreshOutcome[];
+}
+
+export interface RefreshCatalogsFailedResponse {
+    readonly type: "refresh_catalogs_failed";
+    readonly reason: string;
+}
+
 export interface ListAgentsRequest {
     readonly type: "list_agents";
     readonly include?: readonly SessionFactName[];
@@ -526,6 +559,7 @@ export type HostRequest =
     | HostIdentityRequest
     | ModelSettingsRequest
     | CatalogRefreshRequest
+    | RefreshCatalogsRequest
     | ListAgentsRequest
     | SearchSessionsRequest
     | ScheduleOperationRequest
@@ -553,6 +587,8 @@ export type HostResponse =
     | ModelSettingsResponse
     | CatalogRefreshResponse
     | CatalogRefreshFailedResponse
+    | RefreshCatalogsResultResponse
+    | RefreshCatalogsFailedResponse
     | AgentListResponse
     | SearchSessionsResponse
     | SearchSessionsUnavailableResponse
@@ -632,6 +668,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 ? { workspace }
                 : {}),
         };
+    }
+    if (value?.type === "refresh_catalogs") {
+        return { type: "refresh_catalogs" };
     }
     if (value?.type === "annex_url") {
         return { type: "annex_url" };

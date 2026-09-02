@@ -27,6 +27,8 @@ mean that the profile file was edited.
 
 Use `vera shortlist list` to see pinned models, `vera shortlist add` to pin
 one, and `vera models refresh` to refresh the model catalog from providers.
+If Vera is already running, that refresh updates the live host. Restart is
+not required.
 
 ## agents — Agent definitions
 

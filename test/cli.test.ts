@@ -17,6 +17,7 @@ import {
 } from "../src/host/lockfile.ts";
 import { RetainedReleaseMissingError } from "../src/release/dispatch.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
+import { CatalogRefreshUnsupportedError } from "../src/host/catalog-refresh-client.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
@@ -1556,6 +1557,66 @@ test("vera models refresh names a stale provider while keeping its rows", async 
     expect(output).toBe(
         "cerebras: failed (provider unavailable; kept 2 cached models)\n",
     );
+});
+
+test("vera models refresh asks a live host instead of writing disk", async () => {
+    let output = "";
+    let asked: string | undefined;
+    let wroteDisk = false;
+    const exitCode = await runCli(["models", "refresh"], {
+        stdout: { write: (text) => output += text },
+        readLiveHost: async () => ({ socket_path: "/tmp/vera-host.sock" }),
+        refreshCatalogsThroughHost: async (socketPath) => {
+            asked = socketPath;
+            return [{ provider: "outrider_t1", models: 1 }];
+        },
+        refreshLocalCatalogs: async () => {
+            wroteDisk = true;
+            return [];
+        },
+    });
+    expect(exitCode).toBe(0);
+    expect(asked).toBe("/tmp/vera-host.sock");
+    expect(wroteDisk).toBe(false);
+    expect(output).toBe("outrider_t1: 1 models\n");
+});
+
+test("vera models refresh writes disk when no host is running", async () => {
+    let output = "";
+    let wroteDisk = false;
+    const exitCode = await runCli(["models", "refresh"], {
+        stdout: { write: (text) => output += text },
+        readLiveHost: async () => undefined,
+        refreshCatalogsThroughHost: async () => {
+            throw new Error("must not ask a host");
+        },
+        refreshLocalCatalogs: async () => {
+            wroteDisk = true;
+            return [{ provider: "outrider_t1", models: 1 }];
+        },
+    });
+    expect(exitCode).toBe(0);
+    expect(wroteDisk).toBe(true);
+    expect(output).toBe("outrider_t1: 1 models\n");
+});
+
+test("vera models refresh writes disk when the host does not refresh catalogs", async () => {
+    let output = "";
+    let wroteDisk = false;
+    const exitCode = await runCli(["models", "refresh"], {
+        stdout: { write: (text) => output += text },
+        readLiveHost: async () => ({ socket_path: "/tmp/vera-host.sock" }),
+        refreshCatalogsThroughHost: async () => {
+            throw new CatalogRefreshUnsupportedError();
+        },
+        refreshLocalCatalogs: async () => {
+            wroteDisk = true;
+            return [{ provider: "outrider_t1", models: 1 }];
+        },
+    });
+    expect(exitCode).toBe(0);
+    expect(wroteDisk).toBe(true);
+    expect(output).toBe("outrider_t1: 1 models\n");
 });
 
 test("vera host supervise turns supervision on", async () => {

@@ -25,6 +25,7 @@ import {
     type HostIdentity,
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
+    type CatalogRefreshOutcome,
 } from "./protocol.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
@@ -123,6 +124,7 @@ export interface StartHostServerOptions {
         provider: string,
         workspace?: string,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly readAnnex?: () =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -403,6 +405,7 @@ export async function startHostServer(
             options.readAgentTree ?? ((agentId) => [agentId]),
             options.readModelSettings ?? (() => undefined),
             options.refreshCatalog,
+            options.refreshCatalogs,
             options.readAnnex,
             options.checkpointStores,
             resolveHostLimits(options.limits),
@@ -534,6 +537,7 @@ function receiveConnection(
         provider: string,
         workspace?: string,
     ) => Promise<ModelTurnSettings | undefined>) | undefined,
+    refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
     readAnnex: (() =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -1078,6 +1082,28 @@ function receiveConnection(
                         : { type: "catalog_refresh", settings },
                 ),
             ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "refresh_catalogs") {
+            clearDeadline();
+            finished = true;
+            if (refreshCatalogs === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            const operationClosed = operationOpened();
+            void refreshCatalogs().then(
+                (outcomes) => send({ type: "refresh_catalogs_result", outcomes }),
+                (error: unknown) => send({
+                    type: "refresh_catalogs_failed",
+                    reason: userFacingMessage(error)
+                        ?? "Catalog refresh failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy())
+                .finally(operationClosed);
             return;
         }
         if (request?.type === "annex_url") {

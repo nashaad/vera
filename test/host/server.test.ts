@@ -542,6 +542,35 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host refreshes every catalog without attaching",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        let asked = 0;
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            refreshCatalogs: async () => {
+                asked += 1;
+                return [{ provider: "outrider_t1", models: 1 }];
+            },
+        });
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({ type: "refresh_catalogs" });
+            expect(await connection.receive()).toEqual({
+                type: "refresh_catalogs_result",
+                outcomes: [{ provider: "outrider_t1", models: 1 }],
+            });
+            expect(asked).toBe(1);
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host creates and resumes agents through one ready response shape",
     async () => {
         const directory = temporaryHostDirectory();
