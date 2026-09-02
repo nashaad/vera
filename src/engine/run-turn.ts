@@ -75,6 +75,10 @@ import {
     loadMemory,
     MEMORY_ENABLED,
 } from "./memory.ts";
+import {
+    formatContextRouteReminder,
+    payloadsForSuccessfulReads,
+} from "./context-routes.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
 import {
     type ContextualContributionContext,
@@ -276,6 +280,7 @@ export interface RunTurnState {
     readonly readAgentWear?: () => AgentWearSnapshot | undefined;
     readonly clampPermissionMode?: ApprovalMode;
     readonly firedNudges?: Set<string>;
+    readonly injectedContextRoutePaths?: Set<string>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
@@ -537,6 +542,7 @@ export async function runHeadlessLoop(
         }));
     }
     const messages = [...store.messages()];
+    const injectedContextRoutePaths = new Set<string>();
     let inbound: InboundCommandRouter;
     let compactOnRequest: (
         (turnActive: boolean, signal?: AbortSignal) => Promise<void>
@@ -976,6 +982,7 @@ export async function runHeadlessLoop(
                 latchedAssignmentKey = assignmentKey;
             }
             if (result.outcome === "compacted") {
+                injectedContextRoutePaths.clear();
                 const refreshedMeasurement: ContextMeasurement = {
                     tokens: result.after,
                     ...(measurement.capacity === undefined
@@ -1062,6 +1069,7 @@ export async function runHeadlessLoop(
         ...(readModelSettings === undefined ? {} : { readModelSettings }),
         ...(readAgentWear === undefined ? {} : { readAgentWear }),
         firedNudges: new Set<string>(),
+        injectedContextRoutePaths,
         readApprovalMode,
         readPermissionGrants,
         readPermissionPreferences,
@@ -1775,13 +1783,14 @@ export async function runTurn(
 
             let toolIndex = 0;
             let interrupt: string | undefined;
+            const batchCompleted: CompletedToolCall[] = [];
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
                 if (!toolMayRunInParallel(
                     first.toolCall.name,
                     state.extensionTools,
                 )) {
-                    interrupt = await finishToolCalls(state, [
+                    const finished = await finishToolCalls(state, [
                         executePreparedTool(
                             state,
                             first,
@@ -1798,6 +1807,8 @@ export async function runTurn(
                             denialBreaker,
                         ),
                     ]);
+                    batchCompleted.push(...finished.completed);
+                    interrupt = finished.interrupt;
                     if (interrupt !== undefined) {
                         break;
                     }
@@ -1816,7 +1827,7 @@ export async function runTurn(
                     parallelCalls.push(preparedToolCalls[toolIndex]!);
                     toolIndex += 1;
                 }
-                interrupt = await finishToolCalls(
+                const finished = await finishToolCalls(
                     state,
                     parallelCalls.map((prepared) =>
                         executePreparedTool(
@@ -1836,10 +1847,14 @@ export async function runTurn(
                         )
                     ),
                 );
+                batchCompleted.push(...finished.completed);
+                interrupt = finished.interrupt;
                 if (interrupt !== undefined) {
                     break;
                 }
             }
+            // After this assistant message's tools, not inside each serial finishToolCalls.
+            await injectContextRouteReminders(state, batchCompleted);
             if (interrupt !== undefined) {
                 assistantMessage = reviewInterruptedMessage(
                     activeModel,
@@ -2114,6 +2129,7 @@ interface CompletedToolCall {
     readonly result: ToolResultMessage;
     readonly afterCommit?: CommitEffect;
     readonly interrupt?: string;
+    readonly readPath?: string;
 }
 
 interface PreparedToolCall {
@@ -2606,14 +2622,14 @@ async function finishExecutedTool(
             durationMs,
             ...truncated,
         });
-        return {
+        return withSuccessfulReadPath(toolCall, {
             result: finalResult,
             ...(
                 afterCommit === undefined || !sameToolResult(result, finalResult)
                     ? {}
                     : { afterCommit }
             ),
-        };
+        });
     } catch (postHookError) {
         state.events.emit({
             type: "tool_hook_failed",
@@ -2628,10 +2644,10 @@ async function finishExecutedTool(
             durationMs,
             ...truncated,
         });
-        return {
+        return withSuccessfulReadPath(toolCall, {
             result,
             ...(afterCommit === undefined ? {} : { afterCommit }),
-        };
+        });
     }
 }
 
@@ -2705,7 +2721,10 @@ function errorMessage(error: unknown): string {
 async function finishToolCalls(
     state: RunTurnState,
     pending: readonly Promise<CompletedToolCall>[],
-): Promise<string | undefined> {
+): Promise<{
+    readonly completed: readonly CompletedToolCall[];
+    readonly interrupt?: string;
+}> {
     const settled = await Promise.allSettled(pending);
     const completed = settled.flatMap((toolCall) =>
         toolCall.status === "fulfilled" ? [toolCall.value] : []
@@ -2732,8 +2751,12 @@ async function finishToolCalls(
     if (rejected?.status === "rejected") {
         throw rejected.reason;
     }
-    return completed.find((toolCall) => toolCall.interrupt !== undefined)
-        ?.interrupt;
+    const interrupt = completed.find(
+        (toolCall) => toolCall.interrupt !== undefined,
+    )?.interrupt;
+    return interrupt === undefined
+        ? { completed }
+        : { completed, interrupt };
 }
 
 function sameHookToolResult(
@@ -2830,6 +2853,66 @@ async function commitMessage(
 ): Promise<void> {
     const entry = await state.store.appendMessage(message);
     state.messages.push(entry.message);
+}
+
+function successfulReadPath(
+    toolCall: ToolCallContent,
+    result: ToolResultMessage,
+): string | undefined {
+    if (toolCall.name !== "read" || result.isError) {
+        return undefined;
+    }
+    const path = toolCall.input.path;
+    if (typeof path !== "string") {
+        return undefined;
+    }
+    const trimmed = path.trim();
+    return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function withSuccessfulReadPath(
+    toolCall: ToolCallContent,
+    completed: CompletedToolCall,
+): CompletedToolCall {
+    const readPath = successfulReadPath(toolCall, completed.result);
+    return readPath === undefined ? completed : { ...completed, readPath };
+}
+
+async function injectContextRouteReminders(
+    state: RunTurnState,
+    completed: readonly CompletedToolCall[],
+): Promise<void> {
+    const injected = state.injectedContextRoutePaths;
+    // Missing Set skips inject. Hand-built RunTurnState against process.cwd()
+    // must not pick up a workspace YAML.
+    if (injected === undefined || state.loadOptionalContext === false) {
+        return;
+    }
+    const readPaths = completed.flatMap((item) =>
+        item.readPath === undefined ? [] : [item.readPath]
+    );
+    if (readPaths.length === 0) {
+        return;
+    }
+    const payloads = await payloadsForSuccessfulReads(
+        state.toolRuntime.workspace,
+        readPaths,
+        injected,
+    );
+    if (payloads === undefined || payloads.length === 0) {
+        return;
+    }
+    await commitMessage(state, {
+        role: "user",
+        internal: true,
+        content: [{
+            type: "text",
+            text: formatContextRouteReminder(payloads),
+        }],
+    });
+    for (const payload of payloads) {
+        injected.add(payload.injectPath);
+    }
 }
 
 function deniedByPolicy(
