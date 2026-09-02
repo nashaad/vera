@@ -116,6 +116,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.preferencesList = undefined;
     rt.preferencesListParent = undefined;
     rt.standingNudges = undefined;
+    rt.extensionsList = undefined;
     rt.confirmingFullAccess = false;
     rt.admissionDialog = undefined;
     rt.admissionReturnPicker = undefined;

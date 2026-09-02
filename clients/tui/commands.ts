@@ -525,7 +525,7 @@ const DIAGNOSTICS_COMMAND = {
 
 const EXTENSIONS_COMMAND = {
     name: "extensions",
-    description: "Show installed extensions and their state",
+    description: "Manage installed extensions",
     usage: "/extensions",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1506,7 +1506,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         palette: {
             name: "extensions",
             label: "Manage extensions",
-            description: "see installed capabilities and their state",
+            description: "enable, disable, or remove installed copies",
             group: "Extensions",
             slashName: "extensions",
             action: { type: "show_extensions" },

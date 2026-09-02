@@ -50,6 +50,7 @@ import type { TuiSessionCloseConfirmView } from "../session-close-confirm.ts";
 import type { TuiSessionTrashConfirmView } from "../session-trash-confirm.ts";
 import type { TuiAnySettingsPickerState, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
 import type { TuiSidebar } from "../sidebar.ts";
+import type { TuiExtensionsListState, TuiExtensionsListView } from "../extensions-list.ts";
 import type { TuiStandingNudgesState, TuiStandingNudgesView } from "../standing-nudges.ts";
 import type { TuiState, TuiTranscriptEntry } from "../state.ts";
 import type { TuiThemeBinding } from "../theme-bindings.ts";
@@ -164,6 +165,7 @@ export interface TuiRuntime {
     standingNudgesProfileDirectory: string;
     standingNudgeRules: readonly StandingNudge[];
     preferencesListParent: TuiSettingsPickerState | undefined;
+    extensionsList: TuiExtensionsListState | undefined;
     commandPalette: TuiCommandPaletteState | undefined;
     workTab: WorkTabState | undefined;
     workspaceSidebar: WorkspaceSidebarState | undefined;
@@ -388,6 +390,7 @@ export interface TuiRuntime {
     requestOptionsEditorView: TuiRequestOptionsEditorView;
     preferencesListView: TuiPreferencesListView;
     standingNudgesView: TuiStandingNudgesView;
+    extensionsListView: TuiExtensionsListView;
     commandPaletteView: TuiCommandPaletteView;
     workTabView: LinesView;
     workspaceSidebarView: LinesView;

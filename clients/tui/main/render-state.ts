@@ -120,6 +120,15 @@ export function renderState(rt: TuiRuntime): void {
         && rt.settingsPicker === undefined
         && rt.preferencesList === undefined
         && rt.standingNudges !== undefined;
+    rt.extensionsListView.box.visible = uiRequest === undefined
+        && rt.timelinePicker === undefined
+        && !rt.confirmingFullAccess
+        && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+        && rt.providerForgetCandidate === undefined
+        && rt.settingsPicker === undefined
+        && rt.preferencesList === undefined
+        && rt.standingNudges === undefined
+        && rt.extensionsList !== undefined;
     rt.commandPaletteView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
@@ -129,6 +138,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.secretPrompt === undefined
         && rt.preferencesList === undefined
         && rt.standingNudges === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette !== undefined;
     rt.workTabView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
@@ -136,6 +146,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.settingsPicker === undefined
         && rt.standingNudges === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.workTab !== undefined;
     applyWorkspaceRail(rt);
@@ -149,6 +160,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.settingsPicker === undefined
         && rt.standingNudges === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.workTab === undefined
         && rt.workspaceSidebar !== undefined
@@ -159,6 +171,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.settingsPicker === undefined
         && rt.standingNudges === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.workTab === undefined
         && rt.searchOverlay !== undefined;
@@ -168,6 +181,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.workTab === undefined
         && rt.searchOverlay === undefined
@@ -178,6 +192,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
         && rt.diagnosticsDialog === undefined
@@ -190,6 +205,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
         && rt.doctorDialog === undefined
@@ -202,6 +218,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
         && rt.doctorDialog === undefined
@@ -214,6 +231,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
         && rt.doctorDialog === undefined
@@ -249,6 +267,7 @@ export function renderState(rt: TuiRuntime): void {
         || rt.settingsPickerView.box.visible
         || rt.preferencesListView.surface.visible
         || rt.standingNudgesView.surface.visible
+        || rt.extensionsListView.box.visible
         || rt.commandPaletteView.surface.visible
         || rt.workTabView.surface.visible
         || (rt.workspaceSidebarView.surface.visible && rt.workspaceRail === undefined)
@@ -332,6 +351,9 @@ export function renderState(rt: TuiRuntime): void {
     }
     if (rt.standingNudges !== undefined) {
         rt.standingNudgesView.update(rt.standingNudges);
+    }
+    if (rt.extensionsList !== undefined) {
+        rt.extensionsListView.update(rt.extensionsList);
     }
     if (rt.commandPalette !== undefined) {
         rt.commandPaletteView.update(rt.commandPalette);
@@ -475,6 +497,7 @@ export function anyOverlayOpen(rt: TuiRuntime): boolean {
         || rt.settingsPicker !== undefined
         || rt.preferencesList !== undefined
         || rt.standingNudges !== undefined
+        || rt.extensionsList !== undefined
         || rt.commandPalette !== undefined
         || rt.workTab !== undefined
         || rt.searchOverlay !== undefined

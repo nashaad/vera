@@ -453,6 +453,7 @@ export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
     rt.dialStrip = undefined;
     rt.settingsPicker = undefined;
     rt.standingNudges = undefined;
+    rt.extensionsList = undefined;
     rt.commandPalette = undefined;
     rt.help = undefined;
     rt.workTab = undefined;

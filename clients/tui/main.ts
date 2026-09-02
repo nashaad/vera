@@ -240,6 +240,7 @@ import {
 import { configuredProviders, findConfiguredProvider } from "../../src/providers/registry.ts";
 import { createTuiPreferencesListView, handleTuiPreferencesListScroll } from "./preferences-list.ts";
 import { createTuiStandingNudgesView, handleTuiStandingNudgesPaste, handleTuiStandingNudgesScroll } from "./standing-nudges.ts";
+import { createTuiExtensionsListView } from "./extensions-list.ts";
 import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 import {
@@ -1643,6 +1644,7 @@ export async function startTui(
     rt.requestOptionsEditorView = createTuiRequestOptionsEditorView(rt.renderer);
     rt.preferencesListView = createTuiPreferencesListView(rt.renderer);
     rt.standingNudgesView = createTuiStandingNudgesView(rt.renderer);
+    rt.extensionsListView = createTuiExtensionsListView(rt.renderer);
     rt.commandPaletteView = createTuiCommandPaletteView(rt.renderer);
     rt.workTabView = createTuiLinesView(rt.renderer, "work-tab");
     rt.workspaceSidebarView = createTuiLinesView(
@@ -1698,6 +1700,7 @@ export async function startTui(
         rt.requestOptionsEditorView,
         rt.preferencesListView,
         rt.standingNudgesView,
+        rt.extensionsListView,
         rt.commandPaletteView,
         rt.helpView,
         rt.diagnosticsDialogView,
@@ -1720,6 +1723,7 @@ export async function startTui(
         rt.diagnosticsDialog = undefined;
         rt.doctorDialog = undefined;
         rt.extensionsDialog = undefined;
+        rt.extensionsList = undefined;
         const renderMarkdown = typeof document.markdown === "function"
             ? document.markdown
             : undefined;
@@ -2079,6 +2083,19 @@ export async function startTui(
         rt.standingNudges = transition.state;
         renderState(rt);
     };
+    rt.extensionsListView.pointer = rowPointer(rt, (index) => {
+        if (rt.extensionsList === undefined) return;
+        rt.extensionsList = rt.extensionsList.screen === "detail"
+            ? { ...rt.extensionsList, actionIndex: index }
+            : { ...rt.extensionsList, selectedIndex: index };
+    });
+    rt.extensionsListView.box.onMouseScroll = (event) => {
+        if (rt.extensionsList === undefined || event.scroll === undefined) return;
+        if (rt.extensionsListView.scroll(event.scroll)) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    };
     rt.commandPaletteView.box.onMouseScroll = (event) => {
         if (rt.commandPalette === undefined || event.scroll === undefined) return;
         const transition = handleTuiCommandPaletteScroll(
@@ -2102,6 +2119,7 @@ export async function startTui(
     };
     rt.app.add(rt.preferencesListView.surface);
     rt.app.add(rt.standingNudgesView.surface);
+    rt.app.add(rt.extensionsListView.box);
     rt.app.add(rt.commandPaletteView.surface);
     rt.workTabView.pointer = {
         hover: (rowId) => {
@@ -2735,6 +2753,9 @@ export async function startTui(
         ...rt.requestOptionsEditorView.themeBindings,
         ...rt.preferencesListView.themeBindings,
         ...rt.standingNudgesView.themeBindings,
+        tuiThemeProperties(rt.extensionsListView.box, {
+            backgroundColor: "panel",
+        }),
         tuiThemeProperties(rt.commandPaletteView.box, {
             backgroundColor: "panel",
         }),

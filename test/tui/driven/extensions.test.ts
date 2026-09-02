@@ -158,3 +158,25 @@ test("a client extension can return text to its invoking composer", async () => 
         await session.close();
     }
 }, 15_000);
+
+test("/extensions opens a manager list, not an inspect dump", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-extensions-list-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiExtensionCommandDependencies(home),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/extensions");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("No extensions installed");
+        expect(pane).toContain("/extension install <path>");
+        expect(pane).not.toContain("drag a section");
+        expect(pane).not.toContain("enter copies all");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("Start a conversation");
+    } finally {
+        await session.close();
+    }
+}, 15_000);

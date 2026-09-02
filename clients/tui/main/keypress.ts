@@ -25,6 +25,7 @@ import { handleTuiSecretPromptKey } from "../secret-prompt.ts";
 import { handleTuiSessionCloseConfirmKey } from "../session-close-confirm.ts";
 import { handleTuiSessionTrashConfirmKey } from "../session-trash-confirm.ts";
 import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { applyExtensionsListKey } from "./extensions-ops.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
@@ -656,6 +657,14 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             }
             renderState(rt);
             if (rt.standingNudges !== undefined) focusActiveSurface(rt);
+            return;
+        }
+    }
+
+    if (rt.extensionsList !== undefined) {
+        if (applyExtensionsListKey(rt, key)) {
+            key.preventDefault();
+            key.stopPropagation();
             return;
         }
     }

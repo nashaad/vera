@@ -98,6 +98,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.standingNudges !== undefined) {
         return () => rt.standingNudgesView.focus();
     }
+    if (rt.extensionsList !== undefined) {
+        return () => rt.extensionsListView.focus();
+    }
     return undefined;
 }
 
@@ -491,6 +494,7 @@ export function settleLostHost(rt: TuiRuntime, reason: string): void {
     rt.timelinePicker = undefined;
     rt.settingsPicker = undefined;
     rt.standingNudges = undefined;
+    rt.extensionsList = undefined;
     rt.namePrompt = undefined;
     rt.providerForm = undefined;
     rt.requestOptionsEditor = undefined;

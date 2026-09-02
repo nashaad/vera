@@ -1,7 +1,7 @@
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { invokeDirectClientExtensionCommand } from "../../../src/extensions/client.ts";
-import { extensionTarget, renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
-import { installExtension, listExtensions, removeExtension, setExtensionEnabled } from "../../../src/extensions/manager.ts";
+import { extensionTarget, renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
+import { installExtension, removeExtension, setExtensionEnabled } from "../../../src/extensions/manager.ts";
 import { diagnoseVeraProcesses, renderVeraDoctor } from "../../process-doctor.ts";
 import { diagnoseProviders, renderProviderDoctor } from "../../provider-doctor.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
@@ -10,7 +10,8 @@ import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
-import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "../main/agents-dials.ts";
+import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
+import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
 import { abortProviderHealthCheck, diagnosticsSnapshot, renderDiagnostics, writeFailureReportFile } from "../main/diagnostics-ops.ts";
 import { openTuiLink } from "../markdown-links.ts";
@@ -136,30 +137,7 @@ export function submitPrompt(rt: TuiRuntime,
         rt.composer.rememberSubmittedText(prompt);
         rt.composer.clearComposer();
         renderCommandSuggestions(rt);
-        rt.documentDialog = undefined;
-        abortProviderHealthCheck(rt);
-        rt.diagnosticsDialog = undefined;
-        rt.doctorDialog = undefined;
-        try {
-            rt.extensionsDialog = {
-                text: renderExtensionList(listExtensions({
-                    projectRoot: process.cwd(),
-                    ...(commandAction.scope === undefined
-                        ? {}
-                        : { scope: commandAction.scope }),
-                })),
-                copyReady: true,
-            };
-        } catch (error) {
-            rt.extensionsDialog = {
-                text: `Extensions\n\nCould not read extension state: ${
-                    error instanceof Error ? error.message : String(error)
-                }\n`,
-                copyReady: true,
-            };
-        }
-        renderState(rt);
-        focusActiveSurface(rt);
+        openExtensionsList(rt);
         return;
     }
     if (commandAction?.type === "manage_extensions") {
@@ -205,7 +183,12 @@ export function submitPrompt(rt: TuiRuntime,
             if (command.operation !== "install" || !command.dryRun) {
                 text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
             }
-            rt.extensionsDialog = { text, copyReady: true };
+            if (command.operation === "install") {
+                rt.extensionsDialog = { text, copyReady: true };
+            } else {
+                rt.state = appendTuiNotice(rt.state, text.trimEnd());
+                refreshOpenExtensionsList(rt);
+            }
             renderState(rt);
             focusActiveSurface(rt);
             if (command.operation !== "install" || !command.dryRun) {
@@ -279,6 +262,7 @@ export function submitPrompt(rt: TuiRuntime,
                 };
             }
             rt.state = appendTuiNotice(rt.state, "Client extensions reloaded");
+            refreshOpenExtensionsList(rt);
             renderState(rt);
             focusActiveSurface(rt);
         }).catch((error) => {
@@ -326,6 +310,7 @@ export function submitPrompt(rt: TuiRuntime,
         rt.documentDialog = undefined;
         rt.doctorDialog = undefined;
         rt.extensionsDialog = undefined;
+        rt.extensionsList = undefined;
         abortProviderHealthCheck(rt);
         rt.providerHealthGeneration += 1;
         rt.providerHealth = idleProviderHealth();
@@ -425,6 +410,7 @@ export function submitPrompt(rt: TuiRuntime,
         abortProviderHealthCheck(rt);
         rt.diagnosticsDialog = undefined;
         rt.extensionsDialog = undefined;
+        rt.extensionsList = undefined;
         rt.doctorDialog = {
             text: "Vera doctor\n\nChecking process health…\n",
             copyReady: false,
