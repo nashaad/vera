@@ -1437,6 +1437,8 @@ export function intelligenceScaleLines(
     );
     const optionLine = Array.from({ length: trackLength }, () => " ");
     let nextStart = 0;
+    let selectedStart = 0;
+    let selectedEnd = 0;
     stops.forEach((choice, index) => {
         const position = Math.round(
             index * (trackLength - 1) / Math.max(1, stops.length - 1),
@@ -1452,13 +1454,28 @@ export function intelligenceScaleLines(
         for (let offset = 0; offset < choice.length; offset += 1) {
             optionLine[start + offset] = choice[offset] ?? " ";
         }
+        if (index === selectedIndex) {
+            selectedStart = start;
+            selectedEnd = start + choice.length;
+        }
         nextStart = start + choice.length + 1;
     });
     const axisTone = focused ? TUI_ACCENT : TUI_MUTED;
+    const line = optionLine.join("");
+    // The chosen stop is this section's cursor, so it takes the same lit fill a
+    // list row takes, and the same quiet one while the section is unfocused.
+    const cursor = focused
+        ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(line.slice(selectedStart, selectedEnd)))
+        : fg(TUI_TEXT)(bg(TUI_ELEMENT)(line.slice(selectedStart, selectedEnd)));
+    const rest = focused ? TUI_TEXT : TUI_MUTED;
     return [
         [fg(axisTone)(clippedTo(axis, width))],
         track,
-        [fg(focused ? TUI_TEXT : TUI_MUTED)(optionLine.join(""))],
+        [
+            fg(rest)(line.slice(0, selectedStart)),
+            cursor,
+            fg(rest)(line.slice(selectedEnd)),
+        ],
     ];
 }
 
