@@ -1,5 +1,5 @@
 
-import type { AgentWearSnapshot } from "../agents/wear.ts";
+import type { AgentSnapshot } from "../agents/snapshot.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { SessionStore } from "../store/session-store.ts";
@@ -32,7 +32,7 @@ import type { RequestMissingSubagentConfiguration } from "./subagent.ts";
 export interface HostBoundaryOffers {
     readonly approvalModeRead: boolean;
     readonly modelSettings: boolean;
-    readonly agentWear: boolean;
+    readonly selectedAgent: boolean;
 }
 
 export interface HostOwnedObjects {
@@ -79,8 +79,8 @@ export function createLocalHostBoundary(
         get modelSettings(): ModelTurnSettings | undefined {
             return services.readModelSettings?.();
         },
-        get agentWear(): AgentWearSnapshot | undefined {
-            return services.readAgentWear?.();
+        get selectedAgent(): AgentSnapshot | undefined {
+            return services.readSelectedAgent?.();
         },
         get approvalMode(): ApprovalMode | undefined {
             return services.readApprovalMode?.();
@@ -99,7 +99,7 @@ export function createLocalHostBoundary(
         offers: {
             approvalModeRead: services.readApprovalMode !== undefined,
             modelSettings: services.readModelSettings !== undefined,
-            agentWear: services.readAgentWear !== undefined,
+            selectedAgent: services.readSelectedAgent !== undefined,
         },
         readState: () => state,
         ...(services.updateApprovalMode === undefined

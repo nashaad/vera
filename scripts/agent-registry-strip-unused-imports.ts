@@ -8,7 +8,7 @@ const TARGETS = new Set([
     "src/host/agent-registry.ts",
     "src/host/agent-registry/lifecycle.ts",
     "src/host/agent-registry/settings.ts",
-    "src/host/agent-registry/wear.ts",
+    "src/host/agent-registry/select.ts",
     "src/host/agent-registry/roster.ts",
     "src/host/agent-registry/subagent.ts",
 ]);

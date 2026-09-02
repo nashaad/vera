@@ -30,7 +30,7 @@ import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import { SessionStore, type SessionSettingOrigin } from "../store/session-store.ts";
 import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../agents/catalog.ts";
 import { type AgentDefinition } from "../agents/definition.ts";
-import { agentSnapshotDrift, resolveAgentSnapshot, type AgentWearSnapshot } from "../agents/wear.ts";
+import { agentSnapshotDrift, resolveAgentSnapshot, type AgentSnapshot } from "../agents/snapshot.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import type { EmittedScheduleRun } from "../scheduler/types.ts";
 import { copySessionMessageAttachments, createSessionBranch } from "../store/session-branch.ts";
@@ -55,7 +55,7 @@ import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, peerReadReceipt, type 
 import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
 import * as registrySettings from "./agent-registry/settings.ts";
-import * as registryWear from "./agent-registry/wear.ts";
+import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
 
@@ -313,14 +313,14 @@ export class AgentRegistry {
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        return registryWear.updateSessionPermissionMode(this, id, mode);
+        return registrySelect.updateSessionPermissionMode(this, id, mode);
     }
 
     async applySessionPermissionMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        return registryWear.applySessionPermissionMode(this, id, mode);
+        return registrySelect.applySessionPermissionMode(this, id, mode);
     }
 
     async leaveAgentThatForbidsAccess(
@@ -328,23 +328,23 @@ export class AgentRegistry {
         id: string,
         mode: ApprovalMode,
     ): Promise<void> {
-        return registryWear.leaveAgentThatForbidsAccess(this, entry, id, mode);
+        return registrySelect.leaveAgentThatForbidsAccess(this, entry, id, mode);
     }
 
-    wornAgentDefaultPair(
+    selectedAgentDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings | undefined {
-        return registryWear.wornAgentDefaultPair(this, entry);
+        return registrySelect.selectedAgentDefaultPair(this, entry);
     }
 
-    wornAgentPosture(
+    selectedAgentPosture(
         entry: RegisteredAgentEntry,
     ): ApprovalMode | undefined {
-        return registryWear.wornAgentPosture(this, entry);
+        return registrySelect.selectedAgentPosture(this, entry);
     }
 
     async listAgentsFor(id: string): Promise<{
-        readonly worn: string;
+        readonly selected: string;
         readonly agents: readonly {
             readonly name: string;
             readonly description?: string;
@@ -361,27 +361,27 @@ export class AgentRegistry {
         }[];
         readonly notices: readonly string[];
     }> {
-        return registryWear.listAgentsFor(this, id);
+        return registrySelect.listAgentsFor(this, id);
     }
 
     async listSkillsFor(id: string): Promise<SkillCommandCatalog> {
-        return registryWear.listSkillsFor(this, id);
+        return registrySelect.listSkillsFor(this, id);
     }
 
     async decideSkillInvocationFor(
         id: string,
         name: string,
     ): Promise<SkillInvocationDecision> {
-        return registryWear.decideSkillInvocationFor(this, id, name);
+        return registrySelect.decideSkillInvocationFor(this, id, name);
     }
 
     async agentCatalogFor(
         entry: RegisteredAgentEntry,
     ): Promise<AgentCatalog> {
-        return registryWear.agentCatalogFor(this, entry);
+        return registrySelect.agentCatalogFor(this, entry);
     }
 
-    async wearAgentFor(id: string, name: string): Promise<{
+    async selectAgentFor(id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -390,10 +390,10 @@ export class AgentRegistry {
         readonly notice?: string;
         readonly permissionChanged?: boolean;
     } | undefined> {
-        return registryWear.wearAgentFor(this, id, name);
+        return registrySelect.selectAgentFor(this, id, name);
     }
 
-    async applyAgentWear(id: string, name: string): Promise<{
+    async applySelectedAgent(id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -402,21 +402,21 @@ export class AgentRegistry {
         readonly notice?: string;
         readonly permissionChanged?: boolean;
     } | undefined> {
-        return registryWear.applyAgentWear(this, id, name);
+        return registrySelect.applySelectedAgent(this, id, name);
     }
 
     async adoptAgentDefaultPair(
         entry: RegisteredAgentEntry,
         definition: AgentDefinition,
     ): Promise<string | undefined> {
-        return registryWear.adoptAgentDefaultPair(this, entry, definition);
+        return registrySelect.adoptAgentDefaultPair(this, entry, definition);
     }
 
-    async reconcileResumedAgentWear(
+    async reconcileResumedSelectedAgent(
         entry: RegisteredAgentEntry,
         events: EngineEventBus,
     ): Promise<void> {
-        return registryWear.reconcileResumedAgentWear(this, entry, events);
+        return registrySelect.reconcileResumedSelectedAgent(this, entry, events);
     }
 
     async updateAgentDefaultPairFor(
@@ -424,7 +424,7 @@ export class AgentRegistry {
         name: string,
         pair: { readonly name: string; readonly effort?: string } | null,
     ): Promise<string | undefined> {
-        return registryWear.updateAgentDefaultPairFor(this, id, name, pair);
+        return registrySelect.updateAgentDefaultPairFor(this, id, name, pair);
     }
 
     async poolAdd(
@@ -526,18 +526,18 @@ export class AgentRegistry {
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        return registryWear.updateApprovalMode(this, id, mode);
+        return registrySelect.updateApprovalMode(this, id, mode);
     }
 
     async applyApprovalMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        return registryWear.applyApprovalMode(this, id, mode);
+        return registrySelect.applyApprovalMode(this, id, mode);
     }
 
     approvalModeOf(agentId: string): ApprovalMode | undefined {
-        return registryWear.approvalModeOf(this, agentId);
+        return registrySelect.approvalModeOf(this, agentId);
     }
 
     async renameSession(
@@ -694,9 +694,9 @@ export class AgentRegistry {
                 this.catalog,
             ),
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
-            ...(store.agentWear() === undefined
+            ...(store.selectedAgent() === undefined
                 ? {}
-                : { agentWear: store.agentWear()!.snapshot }),
+                : { selectedAgent: store.selectedAgent()!.snapshot }),
             run: Promise.resolve(),
             ...(projectExtensions === undefined
                 ? {}
@@ -723,7 +723,7 @@ export class AgentRegistry {
             throw error;
         }
         this.notifyRosterChanged();
-        void this.reconcileResumedAgentWear(entry, events);
+        void this.reconcileResumedSelectedAgent(entry, events);
         if (storedFailure !== undefined) {
             agent.restoreFailure({
                 type: "history",
@@ -1007,7 +1007,7 @@ export class AgentRegistry {
                     store.header.cwd,
                     this.options.refreshableProviders?.(),
                 ),
-                readAgentWear: () => entry.agentWear,
+                readSelectedAgent: () => entry.selectedAgent,
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
@@ -1035,7 +1035,7 @@ export class AgentRegistry {
                         this.sessionModelSettingsHistory(agent.id),
                     updateSessionPermissionMode: (mode) =>
                         this.updateSessionPermissionMode(agent.id, mode),
-                    wearAgent: (name) => this.wearAgentFor(agent.id, name),
+                    selectAgent: (name) => this.selectAgentFor(agent.id, name),
                     listAgents: () => this.listAgentsFor(agent.id),
                     listSkills: () => this.listSkillsFor(agent.id),
                     invokeSkill: (name) =>

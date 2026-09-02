@@ -117,7 +117,7 @@ function reads(store: SessionStore): Record<string, unknown> {
         modelSettings: store.modelSettings(),
         modelSettingsOrigin: store.modelSettingsOrigin(),
         modelSettingsHistory: store.modelSettingsHistory(),
-        agentWear: store.agentWear(),
+        selectedAgent: store.selectedAgent(),
         approvalMode: store.approvalMode(),
         approvalModeOrigin: store.approvalModeOrigin(),
         name: store.name(),
@@ -180,7 +180,7 @@ async function writeRichSession(path: string): Promise<void> {
     await store.appendModelSettings({ model: "test-model" }, "user");
     await store.appendApprovalMode("ask", "user");
     await store.appendName("a named session");
-    await store.appendAgentWear("worker", {
+    await store.appendSelectedAgent("worker", {
         name: "worker",
         instructions: "work",
         tools: [],

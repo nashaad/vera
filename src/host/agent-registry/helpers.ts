@@ -148,8 +148,8 @@ import {
 import {
     agentSnapshotDrift,
     resolveAgentSnapshot,
-    type AgentWearSnapshot,
-} from "../../agents/wear.ts";
+    type AgentSnapshot,
+} from "../../agents/snapshot.ts";
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
 import type { InboxEntry, InboxEntryInput } from "../../store/inbox.ts";
 import { sessionChangedFiles } from "../../store/preimage-stash.ts";
@@ -463,8 +463,8 @@ export function loopStateOf(services: RunHeadlessLoopServices): LoopState {
         ...(services.readModelSettings === undefined ? {} : {
             modelSettings: services.readModelSettings(),
         }),
-        ...(services.readAgentWear === undefined ? {} : {
-            agentWear: services.readAgentWear(),
+        ...(services.readSelectedAgent === undefined ? {} : {
+            selectedAgent: services.readSelectedAgent(),
         }),
         ...(services.readApprovalMode === undefined ? {} : {
             approvalMode: services.readApprovalMode(),

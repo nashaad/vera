@@ -242,7 +242,7 @@ test("context freezes through deliveries and cadence advances only on user turns
         events,
         hooks: new ToolHooks(),
         approvalMode: "full_access",
-        readAgentWear: () => ({
+        readSelectedAgent: () => ({
             name: "reviewer",
             instructions: "Review",
         }),

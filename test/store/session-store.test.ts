@@ -2363,6 +2363,21 @@ test("a context recipe survives reopen so resume can name the files", async () =
     ).toBe("AGENTS.local.md");
 });
 
+test("a pre-rename agent_wear record still loads as the selected agent", async () => {
+    const path = sessionFile([{
+        type: "agent_wear",
+        timestamp: TIMESTAMP,
+        name: "plan",
+        snapshot: { name: "plan", instructions: "plan first" },
+    }]);
+    const store = await SessionStore.open(path);
+    expect(store.selectedAgent()).toMatchObject({
+        type: "agent_select",
+        name: "plan",
+        snapshot: { name: "plan", instructions: "plan first" },
+    });
+});
+
 const TIMESTAMP = "2026-07-19T12:00:01.000Z";
 
 function sessionFile(records: readonly object[]): string {

@@ -86,7 +86,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
             offers: {
                 approvalModeRead: services.readApprovalMode !== undefined,
                 modelSettings: services.readModelSettings !== undefined,
-                agentWear: services.readAgentWear !== undefined,
+                selectedAgent: services.readSelectedAgent !== undefined,
             },
             state: loopStateOf(services),
             ...(workerExtensions === undefined

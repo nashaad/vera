@@ -1,5 +1,5 @@
 
-import type { AgentWearSnapshot } from "../agents/wear.ts";
+import type { AgentSnapshot } from "../agents/snapshot.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type {
@@ -83,7 +83,7 @@ export interface InboundRouterHostHooks {
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
-    readonly wearAgent?: InboundCommandRouterOptions["wearAgent"];
+    readonly selectAgent?: InboundCommandRouterOptions["selectAgent"];
     readonly listAgents?: InboundCommandRouterOptions["listAgents"];
     readonly listSkills?: InboundCommandRouterOptions["listSkills"];
     readonly invokeSkill?: InboundCommandRouterOptions["invokeSkill"];
@@ -152,7 +152,7 @@ export interface RunHeadlessLoopServices {
 
     readonly readPolicy?: () => LoopPolicy;
     readonly readModelSettings?: () => ModelTurnSettings;
-    readonly readAgentWear?: () => AgentWearSnapshot | undefined;
+    readonly readSelectedAgent?: () => AgentSnapshot | undefined;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,

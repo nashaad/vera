@@ -1,4 +1,4 @@
-// Exploration as an agent you can wear, plus an opt-in compose-time offer.
+// Exploration as an agent you can select, plus an opt-in compose-time offer.
 // Core does not inspect composer intent; installing this extension enables it.
 
 const EXPLORE_INSTRUCTIONS = `You are exploring, not building.

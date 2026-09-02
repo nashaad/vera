@@ -9,7 +9,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { AgentWearSnapshot } from "../agents/wear.ts";
+import type { AgentSnapshot } from "../agents/snapshot.ts";
 import type { ModelMessage, ModelUsage } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import {
@@ -108,11 +108,11 @@ export interface SessionModelSettingsEntry {
     readonly origin?: SessionSettingOrigin;
 }
 
-export interface SessionAgentWearEntry {
-    readonly type: "agent_wear";
+export interface SessionSelectedAgentEntry {
+    readonly type: "agent_select";
     readonly timestamp: string;
     readonly name: string;
-    readonly snapshot: AgentWearSnapshot;
+    readonly snapshot: AgentSnapshot;
 }
 
 export interface SessionPermissionsEntry {
@@ -492,18 +492,18 @@ export class SessionStore {
         }));
     }
 
-    agentWear(): SessionAgentWearEntry | undefined {
-        const entry = this.projection.agentWearEntries.at(-1);
+    selectedAgent(): SessionSelectedAgentEntry | undefined {
+        const entry = this.projection.selectedAgentEntries.at(-1);
         return entry === undefined ? undefined : structuredClone(entry);
     }
 
-    appendAgentWear(
+    appendSelectedAgent(
         name: string,
-        snapshot: AgentWearSnapshot,
-    ): Promise<SessionAgentWearEntry> {
+        snapshot: AgentSnapshot,
+    ): Promise<SessionSelectedAgentEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitAgentWear(name, snapshot);
+            return this.commitSelectedAgent(name, snapshot);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -512,21 +512,21 @@ export class SessionStore {
         return result;
     }
 
-    private async commitAgentWear(
+    private async commitSelectedAgent(
         name: string,
-        snapshot: AgentWearSnapshot,
-    ): Promise<SessionAgentWearEntry> {
+        snapshot: AgentSnapshot,
+    ): Promise<SessionSelectedAgentEntry> {
         if (name.length === 0 || snapshot.name !== name) {
-            throw new Error("Cannot append an agent wear with a mismatched name");
+            throw new Error("Cannot append an agent selection with a mismatched name");
         }
-        const entry: SessionAgentWearEntry = {
-            type: "agent_wear",
+        const entry: SessionSelectedAgentEntry = {
+            type: "agent_select",
             timestamp: this.now().toISOString(),
             name,
             snapshot: structuredClone(snapshot),
         };
         await this.appendRecord(entry);
-        this.projection.agentWearEntries.push(entry);
+        this.projection.selectedAgentEntries.push(entry);
         return entry;
     }
 
@@ -1471,7 +1471,7 @@ export interface SessionProjectionState {
     readonly deliveryReceipts: Set<string>;
     readonly legacyDeliveryMessageIds: Map<string, string>;
     readonly modelSettingsEntries: SessionModelSettingsEntry[];
-    readonly agentWearEntries: SessionAgentWearEntry[];
+    readonly selectedAgentEntries: SessionSelectedAgentEntry[];
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly harnessMessageEntries: SessionHarnessMessageEntry[];
     readonly nameEntries: SessionNameEntry[];
@@ -1496,7 +1496,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         deliveryReceipts: new Set(),
         legacyDeliveryMessageIds: new Map(),
         modelSettingsEntries: [],
-        agentWearEntries: [],
+        selectedAgentEntries: [],
         permissionsEntries: [],
         harnessMessageEntries: [],
         nameEntries: [],
@@ -1526,7 +1526,7 @@ export function ingestSessionRecord(
         deliveryReceipts,
         legacyDeliveryMessageIds,
         modelSettingsEntries,
-        agentWearEntries,
+        selectedAgentEntries,
         permissionsEntries,
         harnessMessageEntries,
         nameEntries,
@@ -1672,9 +1672,10 @@ export function ingestSessionRecord(
         );
         return;
     }
-    if (value.type === "agent_wear") {
-        agentWearEntries.push(
-            parseAgentWearEntry(path, lineNumber, value),
+    // agent_wear is the name this record had before the select rename.
+    if (value.type === "agent_select" || value.type === "agent_wear") {
+        selectedAgentEntries.push(
+            parseSelectedAgentEntry(path, lineNumber, value),
         );
         return;
     }
@@ -2202,11 +2203,11 @@ function parseContextMeasurementEntry(
     };
 }
 
-function parseAgentWearEntry(
+function parseSelectedAgentEntry(
     path: string,
     lineNumber: number,
     value: Record<string, unknown>,
-): SessionAgentWearEntry {
+): SessionSelectedAgentEntry {
     const snapshot = value.snapshot;
     if (
         typeof value.timestamp !== "string"
@@ -2219,14 +2220,14 @@ function parseAgentWearEntry(
     ) {
         throw invalidSession(
             path,
-            `line ${lineNumber} is not a valid agent wear entry`,
+            `line ${lineNumber} is not a valid agent selection entry`,
         );
     }
     return {
-        type: "agent_wear",
+        type: "agent_select",
         timestamp: value.timestamp,
         name: value.name,
-        snapshot: structuredClone(snapshot) as AgentWearSnapshot,
+        snapshot: structuredClone(snapshot) as AgentSnapshot,
     };
 }
 

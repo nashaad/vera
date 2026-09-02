@@ -176,7 +176,7 @@ export async function startWorker(
         data: options.data ?? {},
         session: options.session,
         offers: options.offers
-            ?? { approvalModeRead: false, modelSettings: false, agentWear: false },
+            ?? { approvalModeRead: false, modelSettings: false, selectedAgent: false },
         capabilities: capabilitiesOf(services, options.extensionTools),
         ...(options.extensions === undefined || options.extensions.length === 0
             ? {}
@@ -226,7 +226,7 @@ function capabilitiesOf(
     extensionTools?: readonly RegisteredTool[],
 ): WorkerHostCapabilities {
     return {
-        wearAgent: services.router?.wearAgent !== undefined,
+        selectAgent: services.router?.selectAgent !== undefined,
         listSkills: services.router?.listSkills !== undefined,
         invokeSkill: services.router?.invokeSkill !== undefined,
         updateApprovalMode: services.updateApprovalMode !== undefined,

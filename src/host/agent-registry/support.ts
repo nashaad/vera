@@ -148,8 +148,8 @@ import {
 import {
     agentSnapshotDrift,
     resolveAgentSnapshot,
-    type AgentWearSnapshot,
-} from "../../agents/wear.ts";
+    type AgentSnapshot,
+} from "../../agents/snapshot.ts";
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
 import type { InboxEntry, InboxEntryInput } from "../../store/inbox.ts";
 import { sessionChangedFiles } from "../../store/preimage-stash.ts";
@@ -737,7 +737,7 @@ export function samePair(
         && left.reasoningEffort === right.reasoningEffort;
 }
 
-export const RESUME_WEAR_REQUEST_ID = "resume";
+export const RESUME_SELECT_REQUEST_ID = "resume";
 
 export interface BoundSessionIdentity extends SessionIdentity {
     readonly env: Readonly<Record<string, string>>;
@@ -758,7 +758,7 @@ export interface RegisteredAgentEntry {
     /** The level the last settings change asked for when it had to be coerced. Held beside the settings rather than inside them because it describes the request, not the choice, and mu… */
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
-    agentWear?: AgentWearSnapshot;
+    selectedAgent?: AgentSnapshot;
     inbound?: InboundCommandRouter;
     workerOwnerRouter?: InboundCommandRouter;
     loopServices?: RunHeadlessLoopServices;

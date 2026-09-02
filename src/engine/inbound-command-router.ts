@@ -159,7 +159,7 @@ interface QueuedTurnContext {
 interface QueuedPrompt extends QueuedTurnContext {
     readonly prompt: PromptCommand;
     readonly triggeredByDelivery?: never;
-    readonly wear?: never;
+    readonly select?: never;
     readonly skillInvocation?: never;
     readonly userInvokedSkill?: string;
 }
@@ -167,12 +167,12 @@ interface QueuedPrompt extends QueuedTurnContext {
 interface QueuedDeliveryTurn extends QueuedTurnContext {
     readonly prompt?: never;
     readonly triggeredByDelivery: true;
-    readonly wear?: never;
+    readonly select?: never;
     readonly skillInvocation?: never;
 }
 
-interface QueuedWear extends Partial<QueuedTurnContext> {
-    readonly wear: { readonly requestId: string; readonly name: string };
+interface QueuedSelect extends Partial<QueuedTurnContext> {
+    readonly select: { readonly requestId: string; readonly name: string };
     readonly prompt?: never;
     readonly triggeredByDelivery?: never;
     readonly skillInvocation?: never;
@@ -186,13 +186,13 @@ interface QueuedSkillInvocation extends QueuedTurnContext {
     };
     readonly prompt?: never;
     readonly triggeredByDelivery?: never;
-    readonly wear?: never;
+    readonly select?: never;
 }
 
 type QueuedTurn =
     | QueuedPrompt
     | QueuedDeliveryTurn
-    | QueuedWear
+    | QueuedSelect
     | QueuedSkillInvocation;
 
 type QueueReleaseMode = "direct" | "automatic" | "one" | "all";
@@ -242,7 +242,7 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
-    readonly wearAgent?: (name: string) => Promise<{
+    readonly selectAgent?: (name: string) => Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -250,7 +250,7 @@ export interface InboundCommandRouterOptions {
         readonly notice?: string;
     } | undefined>;
     readonly listAgents?: () => Promise<{
-        readonly worn: string;
+        readonly selected: string;
         readonly agents: readonly {
             readonly name: string;
             readonly description?: string;
@@ -428,8 +428,8 @@ export class InboundCommandRouter {
                     if (compaction !== undefined) {
                         await compaction;
                     }
-                    if (queued.wear !== undefined) {
-                        await this.applyWear(queued.wear);
+                    if (queued.select !== undefined) {
+                        await this.applySelect(queued.select);
                         this.claimedQueueRelease = undefined;
                         this.finishNonTurnQueueItem(claimedItem, claimedRelease);
                         continue;
@@ -1104,9 +1104,9 @@ export class InboundCommandRouter {
                     continue;
                 }
 
-                if (command.type === "wear_agent") {
+                if (command.type === "select_agent") {
                     this.enqueueTurn({
-                        wear: {
+                        select: {
                             requestId: command.requestId,
                             name: command.name,
                         },
@@ -1406,29 +1406,29 @@ export class InboundCommandRouter {
         });
     }
 
-    private async applyWear(
-        wear: { readonly requestId: string; readonly name: string },
+    private async applySelect(
+        select: { readonly requestId: string; readonly name: string },
     ): Promise<void> {
-        if (this.options.wearAgent === undefined) {
+        if (this.options.selectAgent === undefined) {
             this.events.emit({
                 type: "agent_rejected",
-                requestId: wear.requestId,
+                requestId: select.requestId,
                 reason: "This host does not support agents.",
             });
             return;
         }
-        const worn = await this.options.wearAgent(wear.name);
-        if (worn === undefined) {
+        const selected = await this.options.selectAgent(select.name);
+        if (selected === undefined) {
             this.events.emit({
                 type: "agent_rejected",
-                requestId: wear.requestId,
-                reason: `No agent named ${wear.name}`,
+                requestId: select.requestId,
+                reason: `No agent named ${select.name}`,
             });
             return;
         }
         this.events.emit({
-            type: "agent_worn",
-            update: { requestId: wear.requestId, ...worn },
+            type: "agent_selected",
+            update: { requestId: select.requestId, ...selected },
         });
     }
 

@@ -281,13 +281,13 @@ test("a natural boundary holds every queued prompt for an explicit release", asy
 
 test("send all batches ordinary prompts across queued controls", async () => {
     const channel = createInProcessChannel();
-    let worn: string | undefined;
+    let selected: string | undefined;
     const router = new InboundCommandRouter(
         channel.engine,
         new EngineEventBus(),
         {
-            wearAgent: async (name) => {
-                worn = name;
+            selectAgent: async (name) => {
+                selected = name;
                 return { name };
             },
         },
@@ -298,8 +298,8 @@ test("send all batches ordinary prompts across queued controls", async () => {
     const active = await firstTurn;
     channel.client.send({ type: "prompt", content: "alpha" });
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-beta",
+        type: "select_agent",
+        requestId: "select-beta",
         name: "beta",
     });
     channel.client.send({ type: "prompt", content: "beta" });
@@ -314,14 +314,14 @@ test("send all batches ordinary prompts across queued controls", async () => {
     expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
         "beta",
     ]);
-    expect(worn).toBeUndefined();
+    expect(selected).toBeUndefined();
     channel.client.send({ type: "prompt", content: "later" });
     await Bun.sleep(0);
     router.finishTurn();
 
     const held = router.startTurn();
     await Bun.sleep(0);
-    expect(worn).toBe("beta");
+    expect(selected).toBe("beta");
     expect(await Promise.race([
         held.then(() => "started" as const),
         Bun.sleep(10).then(() => "held" as const),
@@ -525,7 +525,7 @@ test("a pre-start abort fences prompts behind a non-turn queue item", async () =
         channel.engine,
         new EngineEventBus(),
         {
-            wearAgent: async () => {
+            selectAgent: async () => {
                 releaseWear?.();
                 await wearFinishes;
                 return { name: "beta" };
@@ -534,8 +534,8 @@ test("a pre-start abort fences prompts behind a non-turn queue item", async () =
     );
 
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-beta",
+        type: "select_agent",
+        requestId: "select-beta",
         name: "beta",
     });
     channel.client.send({ type: "prompt", content: "held" });
@@ -555,13 +555,13 @@ test("a pre-start abort fences prompts behind a non-turn queue item", async () =
 
 test("send one applies following queue controls before fencing the next prompt", async () => {
     const channel = createInProcessChannel();
-    let worn: string | undefined;
+    let selected: string | undefined;
     const router = new InboundCommandRouter(
         channel.engine,
         new EngineEventBus(),
         {
-            wearAgent: async (name) => {
-                worn = name;
+            selectAgent: async (name) => {
+                selected = name;
                 return { name };
             },
         },
@@ -572,8 +572,8 @@ test("send one applies following queue controls before fencing the next prompt",
     const active = await firstTurn;
     channel.client.send({ type: "prompt", content: "one" });
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-beta",
+        type: "select_agent",
+        requestId: "select-beta",
         name: "beta",
     });
     channel.client.send({ type: "prompt", content: "two" });
@@ -588,7 +588,7 @@ test("send one applies following queue controls before fencing the next prompt",
 
     const fenced = router.startTurn();
     await Bun.sleep(0);
-    expect(worn).toBe("beta");
+    expect(selected).toBe("beta");
     expect(await Promise.race([
         fenced.then(() => "started" as const),
         Bun.sleep(10).then(() => "held" as const),
@@ -690,21 +690,21 @@ test("a refused skill command terminates and the next prompt still runs", async 
     router.finishTurn();
 });
 
-test("skill commands validate after earlier queued wear changes", async () => {
+test("skill commands validate after earlier queued agent selection", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
-    let worn = "alpha";
+    let selected = "alpha";
     const router = new InboundCommandRouter(channel.engine, events, {
-        wearAgent: async (name) => {
-            worn = name;
+        selectAgent: async (name) => {
+            selected = name;
             return { name };
         },
-        invokeSkill: async (name) => worn === "alpha" && name === "alpha-only"
+        invokeSkill: async (name) => selected === "alpha" && name === "alpha-only"
             ? { allowed: true }
             : {
                 allowed: false,
-                reason: `No skill named ${name} is available to ${worn}.`,
+                reason: `No skill named ${name} is available to ${selected}.`,
             },
     });
 
@@ -712,8 +712,8 @@ test("skill commands validate after earlier queued wear changes", async () => {
     channel.client.send({ type: "prompt", content: "busy" });
     await firstTurn;
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-beta",
+        type: "select_agent",
+        requestId: "select-beta",
         name: "beta",
     });
     channel.client.send({
@@ -726,8 +726,8 @@ test("skill commands validate after earlier queued wear changes", async () => {
 
     const nextTurn = router.startTurn();
     expect(await channel.client.receive()).toEqual({
-        type: "agent_worn",
-        requestId: "wear-beta",
+        type: "agent_selected",
+        requestId: "select-beta",
         name: "beta",
         seq: 1,
     });

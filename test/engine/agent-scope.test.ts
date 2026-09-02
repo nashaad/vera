@@ -28,48 +28,48 @@ test("a pre-tool hook cannot rename the call it sees", async () => {
     expect(outcome.toolCall.input).toEqual({ path: "/tmp/x" });
 });
 
-test("a wear waits its turn in the queue rather than jumping it", async () => {
+test("a selection waits its turn in the queue rather than jumping it", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
-    const worn: string[] = [];
+    const selected: string[] = [];
     const router = new InboundCommandRouter(channel.engine, events, {
-        async wearAgent(name) {
-            worn.push(name);
+        async selectAgent(name) {
+            selected.push(name);
             return { name };
         },
     });
 
     channel.client.send({ type: "prompt", content: "first" });
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-1",
+        type: "select_agent",
+        requestId: "select-1",
         name: "reviewer",
     });
     channel.client.send({ type: "prompt", content: "second" });
 
-    // The prompt queued before the wear runs under the old agent.
+    // The prompt queued before the selection runs under the old agent.
     const first = await router.startTurn();
     expect(first.prompt.content).toBe("first");
-    expect(worn).toEqual([]);
+    expect(selected).toEqual([]);
     router.finishTurn();
 
-    // The wear applies where it sits, and the prompt behind it runs under it.
+    // The selection applies where it sits, and the prompt behind it runs under it.
     const second = await router.startTurn();
-    expect(worn).toEqual(["reviewer"]);
+    expect(selected).toEqual(["reviewer"]);
     expect(second.prompt.content).toBe("second");
     router.finishTurn();
 });
 
-test("a host with no agents refuses the wear rather than ignoring it", async () => {
+test("a host with no agents refuses the selection rather than ignoring it", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
     const router = new InboundCommandRouter(channel.engine, events, {});
 
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-1",
+        type: "select_agent",
+        requestId: "select-1",
         name: "reviewer",
     });
     channel.client.send({ type: "prompt", content: "go" });
@@ -79,7 +79,7 @@ test("a host with no agents refuses the wear rather than ignoring it", async () 
 
     expect(await channel.client.receive()).toEqual({
         type: "agent_rejected",
-        requestId: "wear-1",
+        requestId: "select-1",
         reason: "This host does not support agents.",
         seq: 1,
     });
@@ -90,14 +90,14 @@ test("an unknown agent name is named back rather than silently kept", async () =
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
     const router = new InboundCommandRouter(channel.engine, events, {
-        async wearAgent() {
+        async selectAgent() {
             return undefined;
         },
     });
 
     channel.client.send({
-        type: "wear_agent",
-        requestId: "wear-1",
+        type: "select_agent",
+        requestId: "select-1",
         name: "nope",
     });
     channel.client.send({ type: "prompt", content: "go" });

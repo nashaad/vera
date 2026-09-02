@@ -263,8 +263,8 @@ export interface ToolBreakerTrippedEvent {
     readonly action: "withheld" | "ended-turn";
 }
 
-export interface AgentWornEvent {
-    readonly type: "agent_worn";
+export interface AgentSelectedEvent {
+    readonly type: "agent_selected";
     readonly update: {
         readonly requestId: string;
         readonly name: string;
@@ -280,7 +280,7 @@ export interface AgentCatalogEvent {
     readonly type: "agent_catalog";
     readonly update: {
         readonly requestId: string;
-        readonly worn: string;
+        readonly selected: string;
         readonly agents: readonly {
             readonly name: string;
             readonly description?: string;
@@ -534,7 +534,7 @@ export type EngineEvent =
     | SessionModelSettingsHistoryEvent
     | ToolDeniedEvent
     | ToolBreakerTrippedEvent
-    | AgentWornEvent
+    | AgentSelectedEvent
     | AgentCatalogEvent
     | AgentRejectedEvent
     | SkillCatalogEvent
@@ -635,7 +635,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     abort_requested: "info",
     agent_catalog: "debug",
     agent_rejected: "error",
-    agent_worn: "info",
+    agent_selected: "info",
     compaction_finished: "info",
     compaction_started: "info",
     context_measured: "debug",

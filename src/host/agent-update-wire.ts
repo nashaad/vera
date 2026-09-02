@@ -223,7 +223,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
-    if (update.type === "agent_worn") {
+    if (update.type === "agent_selected") {
         return typeof update.requestId === "string"
                 && typeof update.name === "string"
                 && update.name.length > 0
@@ -234,7 +234,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     }
     if (update.type === "agent_catalog") {
         return typeof update.requestId === "string"
-                && typeof update.worn === "string"
+                && typeof update.selected === "string"
                 && Array.isArray(update.agents)
                 && Array.isArray(update.notices)
             ? value as AgentUpdate

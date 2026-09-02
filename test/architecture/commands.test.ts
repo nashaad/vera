@@ -26,7 +26,7 @@ test("the agent surface is a command, not a chord that changes state", () => {
         destination: { kind: "agent" },
     });
     expect(registry.dispatch("/agent reviewer")).toEqual({
-        type: "wear_agent",
+        type: "select_agent",
         name: "reviewer",
     });
     expect(registry.dispatch("/agent Not A Name")?.type)

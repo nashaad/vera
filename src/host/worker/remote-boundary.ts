@@ -280,14 +280,14 @@ export function createRemoteHostBoundary(
             ...(extensionTools.length === 0 ? {} : { extensionTools }),
             ...(compaction === undefined ? {} : { compaction }),
             router: {
-                ...(capabilities.wearAgent
+                ...(capabilities.selectAgent
                     ? {
-                        wearAgent: async (name: string) => {
+                        selectAgent: async (name: string) => {
                             const reply = await pipe.request({
-                                method: "agent.wear",
+                                method: "agent.select",
                                 name,
                             }) as {
-                                readonly worn?: {
+                                readonly selected?: {
                                     readonly name: string;
                                     readonly tools?: readonly string[];
                                     readonly skills?: readonly string[];
@@ -295,7 +295,7 @@ export function createRemoteHostBoundary(
                                     readonly notice?: string;
                                 };
                             };
-                            return reply.worn;
+                            return reply.selected;
                         },
                     }
                     : {}),

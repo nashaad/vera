@@ -195,7 +195,7 @@ export function openDials(rt: TuiRuntime): void {
     });
     rt.dialStrip = openDialStrip(composition, committedDialPair(rt), {
         agents: catalog?.agents.map((agent) => agent.name),
-        currentAgent: catalog?.worn ?? focusedAgentState(rt).agent?.name,
+        currentAgent: catalog?.selected ?? focusedAgentState(rt).agent?.name,
         agentPostures: Object.fromEntries(
             catalog?.agents.flatMap((agent) =>
                 agent.posture === undefined
@@ -222,8 +222,8 @@ export function openDials(rt: TuiRuntime): void {
             rt.dialStrip = {
                 ...rt.dialStrip,
                 agents,
-                agentIndex: Math.max(0, agents.indexOf(loaded.worn)),
-                openedAgent: loaded.worn,
+                agentIndex: Math.max(0, agents.indexOf(loaded.selected)),
+                openedAgent: loaded.selected,
                 agentPostures: Object.fromEntries(
                     loaded.agents.flatMap((agent) =>
                         agent.posture === undefined
@@ -284,11 +284,11 @@ export async function openAgentPicker(rt: TuiRuntime, selectedName?: string): Pr
                     ? `${agent.name} (ext)`
                     : agent.name,
                 description: describeAgentRow(rt, agent),
-                current: agent.name === current.worn,
+                current: agent.name === current.selected,
             })),
-            selectedId: selectedName ?? current.worn,
+            selectedId: selectedName ?? current.selected,
             actions: [
-                { id: "wear", label: "switch", keys: ["enter"] },
+                { id: "select", label: "switch", keys: ["enter"] },
                 {
                     id: "default",
                     label: "save session pair as default",
@@ -302,8 +302,8 @@ export async function openAgentPicker(rt: TuiRuntime, selectedName?: string): Pr
             (candidate) => candidate.name === result.rowId,
         );
         if (agent === undefined) return;
-        if (result.actionId === "wear") {
-            wearAgent(rt, agent.name);
+        if (result.actionId === "select") {
+            selectAgent(rt, agent.name);
             return;
         }
         if (!agent.writable) {
@@ -372,9 +372,9 @@ export function describeAgentRow(rt: TuiRuntime, agent: TuiAgentCatalogRow): str
     ].join(" · ");
 }
 
-export function wearAgent(rt: TuiRuntime, name: string): void {
+export function selectAgent(rt: TuiRuntime, name: string): void {
     void focusedAgentClient(rt).send({
-        type: "wear_agent",
+        type: "select_agent",
         requestId: randomUUID(),
         name,
     }).catch((error) => {
@@ -502,7 +502,7 @@ export function commitDials(rt: TuiRuntime,
         }).catch(((error: unknown) => reportConnectionError(rt, error)));
     }
     if (agent !== undefined && agent !== opened?.openedAgent) {
-        wearAgent(rt, agent);
+        selectAgent(rt, agent);
     }
     if (permission !== undefined
         && permission !== opened?.openedPermission) {

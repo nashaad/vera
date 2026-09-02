@@ -1282,7 +1282,7 @@ test("an extension picker separates its subtitle from title and rows", async () 
         "Agents",
         [{ id: "default", label: "default" }, { id: "plan", label: "plan" }],
         "default",
-        [{ id: "wear", key: "enter", label: "switch" }],
+        [{ id: "select", key: "enter", label: "switch" }],
         "Switching agents re-reads the prefix, so the next turn is slower once.",
     );
     const frame = await pickerFrame(

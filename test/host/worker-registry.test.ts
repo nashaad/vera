@@ -611,8 +611,8 @@ test("an extension tool runs inside the worker when the host hands it over", asy
     }
 }, 60_000);
 
-test("wear queued in a worker is answered by the host over the boundary", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-worker-wear-"));
+test("agent selection queued in a worker is answered by the host over the boundary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-select-"));
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: ({ sessionId }) => ({
@@ -628,27 +628,27 @@ test("wear queued in a worker is answered by the host over the boundary", async 
 
     try {
         const agent = await registry.create({
-            id: "wear",
+            id: "select",
             workspace: root,
-            sessionPath: join(root, "wear.jsonl"),
+            sessionPath: join(root, "select.jsonl"),
         });
         const client = agent.attach();
         expect((await client.receive()).type).toBe("history");
         client.send({
-            type: "wear_agent",
-            requestId: "wear-1",
+            type: "select_agent",
+            requestId: "select-1",
             name: "no-such-agent",
         });
         const answer = await receiveUntil(
             client,
             (update) =>
-                update.type === "agent_worn" || update.type === "agent_rejected",
+                update.type === "agent_selected" || update.type === "agent_rejected",
         );
         // The host is the one that knows the catalog, so a refusal naming the
         // agent proves the question crossed and came back.
         expect(answer).toMatchObject({
             type: "agent_rejected",
-            requestId: "wear-1",
+            requestId: "select-1",
             reason: "No agent named no-such-agent",
         });
     } finally {

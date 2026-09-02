@@ -16,7 +16,7 @@ import {
     agentAllowsTool,
     agentSnapshotDrift,
     resolveAgentSnapshot,
-} from "../../src/agents/wear.ts";
+} from "../../src/agents/snapshot.ts";
 import { writeAgentDefaultPair } from "../../src/agents/writer.ts";
 
 const REVIEWER = `---

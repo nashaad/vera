@@ -10,7 +10,7 @@ import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
-import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, wearAgent } from "../main/agents-dials.ts";
+import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "../main/agents-dials.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
 import { abortProviderHealthCheck, diagnosticsSnapshot, renderDiagnostics, writeFailureReportFile } from "../main/diagnostics-ops.ts";
 import { openTuiLink } from "../markdown-links.ts";
@@ -780,9 +780,9 @@ export function submitPrompt(rt: TuiRuntime,
         openSettingsDestination(rt, commandAction.destination);
         return;
     }
-    if (commandAction?.type === "wear_agent") {
+    if (commandAction?.type === "select_agent") {
         rt.composer.clearComposer();
-        wearAgent(rt, commandAction.name);
+        selectAgent(rt, commandAction.name);
         return;
     }
     if (commandAction?.type === "open_theme_picker") {

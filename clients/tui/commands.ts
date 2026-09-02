@@ -61,8 +61,8 @@ export interface OpenSettingsDestinationTuiCommandAction {
     readonly destination: SettingsDestination;
 }
 
-export interface WearAgentTuiCommandAction {
-    readonly type: "wear_agent";
+export interface SelectAgentTuiCommandAction {
+    readonly type: "select_agent";
     readonly name: string;
 }
 
@@ -211,7 +211,7 @@ export type TuiCommandAction =
     | UpdateReasoningTuiCommandAction
     | UpdatePermissionsTuiCommandAction
     | OpenSettingsDestinationTuiCommandAction
-    | WearAgentTuiCommandAction
+    | SelectAgentTuiCommandAction
     | OpenPreferencesListTuiCommandAction
     | OpenStandingNudgesTuiCommandAction
     | OpenConfigureTuiCommandAction
@@ -250,7 +250,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "update_model":
         case "update_reasoning":
         case "update_permissions":
-        case "wear_agent":
+        case "select_agent":
         case "open_configure":
         case "open_resume_picker":
         case "resume_viewed_session":
@@ -1247,7 +1247,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                     destination: { kind: "agent" },
                 }
                 : /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(argumentsText)
-                ? { type: "wear_agent", name: argumentsText }
+                ? { type: "select_agent", name: argumentsText }
                 : {
                     type: "command_error",
                     message: `Usage: ${AGENT_COMMAND.usage}`,
