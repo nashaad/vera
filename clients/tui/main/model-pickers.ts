@@ -7,6 +7,7 @@ import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalo
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
+import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
 import { configuredProviders, findConfiguredProvider, isProviderConnected } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -585,7 +586,7 @@ export function openStandingNudges(rt: TuiRuntime): void {
     focusActiveSurface(rt);
 }
 
-export function providerConnected(rt: TuiRuntime, provider: Parameters<typeof isProviderConnected>[0]): boolean {
+export function providerHasCredential(rt: TuiRuntime, provider: Parameters<typeof isProviderConnected>[0]): boolean {
     try {
         return isProviderConnected(provider, { authStorage: rt.authStorage });
     } catch {
@@ -621,6 +622,27 @@ export function openProviderEditForm(rt: TuiRuntime,
     focusActiveSurface(rt);
 }
 
+function onboardingInput(
+    rt: TuiRuntime,
+    config = loadOptionalVeraConfig(),
+): OnboardingInput {
+    return {
+        providers: configuredProviders(config),
+        pool: loadPoolFile({ projectRoot: process.cwd() }).merged,
+        ...(config === undefined ? {} : { config }),
+        authStorage: rt.authStorage,
+    };
+}
+
+/** Whether any provider has answered yet. The card leads with Connect until one has. */
+export function homeNeedsProvider(rt: TuiRuntime): boolean {
+    try {
+        return openGate(onboardingInput(rt)) !== "ready";
+    } catch {
+        return false;
+    }
+}
+
 export function openProviderPicker(rt: TuiRuntime, 
     parent?: TuiSettingsPickerState,
     options: {
@@ -630,6 +652,7 @@ export function openProviderPicker(rt: TuiRuntime,
 ): void {
     const config = loadOptionalVeraConfig();
     const providers = configuredProviders(config);
+    const answers = onboardingInput(rt, config);
     const declared = new Set(Object.keys(config?.providers ?? {}));
     const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
     const targetState = rt.state;
@@ -639,25 +662,33 @@ export function openProviderPicker(rt: TuiRuntime,
     ));
     rt.settingsPicker = withTuiPickerParent(
         startTuiProviderPicker(
-            providers.map((provider) => ({
-                id: provider.id,
-                label: provider.label,
-                group: tuiProviderGroup(
-                    provider.access,
-                    declared.has(provider.id),
-                ),
-                ...(moved.has(provider.id)
-                    ? { hint: provider.baseUrl ?? "" }
-                    : provider.hint === undefined
-                    ? {}
-                    : { hint: provider.hint }),
-                connected: providerConnected(rt, provider),
-                ...(refreshable.has(provider.id) ? { refreshable: true } : {}),
-                ...(declared.has(provider.id) ? { declared: true } : {}),
-                ...(provider.fixedEndpoint === true
-                    ? {}
-                    : { endpointEditable: true }),
-            })),
+            providers.map((provider) => {
+                const answerLabel = providerAnswerLabel(provider, answers);
+                return {
+                    id: provider.id,
+                    label: provider.label,
+                    group: tuiProviderGroup(
+                        provider.access,
+                        declared.has(provider.id),
+                    ),
+                    ...(moved.has(provider.id)
+                        ? { hint: provider.baseUrl ?? "" }
+                        : provider.hint === undefined
+                        ? {}
+                        : { hint: provider.hint }),
+                    hasCredential: providerHasCredential(rt, provider),
+                    ...(answerLabel === undefined
+                        ? {}
+                        : { answerState: answerLabel }),
+                    ...(refreshable.has(provider.id)
+                        ? { refreshable: true }
+                        : {}),
+                    ...(declared.has(provider.id) ? { declared: true } : {}),
+                    ...(provider.fixedEndpoint === true
+                        ? {}
+                        : { endpointEditable: true }),
+                };
+            }),
             options,
         ),
         parent,
@@ -722,7 +753,7 @@ export function connectProvider(rt: TuiRuntime,
         },
     ).then(() => {
         rt.connectingProviders.delete(provider.id);
-        rt.state = appendTuiNotice(rt.state, `connected to ${provider.label}`, "soft");
+        rt.state = appendTuiNotice(rt.state, `signed in to ${provider.label}`, "soft");
         renderState(rt);
     }, (error: unknown) => {
         rt.connectingProviders.delete(provider.id);

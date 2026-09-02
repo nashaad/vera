@@ -627,7 +627,10 @@ export function startTuiProviderPicker(
             description: provider.hint ?? "",
             searchText: provider.id,
             group: provider.group,
-            connected: provider.connected,
+            hasCredential: provider.hasCredential,
+            ...(provider.answerState === undefined
+                ? {}
+                : { answerState: provider.answerState }),
             ...(provider.refreshable === true ? { refreshable: true } : {}),
             ...(provider.declared === true ? { declared: true } : {}),
             ...(provider.endpointEditable === true
@@ -635,7 +638,7 @@ export function startTuiProviderPicker(
                 : {}),
         }));
     const firstUnconnected = rows.findIndex(
-        (option) => option.connected !== true,
+        (option) => option.answerState !== "connected",
     );
     const allOptions = [...rows, TUI_DECLARE_PROVIDER_OPTION];
     const named = options.selected === undefined

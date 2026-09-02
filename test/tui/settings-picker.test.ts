@@ -2766,14 +2766,15 @@ const PROVIDER_ROWS = [
         label: "OpenAI Codex",
         group: "Subscriptions",
         hint: "ChatGPT Plus/Pro subscription",
-        connected: true,
+        hasCredential: true,
+        answerState: "connected",
     },
     {
         id: "openrouter",
         label: "OpenRouter",
         group: "API keys",
         hint: "API key, pay per token",
-        connected: false,
+        hasCredential: false,
         refreshable: true,
         endpointEditable: true,
     },
@@ -2782,7 +2783,8 @@ const PROVIDER_ROWS = [
         label: "Ollama",
         group: "Local",
         hint: "local, no account",
-        connected: true,
+        hasCredential: true,
+        answerState: "connected",
         refreshable: true,
         endpointEditable: true,
     },
@@ -2791,7 +2793,8 @@ const PROVIDER_ROWS = [
         label: "gemini",
         group: "Added in config",
         hint: "API key",
-        connected: true,
+        hasCredential: true,
+        answerState: "key stored",
         refreshable: true,
         declared: true,
         endpointEditable: true,
@@ -2803,7 +2806,8 @@ test("an empty declared provider can still ask for its model list", () => {
         id: "empty-gateway",
         label: "Empty gateway",
         group: "Added in config",
-        connected: true,
+        hasCredential: true,
+        answerState: "connected",
         refreshable: true,
         declared: true,
     }]);
@@ -2844,12 +2848,35 @@ test("provider access facts map to stable TUI groups", () => {
     expect(tuiProviderGroup("api_key", true)).toBe("Added in config");
 });
 
+test("a stored key that has never answered says so, not connected", async () => {
+    const pane = withTuiPickerParent(
+        startTuiProviderPicker([
+            ...PROVIDER_ROWS,
+            {
+                id: "cerebras",
+                label: "Cerebras",
+                group: "API keys" as const,
+                hasCredential: false,
+                answerState: "not answering" as const,
+            },
+        ]),
+        modelPickerWithPool(),
+    );
+    const frame = await pickerFrame(pane, 151, 36);
+
+    expect(frame).toMatch(/gemini.*key stored/);
+    expect(frame).not.toMatch(/gemini.*connected/);
+    expect(frame).toMatch(/Cerebras.*not answering/);
+    // A provider nobody has touched stays quiet rather than reading as broken.
+    expect(frame).not.toMatch(/OpenRouter.*(connected|stored|answering)/);
+});
+
 test("provider groups have a stable order and preserve order within a group", () => {
     const cerebras = {
         id: "cerebras",
         label: "Cerebras",
         group: "API keys" as const,
-        connected: false,
+        hasCredential: false,
     };
     const pane = startTuiProviderPicker([
         PROVIDER_ROWS[2],
@@ -2869,7 +2896,7 @@ test("provider groups have a stable order and preserve order within a group", ()
         ]);
 });
 
-test("the provider marker moves independently of connected status", async () => {
+test("the provider marker moves independently of the answer state", async () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
     const first = await pickerFrame(pane, 151, 36);
     expect(first).toMatch(/›\s+OpenRouter/);
@@ -2940,7 +2967,7 @@ test("the declare row is last on the connect pane and is not a provider", async 
     // mark: it names a thing to do, not a provider to sign in to.
     expect(pane.options.filter((option) => option.action !== true))
         .toHaveLength(PROVIDER_ROWS.length);
-    expect(last?.connected).toBeUndefined();
+    expect(last?.answerState).toBeUndefined();
     expect(pane.selectedIndex).toBe(1);
 
     const frame = await pickerFrame(pane);

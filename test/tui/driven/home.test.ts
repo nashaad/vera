@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,6 +20,25 @@ import {
     HOME_RULE,
     HOME_TYPING_HINT,
 } from "../../../clients/tui/home-screen.ts";
+
+// Every test here runs on a machine a provider has already answered, which is
+// what makes the card the four rows below. The cold card is its own test.
+const ANSWERED_POOL = join(
+    mkdtempSync(join(tmpdir(), "vera-tui-home-pool-")),
+    "pool.json",
+);
+writeFileSync(
+    ANSWERED_POOL,
+    JSON.stringify({
+        models: {
+            "openrouter/one/model": {
+                added: true,
+                learned: { probe: { ok: true, seen: "2026-09-02" } },
+            },
+        },
+    }),
+);
+process.env.VERA_POOL_FILE = ANSWERED_POOL;
 
 /** Home plus the listing, search, and creation hooks its rows reach for. */
 function homeDependencies(
@@ -147,6 +166,35 @@ test("enter on the first row leaves home for a new conversation", async () => {
         expect(pane).not.toContain("or just start typing");
     } finally {
         await session.close();
+    }
+}, 15_000);
+
+test("a machine with no answer leads to the provider list", async () => {
+    // No pool entry has passed a probe, so nothing here has answered yet.
+    const previousPool = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = join(
+        mkdtempSync(join(tmpdir(), "vera-tui-home-cold-pool-")),
+        "pool.json",
+    );
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => homeDependencies(home, true),
+    });
+
+    try {
+        const card = await session.waitForVisiblePane("Connect a provider");
+        expect(card).toContain("❯ Connect a provider");
+        // The line that invites a prompt is gone, because there is nowhere to
+        // send one yet.
+        expect(card).toContain("Vera has no provider yet");
+        expect(card).not.toContain(HOME_TYPING_HINT);
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("Declare a provider");
+        expect(pane).toContain("OpenRouter");
+    } finally {
+        await session.close();
+        process.env.VERA_POOL_FILE = previousPool;
     }
 }, 15_000);
 

@@ -1826,10 +1826,10 @@ export function pickerFooterText(
                 ? "⏎ declare"
                 : selected?.declared === true
                 ? "⏎ edit"
-                : selected?.connected === true
+                : selected?.hasCredential === true
                 ? "⏎ reconnect"
                 : "⏎ connect",
-            ...(selected?.connected === true
+            ...(selected?.hasCredential === true
                 ? [tuiKeyHint("forget_provider")]
                 : []),
             ...(selected?.endpointEditable === true

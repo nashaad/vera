@@ -12,7 +12,9 @@ export const HOME_WORDMARK = "V  E  R  A";
 
 export const HOME_TYPING_HINT = "or just start typing";
 
-export type HomeRowId = "new" | "all" | "search" | "commands";
+export const HOME_COLD_HINT = "Vera has no provider yet";
+
+export type HomeRowId = "connect" | "new" | "all" | "search" | "commands";
 
 export interface HomeRow {
     readonly id: HomeRowId;
@@ -21,6 +23,7 @@ export interface HomeRow {
 }
 
 const HOME_ROWS: readonly HomeRow[] = [
+    { id: "connect", label: "Connect a provider", keyHint: "enter" },
     { id: "new", label: "New conversation", keyHint: "enter" },
     { id: "all", label: "All conversations", keyHint: "ctrl+r" },
     { id: "search", label: "Search past work", keyHint: "ctrl+shift+f" },
@@ -39,23 +42,34 @@ export const HOME_RULE = "─".repeat(
     HOME_CARD_COLUMNS - HOME_CONTENT_INDENT,
 );
 
-const HOME_HINT_CARET_COLUMN = HOME_CONTENT_INDENT
-    + HOME_TYPING_HINT.length + 1;
+function hintCaretColumn(hint: string): number {
+    return HOME_CONTENT_INDENT + hint.length + 1;
+}
 
 export interface HomeState {
     readonly selectedId: HomeRowId;
     readonly hasSessions: boolean;
+    /** No provider has answered yet, so the card leads with the way to fix that. */
+    readonly needsProvider: boolean;
 }
 
 export type HomeAction =
+    | { readonly kind: "connect_provider" }
     | { readonly kind: "new_session" }
     | { readonly kind: "resume_picker" }
     | { readonly kind: "search" }
     | { readonly kind: "palette" }
     | { readonly kind: "type"; readonly text: string };
 
-export function createHomeState(hasSessions: boolean): HomeState {
-    return { selectedId: "new", hasSessions };
+export function createHomeState(
+    hasSessions: boolean,
+    needsProvider = false,
+): HomeState {
+    return {
+        selectedId: needsProvider ? "connect" : "new",
+        hasSessions,
+        needsProvider,
+    };
 }
 
 const HOME_PAST_ROWS: readonly HomeRowId[] = ["all", "search"];
@@ -63,8 +77,14 @@ const HOME_PAST_ROWS: readonly HomeRowId[] = ["all", "search"];
 const HOME_OWN_CHORDS: readonly HomeRowId[] = ["all"];
 
 export function homeRows(state: HomeState): readonly HomeRow[] {
-    return HOME_ROWS.filter((row) =>
-        state.hasSessions || !HOME_PAST_ROWS.includes(row.id)
+    const rows = HOME_ROWS.filter((row) =>
+        (row.id !== "connect" || state.needsProvider)
+        && (state.hasSessions || !HOME_PAST_ROWS.includes(row.id))
+    );
+    // Only one row can claim enter, and while a provider is missing it is the
+    // one that leads there.
+    return rows.map((row) =>
+        state.needsProvider && row.id === "new" ? { ...row, keyHint: "" } : row
     );
 }
 
@@ -90,10 +110,15 @@ export function homeCardLines(state: HomeState): readonly HomeLine[] {
         })),
         { text: "", tone: "rule" },
         {
-            text: `${indent()}${HOME_TYPING_HINT}`,
+            text: `${indent()}${homeHint(state)}`,
             tone: "hint" as const,
         },
     ];
+}
+
+/** The last line of the card. A machine that cannot answer says so where the caret sits, rather than inviting a prompt it has nowhere to send. */
+export function homeHint(state: HomeState): string {
+    return state.needsProvider ? HOME_COLD_HINT : HOME_TYPING_HINT;
 }
 
 export function handleHomeKey(
@@ -165,6 +190,7 @@ export function homeTypedCharacter(
 }
 
 function rowAction(id: HomeRowId): HomeAction {
+    if (id === "connect") return { kind: "connect_provider" };
     if (id === "all") return { kind: "resume_picker" };
     if (id === "search") return { kind: "search" };
     if (id === "commands") return { kind: "palette" };
@@ -173,13 +199,15 @@ function rowAction(id: HomeRowId): HomeAction {
 
 function selectedRowId(state: HomeState): HomeRowId {
     const rows = homeRows(state);
-    return rows.some((row) => row.id === state.selectedId)
-        ? state.selectedId
-        : "new";
+    if (rows.some((row) => row.id === state.selectedId)) {
+        return state.selectedId;
+    }
+    return state.needsProvider ? "connect" : "new";
 }
 
 function rowText(row: HomeRow, selected: boolean): string {
     const head = `${selected ? "❯" : " "} ${row.label}`;
+    if (row.keyHint === "") return head;
     const gap = Math.max(1, HOME_HINT_COLUMN - head.length);
     return `${head}${" ".repeat(gap)}${row.keyHint}`;
 }
@@ -201,13 +229,15 @@ function isPrintable(key: { readonly name: string }): boolean {
 class HomeHintRenderable extends TextRenderable {
     holdsKeyboard: () => boolean = () => true;
 
+    caretColumn = hintCaretColumn(HOME_TYPING_HINT);
+
     protected override renderSelf(
         buffer: Parameters<TextRenderable["renderSelf"]>[0],
     ): void {
         super.renderSelf(buffer);
         if (!this.holdsKeyboard()) return;
         this._ctx.setCursorPosition(
-            this.x + HOME_HINT_CARET_COLUMN + 1,
+            this.x + this.caretColumn + 1,
             this.y + 1,
             true,
         );
@@ -286,6 +316,7 @@ export function createTuiHomeView(
             if (line.tone === "hint") {
                 const hint = new HomeHintRenderable(renderer, options);
                 hint.holdsKeyboard = () => box.focused;
+                hint.caretColumn = hintCaretColumn(homeHint(state));
                 text = hint;
             } else {
                 text = new TextRenderable(renderer, options);

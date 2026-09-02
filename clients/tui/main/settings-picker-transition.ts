@@ -1,4 +1,5 @@
-import { applySelectedTheme, beginSessionResume, developerChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
+import { applySelectedTheme, beginSessionResume, refreshHomeSessions, developerChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
+import { isHomeClient } from "../home-client.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
@@ -566,5 +567,10 @@ export function closeSettingsPickerSurface(rt: TuiRuntime): void {
     rt.settingsPickerAgent = undefined;
     if (rt.pendingUiRequest === undefined) {
         rt.composer.focus();
+    }
+    // A picker is where a provider gets connected, so the cold card may no
+    // longer be cold once one closes.
+    if (isHomeClient(rt.client)) {
+        void refreshHomeSessions(rt);
     }
 }

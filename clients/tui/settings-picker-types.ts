@@ -11,6 +11,7 @@ import type {
 import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
 import { type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { ProviderAnswerState } from "../../src/providers/onboarding.ts";
 import type { ProviderAccessKind } from "../../src/providers/registry.ts";
 import {
     isVeraProviderId,
@@ -144,7 +145,8 @@ export interface TuiSettingsPickerOption {
     readonly recommendedLevel?: string;
     readonly refreshable?: boolean;
     readonly group?: string;
-    readonly connected?: boolean;
+    readonly hasCredential?: boolean;
+    readonly answerState?: ProviderAnswerState;
     readonly action?: boolean;
     readonly declared?: boolean;
     readonly endpointEditable?: boolean;
@@ -166,7 +168,8 @@ export interface TuiProviderRow {
     readonly label: string;
     readonly group: TuiProviderGroup;
     readonly hint?: string;
-    readonly connected: boolean;
+    readonly hasCredential: boolean;
+    readonly answerState?: ProviderAnswerState;
     readonly refreshable?: boolean;
     readonly declared?: boolean;
     readonly endpointEditable?: boolean;

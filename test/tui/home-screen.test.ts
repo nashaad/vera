@@ -13,6 +13,9 @@ import {
 
 const home = (hasSessions = true): HomeState => createHomeState(hasSessions);
 
+const cold = (hasSessions = false): HomeState =>
+    createHomeState(hasSessions, true);
+
 const rendered = (state: HomeState): string =>
     homeCardLines(state).map((line) => line.text).join("\n");
 
@@ -21,19 +24,19 @@ const hintColumn = (text: string): number =>
     text.length - (/\s(\S+)$/.exec(text)?.[1]?.length ?? 0);
 
 /** Labels are the longest of the three, so the hints sit two past them. */
-const HOME_HINT_COLUMN = 21;
+const HOME_HINT_COLUMN = 22;
 
 describe("the home card", () => {
     test("names itself, rules under it, and lists the ways on", () => {
         expect(rendered(home())).toBe(
             [
-                "            V  E  R  A",
-                "  ───────────────────────────────",
+                "             V  E  R  A",
+                "  ────────────────────────────────",
                 "",
-                "❯ New conversation   enter",
-                "  All conversations  ctrl+r",
-                "  Search past work   ctrl+shift+f",
-                "  Commands           ctrl+p",
+                "❯ New conversation    enter",
+                "  All conversations   ctrl+r",
+                "  Search past work    ctrl+shift+f",
+                "  Commands            ctrl+p",
                 "",
                 "  or just start typing",
             ].join("\n"),
@@ -63,6 +66,26 @@ describe("the home card", () => {
         expect(lines).not.toContain("Search past work");
         expect(lines).toContain("New conversation");
         expect(lines).toContain("Commands");
+    });
+
+    test("a cold machine leads with the way to a provider", () => {
+        expect(rendered(cold())).toBe(
+            [
+                "             V  E  R  A",
+                "  ────────────────────────────────",
+                "",
+                "❯ Connect a provider  enter",
+                "  New conversation",
+                "  Commands            ctrl+p",
+                "",
+                "  Vera has no provider yet",
+            ].join("\n"),
+        );
+    });
+
+    test("a connected machine says nothing about providers", () => {
+        expect(rendered(home())).not.toContain("Connect a provider");
+        expect(homeRows(home()).map((row) => row.id)).not.toContain("connect");
     });
 
     test("the cursor is a text marker, not a colour", () => {
@@ -141,6 +164,21 @@ describe("home keys", () => {
             "new",
             "commands",
         ]);
+    });
+
+    test("enter goes to the provider while one is missing", () => {
+        // Both rows would take enter, so only the one that leads out of a
+        // machine that cannot answer yet claims it.
+        expect(handleHomeKey(cold(), { name: "return" })).toEqual({
+            action: { kind: "connect_provider" },
+            handled: true,
+        });
+        const moved = handleHomeKey(cold(), { name: "down" });
+        expect(moved.state?.selectedId).toBe("new");
+        expect(handleHomeKey(moved.state!, { name: "return" })).toEqual({
+            action: { kind: "new_session" },
+            handled: true,
+        });
     });
 
     test("a chord home does not claim falls through to the keymap", () => {

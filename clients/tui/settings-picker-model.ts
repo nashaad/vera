@@ -1580,9 +1580,13 @@ export function optionMeta(
         // The door it opens, at the trailing edge. The gutter column belongs to
         // the cursor, and a `+` sitting in it reads as a second cursor.
         if (option.action === true) return [{ text: "\u203a" }];
-        return option.connected === true
-            ? [{ text: "connected", tone: "positive" }]
-            : undefined;
+        // The three words, not a colour and not a boolean: a stored key that
+        // has never answered is not a working provider.
+        if (option.answerState === undefined) return undefined;
+        return [{
+            text: option.answerState,
+            tone: option.answerState === "connected" ? "positive" : "detail",
+        }];
     }
     if (state.kind !== "model") {
         return undefined;
