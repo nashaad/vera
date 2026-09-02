@@ -211,7 +211,7 @@ import {
     type TuiStatusChunk,
 } from "./status.ts";
 import { watchWorkspaceBranch } from "./workspace-branch.ts";
-import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView, handleTuiProviderFormPaste } from "./settings-picker.ts";
+import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView } from "./settings-picker.ts";
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView, handleTuiSecretPromptPaste } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
@@ -2523,7 +2523,7 @@ export async function startTui(
         ) {
             event.preventDefault();
             event.stopPropagation();
-            rt.providerForm = handleTuiProviderFormPaste(
+            rt.providerForm = rt.providerFormView.handlePaste(
                 rt.providerForm,
                 stripAnsiSequences(decodePasteBytes(event.bytes)),
             );

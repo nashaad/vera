@@ -1,7 +1,7 @@
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import type { StyledText } from "@opentui/core";
+import { TextareaRenderable, type StyledText } from "@opentui/core";
 
 import { tuiKeyHint } from "../../clients/tui/keymap.ts";
 import { applyTuiTheme } from "../../clients/tui/state.ts";
@@ -42,6 +42,7 @@ import {
     REVIEWER_CLEAR_VALUE,
     handleTuiProviderFormKey,
     handleTuiProviderFormPaste,
+    createTuiProviderFormView,
     startTuiProviderForm,
     tuiProviderFormFields,
     tuiProviderFormRows,
@@ -3414,20 +3415,43 @@ test("the declaration form opens on the name, ready to type", () => {
     expect(form.credential).toBe("api_key");
 });
 
-test("typing fills the focused field and arrows move between them", () => {
+test("provider text fields use the native editor cursor", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiProviderFormView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     let form = startTuiProviderForm();
-    for (const character of "gateway") {
-        form = handleTuiProviderFormKey(form, {
-            name: character,
-            sequence: character,
-        }).state!;
-    }
-    form = handleTuiProviderFormKey(form, { name: "down" }).state!;
-    form = handleTuiProviderFormKey(form, { name: "h", sequence: "h" }).state!;
+    view.update(form);
+    view.focus();
+    try {
+        for (const character of "gateway") {
+            form = view.handleKey(form, {
+                name: character,
+                sequence: character,
+            }).state!;
+            view.update(form);
+        }
+        form = view.handleKey(form, { name: "left" }).state!;
+        form = view.handleKey(form, { name: "left" }).state!;
+        form = view.handleKey(form, { name: "x", sequence: "x" }).state!;
+        view.update(form);
+        expect(form.id).toBe("gatewxay");
 
-    expect(form.id).toBe("gateway");
-    expect(form.field).toBe("base_url");
-    expect(form.baseUrl).toBe("h");
+        form = view.handleKey(form, { name: "down" }).state!;
+        view.update(form);
+        view.focus();
+        form = view.handleKey(form, { name: "h", sequence: "h" }).state!;
+        view.update(form);
+
+        expect(form.field).toBe("base_url");
+        expect(form.baseUrl).toBe("h");
+        expect(setup.renderer.currentFocusedRenderable?.id)
+            .toBe("provider-form-base_url-editor");
+        expect(view.box.findDescendantById("provider-form-base_url-editor"))
+            .toBeInstanceOf(TextareaRenderable);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("the choice fields toggle rather than take text", () => {
@@ -3555,9 +3579,55 @@ test("the form draws a key row while the credential is a key", () => {
     expect(providerFormRowText(rows[1])).toContain(
         "https://gateway.example/v1",
     );
-    expect(providerFormRowText(rows[2])).toContain("openai-chat");
+    expect(providerFormRowText(rows[2])).toContain("OpenAI chat");
     expect(providerFormRowText(rows[3])).toContain("API key");
+    expect(providerFormRowText(rows[3])).toContain("No key");
     expect(providerFormRowText(rows[4])).toContain("Key");
+});
+
+test("the credential row marks both choices without color", () => {
+    let form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        field: "credential",
+    };
+    let row = providerFormRowText(tuiProviderFormRows(form)[3]);
+    expect(row).toContain("● API key");
+    expect(row).toContain("○ No key");
+
+    form = handleTuiProviderFormKey(form, { name: "right" }).state!;
+    row = providerFormRowText(tuiProviderFormRows(form)[3]);
+    expect(row).toContain("○ API key");
+    expect(row).toContain("● No key");
+});
+
+test("the provider form visibly offers no-key authentication", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiProviderFormView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    let form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "outrider",
+        baseUrl: "http://127.0.0.1:11435/v1",
+        field: "credential",
+    };
+    view.update(form);
+    view.focus();
+    try {
+        await setup.flush();
+        let frame = setup.captureCharFrame();
+        expect(frame).toContain("› Credential  ● API key   ○ No key");
+        expect(frame).toContain("←→ change");
+
+        form = view.handleKey(form, { name: "right" }).state!;
+        view.update(form);
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("› Credential  ○ API key   ● No key");
+        expect(frame).not.toContain("Key           paste or type");
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("the key row leaves the form when the credential does", () => {

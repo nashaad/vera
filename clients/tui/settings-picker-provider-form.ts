@@ -1,4 +1,12 @@
-import { BoxRenderable, fg, italic, StyledText, TextRenderable, type RenderContext } from "@opentui/core";
+import {
+    BoxRenderable,
+    fg,
+    italic,
+    StyledText,
+    TextareaRenderable,
+    TextRenderable,
+    type RenderContext,
+} from "@opentui/core";
 
 import {
     isJobAssignmentId,
@@ -49,7 +57,9 @@ import {
 } from "./theme-bindings.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
+    createTuiSingleLineTextarea,
     insertTuiSingleLinePaste,
+    syncTuiSingleLineTextarea,
     tuiTextareaKey,
 } from "./single-line-editor.ts";
 
@@ -86,6 +96,7 @@ export function tuiProviderFormFields(
 }
 
 export interface TuiProviderFormState {
+    readonly editorSession: number;
     readonly id: string;
     readonly baseUrl: string;
     readonly protocol: VeraProviderProtocol;
@@ -127,6 +138,12 @@ export interface TuiProviderFormView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
+    focus(): void;
+    handleKey(
+        state: TuiProviderFormState,
+        key: TuiProviderFormKey,
+    ): TuiProviderFormTransition;
+    handlePaste(state: TuiProviderFormState, text: string): TuiProviderFormState;
     update(state: TuiProviderFormState): void;
 }
 
@@ -142,6 +159,7 @@ export function startTuiProviderForm(
     },
 ): TuiProviderFormState {
     return {
+        editorSession: nextProviderFormEditorSession++,
         id: existing?.id ?? "",
         baseUrl: existing?.baseUrl ?? "",
         protocol: existing?.protocol ?? "openai-chat",
@@ -344,11 +362,7 @@ export function tuiProviderFormRows(
         const focused = state.field === field;
         const value = providerFormTextField(field)
             ? providerFormFieldValue(state, field)
-            : field === "protocol"
-            ? state.protocol
-            : state.credential === "api_key"
-            ? "API key"
-            : "none";
+            : "";
         const empty = value.length === 0;
         const shown = field === "api_key" && !focused
             ? "•".repeat(Math.min(value.length, 12))
@@ -356,14 +370,38 @@ export function tuiProviderFormRows(
         return new StyledText([
             fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "› " : "  "),
             fg(TUI_MUTED)(`${PROVIDER_FORM_LABELS[field].padEnd(10)} `),
-            empty
-                ? italic(fg(TUI_MUTED)(PROVIDER_FORM_PLACEHOLDERS[field]))
-                : fg(TUI_TEXT)(shown),
-            ...(focused && providerFormTextField(field)
-                ? [fg(TUI_ACCENT)("▏")]
-                : []),
+            ...(providerFormTextField(field)
+                ? [empty
+                    ? italic(fg(TUI_MUTED)(PROVIDER_FORM_PLACEHOLDERS[field]))
+                    : fg(TUI_TEXT)(shown)]
+                : providerFormChoiceChunks(
+                    state,
+                    field === "protocol" ? "protocol" : "credential",
+                )),
         ]);
     });
+}
+
+function providerFormChoiceChunks(
+    state: TuiProviderFormState,
+    field: "protocol" | "credential",
+) {
+    const choices = field === "protocol"
+        ? [
+            { value: "openai-chat", label: "OpenAI chat" },
+            { value: "anthropic-messages", label: "Anthropic" },
+        ] as const
+        : [
+            { value: "api_key", label: "API key" },
+            { value: "none", label: "No key" },
+        ] as const;
+    const selected = field === "protocol" ? state.protocol : state.credential;
+    return choices.flatMap((choice, index) => [
+        ...(index === 0 ? [] : [fg(TUI_MUTED)("   ")]),
+        fg(choice.value === selected ? TUI_TEXT : TUI_MUTED)(
+            `${choice.value === selected ? "●" : "○"} ${choice.label}`,
+        ),
+    ]);
 }
 
 export const PROVIDER_FORM_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
@@ -405,16 +443,50 @@ export function createTuiProviderFormView(
         height: "auto",
         wrapMode: "word",
     });
-    const rows = TUI_PROVIDER_FORM_FIELDS.map((field, index) =>
-        new TextRenderable(renderer, {
+    const rows = TUI_PROVIDER_FORM_FIELDS.map((field, index) => {
+        const row = new BoxRenderable(renderer, {
             id: `provider-form-${field}`,
-            content: "",
             width: "100%",
-            height: "auto",
-            wrapMode: "char",
+            height: 1,
+            flexDirection: "row",
             ...(index === 0 ? { marginTop: 1 } : {}),
-        })
-    );
+        });
+        const label = new TextRenderable(renderer, {
+            content: "",
+            width: 14,
+            height: 1,
+            flexShrink: 0,
+        });
+        const value = new TextRenderable(renderer, {
+            content: "",
+            height: 1,
+            flexGrow: 1,
+            flexShrink: 1,
+            wrapMode: "none",
+            overflow: "hidden",
+        });
+        row.add(label);
+        let editor: TextareaRenderable | undefined;
+        let editorBox: BoxRenderable | undefined;
+        if (providerFormTextField(field)) {
+            editor = createTuiSingleLineTextarea(renderer, {
+                id: `provider-form-${field}-editor`,
+                placeholder: PROVIDER_FORM_PLACEHOLDERS[field],
+                backgroundColor: TUI_PANEL,
+            });
+            editorBox = new BoxRenderable(renderer, {
+                width: "auto",
+                height: 1,
+                flexGrow: 1,
+                flexShrink: 1,
+                backgroundColor: TUI_PANEL,
+            });
+            editorBox.add(editor);
+            row.add(editorBox);
+        }
+        row.add(value);
+        return { field, row, label, value, editor, editorBox };
+    });
     const error = new TextRenderable(renderer, {
         content: "",
         fg: TUI_ACCENT,
@@ -446,22 +518,74 @@ export function createTuiProviderFormView(
     box.add(title);
     box.add(hint);
     for (const row of rows) {
-        box.add(row);
+        box.add(row.row);
     }
     box.add(error);
     box.add(footer);
     const surface = centeredDialogSurface(renderer, "provider-form-surface", box);
+    let shownState: TuiProviderFormState | undefined;
+    let shownEditorSession: number | undefined;
     return {
         box,
         surface,
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
             tuiThemeProperties(hint, { fg: "muted" }),
+            ...rows.flatMap((row) => [
+                tuiThemeProperties(row.label, { fg: "muted" }),
+                tuiThemeProperties(row.value, { fg: "text" }),
+                ...(row.editor === undefined
+                    ? []
+                    : [tuiThemeProperties(row.editor, {
+                        textColor: "text",
+                        focusedTextColor: "text",
+                        backgroundColor: "panel",
+                        focusedBackgroundColor: "panel",
+                        cursorColor: "accent",
+                        placeholderColor: "muted",
+                    })]),
+                ...(row.editorBox === undefined
+                    ? []
+                    : [tuiThemeProperties(row.editorBox, {
+                        backgroundColor: "panel",
+                    })]),
+            ]),
             tuiThemeProperties(error, { fg: "accent" }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
+        focus(): void {
+            const active = rows.find((row) => row.field === shownState?.field);
+            if (active?.editor !== undefined) {
+                active.editor.focus();
+                return;
+            }
+            box.focus();
+        },
+        handleKey(state, key): TuiProviderFormTransition {
+            const active = rows.find((row) => row.field === state.field);
+            const current = active?.editor === undefined
+                ? state
+                : editedProviderFormField(state, active.editor.plainText);
+            if (!providerFormTextField(state.field) || providerFormControlKey(key)) {
+                return handleTuiProviderFormKey(current, key);
+            }
+            active?.editor?.handleKeyPress(tuiTextareaKey(key));
+            return {
+                state: active?.editor === undefined
+                    ? current
+                    : editedProviderFormField(current, active.editor.plainText),
+                handled: true,
+            };
+        },
+        handlePaste(state, text): TuiProviderFormState {
+            const active = rows.find((row) => row.field === state.field);
+            if (active?.editor === undefined) return state;
+            insertTuiSingleLinePaste(active.editor, text);
+            return editedProviderFormField(state, active.editor.plainText);
+        },
         update(state): void {
+            shownState = state;
             title.content = state.shipped === true
                 ? `Edit ${state.id}`
                 : state.editing === undefined
@@ -473,12 +597,50 @@ export function createTuiProviderFormView(
                 : state.editing === undefined
                 ? "An OpenAI- or Anthropic-compatible endpoint of your own."
                 : "Change the endpoint, the protocol, or the key you stored.";
+            const shownFields = new Set(tuiProviderFormFields(state));
             const lines = tuiProviderFormRows(state);
-            rows.forEach((row, index) => {
-                const line = lines[index];
-                row.visible = line !== undefined;
-                row.content = line ?? new StyledText([]);
-            });
+            for (const row of rows) {
+                row.row.visible = shownFields.has(row.field);
+                if (!row.row.visible) continue;
+                const focused = row.field === state.field;
+                row.label.content = new StyledText([
+                    fg(focused ? TUI_ACCENT : TUI_MUTED)(
+                        `${focused ? "›" : " "} ${PROVIDER_FORM_LABELS[row.field].padEnd(10)} `,
+                    ),
+                ]);
+                if (row.editor !== undefined && row.editorBox !== undefined) {
+                    if (shownEditorSession !== state.editorSession) {
+                        row.editor.setText(providerFormFieldValue(state, row.field));
+                        row.editor.gotoBufferEnd();
+                    } else {
+                        syncTuiSingleLineTextarea(
+                            row.editor,
+                            providerFormFieldValue(state, row.field),
+                        );
+                    }
+                    row.editorBox.visible = focused;
+                    row.value.visible = !focused;
+                    if (!focused) {
+                        const value = providerFormFieldValue(state, row.field);
+                        row.value.content = new StyledText([
+                            value.length === 0
+                                ? italic(fg(TUI_MUTED)(PROVIDER_FORM_PLACEHOLDERS[row.field]))
+                                : fg(TUI_TEXT)(row.field === "api_key"
+                                    ? "•".repeat(Math.min(value.length, 12))
+                                    : value),
+                        ]);
+                    }
+                } else {
+                    if (row.field !== "protocol" && row.field !== "credential") {
+                        continue;
+                    }
+                    row.value.visible = true;
+                    row.value.content = new StyledText(
+                        providerFormChoiceChunks(state, row.field),
+                    );
+                }
+            }
+            shownEditorSession = state.editorSession;
             error.content = state.error ?? "";
             footer.content = `↑↓ ${tuiKeyHint("next_form_field")} · ${
                 providerFormTextField(state.field) ? "←→ move" : "←→ change"
@@ -486,3 +648,15 @@ export function createTuiProviderFormView(
         },
     };
 }
+
+function providerFormControlKey(key: TuiProviderFormKey): boolean {
+    return key.name === "escape"
+        || key.name === "return"
+        || key.name === "enter"
+        || key.name === "up"
+        || key.name === "down"
+        || tuiBindingId("provider_form", key) === "next_form_field"
+        || tuiBindingId("provider_form", key) === "previous_form_field";
+}
+
+let nextProviderFormEditorSession = 1;

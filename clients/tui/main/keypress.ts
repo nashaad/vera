@@ -24,7 +24,7 @@ import { handleSearchOverlayKey, updateSearchOverlayText } from "../search-overl
 import { handleTuiSecretPromptKey } from "../secret-prompt.ts";
 import { handleTuiSessionCloseConfirmKey } from "../session-close-confirm.ts";
 import { handleTuiSessionTrashConfirmKey } from "../session-trash-confirm.ts";
-import { handleTuiProviderFormKey, handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
@@ -589,7 +589,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
     if (rt.providerForm !== undefined) {
-        const transition = handleTuiProviderFormKey(rt.providerForm, key);
+        const transition = rt.providerFormView.handleKey(rt.providerForm, key);
         if (transition.handled) {
             key.preventDefault();
             key.stopPropagation();
