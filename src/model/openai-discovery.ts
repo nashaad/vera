@@ -69,13 +69,14 @@ export async function refreshOpenAIProviderCatalog(
     const cacheOptions: ProviderCatalogCacheOptions = options.cacheDir === undefined
         ? {}
         : { cacheDir: options.cacheDir };
+    const endpoint = options.endpoint ?? providerEndpointUrl(options.baseUrl, "/models");
     const fresh = readFreshProviderCatalogSnapshot(
         options.provider,
         options.maxAgeMs ?? 0,
         cacheOptions,
+        endpoint,
     );
     if (fresh !== undefined) return { status: "fresh", catalog: fresh };
-    const endpoint = options.endpoint ?? providerEndpointUrl(options.baseUrl, "/models");
     const headers: Record<string, string> = {};
     if (options.apiKey !== undefined) {
         headers.authorization = `Bearer ${options.apiKey}`;
@@ -88,7 +89,7 @@ export async function refreshOpenAIProviderCatalog(
             signal: AbortSignal.timeout(options.timeoutMs ?? 2_500),
         });
     } catch {
-        return failedRefresh(options.provider, cacheOptions, "unavailable");
+        return failedRefresh(options.provider, cacheOptions, "unavailable", endpoint);
     }
     if (!response.ok) {
         return failedRefresh(
@@ -97,6 +98,7 @@ export async function refreshOpenAIProviderCatalog(
             response.status === 401 || response.status === 403
                 ? "authentication"
                 : "unavailable",
+            endpoint,
         );
     }
     let raw: unknown;
@@ -107,6 +109,7 @@ export async function refreshOpenAIProviderCatalog(
             options.provider,
             cacheOptions,
             "malformed_response",
+            endpoint,
         );
     }
     if (!isRecord(raw) || !Array.isArray(raw.data)) {
@@ -114,18 +117,23 @@ export async function refreshOpenAIProviderCatalog(
             options.provider,
             cacheOptions,
             "malformed_response",
+            endpoint,
         );
     }
-    const catalog = normalizeOpenAIModels(
-        options.provider,
-        raw,
-        options.catalogLayers ?? [],
-    );
+    const catalog = {
+        ...normalizeOpenAIModels(
+            options.provider,
+            raw,
+            options.catalogLayers ?? [],
+        ),
+        endpoint,
+    };
     if (raw.data.length > 0 && catalog.models.length === 0) {
         return failedRefresh(
             options.provider,
             cacheOptions,
             "malformed_response",
+            endpoint,
         );
     }
     if (catalog.models.length === 0 && options.preserveEmpty !== true) {
@@ -133,6 +141,7 @@ export async function refreshOpenAIProviderCatalog(
             options.provider,
             cacheOptions,
             "empty_response",
+            endpoint,
         );
     }
     try {
@@ -187,11 +196,16 @@ function failedRefresh(
     provider: string,
     options: ProviderCatalogCacheOptions,
     failure: ProviderCatalogFailure,
+    endpoint?: string,
 ): StaleProviderCatalogResult | FailedProviderCatalogResult {
     const cached = readProviderCatalogSnapshot(provider, options);
-    return cached.models.length === 0
-        ? { status: "failed", failure }
-        : { status: "stale", catalog: cached, failure };
+    if (
+        cached.models.length === 0
+        || (endpoint !== undefined && cached.endpoint !== endpoint)
+    ) {
+        return { status: "failed", failure };
+    }
+    return { status: "stale", catalog: cached, failure };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

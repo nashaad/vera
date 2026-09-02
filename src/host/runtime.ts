@@ -1012,6 +1012,11 @@ export async function startResidentHost(
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
+            refreshCatalog: async (provider, workspace) => {
+                const refreshed = await registry.refreshHostCatalog(provider);
+                if (refreshed === undefined) return undefined;
+                return registry.readHostModelSettings(workspace);
+            },
             readAnnex: () => annexUrl === undefined
                 ? {
                     unavailable: annexUnavailable

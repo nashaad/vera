@@ -42,5 +42,7 @@ export interface ProviderCatalog {
     readonly schema_version: 2;
     readonly provider: string;
     readonly fetched_at?: string;
+    /** Discovery URL this listing was fetched from. Absent on older snapshots. */
+    readonly endpoint?: string;
     readonly models: readonly CatalogModel[];
 }

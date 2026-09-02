@@ -60,12 +60,16 @@ export function readFreshProviderCatalogSnapshot(
     provider: string,
     maxAgeMs: number,
     options: ProviderCatalogCacheOptions = {},
+    endpoint?: string,
 ): ProviderCatalog | undefined {
     if (!(maxAgeMs > 0)) {
         return undefined;
     }
     const snapshot = readProviderCatalogSnapshot(provider, options);
     if (snapshot.models.length === 0 || snapshot.fetched_at === undefined) {
+        return undefined;
+    }
+    if (endpoint !== undefined && snapshot.endpoint !== endpoint) {
         return undefined;
     }
     const fetchedAt = Date.parse(snapshot.fetched_at);
@@ -112,6 +116,7 @@ function isProviderCatalog(value: unknown): value is ProviderCatalog {
         !isRecord(value)
         || value.schema_version !== 2
         || typeof value.provider !== "string"
+        || (value.endpoint !== undefined && typeof value.endpoint !== "string")
         || !Array.isArray(value.models)
     ) {
         return false;

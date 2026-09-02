@@ -183,6 +183,7 @@ import { isWorkerFreeClient } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
 import {
     readModelSettingsThroughHost,
+    refreshCatalogThroughHost,
 } from "../../src/host/model-settings-client.ts";
 import {
     readAnnexUrlThroughHost,
@@ -484,6 +485,10 @@ export interface TuiDependencies {
     readonly readHostModelSettings?: (
         workspace: string,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly refreshHostCatalog?: (
+        provider: string,
+        workspace: string,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly homeHasSessions?: boolean;
     readonly listSessionPage?: (
         options: ListAgentsOptions,
@@ -688,6 +693,8 @@ export async function startConfiguredTui(
         ? createHomeClient(process.cwd(), {
             readModelSettings: (workspace) =>
                 readModelSettingsThroughHost(host.socket_path, workspace),
+            refreshCatalog: (provider, workspace) =>
+                refreshCatalogThroughHost(host.socket_path, provider, workspace),
         })
         : await agentClients.attach(agentId);
     const flightRecorder = createTuiFlightRecorder();
@@ -716,6 +723,8 @@ export async function startConfiguredTui(
             client,
             readHostModelSettings: (workspace) =>
                 readModelSettingsThroughHost(host.socket_path, workspace),
+            refreshHostCatalog: (provider, workspace) =>
+                refreshCatalogThroughHost(host.socket_path, provider, workspace),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -818,9 +827,14 @@ export async function startTui(
     const rt = { dependencies } as TuiRuntime;
 
     rt.client = rt.dependencies.client;
-    rt.homeClientOptions = rt.dependencies.readHostModelSettings === undefined
-        ? {}
-        : { readModelSettings: rt.dependencies.readHostModelSettings };
+    rt.homeClientOptions = {
+        ...(rt.dependencies.readHostModelSettings === undefined
+            ? {}
+            : { readModelSettings: rt.dependencies.readHostModelSettings }),
+        ...(rt.dependencies.refreshHostCatalog === undefined
+            ? {}
+            : { refreshCatalog: rt.dependencies.refreshHostCatalog }),
+    };
     rt.flightRecorder = rt.dependencies.flightRecorder;
     rt.flightRecorder?.sessionEntered(rt.client.agentId ?? "unknown");
     rt.configuredAppearance = rt.dependencies.appearance

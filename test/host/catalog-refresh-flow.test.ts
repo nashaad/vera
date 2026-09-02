@@ -4,8 +4,13 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadVeraConfig } from "../../src/config.ts";
+import {
+    loadVeraConfig,
+    updateVeraConfigDefaults,
+} from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { refreshCatalogThroughHost } from "../../src/host/model-settings-client.ts";
+import { readProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
 import type { AuthStorage } from "../../src/providers/auth-storage.ts";
@@ -123,6 +128,7 @@ const adapter: ModelAdapter = {
             await rm(root, { recursive: true, force: true });
         }
     },
+    15_000,
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
@@ -237,6 +243,7 @@ const adapter: ModelAdapter = {
             await rm(root, { recursive: true, force: true });
         }
     },
+    15_000,
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
@@ -315,4 +322,204 @@ const adapter: ModelAdapter = {
             await rm(root, { recursive: true, force: true });
         }
     },
+    15_000,
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "editing a custom provider endpoint refreshes the new URL, not the old one",
+    async () => {
+        const root = await realpath(
+            await mkdtemp(join(tmpdir(), "vera-moved-refresh-")),
+        );
+        const previousHome = process.env.VERA_HOME;
+        process.env.VERA_HOME = root;
+
+        const oldHits: string[] = [];
+        const newHits: string[] = [];
+        const oldServer = Bun.serve({
+            port: 0,
+            fetch(request) {
+                oldHits.push(new URL(request.url).pathname);
+                return Response.json({
+                    data: [{ id: "qwen3-1.7b" }],
+                });
+            },
+        });
+        const newServer = Bun.serve({
+            port: 0,
+            fetch(request) {
+                newHits.push(new URL(request.url).pathname);
+                return Response.json({
+                    data: [{ id: "qwen35-9b-provisional" }],
+                });
+            },
+        });
+        const configPath = join(root, "config.json");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            approval_mode: "ask",
+            providers: {
+                outrider: {
+                    protocol: "openai-chat",
+                    base_url: `http://127.0.0.1:${oldServer.port}/v1`,
+                    credential: "none",
+                },
+            },
+        }));
+
+        const host = await startResidentHost({
+            config: loadVeraConfig({ path: configPath }),
+            createAdapter: () => adapter,
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+
+        try {
+            const agent = await host.registry.create({
+                workspace: root,
+                sessionPath: join(root, "sessions", "agent.jsonl"),
+            });
+            const first = await host.registry.refreshCatalog(agent.id, "outrider");
+            expect(first?.availableModels).toContainEqual(expect.objectContaining({
+                provider: "outrider",
+                model: "qwen3-1.7b",
+            }));
+            expect(oldHits).toEqual(["/v1/models"]);
+            expect(newHits).toEqual([]);
+            const cachedBefore = readProviderCatalogSnapshot("outrider");
+            expect(cachedBefore.models.map((model) => model.id))
+                .toEqual(["qwen3-1.7b"]);
+
+            updateVeraConfigDefaults({
+                custom_provider: {
+                    id: "outrider",
+                    declaration: {
+                        protocol: "openai-chat",
+                        base_url: `http://127.0.0.1:${newServer.port}/v1`,
+                        credential: "none",
+                    },
+                },
+            }, { path: configPath });
+
+            const moved = await host.registry.refreshCatalog(agent.id, "outrider");
+            expect(moved?.availableModels).toContainEqual(expect.objectContaining({
+                provider: "outrider",
+                model: "qwen35-9b-provisional",
+            }));
+            expect(
+                moved?.availableModels?.some((model) =>
+                    model.provider === "outrider" && model.model === "qwen3-1.7b"
+                ),
+            ).toBe(false);
+            expect(oldHits).toEqual(["/v1/models"]);
+            expect(newHits).toEqual(["/v1/models"]);
+            expect(readProviderCatalogSnapshot("outrider").models.map((model) => model.id))
+                .toEqual(["qwen35-9b-provisional"]);
+            expect(readProviderCatalogSnapshot("outrider").fetched_at)
+                .not.toBe(cachedBefore.fetched_at);
+        } finally {
+            await host.close();
+            oldServer.stop(true);
+            newServer.stop(true);
+            if (previousHome === undefined) delete process.env.VERA_HOME;
+            else process.env.VERA_HOME = previousHome;
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+    15_000,
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "home refreshes a moved custom provider without a session",
+    async () => {
+        const root = await realpath(
+            await mkdtemp(join(tmpdir(), "vera-home-moved-refresh-")),
+        );
+        const previousHome = process.env.VERA_HOME;
+        process.env.VERA_HOME = root;
+
+        const oldHits: string[] = [];
+        const newHits: string[] = [];
+        const oldServer = Bun.serve({
+            port: 0,
+            fetch() {
+                oldHits.push("hit");
+                return Response.json({ data: [{ id: "qwen3-1.7b" }] });
+            },
+        });
+        const newServer = Bun.serve({
+            port: 0,
+            fetch() {
+                newHits.push("hit");
+                return Response.json({
+                    data: [{ id: "qwen35-9b-provisional" }],
+                });
+            },
+        });
+        const configPath = join(root, "config.json");
+        const socketPath = join(root, "host.sock");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            approval_mode: "ask",
+            providers: {
+                outrider: {
+                    protocol: "openai-chat",
+                    base_url: `http://127.0.0.1:${oldServer.port}/v1`,
+                    credential: "none",
+                },
+            },
+        }));
+
+        const host = await startResidentHost({
+            config: loadVeraConfig({ path: configPath }),
+            createAdapter: () => adapter,
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+
+        try {
+            const first = await refreshCatalogThroughHost(socketPath, "outrider", root);
+            expect(first?.availableModels).toContainEqual(expect.objectContaining({
+                provider: "outrider",
+                model: "qwen3-1.7b",
+            }));
+            expect(oldHits).toHaveLength(1);
+            expect(newHits).toHaveLength(0);
+
+            updateVeraConfigDefaults({
+                custom_provider: {
+                    id: "outrider",
+                    declaration: {
+                        protocol: "openai-chat",
+                        base_url: `http://127.0.0.1:${newServer.port}/v1`,
+                        credential: "none",
+                    },
+                },
+            }, { path: configPath });
+
+            const moved = await refreshCatalogThroughHost(socketPath, "outrider", root);
+            expect(moved?.availableModels).toContainEqual(expect.objectContaining({
+                provider: "outrider",
+                model: "qwen35-9b-provisional",
+            }));
+            expect(oldHits).toHaveLength(1);
+            expect(newHits).toHaveLength(1);
+        } finally {
+            await host.close();
+            oldServer.stop(true);
+            newServer.stop(true);
+            if (previousHome === undefined) delete process.env.VERA_HOME;
+            else process.env.VERA_HOME = previousHome;
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+    15_000,
 );

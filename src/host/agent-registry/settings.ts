@@ -451,6 +451,21 @@ export async function applyPoolAddEffect(reg: AgentRegistry, effect: { readonly 
         return { kind: "output", output: lines.join("\n"), isError: failed };
     }
 
+export async function refreshHostCatalog(
+    reg: AgentRegistry,
+    provider: string,
+): Promise<readonly SuggestedModel[] | undefined> {
+        if (reg.options.refreshCatalog === undefined) {
+            return undefined;
+        }
+        const refreshed = await reg.options.refreshCatalog(provider);
+        if (refreshed === undefined) {
+            return undefined;
+        }
+        reg.availableModels = refreshed;
+        return refreshed;
+    }
+
 export async function refreshCatalog(reg: AgentRegistry, id: string, provider: string): Promise<ModelTurnSettings | undefined> {
         const agentEntry = reg.agents.get(id);
         if (
@@ -461,11 +476,10 @@ export async function refreshCatalog(reg: AgentRegistry, id: string, provider: s
         ) {
             return undefined;
         }
-        const refreshed = await reg.options.refreshCatalog(provider);
+        const refreshed = await refreshHostCatalog(reg, provider);
         if (refreshed === undefined) {
             return undefined;
         }
-        reg.availableModels = refreshed;
         return settingsForClient(
             agentEntry.modelSettings,
             agentEntry.modelSettings.provider ?? reg.defaultProvider,

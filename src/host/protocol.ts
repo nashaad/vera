@@ -59,6 +59,28 @@ export interface ModelSettingsResponse {
     readonly settings: ModelTurnSettings;
 }
 
+/**
+ * Refresh one provider's model listing without a session attached.
+ *
+ * The catalog is host state, the same way `model_settings` is. Home still has
+ * to be able to ask a provider again after its URL changed.
+ */
+export interface CatalogRefreshRequest {
+    readonly type: "catalog_refresh";
+    readonly provider: string;
+    readonly workspace?: string;
+}
+
+export interface CatalogRefreshResponse {
+    readonly type: "catalog_refresh";
+    readonly settings: ModelTurnSettings;
+}
+
+export interface CatalogRefreshFailedResponse {
+    readonly type: "catalog_refresh_failed";
+    readonly provider: string;
+}
+
 export interface ListAgentsRequest {
     readonly type: "list_agents";
     readonly include?: readonly SessionFactName[];
@@ -503,6 +525,7 @@ export interface ProtocolErrorResponse {
 export type HostRequest =
     | HostIdentityRequest
     | ModelSettingsRequest
+    | CatalogRefreshRequest
     | ListAgentsRequest
     | SearchSessionsRequest
     | ScheduleOperationRequest
@@ -528,6 +551,8 @@ export type AttachedClientMessage =
 export type HostResponse =
     | HostIdentityResponse
     | ModelSettingsResponse
+    | CatalogRefreshResponse
+    | CatalogRefreshFailedResponse
     | AgentListResponse
     | SearchSessionsResponse
     | SearchSessionsUnavailableResponse
@@ -589,6 +614,20 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         const workspace = value.workspace;
         return {
             type: "model_settings",
+            ...(typeof workspace === "string" && workspace.length > 0
+                ? { workspace }
+                : {}),
+        };
+    }
+    if (
+        value?.type === "catalog_refresh"
+        && typeof value.provider === "string"
+        && value.provider.length > 0
+    ) {
+        const workspace = value.workspace;
+        return {
+            type: "catalog_refresh",
+            provider: value.provider,
             ...(typeof workspace === "string" && workspace.length > 0
                 ? { workspace }
                 : {}),

@@ -119,6 +119,10 @@ export interface StartHostServerOptions {
     readonly readModelSettings?: (
         workspace?: string,
     ) => ModelTurnSettings | undefined;
+    readonly refreshCatalog?: (
+        provider: string,
+        workspace?: string,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -398,6 +402,7 @@ export async function startHostServer(
             interactiveAttachments,
             options.readAgentTree ?? ((agentId) => [agentId]),
             options.readModelSettings ?? (() => undefined),
+            options.refreshCatalog,
             options.readAnnex,
             options.checkpointStores,
             resolveHostLimits(options.limits),
@@ -525,6 +530,10 @@ function receiveConnection(
     interactiveAttachments: InteractiveAttachmentRegistry,
     readAgentTree: (rootAgentId: string) => readonly string[],
     readModelSettings: (workspace?: string) => ModelTurnSettings | undefined,
+    refreshCatalog: ((
+        provider: string,
+        workspace?: string,
+    ) => Promise<ModelTurnSettings | undefined>) | undefined,
     readAnnex: (() =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -1042,6 +1051,32 @@ function receiveConnection(
                         reason: "unsupported_or_invalid_command",
                     }
                     : { type: "model_settings", settings },
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "catalog_refresh") {
+            clearDeadline();
+            finished = true;
+            if (refreshCatalog === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            const refreshRequest = request;
+            void refreshCatalog(
+                refreshRequest.provider,
+                refreshRequest.workspace,
+            ).then(
+                (settings) => send(
+                    settings === undefined
+                        ? {
+                            type: "catalog_refresh_failed",
+                            provider: refreshRequest.provider,
+                        }
+                        : { type: "catalog_refresh", settings },
+                ),
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

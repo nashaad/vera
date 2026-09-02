@@ -60,6 +60,7 @@ const GROUPS = {
             "sessionModelSettingsHistory",
             "poolAdd",
             "applyPoolAddEffect",
+            "refreshHostCatalog",
             "refreshCatalog",
             "poolRemove",
             "poolName",

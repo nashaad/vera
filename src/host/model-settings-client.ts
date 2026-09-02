@@ -36,3 +36,41 @@ export async function readModelSettingsThroughHost(
         connection.close();
     }
 }
+
+export async function refreshCatalogThroughHost(
+    socketPath: string,
+    provider: string,
+    workspace?: string,
+    responseTimeoutMs = 10_000,
+): Promise<ModelTurnSettings | undefined> {
+    const connection = await connectHost({ socketPath });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await connection.send({
+            type: "catalog_refresh",
+            provider,
+            ...(workspace === undefined ? {} : { workspace }),
+        });
+        const response = await Promise.race([
+            connection.receive(),
+            new Promise<never>((_, reject) => {
+                timeout = setTimeout(() => {
+                    reject(new Error("Host catalog refresh deadline exceeded"));
+                }, responseTimeoutMs);
+            }),
+        ]);
+        const record = typeof response === "object" && response !== null
+            ? response as Record<string, unknown>
+            : undefined;
+        if (record?.type !== "catalog_refresh") {
+            return undefined;
+        }
+        const settings = record.settings;
+        return typeof settings === "object" && settings !== null
+            ? settings as ModelTurnSettings
+            : undefined;
+    } finally {
+        clearTimeout(timeout);
+        connection.close();
+    }
+}

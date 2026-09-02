@@ -22,6 +22,27 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "annex_url",
     });
     expect(parseHostRequest(JSON.stringify({
+        type: "catalog_refresh",
+        provider: "outrider",
+    }))).toEqual({
+        type: "catalog_refresh",
+        provider: "outrider",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "catalog_refresh",
+        provider: "outrider",
+        workspace: "/work/vera",
+    }))).toEqual({
+        type: "catalog_refresh",
+        provider: "outrider",
+        workspace: "/work/vera",
+    });
+    expect(parseHostRequest('{"type":"catalog_refresh"}')).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "catalog_refresh",
+        provider: "",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
         type: "checkpoint_stores",
         destination: "/tmp/vera-dev/one/runtime",
     }))).toEqual({

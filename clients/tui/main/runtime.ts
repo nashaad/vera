@@ -26,6 +26,7 @@ import type { DialStripState } from "../dials.ts";
 import type { TuiExperimentalHost } from "../experimental-tui-host.ts";
 import type { TuiFlightRecorder } from "../flight-recorder.ts";
 import type { TuiHelpState, TuiHelpView } from "../help.ts";
+import type { HomeClientOptions } from "../home-client.ts";
 import type { HomeState, TuiHomeView } from "../home-screen.ts";
 import type { TuiHostedAgentSurface } from "../hosted-agent-surface.ts";
 import type { TuiHostedPanePersistence } from "../hosted-pane-persistence.ts";
@@ -77,7 +78,7 @@ export interface PoolChangeUndo {
 export interface TuiRuntime {
     dependencies: TuiDependencies;
     client: TuiAgentClient;
-    homeClientOptions: { readModelSettings?: undefined; } | { readModelSettings: (workspace: string) => Promise<ModelTurnSettings | undefined>; };
+    homeClientOptions: HomeClientOptions;
     flightRecorder: TuiFlightRecorder | undefined;
     configuredAppearance: TuiAppearance;
     renderer: CliRenderer;

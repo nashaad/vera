@@ -62,6 +62,7 @@ test("fresh snapshots avoid a provider request and failed refreshes use stale ro
             schema_version: 2,
             provider: "fixture-provider",
             fetched_at: new Date().toISOString(),
+            endpoint: "https://fixture.example/v1/models",
             models: [{ id: "cached", label: "Cached", levels: [] }],
         }, { cacheDir });
         const fresh = await refreshOpenAIProviderCatalog({
@@ -95,6 +96,58 @@ test("fresh snapshots avoid a provider request and failed refreshes use stale ro
     }
 });
 
+test("a listing from a previous endpoint is not fresh and is not kept stale", async () => {
+    const cacheDir = temporaryCache();
+    try {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "outrider",
+            fetched_at: new Date().toISOString(),
+            endpoint: "http://127.0.0.1:11438/v1/models",
+            models: [{ id: "qwen3-1.7b", label: "qwen3-1.7b", levels: [] }],
+        }, { cacheDir });
+        let requested = "";
+        const moved = await refreshOpenAIProviderCatalog({
+            provider: "outrider",
+            baseUrl: "http://127.0.0.1:11435/v1",
+            maxAgeMs: 60_000,
+            cacheDir,
+            fetch: async (input) => {
+                requested = String(input);
+                return new Response(JSON.stringify({
+                    data: [{ id: "qwen35-9b-provisional" }],
+                }), { status: 200 });
+            },
+        });
+        expect(requested).toBe("http://127.0.0.1:11435/v1/models");
+        expect(moved.status).toBe("refreshed");
+        expect(resultCatalog(moved).models.map((model) => model.id))
+            .toEqual(["qwen35-9b-provisional"]);
+        expect(resultCatalog(moved).endpoint)
+            .toBe("http://127.0.0.1:11435/v1/models");
+
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "outrider",
+            fetched_at: new Date().toISOString(),
+            endpoint: "http://127.0.0.1:11438/v1/models",
+            models: [{ id: "qwen3-1.7b", label: "qwen3-1.7b", levels: [] }],
+        }, { cacheDir });
+        const failed = await refreshOpenAIProviderCatalog({
+            provider: "outrider",
+            baseUrl: "http://127.0.0.1:11435/v1",
+            maxAgeMs: 0,
+            cacheDir,
+            fetch: async () => new Response("", { status: 503 }),
+        });
+        expect(failed).toEqual({ status: "failed", failure: "unavailable" });
+        expect(readProviderCatalogSnapshot("outrider", { cacheDir }).models)
+            .toMatchObject([{ id: "qwen3-1.7b" }]);
+    } finally {
+        rmSync(cacheDir, { recursive: true, force: true });
+    }
+});
+
 test("an empty or unlisted endpoint is a normal type-a-model state", async () => {
     const cacheDir = temporaryCache();
     try {
@@ -120,6 +173,7 @@ test("malformed optional discovery preserves a good snapshot", async () => {
             schema_version: 2,
             provider: "omlx",
             fetched_at: "2026-08-24T00:00:00.000Z",
+            endpoint: "http://127.0.0.1:8000/v1/models",
             models: [{ id: "kept", label: "Kept", levels: [] }],
         }, { cacheDir });
 

@@ -486,6 +486,12 @@ export class AgentRegistry {
         return registryRoster.applyAgentInboxEffect(this, callerId, effect);
     }
 
+    async refreshHostCatalog(
+        provider: string,
+    ): Promise<readonly SuggestedModel[] | undefined> {
+        return registrySettings.refreshHostCatalog(this, provider);
+    }
+
     async refreshCatalog(
         id: string,
         provider: string,

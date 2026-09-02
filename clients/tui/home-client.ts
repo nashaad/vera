@@ -20,6 +20,10 @@ export interface HomeClientOptions {
     readonly readModelSettings?: (
         workspace: string,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly refreshCatalog?: (
+        provider: string,
+        workspace: string,
+    ) => Promise<ModelTurnSettings | undefined>;
 }
 
 export function createHomeClient(
@@ -36,6 +40,10 @@ export function createHomeClient(
         async send(command: ClientCommand): Promise<void> {
             if (command.type === "get_model_settings") {
                 await answerModelSettings(command.requestId);
+                return;
+            }
+            if (command.type === "catalog_refresh") {
+                await answerCatalogRefresh(command.requestId, command.provider);
                 return;
             }
             if (!commandNeedsRunningLoop(command)) {
@@ -68,6 +76,34 @@ export function createHomeClient(
                     type: "model_settings_rejected",
                     requestId,
                     reason: "unavailable",
+                    seq,
+                }
+                : {
+                    type: "model_settings",
+                    requestId,
+                    settings,
+                    pending: false,
+                    seq,
+                },
+        );
+    }
+
+    async function answerCatalogRefresh(
+        requestId: string,
+        provider: string,
+    ): Promise<void> {
+        const settings = await options.refreshCatalog?.(provider, workspace)
+            .catch(() => undefined);
+        seq += 1;
+        if (closed) return;
+        outgoing.push(
+            settings === undefined
+                ? {
+                    type: "model_settings_rejected",
+                    requestId,
+                    reason: options.refreshCatalog === undefined
+                        ? "unavailable"
+                        : "invalid",
                     seq,
                 }
                 : {

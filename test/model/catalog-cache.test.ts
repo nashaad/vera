@@ -16,6 +16,7 @@ import { join } from "node:path";
 import {
     providerCatalogCachePath,
     listDiscoveredProviders,
+    readFreshProviderCatalogSnapshot,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "../../src/model/catalog-cache.ts";
@@ -155,6 +156,30 @@ describe("provider catalog cache", () => {
         }, { cacheDir });
 
         expect(listDiscoveredProviders({ cacheDir })).toEqual(["openrouter"]);
+    });
+
+    test("a snapshot for a different endpoint is not fresh", () => {
+        const cacheDir = temporaryDirectory();
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "outrider",
+            fetched_at: new Date().toISOString(),
+            endpoint: "http://127.0.0.1:11438/v1/models",
+            models: [{ id: "qwen3-1.7b", label: "qwen3-1.7b", levels: [] }],
+        }, { cacheDir });
+
+        expect(readFreshProviderCatalogSnapshot(
+            "outrider",
+            60_000,
+            { cacheDir },
+            "http://127.0.0.1:11435/v1/models",
+        )).toBeUndefined();
+        expect(readFreshProviderCatalogSnapshot(
+            "outrider",
+            60_000,
+            { cacheDir },
+            "http://127.0.0.1:11438/v1/models",
+        )?.models.map((model) => model.id)).toEqual(["qwen3-1.7b"]);
     });
 });
 
