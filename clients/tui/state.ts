@@ -76,6 +76,8 @@ export interface TuiTextTranscriptEntry {
     readonly admission?: string;
     readonly diagnostic?: TuiDiagnostic;
     readonly tone?: "primary" | "soft" | "error";
+    readonly card?: boolean;
+    readonly summary?: string;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -1059,17 +1061,38 @@ export function appendTuiNotice(
     tone?: "primary" | "soft" | "error",
     supersedes?: string,
 ): TuiState {
-    const entry: TuiTranscriptEntry = {
+    return placeTuiNotice(state, {
         kind: "notice",
         text: message,
         liveOnly: true,
         ...(tone === undefined ? {} : { tone }),
         ...(supersedes === undefined ? {} : { supersedes }),
-    };
+    });
+}
+
+// A card notice renders as a shaded band instead of a bare line.
+export function appendTuiNoticeCard(
+    state: TuiState,
+    message: string,
+    summary: string,
+    supersedes: string,
+): TuiState {
+    return placeTuiNotice(state, {
+        kind: "notice",
+        text: message,
+        summary,
+        liveOnly: true,
+        card: true,
+        expanded: state.toolDetailsExpanded === true,
+        supersedes,
+    });
+}
+
+function placeTuiNotice(state: TuiState, entry: TuiTextTranscriptEntry): TuiState {
     const previous = state.entries.at(-1);
     if (
-        supersedes !== undefined && previous?.kind === "notice"
-        && previous.supersedes === supersedes
+        entry.supersedes !== undefined && previous?.kind === "notice"
+        && previous.supersedes === entry.supersedes
     ) {
         return {
             ...state,
@@ -1079,6 +1102,22 @@ export function appendTuiNotice(
         };
     }
     return appendEntry(state, entry);
+}
+
+// The lines a superseding card carries forward, minus its trailing footer.
+export function tuiNoticeCardLines(
+    state: TuiState,
+    supersedes: string,
+    footer: string,
+): readonly string[] {
+    const previous = state.entries.at(-1);
+    if (
+        previous?.kind !== "notice" || previous.card !== true
+        || previous.supersedes !== supersedes
+    ) {
+        return [];
+    }
+    return previous.text.split("\n").filter((line) => line !== footer);
 }
 
 export function appendTuiDiagnostic(
@@ -1187,14 +1226,20 @@ export function toggleTuiThinking(state: TuiState): TuiState {
 
 export function toggleTuiToolDetails(state: TuiState): TuiState {
     const expanded = !state.entries.some((entry) =>
-        entry.kind === "tool"
-        && entry.active !== true
-        && entry.hidden !== true
+        (entry.kind === "tool"
+            && entry.active !== true
+            && entry.hidden !== true)
+        || (entry.kind === "notice" && entry.card === true
+            && entry.expanded === true)
     );
     return {
         ...state,
         toolDetailsExpanded: expanded,
-        entries: applyToolDetailPreference(state.entries, expanded),
+        entries: applyToolDetailPreference(state.entries, expanded).map((entry) =>
+            entry.kind === "notice" && entry.card === true
+                ? { ...entry, expanded }
+                : entry
+        ),
     };
 }
 
@@ -1247,6 +1292,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText(renderTuiReview(entry.text));
     }
     if (entry.kind === "notice") {
+        if (entry.card === true) {
+            return entry.expanded === true
+                ? new StyledText([fg(TUI_MUTED)(entry.text)])
+                : new StyledText([
+                    fg(TUI_MUTED)(entry.summary ?? entry.text),
+                    fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
+                ]);
+        }
         if (entry.diagnostic === undefined && entry.admission !== undefined) {
             const [heading, ...steps] = entry.text.split("\n");
             return new StyledText([

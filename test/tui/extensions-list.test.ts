@@ -95,11 +95,11 @@ test("the list groups project above profile and carries status in words", () => 
     expect(renderTuiExtensionsList(state)).toBe([
         "Extensions",
         "",
-        "Project",
+        "In Project",
         "› vera.btw         v1.2.0  enabled",
         "  agents",
         "",
-        "Profile",
+        "In Profile",
         "  example.context  v0.1.0  enabled",
         "  commands · context · tui · sessions",
         "  vera.btw         v1.2.0  shadowed",

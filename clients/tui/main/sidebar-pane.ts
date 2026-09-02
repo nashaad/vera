@@ -11,6 +11,7 @@ import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-ent
 import { syncTuiModelPicker } from "../settings-picker.ts";
 import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
 import { tuiHandleActiveColor, tuiHandleColor } from "../theme.ts";
+import { createTuiNoticeCard, repaintTuiNoticeCard, updateTuiNoticeCard } from "../notice-card.ts";
 import { createTuiThinkingWindow, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { createTuiToolHeader, createTuiToolRow, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
 import { tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams } from "../transcript-window.ts";
@@ -101,6 +102,8 @@ export function createTuiEntryNode(rt: TuiRuntime,
         )
         : entry.kind === "thinking"
         ? createTuiThinkingWindow(rt.renderer, id, entry, inner)
+        : entry.kind === "notice" && entry.card === true
+        ? createTuiNoticeCard(rt.renderer, id, entry, inner)
         : markdownNode ?? new TextRenderable(rt.renderer, {
             id,
             content: renderTuiEntry(entry),
@@ -175,6 +178,12 @@ export function renderSidebarAgent(rt: TuiRuntime,
                 && existing instanceof BoxRenderable
             ) {
                 if (repaintTheme) repaintTuiUserEntry(existing);
+            } else if (
+                entry.kind === "notice" && entry.card === true
+                && existing instanceof BoxRenderable
+            ) {
+                if (repaintTheme) repaintTuiNoticeCard(existing);
+                updateTuiNoticeCard(existing, entry);
             } else if (
                 entry.kind === "diff"
                 && existing instanceof BoxRenderable

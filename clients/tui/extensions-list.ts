@@ -653,7 +653,7 @@ function toggleLabel(row: TuiExtensionListRow): string {
 }
 
 function scopeLabel(scope: TuiExtensionListRow["scope"]): string {
-    return scope === "project" ? "Project" : "Profile";
+    return scope === "project" ? "In Project" : "In Profile";
 }
 
 function visibleRowIndices(
@@ -664,19 +664,21 @@ function visibleRowIndices(
         return state.rows.map((_, index) => index);
     }
     const indices = state.rows.map((_, index) => index);
+    const groups = new Set(state.rows.map((row) => row.scope)).size;
+    const groupLines = groups === 0 ? 0 : groups * 2 - 1;
     return listWindowSlice(
         indices,
         state.selectedIndex,
         Math.max(
             LIST_MIN_ROWS,
-            Math.floor(listWindowRows(
+            Math.floor((listWindowRows(
                 dialogBoxHeight(
                     renderer,
                     APP_PADDING_TOP,
                     dialogInsetBottomOffset(renderer),
                 ),
                 LIST_CHROME_ROWS,
-            ) / 2),
+            ) - groupLines) / 2),
         ),
     );
 }
@@ -830,7 +832,7 @@ function extensionRowNode(
         width: "100%",
         height: 2,
         flexDirection: "column",
-        backgroundColor: background,
+        backgroundColor: TUI_PANEL,
     });
     if (pointer.onSelect !== undefined) {
         item.onMouseDown = (event: MouseEvent) => {
@@ -860,8 +862,8 @@ function extensionRowNode(
     }));
     item.add(new TextRenderable(renderer, {
         content: row.contributionLine,
-        fg: row.status === "failed" && !active ? TUI_DANGER : detail,
-        bg: background,
+        fg: row.status === "failed" ? TUI_DANGER : TUI_MUTED,
+        bg: TUI_PANEL,
         width: "100%",
         height: 1,
         wrapMode: "none",

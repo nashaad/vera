@@ -20,10 +20,12 @@ import {
     type TuiExtensionsListKey,
     type TuiExtensionsListState,
 } from "../extensions-list.ts";
-import { appendTuiError, appendTuiNotice } from "../state.ts";
+import { appendTuiError, appendTuiNotice, appendTuiNoticeCard, tuiNoticeCardLines } from "../state.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
+
+const EXTENSION_NOTICE_KEY = "extensions";
 
 const HOST_RESTART_NOTICE =
     "Client extensions reload now; restart the resident host for host-side capabilities.";
@@ -110,9 +112,23 @@ function applyExtensionsListMutation(
         const record = operation === "remove"
             ? removeExtension(entry.id, target)
             : setExtensionEnabled(entry.id, operation === "enable", target);
-        rt.state = appendTuiNotice(
+        const line = renderExtensionMutation(operation, record, entry.scope)
+            .trimEnd();
+        const changes = [
+            ...tuiNoticeCardLines(
+                rt.state,
+                EXTENSION_NOTICE_KEY,
+                HOST_RESTART_NOTICE,
+            ),
+            line,
+        ];
+        rt.state = appendTuiNoticeCard(
             rt.state,
-            `${renderExtensionMutation(operation, record, entry.scope).trimEnd()}\n${HOST_RESTART_NOTICE}`,
+            [...changes, HOST_RESTART_NOTICE].join("\n"),
+            changes.length === 1
+                ? line
+                : `${changes.length} extension changes`,
+            EXTENSION_NOTICE_KEY,
         );
         const previousScreen = rt.extensionsList?.screen;
         const selected = operation === "remove" ? undefined : {
