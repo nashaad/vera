@@ -492,12 +492,17 @@ test("dialling a session reaches the loop already running in a worker", async ()
             requestId: "mode-1",
             mode: "ask",
         });
-        await receiveUntil(
+        const changed = await receiveUntil(
             client,
             (update) =>
                 update.type === "permissions"
                 || update.type === "permissions_rejected",
         );
+        expect(changed).toMatchObject({
+            type: "permissions",
+            requestId: "mode-1",
+            mode: "ask",
+        });
 
         // The worker answers permission reads from its pushed copy, so the
         // dial only counts as arrived once that copy carries it.

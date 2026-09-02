@@ -1208,6 +1208,26 @@ test("TUI state keeps host-reported permissions", () => {
     expect(state.entries).toEqual([]);
 });
 
+test("TUI state keeps the new permission mode and shows a sync warning", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "permissions",
+        requestId: "permissions-sync",
+        mode: "readonly",
+        pending: false,
+        warning: "The permission change took effect, but synchronizing it failed.",
+        seq: 1,
+    });
+
+    expect(state.approvalMode).toBe("readonly");
+    expect(state.entries).toEqual([
+        {
+            kind: "notice",
+            text: "The permission change took effect, but synchronizing it failed.",
+            liveOnly: true,
+        },
+    ]);
+});
+
 test("TUI state keeps context usage across measurement and replay", () => {
     let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "go"), {
         type: "context",

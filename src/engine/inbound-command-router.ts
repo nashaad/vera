@@ -45,6 +45,34 @@ export interface SessionModelSettingsResult {
     readonly origin: SessionSettingOrigin;
 }
 
+export const PERMISSION_SYNC_WARNING =
+    "The permission change took effect, but synchronizing it failed.";
+
+export class PermissionModeSyncError extends Error {
+    readonly mode: ApprovalMode;
+
+    constructor(mode: ApprovalMode, cause?: unknown) {
+        super(PERMISSION_SYNC_WARNING);
+        this.name = "PermissionModeSyncError";
+        this.mode = mode;
+        if (cause instanceof Error) {
+            this.cause = cause;
+        }
+    }
+}
+
+function appliedPermissionModeAfterError(
+    requested: ApprovalMode,
+    error: unknown,
+    readApprovalMode: (() => ApprovalMode) | undefined,
+): ApprovalMode | undefined {
+    if (error instanceof PermissionModeSyncError) {
+        return error.mode;
+    }
+    const current = readApprovalMode?.();
+    return current === requested ? current : undefined;
+}
+
 const AUTHORITY_WARNINGS: Readonly<Record<string, string>> = {
     bash: "If allowed, this command and its child processes run with your"
         + " full user permissions.",
@@ -1571,33 +1599,21 @@ export class InboundCommandRouter {
         mode: ApprovalMode,
     ): Promise<void> {
         if (this.options.updateSessionPermissionMode === undefined) {
-            this.events.emit({
-                type: "permissions_rejected",
-                requestId,
-                reason: "unavailable",
-            });
+            this.emitPermissionsRejected(requestId, "unavailable");
             return;
         }
         let result: ApprovalMode | undefined;
         try {
             result = await this.options.updateSessionPermissionMode(mode);
-        } catch {
-            this.events.emit({
-                type: "permissions_rejected",
-                requestId,
-                reason: "unavailable",
-            });
+        } catch (error) {
+            this.replyAppliedPermissionMode(requestId, mode, error);
             return;
         }
         if (result === undefined) {
-            this.events.emit({
-                type: "permissions_rejected",
-                requestId,
-                reason: "invalid",
-            });
+            this.emitPermissionsRejected(requestId, "invalid");
             return;
         }
-        this.sendPermissions(requestId);
+        this.emitPermissionsChanged(requestId, result);
     }
 
     private async poolAdd(
@@ -1847,13 +1863,17 @@ export class InboundCommandRouter {
     private sendPermissions(requestId: string): void {
         const mode = this.options.readApprovalMode?.();
         if (mode === undefined) {
-            this.events.emit({
-                type: "permissions_rejected",
-                requestId,
-                reason: "unavailable",
-            });
+            this.emitPermissionsRejected(requestId, "unavailable");
             return;
         }
+        this.emitPermissionsChanged(requestId, mode);
+    }
+
+    private emitPermissionsChanged(
+        requestId: string,
+        mode: ApprovalMode,
+        warning?: string,
+    ): void {
         const inspection = this.options.readPermissionInspection?.();
         const origin = this.options.readApprovalModeOrigin?.();
         this.events.emit({
@@ -1863,42 +1883,51 @@ export class InboundCommandRouter {
             pending: this.hasPendingTurn(),
             ...(inspection === undefined ? {} : { inspection }),
             ...(origin === undefined ? {} : { origin }),
+            ...(warning === undefined ? {} : { warning }),
         });
+    }
+
+    private replyAppliedPermissionMode(
+        requestId: string,
+        requested: ApprovalMode,
+        error: unknown,
+    ): void {
+        const applied = appliedPermissionModeAfterError(
+            requested,
+            error,
+            this.options.readApprovalMode,
+        );
+        if (applied === undefined) {
+            this.emitPermissionsRejected(requestId, "unavailable");
+            return;
+        }
+        this.emitPermissionsChanged(
+            requestId,
+            applied,
+            PERMISSION_SYNC_WARNING,
+        );
     }
 
     private async updatePermissions(
         requestId: string,
         mode: ApprovalMode,
     ): Promise<void> {
+        if (this.options.updateApprovalMode === undefined) {
+            this.emitPermissionsRejected(requestId, "unavailable");
+            return;
+        }
         let effective: ApprovalMode | undefined;
         try {
-            effective = await this.options.updateApprovalMode?.(mode);
-        } catch {
-            this.events.emit({
-                type: "permissions_rejected",
-                requestId,
-                reason: "unavailable",
-            });
+            effective = await this.options.updateApprovalMode(mode);
+        } catch (error) {
+            this.replyAppliedPermissionMode(requestId, mode, error);
             return;
         }
         if (effective === undefined) {
-            this.events.emit({
-                type: "permissions_rejected",
-                requestId,
-                reason: this.options.updateApprovalMode === undefined
-                    ? "unavailable"
-                    : "invalid",
-            });
+            this.emitPermissionsRejected(requestId, "invalid");
             return;
         }
-        const inspection = this.options.readPermissionInspection?.();
-        this.events.emit({
-            type: "permissions_changed",
-            requestId,
-            mode: effective,
-            pending: this.hasPendingTurn(),
-            ...(inspection === undefined ? {} : { inspection }),
-        });
+        this.emitPermissionsChanged(requestId, effective);
     }
 
     private async addPermissionPreference(

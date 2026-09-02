@@ -4,6 +4,7 @@ import { agentSnapshotDrift, resolveAgentSnapshot } from "../../agents/snapshot.
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
 import { EngineEventBus } from "../../engine/events.ts";
 import type { ModelTurnSettings } from "../../engine/model-settings.ts";
+import { PermissionModeSyncError } from "../../engine/inbound-command-router.ts";
 import { BUILT_IN_PERMISSION_MODE_NAMES, builtInPermissionMode, isApprovalMode, type ApprovalMode } from "../../engine/permissions.ts";
 import { decideSkillInvocation, loadSkillCommandCatalog, type SkillCommandCatalog, type SkillInvocationDecision } from "../../skills/commands.ts";
 import { sessionIsSubagent } from "../../store/session-store.ts";
@@ -11,10 +12,25 @@ import { delegationAllows } from "./helpers.ts";
 import { RESUME_SELECT_REQUEST_ID, resolveInstructionRoot, samePair, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
+function syncWorkerAfterPermissionChange(
+    reg: AgentRegistry,
+    id: string,
+    mode: ApprovalMode | undefined,
+): ApprovalMode | undefined {
+    try {
+        reg.pushWorkerState(id);
+    } catch (error) {
+        if (mode !== undefined) {
+            throw new PermissionModeSyncError(mode, error);
+        }
+        throw error;
+    }
+    return mode;
+}
+
 export async function updateSessionPermissionMode(reg: AgentRegistry, id: string, mode: ApprovalMode): Promise<ApprovalMode | undefined> {
         const result = await reg.applySessionPermissionMode(id, mode);
-        reg.pushWorkerState(id);
-        return result;
+        return syncWorkerAfterPermissionChange(reg, id, result);
     }
 
 export async function applySessionPermissionMode(reg: AgentRegistry, id: string, mode: ApprovalMode): Promise<ApprovalMode | undefined> {
@@ -339,8 +355,7 @@ export async function updateAgentDefaultPairFor(reg: AgentRegistry, id: string, 
 
 export async function updateApprovalMode(reg: AgentRegistry, id: string, mode: ApprovalMode): Promise<ApprovalMode | undefined> {
         const result = await reg.applyApprovalMode(id, mode);
-        reg.pushWorkerState(id);
-        return result;
+        return syncWorkerAfterPermissionChange(reg, id, result);
     }
 
 export async function applyApprovalMode(reg: AgentRegistry, id: string, mode: ApprovalMode): Promise<ApprovalMode | undefined> {

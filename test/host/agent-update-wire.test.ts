@@ -507,6 +507,29 @@ test("host wire validates permission results", () => {
     });
     expect(parseAgentUpdate({
         type: "permissions",
+        requestId: "permissions-sync",
+        mode: "readonly",
+        pending: false,
+        warning: "The permission change took effect, but synchronizing it failed.",
+        seq: 14,
+    })).toEqual({
+        type: "permissions",
+        requestId: "permissions-sync",
+        mode: "readonly",
+        pending: false,
+        warning: "The permission change took effect, but synchronizing it failed.",
+        seq: 14,
+    });
+    expect(parseAgentUpdate({
+        type: "permissions",
+        requestId: "permissions-empty-warning",
+        mode: "readonly",
+        pending: false,
+        warning: "",
+        seq: 15,
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        type: "permissions",
         requestId: "permissions-2",
         mode: "../always-allow",
         pending: false,

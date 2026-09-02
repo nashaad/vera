@@ -148,6 +148,9 @@ export async function runInWorker(reg: AgentRegistry, options: {
                             return services.readModelSettings!();
                         },
                     }),
+                ...(services.readApprovalMode === undefined
+                    ? {}
+                    : { readApprovalMode: services.readApprovalMode }),
                 ...(services.router ?? {}),
                 sendSessionNameReply: services.router?.sendSessionNameReply
                     ?? ((_ownerId, reply) => agent.engine.send(reply)),

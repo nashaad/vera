@@ -553,7 +553,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "permissions") {
-        return {
+        const next = {
             ...state,
             approvalMode: update.mode,
             ...(update.inspection === undefined
@@ -563,6 +563,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 ? {}
                 : { approvalModeOrigin: update.origin }),
         };
+        return update.warning === undefined
+            ? next
+            : appendTuiNotice(next, update.warning);
     }
     if (update.type === "permissions_rejected") {
         return state;

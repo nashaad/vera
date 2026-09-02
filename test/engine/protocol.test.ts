@@ -1081,6 +1081,13 @@ test("permission results share the ordered agent update sequence", () => {
         pending: true,
     });
     protocol({
+        type: "permissions_changed",
+        requestId: "permissions-sync",
+        mode: "readonly",
+        pending: false,
+        warning: "The permission change took effect, but synchronizing it failed.",
+    });
+    protocol({
         type: "permissions_rejected",
         requestId: "permissions-2",
         reason: "invalid",
@@ -1095,10 +1102,18 @@ test("permission results share the ordered agent update sequence", () => {
             seq: 1,
         },
         {
+            type: "permissions",
+            requestId: "permissions-sync",
+            mode: "readonly",
+            pending: false,
+            warning: "The permission change took effect, but synchronizing it failed.",
+            seq: 2,
+        },
+        {
             type: "permissions_rejected",
             requestId: "permissions-2",
             reason: "invalid",
-            seq: 2,
+            seq: 3,
         },
     ]);
 });

@@ -341,6 +341,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && (update.origin === undefined
                     || update.origin === "agent-default"
                     || update.origin === "user")
+                && (update.warning === undefined
+                    || (typeof update.warning === "string"
+                        && update.warning.length > 0))
                 ? withPermissionInspection(value, update)
                 : undefined;
     }

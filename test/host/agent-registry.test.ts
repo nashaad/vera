@@ -5528,6 +5528,34 @@ test("an explicit forbidden permission switches the session back to default", as
     }
 });
 
+test("a worker sync failure after applying readonly keeps the new mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-perm-sync-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        registry.pushWorkerState = () => {
+            throw new Error("pipe closed");
+        };
+        await expect(registry.updateSessionPermissionMode(agent.id, "readonly"))
+            .rejects.toMatchObject({
+                name: "PermissionModeSyncError",
+                mode: "readonly",
+            });
+        expect(registry.approvalModeOf(agent.id)).toBe("readonly");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a session loads project extension tools from its own workspace", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vera-project-tools-")));
     const workspace = join(root, "app");

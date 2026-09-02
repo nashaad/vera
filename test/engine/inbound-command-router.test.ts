@@ -5,7 +5,11 @@ import { join } from "node:path";
 
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
-import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
+import {
+    InboundCommandRouter,
+    PERMISSION_SYNC_WARNING,
+    PermissionModeSyncError,
+} from "../../src/engine/inbound-command-router.ts";
 import {
     createInProcessChannel,
     type MessageChannel,
@@ -2178,6 +2182,89 @@ test("a failed permissions write rejects without closing the command router", as
     const turn = await router.startTurn();
     expect(turn.prompt.content).toBe("still connected");
     router.finishTurn();
+});
+
+test("a session permission write replies with the mode it applied, even when the host cannot re-read it", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let mode: ApprovalMode = "auto";
+    new InboundCommandRouter(channel.engine, events, {
+        async updateSessionPermissionMode(nextMode) {
+            mode = nextMode;
+            return mode;
+        },
+    });
+
+    channel.client.send({
+        type: "update_session_permission_mode",
+        requestId: "session-readonly",
+        mode: "readonly",
+    });
+    // The worker owner router has the write hook and not the read hook, so the
+    // reply must use the applied mode rather than asking to re-read it.
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions",
+        requestId: "session-readonly",
+        mode: "readonly",
+        pending: false,
+        seq: 1,
+    });
+    expect(mode).toBe("readonly");
+});
+
+test("an exception after applying readonly cannot produce a false rejection", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let mode: ApprovalMode = "auto";
+    new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => mode,
+        async updateSessionPermissionMode(nextMode) {
+            mode = nextMode;
+            throw new Error("worker pipe closed");
+        },
+    });
+
+    channel.client.send({
+        type: "update_session_permission_mode",
+        requestId: "applied-readonly",
+        mode: "readonly",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions",
+        requestId: "applied-readonly",
+        mode: "readonly",
+        pending: false,
+        warning: PERMISSION_SYNC_WARNING,
+        seq: 1,
+    });
+    expect(mode).toBe("readonly");
+});
+
+test("a permission sync error after applying readonly replies with the mode it carries", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events, {
+        async updateSessionPermissionMode(nextMode) {
+            throw new PermissionModeSyncError(nextMode);
+        },
+    });
+
+    channel.client.send({
+        type: "update_session_permission_mode",
+        requestId: "sync-readonly",
+        mode: "readonly",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions",
+        requestId: "sync-readonly",
+        mode: "readonly",
+        pending: false,
+        warning: PERMISSION_SYNC_WARNING,
+        seq: 1,
+    });
 });
 
 test("a failed session permission write rejects without closing the router", async () => {

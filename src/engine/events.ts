@@ -241,6 +241,7 @@ export interface PermissionsChangedEvent {
     readonly pending: boolean;
     readonly inspection?: PermissionInspection;
     readonly origin?: SessionSettingOrigin;
+    readonly warning?: string;
 }
 
 export type ToolDenialClass =
