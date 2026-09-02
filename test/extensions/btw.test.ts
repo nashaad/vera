@@ -12,14 +12,19 @@ async function start(visible: readonly {
 }[] = [{ agentId: "main", pane: "main" }], syncOutcomes: string[] = []) {
     const calls: unknown[] = [];
     const syncs: string[] = [];
+    const failures: { message: string }[] = [];
     let mentions: readonly string[] = [];
     let created = 0;
     const mounted: any[] = [];
     const rawMounted: any[] = [];
     let layoutCycles = 0;
     let focusToggles = 0;
+    let focused: "primary" | "secondary" = "primary";
     const registry = await startClientExtensionRegistry({
         extensions: [{ path: EXTENSION, enabled: true, config: null }],
+        onFailure(failure) {
+            failures.push(failure);
+        },
         preferences: {
             async get() {
                 return undefined;
@@ -69,7 +74,7 @@ async function start(visible: readonly {
                 current() {
                     return {
                         layout: "split" as const,
-                        focused: "primary" as const,
+                        focused,
                     };
                 },
                 cycleLayout() {
@@ -108,11 +113,15 @@ async function start(visible: readonly {
         registry,
         calls,
         syncs,
+        failures,
         mentions: () => mentions,
         mounted,
         rawMounted,
         layoutCycles: () => layoutCycles,
         focusToggles: () => focusToggles,
+        focus(pane: "primary" | "secondary") {
+            focused = pane;
+        },
     };
 }
 
@@ -211,7 +220,7 @@ test("btw text sends the text to the hosted sidekick", async () => {
     await harness.registry.close();
 });
 
-test("a bare hosted follow-up synchronizes the btw sidekick", async () => {
+test("a bare prompt from the primary while btw is open synchronizes", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "first", "/workspace");
     harness.syncs.length = 0;
@@ -222,6 +231,111 @@ test("a bare hosted follow-up synchronizes the btw sidekick", async () => {
         imageCount: 0,
     })).toEqual({ kind: "pass" });
     expect(harness.syncs).toEqual(["side-1"]);
+    expect(harness.failures).toEqual([]);
+    await harness.registry.close();
+});
+
+test("repeated messages while the sidekick is focused skip sync", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "first", "/workspace");
+    harness.syncs.length = 0;
+    harness.focus("secondary");
+
+    expect(await harness.registry.interceptMessage({
+        text: "second",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(await harness.registry.interceptMessage({
+        text: "third",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.syncs).toEqual([]);
+    expect(harness.failures).toEqual([]);
+    await harness.registry.close();
+});
+
+test("an @sidekick message skips sync even when the primary is focused", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "first", "/workspace");
+    harness.syncs.length = 0;
+
+    expect(await harness.registry.interceptMessage({
+        text: "@sidekick what broke",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.syncs).toEqual([]);
+    expect(harness.failures).toEqual([]);
+    await harness.registry.close();
+});
+
+test("an @vera message still synchronizes while the sidekick is focused", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("btw", "first", "/workspace");
+    harness.syncs.length = 0;
+    harness.focus("secondary");
+
+    expect(await harness.registry.interceptMessage({
+        text: "@vera keep going",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.syncs).toEqual(["side-1"]);
+    expect(harness.failures).toEqual([]);
+    await harness.registry.close();
+});
+
+test("a busy primary sync on a primary prompt is a no-op", async () => {
+    const harness = await start(undefined, ["busy"]);
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.syncs.length = 0;
+    harness.failures.length = 0;
+
+    expect(await harness.registry.interceptMessage({
+        text: "continue on vera",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.syncs).toEqual(["side-1"]);
+    expect(harness.failures).toEqual([]);
+    await harness.registry.close();
+});
+
+test("a missing primary context still fails the interceptor", async () => {
+    const harness = await start(undefined, ["not_found"]);
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.failures.length = 0;
+
+    expect(await harness.registry.interceptMessage({
+        text: "continue on vera",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.failures).toEqual([expect.objectContaining({
+        extensionId: "vera.btw",
+        message: expect.stringContaining("BTW primary context is unavailable"),
+    })]);
+    await harness.registry.close();
+});
+
+test("a failed primary sync still fails the interceptor", async () => {
+    const harness = await start(undefined, ["failed"]);
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.failures.length = 0;
+
+    expect(await harness.registry.interceptMessage({
+        text: "continue on vera",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.failures).toEqual([expect.objectContaining({
+        extensionId: "vera.btw",
+        message: expect.stringContaining(
+            "BTW primary context could not be synchronized",
+        ),
+    })]);
     await harness.registry.close();
 });
 
@@ -346,7 +460,7 @@ test("a stale cursor drops the sidekick and branches again", async () => {
     await harness.registry.close();
 });
 
-test("a stale cursor on a bare follow-up branches again", async () => {
+test("a stale cursor on a primary prompt while btw is open branches again", async () => {
     const harness = await start(undefined, ["stale_cursor"]);
     await harness.registry.invokeCommand("btw", "", "/workspace");
     harness.calls.length = 0;
@@ -359,5 +473,6 @@ test("a stale cursor on a bare follow-up branches again", async () => {
     expect(harness.calls).toMatchObject([
         { operation: "create", request: { source: { type: "branch", agentId: "main" } } },
     ]);
+    expect(harness.failures).toEqual([]);
     await harness.registry.close();
 });

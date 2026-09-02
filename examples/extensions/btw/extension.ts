@@ -40,12 +40,16 @@ export function activateClient(vera: any): void {
     async function syncPrimaryContext(
         agentId: string,
         signal: AbortSignal,
+        ignoreBusy: boolean = false,
     ): Promise<"ok" | "stale"> {
         const synced = await vera.agents.syncContext(agentId, signal);
         if (synced.outcome === "stale_cursor") {
             return "stale";
         }
         if (synced.outcome === "busy") {
+            if (ignoreBusy) {
+                return "ok";
+            }
             throw new Error("BTW context can sync only between turns");
         }
         if (synced.outcome === "not_found") {
@@ -55,6 +59,15 @@ export function activateClient(vera: any): void {
             throw new Error("BTW primary context could not be synchronized");
         }
         return "ok";
+    }
+
+    function targetsSidekickOnly(text: string): boolean {
+        const addressed = /^@(\S+)(?:\s+[\s\S]+)?$/.exec(text.trim());
+        if (addressed !== null) {
+            return addressed[1] === SIDEKICK;
+        }
+        return vera.experimentalTui.agentSurface.current()?.focused
+            === "secondary";
     }
 
     async function openAgent(
@@ -193,15 +206,20 @@ export function activateClient(vera: any): void {
         "Open or message a readonly sidekick",
     );
 
-    // Bare prompts sent while the hosted surface is open bypass slash-command
-    // dispatch. Synchronize here too so focusing the sidekick and continuing
-    // the conversation has the same semantics as `/btw message`.
+    // Bare prompts in the primary conversation bypass slash-command dispatch.
+    // Catch the sidekick up with completed primary turns. Messages already
+    // going to the sidekick skip this: the primary is often still answering,
+    // and sync then returns busy. `/btw message` still syncs on that path.
     vera.messages.intercept(
-        async (message: { workspace: string }, signal: AbortSignal) => {
+        async (
+            message: { text: string; workspace: string },
+            signal: AbortSignal,
+        ) => {
             const target = agents[SIDEKICK];
             if (
                 target !== undefined
-                && await syncPrimaryContext(target, signal) === "stale"
+                && !targetsSidekickOnly(message.text)
+                && await syncPrimaryContext(target, signal, true) === "stale"
             ) {
                 agents[SIDEKICK] = undefined;
                 await openAgent(
