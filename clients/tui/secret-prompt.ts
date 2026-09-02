@@ -1,26 +1,33 @@
 import {
     BoxRenderable,
-    fg,
-    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
 
 import {
-    TUI_ACCENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
+import {
+    createDialogTextFieldNode,
+    DIALOG_CARD_Z_INDEX,
+    updateDialogTextFieldNode,
+} from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
+import {
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
 
 export interface TuiSecretPromptState {
+    /** Bumped for each prompt, so reopening the card starts the field empty rather than showing the last key. */
+    readonly editorSession: number;
     readonly providerId: string;
     readonly label: string;
     readonly hint?: string;
@@ -37,6 +44,7 @@ export interface TuiSecretPromptKey {
     readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
+    readonly option?: boolean;
     readonly shift?: boolean;
     readonly super?: boolean;
     readonly hyper?: boolean;
@@ -52,6 +60,12 @@ export interface TuiSecretPromptView {
     readonly box: BoxRenderable;
     readonly card: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
+    focus(): void;
+    handleKey(
+        state: TuiSecretPromptState,
+        key: TuiSecretPromptKey,
+    ): TuiSecretPromptTransition;
+    handlePaste(state: TuiSecretPromptState, text: string): TuiSecretPromptState;
     update(state: TuiSecretPromptState): void;
 }
 
@@ -66,6 +80,7 @@ export function startTuiSecretPrompt(
     refusal?: string,
 ): TuiSecretPromptState {
     return {
+        editorSession: nextEditorSession++,
         providerId: provider.id,
         label: provider.label,
         ...(provider.hint === undefined ? {} : { hint: provider.hint }),
@@ -76,16 +91,7 @@ export function startTuiSecretPrompt(
     };
 }
 
-export function handleTuiSecretPromptPaste(
-    state: TuiSecretPromptState,
-    text: string,
-): TuiSecretPromptState {
-    const pasted = text.replaceAll(/[\u0000-\u001f\u007f]/g, "").trim();
-    return pasted.length === 0
-        ? state
-        : { ...state, value: state.value + pasted };
-}
-
+/** The card's own keys. Everything else is the field's, and the field is the one every other dialog uses. */
 export function handleTuiSecretPromptKey(
     state: TuiSecretPromptState,
     key: TuiSecretPromptKey,
@@ -94,14 +100,8 @@ export function handleTuiSecretPromptKey(
         return { handled: true };
     }
     if (tuiBindingId("secret_prompt", key) === "clear_secret") {
-        return { state: { ...state, value: "" }, handled: true };
-    }
-    if (key.ctrl || key.meta || key.super || key.hyper) {
-        return { state, handled: false };
-    }
-    if (key.name === "backspace") {
         return {
-            state: { ...state, value: state.value.slice(0, -1) },
+            state: { ...state, editorSession: nextEditorSession++, value: "" },
             handled: true,
         };
     }
@@ -111,18 +111,7 @@ export function handleTuiSecretPromptKey(
             ? { handled: true }
             : { handled: true, submitted: value };
     }
-    const typed = key.sequence !== undefined && key.sequence.length > 0
-        ? key.sequence
-        : key.name.length === 1
-        ? key.name
-        : undefined;
-    if (typed === undefined || /[\u0000-\u001f\u007f]/.test(typed.replaceAll(/[\r\n]/g, ""))) {
-        return { state, handled: false };
-    }
-    return {
-        state: { ...state, value: state.value + typed.replaceAll(/[\r\n]/g, "") },
-        handled: true,
-    };
+    return { state, handled: false };
 }
 
 export function createTuiSecretPromptView(
@@ -149,13 +138,11 @@ export function createTuiSecretPromptView(
         wrapMode: "word",
         marginTop: 1,
     });
-    const entry = new TextRenderable(renderer, {
-        content: "",
-        width: "100%",
-        height: "auto",
-        wrapMode: "char",
-        marginTop: 1,
-    });
+    const entry = createDialogTextFieldNode(
+        renderer,
+        "secret-prompt-entry",
+        "API key",
+    );
     const refusal = new TextRenderable(renderer, {
         content: "",
         fg: TUI_MUTED,
@@ -205,6 +192,7 @@ export function createTuiSecretPromptView(
         visible: false,
     });
     box.add(card);
+    let shownEditorSession: number | undefined;
     return {
         box,
         card,
@@ -213,14 +201,46 @@ export function createTuiSecretPromptView(
             tuiThemeProperties(rail, { fg: "muted" }),
             tuiThemeProperties(refusal, { fg: "muted" }),
             tuiThemeProperties(hint, { fg: "muted" }),
+            tuiThemeProperties(entry, {
+                textColor: "text",
+                focusedTextColor: "text",
+                backgroundColor: "panel",
+                focusedBackgroundColor: "panel",
+                cursorColor: "accent",
+                placeholderColor: "muted",
+            }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(card, { backgroundColor: "panel" }),
         ],
+        focus(): void {
+            entry.focus();
+        },
+        handleKey(state, key): TuiSecretPromptTransition {
+            const current = { ...state, value: entry.plainText };
+            const transition = handleTuiSecretPromptKey(current, key);
+            if (transition.handled) return transition;
+            entry.handleKeyPress(tuiTextareaKey(key));
+            return {
+                state: { ...current, value: entry.plainText },
+                handled: true,
+            };
+        },
+        handlePaste(state, text): TuiSecretPromptState {
+            insertTuiSingleLinePaste(entry, text);
+            return { ...state, value: entry.plainText };
+        },
         update(state): void {
+            if (shownEditorSession !== state.editorSession) {
+                if (entry.plainText !== state.value) {
+                    entry.setText(state.value);
+                }
+                entry.gotoBufferEnd();
+                shownEditorSession = state.editorSession;
+            }
             title.content = `${state.label} API key`;
             rail.content = state.rail ?? "";
             hint.content = state.hint ?? "";
-            entry.content = tuiSecretEntryLine(state.value);
+            updateDialogTextFieldNode(entry, state.value, "API key");
             refusal.content = state.refusal === undefined
                 ? ""
                 : `${state.label} refused this key: ${state.refusal}`;
@@ -233,9 +253,4 @@ export function createTuiSecretPromptView(
     };
 }
 
-export function tuiSecretEntryLine(value: string): StyledText {
-    return new StyledText([
-        value.length === 0 ? fg(TUI_MUTED)("API key") : fg(TUI_TEXT)(value),
-        fg(TUI_ACCENT)("▏"),
-    ]);
-}
+let nextEditorSession = 1;

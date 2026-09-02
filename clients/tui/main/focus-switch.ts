@@ -87,7 +87,7 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
         return () => rt.providerFormView.focus();
     }
     if (rt.secretPrompt !== undefined) {
-        return () => rt.secretPromptView.box.focus();
+        return () => rt.secretPromptView.focus();
     }
     if (rt.settingsPicker !== undefined) {
         return () => rt.settingsPickerView.focus();

@@ -214,7 +214,7 @@ import {
 import { watchWorkspaceBranch } from "./workspace-branch.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView } from "./settings-picker.ts";
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
-import { createTuiSecretPromptView, handleTuiSecretPromptPaste } from "./secret-prompt.ts";
+import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
 import { tuiKeyHint } from "./keymap.ts";
 
@@ -2583,7 +2583,7 @@ export async function startTui(
         }
         event.preventDefault();
         event.stopPropagation();
-        rt.secretPrompt = handleTuiSecretPromptPaste(
+        rt.secretPrompt = rt.secretPromptView.handlePaste(
             rt.secretPrompt,
             stripAnsiSequences(decodePasteBytes(event.bytes)),
         );

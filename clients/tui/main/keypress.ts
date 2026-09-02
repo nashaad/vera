@@ -21,7 +21,6 @@ import { handleTuiPreferencesListKey } from "../preferences-list.ts";
 import { handleTuiProviderForgetConfirmKey } from "../provider-forget-confirm.ts";
 import { jsonlViewKeyAction } from "../resume-overlay.ts";
 import { handleSearchOverlayKey, updateSearchOverlayText } from "../search-overlay.ts";
-import { handleTuiSecretPromptKey } from "../secret-prompt.ts";
 import { handleTuiSessionCloseConfirmKey } from "../session-close-confirm.ts";
 import { handleTuiSessionTrashConfirmKey } from "../session-trash-confirm.ts";
 import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
@@ -616,7 +615,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
 
     if (rt.secretPrompt !== undefined) {
-        const transition = handleTuiSecretPromptKey(rt.secretPrompt, key);
+        const transition = rt.secretPromptView.handleKey(rt.secretPrompt, key);
         if (transition.handled) {
             key.preventDefault();
             key.stopPropagation();
