@@ -4353,6 +4353,34 @@ test("the More page stands in for the list it covers", async () => {
     expect(first - entry).toBe(4);
 });
 
+test("Shortlist opens More under its button, the way All models does", async () => {
+    const shortlist = {
+        ...switchedModelTab(modelPickerWithPool(), "pool"),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    } as TuiSettingsPickerState;
+    const page = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(
+            { ...shortlist, selectedIndex: 0 },
+            { name: "tab", shift: true },
+        ).state!,
+        { name: "return" },
+    ).state!;
+    expect(page.modelFocus).toBe("page");
+
+    const lines = (await pickerFrame(page)).split("\n");
+    const entry = lines.findIndex((line) => line.includes("- More"));
+    const first = lines.findIndex((line) =>
+        line.includes("Refresh model catalog")
+    );
+    expect(entry).toBeGreaterThan(-1);
+    // Same four lines as All models: the button's bottom edge, the gap, the
+    // "More" heading and its own gap. Not squeezed into the detail column.
+    expect(first - entry).toBe(4);
+    // The column the rows used to open in is a description of a list row, and
+    // the list is not on screen.
+    expect(lines[first]).not.toContain("\u2502");
+});
+
 test("the More entry is a button that marks focus without color", async () => {
     const picker = startTuiSettingsPicker(
         "model",

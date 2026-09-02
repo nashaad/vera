@@ -124,6 +124,8 @@ export function mergeTuiModelPickerSettings(
 }
 
 export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
+    // The More page replaces the list, so there is no row left to describe.
+    if (state.kind === "model" && state.modelFocus === "page") return false;
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     return tab === "pool" || tab === "defaults" || tab === "actions";
 }
