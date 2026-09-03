@@ -906,5 +906,11 @@ export function retryPoolAdmission(rt: TuiRuntime,
     if (rt.pendingPoolName?.requestId === requestId) {
         rt.pendingPoolName = { ...rt.pendingPoolName, requestId: retryId };
     }
+    if (rt.onboardingVerification?.requestId === requestId) {
+        rt.onboardingVerification = {
+            ...rt.onboardingVerification,
+            requestId: retryId,
+        };
+    }
     return true;
 }
