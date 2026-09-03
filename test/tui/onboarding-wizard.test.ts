@@ -246,3 +246,67 @@ test("no step of the wizard can push the frame open", () => {
         }
     }
 });
+
+test("a runtime provider asks to install rather than for a key", () => {
+    const text = screenText({
+        ...newWizardSession("key"),
+        chosen: "outrider",
+        runtime: { state: "absent", progress: [] },
+    });
+    expect(text).toContain("2 ▸ Install");
+    expect(text).toContain("Outrider is not on this Mac.");
+    expect(text).toContain("Install it");
+    expect(text).toContain("I will do it myself");
+    expect(text).toContain("github.com/corvines/outrider");
+    expect(text).not.toContain("Paste your");
+});
+
+test("a download says its size, its share, and what is left to wait", () => {
+    const text = screenText({
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        runtime: {
+            state: "starting",
+            elapsedSeconds: 30,
+            progress: [
+                { name: "llama.cpp b10516", done: true },
+                {
+                    name: "qwen35b-mtp",
+                    done: false,
+                    downloaded: 8_400_000_000,
+                    total: 21_000_000_000,
+                    etaSeconds: 840,
+                },
+            ],
+        },
+    });
+    expect(text).toContain("qwen35b-mtp");
+    expect(text).toContain("8.4 GB / 21.0 GB");
+    expect(text).toContain("40%");
+    expect(text).toContain("~14 min");
+    expect(text).toContain("█");
+    expect(text).toContain("llama.cpp b10516");
+});
+
+test("the install gate cannot push the frame open either", () => {
+    const sessions: WizardSession[] = [
+        {
+            ...newWizardSession("key"),
+            chosen: "outrider",
+            runtime: { state: "absent", progress: [] },
+        },
+        {
+            ...newWizardSession("key"),
+            chosen: "outrider",
+            runtime: {
+                state: "installing",
+                progress: [{ name: "z".repeat(300), done: false, downloaded: 1, total: 2 }],
+            },
+        },
+    ];
+    for (const session of sessions) {
+        for (const line of onboardingCardLines(wizardScreen(COLD, session, MAC))) {
+            expect([...line.text].length).toBe(72);
+        }
+    }
+});

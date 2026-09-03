@@ -8,10 +8,22 @@ import { isHomeClient } from "../home-client.ts";
 import type { OnboardingScreenAction } from "../onboarding-screen.ts";
 import {
     newWizardSession,
+    OUTRIDER_REPO,
+    RUNTIME_INSTALL_ROW,
+    RUNTIME_MANUAL_ROW,
     wizardOpensAt,
     wizardScreen,
+    type WizardRuntime,
     type WizardSession,
 } from "../onboarding-wizard.ts";
+import type { OutriderProgress } from "../../../src/providers/outrider.ts";
+import {
+    installOutrider,
+    mergeProgress,
+    outriderPresence,
+    serveOutrider,
+    type RuntimeCommand,
+} from "./outrider-ops.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
 import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
 import { requestAgentSettings } from "./diagnostics-ops.ts";
@@ -69,6 +81,7 @@ export function openOnboardingWizard(rt: TuiRuntime): void {
 
 export function closeOnboardingWizard(rt: TuiRuntime): void {
     stopWizardSpinner(rt);
+    clearRuntimeCommand(rt);
     rt.onboardingWizard = undefined;
     rt.pendingOnboardingStep = undefined;
     renderState(rt);
@@ -81,24 +94,35 @@ function stopWizardSpinner(rt: TuiRuntime): void {
     rt.onboardingWizardTimer = undefined;
 }
 
-/** The spinner and the elapsed count are the only thing moving while a request is out, so they get their own tick. */
+const RUNTIME_WORKING = ["checking", "installing", "starting"];
+
+/** The spinner and the elapsed count are the only thing moving while a command or a request is out, so they get their own tick. */
 function startWizardSpinner(rt: TuiRuntime): void {
     stopWizardSpinner(rt);
     const startedAt = Date.now();
     rt.onboardingWizardTimer = setInterval(() => {
         const session = rt.onboardingWizard;
-        if (session?.verifying === undefined) {
-            stopWizardSpinner(rt);
+        const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+        if (session?.verifying !== undefined) {
+            updateWizardSession(rt, {
+                ...session,
+                spinnerFrame: session.spinnerFrame + 1,
+                verifying: { ...session.verifying, elapsedSeconds },
+            });
             return;
         }
-        updateWizardSession(rt, {
-            ...session,
-            spinnerFrame: session.spinnerFrame + 1,
-            verifying: {
-                ...session.verifying,
-                elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
-            },
-        });
+        if (
+            session?.runtime !== undefined
+            && RUNTIME_WORKING.includes(session.runtime.state)
+        ) {
+            updateWizardSession(rt, {
+                ...session,
+                spinnerFrame: session.spinnerFrame + 1,
+                runtime: { ...session.runtime, elapsedSeconds },
+            });
+            return;
+        }
+        stopWizardSpinner(rt);
     }, SPINNER_INTERVAL_MS);
 }
 
@@ -115,9 +139,19 @@ function requestWizardModels(rt: TuiRuntime, provider: string): void {
 function fillWizardModels(rt: TuiRuntime, provider: string): void {
     const session = rt.onboardingWizard;
     if (session === undefined) return;
-    const models = (focusedAgentState(rt).modelSettings?.availableModels ?? [])
+    const live = (focusedAgentState(rt).modelSettings?.availableModels ?? [])
         .filter((model) => model.provider === provider)
         .map((model) => ({ id: model.model, label: model.label }));
+    // A local gateway lists nothing until it is up, and it does not come up
+    // until a profile is picked. The profiles the definition names are what
+    // there is to pick from until then.
+    const descriptor = findConfiguredProvider(provider, loadOptionalVeraConfig());
+    const models = live.length === 0 && descriptor?.localRuntime !== undefined
+        ? (descriptor.recommendModels ?? []).map((entry) => ({
+            id: entry.id,
+            label: entry.id,
+        }))
+        : live;
     if (models.length === 0) {
         updateWizardSession(rt, {
             ...session,
@@ -165,7 +199,21 @@ function chooseProvider(
 ): void {
     const provider = findConfiguredProvider(id, loadOptionalVeraConfig());
     if (provider === undefined) return;
-    const { alert: _dropped, ...rest } = session;
+    // Whatever the last provider's runtime was doing is no longer this
+    // wizard's business, so the answer is dropped with the step.
+    const { alert: _dropped, runtime: _stale, ...rest } = session;
+    if (provider.localRuntime !== undefined) {
+        updateWizardSession(rt, {
+            ...rest,
+            chosen: id,
+            at: "key",
+            selected: undefined,
+            runtime: { state: "checking", progress: [] },
+        });
+        startWizardSpinner(rt);
+        void checkRuntime(rt, id);
+        return;
+    }
     if (
         provider.credential === "api_key"
         || provider.credential === "api_key_optional"
@@ -186,6 +234,148 @@ function chooseProvider(
         selected: undefined,
     });
     requestWizardModels(rt, id);
+}
+
+/** Progress arrives a line at a time and only the newest line per file is worth drawing, so the merge happens here rather than in the view. */
+function recordRuntimeProgress(rt: TuiRuntime, line: OutriderProgress): void {
+    const session = rt.onboardingWizard;
+    const runtime = session?.runtime;
+    if (session === undefined || runtime === undefined) return;
+    updateWizardSession(rt, {
+        ...session,
+        runtime: {
+            ...runtime,
+            progress: mergeProgress(runtime.progress, line),
+        },
+    });
+}
+
+function clearRuntimeCommand(rt: TuiRuntime): void {
+    rt.onboardingRuntimeCommand?.stop();
+    rt.onboardingRuntimeCommand = undefined;
+}
+
+/** Present means the binary is here, not that a gateway is up: bringing one up needs a profile, which is the next step's question. */
+function runtimeIsPresent(
+    rt: TuiRuntime,
+    session: WizardSession,
+    provider: string,
+): void {
+    const { alert: _dropped, ...rest } = session;
+    updateWizardSession(rt, {
+        ...rest,
+        at: "model",
+        selected: undefined,
+        runtime: { state: "present", progress: [] },
+    });
+    requestWizardModels(rt, provider);
+}
+
+async function checkRuntime(rt: TuiRuntime, provider: string): Promise<void> {
+    const presence = await outriderPresence();
+    const session = rt.onboardingWizard;
+    if (session === undefined || session.chosen !== provider) return;
+    if (session.runtime?.state !== "checking") return;
+    stopWizardSpinner(rt);
+    if (presence.state === "absent") {
+        updateWizardSession(rt, {
+            ...session,
+            runtime: { state: "absent", progress: [] },
+        });
+        return;
+    }
+    runtimeIsPresent(rt, session, provider);
+}
+
+function installRuntime(
+    rt: TuiRuntime,
+    session: WizardSession,
+    provider: string,
+): void {
+    const { alert: _dropped, ...rest } = session;
+    updateWizardSession(rt, {
+        ...rest,
+        runtime: { state: "installing", progress: [] },
+    });
+    startWizardSpinner(rt);
+    rt.onboardingRuntimeCommand = installOutrider((line) => {
+        recordRuntimeProgress(rt, line);
+    });
+    const command = rt.onboardingRuntimeCommand;
+    void command.finished.then(async (result) => {
+        if (rt.onboardingRuntimeCommand !== command) return;
+        rt.onboardingRuntimeCommand = undefined;
+        const live = rt.onboardingWizard;
+        if (live === undefined || live.runtime?.state !== "installing") return;
+        if (!result.ok) {
+            stopWizardSpinner(rt);
+            updateWizardSession(rt, {
+                ...live,
+                runtime: { state: "absent", progress: [] },
+                alert: `could not install Outrider${
+                    result.detail === "" ? "" : `: ${result.detail}`
+                }`,
+            });
+            return;
+        }
+        updateWizardSession(rt, {
+            ...live,
+            runtime: { state: "checking", progress: [] },
+        });
+        await checkRuntime(rt, provider);
+    });
+}
+
+/** A local profile is not reachable until it is fetched and up, so the model step starts it before the same gate every other provider passes. */
+function startRuntimeProfile(
+    rt: TuiRuntime,
+    session: WizardSession,
+    provider: string,
+    profile: string,
+): void {
+    const { alert: _dropped, ...rest } = session;
+    updateWizardSession(rt, {
+        ...rest,
+        selected: profile,
+        runtime: { state: "starting", progress: [] },
+    });
+    startWizardSpinner(rt);
+    rt.onboardingRuntimeCommand = serveOutrider(profile, (line) => {
+        recordRuntimeProgress(rt, line);
+    });
+    const command = rt.onboardingRuntimeCommand;
+    void command.finished.then((result) => {
+        if (rt.onboardingRuntimeCommand !== command) return;
+        rt.onboardingRuntimeCommand = undefined;
+        const live = rt.onboardingWizard;
+        if (live === undefined || live.runtime?.state !== "starting") return;
+        stopWizardSpinner(rt);
+        const settled: WizardSession = {
+            ...live,
+            runtime: { state: "present", progress: [] },
+        };
+        if (!result.ok) {
+            updateWizardSession(rt, {
+                ...settled,
+                alert: `${profile} did not start${
+                    result.detail === "" ? "" : `: ${result.detail}`
+                }`,
+            });
+            return;
+        }
+        beginWizardVerification(rt, settled, provider, profile);
+    });
+}
+
+/** The user says they will put the binary there themselves, so the wizard gets out of the way and leaves the address behind. */
+function leaveRuntimeToTheUser(rt: TuiRuntime): void {
+    closeOnboardingWizard(rt);
+    rt.state = appendTuiNotice(
+        rt.state,
+        `install Outrider from ${OUTRIDER_REPO}, then run /onboarding again`,
+    );
+    renderState(rt);
+    if (!isHomeClient(rt.client)) returnToHome(rt);
 }
 
 function beginWizardVerification(
@@ -210,7 +400,7 @@ function beginWizardVerification(
 
 /** One step back, and the answer that step held is dropped so it is asked again. */
 function stepBack(rt: TuiRuntime, session: WizardSession): void {
-    const { alert: _dropped, ...rest } = session;
+    const { alert: _dropped, runtime: _stale, ...rest } = session;
     if (session.at === "model") {
         const provider = findConfiguredProvider(
             session.chosen ?? "",
@@ -248,6 +438,31 @@ export function runOnboardingWizardAction(
         if (!isHomeClient(rt.client)) returnToHome(rt);
         return;
     }
+    const runtime = session.runtime;
+    if (runtime !== undefined && runtime.state !== "checking") {
+        // A command in flight owns the screen, and the only key it offers is
+        // the one that stops it.
+        if (runtime.state === "installing" || runtime.state === "starting") {
+            clearRuntimeCommand(rt);
+            stopWizardSpinner(rt);
+            updateWizardSession(rt, {
+                ...session,
+                runtime: {
+                    state: runtime.state === "installing" ? "absent" : "present",
+                    progress: [],
+                },
+            });
+            return;
+        }
+        if (runtime.state === "absent" && action.kind === "choose") {
+            if (action.id === RUNTIME_INSTALL_ROW) {
+                installRuntime(rt, session, session.chosen ?? "");
+            } else if (action.id === RUNTIME_MANUAL_ROW) {
+                leaveRuntimeToTheUser(rt);
+            }
+            return;
+        }
+    }
     if (session.verifying !== undefined) {
         // The only key the verify screen offers is the one that abandons it.
         stopWizardSpinner(rt);
@@ -280,6 +495,10 @@ export function runOnboardingWizardAction(
         return;
     }
     if (session.at === "model" && session.chosen !== undefined) {
+        if (runtime !== undefined) {
+            startRuntimeProfile(rt, session, session.chosen, action.id);
+            return;
+        }
         beginWizardVerification(rt, session, session.chosen, action.id);
     }
 }

@@ -11,6 +11,7 @@ import type {
     OnboardingStep,
     OnboardingStepId,
 } from "../../src/providers/onboarding.ts";
+import { gigabytes, remaining } from "../../src/providers/outrider.ts";
 import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 import { TUI_ACCENT, TUI_BACKGROUND, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
@@ -59,6 +60,8 @@ export interface OnboardingChoiceGroup {
 export interface OnboardingChoiceBody {
     readonly kind: "choice";
     readonly groups: readonly OnboardingChoiceGroup[];
+    /** Sentences between the heading and the rows, for a question that needs more than its heading. */
+    readonly notes?: readonly string[];
     /** The word after `enter` in the footer. */
     readonly enterHint?: string;
     /** Set once a list is long enough that scanning it by eye stops working. */
@@ -79,11 +82,21 @@ export interface OnboardingCheck {
     readonly state: OnboardingCheckState;
 }
 
+/** A download in flight. The facts, not the drawing: the bar and the units are the screen's business. */
+export interface OnboardingProgressBar {
+    readonly label: string;
+    readonly downloaded: number;
+    readonly total: number;
+    readonly etaSeconds?: number;
+}
+
 export interface OnboardingProgressBody {
     readonly kind: "progress";
     readonly label: string;
     readonly elapsedSeconds?: number;
     readonly checks: readonly OnboardingCheck[];
+    readonly bar?: OnboardingProgressBar;
+    readonly notes?: readonly string[];
     readonly escHint?: string;
 }
 
@@ -339,7 +352,7 @@ function choiceLines(
     const groupsShown = visibleGroups(body);
     const column = detailColumn(groupsShown);
     const shown = choiceWindow(groupsShown, selected);
-    const lines: OnboardingLine[] = [...searchLines(body)];
+    const lines: OnboardingLine[] = [...noteLines(body.notes), ...searchLines(body)];
     if (shown.above > 0) {
         lines.push({
             text: indent(`    ${shown.above} more above`),
@@ -443,6 +456,55 @@ function progressLines(
             text: indent(`  ${checkGlyph(check.state)} ${check.label}`),
             tone: "note" as const,
         })),
+        ...barLines(body.bar),
+        ...noteLines(body.notes),
+    ];
+}
+
+const BAR_WIDTH = 34;
+
+/** A download says how far it is, how big it is, and how long is left. Filled and empty are different characters, so the bar survives colour being off. */
+function barLines(
+    bar: OnboardingProgressBar | undefined,
+): readonly OnboardingLine[] {
+    if (bar === undefined) return [];
+    const fraction = bar.total === 0
+        ? 0
+        : Math.min(1, Math.max(0, bar.downloaded / bar.total));
+    const filled = Math.round(fraction * BAR_WIDTH);
+    const drawn = "\u2588".repeat(filled) + "\u2591".repeat(BAR_WIDTH - filled);
+    const size = `${gigabytes(bar.downloaded)} / ${gigabytes(bar.total)}`;
+    const left = bar.etaSeconds === undefined || bar.etaSeconds <= 0
+        ? ""
+        : `    ${remaining(bar.etaSeconds)}`;
+    const percent = `${Math.round(fraction * 100)}%`;
+    const room = INNER_WIDTH - CONTENT_INDENT * 2;
+    const name = fit(bar.label, room - percent.length - 2).trimEnd();
+    const gap = Math.max(1, room - name.length - percent.length);
+    return [
+        { text: "", tone: "frame" },
+        {
+            text: indent(`${name}${" ".repeat(gap)}${percent}`),
+            tone: "row",
+        },
+        { text: indent(`${drawn}   ${size}${left}`), tone: "note" },
+    ];
+}
+
+/** Sentences under whatever the body is showing. */
+function noteLines(
+    notes: readonly string[] | undefined,
+): readonly OnboardingLine[] {
+    if (notes === undefined || notes.length === 0) return [];
+    return [
+        { text: "", tone: "frame" },
+        ...notes.flatMap((note) =>
+            wrapped(note, INNER_WIDTH - CONTENT_INDENT * 2).map((line) => ({
+                text: indent(line),
+                tone: "note" as const,
+            }))
+        ),
+        { text: "", tone: "frame" },
     ];
 }
 

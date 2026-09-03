@@ -30,6 +30,7 @@ import type { HomeClientOptions } from "../home-client.ts";
 import type { HomeState, TuiHomeView } from "../home-screen.ts";
 import type { TuiOnboardingView } from "../onboarding-screen.ts";
 import type { WizardSession } from "../onboarding-wizard.ts";
+import type { RuntimeCommand } from "./outrider-ops.ts";
 import type { TuiHostedAgentSurface } from "../hosted-agent-surface.ts";
 import type { TuiHostedPanePersistence } from "../hosted-pane-persistence.ts";
 import type { TuiHostedSidebarAgent } from "../hosted-sidebar-agent.ts";
@@ -464,5 +465,7 @@ export interface TuiRuntime {
     pendingOnboardingStep: string | undefined;
     /** The one real request that decides whether the last gate is clear. */
     onboardingVerification: { readonly requestId: string; readonly provider: string; readonly model: string; } | undefined;
+    /** The install or start the wizard has out, held so a key can stop it. */
+    onboardingRuntimeCommand: RuntimeCommand | undefined;
     themeBindings: readonly TuiThemeBinding[];
 }

@@ -17,10 +17,12 @@ import type {
     ProviderRequirement,
     RecommendedModel,
 } from "../../src/providers/definitions.ts";
+import type { OutriderProgress } from "../../src/providers/outrider.ts";
 import type { ProviderDescriptor } from "../../src/providers/registry.ts";
 import {
     handleOnboardingKey,
     type OnboardingAnswer,
+    type OnboardingProgressBody,
     type OnboardingChoiceGroup,
     type OnboardingChoiceRow,
     type OnboardingKey,
@@ -41,6 +43,27 @@ export interface WizardVerification {
     readonly answered: boolean;
 }
 
+/**
+ * What the second gate knows when the provider runs a local binary. `checking`
+ * is the moment before the CLI has answered, and `present` covers both
+ * installed and already up: bringing the gateway up needs a model, so that
+ * happens on the step after this one.
+ */
+export type WizardRuntimeState =
+    | "checking"
+    | "absent"
+    | "installing"
+    /** The model step has asked the runtime to bring a profile up. */
+    | "starting"
+    | "present";
+
+export interface WizardRuntime {
+    readonly state: WizardRuntimeState;
+    /** The newest line for each named piece, in the order they first appeared. */
+    readonly progress: readonly OutriderProgress[];
+    readonly elapsedSeconds?: number;
+}
+
 /** Everything the user has done in this run of the wizard. The stored facts say what is true; this says where they are. */
 export interface WizardSession {
     readonly at: OnboardingStepId;
@@ -55,6 +78,8 @@ export interface WizardSession {
     readonly connected?: string;
     readonly models: readonly WizardModel[];
     readonly spinnerFrame: number;
+    /** Only set for a provider Vera can put on the machine itself. */
+    readonly runtime?: WizardRuntime;
 }
 
 export function newWizardSession(at: OnboardingStepId): WizardSession {
@@ -76,6 +101,7 @@ function chosenProvider(
 /** What the second gate is called for this provider. A provider that needs no key still has a second gate; it is just named after what it does need. */
 function keyStepLabel(provider: ProviderDescriptor | undefined): string {
     if (provider === undefined) return "Key";
+    if (provider.localRuntime !== undefined) return "Install";
     return provider.credential === "none" ? "Setup" : "Key";
 }
 
@@ -105,7 +131,11 @@ function answersFor(
     const answers: Partial<Record<OnboardingStepId, OnboardingAnswer>> = {};
     if (provider !== undefined) {
         answers.provider = { text: provider.label };
-        if (provider.credential === "none") {
+        if (provider.localRuntime !== undefined) {
+            if (session.runtime?.state === "present") {
+                answers.key = { text: "installed" };
+            }
+        } else if (provider.credential === "none") {
             answers.key = { text: "not needed", skipped: true };
         } else if (session.key !== "" || session.at === "model") {
             answers.key = { text: "stored" };
@@ -276,6 +306,109 @@ function modelGroups(
     return groups;
 }
 
+/** The row that puts the runtime on the machine, and the row that says the user would rather do it themselves. */
+export const RUNTIME_INSTALL_ROW = "install-runtime";
+
+export const RUNTIME_MANUAL_ROW = "install-runtime-myself";
+
+export const OUTRIDER_REPO = "github.com/corvines/outrider";
+
+/** A download in flight is the one thing worth a bar; everything else is a line that is either finished or under way. */
+function runtimeProgressBody(
+    label: string,
+    runtime: WizardRuntime,
+    escHint: string,
+): OnboardingProgressBody {
+    const downloading = runtime.progress.find((line) =>
+        !line.done && line.total !== undefined
+    );
+    const checks = runtime.progress
+        .filter((line) => line !== downloading)
+        .map((line) => ({
+            label: line.name,
+            state: line.done ? "done" as const : "active" as const,
+        }));
+    return {
+        kind: "progress",
+        label,
+        escHint,
+        ...(runtime.elapsedSeconds === undefined
+            ? {}
+            : { elapsedSeconds: runtime.elapsedSeconds }),
+        checks,
+        ...(downloading === undefined || downloading.total === undefined
+            ? {}
+            : {
+                bar: {
+                    label: downloading.name,
+                    downloaded: downloading.downloaded ?? 0,
+                    total: downloading.total,
+                    ...(downloading.etaSeconds === undefined
+                        ? {}
+                        : { etaSeconds: downloading.etaSeconds }),
+                },
+            }),
+    };
+}
+
+/** The second gate for a provider Vera can put on the machine itself. It asks whether the binary is here, never for a key. */
+function runtimeScreen(
+    provider: ProviderDescriptor,
+    session: WizardSession,
+    machine: MachineFacts,
+): Pick<OnboardingScreenState, "heading" | "body"> {
+    const runtime = session.runtime ?? { state: "checking", progress: [] };
+    const here = machine.os === "darwin" ? "Mac" : "machine";
+    if (runtime.state === "checking") {
+        return {
+            heading: "",
+            body: {
+                kind: "progress",
+                label: `Looking for ${provider.label} on this ${here}`,
+                checks: [],
+            },
+        };
+    }
+    if (runtime.state === "installing") {
+        return {
+            heading: "",
+            body: runtimeProgressBody(
+                `Installing ${provider.label}`,
+                runtime,
+                "esc stop",
+            ),
+        };
+    }
+    const room = machine.memoryGb >= 32
+        ? "plenty"
+        : "enough for the lite model";
+    return {
+        heading: `${provider.label} is not on this ${here}.`,
+        body: {
+            kind: "choice",
+            notes: [
+                "Tested local models, run here. No key, no account, nothing"
+                + ` leaves the machine. You have ${machine.memoryGb} GB, which`
+                + ` is ${room}.`,
+            ],
+            groups: [{
+                rows: [
+                    {
+                        id: RUNTIME_INSTALL_ROW,
+                        label: "Install it",
+                        detail: "a minute, then one model download",
+                    },
+                    {
+                        id: RUNTIME_MANUAL_ROW,
+                        label: "I will do it myself",
+                        detail: OUTRIDER_REPO,
+                    },
+                ],
+            }],
+        },
+    };
+}
+
 function keyNotes(provider: ProviderDescriptor): readonly string[] {
     return [
         `Kept in your keychain. Only ever sent to ${provider.label}.`,
@@ -332,6 +465,17 @@ export function wizardScreen(
             },
         };
     }
+    if (session.runtime?.state === "starting") {
+        return {
+            ...common,
+            heading: "",
+            body: runtimeProgressBody(
+                `Getting ${session.selected ?? provider?.label ?? ""} ready`,
+                session.runtime,
+                "esc pick a different model",
+            ),
+        };
+    }
     if (session.verifying !== undefined) {
         return {
             ...common,
@@ -344,6 +488,12 @@ export function wizardScreen(
                 escHint: "esc pick a different model",
             },
         };
+    }
+    if (
+        session.at === "key" && provider !== undefined
+        && provider.localRuntime !== undefined
+    ) {
+        return { ...common, ...runtimeScreen(provider, session, machine) };
     }
     if (session.at === "key" && provider !== undefined) {
         return {
