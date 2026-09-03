@@ -16,6 +16,8 @@ import {
     parseApprovalMode,
     type ApprovalMode,
 } from "./engine/permissions.ts";
+import { TOOL_RESULT_TOTAL_BUDGET_BYTES } from "./engine/tool-result-history.ts";
+import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
@@ -226,6 +228,7 @@ export interface VeraConfig {
     readonly disabled_builtin_extensions?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
+    readonly tool_results?: VeraToolResultsConfig;
     readonly developer?: VeraDeveloperConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
@@ -317,6 +320,35 @@ export interface VeraDeveloperConfig {
     readonly post_compaction_target_fraction?: number;
     /** Ceiling on the words a summary is asked for. */
     readonly summary_word_cap?: number;
+}
+
+/**
+ * Which row of the aging ladder a session uses. `auto` picks the row from the
+ * resolved context window, which is what a session does when nothing is set.
+ */
+export type VeraToolResultAgingLevel =
+    | "auto"
+    | "relaxed"
+    | "normal"
+    | "tight";
+
+export const VERA_TOOL_RESULT_AGING_LEVELS: readonly VeraToolResultAgingLevel[] =
+    ["auto", "relaxed", "normal", "tight"];
+
+/**
+ * How much of a turn's context tool results are allowed to occupy. A single
+ * result large enough to fill a small window is the failure these bound, so
+ * the byte ceilings matter most on the smallest models.
+ */
+export interface VeraToolResultsConfig {
+    /** Bytes of one result kept before head and tail truncation. */
+    readonly ceiling_bytes?: number;
+    /** Bytes of every result combined in one request. */
+    readonly total_budget_bytes?: number;
+    /** Turns a result stays whole before it can be stubbed. `0` stubs at once. */
+    readonly stub_after_turns?: number;
+    /** Pins a row of the aging ladder instead of choosing one by window. */
+    readonly aging_level?: VeraToolResultAgingLevel;
 }
 
 /**
@@ -1082,6 +1114,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     );
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
+    const toolResults = parseToolResultsConfig(config.tool_results);
     const developer = parseDeveloperConfig(config.developer);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
@@ -1114,6 +1147,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledPromptContributions === undefined
         || experimental === undefined
         || inbox === undefined
+        || toolResults === undefined
         || developer === undefined
         || eventLog === undefined
         || tui === undefined
@@ -1194,6 +1228,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.inbox === undefined ? {} : { inbox }),
+        ...(config.tool_results === undefined
+            ? {}
+            : { tool_results: toolResults }),
         ...(config.developer === undefined ? {} : { developer }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
@@ -1524,6 +1561,67 @@ const DEVELOPER_NUMBER_KEYS = [
     "post_compaction_target_fraction",
     "summary_word_cap",
 ] as const;
+
+const TOOL_RESULT_BYTE_KEYS = [
+    "ceiling_bytes",
+    "total_budget_bytes",
+] as const;
+
+function parseToolResultsConfig(
+    value: unknown,
+): VeraToolResultsConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    const parsed: Record<string, number | string> = {};
+    for (const key of TOOL_RESULT_BYTE_KEYS) {
+        const entry = raw[key];
+        if (entry === undefined) {
+            continue;
+        }
+        if (!Number.isSafeInteger(entry) || (entry as number) < 1) {
+            return undefined;
+        }
+        parsed[key] = entry as number;
+    }
+    if (raw.stub_after_turns !== undefined) {
+        if (
+            !Number.isSafeInteger(raw.stub_after_turns)
+            || (raw.stub_after_turns as number) < 0
+        ) {
+            return undefined;
+        }
+        parsed.stub_after_turns = raw.stub_after_turns as number;
+    }
+    if (raw.aging_level !== undefined) {
+        if (
+            typeof raw.aging_level !== "string"
+            || !VERA_TOOL_RESULT_AGING_LEVELS.includes(
+                raw.aging_level as VeraToolResultAgingLevel,
+            )
+        ) {
+            return undefined;
+        }
+        parsed.aging_level = raw.aging_level;
+    }
+    // One result may not be allowed more than every result together, which
+    // would let a single tool call spend a budget meant for the whole turn.
+    // Setting one alone is the case that needs the defaults: lowering the
+    // budget under the standing ceiling is the same contradiction written
+    // with one key instead of two.
+    const ceiling = (parsed.ceiling_bytes as number | undefined)
+        ?? TOOL_RESULT_CEILING_BYTES;
+    const total = (parsed.total_budget_bytes as number | undefined)
+        ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
+    if (ceiling > total) {
+        return undefined;
+    }
+    return parsed as VeraToolResultsConfig;
+}
 
 function parseDeveloperConfig(
     value: unknown,

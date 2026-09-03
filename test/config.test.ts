@@ -1497,3 +1497,103 @@ test("developer overrides merge field by field and read as off until enabled", (
     updateVeraConfigDefaults({ developer: { context_limit: null } }, { path });
     expect(loadVeraConfig({ path }).developer).toEqual({ enabled: true });
 });
+
+test("tool result limits load as written", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: {
+            ceiling_bytes: 32_768,
+            total_budget_bytes: 262_144,
+            stub_after_turns: 5,
+            aging_level: "tight",
+        },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results).toEqual({
+        ceiling_bytes: 32_768,
+        total_budget_bytes: 262_144,
+        stub_after_turns: 5,
+        aging_level: "tight",
+    });
+});
+
+test("an absent tool result block leaves the key off the config", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results).toBeUndefined();
+});
+
+test("a partial tool result block keeps only the keys it names", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { stub_after_turns: 0 },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ stub_after_turns: 0 });
+});
+
+test("Vera config rejects unusable tool result limits", () => {
+    // The control: without it every case below passes on a parser that
+    // rejects everything.
+    const accepted = temporaryConfigPath();
+    writeFileSync(accepted, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { ceiling_bytes: 1 },
+    }));
+    expect(loadVeraConfig({ path: accepted }).tool_results)
+        .toEqual({ ceiling_bytes: 1 });
+
+    const rejected: readonly unknown[] = [
+        [],
+        "tight",
+        { ceiling_bytes: 0 },
+        { ceiling_bytes: 1.5 },
+        { ceiling_bytes: "65536" },
+        { total_budget_bytes: -1 },
+        { stub_after_turns: -1 },
+        { stub_after_turns: 2.5 },
+        { aging_level: "loose" },
+        { aging_level: 3 },
+        { ceiling_bytes: 262_144, total_budget_bytes: 131_072 },
+        { ceiling_bytes: Number.MAX_SAFE_INTEGER + 1 },
+        { stub_after_turns: Number.MAX_SAFE_INTEGER + 1 },
+        // Each alone contradicts the other's standing value: the ceiling is
+        // 64 KiB and the budget for all results together is 128 KiB.
+        { ceiling_bytes: 200_000 },
+        { total_budget_bytes: 32_768 },
+    ];
+
+    for (const tool_results of rejected) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            tool_results,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
+test("a ceiling equal to the whole budget is allowed", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { ceiling_bytes: 65_536, total_budget_bytes: 65_536 },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ ceiling_bytes: 65_536, total_budget_bytes: 65_536 });
+});
+
