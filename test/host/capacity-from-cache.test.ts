@@ -112,3 +112,28 @@ test("a resolved window puts the compaction trigger inside the model's reach", (
     expect(trigger).toBeLessThan(32_768);
     expect(trigger).toBeLessThan(100_000);
 });
+
+test("a set context limit is the budget the fractions divide, cache or no cache", () => {
+    isolatedHome();
+
+    const models = configuredCatalog(CONFIG);
+    const settings = settingsForClient(
+        { model: "gemma4-26b" },
+        "outrider_t1",
+        {},
+        models,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        CONFIG.context_limit,
+        { contextLimit: CONFIG.context_limit },
+    );
+
+    const rows = settings.overrides!.rows;
+    const inert = rows.filter((entry) => entry.inert !== undefined)
+        .map((entry) => entry.key);
+    expect(inert).toEqual(["compactionTriggerTokens", "compactionTargetTokens"]);
+    expect(rows.find((entry) => entry.key === "compactionTriggerFraction"))
+        .toMatchObject({ value: COMPACTION_TRIGGER_FRACTION });
+});

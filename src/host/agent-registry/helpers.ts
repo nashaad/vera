@@ -42,6 +42,7 @@ import type { ModelFallbackPolicy } from "../../engine/recovery.ts";
 import type { EffortPool } from "../../model/effort-pool.ts";
 import {
     availableModels,
+    budgetContextWindow,
     contextWindowForModel,
     effectiveContextWindow,
     isModelReasoningEffort,
@@ -384,7 +385,12 @@ export function settingsForClient(
             ? {}
             : { modelContextWindow }),
         ...(contextLimit === undefined ? {} : { contextLimit }),
-        overrides: { rows: overrideRows(configured ?? {}, contextWindow) },
+        overrides: {
+            rows: overrideRows(
+                configured ?? {},
+                budgetContextWindow(modelContextWindow, contextLimit),
+            ),
+        },
     };
 }
 
