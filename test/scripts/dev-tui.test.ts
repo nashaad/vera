@@ -230,18 +230,21 @@ test("leftover root files on a clone move into machine/leftover", () => {
     mkdirSync(join(home, "runtime"), { recursive: true });
     writeFileSync(join(home, "tui.json"), "{}\n");
     writeFileSync(join(home, "whisker"), "stay-out\n");
+    writeFileSync(join(home, "notes.md"), "loose\n");
     writeFileSync(join(home, "extensions.json"), "[]\n");
     try {
         quarantineUnknownHomeEntries(home);
         expect(existsSync(join(home, "tui.json"))).toBe(true);
+        // The home owns its extension registry, so it is not a leftover.
+        expect(existsSync(join(home, "extensions.json"))).toBe(true);
         expect(existsSync(join(home, "whisker"))).toBe(false);
-        expect(existsSync(join(home, "extensions.json"))).toBe(false);
+        expect(existsSync(join(home, "notes.md"))).toBe(false);
         expect(readFileSync(join(home, "machine", "leftover", "whisker"), "utf8"))
             .toBe("stay-out\n");
         expect(readFileSync(
-            join(home, "machine", "leftover", "extensions.json"),
+            join(home, "machine", "leftover", "notes.md"),
             "utf8",
-        )).toBe("[]\n");
+        )).toBe("loose\n");
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
