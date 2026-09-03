@@ -300,7 +300,9 @@ export function renderState(rt: TuiRuntime): void {
     rt.resumeOverlay.surface.visible = uiRequest === undefined
         && isJsonlViewClient(rt.client)
         && !rt.jsonlCommandMode;
-    rt.homeView.surface.visible = isHomeClient(rt.client);
+    rt.homeView.surface.visible = isHomeClient(rt.client)
+        && rt.onboardingWizard === undefined;
+    rt.onboardingWizardView.surface.visible = rt.onboardingWizard !== undefined;
     renderCommandSuggestions(rt);
     if (
         uiRequest !== undefined
@@ -486,7 +488,8 @@ export function refreshTimedSurfaces(rt: TuiRuntime): void {
 }
 
 export function anyOverlayOpen(rt: TuiRuntime): boolean {
-    return rt.dialStrip !== undefined
+    return rt.onboardingWizard !== undefined
+        || rt.dialStrip !== undefined
         || rt.experimentalTuiHost.hasModal()
         || focusedUiRequest(rt) !== undefined
         || rt.timelinePicker !== undefined

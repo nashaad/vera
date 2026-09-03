@@ -1,0 +1,37 @@
+{
+    "schema_version": 1,
+    "order": 8,
+    "id": "outrider",
+    "label": "Outrider",
+    "short_label": "outrider",
+    "access": "local",
+    "credential": "none",
+    "hint": "local, no account",
+    "protocol": "openai-chat",
+    "default_base_url": "http://127.0.0.1:11435/v1",
+    "discovery": { "mode": "models", "path": "/models", "credential": "none" },
+    "local_runtime": "outrider",
+    "recommend": { "rank": 2, "reason": "runs on this Mac, no key, no account" },
+    "recommend_models": [
+        {
+            "id": "qwen35b-mtp",
+            "rank": 1,
+            "role": "work",
+            "label": "A model that does the work",
+            "reason": "tools, thinking, 32K context",
+            "requires": { "memory_gb": 32 }
+        },
+        {
+            "id": "granite4.2-3b",
+            "rank": 2,
+            "role": "lite",
+            "label": "Lite model to get started",
+            "reason": "answers questions about Vera, not for real work"
+        }
+    ],
+    "compatibility": {
+        "request": ["openai-chat"],
+        "response": ["openai-sse"],
+        "error": ["http-status"]
+    }
+}

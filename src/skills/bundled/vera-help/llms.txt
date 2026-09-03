@@ -1,0 +1,67 @@
+# Vera product guide
+
+Use this file for questions about using Vera or explaining how Vera behaves. Do not inspect source code to answer product questions. Search for `^## `, choose the relevant section, and read only that section. In each header, `[lines=N]` is the exact number of physical lines after the header and before the next `##` header or end of file.
+
+## What Vera is [lines=5]
+Vera is a coding-agent environment with a resident host and multiple sibling clients, including the terminal UI, desktop, web, CLI, and SDK.
+The host owns live conversations, provider connections, tool execution, permissions, and durable session state. A client renders and controls that state.
+Closing a client does not necessarily stop its conversation. Reconnecting changes the client connection, not the installed Vera build.
+Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
+
+## Start, development, and upgrades [lines=6]
+Run `vera` for the installed daily Vera using `~/.vera`.
+Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home.
+Closing and reopening the TUI, `/reconnect`, and `vera host stop` restart or replace processes. They do not install checkout code.
+Run `bun run install:local` from the intended checkout to pack, verify, and activate that build for the installed `vera` command.
+Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
+
+## Models and providers [lines=8]
+Open `/model` to search models, change the active model, and open the provider list with `ctrl+e`.
+Selecting a model changes the current conversation and becomes the default for new conversations unless a more specific assignment applies.
+Provider credentials and endpoint configuration belong to the Vera home. A custom OpenAI-compatible provider can expose models through its `/v1/models` endpoint.
+After a provider's model catalog changes, refresh models from the model pane or with `vera models refresh`.
+The provider and model shown in the status line are the route Vera is using. A local serving layer may load or unload the requested model behind that stable provider endpoint.
+For OpenRouter, connect the API key, select an `openrouter` model in `/model`, and send one minimal prompt to verify the route.
+Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
+
+## Conversations and background work [lines=6]
+`/resume` opens another conversation. Enter stops the conversation being left; Tab keeps it running.
+`/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
+Submitting while Vera is working queues another prompt. Empty Enter stops the current turn and sends the whole queue; empty Escape sends only the oldest queued prompt.
+Ctrl+C stops the active turn without sending queued work.
+The agent sidebar groups conversations by needs-you, working, idle, and recent state across workspaces.
+
+## Tools, permissions, and agents [lines=5]
+The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
+The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
+Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
+An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
+
+## Skills and standing instructions [lines=6]
+Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
+Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
+Project instruction files, selected-agent instructions, memory, imports, and standing nudges may all contribute context.
+Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
+Use `/context` to see which instruction sources are loaded and how much of the model window they consume.
+
+## Context and bounded research [lines=7]
+Use `/context all` to inspect individual message and tool-result sizes. A single large read can dominate the working window.
+For a known product question, consult this file first. Do not read configuration or provider implementation files to rediscover documented behavior.
+Search headings before reading a long document. Read the smallest relevant section or a bounded line range.
+If one bounded lookup does not establish the answer, state what is missing or hand off. Do not enter an open-ended source-research loop.
+Smaller models should run with shorter fresh context and earlier compaction. Prefer a stronger dedicated compactor or deterministic summary so confusion is not preserved.
+Tool results should be visibly bounded, truncated, or paginated. Oversized output must not silently consume the session.
+
+## Diagnostics and recovery [lines=6]
+`/diagnostics` and `/doctor` inspect the current runtime. `/context` explains context occupancy without making a model request.
+If a client loses its host connection, use `/reconnect`. This attaches to or replaces the host process while preserving the same installed build.
+If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
+Use `/usage` for local session usage and cost. It reads session files from the current Vera home and does not contact an account portal.
+Treat request captures, session files, reviewer logs, and inspected model requests as sensitive local data.
+
+## Answering rules [lines=5]
+Lead with the shortest correct user action. Add explanation only when it changes the action or prevents a likely mistake.
+Separate user workflow from developer verification. Do not recommend source commands, smoke scripts, or implementation files for ordinary setup questions.
+Never claim a path, command, capability, or current state that this guide does not establish. Say what must be checked.
+Prefer one direct recovery attempt. If it fails, report the observed failure and the next bounded check.
+When a question requires current external facts, provider availability, prices, or model specifications, verify them from the provider's authoritative source.

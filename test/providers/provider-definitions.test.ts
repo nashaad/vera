@@ -29,6 +29,7 @@ test("shipped provider facts come from validated resource data", () => {
         "ollama",
         "omlx",
         "digitalocean",
+        "outrider",
     ]);
     expect(shippedProviderDefinitions().find((definition) => definition.id === "openrouter"))
         .toMatchObject({ protocol: "contributed", behavior_id: "openrouter" });

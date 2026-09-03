@@ -623,7 +623,7 @@ export function openProviderEditForm(rt: TuiRuntime,
     focusActiveSurface(rt);
 }
 
-function onboardingInput(
+export function onboardingInput(
     rt: TuiRuntime,
     config = loadOptionalVeraConfig(),
 ): OnboardingInput {

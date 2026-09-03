@@ -90,6 +90,7 @@ test("provider access is explicit enough for clients to group without guessing",
             ["ollama", "local"],
             ["omlx", "local"],
             ["digitalocean", "api_key"],
+            ["outrider", "local"],
         ]);
 });
 

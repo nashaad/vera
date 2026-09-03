@@ -10,6 +10,7 @@ import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPicke
 import { receiveAgentUpdates } from "../main/agent-updates.ts";
 import { focusedAgentClient, focusedAgentState, openExtensionAgent, setSidebarFocused } from "../main/agents-dials.ts";
 import { homeNeedsProvider, openProviderPicker } from "../main/model-pickers.ts";
+import { openOnboardingWizard } from "../main/onboarding-wizard-ops.ts";
 import { applyTerminalTitle, clearSidebarEntryNodes, closeSidebarPane, refreshTerminalTitle } from "../main/chrome.ts";
 import { requestSessionSettings } from "../main/diagnostics-ops.ts";
 import { loadExtensionCommands, rejectPendingExtensionSettingsFor, requestSkillCommands, supportsSkillCommands } from "../main/extension-bridge.ts";
@@ -290,7 +291,13 @@ export function beginParkToJsonl(rt: TuiRuntime): void {
 
 export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
     if (action.kind === "connect_provider") {
-        openProviderPicker(rt);
+        // The wizard is the cold path. Once a provider has answered, adding a
+        // second one is the ordinary picker rather than a walk through gates.
+        if (homeNeedsProvider(rt)) {
+            openOnboardingWizard(rt);
+        } else {
+            openProviderPicker(rt);
+        }
         return;
     }
     if (action.kind === "resume_picker") {

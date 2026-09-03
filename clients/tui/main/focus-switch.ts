@@ -53,6 +53,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.help !== undefined) {
         return () => rt.helpView.focus();
     }
+    if (rt.onboardingWizard !== undefined) {
+        return () => rt.onboardingWizardView.box.focus();
+    }
     if (rt.doctorDialog !== undefined) {
         return () => rt.doctorDialogView.focus();
     }
