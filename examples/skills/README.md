@@ -1,6 +1,6 @@
 # Example skills
 
-Vera ships no enabled workflow skills by default. These examples are reference implementations users can copy and edit.
+Vera ships one skill, `vera-help`, which reads the product guide and does nothing else. It ships no workflow skills. These examples are reference implementations users can copy and edit.
 
 Install one for a project:
 

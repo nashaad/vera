@@ -92,14 +92,16 @@ description: ${description}
 `);
 }
 
-test("Vera ships no automatically enabled workflow skills", async () => {
+test("the only skill Vera ships is the guide to itself", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
     const catalog = await loadSkillCatalog({
         projectRoot: join(root, "project"),
         userDirectory: join(root, "user"),
     });
 
-    expect(catalog.skills).toEqual([]);
+    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
+        "vera-help",
+    ]);
 });
 
 test("copyable example skills are valid opt-in packages", async () => {
