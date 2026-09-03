@@ -100,9 +100,16 @@ async function listening(): Promise<boolean> {
 }
 
 /** The gateway the stand-in brings up is the wire stand-in that already exists. */
-function startGateway(): void {
+function startGateway(id: string): void {
     const proxy = join(import.meta.dir, "outrider-proxy.ts");
-    Bun.spawn(["bun", proxy, "--port", String(GATEWAY_PORT)], {
+    Bun.spawn([
+        "bun",
+        proxy,
+        "--port",
+        String(GATEWAY_PORT),
+        "--serve-as",
+        id,
+    ], {
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
@@ -123,7 +130,7 @@ async function serve(id: string): Promise<void> {
     }
     emit({ name: `starting on 127.0.0.1:${GATEWAY_PORT}`, done: false });
     if (!await listening()) {
-        startGateway();
+        startGateway(id);
         for (let attempt = 0; attempt < 40 && !await listening(); attempt += 1) {
             await sleep(250);
         }
