@@ -372,7 +372,7 @@ function leaveRuntimeToTheUser(rt: TuiRuntime): void {
     closeOnboardingWizard(rt);
     rt.state = appendTuiNotice(
         rt.state,
-        `install Outrider from ${OUTRIDER_REPO}, then run /onboarding again`,
+        `install Outrider from ${OUTRIDER_REPO}, then pick Connect a provider again`,
     );
     renderState(rt);
     if (!isHomeClient(rt.client)) returnToHome(rt);
