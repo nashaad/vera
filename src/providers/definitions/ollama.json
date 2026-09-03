@@ -8,6 +8,11 @@
     "credential": "none",
     "hint": "local, no account",
     "shortlist": true,
+    "no_models": [
+        "Ollama is not serving any models.",
+        "Get it at ollama.com/download if it is not on this Mac.",
+        "If it is, run  ollama run qwen3:8b  to pull one."
+    ],
     "env_var": "OLLAMA_HOST",
     "protocol": "contributed",
     "behavior_id": "ollama",

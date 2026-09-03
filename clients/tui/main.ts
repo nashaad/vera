@@ -1867,6 +1867,7 @@ export async function startTui(
     rt.onboardingWizard = undefined;
     rt.onboardingWizardTimer = undefined;
     rt.onboardingRuntimeCommand = undefined;
+    rt.onboardingCatalogRefresh = undefined;
     rt.onboardingWizardView = createTuiOnboardingView(rt.renderer, (action) => {
         runOnboardingWizardAction(rt, action);
     });

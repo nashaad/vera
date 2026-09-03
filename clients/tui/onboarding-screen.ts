@@ -472,7 +472,9 @@ function progressLines(
             tone: "note" as const,
         })),
         ...barLines(body.bar),
-        ...noteLines(body.notes),
+        ...(body.notes === undefined || body.notes.length === 0
+            ? []
+            : [{ text: "", tone: "frame" as const }, ...noteLines(body.notes)]),
     ];
 }
 
@@ -506,13 +508,12 @@ function barLines(
     ];
 }
 
-/** Sentences under whatever the body is showing. */
+/** Sentences under whatever the body is showing. The blank line above them belongs to whatever they follow, so notes that open a body do not stack a second one under the heading. */
 function noteLines(
     notes: readonly string[] | undefined,
 ): readonly OnboardingLine[] {
     if (notes === undefined || notes.length === 0) return [];
     return [
-        { text: "", tone: "frame" },
         ...notes.flatMap((note) =>
             wrapped(note, INNER_WIDTH - CONTENT_INDENT * 2).map((line) => ({
                 text: indent(line),

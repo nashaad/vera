@@ -47,6 +47,8 @@ export interface ProviderDescriptor {
     readonly localRuntime?: ProviderLocalRuntime;
     /** Kept on the first-run list under the recommended ones. */
     readonly shortlist?: boolean;
+    /** What to say when this provider's model list comes back empty. */
+    readonly noModels?: readonly string[];
     readonly requestOptions?: Readonly<{
         readonly behavior: "openrouter-provider-preferences";
         readonly label: string;
@@ -97,6 +99,9 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
             ? {}
             : { localRuntime: provider.definition.local_runtime }),
         ...(provider.definition.shortlist === true ? { shortlist: true } : {}),
+        ...(provider.definition.no_models === undefined
+            ? {}
+            : { noModels: provider.definition.no_models }),
         ...(provider.definition.request_options === undefined
             ? {}
             : {

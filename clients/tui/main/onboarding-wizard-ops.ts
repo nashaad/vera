@@ -32,6 +32,8 @@ import { onboardingInput } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { requestPoolAdmission } from "../main.ts";
+import { sendCommand } from "./extension-bridge.ts";
+import { randomUUID } from "node:crypto";
 import {
     beginCreateSession,
     requestModelSettingsChange,
@@ -148,12 +150,45 @@ function startWizardSpinner(rt: TuiRuntime): void {
 
 /** A model list belongs to a conversation, so the wizard opens one and holds the step until its settings arrive. */
 function requestWizardModels(rt: TuiRuntime, provider: string): void {
+    const session = rt.onboardingWizard;
+    // The list is out, so the step says so rather than showing an empty one.
+    if (session !== undefined) {
+        const { alert: _dropped, ...rest } = session;
+        updateWizardSession(rt, { ...rest, asking: true });
+    }
     if (!isHomeClient(rt.client)) {
         fillWizardModels(rt, provider);
+        askProviderForModels(rt, provider);
         return;
     }
     rt.pendingOnboardingStep = provider;
     beginCreateSession(rt, "stop");
+}
+
+/** What the host has saved is what it was told last time, which on a first run is nothing. Every visit to this step asks the provider itself. */
+function askProviderForModels(rt: TuiRuntime, provider: string): void {
+    const session = rt.onboardingWizard;
+    if (session === undefined) return;
+    const requestId = randomUUID();
+    rt.onboardingCatalogRefresh = requestId;
+    const { alert: _dropped, ...rest } = session;
+    updateWizardSession(rt, { ...rest, asking: true });
+    sendCommand(rt, { type: "catalog_refresh", requestId, provider });
+}
+
+/** The provider has answered, so the list stands on its own words. */
+export function wizardTookCatalogRefresh(
+    rt: TuiRuntime,
+    requestId: string,
+): boolean {
+    if (rt.onboardingCatalogRefresh !== requestId) return false;
+    rt.onboardingCatalogRefresh = undefined;
+    const session = rt.onboardingWizard;
+    if (session === undefined || session.at !== "model") return true;
+    const { asking: _answered, ...rest } = session;
+    rt.onboardingWizard = rest;
+    fillWizardModels(rt, session.chosen ?? "");
+    return true;
 }
 
 function fillWizardModels(rt: TuiRuntime, provider: string): void {
@@ -176,7 +211,11 @@ function fillWizardModels(rt: TuiRuntime, provider: string): void {
         updateWizardSession(rt, {
             ...session,
             at: "model",
-            alert: `${provider} listed no models`,
+            // While the provider is still being asked, an empty list is not
+            // yet an answer.
+            ...(session.asking === true
+                ? {}
+                : { alert: `${providerLabel(provider)} listed no models` }),
         });
         return;
     }
@@ -192,6 +231,7 @@ export function wizardTookModelSettings(rt: TuiRuntime): boolean {
     }
     rt.pendingOnboardingStep = undefined;
     fillWizardModels(rt, provider);
+    askProviderForModels(rt, provider);
     return true;
 }
 

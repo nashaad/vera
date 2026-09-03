@@ -99,6 +99,22 @@ const OUTRIDER_MODELS = [
     { id: "qwen35b-mtp", label: "qwen35b-mtp" },
 ];
 
+test("an empty model list waits for the provider, then says what to do", () => {
+    const asking = screenText({
+        ...newWizardSession("model"),
+        chosen: "ollama",
+        asking: true,
+    });
+    expect(asking).toContain("Asking Ollama for its models");
+    expect(asking).not.toContain("ollama run");
+    const answered = screenText({
+        ...newWizardSession("model"),
+        chosen: "ollama",
+    });
+    expect(answered).toContain("ollama.com/download");
+    expect(answered).toContain("ollama run qwen3:8b");
+});
+
 test("the model step offers jobs before model names", () => {
     const screen = wizardScreen(COLD, {
         ...newWizardSession("model"),

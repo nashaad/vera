@@ -463,6 +463,8 @@ export interface TuiRuntime {
     poolAdmissionAttempts: Map<string, { readonly provider: string; readonly model: string; readonly verify: boolean; readonly retry: boolean; }>;
     /** The provider whose model step is waiting for the new conversation's settings. */
     pendingOnboardingStep: string | undefined;
+    /** The catalog refresh the model step has out, so its answer is told apart from every other one. */
+    onboardingCatalogRefresh: string | undefined;
     /** The one real request that decides whether the last gate is clear. */
     onboardingVerification: { readonly requestId: string; readonly provider: string; readonly model: string; } | undefined;
     /** The install or start the wizard has out, held so a key can stop it. */

@@ -77,6 +77,8 @@ export interface WizardSession {
     /** The model that answered, which closes the flow. */
     readonly connected?: string;
     readonly models: readonly WizardModel[];
+    /** Set while the provider itself is being asked for its list, and kept so it is asked once per visit. */
+    readonly asking?: boolean;
     readonly spinnerFrame: number;
     /** Only set for a provider Vera can put on the machine itself. */
     readonly runtime?: WizardRuntime;
@@ -518,12 +520,23 @@ export function wizardScreen(
         };
     }
     if (session.at === "model") {
+        const groups = modelGroups(provider, session, machine);
+        // A question with no answers under it is a dead end, so the provider
+        // says how to get itself a model. Until it has answered, an empty list
+        // is only a list that has not arrived.
+        const empty = groups.every((group) => group.rows.length === 0);
+        const notes = !empty
+            ? undefined
+            : session.asking === true
+            ? [`Asking ${provider?.label ?? "the provider"} for its models…`]
+            : provider?.noModels;
         return {
             ...common,
             heading: "What should Vera run?",
             body: {
                 kind: "choice",
-                groups: modelGroups(provider, session, machine),
+                groups,
+                ...(notes === undefined ? {} : { notes }),
                 enterHint: "connect",
                 ...(session.models.length >= SEARCHABLE_FROM
                     ? { query: session.query }
