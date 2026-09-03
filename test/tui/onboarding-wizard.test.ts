@@ -438,9 +438,9 @@ test("the model step names the cheap models that score well, so there is somethi
         { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
         { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
     ]);
-    // Best score first, because a cheap model nobody would use is no suggestion.
+    // Cheapest first: everything named is already good enough to use.
     expect(notes).toEqual([
-        "Good value: z-ai/glm-5.3-flash, deepseek/deepseek-v4-flash."
+        "Good value: deepseek/deepseek-v4-flash, z-ai/glm-5.3-flash."
         + " Cheap, and they score close to the expensive ones.",
     ]);
 });
@@ -461,26 +461,23 @@ test("the weakest models on the front are not named just for being cheapest", ()
     // model that cannot do the work.
     const notes = modelNotes(LIVE_FRONT);
     expect(notes[0]).toContain(
-        "Good value: z-ai/glm-5.3-flash, deepseek/deepseek-v4-flash.",
+        "Good value: deepseek/deepseek-v4-flash, z-ai/glm-5.3-flash,"
+        + " tencent/hy4-preview.",
     );
     expect(notes[0]).not.toContain("granite");
     expect(notes[0]).not.toContain("solar");
 });
 
-test("a strong dear model does not raise the bar past the cheap models", () => {
-    // Opus scores highest on the front. Measuring the floor against it would
-    // leave nothing cheap to name, which is the opposite of the point.
+test("a model past the price ceiling is not named, however well it scores", () => {
     expect(modelNotes(LIVE_FRONT)[0]).not.toContain("opus");
     expect(modelNotes(LIVE_FRONT)[0]).toContain("glm-5.3-flash");
 });
 
-test("a model an order of magnitude dearer than the cheap end is not named", () => {
-    const notes = modelNotes([
-        { id: "cheap/one", label: "One", onPareto: true, outputPrice: 0.2, waScore: 1500 },
-        { id: "dear/two", label: "Two", onPareto: true, outputPrice: 25, waScore: 1700 },
-    ]);
-    expect(notes[0]).toContain("Good value: cheap/one.");
-    expect(notes[0]).not.toContain("dear/two");
+test("nothing is named when the front holds nothing both cheap and capable", () => {
+    expect(modelNotes([
+        { id: "weak/cheap", label: "Weak", onPareto: true, outputPrice: 0.2, waScore: 1200 },
+        { id: "strong/dear", label: "Strong", onPareto: true, outputPrice: 25, waScore: 1700 },
+    ])).toEqual([]);
 });
 
 test("the model step names at most three, so a suggestion does not become a list", () => {
@@ -489,8 +486,8 @@ test("the model step names at most three, so a suggestion does not become a list
             id: `open/${id}`,
             label: id,
             onPareto: true,
-            outputPrice: 1,
-            waScore: 1600 - at,
+            outputPrice: 0.1 * (at + 1),
+            waScore: 1600,
         })),
     );
     expect(notes[0]).toContain("Good value: open/a, open/b, open/c.");
