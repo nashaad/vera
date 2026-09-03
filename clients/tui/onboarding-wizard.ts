@@ -12,6 +12,7 @@ import {
     recommendedProviders,
     type MachineFacts,
 } from "../../src/providers/recommendation.ts";
+import type { RecommendedModel } from "../../src/providers/definitions.ts";
 import type { ProviderDescriptor } from "../../src/providers/registry.ts";
 import {
     handleOnboardingKey,
@@ -154,16 +155,48 @@ export function providerGroups(
 /** Long enough that scanning it by eye stops working. */
 const SEARCHABLE_FROM = 12;
 
+function modelRow(model: WizardModel): OnboardingChoiceRow {
+    return {
+        id: model.id,
+        label: model.label,
+        ...(model.label === model.id ? {} : { detail: model.id }),
+    };
+}
+
+/** A recommendation names a job rather than a model, so the row reads as the job and the model id becomes the detail. */
+function recommendedModelRow(
+    recommended: RecommendedModel,
+    model: WizardModel,
+): OnboardingChoiceRow {
+    return {
+        id: model.id,
+        label: recommended.label,
+        detail: model.id,
+        note: recommended.reason,
+    };
+}
+
+/** Recommended jobs first, then the rest. A recommendation for a model this provider does not list is dropped rather than offered. */
 function modelGroups(
+    provider: ProviderDescriptor | undefined,
     session: WizardSession,
 ): readonly OnboardingChoiceGroup[] {
-    return [{
-        rows: session.models.map((model) => ({
-            id: model.id,
-            label: model.label,
-            ...(model.label === model.id ? {} : { detail: model.id }),
-        })),
-    }];
+    const recommended = [...provider?.recommendModels ?? []]
+        .sort((left, right) => left.rank - right.rank)
+        .flatMap((entry) => {
+            const model = session.models.find((row) => row.id === entry.id);
+            return model === undefined ? [] : [recommendedModelRow(entry, model)];
+        });
+    const promoted = new Set(recommended.map((row) => row.id));
+    const rest = session.models.filter((model) => !promoted.has(model.id));
+    if (recommended.length === 0) return [{ rows: rest.map(modelRow) }];
+    const groups: OnboardingChoiceGroup[] = [
+        { label: "RECOMMENDED", rows: recommended },
+    ];
+    if (rest.length !== 0) {
+        groups.push({ label: "OTHER", rows: rest.map(modelRow) });
+    }
+    return groups;
 }
 
 function keyNotes(provider: ProviderDescriptor): readonly string[] {
@@ -253,7 +286,7 @@ export function wizardScreen(
             heading: "What should Vera run?",
             body: {
                 kind: "choice",
-                groups: modelGroups(session),
+                groups: modelGroups(provider, session),
                 enterHint: "connect",
                 ...(session.models.length >= SEARCHABLE_FROM
                     ? { query: session.query }

@@ -89,6 +89,52 @@ test("a keyless provider draws its second gate as settled, never hidden", () => 
     expect(text).toContain("3 ▸ Model");
 });
 
+const OUTRIDER_MODELS = [
+    { id: "tiny", label: "tiny" },
+    { id: "granite4.2-3b", label: "granite4.2-3b" },
+    { id: "qwen35b-mtp", label: "qwen35b-mtp" },
+];
+
+test("the model step offers jobs before model names", () => {
+    const screen = wizardScreen(COLD, {
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        models: OUTRIDER_MODELS,
+    }, MAC);
+    const groups = screen.body.kind === "choice" ? screen.body.groups : [];
+    expect(groups[0]?.label).toBe("RECOMMENDED");
+    expect(groups[0]?.rows.map((row) => row.id))
+        .toEqual(["qwen35b-mtp", "granite4.2-3b"]);
+    expect(groups[0]?.rows[0]?.label).toBe("A model that does the work");
+    expect(groups[1]?.label).toBe("OTHER");
+    expect(groups[1]?.rows.map((row) => row.id)).toEqual(["tiny"]);
+});
+
+test("a recommendation for a model the provider does not list is not offered", () => {
+    const screen = wizardScreen(COLD, {
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        models: [{ id: "tiny", label: "tiny" }],
+    }, MAC);
+    const groups = screen.body.kind === "choice" ? screen.body.groups : [];
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.rows.map((row) => row.id)).toEqual(["tiny"]);
+});
+
+test("a row that spills onto a second line is not crowded by the next one", () => {
+    const lines = onboardingCardLines(wizardScreen(COLD, {
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        models: OUTRIDER_MODELS,
+    }, MAC)).map((line) => line.text.slice(1, -1).trimEnd());
+    const note = lines.findIndex((line) =>
+        line.includes("tools, thinking, 32K context")
+    );
+    expect(note).toBeGreaterThan(0);
+    expect(lines[note + 1]).toBe("");
+    expect(lines[note + 2]).toContain("Lite model to get started");
+});
+
 test("the model step searches only once a list is too long to scan", () => {
     const short = wizardScreen(COLD, {
         ...newWizardSession("model"),
