@@ -15,6 +15,7 @@ import type {
 import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import type { EngineEventBus, PoolAdmissionVerdict } from "./events.ts";
 import type { ToolHooks } from "./hooks.ts";
+import type { ToolResultLimits } from "./tool-result-history.ts";
 import type {
     InboundCommandRouter,
     InboundCommandRouterOptions,
@@ -149,6 +150,7 @@ export interface RunHeadlessLoopServices {
     readonly processRegistry?: ManagedProcessRegistry;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly compaction?: SessionCompactionOptions;
+    readonly toolResults?: ToolResultLimits;
 
     readonly readPolicy?: () => LoopPolicy;
     readonly readModelSettings?: () => ModelTurnSettings;

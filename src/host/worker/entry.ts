@@ -74,6 +74,9 @@ export async function runWorker(
             ...(options.compaction === undefined
                 ? {}
                 : { compaction: options.compaction }),
+            ...(options.toolResults === undefined
+                ? {}
+                : { toolResults: options.toolResults }),
         });
         acceptHostNotification = remote.acceptNotification;
         for (const body of pendingHost.splice(0)) {

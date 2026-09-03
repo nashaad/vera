@@ -21,6 +21,7 @@ import {
     loadOptionalVeraConfig,
     loadOrCreateVeraConfig,
     configuredCompactionOverrides,
+    configuredToolResults,
     developerOverrides,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -1704,6 +1705,52 @@ test("compaction numbers apply whether or not developer mode is on", () => {
         summaryWordCap: 400,
         retainedUserTurns: 5,
     });
+});
+
+test("tool result limits reach the engine in its own terms", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: {
+            ceiling_bytes: 16_384,
+            total_budget_bytes: 49_152,
+            stub_after_turns: 1,
+            aging_level: "tight",
+        },
+    }));
+
+    expect(configuredToolResults(loadVeraConfig({ path }))).toEqual({
+        ceilingBytes: 16_384,
+        totalBudgetBytes: 49_152,
+        stubAfterTurns: 1,
+        agingLevel: "tight",
+    });
+});
+
+test("an auto aging level leaves the row to the window", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { aging_level: "auto", stub_after_turns: 0 },
+    }));
+
+    // `auto` is the absence of a choice, so it must not pin a row.
+    expect(configuredToolResults(loadVeraConfig({ path }))).toEqual({
+        stubAfterTurns: 0,
+    });
+});
+
+test("an empty tool result block limits nothing", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: {},
+    }));
+
+    expect(configuredToolResults(loadVeraConfig({ path }))).toBeUndefined();
 });
 
 test("a compaction block with no numbers overrides nothing", () => {

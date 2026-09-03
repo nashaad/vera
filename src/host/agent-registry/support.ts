@@ -59,6 +59,7 @@ import type {
     RunHeadlessLoopServices,
 } from "../../engine/loop-services.ts";
 import { createRoutedCompletionService } from "../../engine/completion-service.ts";
+import type { ToolResultLimits } from "../../engine/tool-result-history.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
@@ -313,6 +314,7 @@ export interface AgentRegistryOptions {
     readonly compaction?: ResolvedCompactionProfile;
     readonly compactionModels?: readonly VeraCatalogModel[];
     readonly compactionOverrides?: CompactionOverrides;
+    readonly toolResults?: ToolResultLimits;
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];

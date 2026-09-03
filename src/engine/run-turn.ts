@@ -106,6 +106,7 @@ import { contextContributionParts } from "./context-parts.ts";
 import {
     assembleAgedToolResults,
     type ToolResultAgingPolicy,
+    type ToolResultLimits,
 } from "./tool-result-history.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
 import type { CompleteText } from "./completion-service.ts";
@@ -295,6 +296,7 @@ export interface RunTurnState {
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly scratchDir?: string;
     readonly toolResultSpill?: ToolResultSpill;
+    readonly toolResults?: ToolResultLimits;
     readonly disabledPromptContributions?: readonly string[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
@@ -774,11 +776,21 @@ export async function runHeadlessLoop(
         const pendingUserTurns = pendingMessages.filter((message) =>
             message.role === "user" && message.internal !== true
         ).length;
+        const limits = owned.toolResults;
         return {
             overheadTokens: fixedOverhead() + measureMessages(pendingMessages),
             spillDirectory,
             ...(capacity === undefined ? {} : { capacity }),
             ...(pendingUserTurns === 0 ? {} : { pendingUserTurns }),
+            ...(limits?.agingLevel === undefined
+                ? {}
+                : { level: limits.agingLevel }),
+            ...(limits?.stubAfterTurns === undefined
+                ? {}
+                : { ageAfterTurns: limits.stubAfterTurns }),
+            ...(limits?.totalBudgetBytes === undefined
+                ? {}
+                : { budgetBytes: limits.totalBudgetBytes }),
         };
     };
     let lastRawEstimate = 0;
@@ -1086,6 +1098,9 @@ export async function runHeadlessLoop(
             readSessionImageContent(store, attachmentId),
         scratchDir,
         toolResultSpill: createToolResultSpill(scratchDir),
+        ...(owned.toolResults === undefined
+            ? {}
+            : { toolResults: owned.toolResults }),
         get disabledPromptContributions() {
             return policy().disabledPromptContributions;
         },
@@ -2516,6 +2531,7 @@ async function executePreparedTool(
         toolCall,
         applied.output,
         state.toolResultSpill,
+        state.toolResults?.ceilingBytes,
     );
     const durationMs = performance.now() - startedAt;
     return finishExecutedTool(

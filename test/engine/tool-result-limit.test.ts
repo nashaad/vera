@@ -31,6 +31,34 @@ test("a result under the ceiling passes through untouched", async () => {
     expect(limited.truncation).toBeUndefined();
 });
 
+test("a configured ceiling replaces the shipped one", async () => {
+    // The case a small window needs: 64 KB of grep output is the whole context
+    // on a 32k model, so the ceiling has to come down with the window.
+    const text = `${"head".repeat(64)}${"x".repeat(20_000)}${"tail".repeat(64)}`;
+    const limited = await limitToolResult(text, {
+        toolName: "bash",
+        ceilingBytes: 2_048,
+    });
+
+    expect(limited.truncation).toBeDefined();
+    expect(limited.truncation!.retainedBytes).toBeLessThanOrEqual(2_048);
+    expect(limited.text.startsWith("head")).toBe(true);
+    expect(limited.text.endsWith("tail")).toBe(true);
+});
+
+test("a bound result honours the ceiling it is handed", async () => {
+    const text = "z".repeat(20_000);
+    const bound = await boundToolResult(
+        { type: "tool_call", id: "call-ceiling", name: "bash", input: {} },
+        { kind: "output", output: text, isError: false },
+        undefined,
+        4_096,
+    );
+
+    expect(bound.truncation).toBeDefined();
+    expect(bound.truncation!.retainedBytes).toBeLessThanOrEqual(4_096);
+});
+
 test("an oversized result keeps both ends and says what it dropped", async () => {
     const text = `${"head".repeat(64)}${"x".repeat(200_000)}${"tail".repeat(64)}`;
     const limited = await limitToolResult(text, { toolName: "bash" });

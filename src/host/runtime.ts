@@ -10,6 +10,7 @@ import {
     configuredCompactionModels,
     configuredCompactionOverrides,
     configuredReviewers,
+    configuredToolResults,
     createLiveVeraConfigReader,
     defaultVeraConfigPath,
     developerOverrides,
@@ -750,6 +751,9 @@ export async function startResidentHost(
         },
         get compactionOverrides() {
             return configuredCompactionOverrides(currentConfig());
+        },
+        get toolResults() {
+            return configuredToolResults(currentConfig());
         },
         get compactionModels() {
             return configuredCompactionModels(

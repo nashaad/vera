@@ -16,7 +16,10 @@ import {
     parseApprovalMode,
     type ApprovalMode,
 } from "./engine/permissions.ts";
-import { TOOL_RESULT_TOTAL_BUDGET_BYTES } from "./engine/tool-result-history.ts";
+import {
+    TOOL_RESULT_TOTAL_BUDGET_BYTES,
+    type ToolResultLimits,
+} from "./engine/tool-result-history.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
 import type { CompactionOverrides } from "./engine/compaction-binding.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
@@ -2062,6 +2065,35 @@ export function configuredCompaction(
         model_routes: config.model_routes,
         reviewer_profiles: config.reviewer_profiles ?? {},
     }, config.compaction);
+}
+
+/**
+ * The tool result limits a config sets, or undefined when it sets none. An
+ * `auto` aging level is the absence of a choice, not a level: it leaves the
+ * row to be picked from the window the session actually has.
+ */
+export function configuredToolResults(
+    config: VeraConfig,
+): ToolResultLimits | undefined {
+    const limits = config.tool_results;
+    if (limits === undefined) {
+        return undefined;
+    }
+    const resolved: ToolResultLimits = {
+        ...(limits.ceiling_bytes === undefined
+            ? {}
+            : { ceilingBytes: limits.ceiling_bytes }),
+        ...(limits.total_budget_bytes === undefined
+            ? {}
+            : { totalBudgetBytes: limits.total_budget_bytes }),
+        ...(limits.stub_after_turns === undefined
+            ? {}
+            : { stubAfterTurns: limits.stub_after_turns }),
+        ...(limits.aging_level === undefined || limits.aging_level === "auto"
+            ? {}
+            : { agingLevel: limits.aging_level }),
+    };
+    return Object.keys(resolved).length === 0 ? undefined : resolved;
 }
 
 /**

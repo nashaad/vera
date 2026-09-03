@@ -946,6 +946,9 @@ export class AgentRegistry {
                 get compaction() {
                     return boundCompaction();
                 },
+                ...(this.options.toolResults === undefined
+                    ? {}
+                    : { toolResults: this.options.toolResults }),
                 applyToolEffect,
                 requestMissingSubagentConfiguration:
                     (request, context, signal) =>
