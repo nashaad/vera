@@ -274,6 +274,7 @@ export function runOnboardingWizardAction(
         requestWizardModels(rt, provider);
         return;
     }
+    if (action.kind !== "choose") return;
     if (session.at === "provider") {
         chooseProvider(rt, session, action.id);
         return;

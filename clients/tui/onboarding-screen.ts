@@ -115,6 +115,8 @@ export type OnboardingScreenAction =
     | { readonly kind: "choose"; readonly id: string }
     | { readonly kind: "submit"; readonly value: string }
     | { readonly kind: "back" }
+    /** The last screen has nothing to choose; enter there means start working. */
+    | { readonly kind: "continue" }
     | { readonly kind: "leave" };
 
 export type OnboardingLineTone =
@@ -534,6 +536,9 @@ export function handleOnboardingKey(
     }
     const body = state.body;
     if (key.name === "return" || key.name === "enter") {
+        if (body.kind === "done") {
+            return { action: { kind: "continue" }, handled: true };
+        }
         if (body.kind === "secret") {
             return {
                 action: { kind: "submit", value: body.value },
