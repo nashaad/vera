@@ -481,7 +481,10 @@ export interface OverrideValueRow {
     readonly key: OverrideKey;
     readonly target: OverrideMenuTarget;
     readonly label: string;
+    /** The trailing column, for a terminal too narrow for the detail pane. */
     readonly means: string;
+    /** What the lever does, for the pane beside the list. */
+    readonly detail: string;
     readonly options: readonly TuiSettingsPickerOption[];
     readonly format: (value: number | string) => string;
 }
@@ -512,6 +515,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("contextLimit"),
         label: "Context limit",
         means: "the window every fraction below is a share of",
+        detail:
+            "How much of the model's window Vera will use. Every fraction here is a share of this. Unset, Vera uses the window the model declares, and a model that declares none leaves the fractions with nothing to divide.",
         format: bytes,
         options: CONTEXT_LIMIT_OPTIONS,
     },
@@ -520,6 +525,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("compactionTriggerFraction"),
         label: "Compaction trigger",
         means: "share of the window that fires a compaction",
+        detail:
+            "How full the window gets before Vera summarises. At 0.82, a 200k window compacts near 164k.",
         format: ratio,
         options: [
             OFF,
@@ -534,6 +541,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("compactionTriggerTokens"),
         label: "Compaction trigger tokens",
         means: "a fixed token count that fires a compaction",
+        detail:
+            "A fixed token count that fires a compaction whatever the window is. This is what a model with no declared window falls back on.",
         format: plain,
         options: [
             OFF,
@@ -547,6 +556,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("compactionTargetTokens"),
         label: "Compaction target tokens",
         means: "how small a summary lands, when the window is unknown",
+        detail:
+            "How small the summary has to land, counted in tokens. Only read when the window is unknown: with a window, the target is a share of it instead.",
         format: plain,
         options: [
             OFF,
@@ -559,6 +570,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("postCompactionTargetFraction"),
         label: "Post-compaction target",
         means: "share of the window a summary lands under",
+        detail:
+            "How much of the window is still in use once a summary lands. At 0.45, a 200k window comes back near 90k.",
         format: ratio,
         options: [
             OFF,
@@ -572,6 +585,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("summaryWordCap"),
         label: "Summary word cap",
         means: "the most words a summary is asked for",
+        detail:
+            "The most words a summary is asked for. Lower is blunter, and cheaper to carry for the rest of the session.",
         format: plain,
         options: [
             OFF,
@@ -585,6 +600,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("retainedUserTurns"),
         label: "Retained user turns",
         means: "turns kept verbatim behind the summary",
+        detail:
+            "How many of your most recent turns survive a compaction word for word, sitting behind the summary.",
         format: plain,
         options: [
             OFF,
@@ -598,6 +615,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("toolResultCeilingBytes"),
         label: "Tool result ceiling",
         means: "the most one tool result may carry",
+        detail:
+            "The most one tool result may carry into the conversation. A longer one is cut, and the whole result stays on disk for the agent to read back.",
         format: bytes,
         options: [
             OFF,
@@ -611,6 +630,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("toolResultTotalBudgetBytes"),
         label: "Tool result budget",
         means: "the most every carried result may add up to",
+        detail:
+            "The most every carried tool result may add up to. Past it, the oldest results are replaced by stubs to make room.",
         format: bytes,
         options: [
             OFF,
@@ -624,6 +645,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("toolResultStubAfterTurns"),
         label: "Stub after turns",
         means: "turns a result stays whole before it may be stubbed",
+        detail:
+            "How many turns a tool result stays whole before it may become a stub. It follows the aging level unless you set it yourself.",
         format: plain,
         options: [
             OFF,
@@ -637,6 +660,8 @@ export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
         target: overrideMenuTarget("toolResultAgingLevel"),
         label: "Aging level",
         means: "which row of the aging ladder a session uses",
+        detail:
+            "How hard Vera pushes old tool results out of the conversation. Auto picks the row from the window: relaxed above 400k, normal above 128k, tight below that.",
         format: plain,
         options: [
             { value: "auto", label: "Auto", description: "pick the row from the window" },
@@ -665,6 +690,31 @@ function overrideColumns(row: OverrideValueRow, fact: OverrideRow | undefined): 
  * Every lever on one screen. The columns are words rather than colours so the
  * pane still reads when nothing on the terminal is coloured.
  */
+/**
+ * The pane beside the list: what the lever is, where its value came from, and
+ * whether this session reads it at all.
+ */
+function overrideDetail(
+    row: OverrideValueRow,
+    fact: OverrideRow | undefined,
+): {
+    readonly detailTitle: string;
+    readonly detailFacts: readonly (readonly [string, string])[];
+    readonly note: string;
+} {
+    return {
+        detailTitle: row.label,
+        detailFacts: [
+            ["Now", fact?.value === undefined ? "not set" : row.format(fact.value)],
+            ["Source", fact?.source === "configured" ? "you set this" : "shipped default"],
+            ["Engine", fact?.inert === undefined ? "reads it" : "does not read it"],
+        ],
+        note: fact?.inert === undefined
+            ? row.detail
+            : `${row.detail} Not here: ${fact.inert}.`,
+    };
+}
+
 export function startTuiOverridesMenu(
     overrides: OverrideSettings | undefined,
 ): TuiSettingsPickerState {
@@ -681,6 +731,7 @@ export function startTuiOverridesMenu(
             label: overrideColumns(row, fact),
             description: fact?.inert ?? row.means,
             searchText: `${row.label} ${row.key}`,
+            ...overrideDetail(row, fact),
         };
     });
     options.push({
@@ -690,6 +741,13 @@ export function startTuiOverridesMenu(
             ? "nothing is set: every lever already ships as it stands"
             : `clears the ${configured} you have set`,
         action: true,
+        detailTitle: "Reset all to defaults",
+        detailFacts: [["Set now", configured === 0 ? "none" : String(configured)]],
+        note: configured === 0
+            ? "Every lever is already at the value Vera ships with, so this"
+                + " would change nothing."
+            : "Drops every lever above out of your config. Nothing else in the"
+                + " config is touched.",
     });
     return {
         kind: "overrides_settings",

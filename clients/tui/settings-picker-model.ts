@@ -125,6 +125,7 @@ export function mergeTuiModelPickerSettings(
 export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     // The More page replaces the list, so there is no row left to describe.
     if (state.kind === "model" && state.modelFocus === "page") return false;
+    if (state.kind === "overrides_settings") return true;
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     return tab === "pool" || tab === "defaults" || tab === "actions";
 }
@@ -132,6 +133,9 @@ export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
 export const MODEL_DETAIL_MIN_WIDTH = 30;
 
 export const MODEL_LIST_MIN_WIDTH = 28;
+
+/** An overrides row is four columns wide before any prose. */
+export const OVERRIDE_LIST_MIN_WIDTH = 54;
 
 export const MODEL_DETAIL_RULE = "│  ";
 
@@ -156,9 +160,11 @@ export function modelPaneSplit(
         Math.floor(cardWidth * 0.32),
     );
     const listWidth = cardWidth - detailWidth - MODEL_DETAIL_RULE.length;
-    return listWidth < MODEL_LIST_MIN_WIDTH
-        ? undefined
-        : { listWidth, detailWidth };
+    const minimum = state.kind === "overrides_settings"
+        ? OVERRIDE_LIST_MIN_WIDTH
+        : MODEL_LIST_MIN_WIDTH;
+    // Too narrow to hold both, so the rows keep their own trailing prose.
+    return listWidth < minimum ? undefined : { listWidth, detailWidth };
 }
 
 export function pickerContentWidth(

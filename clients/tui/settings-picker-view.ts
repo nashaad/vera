@@ -1365,7 +1365,9 @@ export function renderListPickerRows(
                 ...(state.kind === "provider" && row.option.action === true
                     ? { spaced: true }
                     : {}),
+                // The detail pane carries the prose when there is one.
                 ...(state.kind === "model" || state.kind === "session"
+                        || detailed
                     ? {}
                     : { description: row.option.description }),
                 meta: row.option.rowMeta
