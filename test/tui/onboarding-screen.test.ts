@@ -93,6 +93,7 @@ describe("the setup screen", () => {
                 "│      Ollama      runs on this Mac, no key                            │",
                 "│                                                                      │",
                 "│  ↑↓ choose    enter next    esc leave setup                          │",
+                "│                                                                      │",
                 "└──────────────────────────────────────────────────────────────────────┘",
             ].join("\n"),
         );

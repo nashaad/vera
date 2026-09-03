@@ -350,9 +350,13 @@ function choiceLines(
                     text: indent(`      ${row.note}`),
                     tone: "note",
                 });
+                // A row that spills onto a second line needs air under it, or the next row reads as part of it.
+                lines.push({ text: "", tone: "frame" });
             }
         }
-        lines.push({ text: "", tone: "frame" });
+        if (lines.at(-1)?.text !== "") {
+            lines.push({ text: "", tone: "frame" });
+        }
     }
     if (lines.at(-1)?.text === "") lines.pop();
     if (shown.below > 0) {
@@ -456,6 +460,8 @@ export function onboardingCardLines(
     inner.push(...bodyLines(state));
     inner.push({ text: "", tone: "frame" });
     inner.push({ text: indent(footerText(state)), tone: "footer" });
+    // The frame is padded at the top, so it is padded at the bottom too.
+    inner.push({ text: "", tone: "frame" });
     const title = ` ${ONBOARDING_TITLE} `;
     const top = `┌${title}${
         "─".repeat(Math.max(0, INNER_WIDTH - title.length))
