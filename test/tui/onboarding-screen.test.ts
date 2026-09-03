@@ -246,4 +246,49 @@ describe("moving through the setup screen", () => {
         }).state;
         expect(rendered(narrowed ?? searching)).not.toContain("OpenRouter");
     });
+
+    test("what you have typed is on the screen, not just in the filter", () => {
+        const searching: OnboardingScreenState = {
+            ...providerStep,
+            body: { ...providerStep.body, query: "" } as OnboardingScreenState[
+                "body"
+            ],
+        };
+        expect(rendered(searching)).toContain("type to search");
+        const typed = handleOnboardingKey(searching, {
+            name: "o",
+            sequence: "o",
+        }).state;
+        expect(rendered(typed ?? searching)).toContain("/ o");
+    });
+
+    test("a list longer than the window scrolls, and says what is outside", () => {
+        const many: OnboardingScreenState = {
+            ...providerStep,
+            selected: "model-0",
+            body: {
+                kind: "choice",
+                groups: [
+                    {
+                        label: "MODELS",
+                        rows: Array.from({ length: 40 }, (_row, index) => ({
+                            id: `model-${index}`,
+                            label: `Model ${index}`,
+                        })),
+                    },
+                ],
+            },
+        };
+        const top = rendered(many);
+        expect(top).toContain("Model 0");
+        expect(top).toContain("Model 9");
+        expect(top).not.toContain("Model 10");
+        expect(top).toContain("30 more below");
+        expect(top).not.toContain("more above");
+        expect(onboardingCardLines(many).length).toBeLessThanOrEqual(24);
+        const deeper = rendered({ ...many, selected: "model-39" });
+        expect(deeper).toContain("Model 39");
+        expect(deeper).toContain("30 more above");
+        expect(deeper).not.toContain("more below");
+    });
 });

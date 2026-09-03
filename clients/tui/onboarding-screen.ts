@@ -26,6 +26,9 @@ const STEP_CELL_WIDTH = 22;
 
 const CHEVRON = "›";
 
+/** The search line wears a different mark from the caret, so it does not read as a row. */
+const SEARCH_MARK = "/";
+
 const MARKER_CURRENT = "▸";
 
 const MARKER_DONE = "✓";
@@ -258,6 +261,53 @@ function detailColumn(groups: readonly OnboardingChoiceGroup[]): number {
     return Math.min(ROW_HEAD_INDENT + widest + 2, Math.max(0, room - 20));
 }
 
+/** How many rows a list shows at once, so the card stays shorter than a small terminal and a long list scrolls inside it. */
+const CHOICE_WINDOW = 10;
+
+interface ChoiceWindow {
+    readonly groups: readonly OnboardingChoiceGroup[];
+    readonly above: number;
+    readonly below: number;
+}
+
+/** The slice of a long list that surrounds the selected row, with a count of what sits outside it. */
+function choiceWindow(
+    groups: readonly OnboardingChoiceGroup[],
+    selected: string | undefined,
+): ChoiceWindow {
+    const flat = groups.flatMap((group) => group.rows);
+    if (flat.length <= CHOICE_WINDOW) {
+        return { groups, above: 0, below: 0 };
+    }
+    const at = Math.max(0, flat.findIndex((row) => row.id === selected));
+    const start = Math.min(
+        flat.length - CHOICE_WINDOW,
+        Math.max(0, at - Math.floor(CHOICE_WINDOW / 2)),
+    );
+    const end = start + CHOICE_WINDOW;
+    const windowed: OnboardingChoiceGroup[] = [];
+    let seen = 0;
+    for (const group of groups) {
+        const rows = group.rows.filter((_row, index) =>
+            seen + index >= start && seen + index < end
+        );
+        seen += group.rows.length;
+        if (rows.length > 0) windowed.push({ ...group, rows });
+    }
+    return { groups: windowed, above: start, below: flat.length - end };
+}
+
+function searchLines(
+    body: OnboardingChoiceBody,
+): readonly OnboardingLine[] {
+    if (body.query === undefined) return [];
+    const typed = body.query === "" ? "type to search" : body.query;
+    return [
+        { text: indent(`  ${SEARCH_MARK} ${typed}`), tone: "field" },
+        { text: "", tone: "frame" },
+    ];
+}
+
 function choiceLines(
     state: OnboardingScreenState,
     body: OnboardingChoiceBody,
@@ -265,8 +315,15 @@ function choiceLines(
     const selected = selectedRowId(state);
     const groupsShown = visibleGroups(body);
     const column = detailColumn(groupsShown);
-    const lines: OnboardingLine[] = [];
-    for (const group of groupsShown) {
+    const shown = choiceWindow(groupsShown, selected);
+    const lines: OnboardingLine[] = [...searchLines(body)];
+    if (shown.above > 0) {
+        lines.push({
+            text: indent(`    ${shown.above} more above`),
+            tone: "note",
+        });
+    }
+    for (const group of shown.groups) {
         if (group.label !== undefined) {
             lines.push({ text: indent(group.label), tone: "group" });
         }
@@ -298,6 +355,12 @@ function choiceLines(
         lines.push({ text: "", tone: "frame" });
     }
     if (lines.at(-1)?.text === "") lines.pop();
+    if (shown.below > 0) {
+        lines.push({
+            text: indent(`    ${shown.below} more below`),
+            tone: "note",
+        });
+    }
     return lines;
 }
 
