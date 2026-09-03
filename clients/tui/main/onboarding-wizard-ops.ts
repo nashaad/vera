@@ -1,7 +1,7 @@
 /** The wizard's side of the runtime: opening it, moving it a step, and the one real request that closes it. */
 
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
-import { credentialRefusal } from "../../../src/providers/onboarding.ts";
+import { credentialRefusal, holdsCredential } from "../../../src/providers/onboarding.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -274,9 +274,13 @@ function chooseProvider(
         void checkRuntime(rt, id);
         return;
     }
+    // A key already in the shell or the keychain is an answered gate. Asking
+    // for it again leaves nothing to press, since an empty field submits
+    // nothing.
     if (
-        provider.credential === "api_key"
-        || provider.credential === "api_key_optional"
+        (provider.credential === "api_key"
+            || provider.credential === "api_key_optional")
+        && !holdsCredential(provider, onboardingInput(rt))
     ) {
         updateWizardSession(rt, {
             ...rest,

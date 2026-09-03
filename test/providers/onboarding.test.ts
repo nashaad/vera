@@ -5,6 +5,7 @@ import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
     credentialRefusal,
     currentStep,
+    holdsCredential,
     openGate,
     providerAnswerLabel,
     providerAnswerState,
@@ -299,4 +300,32 @@ test("a failure that is not about the key keeps the user on the model step", () 
         }),
     ).toBeUndefined();
     expect(credentialRefusal({ verdict: "pool_write_refused" })).toBeUndefined();
+});
+
+test("a key in the shell counts as held, the same as one in the keychain", () => {
+    const openrouter = findProvider("openrouter")!;
+    expect(
+        holdsCredential(openrouter, {
+            providers: PROVIDERS,
+            pool: EMPTY_POOL,
+            authStorage: storage({}),
+            env: NO_ENV,
+        }),
+    ).toBe(false);
+    expect(
+        holdsCredential(openrouter, {
+            providers: PROVIDERS,
+            pool: EMPTY_POOL,
+            authStorage: storage({}),
+            env: { OPENROUTER_API_KEY: "sk-or-v1-from-the-shell" },
+        }),
+    ).toBe(true);
+    expect(
+        holdsCredential(openrouter, {
+            providers: PROVIDERS,
+            pool: EMPTY_POOL,
+            authStorage: storage({ openrouter: "sk-or-v1-stored" }),
+            env: NO_ENV,
+        }),
+    ).toBe(true);
 });

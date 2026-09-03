@@ -43,7 +43,7 @@ function needsCredential(provider: ProviderDescriptor): boolean {
 }
 
 /** A stored key is a key Vera holds. A provider that needs none holds none, so it never reads `key stored`. */
-function holdsCredential(
+export function holdsCredential(
     provider: ProviderDescriptor,
     input: OnboardingInput,
 ): boolean {
