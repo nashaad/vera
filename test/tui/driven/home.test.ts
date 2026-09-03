@@ -190,7 +190,8 @@ test("a machine with no answer leads to the provider list", async () => {
         expect(card).toContain("Vera has no provider yet");
         expect(card).not.toContain(HOME_TYPING_HINT);
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("Declare a provider");
+        const pane = await session.waitForVisiblePane("Set up Vera");
+        expect(pane).toContain("Who runs your models?");
         expect(pane).toContain("OpenRouter");
     } finally {
         await session.close();
@@ -214,7 +215,7 @@ test("new conversation with no provider opens the gates instead", async () => {
         await session.waitForVisiblePane("Connect a provider");
         session.sendKey("Down");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("Declare a provider");
+        const pane = await session.waitForVisiblePane("Set up Vera");
         // The row that would open a conversation with nothing to answer it
         // opens the gates instead.
         expect(pane).not.toContain("Message Vera");

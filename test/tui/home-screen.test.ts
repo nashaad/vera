@@ -69,18 +69,27 @@ describe("the home card", () => {
     });
 
     test("a cold machine leads with the way to a provider", () => {
+        // The reason comes before the rows, and the row that fixes it stands
+        // apart from the rows that cannot work until it does.
         expect(rendered(cold())).toBe(
             [
                 "             V  E  R  A",
                 "  ────────────────────────────────",
                 "",
+                "  Vera has no provider yet",
+                "",
                 "❯ Connect a provider  enter",
+                "",
                 "  New conversation",
                 "  Commands            ctrl+p",
-                "",
-                "  Vera has no provider yet",
             ].join("\n"),
         );
+    });
+
+    test("a cold machine offers no caret, having nowhere to send a prompt", () => {
+        expect(rendered(cold())).not.toContain(HOME_TYPING_HINT);
+        expect(homeCardLines(cold()).some((line) => line.tone === "hint"))
+            .toBe(false);
     });
 
     test("a connected machine says nothing about providers", () => {
@@ -173,9 +182,18 @@ describe("home keys", () => {
             action: { kind: "connect_provider" },
             handled: true,
         });
+    });
+
+    test("the conversation row leads to the provider until there is one", () => {
+        // Opening a conversation nothing can answer is a dead end, so it goes
+        // where the other row goes.
         const moved = handleHomeKey(cold(), { name: "down" });
         expect(moved.state?.selectedId).toBe("new");
         expect(handleHomeKey(moved.state!, { name: "return" })).toEqual({
+            action: { kind: "connect_provider" },
+            handled: true,
+        });
+        expect(handleHomeKey(home(), { name: "return" })).toEqual({
             action: { kind: "new_session" },
             handled: true,
         });

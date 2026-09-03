@@ -88,37 +88,60 @@ export function homeRows(state: HomeState): readonly HomeRow[] {
     );
 }
 
-export type HomeLineTone = "wordmark" | "rule" | "row" | "hint";
+export type HomeLineTone =
+    | "wordmark"
+    | "rule"
+    | "notice"
+    | "row"
+    | "hint";
 
 export interface HomeLine {
     readonly text: string;
     readonly tone: HomeLineTone;
+    readonly rowId?: HomeRowId;
     readonly selected?: boolean;
 }
 
+const BLANK: HomeLine = { text: "", tone: "rule" };
+
 export function homeCardLines(state: HomeState): readonly HomeLine[] {
-    const rows = homeRows(state);
     const selected = selectedRowId(state);
+    const rows = homeRows(state).flatMap((row) => {
+        const line: HomeLine = {
+            text: rowText(row, row.id === selected),
+            tone: "row",
+            rowId: row.id,
+            selected: row.id === selected,
+        };
+        // The row that leads out of a cold start stands on its own, so the
+        // rows that need a provider first do not read as alternatives to it.
+        return row.id === "connect" ? [line, BLANK] : [line];
+    });
+    if (state.needsProvider) {
+        return [
+            { text: centered(HOME_WORDMARK), tone: "wordmark" },
+            { text: `${indent()}${HOME_RULE}`, tone: "rule" },
+            BLANK,
+            // Above the rows, where the reason for the first one belongs. Below
+            // them it read as a status line about something already decided.
+            { text: `${indent()}${HOME_COLD_HINT}`, tone: "notice" },
+            BLANK,
+            ...rows,
+        ];
+    }
     return [
         { text: centered(HOME_WORDMARK), tone: "wordmark" },
         { text: `${indent()}${HOME_RULE}`, tone: "rule" },
-        { text: "", tone: "rule" },
-        ...rows.map((row) => ({
-            text: rowText(row, row.id === selected),
-            tone: "row" as const,
-            selected: row.id === selected,
-        })),
-        { text: "", tone: "rule" },
-        {
-            text: `${indent()}${homeHint(state)}`,
-            tone: "hint" as const,
-        },
+        BLANK,
+        ...rows,
+        BLANK,
+        { text: `${indent()}${HOME_TYPING_HINT}`, tone: "hint" },
     ];
 }
 
-/** The last line of the card. A machine that cannot answer says so where the caret sits, rather than inviting a prompt it has nowhere to send. */
-export function homeHint(state: HomeState): string {
-    return state.needsProvider ? HOME_COLD_HINT : HOME_TYPING_HINT;
+/** The line the caret sits on, which exists only while there is somewhere to send a prompt. */
+export function homeHint(state: HomeState): string | undefined {
+    return state.needsProvider ? undefined : HOME_TYPING_HINT;
 }
 
 export function handleHomeKey(
@@ -145,7 +168,7 @@ export function handleHomeKey(
         );
         return chord === undefined
             ? { handled: false }
-            : { action: rowAction(chord.id), handled: true };
+            : { action: rowAction(chord.id, state), handled: true };
     }
     if (key.meta === true || key.super === true || key.hyper === true) {
         return { handled: false };
@@ -160,7 +183,7 @@ export function handleHomeKey(
             : { state: { ...state, selectedId: next.id }, handled: true };
     }
     if (key.name === "return" || key.name === "enter") {
-        return { action: rowAction(selectedRowId(state)), handled: true };
+        return { action: rowAction(selectedRowId(state), state), handled: true };
     }
     const typed = homeTypedCharacter(key);
     if (typed !== undefined) {
@@ -189,12 +212,16 @@ export function homeTypedCharacter(
     return isPrintable(key) ? (key.sequence ?? key.name) : undefined;
 }
 
-function rowAction(id: HomeRowId): HomeAction {
+function rowAction(id: HomeRowId, state: HomeState): HomeAction {
     if (id === "connect") return { kind: "connect_provider" };
     if (id === "all") return { kind: "resume_picker" };
     if (id === "search") return { kind: "search" };
     if (id === "commands") return { kind: "palette" };
-    return { kind: "new_session" };
+    // A conversation with nothing to answer it is not a conversation, so the
+    // row that would open one leads to the provider instead.
+    return state.needsProvider
+        ? { kind: "connect_provider" }
+        : { kind: "new_session" };
 }
 
 function selectedRowId(state: HomeState): HomeRowId {
@@ -316,7 +343,7 @@ export function createTuiHomeView(
             if (line.tone === "hint") {
                 const hint = new HomeHintRenderable(renderer, options);
                 hint.holdsKeyboard = () => box.focused;
-                hint.caretColumn = hintCaretColumn(homeHint(state));
+                hint.caretColumn = hintCaretColumn(HOME_TYPING_HINT);
                 text = hint;
             } else {
                 text = new TextRenderable(renderer, options);
@@ -340,12 +367,9 @@ export function createTuiHomeView(
 }
 
 function rowActionFor(state: HomeState, lineIndex: number): HomeAction {
-    const rows = homeRows(state);
-    const row = rows[lineIndex - HOME_ROWS_START];
-    return row === undefined ? { kind: "new_session" } : rowAction(row.id);
+    const id = homeCardLines(state)[lineIndex]?.rowId;
+    return id === undefined ? { kind: "new_session" } : rowAction(id, state);
 }
-
-const HOME_ROWS_START = 3;
 
 function lineColor(
     line: HomeLine,
@@ -356,6 +380,7 @@ function lineColor(
     },
 ): string {
     if (line.tone === "wordmark") return colors.accentColor;
+    if (line.tone === "notice") return colors.textColor;
     if (line.selected === true) return colors.textColor;
     return colors.mutedColor;
 }
