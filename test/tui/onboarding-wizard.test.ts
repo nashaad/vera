@@ -417,3 +417,86 @@ test("colour adds nothing to the words, so the plain card is unchanged", () => {
         }
     }
 });
+
+function modelStep(models: WizardSession["models"]): WizardSession {
+    return {
+        ...newWizardSession("model"),
+        chosen: "openrouter",
+        models,
+    };
+}
+
+/** The sentences above the rows, which is where the suggestion lives. */
+function modelNotes(models: WizardSession["models"]): readonly string[] {
+    const body = wizardScreen(COLD, modelStep(models), MAC).body;
+    return body.kind === "choice" ? body.notes ?? [] : [];
+}
+
+test("the model step names the cheap models that score well, so there is something to type", () => {
+    const notes = modelNotes([
+        { id: "openai/gpt-9", label: "GPT-9", outputPrice: 60, waScore: 1700 },
+        { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
+        { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
+    ]);
+    // Best score first, because a cheap model nobody would use is no suggestion.
+    expect(notes).toEqual([
+        "Good value: z-ai/glm-5.3-flash, deepseek/deepseek-v4-flash."
+        + " Cheap, and they score close to the expensive ones.",
+    ]);
+});
+
+test("the weakest model on the front is not named just for being cheapest", () => {
+    // The real OpenRouter front on 2026-09-03: a very cheap, very weak model
+    // sits below the pair anyone would actually want.
+    const notes = modelNotes([
+        { id: "ibm-granite/granite-4.1-8b", label: "Granite", onPareto: true, outputPrice: 0.1, waScore: 1192 },
+        { id: "upstage/solar-pro4", label: "Solar", onPareto: true, outputPrice: 0.12, waScore: 1370 },
+        { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
+        { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
+        { id: "anthropic/claude-opus-5", label: "Opus 5", onPareto: true, outputPrice: 25, waScore: 1688 },
+    ]);
+    expect(notes[0]).toContain(
+        "Good value: z-ai/glm-5.3-flash, deepseek/deepseek-v4-flash,"
+        + " upstage/solar-pro4.",
+    );
+    expect(notes[0]).not.toContain("granite");
+});
+
+test("a model an order of magnitude dearer than the cheap end is not named", () => {
+    const notes = modelNotes([
+        { id: "cheap/one", label: "One", onPareto: true, outputPrice: 0.2, waScore: 1500 },
+        { id: "dear/two", label: "Two", onPareto: true, outputPrice: 25, waScore: 1700 },
+    ]);
+    expect(notes[0]).toContain("Good value: cheap/one.");
+    expect(notes[0]).not.toContain("dear/two");
+});
+
+test("the model step names at most three, so a suggestion does not become a list", () => {
+    const notes = modelNotes(
+        ["a", "b", "c", "d", "e"].map((id, at) => ({
+            id: `open/${id}`,
+            label: id,
+            onPareto: true,
+            outputPrice: 1,
+            waScore: 1600 - at,
+        })),
+    );
+    expect(notes[0]).toContain("Good value: open/a, open/b, open/c.");
+    expect(notes[0]).not.toContain("open/d");
+});
+
+test("with no scores to go on, the model step says nothing rather than guessing", () => {
+    expect(modelNotes([
+        { id: "openai/gpt-9", label: "GPT-9" },
+        { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash" },
+    ])).toEqual([]);
+});
+
+test("the suggestion is painted above the rows it is about", () => {
+    const text = screenText(modelStep([
+        { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
+    ]));
+    const note = text.indexOf("Good value: z-ai/glm-5.3-flash.");
+    expect(note).toBeGreaterThan(text.indexOf("What should Vera run?"));
+    expect(note).toBeLessThan(text.indexOf("› GLM 5.3 Flash"));
+});

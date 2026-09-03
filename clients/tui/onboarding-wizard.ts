@@ -33,6 +33,10 @@ import {
 export interface WizardModel {
     readonly id: string;
     readonly label: string;
+    /** On or near the score-against-price front, so it is worth naming to someone who has never heard of it. */
+    readonly onPareto?: boolean;
+    readonly outputPrice?: number;
+    readonly waScore?: number;
 }
 
 /** What the model step is waiting on. Verification is a request in flight, not a stored fact, so it lives here rather than in the pool. */
@@ -200,6 +204,36 @@ export function providerGroups(
 
 /** Long enough that scanning it by eye stops working. */
 const SEARCHABLE_FROM = 12;
+
+/** More than a few names stops being a suggestion and becomes another list. */
+const NAMED_VALUE_MODELS = 3;
+
+/** Anything within an order of magnitude of the cheapest is still the cheap end of the front. */
+const CHEAP_BAND = 10;
+
+/**
+ * The best-scoring of the cheap models, named so the user has something to
+ * type. A provider lists hundreds of ids, and a search box is no help to
+ * someone who does not know one from another. Ordering by price alone would
+ * name the weakest model on the front, so the cheap end is taken first and the
+ * highest scores within it are the ones named.
+ */
+function valueNote(session: WizardSession): readonly string[] {
+    const front = session.models.filter((model) =>
+        model.onPareto === true && model.outputPrice !== undefined
+    );
+    const cheapest = Math.min(...front.map((model) => model.outputPrice ?? 0));
+    const worth = front
+        .filter((model) => (model.outputPrice ?? 0) <= cheapest * CHEAP_BAND)
+        .toSorted((left, right) => (right.waScore ?? 0) - (left.waScore ?? 0))
+        .slice(0, NAMED_VALUE_MODELS);
+    if (worth.length === 0) return [];
+    const named = worth.map((model) => model.id).join(", ");
+    return [
+        `Good value: ${named}.`
+        + " Cheap, and they score close to the expensive ones.",
+    ];
+}
 
 function modelRow(model: WizardModel): OnboardingChoiceRow {
     return {
@@ -526,7 +560,7 @@ export function wizardScreen(
         // is only a list that has not arrived.
         const empty = groups.every((group) => group.rows.length === 0);
         const notes = !empty
-            ? undefined
+            ? valueNote(session)
             : session.asking === true
             ? [`Asking ${provider?.label ?? "the provider"} for its models…`]
             : provider?.noModels;
@@ -536,7 +570,7 @@ export function wizardScreen(
             body: {
                 kind: "choice",
                 groups,
-                ...(notes === undefined ? {} : { notes }),
+                ...(notes === undefined || notes.length === 0 ? {} : { notes }),
                 enterHint: "connect",
                 ...(session.models.length >= SEARCHABLE_FROM
                     ? { query: session.query }

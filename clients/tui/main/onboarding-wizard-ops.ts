@@ -196,7 +196,15 @@ function fillWizardModels(rt: TuiRuntime, provider: string): void {
     if (session === undefined) return;
     const live = (focusedAgentState(rt).modelSettings?.availableModels ?? [])
         .filter((model) => model.provider === provider)
-        .map((model) => ({ id: model.model, label: model.label }));
+        .map((model) => ({
+            id: model.model,
+            label: model.label,
+            ...(model.onPareto === true ? { onPareto: true } : {}),
+            ...(model.pricing === undefined
+                ? {}
+                : { outputPrice: model.pricing.output }),
+            ...(model.waScore === undefined ? {} : { waScore: model.waScore }),
+        }));
     // A local gateway lists nothing until it is up, and it does not come up
     // until a profile is picked. The profiles the definition names are what
     // there is to pick from until then.
