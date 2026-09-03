@@ -1,7 +1,7 @@
 /** The wizard's side of the runtime: opening it, moving it a step, and the one real request that closes it. */
 
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
-import { credentialRefusal, holdsCredential } from "../../../src/providers/onboarding.ts";
+import { credentialRefusal, holdsCredential, providerMessage } from "../../../src/providers/onboarding.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -599,7 +599,9 @@ export function settleWizardVerification(
         updateWizardSession(rt, {
             ...rest,
             alert: `${pending.model} did not answer${
-                update.reason === undefined ? "" : `: ${update.reason}`
+                update.reason === undefined
+                    ? ""
+                    : `: ${providerMessage(update.reason)}`
             }`,
         });
         return true;

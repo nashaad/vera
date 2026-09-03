@@ -197,18 +197,8 @@ export interface AdmissionOutcome {
     readonly statusCode?: number;
 }
 
-/**
- * The provider's own words when it turned the key down, or undefined when the
- * failure was not about the credential. A refusal sends the user one gate back;
- * anything else is about the model, and the model step keeps the user.
- */
-export function credentialRefusal(
-    outcome: AdmissionOutcome,
-): string | undefined {
-    if (outcome.statusCode !== 401 && outcome.statusCode !== 403) {
-        return undefined;
-    }
-    const reason = outcome.reason ?? "no reason given";
+/** The sentence inside a provider's error envelope. A card has one line for this, and a serialised body spends it on punctuation. */
+export function providerMessage(reason: string): string {
     const start = reason.indexOf("{");
     if (start === -1) {
         return reason;
@@ -221,4 +211,18 @@ export function credentialRefusal(
     } catch {
         return reason;
     }
+}
+
+/**
+ * The provider's own words when it turned the key down, or undefined when the
+ * failure was not about the credential. A refusal sends the user one gate back;
+ * anything else is about the model, and the model step keeps the user.
+ */
+export function credentialRefusal(
+    outcome: AdmissionOutcome,
+): string | undefined {
+    if (outcome.statusCode !== 401 && outcome.statusCode !== 403) {
+        return undefined;
+    }
+    return providerMessage(outcome.reason ?? "no reason given");
 }

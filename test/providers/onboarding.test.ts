@@ -7,6 +7,7 @@ import {
     currentStep,
     holdsCredential,
     openGate,
+    providerMessage,
     providerAnswerLabel,
     providerAnswerState,
     stepperSteps,
@@ -328,4 +329,18 @@ test("a key in the shell counts as held, the same as one in the keychain", () =>
             env: NO_ENV,
         }),
     ).toBe(true);
+});
+
+test("a failure that is not about the key still shows the sentence, not the body", () => {
+    // The model step has one line for this, and the envelope spends it on
+    // braces and quoting.
+    const body = JSON.stringify({
+        error: {
+            message: 'unknown model "qwen35b-mtp"',
+            type: "outrider_model_error",
+        },
+    });
+    expect(providerMessage(`outrider returned HTTP 404: ${body}`))
+        .toBe('unknown model "qwen35b-mtp"');
+    expect(providerMessage("the provider is down")).toBe("the provider is down");
 });
