@@ -11,7 +11,7 @@ import type {
     OnboardingStep,
     OnboardingStepId,
 } from "../../src/providers/onboarding.ts";
-import { gigabytes, remaining } from "../../src/providers/outrider.ts";
+import { downloadSize, remaining } from "../../src/providers/outrider.ts";
 import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 import { TUI_ACCENT, TUI_BACKGROUND, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
@@ -473,7 +473,7 @@ function barLines(
         : Math.min(1, Math.max(0, bar.downloaded / bar.total));
     const filled = Math.round(fraction * BAR_WIDTH);
     const drawn = "\u2588".repeat(filled) + "\u2591".repeat(BAR_WIDTH - filled);
-    const size = `${gigabytes(bar.downloaded)} / ${gigabytes(bar.total)}`;
+    const size = `${downloadSize(bar.downloaded)} / ${downloadSize(bar.total)}`;
     const left = bar.etaSeconds === undefined || bar.etaSeconds <= 0
         ? ""
         : `    ${remaining(bar.etaSeconds)}`;

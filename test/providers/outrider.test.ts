@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
-    gigabytes,
+    downloadSize,
     outriderInstallCommand,
     outriderServeCommand,
     outriderStatusCommand,
@@ -82,7 +82,8 @@ test("the human bar on the same stream is skipped, not read as a line", () => {
 });
 
 test("sizes and waits are said the way a person reads them", () => {
-    expect(gigabytes(21_000_000_000)).toBe("21.0 GB");
+    expect(downloadSize(21_000_000_000)).toBe("21.0 GB");
+    expect(downloadSize(9_400_000)).toBe("9.4 MB");
     expect(remaining(45)).toBe("~45 sec");
     expect(remaining(840)).toBe("~14 min");
 });

@@ -129,8 +129,11 @@ export function mergeProgress(
     return lines.map((entry, index) => index === at ? line : entry);
 }
 
-/** Gigabytes to one decimal, the unit a model download is read in. */
-export function gigabytes(bytes: number): string {
+/** One decimal in the unit the download is actually in, so a runtime is megabytes and a model is gigabytes. */
+export function downloadSize(bytes: number): string {
+    if (bytes < 1_000_000_000) {
+        return `${(bytes / 1_000_000).toFixed(1)} MB`;
+    }
     return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
 }
 
