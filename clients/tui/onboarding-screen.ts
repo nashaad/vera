@@ -1,9 +1,17 @@
 /** The first-run screen: three named gates on one surface, and the body of whichever gate is open. */
 
+import {
+    BoxRenderable,
+    TextRenderable,
+    type RenderContext,
+} from "@opentui/core";
+
 import type {
     OnboardingStep,
     OnboardingStepId,
 } from "../../src/providers/onboarding.ts";
+import { DIALOG_BACKGROUND_Z_INDEX } from "./dialog-chrome.ts";
+import { TUI_ACCENT, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
 export const ONBOARDING_TITLE = "Set up Vera";
 
@@ -511,4 +519,97 @@ export function handleOnboardingKey(
         }
     }
     return { handled: false };
+}
+
+export interface OnboardingAppearance {
+    readonly textColor: string;
+    readonly mutedColor: string;
+    readonly accentColor: string;
+    readonly dangerColor: string;
+}
+
+export interface TuiOnboardingView {
+    readonly surface: BoxRenderable;
+    readonly box: BoxRenderable;
+    update(state: OnboardingScreenState): void;
+    applyAppearance(appearance: OnboardingAppearance): void;
+}
+
+function lineColor(
+    line: OnboardingLine,
+    colors: OnboardingAppearance,
+): string {
+    if (line.tone === "alert") return colors.dangerColor;
+    if (line.selected === true) return colors.accentColor;
+    if (line.tone === "heading" || line.tone === "spine") {
+        return colors.textColor;
+    }
+    return colors.mutedColor;
+}
+
+export function createTuiOnboardingView(
+    renderer: RenderContext,
+    onRun: (action: OnboardingScreenAction) => void,
+): TuiOnboardingView {
+    let colors: OnboardingAppearance = {
+        textColor: TUI_TEXT,
+        mutedColor: TUI_MUTED,
+        accentColor: TUI_ACCENT,
+        dangerColor: TUI_DANGER,
+    };
+    const box = new BoxRenderable(renderer, {
+        id: "onboarding-card",
+        border: false,
+        width: ONBOARDING_CARD_COLUMNS,
+        height: "auto",
+        flexDirection: "column",
+        focusable: true,
+    });
+    const surface = new BoxRenderable(renderer, {
+        id: "onboarding-surface",
+        border: false,
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: DIALOG_BACKGROUND_Z_INDEX,
+        alignItems: "center",
+        justifyContent: "center",
+        visible: false,
+    });
+    surface.add(box);
+    let lines: TextRenderable[] = [];
+    let rendered: OnboardingScreenState | undefined;
+    const paint = (state: OnboardingScreenState): void => {
+        for (const line of lines) line.destroyRecursively();
+        lines = [];
+        for (const [index, line] of onboardingCardLines(state).entries()) {
+            const rowId = line.rowId;
+            const text = new TextRenderable(renderer, {
+                id: `onboarding-line-${index}`,
+                content: line.text,
+                fg: lineColor(line, colors),
+                width: "100%",
+                height: 1,
+                onMouseDown: rowId === undefined
+                    ? undefined
+                    : () => onRun({ kind: "choose", id: rowId }),
+            });
+            lines.push(text);
+            box.add(text);
+        }
+    };
+    return {
+        surface,
+        box,
+        update(state): void {
+            rendered = state;
+            paint(state);
+        },
+        applyAppearance(appearance): void {
+            colors = appearance;
+            if (rendered !== undefined) paint(rendered);
+        },
+    };
 }
