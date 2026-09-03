@@ -209,7 +209,7 @@ const SEARCHABLE_FROM = 12;
 const NAMED_VALUE_MODELS = 3;
 
 /** Dollars per million output tokens, above which a model is no longer the cheap answer. */
-const MOST_PER_MILLION = 2.5;
+const MOST_PER_MILLION = 2.75;
 
 /** WA Score under which a model cannot do the work, whatever it costs. */
 const LEAST_SCORE = 1400;

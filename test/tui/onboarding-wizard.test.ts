@@ -451,7 +451,7 @@ const LIVE_FRONT = [
     { id: "upstage/solar-pro4", label: "Solar", onPareto: true, outputPrice: 0.12, waScore: 1370 },
     { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
     { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
-    { id: "tencent/hy4-preview", label: "Hy4", onPareto: true, outputPrice: 2.5, waScore: 1629 },
+    { id: "tencent/hy4-preview", label: "Hy4", onPareto: true, outputPrice: 2.501, waScore: 1629 },
     { id: "anthropic/claude-opus-5", label: "Opus 5", onPareto: true, outputPrice: 25, waScore: 1688 },
 ];
 
