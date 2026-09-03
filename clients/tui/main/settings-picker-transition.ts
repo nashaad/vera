@@ -4,8 +4,8 @@ import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-d
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
-import { bindModelAssignmentFromPicker, connectProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
-import { beginOnboardingVerification } from "../main/onboarding-flow.ts";
+import { bindModelAssignmentFromPicker, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
+import { beginOnboardingVerification, enterOnboardingModelStep } from "../main/onboarding-flow.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
@@ -373,12 +373,18 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 rt.settingsPickerAgent,
             );
         } else if (selection.kind === "provider") {
-            connectProvider(rt, 
+            const asked = connectProvider(rt, 
                 selection.providerId,
                 previousPicker?.kind === "extension"
                     ? undefined
                     : previousPicker,
             );
+            // A provider that needs no credential has cleared the key gate by
+            // being chosen, so an unfinished flow carries on to the model step
+            // rather than stopping on the notice.
+            if (asked === "none" && homeNeedsProvider(rt)) {
+                enterOnboardingModelStep(rt, selection.providerId);
+            }
             return;
         } else if (selection.kind === "reasoning") {
             requestModelSettingsChange(rt, 

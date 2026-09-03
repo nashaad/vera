@@ -748,17 +748,18 @@ export function openProviderPicker(rt: TuiRuntime,
     focusActiveSurface(rt);
 }
 
+/** Opens whatever the provider needs to be usable, and says which credential it asked for. A caller walking the gates reads `none` as the key step being already done. */
 export function connectProvider(rt: TuiRuntime, 
     providerId: string,
     pane: TuiSettingsPickerState | undefined,
     refusal?: string,
-): void {
+): "key" | "none" | "sign_in" | undefined {
     const provider = findConfiguredProvider(
         providerId,
         loadOptionalVeraConfig(),
     );
     if (provider === undefined) {
-        return;
+        return undefined;
     }
     if (
         provider.credential === "api_key"
@@ -774,7 +775,7 @@ export function connectProvider(rt: TuiRuntime,
         rt.composer.blur();
         renderState(rt);
         focusActiveSurface(rt);
-        return;
+        return "key";
     }
     rt.settingsPicker = undefined;
     closeSettingsPickerSurface(rt);
@@ -789,10 +790,10 @@ export function connectProvider(rt: TuiRuntime,
             "soft",
         );
         renderState(rt);
-        return;
+        return "none";
     }
     if (rt.connectingProviders.has(provider.id)) {
-        return;
+        return "sign_in";
     }
     rt.connectingProviders.add(provider.id);
     rt.state = appendTuiNotice(
@@ -821,4 +822,5 @@ export function connectProvider(rt: TuiRuntime,
         );
         renderState(rt);
     });
+    return "sign_in";
 }
