@@ -1,0 +1,13 @@
+#!/bin/sh
+# Answers the one URL Vera's install command fetches. Everything else is the real curl.
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+for argument in "$@"; do
+    case "$argument" in
+    *get.corvines.com/outrider)
+        repo=$(CDPATH= cd -- "$here/../.." && pwd)
+        sed "s|@REPO@|$repo|g" "$here/install.sh"
+        exit 0
+        ;;
+    esac
+done
+exec /usr/bin/curl "$@"
