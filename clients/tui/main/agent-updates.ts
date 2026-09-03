@@ -284,6 +284,16 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         rejectionNotice(change.subject, update.reason),
                     );
                 }
+                if (rt.onboardingPromptRequest === update.requestId) {
+                    // A prompt typed before the provider existed. It runs now
+                    // that its model is live; a rejection leaves it in the
+                    // composer for the user to send or edit.
+                    rt.onboardingPromptRequest = undefined;
+                    rt.onboardingPromptWaiting = false;
+                    if (update.type === "model_settings") {
+                        submitPrompt(rt);
+                    }
+                }
             }
             if (update.type === "pool_admission_result") {
                 hideVerificationConsole(rt, update.requestId);

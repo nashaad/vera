@@ -428,6 +428,10 @@ export interface TuiRuntime {
     slashArgumentHint: TextRenderable;
     homeState: HomeState;
     homeTypedText: string | undefined;
+    /** A prompt that reached submit with no provider behind it. It sits in the composer until the gates close. */
+    onboardingPromptWaiting: boolean;
+    /** The model-settings request the waiting prompt runs on, once onboarding has asked for it. */
+    onboardingPromptRequest: string | undefined;
     homeSubmitPending: boolean;
     homeView: TuiHomeView;
     needsYouChipWidth: number;

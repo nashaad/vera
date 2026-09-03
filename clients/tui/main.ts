@@ -1849,6 +1849,8 @@ export async function startTui(
         homeNeedsProvider(rt),
     );
     rt.homeSubmitPending = false;
+    rt.onboardingPromptWaiting = false;
+    rt.onboardingPromptRequest = undefined;
     rt.homeView = createTuiHomeView(rt.renderer, (action) => {
         runHomeAction(rt, action);
     });

@@ -305,12 +305,6 @@ export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
         openCommandPalette(rt);
         return;
     }
-    // A conversation with no provider fails on its first turn, so the row that
-    // asks for one leads to the gates instead.
-    if (rt.homeState.needsProvider && action.kind !== "type") {
-        openProviderPicker(rt);
-        return;
-    }
     if (action.kind !== "type") {
         beginCreateSession(rt, "stop");
         return;
@@ -326,6 +320,7 @@ export function returnToHome(rt: TuiRuntime): void {
     if (isHomeClient(rt.client) || rt.sessionSwitchPending) return;
     rt.homeTypedText = undefined;
     rt.homeSubmitPending = false;
+    rt.onboardingPromptWaiting = false;
     switchToClient(rt, createHomeClient(
         rt.client.workspace ?? process.cwd(),
         rt.homeClientOptions,
@@ -845,7 +840,7 @@ export function requestModelSettingsChange(rt: TuiRuntime,
     toast: string,
     subject: string,
     target: TuiAgentClient = focusedAgentClient(rt),
-): void {
+): string {
     const requestId = randomUUID();
     rt.requestedModelChanges.set(requestId, { subject, patch, target });
     void target.send({
@@ -854,6 +849,7 @@ export function requestModelSettingsChange(rt: TuiRuntime,
         patch,
     }).catch(((error: unknown) => reportConnectionError(rt, error)));
     showStatusNotice(rt, toast);
+    return requestId;
 }
 
 export function formatContextLimit(rt: TuiRuntime, tokens: number): string {

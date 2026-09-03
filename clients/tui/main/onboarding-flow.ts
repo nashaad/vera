@@ -78,12 +78,18 @@ export function settleOnboardingVerification(
     // becomes the default rather than leaving them pointed at whatever the
     // factory home shipped. Only this flow does it: a later verify from the
     // model picker is a question about a model, not a choice of one.
-    requestModelSettingsChange(
+    const modelRequest = requestModelSettingsChange(
         rt,
         { provider: pending.provider, model: pending.model },
         `model → ${pending.provider}/${pending.model}`,
         `the model to ${pending.provider}/${pending.model}`,
     );
+    // The prompt is already in the composer. It waits for the model change to
+    // land, because sending it now would run it on the model the flow just
+    // replaced.
+    if (rt.onboardingPromptWaiting) {
+        rt.onboardingPromptRequest = modelRequest;
+    }
     renderState(rt);
     focusActiveSurface(rt);
     return true;
