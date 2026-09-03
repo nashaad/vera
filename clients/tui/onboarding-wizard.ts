@@ -13,11 +13,14 @@ import {
     type MachineFacts,
 } from "../../src/providers/recommendation.ts";
 import type { ProviderDescriptor } from "../../src/providers/registry.ts";
-import type {
-    OnboardingAnswer,
-    OnboardingChoiceGroup,
-    OnboardingChoiceRow,
-    OnboardingScreenState,
+import {
+    handleOnboardingKey,
+    type OnboardingAnswer,
+    type OnboardingChoiceGroup,
+    type OnboardingChoiceRow,
+    type OnboardingKey,
+    type OnboardingScreenAction,
+    type OnboardingScreenState,
 } from "./onboarding-screen.ts";
 
 export interface WizardModel {
@@ -265,5 +268,46 @@ export function wizardScreen(
             kind: "choice",
             groups: providerGroups(input.providers, machine),
         },
+    };
+}
+
+export interface WizardKeyResult {
+    readonly session?: WizardSession;
+    readonly action?: OnboardingScreenAction;
+    readonly handled: boolean;
+}
+
+/** The screen edits its own state; this puts those edits back where the wizard keeps them. */
+function sessionFrom(
+    session: WizardSession,
+    state: OnboardingScreenState,
+): WizardSession {
+    const body = state.body;
+    return {
+        ...session,
+        selected: state.selected,
+        ...(body.kind === "secret" ? { key: body.value } : {}),
+        ...(body.kind === "choice" && body.query !== undefined
+            ? { query: body.query }
+            : {}),
+    };
+}
+
+export function handleWizardKey(
+    input: OnboardingInput,
+    session: WizardSession,
+    key: OnboardingKey,
+    machine?: MachineFacts,
+): WizardKeyResult {
+    const result = handleOnboardingKey(
+        wizardScreen(input, session, machine),
+        key,
+    );
+    return {
+        ...(result.state === undefined
+            ? {}
+            : { session: sessionFrom(session, result.state) }),
+        ...(result.action === undefined ? {} : { action: result.action }),
+        handled: result.handled,
     };
 }

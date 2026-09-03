@@ -7,6 +7,10 @@ import { requestPoolAdmission } from "../main.ts";
 import { appendTuiNotice } from "../state.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { connectProvider, openOnboardingModelStep } from "./model-pickers.ts";
+import {
+    settleWizardVerification,
+    wizardTookModelSettings,
+} from "./onboarding-wizard-ops.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import {
@@ -29,6 +33,9 @@ export function enterOnboardingModelStep(
 
 /** The step opens once the new conversation says what models it has. */
 export function openPendingOnboardingStep(rt: TuiRuntime): boolean {
+    if (wizardTookModelSettings(rt)) {
+        return true;
+    }
     const provider = rt.pendingOnboardingStep;
     if (provider === undefined) {
         return false;
@@ -55,6 +62,9 @@ export function settleOnboardingVerification(
     rt: TuiRuntime,
     update: Extract<AgentUpdate, { type: "pool_admission_result" }>,
 ): boolean {
+    if (settleWizardVerification(rt, update)) {
+        return true;
+    }
     const pending = rt.onboardingVerification;
     if (pending === undefined || pending.requestId !== update.requestId) {
         return false;

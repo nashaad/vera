@@ -2,6 +2,7 @@
 
 import {
     BoxRenderable,
+    parseColor,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -10,8 +11,8 @@ import type {
     OnboardingStep,
     OnboardingStepId,
 } from "../../src/providers/onboarding.ts";
-import { DIALOG_BACKGROUND_Z_INDEX } from "./dialog-chrome.ts";
-import { TUI_ACCENT, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
+import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
+import { TUI_ACCENT, TUI_BACKGROUND, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
 export const ONBOARDING_TITLE = "Set up Vera";
 
@@ -526,6 +527,8 @@ export interface OnboardingAppearance {
     readonly mutedColor: string;
     readonly accentColor: string;
     readonly dangerColor: string;
+    /** The wizard owns the whole terminal, so it paints its own ground rather than letting the composer show through. */
+    readonly backgroundColor: string;
 }
 
 export interface TuiOnboardingView {
@@ -556,6 +559,7 @@ export function createTuiOnboardingView(
         mutedColor: TUI_MUTED,
         accentColor: TUI_ACCENT,
         dangerColor: TUI_DANGER,
+        backgroundColor: TUI_BACKGROUND,
     };
     const box = new BoxRenderable(renderer, {
         id: "onboarding-card",
@@ -573,7 +577,8 @@ export function createTuiOnboardingView(
         left: 0,
         width: "100%",
         height: "100%",
-        zIndex: DIALOG_BACKGROUND_Z_INDEX,
+        zIndex: DIALOG_CARD_Z_INDEX,
+        backgroundColor: TUI_BACKGROUND,
         alignItems: "center",
         justifyContent: "center",
         visible: false,
@@ -609,6 +614,7 @@ export function createTuiOnboardingView(
         },
         applyAppearance(appearance): void {
             colors = appearance;
+            surface.backgroundColor = parseColor(appearance.backgroundColor);
             if (rendered !== undefined) paint(rendered);
         },
     };

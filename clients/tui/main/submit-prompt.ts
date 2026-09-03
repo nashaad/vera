@@ -11,7 +11,8 @@ import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
-import { homeNeedsProvider, openProviderPicker } from "./model-pickers.ts";
+import { homeNeedsProvider } from "./model-pickers.ts";
+import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
 import { adoptFallbackSessionTitle, clearSearchLanding, coreHelpCommands, readStandingNudgeRules, workerFreeAction } from "../main/chrome.ts";
 import { abortProviderHealthCheck, diagnosticsSnapshot, renderDiagnostics, writeFailureReportFile } from "../main/diagnostics-ops.ts";
@@ -1128,7 +1129,7 @@ export function submitPrompt(rt: TuiRuntime,
         // opens the gates instead of being sent. It stays in the composer and
         // runs there once a model has answered.
         rt.onboardingPromptWaiting = true;
-        openProviderPicker(rt);
+        openOnboardingWizard(rt);
         return;
     }
     const chipOrder = rt.composer.imageChipRequestIds();

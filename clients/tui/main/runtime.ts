@@ -28,6 +28,8 @@ import type { TuiFlightRecorder } from "../flight-recorder.ts";
 import type { TuiHelpState, TuiHelpView } from "../help.ts";
 import type { HomeClientOptions } from "../home-client.ts";
 import type { HomeState, TuiHomeView } from "../home-screen.ts";
+import type { TuiOnboardingView } from "../onboarding-screen.ts";
+import type { WizardSession } from "../onboarding-wizard.ts";
 import type { TuiHostedAgentSurface } from "../hosted-agent-surface.ts";
 import type { TuiHostedPanePersistence } from "../hosted-pane-persistence.ts";
 import type { TuiHostedSidebarAgent } from "../hosted-sidebar-agent.ts";
@@ -434,6 +436,10 @@ export interface TuiRuntime {
     onboardingPromptRequest: string | undefined;
     homeSubmitPending: boolean;
     homeView: TuiHomeView;
+    /** The first-run wizard, open only while a gate is still shut. */
+    onboardingWizard: WizardSession | undefined;
+    onboardingWizardView: TuiOnboardingView;
+    onboardingWizardTimer: NodeJS.Timeout | undefined;
     needsYouChipWidth: number;
     composerTextRows: number;
     requestedComposerTextRows: number;

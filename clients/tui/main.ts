@@ -190,6 +190,7 @@ import {
     type AnnexUrlResult,
 } from "../../src/annex/host-client.ts";
 import { createHomeState, createTuiHomeView } from "./home-screen.ts";
+import { createTuiOnboardingView } from "./onboarding-screen.ts";
 import { createTuiResumeOverlayView } from "./resume-overlay.ts";
 import { openSelected, searchSelectionOf, searchSelections, updateSearchOverlayText } from "./search-overlay.ts";
 import { parseTerminalFocusEvent, FOCUS_REPORTING_OFF, FOCUS_REPORTING_ON } from "./attention-notice.ts";
@@ -285,6 +286,7 @@ import { forgetProvider, forgetProviderCredential, defaultLoginProvider, openPro
 import { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo } from "./main/palette-jump.ts";
 import { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp } from "./main/workspace-ops.ts";
 import { applySettingsPickerTransition, closeSettingsPickerSurface } from "./main/settings-picker-transition.ts";
+import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, wizardTookModelSettings } from "./main/onboarding-wizard-ops.ts";
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
@@ -296,6 +298,7 @@ export { renderStatus };
 export { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
 export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview };
+export { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, wizardTookModelSettings };
 export { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission };
 export { applySettingsPickerTransition, closeSettingsPickerSurface };
 export { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp };
@@ -1860,6 +1863,18 @@ export async function startTui(
         accentColor: rt.theme.accent,
     });
     rt.homeView.update(rt.homeState);
+    rt.onboardingWizard = undefined;
+    rt.onboardingWizardTimer = undefined;
+    rt.onboardingWizardView = createTuiOnboardingView(rt.renderer, (action) => {
+        runOnboardingWizardAction(rt, action);
+    });
+    rt.onboardingWizardView.applyAppearance({
+        textColor: rt.theme.text,
+        mutedColor: rt.theme.muted,
+        accentColor: rt.theme.accent,
+        dangerColor: rt.theme.danger,
+        backgroundColor: rt.theme.background,
+    });
     rt.resumeOverlay.applyAppearance({
         marginHorizontal: rt.appearance.composerMarginHorizontal,
         paddingHorizontal: rt.appearance.composerPaddingHorizontal,
@@ -2252,6 +2267,7 @@ export async function startTui(
     rt.app.add(rt.heldAddressText);
     rt.app.add(rt.dialCard);
     rt.app.add(rt.homeView.surface);
+    rt.app.add(rt.onboardingWizardView.surface);
     rt.app.add(rt.agentNoticeText);
     rt.app.add(rt.composerBox);
     rt.app.add(rt.resumeOverlay.surface);
@@ -2699,6 +2715,13 @@ export async function startTui(
             textColor: activeTheme.text,
             mutedColor: activeTheme.muted,
             accentColor: activeTheme.accent,
+        }),
+        (activeTheme) => rt.onboardingWizardView.applyAppearance({
+            textColor: activeTheme.text,
+            mutedColor: activeTheme.muted,
+            accentColor: activeTheme.accent,
+            dangerColor: activeTheme.danger,
+            backgroundColor: activeTheme.background,
         }),
         (activeTheme) => rt.resumeOverlay.applyAppearance({
             marginHorizontal: rt.appearance.composerMarginHorizontal,
