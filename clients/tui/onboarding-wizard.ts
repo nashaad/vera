@@ -563,6 +563,15 @@ function sessionFrom(
     };
 }
 
+/** True when the open step is the key field, so typing and pasting belong to it. */
+export function wizardFieldIsOpen(
+    input: OnboardingInput,
+    session: WizardSession,
+    machine?: MachineFacts,
+): boolean {
+    return wizardScreen(input, session, machine).body.kind === "secret";
+}
+
 export function handleWizardKey(
     input: OnboardingInput,
     session: WizardSession,

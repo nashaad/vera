@@ -2,7 +2,10 @@
 
 import {
     BoxRenderable,
+    fg,
     parseColor,
+    Renderable,
+    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -13,6 +16,12 @@ import type {
 } from "../../src/providers/onboarding.ts";
 import { downloadSize, remaining } from "../../src/providers/outrider.ts";
 import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
+import {
+    createTuiSingleLineTextarea,
+    insertTuiSingleLinePaste,
+    syncTuiSingleLineTextarea,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
 import { TUI_ACCENT, TUI_BACKGROUND, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
 
 export const ONBOARDING_TITLE = "Set up Vera";
@@ -152,6 +161,8 @@ export interface OnboardingLine {
     readonly selected?: boolean;
     /** The row this line can be clicked to choose. */
     readonly rowId?: string;
+    /** The line the live text field sits on. Its text is what the field holds, for anything that reads the card as text. */
+    readonly entry?: boolean;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴"];
@@ -414,9 +425,7 @@ const FIELD_WIDTH = INNER_WIDTH - CONTENT_INDENT * 2 - 2;
 function secretLines(
     body: OnboardingSecretBody,
 ): readonly OnboardingLine[] {
-    const shown = body.value === ""
-        ? body.placeholder
-        : `${body.placeholder}${"•".repeat(body.value.length)}`;
+    const shown = body.value === "" ? body.placeholder : body.value;
     return [
         {
             text: indent(`╭${"─".repeat(FIELD_WIDTH)}╮`),
@@ -425,6 +434,7 @@ function secretLines(
         {
             text: indent(`│ ${pad(shown, FIELD_WIDTH - 2)} │`),
             tone: "field",
+            entry: true,
         },
         {
             text: indent(`╰${"─".repeat(FIELD_WIDTH)}╯`),
@@ -638,25 +648,9 @@ export function handleOnboardingKey(
             ? { handled: true }
             : { action: { kind: "choose", id: chosen }, handled: true };
     }
-    if (body.kind === "secret") {
-        if (key.name === "backspace") {
-            return {
-                state: {
-                    ...state,
-                    body: { ...body, value: body.value.slice(0, -1) },
-                },
-                handled: true,
-            };
-        }
-        const typed = typedCharacter(key);
-        return typed === undefined ? { handled: false } : {
-            state: {
-                ...state,
-                body: { ...body, value: `${body.value}${typed}` },
-            },
-            handled: true,
-        };
-    }
+    // Everything else on the key step belongs to the field, which is a real
+    // editor rather than a line of text.
+    if (body.kind === "secret") return { handled: false };
     if (key.name === "up") return moveSelection(state, -1);
     if (key.name === "down") return moveSelection(state, 1);
     if (body.kind === "choice" && body.query !== undefined) {
@@ -698,6 +692,27 @@ export interface TuiOnboardingView {
     readonly box: BoxRenderable;
     update(state: OnboardingScreenState): void;
     applyAppearance(appearance: OnboardingAppearance): void;
+    /** Puts the cursor where the typing goes: the key field when there is one. */
+    focus(): void;
+    /** What the live field holds. The wizard keeps this in its session. */
+    fieldValue(): string;
+    /** The keys the wizard did not claim, handed to the field. */
+    handleFieldKey(key: OnboardingKey): string;
+    handleFieldPaste(text: string): string;
+}
+
+/** The card's own bars are chrome. A lit row lights its text, not the frame it sits inside. */
+function framedContent(
+    line: OnboardingLine,
+    colors: OnboardingAppearance,
+): StyledText {
+    const bar = fg(colors.mutedColor);
+    const body = [...line.text];
+    return new StyledText([
+        bar(body[0] ?? ""),
+        fg(lineColor(line, colors))(body.slice(1, -1).join("")),
+        bar(body[body.length - 1] ?? ""),
+    ]);
 }
 
 function lineColor(
@@ -746,17 +761,65 @@ export function createTuiOnboardingView(
         visible: false,
     });
     surface.add(box);
-    let lines: TextRenderable[] = [];
+    // The key line is a real editor, the same one every other field in Vera
+    // uses, so a key can be pasted, corrected, and seen.
+    const field = createTuiSingleLineTextarea(renderer, {
+        id: "onboarding-key-field",
+        placeholder: " ",
+        backgroundColor: TUI_BACKGROUND,
+    });
+    field.width = FIELD_WIDTH - 2;
+    const fieldBefore = new TextRenderable(renderer, {
+        content: "",
+        width: CONTENT_INDENT + 3,
+        height: 1,
+    });
+    const fieldAfter = new TextRenderable(renderer, {
+        content: "",
+        width: CONTENT_INDENT + 3,
+        height: 1,
+    });
+    const fieldRow = new BoxRenderable(renderer, {
+        id: "onboarding-key-row",
+        border: false,
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+    });
+    fieldRow.add(fieldBefore);
+    fieldRow.add(field);
+    fieldRow.add(fieldAfter);
+    let lines: Renderable[] = [];
     let rendered: OnboardingScreenState | undefined;
+    const paintFieldRow = (line: OnboardingLine): void => {
+        const body = [...line.text];
+        fieldBefore.content = body.slice(0, CONTENT_INDENT + 3).join("");
+        fieldBefore.fg = colors.mutedColor;
+        fieldAfter.content = body.slice(-(CONTENT_INDENT + 3)).join("");
+        fieldAfter.fg = colors.mutedColor;
+        field.textColor = colors.textColor;
+        field.focusedTextColor = colors.textColor;
+        field.backgroundColor = colors.backgroundColor;
+        field.focusedBackgroundColor = colors.backgroundColor;
+        field.cursorColor = colors.accentColor;
+    };
     const paint = (state: OnboardingScreenState): void => {
-        for (const line of lines) line.destroyRecursively();
+        for (const line of lines) {
+            if (line === fieldRow) box.remove(fieldRow.id);
+            else line.destroyRecursively();
+        }
         lines = [];
         for (const [index, line] of onboardingCardLines(state).entries()) {
+            if (line.entry === true) {
+                paintFieldRow(line);
+                lines.push(fieldRow);
+                box.add(fieldRow);
+                continue;
+            }
             const rowId = line.rowId;
             const text = new TextRenderable(renderer, {
                 id: `onboarding-line-${index}`,
-                content: line.text,
-                fg: lineColor(line, colors),
+                content: framedContent(line, colors),
                 width: "100%",
                 height: 1,
                 onMouseDown: rowId === undefined
@@ -772,12 +835,30 @@ export function createTuiOnboardingView(
         box,
         update(state): void {
             rendered = state;
+            if (state.body.kind === "secret") {
+                syncTuiSingleLineTextarea(field, state.body.value);
+            }
             paint(state);
         },
         applyAppearance(appearance): void {
             colors = appearance;
             surface.backgroundColor = parseColor(appearance.backgroundColor);
             if (rendered !== undefined) paint(rendered);
+        },
+        focus(): void {
+            if (rendered?.body.kind === "secret") field.focus();
+            else box.focus();
+        },
+        fieldValue(): string {
+            return field.plainText;
+        },
+        handleFieldKey(key): string {
+            field.handleKeyPress(tuiTextareaKey(key));
+            return field.plainText;
+        },
+        handleFieldPaste(text): string {
+            insertTuiSingleLinePaste(field, text);
+            return field.plainText;
         },
     };
 }

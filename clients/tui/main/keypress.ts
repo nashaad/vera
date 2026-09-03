@@ -8,7 +8,7 @@ import { handleDialStripKey } from "../dials.ts";
 import { handleTuiHelpKey } from "../help.ts";
 import { isHomeClient } from "../home-client.ts";
 import { handleHomeKey, homeTypedCharacter } from "../home-screen.ts";
-import { handleWizardKey } from "../onboarding-wizard.ts";
+import { handleWizardKey, wizardFieldIsOpen } from "../onboarding-wizard.ts";
 import { onboardingInput } from "./model-pickers.ts";
 import { runOnboardingWizardAction, updateWizardSession } from "./onboarding-wizard-ops.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
@@ -97,6 +97,15 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             if (transition.action !== undefined) {
                 runOnboardingWizardAction(rt, transition.action);
             }
+            return;
+        }
+        if (wizardFieldIsOpen(onboardingInput(rt), rt.onboardingWizard)) {
+            key.preventDefault();
+            key.stopPropagation();
+            updateWizardSession(rt, {
+                ...rt.onboardingWizard,
+                key: rt.onboardingWizardView.handleFieldKey(key),
+            });
             return;
         }
     }

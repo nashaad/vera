@@ -69,7 +69,7 @@ test("the key step names the provider and says where the key goes", () => {
     expect(text).toContain("Paste your OpenRouter key.");
     expect(text).toContain("Kept in your keychain. Only ever sent to OpenRouter.");
     expect(text).toContain("Or set OPENROUTER_API_KEY in your shell.");
-    expect(text).toContain("•".repeat("sk-or-v1-abc".length));
+    expect(text).toContain("sk-or-v1-abc");
     expect(text).toContain("esc back");
 });
 
