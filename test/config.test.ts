@@ -20,6 +20,7 @@ import {
     eventLogEnabled,
     loadOptionalVeraConfig,
     loadOrCreateVeraConfig,
+    configuredCompactionOverrides,
     developerOverrides,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -1643,4 +1644,90 @@ test("an unrelated write leaves a stored compaction block alone", () => {
     expect(reloaded.model).toBe("anthropic/other-model");
     expect(reloaded.compaction).toEqual({ trigger_fraction: 0.7 });
     expect(reloaded.tool_results).toEqual({ stub_after_turns: 4 });
+});
+
+test("a written compaction number leaves the strategy and its routes alone", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{ provider: "openrouter", model: "anthropic/claude-opus-4.8" }],
+        model_routes: { summarizer: ["anthropic_claude_opus_4_8_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+            trigger_fraction: 0.7,
+        },
+    }));
+
+    updateVeraConfigDefaults({ compaction: { summary_word_cap: 300 } }, {
+        path,
+    });
+
+    // Retuning a number must not unbind the models compaction runs on.
+    expect(loadVeraConfig({ path }).compaction).toEqual({
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+        trigger_fraction: 0.7,
+        summary_word_cap: 300,
+    });
+
+    updateVeraConfigDefaults({ compaction: { trigger_fraction: null } }, {
+        path,
+    });
+    expect(loadVeraConfig({ path }).compaction?.trigger_fraction)
+        .toBeUndefined();
+});
+
+test("compaction numbers apply whether or not developer mode is on", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        compaction: {
+            trigger_fraction: 0.6,
+            trigger_tokens: 40_000,
+            target_tokens: 12_000,
+            target_fraction: 0.3,
+            summary_word_cap: 400,
+            retained_user_turns: 5,
+        },
+    }));
+
+    // Developer mode decides what a pane shows, not which numbers are live.
+    expect(configuredCompactionOverrides(loadVeraConfig({ path }))).toEqual({
+        triggerFraction: 0.6,
+        triggerTokens: 40_000,
+        targetTokens: 12_000,
+        postCompactionTargetFraction: 0.3,
+        summaryWordCap: 400,
+        retainedUserTurns: 5,
+    });
+});
+
+test("a compaction block with no numbers overrides nothing", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{ provider: "openrouter", model: "anthropic/claude-opus-4.8" }],
+        model_routes: { summarizer: ["anthropic_claude_opus_4_8_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+        },
+    }));
+
+    expect(configuredCompactionOverrides(loadVeraConfig({ path })))
+        .toBeUndefined();
+
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(configuredCompactionOverrides(loadVeraConfig({ path: bare })))
+        .toBeUndefined();
 });

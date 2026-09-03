@@ -171,7 +171,7 @@ test("configured trigger bounds reach the scheduler", () => {
     expect(bound?.targetTokens).toBe(10_000);
 });
 
-test("developer overrides replace the profile's trigger and the engine's own sizing", () => {
+test("config overrides replace the profile's trigger and the engine's own sizing", () => {
     const bound = bindCompaction(
         profile({ trigger_fraction: 0.8, trigger_tokens: 90_000 }),
         adapter,
@@ -186,14 +186,14 @@ test("developer overrides replace the profile's trigger and the engine's own siz
     );
 
     // The fraction is replaced and the token bound is left alone: an override
-    // touches what it names, so a configured bound does not disappear because
-    // a developer moved a different one.
+    // touches what it names, so a configured bound does not disappear
+    // because a different one was moved.
     expect(bound?.trigger).toEqual({ fraction: 0.3, tokens: 90_000 });
     expect(bound?.postCompactionTargetFraction).toBe(0.2);
     expect(bound?.summaryWordCap).toBe(250);
 });
 
-test("no developer overrides leaves a bound profile untouched", () => {
+test("no overrides leaves a bound profile untouched", () => {
     const plain = bindCompaction(
         profile({ trigger_fraction: 0.8 }),
         adapter,
@@ -204,6 +204,53 @@ test("no developer overrides leaves a bound profile untouched", () => {
     expect(plain?.trigger).toEqual({ fraction: 0.8 });
     expect(plain?.postCompactionTargetFraction).toBeUndefined();
     expect(plain?.summaryWordCap).toBeUndefined();
+});
+
+test("overrides retune the compaction of a session with no profile", () => {
+    // The case a numbers-only config block exists for: nobody routed a
+    // summarizer, but the session still compacts, and the numbers still say
+    // when and how far.
+    const bound = bindCompaction(
+        undefined,
+        adapter,
+        { model: "test-model" },
+        BUNDLED_COMPACTION_STRATEGIES,
+        undefined,
+        {
+            triggerFraction: 0.6,
+            triggerTokens: 40_000,
+            targetTokens: 12_000,
+            postCompactionTargetFraction: 0.3,
+            summaryWordCap: 400,
+            retainedUserTurns: 5,
+        },
+    );
+
+    expect(bound?.trigger).toEqual({ fraction: 0.6, tokens: 40_000 });
+    expect(bound?.targetTokens).toBe(12_000);
+    expect(bound?.postCompactionTargetFraction).toBe(0.3);
+    expect(bound?.summaryWordCap).toBe(400);
+    expect(bound?.retainedUserTurns).toBe(5);
+});
+
+test("an override may raise a token bound the profile already set", () => {
+    const bound = bindCompaction(
+        profile({
+            trigger_fraction: 0.8,
+            trigger_tokens: 90_000,
+            target_tokens: 10_000,
+            retained_user_turns: 2,
+        }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+        undefined,
+        { triggerTokens: 50_000, targetTokens: 20_000, retainedUserTurns: 4 },
+    );
+
+    expect(bound?.trigger).toEqual({ fraction: 0.8, tokens: 50_000 });
+    expect(bound?.targetTokens).toBe(20_000);
+    expect(bound?.retainedUserTurns).toBe(4);
 });
 
 test("a bound compaction round-trips through the worker wire spec", () => {

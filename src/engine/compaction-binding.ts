@@ -126,10 +126,18 @@ export function bindCompaction(
     }, overrides);
 }
 
+/**
+ * Numbers that ride over whatever compaction the session bound, whether that
+ * came from a configured profile or from the default binding. A session with
+ * no compaction profile still has compaction, so these have to reach both.
+ */
 export interface CompactionOverrides {
     readonly triggerFraction?: number;
+    readonly triggerTokens?: number;
+    readonly targetTokens?: number;
     readonly postCompactionTargetFraction?: number;
     readonly summaryWordCap?: number;
+    readonly retainedUserTurns?: number;
 }
 
 function withOverrides(
@@ -139,14 +147,21 @@ function withOverrides(
     if (bound === undefined || overrides === undefined) {
         return bound;
     }
+    const trigger: CompactionTrigger = {
+        ...bound.trigger,
+        ...(overrides.triggerFraction === undefined
+            ? {}
+            : { fraction: overrides.triggerFraction }),
+        ...(overrides.triggerTokens === undefined
+            ? {}
+            : { tokens: overrides.triggerTokens }),
+    };
     return {
         ...bound,
-        ...(overrides.triggerFraction === undefined ? {} : {
-            trigger: {
-                ...bound.trigger,
-                fraction: overrides.triggerFraction,
-            },
-        }),
+        ...(Object.keys(trigger).length === 0 ? {} : { trigger }),
+        ...(overrides.targetTokens === undefined
+            ? {}
+            : { targetTokens: overrides.targetTokens }),
         ...(overrides.postCompactionTargetFraction === undefined ? {} : {
             postCompactionTargetFraction:
                 overrides.postCompactionTargetFraction,
@@ -154,6 +169,9 @@ function withOverrides(
         ...(overrides.summaryWordCap === undefined
             ? {}
             : { summaryWordCap: overrides.summaryWordCap }),
+        ...(overrides.retainedUserTurns === undefined
+            ? {}
+            : { retainedUserTurns: overrides.retainedUserTurns }),
     };
 }
 

@@ -18,6 +18,7 @@ import {
 } from "./engine/permissions.ts";
 import { TOOL_RESULT_TOTAL_BUDGET_BYTES } from "./engine/tool-result-history.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
+import type { CompactionOverrides } from "./engine/compaction-binding.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
@@ -314,12 +315,6 @@ export interface VeraDeveloperConfig {
     readonly enabled?: boolean;
     /** Replaces `context_limit`, and reaches below the values it offers. */
     readonly context_limit?: number;
-    /** Replaces the compaction profile's `trigger_fraction`. */
-    readonly compaction_trigger_fraction?: number;
-    /** Share of the window a compaction aims to land under. */
-    readonly post_compaction_target_fraction?: number;
-    /** Ceiling on the words a summary is asked for. */
-    readonly summary_word_cap?: number;
 }
 
 /**
@@ -424,6 +419,13 @@ export interface VeraConfigDefaultsPatch {
     readonly developer?:
         | Readonly<Record<string, number | boolean | null | undefined>>
         | null;
+    /**
+     * Compaction numbers, merged field by field. A field set to `null` clears
+     * that field alone. The strategy and its routes are left as they stand:
+     * a pane that retunes a number must not unbind the models compaction runs
+     * on.
+     */
+    readonly compaction?: Readonly<Record<string, number | null | undefined>>;
 }
 
 export function defaultVeraConfigPath(): string {
@@ -733,6 +735,14 @@ export function updateVeraConfigDefaults(
                 developer: patch.developer === null
                     ? undefined
                     : patchedDeveloper(current.developer, patch.developer),
+            }),
+        ...(patch.compaction === undefined
+            ? {}
+            : {
+                compaction: patchedCompaction(
+                    current.compaction,
+                    patch.compaction,
+                ),
             }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
@@ -1555,12 +1565,7 @@ function parseExperimental(
     return raw.inbox === undefined ? {} : { inbox: raw.inbox };
 }
 
-const DEVELOPER_NUMBER_KEYS = [
-    "context_limit",
-    "compaction_trigger_fraction",
-    "post_compaction_target_fraction",
-    "summary_word_cap",
-] as const;
+const DEVELOPER_NUMBER_KEYS = ["context_limit"] as const;
 
 const TOOL_RESULT_BYTE_KEYS = [
     "ceiling_bytes",
@@ -1670,6 +1675,25 @@ function patchedDeveloper(
     return Object.keys(merged).length === 0
         ? undefined
         : merged as VeraDeveloperConfig;
+}
+
+function patchedCompaction(
+    current: VeraCompactionConfig | undefined,
+    patch: Readonly<Record<string, number | null | undefined>>,
+): VeraCompactionConfig | undefined {
+    const merged: Record<string, unknown> = { ...(current ?? {}) };
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null) {
+            delete merged[key];
+            continue;
+        }
+        if (value !== undefined) {
+            merged[key] = value;
+        }
+    }
+    return Object.keys(merged).length === 0
+        ? undefined
+        : merged as VeraCompactionConfig;
 }
 
 function parseInboxConfig(value: unknown): VeraInboxConfig | undefined {
@@ -2038,6 +2062,41 @@ export function configuredCompaction(
         model_routes: config.model_routes,
         reviewer_profiles: config.reviewer_profiles ?? {},
     }, config.compaction);
+}
+
+/**
+ * The compaction numbers a config sets, or undefined when it sets none. These
+ * ride over the binding rather than replacing it, so a block that names no
+ * strategy still retunes the compaction the session would have run anyway.
+ */
+export function configuredCompactionOverrides(
+    config: VeraConfig,
+): CompactionOverrides | undefined {
+    const compaction = config.compaction;
+    if (compaction === undefined) {
+        return undefined;
+    }
+    const overrides: CompactionOverrides = {
+        ...(compaction.trigger_fraction === undefined
+            ? {}
+            : { triggerFraction: compaction.trigger_fraction }),
+        ...(compaction.trigger_tokens === undefined
+            ? {}
+            : { triggerTokens: compaction.trigger_tokens }),
+        ...(compaction.target_tokens === undefined
+            ? {}
+            : { targetTokens: compaction.target_tokens }),
+        ...(compaction.target_fraction === undefined
+            ? {}
+            : { postCompactionTargetFraction: compaction.target_fraction }),
+        ...(compaction.summary_word_cap === undefined
+            ? {}
+            : { summaryWordCap: compaction.summary_word_cap }),
+        ...(compaction.retained_user_turns === undefined
+            ? {}
+            : { retainedUserTurns: compaction.retained_user_turns }),
+    };
+    return Object.keys(overrides).length === 0 ? undefined : overrides;
 }
 
 /**
