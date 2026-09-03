@@ -1,12 +1,21 @@
 import {
+    bg,
     BoxRenderable,
+    fg,
     parseColor,
+    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
 
 import { DIALOG_BACKGROUND_Z_INDEX } from "./dialog-chrome.ts";
-import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
+import {
+    TUI_ACCENT,
+    TUI_BACKGROUND,
+    TUI_MUTED,
+    TUI_SUCCESS,
+    TUI_TEXT,
+} from "./state.ts";
 
 export const HOME_WORDMARK = "V  E  R  A";
 
@@ -95,11 +104,18 @@ export type HomeLineTone =
     | "row"
     | "hint";
 
+/** The half-open column range a row fills, which is how a row is drawn as a button. */
+export interface HomeLineFill {
+    readonly from: number;
+    readonly to: number;
+}
+
 export interface HomeLine {
     readonly text: string;
     readonly tone: HomeLineTone;
     readonly rowId?: HomeRowId;
     readonly selected?: boolean;
+    readonly fill?: HomeLineFill;
 }
 
 const BLANK: HomeLine = { text: "", tone: "rule" };
@@ -112,6 +128,7 @@ export function homeCardLines(state: HomeState): readonly HomeLine[] {
             tone: "row",
             rowId: row.id,
             selected: row.id === selected,
+            ...(row.id === "connect" ? { fill: BUTTON_FILL } : {}),
         };
         // The row that leads out of a cold start stands on its own, so the
         // rows that need a provider first do not read as alternatives to it.
@@ -232,8 +249,22 @@ function selectedRowId(state: HomeState): HomeRowId {
     return state.needsProvider ? "connect" : "new";
 }
 
+/**
+ * The one row that leads out of a cold start is drawn as a filled button, so
+ * it reads as the thing to press rather than as the first of five lines. The
+ * space either side of its label is inside the fill, which is why the label
+ * starts a column earlier than every other row and the key hints still line up.
+ */
+const BUTTON_FILL: HomeLineFill = {
+    from: 1,
+    to: 1 + "Connect a provider".length + 2,
+};
+
 function rowText(row: HomeRow, selected: boolean): string {
-    const head = `${selected ? "❯" : " "} ${row.label}`;
+    const marker = selected ? "❯" : " ";
+    const head = row.id === "connect"
+        ? `${marker} ${row.label} `
+        : `${marker} ${row.label}`;
     if (row.keyHint === "") return head;
     const gap = Math.max(1, HOME_HINT_COLUMN - head.length);
     return `${head}${" ".repeat(gap)}${row.keyHint}`;
@@ -276,25 +307,31 @@ class HomeHintRenderable extends TextRenderable {
     }
 }
 
+export interface HomeAppearance {
+    readonly textColor: string;
+    readonly mutedColor: string;
+    readonly accentColor: string;
+    readonly successColor: string;
+    readonly backgroundColor: string;
+}
+
 export interface TuiHomeView {
     readonly surface: BoxRenderable;
     readonly box: BoxRenderable;
     update(state: HomeState): void;
-    applyAppearance(appearance: {
-        readonly textColor: string;
-        readonly mutedColor: string;
-        readonly accentColor: string;
-    }): void;
+    applyAppearance(appearance: HomeAppearance): void;
 }
 
 export function createTuiHomeView(
     renderer: RenderContext,
     onRun: (action: HomeAction) => void,
 ): TuiHomeView {
-    let colors = {
+    let colors: HomeAppearance = {
         textColor: TUI_TEXT,
         mutedColor: TUI_MUTED,
         accentColor: TUI_ACCENT,
+        successColor: TUI_SUCCESS,
+        backgroundColor: TUI_BACKGROUND,
     };
     const box = new BoxRenderable(renderer, {
         id: "home-card",
@@ -331,7 +368,7 @@ export function createTuiHomeView(
         for (const [index, line] of homeCardLines(state).entries()) {
             const options = {
                 id: `home-line-${index}`,
-                content: line.text,
+                content: lineContent(line, colors),
                 fg: lineColor(line, colors),
                 width: "100%" as const,
                 height: 1,
@@ -371,13 +408,27 @@ function rowActionFor(state: HomeState, lineIndex: number): HomeAction {
     return id === undefined ? { kind: "new_session" } : rowAction(id, state);
 }
 
+/** A filled row is three spans: the marker, the button, and the key hint beside it. */
+function lineContent(
+    line: HomeLine,
+    colors: HomeAppearance,
+): string | StyledText {
+    if (line.fill === undefined) return line.text;
+    const around = fg(lineColor(line, colors));
+    return new StyledText([
+        around(line.text.slice(0, line.fill.from)),
+        bg(colors.successColor)(
+            fg(colors.backgroundColor)(
+                line.text.slice(line.fill.from, line.fill.to),
+            ),
+        ),
+        around(line.text.slice(line.fill.to)),
+    ]);
+}
+
 function lineColor(
     line: HomeLine,
-    colors: {
-        readonly textColor: string;
-        readonly mutedColor: string;
-        readonly accentColor: string;
-    },
+    colors: HomeAppearance,
 ): string {
     if (line.tone === "wordmark") return colors.accentColor;
     if (line.tone === "notice") return colors.textColor;

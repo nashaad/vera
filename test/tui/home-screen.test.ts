@@ -86,6 +86,35 @@ describe("the home card", () => {
         );
     });
 
+    test("the way out is a filled button, and still readable unfilled", () => {
+        const row = homeCardLines(cold()).find((line) =>
+            line.rowId === "connect"
+        );
+        // The fill covers the label and the space either side of it, and stops
+        // before the key hint.
+        expect(row?.text.slice(row.fill?.from, row.fill?.to))
+            .toBe(" Connect a provider ");
+        // Colour is decoration: the marker and the key say the same thing.
+        expect(row?.text).toBe("❯ Connect a provider  enter");
+        expect(homeCardLines(cold()).filter((line) => line.fill !== undefined))
+            .toHaveLength(1);
+    });
+
+    test("the key hints line up whether a row is filled or not", () => {
+        const withHints = new Set(
+            homeRows(cold()).filter((row) => row.keyHint !== "").map((row) =>
+                row.id
+            ),
+        );
+        const lines = homeCardLines(cold()).filter((line) =>
+            line.rowId !== undefined && withHints.has(line.rowId)
+        );
+        expect(lines.length).toBeGreaterThan(1);
+        for (const line of lines) {
+            expect(hintColumn(line.text)).toBe(HOME_HINT_COLUMN);
+        }
+    });
+
     test("a cold machine offers no caret, having nowhere to send a prompt", () => {
         expect(rendered(cold())).not.toContain(HOME_TYPING_HINT);
         expect(homeCardLines(cold()).some((line) => line.tone === "hint"))

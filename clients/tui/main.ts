@@ -1862,6 +1862,8 @@ export async function startTui(
         textColor: rt.theme.text,
         mutedColor: rt.theme.muted,
         accentColor: rt.theme.accent,
+        successColor: rt.theme.success,
+        backgroundColor: rt.theme.background,
     });
     rt.homeView.update(rt.homeState);
     rt.onboardingWizard = undefined;
@@ -2731,6 +2733,8 @@ export async function startTui(
             textColor: activeTheme.text,
             mutedColor: activeTheme.muted,
             accentColor: activeTheme.accent,
+            successColor: activeTheme.success,
+            backgroundColor: activeTheme.background,
         }),
         (activeTheme) => rt.onboardingWizardView.applyAppearance({
             textColor: activeTheme.text,
