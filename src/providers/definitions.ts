@@ -61,6 +61,9 @@ export interface RecommendedModel {
     readonly requires?: ProviderRequirement;
 }
 
+/** Which local runtime seam drives this provider. One name per implementation, never a free string, so a definition cannot ask for a binary nothing knows how to run. */
+export type ProviderLocalRuntime = "outrider";
+
 export interface ProviderRequestOptionsDefinition {
     readonly behavior: "openrouter-provider-preferences";
     readonly label: string;
@@ -87,6 +90,8 @@ export interface ProviderDefinition {
     readonly request_options?: ProviderRequestOptionsDefinition;
     readonly recommend?: ProviderRecommendation;
     readonly recommend_models?: readonly RecommendedModel[];
+    /** The CLI that puts this provider on the machine and brings it up. Only a provider Vera can install itself names one. */
+    readonly local_runtime?: ProviderLocalRuntime;
 }
 
 export interface ProviderDeclaration {
@@ -311,6 +316,9 @@ export function parseProviderDefinition(
         ...(requestOptions === undefined ? {} : { request_options: requestOptions }),
         ...(recommend === undefined ? {} : { recommend }),
         ...(recommendModels === undefined ? {} : { recommend_models: recommendModels }),
+        ...(value.local_runtime === "outrider"
+            ? { local_runtime: "outrider" as const }
+            : {}),
     };
 }
 

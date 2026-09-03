@@ -3,6 +3,7 @@ import type { AuthStorage } from "./auth-storage.ts";
 import {
     resolveProviders,
     type ProviderDiscoveryDefinition,
+    type ProviderLocalRuntime,
     type ProviderProtocol,
     type ProviderRecommendation,
     type RecommendedModel,
@@ -42,6 +43,8 @@ export interface ProviderDescriptor {
     readonly recommend?: ProviderRecommendation;
     /** The models this provider itself puts forward, by role. */
     readonly recommendModels?: readonly RecommendedModel[];
+    /** The CLI Vera drives to put this provider on the machine and bring it up. */
+    readonly localRuntime?: ProviderLocalRuntime;
     readonly requestOptions?: Readonly<{
         readonly behavior: "openrouter-provider-preferences";
         readonly label: string;
@@ -88,6 +91,9 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
         ...(provider.definition.recommend_models === undefined
             ? {}
             : { recommendModels: provider.definition.recommend_models }),
+        ...(provider.definition.local_runtime === undefined
+            ? {}
+            : { localRuntime: provider.definition.local_runtime }),
         ...(provider.definition.request_options === undefined
             ? {}
             : {

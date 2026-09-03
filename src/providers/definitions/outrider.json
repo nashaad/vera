@@ -10,6 +10,7 @@
     "protocol": "openai-chat",
     "default_base_url": "http://127.0.0.1:11435/v1",
     "discovery": { "mode": "models", "path": "/models", "credential": "none" },
+    "local_runtime": "outrider",
     "recommend": { "rank": 2, "reason": "runs on this Mac, no key, no account" },
     "recommend_models": [
         {

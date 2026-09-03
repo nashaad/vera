@@ -119,6 +119,16 @@ export function parseOutriderProgress(
     };
 }
 
+/** One line per named piece, newest wins, first-seen order kept. A download reports many times and should not stack up. */
+export function mergeProgress(
+    lines: readonly OutriderProgress[],
+    line: OutriderProgress,
+): readonly OutriderProgress[] {
+    const at = lines.findIndex((entry) => entry.name === line.name);
+    if (at === -1) return [...lines, line];
+    return lines.map((entry, index) => index === at ? line : entry);
+}
+
 /** Gigabytes to one decimal, the unit a model download is read in. */
 export function gigabytes(bytes: number): string {
     return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
