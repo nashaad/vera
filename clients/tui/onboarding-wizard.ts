@@ -132,7 +132,10 @@ function answersFor(
     if (provider !== undefined) {
         answers.provider = { text: provider.label };
         if (provider.localRuntime !== undefined) {
-            if (session.runtime?.state === "present") {
+            // Starting means the binary is already here, so the gate it
+            // settled must not blank out while the profile comes up.
+            const runtime = session.runtime?.state;
+            if (runtime === "present" || runtime === "starting") {
                 answers.key = { text: "installed" };
             }
         } else if (provider.credential === "none") {

@@ -310,3 +310,22 @@ test("the install gate cannot push the frame open either", () => {
         }
     }
 });
+
+test("the install step stays settled while the profile comes up", () => {
+    const text = screenText({
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        selected: "qwen35b-mtp",
+        runtime: {
+            state: "starting",
+            progress: [{
+                name: "qwen35b-mtp",
+                downloaded: 1,
+                total: 2,
+                done: false,
+            }],
+        },
+    });
+    expect(text).toContain("✓   Install");
+    expect(text).toContain("installed");
+});
