@@ -17,4 +17,4 @@ unset IFS
 PATH="$bin:$here:$kept"
 export PATH
 cd "$repo"
-exec bun run dev:tui
+exec bun run dev:tui "$@"
