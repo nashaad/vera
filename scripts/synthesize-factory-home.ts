@@ -108,10 +108,7 @@ export function synthesizeFactoryHome(destination: string): void {
         },
     });
     writeJson(join(home, "preferences.json"), []);
-    writeJson(join(home, "tui.json"), {
-        theme: "orng",
-        workspace_sidebar_docked: true,
-    });
+    writeJson(join(home, "tui.json"), { theme: "orng" });
     writeText(
         join(home, "memory", "welcome.md"),
         [
