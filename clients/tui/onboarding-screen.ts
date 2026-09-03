@@ -55,6 +55,8 @@ export interface OnboardingChoiceRow {
 export interface OnboardingChoiceGroup {
     readonly label?: string;
     readonly rows: readonly OnboardingChoiceRow[];
+    /** What the group holds beyond the rows it shows, said in the group's own words. */
+    readonly more?: string;
 }
 
 export interface OnboardingChoiceBody {
@@ -389,6 +391,9 @@ function choiceLines(
                 // A row that spills onto a second line needs air under it, or the next row reads as part of it.
                 lines.push({ text: "", tone: "frame" });
             }
+        }
+        if (group.more !== undefined) {
+            lines.push({ text: indent(`    ${group.more}`), tone: "note" });
         }
         if (lines.at(-1)?.text !== "") {
             lines.push({ text: "", tone: "frame" });

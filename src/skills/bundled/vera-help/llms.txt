@@ -15,9 +15,10 @@ Closing and reopening the TUI, `/reconnect`, and `vera host stop` restart or rep
 Run `bun run install:local` from the intended checkout to pack, verify, and activate that build for the installed `vera` command.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
 
-## First-run setup [lines=8]
+## First-run setup [lines=9]
 A Vera with no provider says so on home and offers a `Connect a provider` row. There is no slash command for it.
 That row opens a three-step wizard: the provider, whatever that provider needs, then the model. `enter` advances and `esc` goes back one step.
+The provider step lists a few providers and a `300+ more` line. It is a short list to get started, not the catalog; every other provider is added later from `/model`.
 The second step is a key field for a provider that needs a credential, an install gate for a provider that runs models on this machine, and a settled step for one that needs neither.
 A provider that runs locally is installed and started from inside the wizard. The model step fetches and starts the chosen profile before verifying it.
 A download shows a bar with the file name, percent, sizes, and time left. `esc` stops it and returns to the model list; it does not continue in the background.

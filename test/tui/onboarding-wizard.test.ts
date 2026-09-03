@@ -39,12 +39,16 @@ test("the first step recommends before it lists", () => {
     expect(groups[1]?.rows.some((row) => row.id === "openrouter")).toBe(false);
 });
 
-test("every configured provider is on the first step exactly once", () => {
-    const listed = providerGroups(PROVIDERS, MAC)
-        .flatMap((group) => group.rows.map((row) => row.id));
-    expect([...listed].sort()).toEqual(
-        PROVIDERS.map((provider) => provider.id).sort(),
-    );
+test("the first step names a few providers and says how many it left out", () => {
+    const groups = providerGroups(PROVIDERS, MAC);
+    const listed = groups.flatMap((group) => group.rows.map((row) => row.id));
+    expect(listed).toEqual([...new Set(listed)]);
+    expect(groups[1]?.rows.map((row) => row.id)).toEqual([
+        "openai-codex",
+        "ollama",
+    ]);
+    expect(groups[1]?.more).toBe("300+ more");
+    expect(listed).not.toContain("deepseek");
 });
 
 test("step one asks who runs the models and offers no way back but out", () => {

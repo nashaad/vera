@@ -92,6 +92,8 @@ export interface ProviderDefinition {
     readonly recommend_models?: readonly RecommendedModel[];
     /** The CLI that puts this provider on the machine and brings it up. Only a provider Vera can install itself names one. */
     readonly local_runtime?: ProviderLocalRuntime;
+    /** Kept on the first-run list under the recommended ones. Everything else waits to be found. */
+    readonly shortlist?: boolean;
 }
 
 export interface ProviderDeclaration {
@@ -319,6 +321,7 @@ export function parseProviderDefinition(
         ...(value.local_runtime === "outrider"
             ? { local_runtime: "outrider" as const }
             : {}),
+        ...(value.shortlist === true ? { shortlist: true } : {}),
     };
 }
 

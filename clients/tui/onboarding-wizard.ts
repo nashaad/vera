@@ -161,14 +161,20 @@ function providerRow(
     };
 }
 
-/** Recommended first with the reason the definition gives, then everything else with its own hint. */
+/** What the second group stands for once it stops naming every provider. */
+const OTHER_MORE = "300+ more";
+
+/** Recommended first with the reason the definition gives, then a short list of the rest with its own hint. */
 export function providerGroups(
     providers: readonly ProviderDescriptor[],
     machine: MachineFacts,
 ): readonly OnboardingChoiceGroup[] {
     const recommended = recommendedProviders(providers, machine);
     const promoted = new Set(recommended.map((entry) => entry.provider.id));
-    const rest = providers.filter((provider) => !promoted.has(provider.id));
+    const rest = providers.filter((provider) =>
+        !promoted.has(provider.id) &&
+        (provider.shortlist === true || provider.custom === true)
+    );
     const groups: OnboardingChoiceGroup[] = [];
     if (recommended.length !== 0) {
         groups.push({
@@ -184,6 +190,7 @@ export function providerGroups(
             rows: rest.map((provider) =>
                 providerRow(provider, provider.hint ?? "")
             ),
+            more: OTHER_MORE,
         });
     }
     return groups;
