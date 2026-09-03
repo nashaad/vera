@@ -269,9 +269,17 @@ test("packed host serves usage with clients/annex and react hidden", async () =>
     const react = join(repoRoot, "node_modules", "react");
     const hiddenWeb = `${sourceWeb}.hidden-${process.pid}`;
     const hiddenReact = `${react}.hidden-${process.pid}`;
-    renameSync(sourceWeb, hiddenWeb);
-    renameSync(react, hiddenReact);
+    if (!existsSync(sourceWeb)) {
+        throw new Error(`clients/annex is missing at ${sourceWeb}`);
+    }
+    if (!existsSync(react)) {
+        throw new Error(
+            "node_modules/react is missing, run bun install in this worktree",
+        );
+    }
     try {
+        renameSync(sourceWeb, hiddenWeb);
+        renameSync(react, hiddenReact);
         const serve = resolve(import.meta.dir, "usage-packed-serve.ts");
         const ran = Bun.spawnSync(["bun", serve, webRoot, hostRoot], {
             stdout: "pipe",
