@@ -8,7 +8,6 @@ import {
     openGate,
     providerAnswerLabel,
     providerAnswerState,
-    stepPosition,
     stepperSteps,
 } from "../../src/providers/onboarding.ts";
 import {
@@ -190,12 +189,6 @@ test("a stepper with nothing chosen sits on the provider step", () => {
     expect(stateOf(steps, "provider")).toBe("current");
     expect(stateOf(steps, "key")).toBe("locked");
     expect(stateOf(steps, "model")).toBe("locked");
-    expect(stepPosition({
-        providers: PROVIDERS,
-        pool: EMPTY_POOL,
-        authStorage: storage({}),
-        env: NO_ENV,
-    })).toBe(1);
 });
 
 test("choosing a provider that needs a key moves the stepper to the key", () => {
@@ -209,7 +202,6 @@ test("choosing a provider that needs a key moves the stepper to the key", () => 
     expect(stateOf(stepperSteps(input), "provider")).toBe("done");
     expect(currentStep(input)).toBe("key");
     expect(stateOf(stepperSteps(input), "model")).toBe("locked");
-    expect(stepPosition(input)).toBe(2);
 });
 
 test("a credential-free provider shows the key step done, not hidden", () => {
@@ -223,7 +215,6 @@ test("a credential-free provider shows the key step done, not hidden", () => {
     };
     expect(stateOf(stepperSteps(input), "key")).toBe("done");
     expect(currentStep(input)).toBe("model");
-    expect(stepPosition(input)).toBe(3);
 });
 
 test("a stored key clears the key step and opens the model step", () => {
@@ -253,7 +244,6 @@ test("a model that answered leaves no step current", () => {
         "done",
     ]);
     expect(currentStep(input)).toBeUndefined();
-    expect(stepPosition(input)).toBeUndefined();
 });
 
 test("a provider chosen that is not configured leaves the stepper on provider", () => {
@@ -278,7 +268,6 @@ test("the step the client has open wins over the key it already holds", () => {
     };
     expect(stateOf(stepperSteps(input), "key")).toBe("current");
     expect(stateOf(stepperSteps(input), "model")).toBe("locked");
-    expect(stepPosition(input)).toBe(2);
 });
 
 test("a 401 hands back the provider's own sentence, not the envelope", () => {

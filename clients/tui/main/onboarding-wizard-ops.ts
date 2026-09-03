@@ -65,23 +65,38 @@ export function updateWizardSession(
     renderOnboardingWizard(rt);
 }
 
-export function openOnboardingWizard(rt: TuiRuntime): void {
-    const input = onboardingInput(rt);
-    const at = wizardOpensAt(input);
-    const chosen = at === "provider" ? undefined : input.config?.provider;
-    rt.onboardingWizard = {
-        ...newWizardSession(at),
-        ...(chosen === undefined ? {} : { chosen }),
-    };
+/** The wizard takes the terminal, so whatever else was open gives it up. */
+function showWizard(rt: TuiRuntime, session: WizardSession): void {
+    rt.onboardingWizard = session;
     rt.settingsPicker = undefined;
     rt.secretPrompt = undefined;
+    rt.providerForm = undefined;
     rt.composer.blur();
     renderState(rt);
     renderOnboardingWizard(rt);
     focusActiveSurface(rt);
+}
+
+export function openOnboardingWizard(rt: TuiRuntime): void {
+    const input = onboardingInput(rt);
+    const at = wizardOpensAt(input);
+    const chosen = at === "provider" ? undefined : input.config?.provider;
+    showWizard(rt, {
+        ...newWizardSession(at),
+        ...(chosen === undefined ? {} : { chosen }),
+    });
     if (at === "model" && chosen !== undefined) {
         requestWizardModels(rt, chosen);
     }
+}
+
+/** A provider that cleared its own gate somewhere else still owes the user a model, and there is one place that asks for one. */
+export function enterWizardModelStep(
+    rt: TuiRuntime,
+    provider: string,
+): void {
+    showWizard(rt, { ...newWizardSession("model"), chosen: provider });
+    requestWizardModels(rt, provider);
 }
 
 export function closeOnboardingWizard(rt: TuiRuntime): void {

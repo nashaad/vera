@@ -767,32 +767,6 @@ export function startTuiReviewerPicker(
     };
 }
 
-/** The last gate: the chosen provider's models, one of which is about to be asked a real question. */
-export function startTuiOnboardingModelPicker(
-    provider: string,
-    models: readonly {
-        readonly model: string;
-        readonly label: string;
-    }[],
-    rail: string,
-): TuiSettingsPickerState {
-    const options: readonly TuiSettingsPickerOption[] = models.map((entry) => ({
-        value: entry.model,
-        label: entry.label,
-        description: entry.model,
-    }));
-    return {
-        kind: "onboarding_model",
-        onboardingProvider: provider,
-        title: "Choose a model",
-        subtitle: rail,
-        allOptions: options,
-        options,
-        selectedIndex: 0,
-        query: "",
-    };
-}
-
 export function startTuiPoolVerifyScopePicker(
     unverified: number,
     total: number,

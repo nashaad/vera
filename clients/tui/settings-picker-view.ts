@@ -1806,9 +1806,6 @@ export function pickerFooterText(
         );
         return ["↑↓ move", ...actions, "esc close"].join(" · ");
     }
-    if (state.kind === "onboarding_model") {
-        return "↑↓ move · ⏎ use this one · esc leave";
-    }
     if (state.kind === "settings") {
         return "↑↓ move · ⏎ open · esc close";
     }

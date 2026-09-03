@@ -190,14 +190,6 @@ export function currentStep(input: StepperInput): OnboardingStepId | undefined {
     return stepperSteps(input).find((step) => step.state === "current")?.id;
 }
 
-/** The rail's position, counting from one. Undefined when no step is current. */
-export function stepPosition(input: StepperInput): number | undefined {
-    const index = stepperSteps(input).findIndex(
-        (step) => step.state === "current",
-    );
-    return index === -1 ? undefined : index + 1;
-}
-
 /** What a `pool_add` verdict says, narrowed to what the gates care about. */
 export interface AdmissionOutcome {
     readonly verdict: string;
