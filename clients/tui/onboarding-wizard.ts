@@ -205,6 +205,30 @@ interface RecommendedPair {
     readonly model: WizardModel;
 }
 
+/** What the last screen says when the model that answered is only a way in. A lite model that reads as a real one is a worse start than no model. */
+function doneLines(
+    input: OnboardingInput,
+    provider: ProviderDescriptor | undefined,
+    connected: string,
+    machine: MachineFacts,
+): readonly string[] {
+    const opening = `Connected. ${connected} is your default now.`;
+    const lite = provider?.recommendModels?.find((entry) =>
+        entry.id === connected && entry.role === "lite"
+    );
+    if (lite === undefined) return [opening];
+    const other = recommendedProviders(input.providers, machine)
+        .find((entry) => entry.provider.id !== provider?.id);
+    const next = other?.provider.label ?? "another provider";
+    return [
+        opening,
+        "",
+        "It is small. Good for questions about Vera and for finding your way"
+        + " around. When you want real work, ask it"
+        + ` "how do I add ${next}" and it will walk you through it.`,
+    ];
+}
+
 /** Recommended jobs first, then the rest. A recommendation for a model this provider does not list is dropped rather than offered, and one this machine cannot run is ranked below the ones it can and says why. */
 function modelGroups(
     provider: ProviderDescriptor | undefined,
@@ -304,7 +328,7 @@ export function wizardScreen(
             heading: "",
             body: {
                 kind: "done",
-                lines: [`Connected. ${session.connected} is your default now.`],
+                lines: doneLines(input, provider, session.connected, machine),
             },
         };
     }

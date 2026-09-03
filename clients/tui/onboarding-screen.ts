@@ -245,10 +245,31 @@ function bodyLines(
     if (body.kind === "choice") return choiceLines(state, body);
     if (body.kind === "secret") return secretLines(body);
     if (body.kind === "progress") return progressLines(state, body);
-    return body.lines.map((text) => ({
-        text: indent(text),
-        tone: "note" as const,
-    }));
+    return body.lines.flatMap((text) =>
+        wrapped(text, INNER_WIDTH - CONTENT_INDENT * 2).map((line) => ({
+            text: indent(line),
+            tone: "note" as const,
+        }))
+    );
+}
+
+/** Word wrap, so a body can be given a sentence rather than pre-broken lines. */
+function wrapped(text: string, width: number): readonly string[] {
+    if (text === "") return [""];
+    const lines: string[] = [];
+    let line = "";
+    for (const word of text.split(" ")) {
+        if (line.length === 0) {
+            line = word;
+        } else if (line.length + 1 + word.length <= width) {
+            line = `${line} ${word}`;
+        } else {
+            lines.push(line);
+            line = word;
+        }
+    }
+    if (line.length !== 0) lines.push(line);
+    return lines;
 }
 
 const ROW_HEAD_INDENT = 4;

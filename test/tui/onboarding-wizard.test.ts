@@ -191,6 +191,28 @@ test("verifying watches the model answer rather than spinning alone", () => {
     expect(text).toContain("esc pick a different model");
 });
 
+test("the last screen says a lite model is a way in, and names the way on", () => {
+    const said = (connected: string): string => {
+        const body = wizardScreen(COLD, {
+            ...newWizardSession("model"),
+            chosen: "outrider",
+            connected,
+        }, MAC).body;
+        return body.kind === "done" ? body.lines.join(" ") : "";
+    };
+    expect(said("granite4.2-3b")).toContain("It is small.");
+    expect(said("granite4.2-3b")).toContain('how do I add OpenRouter"');
+    expect(said("qwen35b-mtp")).not.toContain("It is small.");
+    const drawn = onboardingCardLines(wizardScreen(COLD, {
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        connected: "granite4.2-3b",
+    }, MAC));
+    expect(drawn.some((line) => line.text.includes("way around. When"))).toBe(
+        true,
+    );
+});
+
 test("the last screen says what the default is now", () => {
     const text = screenText({
         ...newWizardSession("model"),
