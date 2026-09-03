@@ -12,6 +12,11 @@ import type {
     AvailableModel,
     PooledModel,
 } from "../model/catalog-view.ts";
+import {
+    OVERRIDE_KEYS,
+    type OverrideKey,
+    type OverrideRow,
+} from "./override-rows.ts";
 
 export interface ModelTurnSettings {
     readonly provider?: string;
@@ -29,45 +34,46 @@ export interface ModelTurnSettings {
     readonly contextLimit?: number;
     readonly subagentDefault?: SubagentModelDefault;
     readonly reviewerDefault?: ReviewerModelDefault;
-    readonly developer?: DeveloperSettings;
+    readonly overrides?: OverrideSettings;
 }
 
-export interface DeveloperSettings {
-    readonly enabled: boolean;
-    readonly contextLimit?: number;
-    readonly compactionTriggerFraction?: number;
-    readonly postCompactionTargetFraction?: number;
-    readonly summaryWordCap?: number;
+export interface OverrideSettings {
+    readonly rows: readonly OverrideRow[];
 }
 
-export interface DeveloperSettingsPatch {
-    readonly enabled?: boolean;
-    readonly contextLimit?: number | null;
-    readonly compactionTriggerFraction?: number | null;
-    readonly postCompactionTargetFraction?: number | null;
-    readonly summaryWordCap?: number | null;
-}
+/** A value per key, or `null` to drop back to the shipped default. */
+export type OverrideSettingsPatch = {
+    readonly [K in OverrideKey]?: number | string | null;
+};
 
-const DEVELOPER_NUMBER_FIELDS = [
-    "contextLimit",
-    "compactionTriggerFraction",
-    "postCompactionTargetFraction",
-    "summaryWordCap",
-] as const;
+export const OVERRIDE_AGING_LEVELS: readonly string[] = [
+    "auto",
+    "relaxed",
+    "normal",
+    "tight",
+];
 
-export function isDeveloperSettingsPatch(
+export function isOverrideSettingsPatch(
     value: unknown,
-): value is DeveloperSettingsPatch {
+): value is OverrideSettingsPatch {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
     }
     const patch = value as Record<string, unknown>;
-    if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") {
-        return false;
+    for (const key of Object.keys(patch)) {
+        if (!(OVERRIDE_KEYS as readonly string[]).includes(key)) {
+            return false;
+        }
     }
-    for (const field of DEVELOPER_NUMBER_FIELDS) {
-        const entry = patch[field];
+    for (const key of OVERRIDE_KEYS) {
+        const entry = patch[key];
         if (entry === undefined || entry === null) {
+            continue;
+        }
+        if (key === "toolResultAgingLevel") {
+            if (typeof entry !== "string" || !OVERRIDE_AGING_LEVELS.includes(entry)) {
+                return false;
+            }
             continue;
         }
         if (typeof entry !== "number" || !Number.isFinite(entry) || entry <= 0) {
@@ -102,7 +108,7 @@ export interface ModelSettingsPatch {
     readonly reasoningEffort?: ModelReasoningEffort | null;
     readonly contextLimit?: number | null;
     readonly reviewer?: ReviewerSettingsPatch | null;
-    readonly developer?: DeveloperSettingsPatch | null;
+    readonly overrides?: OverrideSettingsPatch | null;
 }
 
 export interface ReviewerSettingsPatch {

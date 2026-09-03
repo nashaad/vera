@@ -47,11 +47,13 @@ import {
     isModelReasoningEffort,
     publishedReasoningLevels,
     reasoningEffortForModel,
-    type DeveloperSettings,
-    type DeveloperSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../../engine/model-settings.ts";
+import {
+    overrideRows,
+    type ConfiguredOverrides,
+} from "../../engine/override-rows.ts";
 import { inferReasoningSelection } from "../../model/reasoning-effort.ts";
 import type { EffectiveCatalogOptions } from "../../model/catalog.ts";
 import type {
@@ -307,7 +309,7 @@ export function settingsForClient(
     requestedReasoningEffort?: ModelReasoningEffort,
     reviewerDefault?: ReviewerModelDefault,
     contextLimit?: number,
-    developer?: DeveloperSettings,
+    configured?: ConfiguredOverrides,
     projectRoot?: string,
     refreshableProviders?: readonly string[],
 ): ModelTurnSettings {
@@ -382,7 +384,7 @@ export function settingsForClient(
             ? {}
             : { modelContextWindow }),
         ...(contextLimit === undefined ? {} : { contextLimit }),
-        ...(developer === undefined ? {} : { developer }),
+        overrides: { rows: overrideRows(configured ?? {}, contextWindow) },
     };
 }
 

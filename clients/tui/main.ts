@@ -22,7 +22,7 @@ import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_BACKGROUND_Z_INDEX, DIALOG_
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
     effectiveContextWindow,
-    type DeveloperSettingsPatch,
+    type OverrideSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../../src/engine/model-settings.ts";
@@ -2853,25 +2853,32 @@ export function describeModelPatch(patch: ModelSettingsPatch): string {
     return parts.filter((part) => part !== undefined).join(" ");
 }
 
-const DEVELOPER_FIELD_NAMES: Readonly<Record<string, string>> = {
-    contextLimit: "developer context limit",
-    compactionTriggerFraction: "developer compaction trigger",
-    postCompactionTargetFraction: "developer post-compaction target",
-    summaryWordCap: "developer summary word cap",
+const OVERRIDE_FIELD_NAMES: Readonly<Record<string, string>> = {
+    contextLimit: "context limit",
+    compactionTriggerFraction: "compaction trigger",
+    compactionTriggerTokens: "compaction trigger tokens",
+    compactionTargetTokens: "compaction target tokens",
+    postCompactionTargetFraction: "post-compaction target",
+    summaryWordCap: "summary word cap",
+    retainedUserTurns: "retained user turns",
+    toolResultCeilingBytes: "tool result ceiling",
+    toolResultTotalBudgetBytes: "tool result budget",
+    toolResultStubAfterTurns: "stub after turns",
+    toolResultAgingLevel: "aging level",
 };
 
-export function developerChangeLabel(patch: DeveloperSettingsPatch): string {
-    if (patch.enabled !== undefined) {
-        return patch.enabled
-            ? "developer overrides on"
-            : "developer overrides off";
+export function overrideChangeLabel(
+    patch: OverrideSettingsPatch | null,
+): string {
+    if (patch === null) {
+        return "every override back to its default";
     }
     const [field, value] = Object.entries(patch)[0] ?? [];
     const name = field === undefined
-        ? "developer settings"
-        : DEVELOPER_FIELD_NAMES[field] ?? "developer settings";
+        ? "overrides"
+        : OVERRIDE_FIELD_NAMES[field] ?? "overrides";
     return value === null || value === undefined
-        ? `${name} off`
+        ? `${name} back to its default`
         : `${name} to ${value}`;
 }
 

@@ -1,4 +1,4 @@
-import { applySelectedTheme, beginSessionResume, refreshHomeSessions, developerChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
+import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
@@ -417,11 +417,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 `context limit to ${label}`,
                 rt.settingsPickerAgent,
             );
-        } else if (selection.kind === "developer") {
+        } else if (selection.kind === "overrides") {
             requestModelSettingsChange(rt, 
-                { developer: selection.patch },
-                developerChangeLabel(selection.patch),
-                developerChangeLabel(selection.patch),
+                { overrides: selection.patch },
+                overrideChangeLabel(selection.patch),
+                overrideChangeLabel(selection.patch),
                 rt.settingsPickerAgent,
             );
         } else if (selection.kind === "menu") {

@@ -34,8 +34,6 @@ import {
     type VeraProviderProtocol,
 } from "../../src/config.ts";
 import type {
-    DeveloperSettings,
-    DeveloperSettingsPatch,
     ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,

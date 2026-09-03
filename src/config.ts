@@ -22,6 +22,12 @@ import {
 } from "./engine/tool-result-history.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
 import type { CompactionOverrides } from "./engine/compaction-binding.ts";
+import {
+    OVERRIDE_KEYS,
+    type ConfiguredOverrides,
+    type OverrideKey,
+} from "./engine/override-rows.ts";
+import type { OverrideSettingsPatch } from "./engine/model-settings.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
@@ -233,7 +239,6 @@ export interface VeraConfig {
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
     readonly tool_results?: VeraToolResultsConfig;
-    readonly developer?: VeraDeveloperConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
     readonly tui?: VeraTuiConfig;
@@ -308,19 +313,6 @@ export interface VeraExperimentalConfig {
 }
 
 /**
- * Overrides for testing Vera itself, kept in one block so that clearing
- * `enabled` returns every one of them at once. Nothing here is read while
- * `enabled` is false, and none of these values has a normal-use meaning: the
- * windows are below what any real session wants, and the compaction numbers
- * exist so a summary can be provoked in a minute rather than an afternoon.
- */
-export interface VeraDeveloperConfig {
-    readonly enabled?: boolean;
-    /** Replaces `context_limit`, and reaches below the values it offers. */
-    readonly context_limit?: number;
-}
-
-/**
  * Which row of the aging ladder a session uses. `auto` picks the row from the
  * resolved context window, which is what a session does when nothing is set.
  */
@@ -347,17 +339,6 @@ export interface VeraToolResultsConfig {
     readonly stub_after_turns?: number;
     /** Pins a row of the aging ladder instead of choosing one by window. */
     readonly aging_level?: VeraToolResultAgingLevel;
-}
-
-/**
- * The developer overrides in force, or undefined when the block is off or
- * absent. Every reader goes through this, so "off" cannot mean one thing in
- * one place and another somewhere else.
- */
-export function developerOverrides(
-    config: VeraConfig,
-): VeraDeveloperConfig | undefined {
-    return config.developer?.enabled === true ? config.developer : undefined;
 }
 
 export interface LoadVeraConfigOptions {
@@ -416,12 +397,12 @@ export interface VeraConfigDefaultsPatch {
     };
     readonly inbox?: VeraInboxConfig | null;
     /**
-     * Developer overrides, merged field by field. `null` clears the block.
-     * A field set to `null` clears that field alone.
+     * Tool result limits, merged field by field. A field set to `null` clears
+     * that field alone.
      */
-    readonly developer?:
-        | Readonly<Record<string, number | boolean | null | undefined>>
-        | null;
+    readonly tool_results?: Readonly<
+        Record<string, number | string | null | undefined>
+    >;
     /**
      * Compaction numbers, merged field by field. A field set to `null` clears
      * that field alone. The strategy and its routes are left as they stand:
@@ -732,12 +713,13 @@ export function updateVeraConfigDefaults(
         ...(patch.inbox === undefined
             ? {}
             : { inbox: patch.inbox === null ? undefined : patch.inbox }),
-        ...(patch.developer === undefined
+        ...(patch.tool_results === undefined
             ? {}
             : {
-                developer: patch.developer === null
-                    ? undefined
-                    : patchedDeveloper(current.developer, patch.developer),
+                tool_results: patchedToolResults(
+                    current.tool_results,
+                    patch.tool_results,
+                ),
             }),
         ...(patch.compaction === undefined
             ? {}
@@ -1128,7 +1110,6 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
     const toolResults = parseToolResultsConfig(config.tool_results);
-    const developer = parseDeveloperConfig(config.developer);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
@@ -1161,7 +1142,6 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || experimental === undefined
         || inbox === undefined
         || toolResults === undefined
-        || developer === undefined
         || eventLog === undefined
         || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
@@ -1244,7 +1224,6 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.tool_results === undefined
             ? {}
             : { tool_results: toolResults }),
-        ...(config.developer === undefined ? {} : { developer }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
         ...(config.tui === undefined ? {} : { tui }),
@@ -1568,8 +1547,6 @@ function parseExperimental(
     return raw.inbox === undefined ? {} : { inbox: raw.inbox };
 }
 
-const DEVELOPER_NUMBER_KEYS = ["context_limit"] as const;
-
 const TOOL_RESULT_BYTE_KEYS = [
     "ceiling_bytes",
     "total_budget_bytes",
@@ -1631,41 +1608,11 @@ function parseToolResultsConfig(
     return parsed as VeraToolResultsConfig;
 }
 
-function parseDeveloperConfig(
-    value: unknown,
-): VeraDeveloperConfig | undefined {
-    if (value === undefined) {
-        return {};
-    }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
-    }
-    const raw = value as Record<string, unknown>;
-    if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") {
-        return undefined;
-    }
-    const parsed: Record<string, number | boolean> = {};
-    if (raw.enabled !== undefined) {
-        parsed.enabled = raw.enabled;
-    }
-    for (const key of DEVELOPER_NUMBER_KEYS) {
-        const entry = raw[key];
-        if (entry === undefined) {
-            continue;
-        }
-        if (typeof entry !== "number" || !Number.isFinite(entry) || entry <= 0) {
-            return undefined;
-        }
-        parsed[key] = entry;
-    }
-    return parsed as VeraDeveloperConfig;
-}
-
-function patchedDeveloper(
-    current: VeraDeveloperConfig | undefined,
-    patch: Readonly<Record<string, number | boolean | null | undefined>>,
-): VeraDeveloperConfig | undefined {
-    const merged: Record<string, number | boolean> = { ...(current ?? {}) };
+function patchedToolResults(
+    current: VeraToolResultsConfig | undefined,
+    patch: Readonly<Record<string, number | string | null | undefined>>,
+): VeraToolResultsConfig | undefined {
+    const merged: Record<string, unknown> = { ...(current ?? {}) };
     for (const [key, value] of Object.entries(patch)) {
         if (value === null) {
             delete merged[key];
@@ -1677,7 +1624,7 @@ function patchedDeveloper(
     }
     return Object.keys(merged).length === 0
         ? undefined
-        : merged as VeraDeveloperConfig;
+        : merged as VeraToolResultsConfig;
 }
 
 function patchedCompaction(
@@ -2094,6 +2041,103 @@ export function configuredToolResults(
             : { agingLevel: limits.aging_level }),
     };
     return Object.keys(resolved).length === 0 ? undefined : resolved;
+}
+
+/**
+ * What the config wrote for each context lever, in the engine's own key names
+ * and with nothing filled in. The defaults belong to the engine, so a value
+ * missing here has to stay missing.
+ */
+export function configuredOverrides(config: VeraConfig): ConfiguredOverrides {
+    const compaction = config.compaction;
+    const limits = config.tool_results;
+    return {
+        ...(config.context_limit === undefined
+            ? {}
+            : { contextLimit: config.context_limit }),
+        ...(compaction?.trigger_fraction === undefined
+            ? {}
+            : { compactionTriggerFraction: compaction.trigger_fraction }),
+        ...(compaction?.trigger_tokens === undefined
+            ? {}
+            : { compactionTriggerTokens: compaction.trigger_tokens }),
+        ...(compaction?.target_tokens === undefined
+            ? {}
+            : { compactionTargetTokens: compaction.target_tokens }),
+        ...(compaction?.target_fraction === undefined
+            ? {}
+            : { postCompactionTargetFraction: compaction.target_fraction }),
+        ...(compaction?.summary_word_cap === undefined
+            ? {}
+            : { summaryWordCap: compaction.summary_word_cap }),
+        ...(compaction?.retained_user_turns === undefined
+            ? {}
+            : { retainedUserTurns: compaction.retained_user_turns }),
+        ...(limits?.ceiling_bytes === undefined
+            ? {}
+            : { toolResultCeilingBytes: limits.ceiling_bytes }),
+        ...(limits?.total_budget_bytes === undefined
+            ? {}
+            : { toolResultTotalBudgetBytes: limits.total_budget_bytes }),
+        ...(limits?.stub_after_turns === undefined
+            ? {}
+            : { toolResultStubAfterTurns: limits.stub_after_turns }),
+        ...(limits?.aging_level === undefined || limits.aging_level === "auto"
+            ? {}
+            : { toolResultAgingLevel: limits.aging_level }),
+    };
+}
+
+/**
+ * The config keys an override patch writes into, one per lever. The pane
+ * hands back engine key names; only this table knows where each one lands.
+ */
+export const OVERRIDE_CONFIG_KEYS: Readonly<
+    Record<OverrideKey, readonly ["context_limit" | "compaction" | "tool_results", string]>
+> = {
+    contextLimit: ["context_limit", "context_limit"],
+    compactionTriggerFraction: ["compaction", "trigger_fraction"],
+    compactionTriggerTokens: ["compaction", "trigger_tokens"],
+    compactionTargetTokens: ["compaction", "target_tokens"],
+    postCompactionTargetFraction: ["compaction", "target_fraction"],
+    summaryWordCap: ["compaction", "summary_word_cap"],
+    retainedUserTurns: ["compaction", "retained_user_turns"],
+    toolResultCeilingBytes: ["tool_results", "ceiling_bytes"],
+    toolResultTotalBudgetBytes: ["tool_results", "total_budget_bytes"],
+    toolResultStubAfterTurns: ["tool_results", "stub_after_turns"],
+    toolResultAgingLevel: ["tool_results", "aging_level"],
+};
+
+/**
+ * Where one override patch lands in the config. A `null` clears that lever;
+ * the blocks a patch says nothing about are left out, so writing one lever
+ * never rewrites the rest.
+ */
+export function overridePatchDefaults(
+    patch: OverrideSettingsPatch,
+): VeraConfigDefaultsPatch {
+    const compaction: Record<string, number | null> = {};
+    const toolResults: Record<string, number | string | null> = {};
+    let contextLimit: number | null | undefined;
+    for (const key of OVERRIDE_KEYS) {
+        const value = patch[key];
+        if (value === undefined) {
+            continue;
+        }
+        const [block, field] = OVERRIDE_CONFIG_KEYS[key];
+        if (block === "context_limit") {
+            contextLimit = value as number | null;
+        } else if (block === "compaction") {
+            compaction[field] = value as number | null;
+        } else {
+            toolResults[field] = value;
+        }
+    }
+    return {
+        ...(contextLimit === undefined ? {} : { context_limit: contextLimit }),
+        ...(Object.keys(compaction).length === 0 ? {} : { compaction }),
+        ...(Object.keys(toolResults).length === 0 ? {} : { tool_results: toolResults }),
+    };
 }
 
 /**

@@ -17,8 +17,8 @@ import {
     startTuiConfigurePicker,
     startTuiSettingsMenu,
     startTuiContextLimitPicker,
-    startTuiDeveloperMenu,
-    startTuiDeveloperValuePicker,
+    startTuiOverridesMenu,
+    startTuiOverrideValuePicker,
     startTuiSettingsPicker,
     switchedModelTab,
     tuiModelActionOptions,
@@ -1160,7 +1160,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "model",
         "reasoning",
         "context_limit",
-        "developer",
+        "overrides",
         "permissions",
         "reviewer",
         "theme",
@@ -4489,78 +4489,136 @@ test("the show-or-hide row lands on the list it changed", () => {
     expect(revealed.tab).toBe("all");
 });
 
-test("the developer pane shows only its toggle until it is on", () => {
-    const off = startTuiDeveloperMenu({ enabled: false });
+const OVERRIDE_FACTS = {
+    rows: [
+        { key: "contextLimit", value: 32_768, source: "configured" },
+        { key: "compactionTriggerFraction", value: 0.82, source: "default" },
+        {
+            key: "compactionTriggerTokens",
+            source: "default",
+            inert: "the window is known, so the fraction decides",
+        },
+        {
+            key: "compactionTargetTokens",
+            source: "default",
+            inert: "the window is known, so the target is a share of it",
+        },
+        { key: "postCompactionTargetFraction", value: 0.45, source: "default" },
+        { key: "summaryWordCap", value: 3_000, source: "default" },
+        { key: "retainedUserTurns", value: 2, source: "default" },
+        { key: "toolResultCeilingBytes", value: 8_192, source: "configured" },
+        { key: "toolResultTotalBudgetBytes", value: 131_072, source: "default" },
+        { key: "toolResultStubAfterTurns", value: 3, source: "default" },
+        { key: "toolResultAgingLevel", value: "normal", source: "default" },
+    ],
+} as const;
 
-    expect(off.options.map((option) => option.value))
-        .toEqual(["developer_enabled_on"]);
-    expect(handleTuiSettingsPickerKey(off, { name: "enter" }).selection).toEqual({
-        kind: "developer",
-        patch: { enabled: true },
-    });
+test("the overrides pane puts every lever on one screen, with a reset last", () => {
+    const pane = startTuiOverridesMenu(OVERRIDE_FACTS);
 
-    const on = startTuiDeveloperMenu({ enabled: true, contextLimit: 8_192 });
-
-    expect(on.options.map((option) => option.value)).toEqual([
-        "developer_enabled_off",
-        "developer_context_limit",
-        "developer_compaction_trigger",
-        "developer_target_fraction",
-        "developer_summary_words",
+    expect(pane.options.map((option) => option.value)).toEqual([
+        "override_contextLimit",
+        "override_compactionTriggerFraction",
+        "override_compactionTriggerTokens",
+        "override_compactionTargetTokens",
+        "override_postCompactionTargetFraction",
+        "override_summaryWordCap",
+        "override_retainedUserTurns",
+        "override_toolResultCeilingBytes",
+        "override_toolResultTotalBudgetBytes",
+        "override_toolResultStubAfterTurns",
+        "override_toolResultAgingLevel",
+        "overrides_reset",
     ]);
-    // The row carries the value in force, so the pane answers "what is it set
-    // to" without a second step.
-    expect(on.options[1]?.description).toContain("8k");
+    expect(pane.subtitle).toBe("2 set, the rest shipped");
 });
 
-test("the settings menu says so while the developer block is on", () => {
-    const off = startTuiSettingsMenu("settings");
-    const on = startTuiSettingsMenu("settings", { enabled: true });
-    const rowOf = (pane: typeof off) =>
-        pane.options.find((option) => option.value === "developer");
+test("a row reads without colour: value, source and whether it fires", () => {
+    const pane = startTuiOverridesMenu(OVERRIDE_FACTS);
+    const columns = (value: string) =>
+        pane.options.find((option) => option.value === value)?.label
+            .split(/\s+/).filter((part) => part.length > 0);
 
-    expect(rowOf(off)?.description).toBe("overrides for testing Vera itself");
-    expect(rowOf(on)?.description).toBe("on: overrides are in force");
+    expect(columns("override_contextLimit")?.slice(-3))
+        .toEqual(["32k", "set", "live"]);
+    expect(columns("override_compactionTriggerFraction")?.slice(-3))
+        .toEqual(["0.82", "default", "live"]);
+    // A lever the engine never reaches says so in the row, not in a colour.
+    expect(columns("override_compactionTargetTokens")?.slice(-3))
+        .toEqual(["none", "default", "inert"]);
+    expect(
+        pane.options.find((option) =>
+            option.value === "override_compactionTargetTokens"
+        )?.description,
+    ).toBe("the window is known, so the target is a share of it");
+});
+
+test("reset asks the host to clear every lever, and the pane stays put", () => {
+    const pane = startTuiOverridesMenu(OVERRIDE_FACTS);
+    const reset = {
+        ...pane,
+        selectedIndex: pane.options.length - 1,
+        parent: startTuiSettingsMenu("settings"),
+    };
+    const selection =
+        handleTuiSettingsPickerKey(reset, { name: "enter" }).selection;
+
+    expect(selection).toEqual({ kind: "overrides", patch: null });
+    expect(tuiPickerAfterSelection(selection!, reset)?.kind)
+        .toBe("overrides_settings");
+});
+
+test("the settings menu counts what is set", () => {
+    const none = startTuiSettingsMenu("settings");
+    const some = startTuiSettingsMenu("settings", OVERRIDE_FACTS);
+    const rowOf = (pane: typeof none) =>
+        pane.options.find((option) => option.value === "overrides");
+
+    expect(rowOf(none)?.description)
+        .toBe("how much context Vera keeps, and when it summarises");
+    expect(rowOf(some)?.description).toBe("2 set");
     // Only that row changes.
-    expect(on.options.map((option) => option.value))
-        .toEqual(off.options.map((option) => option.value));
+    expect(some.options.map((option) => option.value))
+        .toEqual(none.options.map((option) => option.value));
 });
 
-test("turning the developer block on leaves its own rows on screen", () => {
-    const off = startTuiDeveloperMenu({ enabled: false, contextLimit: 8_192 });
-    const next = tuiPickerAfterSelection(
-        { kind: "developer", patch: { enabled: true } },
-        { ...off, parent: startTuiSettingsMenu("settings") },
+test("an override value pane writes one field, and Default clears it", () => {
+    const pane = startTuiOverrideValuePicker(
+        "override_toolResultCeilingBytes",
+        OVERRIDE_FACTS,
     );
-
-    expect(next?.kind).toBe("developer_settings");
-    expect(next?.options.map((option) => option.value)).toEqual([
-        "developer_enabled_off",
-        "developer_context_limit",
-        "developer_compaction_trigger",
-        "developer_target_fraction",
-        "developer_summary_words",
-    ]);
-    // The value the block already held survives the toggle.
-    expect(next?.options[1]?.description).toContain("8k");
-});
-
-test("a developer value pane writes one field, and Off clears it", () => {
-    const pane = startTuiDeveloperValuePicker("developer_context_limit", {
-        enabled: true,
-        contextLimit: 8_192,
-    });
-    if (pane === undefined) throw new Error("no developer value pane");
+    if (pane === undefined) throw new Error("no override value pane");
 
     expect(pane.options[pane.selectedIndex]?.value).toBe("8192");
     expect(handleTuiSettingsPickerKey(pane, { name: "enter" }).selection).toEqual({
-        kind: "developer",
-        patch: { contextLimit: 8_192 },
+        kind: "overrides",
+        patch: { toolResultCeilingBytes: 8_192 },
     });
     expect(handleTuiSettingsPickerKey({ ...pane, selectedIndex: 0 }, { name: "enter" })
         .selection).toEqual({
-        kind: "developer",
-        patch: { contextLimit: null },
+        kind: "overrides",
+        patch: { toolResultCeilingBytes: null },
+    });
+});
+
+test("the aging level pane writes a word, and Auto clears it", () => {
+    const pane = startTuiOverrideValuePicker(
+        "override_toolResultAgingLevel",
+        OVERRIDE_FACTS,
+    );
+    if (pane === undefined) throw new Error("no override value pane");
+
+    // Nothing is configured, so the pane sits on Auto rather than on the row
+    // the window happened to pick.
+    expect(pane.options[pane.selectedIndex]?.value).toBe("auto");
+    expect(handleTuiSettingsPickerKey(pane, { name: "enter" }).selection).toEqual({
+        kind: "overrides",
+        patch: { toolResultAgingLevel: null },
+    });
+    expect(handleTuiSettingsPickerKey({ ...pane, selectedIndex: 3 }, { name: "enter" })
+        .selection).toEqual({
+        kind: "overrides",
+        patch: { toolResultAgingLevel: "tight" },
     });
 });
 

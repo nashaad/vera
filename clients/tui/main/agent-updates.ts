@@ -7,7 +7,7 @@ import { openPendingOnboardingStep, settleOnboardingVerification } from "../main
 import { releaseDroppedImage } from "../main/prompt-routing.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { syncTuiPreferencesList } from "../preferences-list.ts";
-import { startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
+import { startTuiOverridesMenu, startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, beginNextQueuedTuiTurn } from "../state.ts";
 import { applyTuiTimelineReply } from "../timeline-picker.ts";
 import { applyTuiUiRequestUpdate } from "../ui-request-queue.ts";
@@ -488,6 +488,15 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             ) {
                 rt.settingsPicker = withTuiPickerParent(
                     startTuiReviewerMenu(rt.state.modelSettings?.reviewerDefault),
+                    rt.settingsPicker.parent,
+                );
+            }
+            if (
+                update.type === "model_settings"
+                && rt.settingsPicker?.kind === "overrides_settings"
+            ) {
+                rt.settingsPicker = withTuiPickerParent(
+                    startTuiOverridesMenu(rt.state.modelSettings?.overrides),
                     rt.settingsPicker.parent,
                 );
             }

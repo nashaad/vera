@@ -24,8 +24,6 @@ import {
     type VeraProviderProtocol,
 } from "../../src/config.ts";
 import type {
-    DeveloperSettings,
-    DeveloperSettingsPatch,
     ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,
@@ -73,6 +71,7 @@ import {
     modelAssignmentOfValue,
     pickerPageHasKeys,
     tuiModelActionOfValue,
+    OVERRIDES_RESET_VALUE,
 } from "./settings-picker-types.ts";
 
 export function moveTuiSettingsPickerPointer(
@@ -2229,24 +2228,27 @@ export function pickerSelection(
             limit: value === "auto" ? null : Number(value),
         };
     }
-    if (kind === "developer_value") {
-        const key = state.developerKey;
+    if (kind === "override_value") {
+        const key = state.overrideKey;
         if (key === undefined) {
-            throw new Error("developer value pane has no key");
+            throw new Error("override value pane has no key");
         }
         return {
-            kind: "developer",
-            patch: { [key]: value === "default" ? null : Number(value) },
+            kind: "overrides",
+            patch: {
+                [key]: value === "default" || value === "auto"
+                    ? null
+                    : key === "toolResultAgingLevel"
+                    ? value
+                    : Number(value),
+            },
         };
     }
-    if (kind === "developer_settings") {
-        if (value === "developer_enabled_on" || value === "developer_enabled_off") {
-            return {
-                kind: "developer",
-                patch: { enabled: value === "developer_enabled_on" },
-            };
-        }
-        return { kind: "menu", target: value as TuiSettingsMenuTarget };
+    if (kind === "overrides_settings") {
+        // A null patch is the reset: the host clears every lever at once.
+        return value === OVERRIDES_RESET_VALUE
+            ? { kind: "overrides", patch: null }
+            : { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
     if (kind === "session") {
         return {

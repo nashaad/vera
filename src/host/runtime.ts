@@ -9,11 +9,12 @@ import {
     configuredCompaction,
     configuredCompactionModels,
     configuredCompactionOverrides,
+    configuredOverrides,
+    overridePatchDefaults,
     configuredReviewers,
     configuredToolResults,
     createLiveVeraConfigReader,
     defaultVeraConfigPath,
-    developerOverrides,
     eventLogEnabled,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -630,11 +631,7 @@ export async function startResidentHost(
                 reasoning_effort: settings.reasoningEffort ?? null,
             });
         },
-        contextLimit: () => {
-            const config = currentConfig();
-            return developerOverrides(config)?.context_limit
-                ?? config.context_limit;
-        },
+        contextLimit: () => currentConfig().context_limit,
         updateContextLimit: (limit) => {
             updateVeraConfigDefaults({ context_limit: limit });
         },
@@ -700,54 +697,9 @@ export async function startResidentHost(
         get compaction() {
             return configuredCompaction(currentConfig());
         },
-        developerSettings: () => {
-            const config = currentConfig();
-            const compaction = config.compaction;
-            return {
-                enabled: config.developer?.enabled === true,
-                ...(config.developer?.context_limit === undefined
-                    ? {}
-                    : { contextLimit: config.developer.context_limit }),
-                ...(compaction?.trigger_fraction === undefined
-                    ? {}
-                    : {
-                        compactionTriggerFraction: compaction.trigger_fraction,
-                    }),
-                ...(compaction?.target_fraction === undefined
-                    ? {}
-                    : {
-                        postCompactionTargetFraction:
-                            compaction.target_fraction,
-                    }),
-                ...(compaction?.summary_word_cap === undefined
-                    ? {}
-                    : { summaryWordCap: compaction.summary_word_cap }),
-            };
-        },
-        updateDeveloperSettings: (patch) => {
-            const developer = {
-                ...(patch.enabled === undefined
-                    ? {}
-                    : { enabled: patch.enabled }),
-                ...(patch.contextLimit === undefined
-                    ? {}
-                    : { context_limit: patch.contextLimit }),
-            };
-            const compaction = {
-                ...(patch.compactionTriggerFraction === undefined
-                    ? {}
-                    : { trigger_fraction: patch.compactionTriggerFraction }),
-                ...(patch.postCompactionTargetFraction === undefined
-                    ? {}
-                    : { target_fraction: patch.postCompactionTargetFraction }),
-                ...(patch.summaryWordCap === undefined
-                    ? {}
-                    : { summary_word_cap: patch.summaryWordCap }),
-            };
-            updateVeraConfigDefaults({
-                ...(Object.keys(developer).length === 0 ? {} : { developer }),
-                ...(Object.keys(compaction).length === 0 ? {} : { compaction }),
-            });
+        configuredOverrides: () => configuredOverrides(currentConfig()),
+        updateOverrides: (patch) => {
+            updateVeraConfigDefaults(overridePatchDefaults(patch));
         },
         get compactionOverrides() {
             return configuredCompactionOverrides(currentConfig());

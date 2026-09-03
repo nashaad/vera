@@ -1006,7 +1006,7 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
-                    this.options.developerSettings?.(),
+                    this.options.configuredOverrides?.(),
                     store.header.cwd,
                     this.options.refreshableProviders?.(),
                 ),

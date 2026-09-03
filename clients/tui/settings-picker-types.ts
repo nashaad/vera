@@ -20,12 +20,13 @@ import {
     type VeraProviderProtocol,
 } from "../../src/config.ts";
 import type {
-    DeveloperSettings,
-    DeveloperSettingsPatch,
+    OverrideSettings,
+    OverrideSettingsPatch,
     ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
+import type { OverrideKey } from "../../src/engine/override-rows.ts";
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,
@@ -67,8 +68,8 @@ export type TuiSettingsPickerKind =
     | "permissions"
     | "theme"
     | "context_limit"
-    | "developer_settings"
-    | "developer_value"
+    | "overrides_settings"
+    | "override_value"
     | "session"
     | "configure"
     | "settings"
@@ -80,17 +81,16 @@ export type TuiSettingsPickerKind =
     | "catalog_refresh_scope"
     | "onboarding_model";
 
+export const OVERRIDES_RESET_VALUE = "overrides_reset";
+
 export type TuiSettingsMenuTarget =
     | "model"
     | "reasoning"
     | "permissions"
     | "theme"
     | "context_limit"
-    | "developer"
-    | "developer_context_limit"
-    | "developer_compaction_trigger"
-    | "developer_target_fraction"
-    | "developer_summary_words"
+    | "overrides"
+    | OverrideMenuTarget
     | "permission_mode"
     | "granted_permissions"
     | "reviewer"
@@ -102,11 +102,12 @@ export type TuiSettingsMenuKind = Extract<
     "settings" | "permission_settings" | "reviewer_settings"
 >;
 
-export type TuiDeveloperKey =
-    | "contextLimit"
-    | "compactionTriggerFraction"
-    | "postCompactionTargetFraction"
-    | "summaryWordCap";
+/** One menu target per lever, so a palette jump can name a single row. */
+export type OverrideMenuTarget = `override_${OverrideKey}`;
+
+export function overrideMenuTarget(key: OverrideKey): OverrideMenuTarget {
+    return `override_${key}`;
+}
 
 export type TuiReviewerSlot = "primary" | "fallback";
 
@@ -273,8 +274,8 @@ export interface TuiSettingsPickerState {
     readonly parent?: TuiSettingsPickerState;
     readonly pendingModel?: TuiPendingModelChoice;
     readonly reviewerSlot?: TuiReviewerSlot;
-    readonly developerKey?: TuiDeveloperKey;
-    readonly developerSettings?: DeveloperSettings;
+    readonly overrideKey?: OverrideKey;
+    readonly overrides?: OverrideSettings;
     readonly modelAssignment?: ModelAssignmentId;
     readonly assignedModels?: readonly string[];
     readonly assignmentAllowsSelf?: boolean;
@@ -335,8 +336,8 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
     | { readonly kind: "context_limit"; readonly limit: number | null }
     | {
-        readonly kind: "developer";
-        readonly patch: DeveloperSettingsPatch;
+        readonly kind: "overrides";
+        readonly patch: OverrideSettingsPatch | null;
     }
     | {
         readonly kind: "session";
@@ -499,7 +500,7 @@ export function tuiPickerMenuAncestor(
             current.kind === "settings"
             || current.kind === "permission_settings"
             || current.kind === "reviewer_settings"
-            || current.kind === "developer_settings"
+            || current.kind === "overrides_settings"
         ) {
             return current;
         }

@@ -47,10 +47,9 @@ import {
     isModelReasoningEffort,
     publishedReasoningLevels,
     reasoningEffortForModel,
-    type DeveloperSettings,
-    type DeveloperSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
+    type OverrideSettingsPatch,
 } from "../../engine/model-settings.ts";
 import { inferReasoningSelection } from "../../model/reasoning-effort.ts";
 import type { EffectiveCatalogOptions } from "../../model/catalog.ts";
@@ -60,6 +59,7 @@ import type {
 } from "../../engine/loop-services.ts";
 import { createRoutedCompletionService } from "../../engine/completion-service.ts";
 import type { ToolResultLimits } from "../../engine/tool-result-history.ts";
+import type { ConfiguredOverrides } from "../../engine/override-rows.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
@@ -330,8 +330,8 @@ export interface AgentRegistryOptions {
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     readonly contextLimit?: () => number | undefined;
     readonly updateContextLimit?: (limit: number | null) => void;
-    readonly developerSettings?: () => DeveloperSettings;
-    readonly updateDeveloperSettings?: (patch: DeveloperSettingsPatch) => void;
+    readonly configuredOverrides?: () => ConfiguredOverrides;
+    readonly updateOverrides?: (patch: OverrideSettingsPatch) => void;
     readonly admitToPool?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
