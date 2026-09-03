@@ -12,6 +12,7 @@
     "behavior_id": "openrouter",
     "default_base_url": "https://openrouter.ai/api/v1",
     "discovery": { "mode": "models", "path": "/models", "credential": "required" },
+    "recommend": { "rank": 1, "reason": "one key, most models, pay as you go" },
     "request_options": {
         "behavior": "openrouter-provider-preferences",
         "label": "OpenRouter request body",

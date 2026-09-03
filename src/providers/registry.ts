@@ -4,6 +4,8 @@ import {
     resolveProviders,
     type ProviderDiscoveryDefinition,
     type ProviderProtocol,
+    type ProviderRecommendation,
+    type RecommendedModel,
 } from "./definitions.ts";
 
 export type ProviderCredentialKind =
@@ -36,6 +38,10 @@ export interface ProviderDescriptor {
         readonly catalog?: readonly string[];
     }>;
     readonly custom?: boolean;
+    /** Why this provider is put in front of a cold user. Absent means it waits to be found. */
+    readonly recommend?: ProviderRecommendation;
+    /** The models this provider itself puts forward, by role. */
+    readonly recommendModels?: readonly RecommendedModel[];
     readonly requestOptions?: Readonly<{
         readonly behavior: "openrouter-provider-preferences";
         readonly label: string;
@@ -76,6 +82,12 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
         discovery: provider.definition.discovery,
         compatibility: provider.definition.compatibility,
         custom: provider.custom,
+        ...(provider.definition.recommend === undefined
+            ? {}
+            : { recommend: provider.definition.recommend }),
+        ...(provider.definition.recommend_models === undefined
+            ? {}
+            : { recommendModels: provider.definition.recommend_models }),
         ...(provider.definition.request_options === undefined
             ? {}
             : {

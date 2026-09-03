@@ -34,6 +34,31 @@ export interface ProviderDiscoveryDefinition {
     readonly endpointOverridePath?: string;
 }
 
+/** What a machine must be for a recommendation to stand. An unmet requirement drops the provider out of the recommended group rather than hiding it. */
+export interface ProviderRequirement {
+    readonly os?: string;
+    readonly arch?: string;
+    readonly memory_gb?: number;
+}
+
+/** Why a provider is put in front of a cold user, and how high. */
+export interface ProviderRecommendation {
+    readonly rank: number;
+    readonly reason: string;
+    readonly requires?: ProviderRequirement;
+}
+
+/** `work` does the job, `lite` only helps a user find their way around. */
+export type RecommendedModelRole = "work" | "lite";
+
+export interface RecommendedModel {
+    readonly id: string;
+    readonly rank: number;
+    readonly role: RecommendedModelRole;
+    readonly label: string;
+    readonly reason: string;
+}
+
 export interface ProviderRequestOptionsDefinition {
     readonly behavior: "openrouter-provider-preferences";
     readonly label: string;
@@ -58,6 +83,8 @@ export interface ProviderDefinition {
     readonly discovery: ProviderDiscoveryDefinition;
     readonly compatibility: ProviderCompatibilityLayers;
     readonly request_options?: ProviderRequestOptionsDefinition;
+    readonly recommend?: ProviderRecommendation;
+    readonly recommend_models?: readonly RecommendedModel[];
 }
 
 export interface ProviderDeclaration {
@@ -252,6 +279,11 @@ export function parseProviderDefinition(
     const discovery = parseDiscovery(value.discovery, context);
     const compatibility = parseLayers(value.compatibility, context);
     const requestOptions = parseRequestOptions(value.request_options, context);
+    const recommend = parseRecommendation(value.recommend, context);
+    const recommendModels = parseRecommendedModels(
+        value.recommend_models,
+        context,
+    );
     if (value.credential === "oauth" && value.protocol !== "contributed") {
         throw new Error(`${context}: oauth requires contributed protocol`);
     }
@@ -275,7 +307,80 @@ export function parseProviderDefinition(
         discovery,
         compatibility,
         ...(requestOptions === undefined ? {} : { request_options: requestOptions }),
+        ...(recommend === undefined ? {} : { recommend }),
+        ...(recommendModels === undefined ? {} : { recommend_models: recommendModels }),
     };
+}
+
+function parseRecommendation(
+    value: unknown,
+    context: string,
+): ProviderRecommendation | undefined {
+    if (value === undefined) return undefined;
+    if (
+        !isRecord(value)
+        || typeof value.rank !== "number"
+        || typeof value.reason !== "string"
+        || value.reason.length === 0
+    ) {
+        throw new Error(`${context}: invalid recommend definition`);
+    }
+    const requires = parseRequirement(value.requires, context);
+    return {
+        rank: value.rank,
+        reason: value.reason,
+        ...(requires === undefined ? {} : { requires }),
+    };
+}
+
+function parseRequirement(
+    value: unknown,
+    context: string,
+): ProviderRequirement | undefined {
+    if (value === undefined) return undefined;
+    if (!isRecord(value)) throw new Error(`${context}: requires must be an object`);
+    for (const key of ["os", "arch"]) {
+        if (value[key] !== undefined && typeof value[key] !== "string") {
+            throw new Error(`${context}: requires.${key} must be a string`);
+        }
+    }
+    if (value.memory_gb !== undefined && typeof value.memory_gb !== "number") {
+        throw new Error(`${context}: requires.memory_gb must be a number`);
+    }
+    return {
+        ...(typeof value.os === "string" ? { os: value.os } : {}),
+        ...(typeof value.arch === "string" ? { arch: value.arch } : {}),
+        ...(typeof value.memory_gb === "number" ? { memory_gb: value.memory_gb } : {}),
+    };
+}
+
+function parseRecommendedModels(
+    value: unknown,
+    context: string,
+): readonly RecommendedModel[] | undefined {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value)) {
+        throw new Error(`${context}: recommend_models must be an array`);
+    }
+    return value.map((entry) => {
+        if (
+            !isRecord(entry)
+            || typeof entry.id !== "string" || entry.id.length === 0
+            || typeof entry.rank !== "number"
+            || (entry.role !== "work" && entry.role !== "lite")
+            || typeof entry.label !== "string" || entry.label.length === 0
+            || typeof entry.reason !== "string" || entry.reason.length === 0
+        ) {
+            throw new Error(`${context}: invalid recommend_models entry`);
+        }
+        return {
+            id: entry.id,
+            rank: entry.rank,
+            role: entry.role,
+            label: entry.label,
+            reason: entry.reason,
+        };
+    });
 }
 
 function parseRequestOptions(
