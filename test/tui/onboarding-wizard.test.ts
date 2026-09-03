@@ -445,21 +445,33 @@ test("the model step names the cheap models that score well, so there is somethi
     ]);
 });
 
-test("the weakest model on the front is not named just for being cheapest", () => {
-    // The real OpenRouter front on 2026-09-03: a very cheap, very weak model
-    // sits below the pair anyone would actually want.
-    const notes = modelNotes([
-        { id: "ibm-granite/granite-4.1-8b", label: "Granite", onPareto: true, outputPrice: 0.1, waScore: 1192 },
-        { id: "upstage/solar-pro4", label: "Solar", onPareto: true, outputPrice: 0.12, waScore: 1370 },
-        { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
-        { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
-        { id: "anthropic/claude-opus-5", label: "Opus 5", onPareto: true, outputPrice: 25, waScore: 1688 },
-    ]);
+/** The real OpenRouter front on 2026-09-03, cheapest first. */
+const LIVE_FRONT = [
+    { id: "ibm-granite/granite-4.1-8b", label: "Granite", onPareto: true, outputPrice: 0.1, waScore: 1192 },
+    { id: "upstage/solar-pro4", label: "Solar", onPareto: true, outputPrice: 0.12, waScore: 1370 },
+    { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
+    { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
+    { id: "tencent/hy4-preview", label: "Hy4", onPareto: true, outputPrice: 2.5, waScore: 1629 },
+    { id: "anthropic/claude-opus-5", label: "Opus 5", onPareto: true, outputPrice: 25, waScore: 1688 },
+];
+
+test("the weakest models on the front are not named just for being cheapest", () => {
+    // Granite and Solar are the cheapest things on the front and score 200 to
+    // 400 points under the rest of it. Naming one sends the user off with a
+    // model that cannot do the work.
+    const notes = modelNotes(LIVE_FRONT);
     expect(notes[0]).toContain(
-        "Good value: z-ai/glm-5.3-flash, deepseek/deepseek-v4-flash,"
-        + " upstage/solar-pro4.",
+        "Good value: z-ai/glm-5.3-flash, deepseek/deepseek-v4-flash.",
     );
     expect(notes[0]).not.toContain("granite");
+    expect(notes[0]).not.toContain("solar");
+});
+
+test("a strong dear model does not raise the bar past the cheap models", () => {
+    // Opus scores highest on the front. Measuring the floor against it would
+    // leave nothing cheap to name, which is the opposite of the point.
+    expect(modelNotes(LIVE_FRONT)[0]).not.toContain("opus");
+    expect(modelNotes(LIVE_FRONT)[0]).toContain("glm-5.3-flash");
 });
 
 test("a model an order of magnitude dearer than the cheap end is not named", () => {

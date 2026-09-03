@@ -211,23 +211,36 @@ const NAMED_VALUE_MODELS = 3;
 /** Anything within an order of magnitude of the cheapest is still the cheap end of the front. */
 const CHEAP_BAND = 10;
 
+/** How far under the best of the cheap models still counts as the same class of model. */
+const SCORE_BAND = 120;
+
 /**
- * The best-scoring of the cheap models, named so the user has something to
- * type. A provider lists hundreds of ids, and a search box is no help to
- * someone who does not know one from another. Ordering by price alone would
- * name the weakest model on the front, so the cheap end is taken first and the
- * highest scores within it are the ones named.
+ * The cheap models worth naming, so the user has something to type. A provider
+ * lists hundreds of ids, and a search box is no help to someone who does not
+ * know one from another.
+ *
+ * The cheap end of the front is taken first, then everything scoring far under
+ * the best of that end is dropped. The front runs all the way down to models
+ * that cost almost nothing and score hundreds of points below the rest, and
+ * naming one of those sends the user off with a model that cannot do the work.
+ * The floor is measured inside the cheap end, so one very strong expensive
+ * model cannot raise it past the whole band.
  */
 function valueNote(session: WizardSession): readonly string[] {
     const front = session.models.filter((model) =>
         model.onPareto === true && model.outputPrice !== undefined
+        && model.waScore !== undefined
     );
+    if (front.length === 0) return [];
     const cheapest = Math.min(...front.map((model) => model.outputPrice ?? 0));
-    const worth = front
-        .filter((model) => (model.outputPrice ?? 0) <= cheapest * CHEAP_BAND)
+    const cheap = front.filter((model) =>
+        (model.outputPrice ?? 0) <= cheapest * CHEAP_BAND
+    );
+    const best = Math.max(...cheap.map((model) => model.waScore ?? 0));
+    const worth = cheap
+        .filter((model) => (model.waScore ?? 0) >= best - SCORE_BAND)
         .toSorted((left, right) => (right.waScore ?? 0) - (left.waScore ?? 0))
         .slice(0, NAMED_VALUE_MODELS);
-    if (worth.length === 0) return [];
     const named = worth.map((model) => model.id).join(", ");
     return [
         `Good value: ${named}.`
