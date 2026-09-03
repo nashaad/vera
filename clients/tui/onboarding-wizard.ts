@@ -215,17 +215,17 @@ const MOST_PER_MILLION = 2.75;
 const LEAST_SCORE = 1400;
 
 /**
- * The cheap models worth naming, so the user has something to type. A provider
- * lists hundreds of ids, and a search box is no help to someone who does not
- * know one from another.
+ * The cheap models worth suggesting, in the order they are offered. A provider
+ * lists hundreds of ids, and a list that opens on whichever one sorted first is
+ * a list that answers itself.
  *
  * The front runs all the way down to models that cost almost nothing and score
- * hundreds of points below the rest, so a price ceiling alone would name one of
- * those. Both bars are absolute: everything named is good enough, so the
- * cheapest are named first.
+ * hundreds of points below the rest, so a price ceiling alone would suggest one
+ * of those. Both bars are absolute: everything past them is good enough, so the
+ * cheapest go first.
  */
-function valueNote(session: WizardSession): readonly string[] {
-    const worth = session.models
+function valueModels(session: WizardSession): readonly WizardModel[] {
+    return session.models
         .filter((model) =>
             model.onPareto === true
             && (model.outputPrice ?? Infinity) <= MOST_PER_MILLION
@@ -235,12 +235,13 @@ function valueNote(session: WizardSession): readonly string[] {
             (left.outputPrice ?? 0) - (right.outputPrice ?? 0)
         )
         .slice(0, NAMED_VALUE_MODELS);
-    if (worth.length === 0) return [];
-    const named = worth.map((model) => model.id).join(", ");
-    return [
-        `Good value: ${named}.`
-        + " Cheap, and they score close to the expensive ones.",
-    ];
+}
+
+/** Why this handful is at the top, said once above the rows rather than on each of them. */
+function valueNote(session: WizardSession): readonly string[] {
+    return valueModels(session).length === 0
+        ? []
+        : ["The models at the top are cheap and score close to the dear ones."];
 }
 
 function modelRow(model: WizardModel): OnboardingChoiceRow {
@@ -351,7 +352,16 @@ function modelGroups(
             ),
         });
     }
-    const promoted = new Set(pairs.map((pair) => pair.model.id));
+    const worth = valueModels(session);
+    const promoted = new Set([
+        ...pairs.map((pair) => pair.model.id),
+        ...worth.map((model) => model.id),
+    ]);
+    // Ahead of OTHER but behind what the provider itself recommends, which is
+    // named for the job it does rather than for what it costs.
+    if (worth.length !== 0) {
+        groups.push({ label: "GOOD VALUE", rows: worth.map(modelRow) });
+    }
     const rest = session.models.filter((model) => !promoted.has(model.id));
     if (groups.length === 0) return [{ rows: rest.map(modelRow) }];
     if (rest.length !== 0) {

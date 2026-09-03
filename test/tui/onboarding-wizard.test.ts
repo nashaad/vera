@@ -426,23 +426,52 @@ function modelStep(models: WizardSession["models"]): WizardSession {
     };
 }
 
-/** The sentences above the rows, which is where the suggestion lives. */
+/** The rows offered above every other model, which is where the suggestion lives. */
+function suggested(models: WizardSession["models"]): readonly string[] {
+    const body = wizardScreen(COLD, modelStep(models), MAC).body;
+    if (body.kind !== "choice") return [];
+    const group = body.groups.find((entry) => entry.label === "GOOD VALUE");
+    return group?.rows.map((row) => row.id) ?? [];
+}
+
 function modelNotes(models: WizardSession["models"]): readonly string[] {
     const body = wizardScreen(COLD, modelStep(models), MAC).body;
     return body.kind === "choice" ? body.notes ?? [] : [];
 }
 
-test("the model step names the cheap models that score well, so there is something to type", () => {
-    const notes = modelNotes([
-        { id: "openai/gpt-9", label: "GPT-9", outputPrice: 60, waScore: 1700 },
-        { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
-        { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
+/** Every row on offer, in the order the user meets them. */
+function offered(models: WizardSession["models"]): readonly string[] {
+    const body = wizardScreen(COLD, modelStep(models), MAC).body;
+    if (body.kind !== "choice") return [];
+    return body.groups.flatMap((group) => group.rows.map((row) => row.id));
+}
+
+const SMALL_LIST = [
+    { id: "openai/gpt-9", label: "GPT-9", outputPrice: 60, waScore: 1700 },
+    { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
+    { id: "deepseek/deepseek-v4-flash", label: "V4 Flash", onPareto: true, outputPrice: 0.16, waScore: 1581 },
+];
+
+test("the cheap models that score well are offered as rows, cheapest first", () => {
+    expect(suggested(SMALL_LIST)).toEqual([
+        "deepseek/deepseek-v4-flash",
+        "z-ai/glm-5.3-flash",
     ]);
-    // Cheapest first: everything named is already good enough to use.
-    expect(notes).toEqual([
-        "Good value: deepseek/deepseek-v4-flash, z-ai/glm-5.3-flash."
-        + " Cheap, and they score close to the expensive ones.",
+    expect(modelNotes(SMALL_LIST)).toEqual([
+        "The models at the top are cheap and score close to the dear ones.",
     ]);
+});
+
+test("the suggestion is the first row, so enter on an untouched list picks it", () => {
+    // A note above the rows loses to whatever the list opened on. The row has
+    // to be the thing the cursor is already sitting on.
+    expect(offered(SMALL_LIST)[0]).toBe("deepseek/deepseek-v4-flash");
+});
+
+test("a suggested model is offered once, not in two places at once", () => {
+    const rows = offered(SMALL_LIST);
+    expect(rows).toEqual([...new Set(rows)]);
+    expect(rows).toContain("openai/gpt-9");
 });
 
 /** The real OpenRouter front on 2026-09-03, cheapest first. */
@@ -459,53 +488,57 @@ test("the weakest models on the front are not named just for being cheapest", ()
     // Granite and Solar are the cheapest things on the front and score 200 to
     // 400 points under the rest of it. Naming one sends the user off with a
     // model that cannot do the work.
-    const notes = modelNotes(LIVE_FRONT);
-    expect(notes[0]).toContain(
-        "Good value: deepseek/deepseek-v4-flash, z-ai/glm-5.3-flash,"
-        + " tencent/hy4-preview.",
-    );
-    expect(notes[0]).not.toContain("granite");
-    expect(notes[0]).not.toContain("solar");
+    expect(suggested(LIVE_FRONT)).toEqual([
+        "deepseek/deepseek-v4-flash",
+        "z-ai/glm-5.3-flash",
+        "tencent/hy4-preview",
+    ]);
 });
 
-test("a model past the price ceiling is not named, however well it scores", () => {
-    expect(modelNotes(LIVE_FRONT)[0]).not.toContain("opus");
-    expect(modelNotes(LIVE_FRONT)[0]).toContain("glm-5.3-flash");
+test("a model past the price ceiling is not suggested, however well it scores", () => {
+    expect(suggested(LIVE_FRONT)).not.toContain("anthropic/claude-opus-5");
+    // It is still on offer, just not held up as the cheap answer.
+    expect(offered(LIVE_FRONT)).toContain("anthropic/claude-opus-5");
 });
 
-test("nothing is named when the front holds nothing both cheap and capable", () => {
-    expect(modelNotes([
+test("nothing is suggested when the front holds nothing both cheap and capable", () => {
+    const list = [
         { id: "weak/cheap", label: "Weak", onPareto: true, outputPrice: 0.2, waScore: 1200 },
         { id: "strong/dear", label: "Strong", onPareto: true, outputPrice: 25, waScore: 1700 },
-    ])).toEqual([]);
+    ];
+    expect(suggested(list)).toEqual([]);
+    expect(modelNotes(list)).toEqual([]);
+    expect(offered(list)).toEqual(["weak/cheap", "strong/dear"]);
 });
 
-test("the model step names at most three, so a suggestion does not become a list", () => {
-    const notes = modelNotes(
-        ["a", "b", "c", "d", "e"].map((id, at) => ({
-            id: `open/${id}`,
-            label: id,
-            onPareto: true,
-            outputPrice: 0.1 * (at + 1),
-            waScore: 1600,
-        })),
-    );
-    expect(notes[0]).toContain("Good value: open/a, open/b, open/c.");
-    expect(notes[0]).not.toContain("open/d");
+test("the model step suggests at most three, so a suggestion does not become a list", () => {
+    const many = ["a", "b", "c", "d", "e"].map((id, at) => ({
+        id: `open/${id}`,
+        label: id,
+        onPareto: true,
+        outputPrice: 0.1 * (at + 1),
+        waScore: 1600,
+    }));
+    expect(suggested(many)).toEqual(["open/a", "open/b", "open/c"]);
+    // The two it did not suggest are still on offer below.
+    expect(offered(many)).toContain("open/d");
 });
 
-test("with no scores to go on, the model step says nothing rather than guessing", () => {
-    expect(modelNotes([
+test("with no scores to go on, the model step suggests nothing rather than guessing", () => {
+    const unscored = [
         { id: "openai/gpt-9", label: "GPT-9" },
         { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash" },
-    ])).toEqual([]);
+    ];
+    expect(suggested(unscored)).toEqual([]);
+    expect(modelNotes(unscored)).toEqual([]);
 });
 
-test("the suggestion is painted above the rows it is about", () => {
+test("the suggestion is painted under its own heading, above everything else", () => {
     const text = screenText(modelStep([
+        { id: "openai/gpt-9", label: "GPT-9", outputPrice: 60, waScore: 1700 },
         { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
     ]));
-    const note = text.indexOf("Good value: z-ai/glm-5.3-flash.");
-    expect(note).toBeGreaterThan(text.indexOf("What should Vera run?"));
-    expect(note).toBeLessThan(text.indexOf("› GLM 5.3 Flash"));
+    expect(text).toContain("GOOD VALUE");
+    expect(text.indexOf("GOOD VALUE")).toBeLessThan(text.indexOf("OTHER"));
+    expect(text.indexOf("GLM 5.3 Flash")).toBeLessThan(text.indexOf("GPT-9"));
 });
