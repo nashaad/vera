@@ -9,7 +9,10 @@ import { focusActiveSurface } from "./focus-switch.ts";
 import { connectProvider, openOnboardingModelStep } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
-import { beginCreateSession } from "./session-ops.ts";
+import {
+    beginCreateSession,
+    requestModelSettingsChange,
+} from "./session-ops.ts";
 
 /** A model list belongs to a conversation, so the flow opens one and holds the step until its settings arrive. */
 export function enterOnboardingModelStep(
@@ -70,6 +73,16 @@ export function settleOnboardingVerification(
     rt.state = appendTuiNotice(
         rt.state,
         `${pending.provider} answered on ${pending.model}`,
+    );
+    // The model step is the user picking their first model, so the answer
+    // becomes the default rather than leaving them pointed at whatever the
+    // factory home shipped. Only this flow does it: a later verify from the
+    // model picker is a question about a model, not a choice of one.
+    requestModelSettingsChange(
+        rt,
+        { provider: pending.provider, model: pending.model },
+        `model → ${pending.provider}/${pending.model}`,
+        `the model to ${pending.provider}/${pending.model}`,
     );
     renderState(rt);
     focusActiveSurface(rt);
