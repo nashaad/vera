@@ -12,6 +12,7 @@ import { catalogMaxAgeMs } from "../src/host/runtime.ts";
 import { DEFAULT_CATALOG_MAX_AGE_MS } from "../src/model/catalog-cache.ts";
 
 import {
+    configuredCompaction,
     configuredModelFallback,
     configuredReviewer,
     configuredReviewers,
@@ -1597,3 +1598,49 @@ test("a ceiling equal to the whole budget is allowed", () => {
         .toEqual({ ceiling_bytes: 65_536, total_budget_bytes: 65_536 });
 });
 
+test("a numbers-only compaction block survives a full config load", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        compaction: {
+            trigger_fraction: 0.7,
+            target_fraction: 0.4,
+            min_summary_tokens: 500,
+            max_attempts: 2,
+            summary_word_cap: 2_000,
+            assumed_window_tokens: 64_000,
+            unknown_target_fraction: 0.3,
+        },
+    }));
+
+    const loaded = loadVeraConfig({ path });
+    expect(loaded.compaction).toEqual({
+        trigger_fraction: 0.7,
+        target_fraction: 0.4,
+        min_summary_tokens: 500,
+        max_attempts: 2,
+        summary_word_cap: 2_000,
+        assumed_window_tokens: 64_000,
+        unknown_target_fraction: 0.3,
+    });
+    // Numbers alone bind no strategy, so the session keeps the compaction it
+    // would have run anyway.
+    expect(configuredCompaction(loaded)).toBeUndefined();
+});
+
+test("an unrelated write leaves a stored compaction block alone", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        compaction: { trigger_fraction: 0.7 },
+        tool_results: { stub_after_turns: 4 },
+    }));
+
+    updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+    const reloaded = loadVeraConfig({ path });
+    expect(reloaded.model).toBe("anthropic/other-model");
+    expect(reloaded.compaction).toEqual({ trigger_fraction: 0.7 });
+    expect(reloaded.tool_results).toEqual({ stub_after_turns: 4 });
+});
