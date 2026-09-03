@@ -40,6 +40,11 @@ import {
 
 const SPINNER_INTERVAL_MS = 120;
 
+/** The user picked a name off a list, so that name is what they are told about. */
+function providerLabel(id: string): string {
+    return findConfiguredProvider(id, loadOptionalVeraConfig())?.label ?? id;
+}
+
 export function wizardIsOpen(rt: TuiRuntime): boolean {
     return rt.onboardingWizard !== undefined;
 }
@@ -525,7 +530,9 @@ export function settleWizardVerification(
             ...rest,
             at: "key",
             key: "",
-            alert: `${pending.provider} refused that key: ${refusal}`,
+            alert: `${providerLabel(pending.provider)} refused that key: ${
+                refusal
+            }`,
         });
         return true;
     }
