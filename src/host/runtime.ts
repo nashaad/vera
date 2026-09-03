@@ -52,6 +52,11 @@ import {
     type SessionFacts,
 } from "../store/session-facts.ts";
 import { contextWindowForModel } from "../engine/model-settings.ts";
+import {
+    cachedProviderModels,
+    readCachedWindowIndex,
+    withCachedWindows,
+} from "../model/cached-windows.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
 import { refreshWebDevArena } from "../model/webdev-arena.ts";
@@ -1514,6 +1519,10 @@ async function discoverAvailableModels(
     }
     catalog.push(...discoveredDeepSeekModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
+    catalog.push(...cachedProviderModels(
+        configuredProviders(config).map((provider) => provider.id),
+        catalog,
+    ));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
     )) {
@@ -1524,7 +1533,10 @@ async function discoverAvailableModels(
             description: "configured model",
         });
     }
-    return withProviderRefreshability(catalog, config);
+    return withProviderRefreshability(
+        withCachedWindows(catalog, readCachedWindowIndex()),
+        config,
+    );
 }
 
 function withProviderRefreshability(
@@ -2045,7 +2057,7 @@ function positiveModelLength(value: unknown): number | undefined {
 
 export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
     const catalog = catalogModels(config);
-    return catalog.some((item) =>
+    const complete = catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
     )
         ? catalog
@@ -2055,6 +2067,7 @@ export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[]
             label: config.model,
             description: "configured model",
         }, ...catalog];
+    return withCachedWindows(complete, readCachedWindowIndex());
 }
 
 function catalogModels(config: VeraConfig): SuggestedModel[] {
