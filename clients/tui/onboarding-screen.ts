@@ -22,7 +22,14 @@ import {
     syncTuiSingleLineTextarea,
     tuiTextareaKey,
 } from "./single-line-editor.ts";
-import { TUI_ACCENT, TUI_BACKGROUND, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
+import {
+    TUI_ACCENT,
+    TUI_BACKGROUND,
+    TUI_DANGER,
+    TUI_MUTED,
+    TUI_SUCCESS,
+    TUI_TEXT,
+} from "./state.ts";
 
 export const ONBOARDING_TITLE = "Set up Vera";
 
@@ -153,11 +160,23 @@ export type OnboardingLineTone =
     | "note"
     | "alert"
     | "field"
-    | "footer";
+    | "footer"
+    /** A gate the user has cleared. */
+    | "cleared"
+    /** The key that moves the user forward from here. */
+    | "invite";
+
+/** A run inside one line, for a line that is not all one tone. */
+export interface OnboardingSpan {
+    readonly text: string;
+    readonly tone: OnboardingLineTone;
+}
 
 export interface OnboardingLine {
     readonly text: string;
     readonly tone: OnboardingLineTone;
+    /** The runs the text is made of, when parts of it are toned differently. Concatenated they are the text. */
+    readonly spans?: readonly OnboardingSpan[];
     readonly selected?: boolean;
     /** The row this line can be clicked to choose. */
     readonly rowId?: string;
@@ -204,18 +223,27 @@ function selectedRowId(state: OnboardingScreenState): string | undefined {
 
 const MARKER_FIELD = 4;
 
+interface StepCell {
+    readonly head: string;
+    readonly under: string;
+    /** A gate the user cleared. A gate that never applied is not one of these. */
+    readonly cleared?: boolean;
+}
+
 function stepCell(
     step: OnboardingStep,
     index: number,
     answer: OnboardingAnswer | undefined,
-): { readonly head: string; readonly under: string } {
+): StepCell {
     const number = String(index + 1);
     if (step.state === "done") {
-        const marker = answer?.skipped === true ? MARKER_SKIPPED : MARKER_DONE;
+        const skipped = answer?.skipped === true;
+        const marker = skipped ? MARKER_SKIPPED : MARKER_DONE;
         const head = `${pad(marker, MARKER_FIELD)}${step.label}`;
         return {
             head,
             under: `${" ".repeat(MARKER_FIELD)}${answer?.text ?? ""}`,
+            ...(skipped ? {} : { cleared: true }),
         };
     }
     if (step.state === "current") {
@@ -249,10 +277,35 @@ export function spineLines(
     );
     const head = cells.map((cell) => pad(cell.head, STEP_CELL_WIDTH)).join("");
     const under = cells.map((cell) => pad(cell.under, STEP_CELL_WIDTH)).join("");
+    const spans = trimSpans([
+        { text: " ".repeat(CONTENT_INDENT), tone: "spine" as const },
+        ...cells.map((cell) => ({
+            text: pad(cell.head, STEP_CELL_WIDTH),
+            tone: (cell.cleared === true ? "cleared" : "spine") as
+                OnboardingLineTone,
+        })),
+    ]);
     return [
-        { text: indent(head.trimEnd()), tone: "spine" },
+        { text: indent(head.trimEnd()), tone: "spine", spans },
         { text: indent(under.trimEnd()), tone: "answer" },
     ];
+}
+
+/** Drops the padding the text drops, so the runs still spell the line. */
+function trimSpans(
+    spans: readonly OnboardingSpan[],
+): readonly OnboardingSpan[] {
+    const kept = [...spans];
+    while (kept.length > 0) {
+        const last = kept[kept.length - 1]!;
+        const trimmed = last.text.trimEnd();
+        if (trimmed !== "") {
+            kept[kept.length - 1] = { ...last, text: trimmed };
+            break;
+        }
+        kept.pop();
+    }
+    return kept;
 }
 
 function spinnerGlyph(frame: number | undefined): string {
@@ -524,17 +577,34 @@ function noteLines(
     ];
 }
 
-/** The last line: what the keys do here, named in words. */
-export function footerText(state: OnboardingScreenState): string {
+/** The last line, in runs: what the keys do here, named in words, with the key that moves forward lit. */
+export function footerSpans(
+    state: OnboardingScreenState,
+): readonly OnboardingSpan[] {
     const escape = onFirstStep(state) ? "esc leave setup" : "esc back";
     const body = state.body;
     if (body.kind === "choice") {
-        const enter = `enter ${body.enterHint ?? "next"}`;
-        return `↑↓ choose    ${enter}    ${escape}`;
+        return [
+            { text: "↑↓ choose    ", tone: "footer" },
+            { text: `enter ${body.enterHint ?? "next"}`, tone: "invite" },
+            { text: `    ${escape}`, tone: "footer" },
+        ];
     }
-    if (body.kind === "secret") return `enter next    ${escape}`;
-    if (body.kind === "progress") return body.escHint ?? escape;
-    return "enter start working";
+    if (body.kind === "secret") {
+        return [
+            { text: "enter next", tone: "invite" },
+            { text: `    ${escape}`, tone: "footer" },
+        ];
+    }
+    if (body.kind === "progress") {
+        return [{ text: body.escHint ?? escape, tone: "footer" }];
+    }
+    return [{ text: "enter start working", tone: "invite" }];
+}
+
+/** The last line: what the keys do here, named in words. */
+export function footerText(state: OnboardingScreenState): string {
+    return footerSpans(state).map((span) => span.text).join("");
 }
 
 function onFirstStep(state: OnboardingScreenState): boolean {
@@ -560,7 +630,14 @@ export function onboardingCardLines(
     }
     inner.push(...bodyLines(state));
     inner.push({ text: "", tone: "frame" });
-    inner.push({ text: indent(footerText(state)), tone: "footer" });
+    inner.push({
+        text: indent(footerText(state)),
+        tone: "footer",
+        spans: [
+            { text: " ".repeat(CONTENT_INDENT), tone: "footer" },
+            ...footerSpans(state),
+        ],
+    });
     // The frame is padded at the top, so it is padded at the bottom too.
     inner.push({ text: "", tone: "frame" });
     const title = ` ${ONBOARDING_TITLE} `;
@@ -684,6 +761,8 @@ export interface OnboardingAppearance {
     readonly mutedColor: string;
     readonly accentColor: string;
     readonly dangerColor: string;
+    /** What a cleared gate and the key that moves forward are painted in. */
+    readonly successColor: string;
     /** The wizard owns the whole terminal, so it paints its own ground rather than letting the composer show through. */
     readonly backgroundColor: string;
 }
@@ -709,11 +788,45 @@ function framedContent(
 ): StyledText {
     const bar = fg(colors.mutedColor);
     const body = [...line.text];
+    const interior = body.slice(1, -1).join("");
     return new StyledText([
         bar(body[0] ?? ""),
-        fg(lineColor(line, colors))(body.slice(1, -1).join("")),
+        ...interiorChunks(line, interior, colors),
         bar(body[body.length - 1] ?? ""),
     ]);
+}
+
+/** The interior painted run by run, where a line names its runs, and in one colour where it does not. */
+function interiorChunks(
+    line: OnboardingLine,
+    interior: string,
+    colors: OnboardingAppearance,
+): ReturnType<ReturnType<typeof fg>>[] {
+    const base = lineColor(line, colors);
+    if (line.spans === undefined || line.selected === true) {
+        return [fg(base)(interior)];
+    }
+    const chunks: ReturnType<ReturnType<typeof fg>>[] = [];
+    let at = 0;
+    for (const span of line.spans) {
+        const text = interior.slice(at, at + span.text.length);
+        if (text === "") break;
+        chunks.push(fg(toneColor(span.tone, base, colors))(text));
+        at += span.text.length;
+    }
+    // Whatever the fitting added past the runs, in the line's own colour.
+    if (at < interior.length) chunks.push(fg(base)(interior.slice(at)));
+    return chunks;
+}
+
+function toneColor(
+    tone: OnboardingLineTone,
+    base: string,
+    colors: OnboardingAppearance,
+): string {
+    if (tone === "cleared" || tone === "invite") return colors.successColor;
+    if (tone === "spine") return colors.textColor;
+    return base;
 }
 
 function lineColor(
@@ -724,6 +837,9 @@ function lineColor(
     if (line.selected === true) return colors.accentColor;
     if (line.tone === "heading" || line.tone === "spine") {
         return colors.textColor;
+    }
+    if (line.tone === "cleared" || line.tone === "invite") {
+        return colors.successColor;
     }
     return colors.mutedColor;
 }
@@ -737,6 +853,7 @@ export function createTuiOnboardingView(
         mutedColor: TUI_MUTED,
         accentColor: TUI_ACCENT,
         dangerColor: TUI_DANGER,
+        successColor: TUI_SUCCESS,
         backgroundColor: TUI_BACKGROUND,
     };
     const box = new BoxRenderable(renderer, {

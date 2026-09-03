@@ -4,7 +4,10 @@ import type { PoolFile } from "../../src/model/pool-file.ts";
 import type { OnboardingInput } from "../../src/providers/onboarding.ts";
 import type { MachineFacts } from "../../src/providers/recommendation.ts";
 import { configuredProviders } from "../../src/providers/registry.ts";
-import { onboardingCardLines } from "../../clients/tui/onboarding-screen.ts";
+import {
+    onboardingCardLines,
+    type OnboardingLine,
+} from "../../clients/tui/onboarding-screen.ts";
 import {
     newWizardSession,
     providerGroups,
@@ -348,4 +351,69 @@ test("the install step stays settled while the profile comes up", () => {
     });
     expect(text).toContain("✓   Install");
     expect(text).toContain("installed");
+});
+
+function lines(session: WizardSession): readonly OnboardingLine[] {
+    return onboardingCardLines(wizardScreen(COLD, session, MAC));
+}
+
+/** The runs a line names, concatenated, must still spell the line inside its frame. */
+function spansSpellTheLine(line: OnboardingLine): boolean {
+    if (line.spans === undefined) return true;
+    const inside = [...line.text].slice(1, -1).join("");
+    return inside.startsWith(line.spans.map((span) => span.text).join(""));
+}
+
+test("a cleared gate is lit, and the gates around it are not", () => {
+    const spine = lines({
+        ...newWizardSession("model"),
+        chosen: "openrouter",
+        key: "sk-or-v1-abc",
+    }).find((line) => line.tone === "spine");
+    expect(spine).toBeDefined();
+    const runs = spine!.spans ?? [];
+    const lit = runs.filter((span) => span.tone === "cleared")
+        .map((span) => span.text.trim());
+    expect(lit).toEqual(["✓   Provider", "✓   Key"]);
+    // The step being walked is not a gate anyone has cleared.
+    expect(runs.some((span) =>
+        span.tone === "cleared" && span.text.includes("Model")
+    )).toBe(false);
+    expect(spansSpellTheLine(spine!)).toBe(true);
+});
+
+test("a gate that never applied is not lit, because nobody cleared it", () => {
+    const spine = lines({
+        ...newWizardSession("model"),
+        chosen: "ollama",
+        models: [{ id: "qwen3:8b", label: "qwen3:8b" }],
+    }).find((line) => line.tone === "spine");
+    const lit = (spine?.spans ?? []).filter((span) => span.tone === "cleared")
+        .map((span) => span.text.trim());
+    expect(lit).toEqual(["✓   Provider"]);
+});
+
+test("the key that moves forward is lit, and the one that goes back is not", () => {
+    const footer = lines(newWizardSession("provider"))
+        .find((line) => line.tone === "footer");
+    expect(footer).toBeDefined();
+    const invited = (footer!.spans ?? [])
+        .filter((span) => span.tone === "invite").map((span) => span.text);
+    expect(invited).toEqual(["enter next"]);
+    expect(footer!.text).toContain("esc leave setup");
+    expect(spansSpellTheLine(footer!)).toBe(true);
+});
+
+test("colour adds nothing to the words, so the plain card is unchanged", () => {
+    // Every state still reads without colour: the tick and the key names are
+    // the markers, and the runs only say which of them to light.
+    for (const session of [
+        newWizardSession("provider"),
+        { ...newWizardSession("key"), chosen: "openrouter" },
+        { ...newWizardSession("model"), chosen: "openrouter", key: "sk-or-v1" },
+    ]) {
+        for (const line of lines(session)) {
+            expect(spansSpellTheLine(line)).toBe(true);
+        }
+    }
 });

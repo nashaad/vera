@@ -1876,6 +1876,7 @@ export async function startTui(
         mutedColor: rt.theme.muted,
         accentColor: rt.theme.accent,
         dangerColor: rt.theme.danger,
+        successColor: rt.theme.success,
         backgroundColor: rt.theme.background,
     });
     rt.resumeOverlay.applyAppearance({
@@ -2736,6 +2737,7 @@ export async function startTui(
             mutedColor: activeTheme.muted,
             accentColor: activeTheme.accent,
             dangerColor: activeTheme.danger,
+            successColor: activeTheme.success,
             backgroundColor: activeTheme.background,
         }),
         (activeTheme) => rt.resumeOverlay.applyAppearance({
