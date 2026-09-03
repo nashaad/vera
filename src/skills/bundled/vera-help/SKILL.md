@@ -5,10 +5,13 @@ description: "How Vera works. Read this for questions about Vera itself, its pro
 
 # How Vera works
 
-`llms.txt`, in this skill's directory, is the product guide. Answer from it.
+`llms.txt`, in this skill's directory, is the product guide. It exists so you
+never have to derive Vera's behavior from Vera's source. Answer from it.
 
-1. Read `llms.txt`.
-2. Every `## ` header carries `[lines=N]`, the exact line count of its section.
-   Read the section that matches the question.
+1. Read `## How to answer` and `## Keep the user in the loop` at the top of
+   `llms.txt` first, every time. The first matches the ask to a rope and names
+   the section that carries the answer; the second is the shape of the turn.
+2. Read that one named section. Every `## ` header carries `[lines=N]`, the
+   exact line count of its section, so the cost is known in advance.
 3. Answer product questions from the guide, not from source code. If the guide
    does not cover it, say so and name the nearest thing it does cover.

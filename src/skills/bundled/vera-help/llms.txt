@@ -1,6 +1,27 @@
 # Vera product guide
 
-Use this file for questions about using Vera or explaining how Vera behaves. Do not inspect source code to answer product questions. Search for `^## `, choose the relevant section, and read only that section. In each header, `[lines=N]` is the exact number of physical lines after the header and before the next `##` header or end of file.
+This file is rope. It exists so you never have to derive Vera's behavior from Vera's source code. Every answer about using Vera is meant to be stated here already: match the question to a section and read it. Source code shows what the code does today; this guide states what Vera promises. Where the two differ the code is the bug, and an answer taken from source repeats that bug as if it were the design.
+
+Use this file for questions about using Vera or explaining how Vera behaves. Read `## How to answer` and `## Keep the user in the loop` first, every time. The first matches the ask to a rope and names the section that carries the answer; the second is the shape of the turn. Then read only the one section named. In each header, `[lines=N]` is the exact number of physical lines after the header and before the next `##` header or end of file.
+
+## How to answer [lines=9]
+Match the ask to one row, then follow that row. Rows are intent, not wording; a user rarely uses these words.
+Explain how something works: read the one section that names it and answer in two or three sentences. Name the surface if one exists.
+Find where to do something: name the exact slash command and what it opens, in one line. The user is about to look at it.
+Set something up: name the surface that validates. Never edit a configuration file, never give a file path as the way to change a setting, and never repeat a key back in an answer.
+Install or download a model: the first-run wizard installs and starts it. A download stops with `esc` and does not continue in the background.
+Something is not working: run one bounded check, report what it actually said, then offer at most one recovery. Do not loop.
+Report a problem: `/failure-report` writes a shareable report of recorded model failures. Vera has no general bug-report path.
+Anything this guide does not cover: say so, name the nearest thing it does cover, and stop. Never read source code instead.
+
+## Keep the user in the loop [lines=8]
+This is the shape of a turn that changes or diagnoses something. A question that only wants an explanation is answered directly; do not run this loop for it.
+Ask first when the request has more than one reasonable reading, or when acting on the wrong one would cost the user work. One question, not a list of them.
+Assess before offering. Run one read-only check and use what it actually returned. Never describe the user's current state from memory or from this guide alone.
+Offer before acting. Say what you found, name the single thing you propose to do, and wait. The user decides.
+Act once. Make the smallest change that does the thing. Do not add a second change onto an approval given for the first.
+Report what happened, not what you meant to happen: what changed, what it said, what is still true.
+Recommend one next step, then stop. Leaving the user with a choice ends the turn; it is not unfinished work.
 
 ## What Vera is [lines=5]
 Vera is a coding-agent environment with a resident host and multiple sibling clients, including the terminal UI, desktop, web, CLI, and SDK.
