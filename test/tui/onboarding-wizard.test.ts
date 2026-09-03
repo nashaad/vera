@@ -110,6 +110,27 @@ test("the model step offers jobs before model names", () => {
     expect(groups[1]?.rows.map((row) => row.id)).toEqual(["tiny"]);
 });
 
+test("a small Mac is still recommended Outrider, with the lite job first", () => {
+    const small = providerGroups(PROVIDERS, {
+        os: "darwin",
+        arch: "arm64",
+        memoryGb: 16,
+    });
+    expect(small[0]?.rows.map((row) => row.id)).toContain("outrider");
+    const screen = wizardScreen(COLD, {
+        ...newWizardSession("model"),
+        chosen: "outrider",
+        models: OUTRIDER_MODELS,
+    }, { os: "darwin", arch: "arm64", memoryGb: 16 });
+    const groups = screen.body.kind === "choice" ? screen.body.groups : [];
+    expect(groups[0]?.label).toBe("RECOMMENDED");
+    expect(groups[0]?.rows.map((row) => row.id)).toEqual(["granite4.2-3b"]);
+    expect(groups[1]?.label).toBe("WILL NOT FIT ON THIS MAC");
+    expect(groups[1]?.rows.map((row) => row.id)).toEqual(["qwen35b-mtp"]);
+    expect(groups[1]?.rows[0]?.note)
+        .toBe("needs 32 GB, this Mac has 16 GB");
+});
+
 test("a recommendation for a model the provider does not list is not offered", () => {
     const screen = wizardScreen(COLD, {
         ...newWizardSession("model"),

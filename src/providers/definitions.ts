@@ -57,6 +57,8 @@ export interface RecommendedModel {
     readonly role: RecommendedModelRole;
     readonly label: string;
     readonly reason: string;
+    /** A model this machine cannot run is ranked below the ones it can, never hidden. */
+    readonly requires?: ProviderRequirement;
 }
 
 export interface ProviderRequestOptionsDefinition {
@@ -373,12 +375,14 @@ function parseRecommendedModels(
         ) {
             throw new Error(`${context}: invalid recommend_models entry`);
         }
+        const requires = parseRequirement(entry.requires, context);
         return {
             id: entry.id,
             rank: entry.rank,
             role: entry.role,
             label: entry.label,
             reason: entry.reason,
+            ...(requires === undefined ? {} : { requires }),
         };
     });
 }

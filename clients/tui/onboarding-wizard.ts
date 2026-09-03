@@ -9,10 +9,14 @@ import {
 } from "../../src/providers/onboarding.ts";
 import {
     machineFacts,
+    meetsRequirement,
     recommendedProviders,
     type MachineFacts,
 } from "../../src/providers/recommendation.ts";
-import type { RecommendedModel } from "../../src/providers/definitions.ts";
+import type {
+    ProviderRequirement,
+    RecommendedModel,
+} from "../../src/providers/definitions.ts";
 import type { ProviderDescriptor } from "../../src/providers/registry.ts";
 import {
     handleOnboardingKey,
@@ -167,32 +171,81 @@ function modelRow(model: WizardModel): OnboardingChoiceRow {
 function recommendedModelRow(
     recommended: RecommendedModel,
     model: WizardModel,
+    note: string,
 ): OnboardingChoiceRow {
-    return {
-        id: model.id,
-        label: recommended.label,
-        detail: model.id,
-        note: recommended.reason,
-    };
+    return { id: model.id, label: recommended.label, detail: model.id, note };
 }
 
-/** Recommended jobs first, then the rest. A recommendation for a model this provider does not list is dropped rather than offered. */
+/** Why this machine falls short, in the terms the requirement itself is written in. */
+function shortfall(
+    requires: ProviderRequirement,
+    machine: MachineFacts,
+    here: string,
+): string {
+    const missing: string[] = [];
+    if (requires.os !== undefined && requires.os !== machine.os) {
+        missing.push(requires.os);
+    }
+    if (requires.arch !== undefined && requires.arch !== machine.arch) {
+        missing.push(requires.arch);
+    }
+    if (
+        requires.memory_gb !== undefined
+        && machine.memoryGb < requires.memory_gb
+    ) {
+        missing.push(
+            `${requires.memory_gb} GB, this ${here} has ${machine.memoryGb} GB`,
+        );
+    }
+    return `needs ${missing.join(", ")}`;
+}
+
+interface RecommendedPair {
+    readonly entry: RecommendedModel;
+    readonly model: WizardModel;
+}
+
+/** Recommended jobs first, then the rest. A recommendation for a model this provider does not list is dropped rather than offered, and one this machine cannot run is ranked below the ones it can and says why. */
 function modelGroups(
     provider: ProviderDescriptor | undefined,
     session: WizardSession,
+    machine: MachineFacts,
 ): readonly OnboardingChoiceGroup[] {
-    const recommended = [...provider?.recommendModels ?? []]
+    const here = machine.os === "darwin" ? "Mac" : "machine";
+    const pairs: readonly RecommendedPair[] = [...provider?.recommendModels ?? []]
         .sort((left, right) => left.rank - right.rank)
         .flatMap((entry) => {
             const model = session.models.find((row) => row.id === entry.id);
-            return model === undefined ? [] : [recommendedModelRow(entry, model)];
+            return model === undefined ? [] : [{ entry, model }];
         });
-    const promoted = new Set(recommended.map((row) => row.id));
+    const fits = (pair: RecommendedPair): boolean =>
+        meetsRequirement(pair.entry.requires, machine);
+    const groups: OnboardingChoiceGroup[] = [];
+    const fitting = pairs.filter(fits);
+    if (fitting.length !== 0) {
+        groups.push({
+            label: "RECOMMENDED",
+            rows: fitting.map((pair) =>
+                recommendedModelRow(pair.entry, pair.model, pair.entry.reason)
+            ),
+        });
+    }
+    const oversized = pairs.filter((pair) => !fits(pair));
+    if (oversized.length !== 0) {
+        groups.push({
+            label: `WILL NOT FIT ON THIS ${here.toUpperCase()}`,
+            rows: oversized.map((pair) =>
+                recommendedModelRow(
+                    pair.entry,
+                    pair.model,
+                    shortfall(pair.entry.requires ?? {}, machine, here),
+                )
+            ),
+        });
+    }
+    const promoted = new Set(pairs.map((pair) => pair.model.id));
     const rest = session.models.filter((model) => !promoted.has(model.id));
-    if (recommended.length === 0) return [{ rows: rest.map(modelRow) }];
-    const groups: OnboardingChoiceGroup[] = [
-        { label: "RECOMMENDED", rows: recommended },
-    ];
+    if (groups.length === 0) return [{ rows: rest.map(modelRow) }];
     if (rest.length !== 0) {
         groups.push({ label: "OTHER", rows: rest.map(modelRow) });
     }
@@ -286,7 +339,7 @@ export function wizardScreen(
             heading: "What should Vera run?",
             body: {
                 kind: "choice",
-                groups: modelGroups(provider, session),
+                groups: modelGroups(provider, session, machine),
                 enterHint: "connect",
                 ...(session.models.length >= SEARCHABLE_FROM
                     ? { query: session.query }
