@@ -1,7 +1,13 @@
 #!/usr/bin/env bun
 
+import { fileURLToPath } from "node:url";
+
 import { renderCliFailure } from "../cli/main.ts";
 import { loadOrCreateVeraConfig, VeraConfigError } from "../../src/config.ts";
+import {
+    processIsDevelopmentInstance,
+    registerDevInstance,
+} from "../../src/dev-instances.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
@@ -47,7 +53,22 @@ try {
 
 clearBootFailures();
 installLiveProcess("host");
+noteDevelopmentInstance();
 const removeCrashGuard = installHostCrashGuard();
 await runResidentHostProcess(host, {
     stopAbsorbingFaults: removeCrashGuard,
 });
+
+/**
+ * A candidate build gets its own home, so the homes outnumber the checkouts and
+ * outlive them. The pointer is what a sweep reads to find them.
+ */
+function noteDevelopmentInstance(): void {
+    try {
+        const source = fileURLToPath(import.meta.url);
+        if (!processIsDevelopmentInstance(source)) return;
+        registerDevInstance({ source });
+    } catch {
+        // A home that cannot be pointed at still has to serve.
+    }
+}
