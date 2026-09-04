@@ -172,3 +172,67 @@ function numberAt(value: number | string | undefined): number | undefined {
 function stringAt(value: number | string | undefined): string | undefined {
     return typeof value === "string" ? value : undefined;
 }
+
+/** What a config would hold for each lever once one more pick lands on it. */
+function configuredAfter(
+    rows: readonly OverrideRow[],
+    patch: OverridePick,
+): ConfiguredOverrides {
+    const configured: Record<string, number | string> = {};
+    for (const entry of rows) {
+        if (entry.source === "configured" && entry.value !== undefined) {
+            configured[entry.key] = entry.value;
+        }
+    }
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null || value === undefined) {
+            delete configured[key];
+        } else {
+            configured[key] = value;
+        }
+    }
+    return configured as ConfiguredOverrides;
+}
+
+function asBytes(value: number): string {
+    return `${Math.round(value / 1_024)}k`;
+}
+
+/** One pane pick: a value per lever it sets, or null to drop back to the shipped default. */
+export type OverridePick = {
+    readonly [K in OverrideKey]?: number | string | null;
+};
+
+/**
+ * Why a pick cannot stand beside the levers already set, or undefined when it
+ * can. Two levers that are each fine alone can contradict each other, and a
+ * config holding such a pair does not load at all, so the pane that offers
+ * both has to say no before the write rather than after it.
+ *
+ * The comparisons mirror the parsers exactly, including which side falls back
+ * to a default, so a pick this allows is a pick that loads.
+ */
+export function overrideConflict(
+    rows: readonly OverrideRow[],
+    patch: OverridePick,
+): string | undefined {
+    const configured = configuredAfter(rows, patch);
+    const target = numberAt(configured.postCompactionTargetFraction);
+    if (target !== undefined) {
+        const trigger = numberAt(configured.compactionTriggerFraction)
+            ?? COMPACTION_TRIGGER_FRACTION;
+        if (target >= trigger) {
+            return `A ${target.toFixed(2)} summary target is not under the`
+                + ` ${trigger.toFixed(2)} trigger.`;
+        }
+    }
+    const ceiling = numberAt(configured.toolResultCeilingBytes)
+        ?? TOOL_RESULT_CEILING_BYTES;
+    const total = numberAt(configured.toolResultTotalBudgetBytes)
+        ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
+    if (ceiling > total) {
+        return `A ${asBytes(total)} total budget is under the`
+            + ` ${asBytes(ceiling)} one-result ceiling.`;
+    }
+    return undefined;
+}

@@ -64,6 +64,7 @@ import {
     type TuiExtensionPickerState,
     type TuiExtensionPickerTransition,
     type TuiModelPickerTab,
+    type TuiPickerTipLine,
     type TuiSettingsPickerKey,
     type TuiSettingsPickerKind,
     type TuiSettingsPickerOption,
@@ -1119,13 +1120,18 @@ export type PickerDisplayRow =
         readonly index: number;
     };
 
+const TIP_LABELS: Record<TuiPickerTipLine["tone"], string> = {
+    tip: "Tip",
+    refusal: "Not set",
+};
+
 export function renderListPickerRows(
     renderer: RenderContext,
     box: BoxRenderable,
     state: TuiAnySettingsPickerState,
     nodes: Renderable[],
     pointer?: DialogRowPointer,
-    tip?: string,
+    tip?: string | TuiPickerTipLine,
     verification?: { readonly subject: string },
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
@@ -1623,12 +1629,17 @@ export function renderListPickerRows(
         }
     }
 
-    if (tip !== undefined && tip.length > 0) {
+    const tipLine: TuiPickerTipLine | undefined = typeof tip === "string"
+        ? { tone: "tip", text: tip }
+        : tip;
+    if (tipLine !== undefined && tipLine.text.length > 0) {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
                 { text: DIALOG_GUTTER } as TextChunk,
-                fg(TUI_ACCENT)("Tip "),
-                fg(TUI_MUTED)(tip),
+                fg(tipLine.tone === "tip" ? TUI_ACCENT : TUI_DANGER)(
+                    `${TIP_LABELS[tipLine.tone]} `,
+                ),
+                fg(TUI_MUTED)(tipLine.text),
             ]),
             width: "100%",
             height: 1,

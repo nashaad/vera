@@ -13,6 +13,7 @@ import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { saveTuiThemePreference } from "../theme-preference.ts";
 import type { TuiRuntime } from "./runtime.ts";
+import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { randomUUID } from "node:crypto";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
@@ -418,6 +419,29 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 rt.settingsPickerAgent,
             );
         } else if (selection.kind === "overrides") {
+            // A reset drops every lever at once, which no rule can refuse.
+            const valuePane = previousPicker?.kind === "override_value"
+                ? previousPicker
+                : undefined;
+            const refusal = valuePane === undefined || selection.patch === null
+                ? undefined
+                : overrideConflict(
+                    valuePane.overrides?.rows ?? [],
+                    selection.patch,
+                );
+            if (valuePane !== undefined && refusal !== undefined) {
+                // The pane stays open on the value that was turned down. A
+                // status notice would say this behind the picker covering it,
+                // and the user is looking at the list they must pick from.
+                rt.settingsPicker = valuePane;
+                rt.pickerTipKind = valuePane.kind;
+                rt.settingsPickerView.tip = { tone: "refusal", text: refusal };
+                rt.composer.blur();
+                rt.settingsPickerView.update(valuePane);
+                rt.settingsPickerView.focus();
+                renderState(rt);
+                return;
+            }
             requestModelSettingsChange(rt, 
                 { overrides: selection.patch },
                 overrideChangeLabel(selection.patch),
