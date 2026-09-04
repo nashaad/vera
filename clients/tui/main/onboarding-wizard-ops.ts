@@ -21,12 +21,14 @@ import {
     type OutriderProgress,
 } from "../../../src/providers/outrider.ts";
 import {
+    defaultOutriderDriver,
     installOutrider,
     mergeProgress,
     outriderPresence,
     outriderProfiles,
     rememberOutriderBinary,
     serveOutrider,
+    type OutriderDriver,
     type RuntimeCommand,
 } from "./outrider-ops.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
@@ -201,7 +203,7 @@ async function askRuntimeForProfiles(
     rt: TuiRuntime,
     provider: string,
 ): Promise<void> {
-    const roster = await outriderProfiles();
+    const roster = await outriderProfiles(outriderDriver(rt));
     const session = rt.onboardingWizard;
     if (session === undefined || session.chosen !== provider) return;
     fillWizardModels(rt, provider, roster);
@@ -371,7 +373,7 @@ async function checkRuntime(
     provider: string,
     said = "",
 ): Promise<void> {
-    const presence = await outriderPresence();
+    const presence = await outriderPresence(outriderDriver(rt));
     const session = rt.onboardingWizard;
     if (session === undefined || session.chosen !== provider) return;
     if (session.runtime?.state !== "checking") return;
@@ -400,7 +402,7 @@ function installRuntime(
     startWizardSpinner(rt);
     rt.onboardingRuntimeCommand = installOutrider((line) => {
         recordRuntimeProgress(rt, line);
-    });
+    }, outriderDriver(rt));
     const command = rt.onboardingRuntimeCommand;
     void command.finished.then(async (result) => {
         if (rt.onboardingRuntimeCommand !== command) return;
@@ -431,6 +433,10 @@ function installRuntime(
     });
 }
 
+function outriderDriver(rt: TuiRuntime): OutriderDriver {
+    return rt.dependencies.outrider ?? defaultOutriderDriver;
+}
+
 /** A local profile is not reachable until it is fetched and up, so the model step starts it before the same gate every other provider passes. */
 function startRuntimeProfile(
     rt: TuiRuntime,
@@ -447,7 +453,7 @@ function startRuntimeProfile(
     startWizardSpinner(rt);
     rt.onboardingRuntimeCommand = serveOutrider(profile, (line) => {
         recordRuntimeProgress(rt, line);
-    });
+    }, outriderDriver(rt));
     const command = rt.onboardingRuntimeCommand;
     void command.finished.then((result) => {
         if (rt.onboardingRuntimeCommand !== command) return;

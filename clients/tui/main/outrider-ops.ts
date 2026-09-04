@@ -65,6 +65,15 @@ export function runOutrider(
     return { finished, stop: () => child.kill() };
 }
 
+/** The two things driving Outrider needs from the machine: where the binary is, and a way to run it. A caller that supplies its own answers can exercise the install and serve paths without one on the machine. */
+export interface OutriderDriver {
+    binary(): string | undefined;
+    run(
+        command: readonly string[],
+        onProgress: (line: OutriderProgress) => void,
+    ): RuntimeCommand;
+}
+
 /** The path the last install reported. */
 let installedBinary: string | undefined;
 
@@ -96,37 +105,48 @@ export function outriderBinary(): string | undefined {
     return Bun.which(OUTRIDER_BINARY) ?? markedBinary();
 }
 
+export const defaultOutriderDriver: OutriderDriver = {
+    binary: outriderBinary,
+    run: runOutrider,
+};
+
 /** Where Outrider is. No binary anywhere is the one state Vera can act on by installing. */
-export async function outriderPresence(): Promise<OutriderPresence> {
-    const binary = outriderBinary();
+export async function outriderPresence(
+    driver: OutriderDriver = defaultOutriderDriver,
+): Promise<OutriderPresence> {
+    const binary = driver.binary();
     if (binary === undefined) return { state: "absent" };
-    const run = runOutrider(outriderStatusCommand(binary), () => {});
+    const run = driver.run(outriderStatusCommand(binary), () => {});
     const result = await run.finished;
     return result.ok ? readOutriderStatus(result.stdout) : { state: "stopped" };
 }
 
 /** The profiles this machine's Outrider will serve, or nothing when there is no binary to ask. */
-export async function outriderProfiles(): Promise<readonly string[]> {
-    const binary = outriderBinary();
+export async function outriderProfiles(
+    driver: OutriderDriver = defaultOutriderDriver,
+): Promise<readonly string[]> {
+    const binary = driver.binary();
     if (binary === undefined) return [];
-    const result = await runOutrider(outriderListCommand(binary), () => {})
+    const result = await driver.run(outriderListCommand(binary), () => {})
         .finished;
     return result.ok ? readOutriderProfiles(result.stdout) : [];
 }
 
 export function installOutrider(
     onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
 ): RuntimeCommand {
-    return runOutrider(outriderInstallCommand(), onProgress);
+    return driver.run(outriderInstallCommand(), onProgress);
 }
 
 /** One command fetches what is missing and brings the gateway up on that profile. */
 export function serveOutrider(
     profile: string,
     onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
 ): RuntimeCommand {
-    return runOutrider(
-        outriderServeCommand(profile, outriderBinary() ?? OUTRIDER_BINARY),
+    return driver.run(
+        outriderServeCommand(profile, driver.binary() ?? OUTRIDER_BINARY),
         onProgress,
     );
 }

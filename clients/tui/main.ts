@@ -7,6 +7,7 @@ import { installLiveProcess } from "../../src/live-process.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
 import { jumpMenuLines } from "./jump.ts";
+import type { OutriderDriver } from "./main/outrider-ops.ts";
 import { registerTuiParsers } from "./parsers.ts";
 import {
     createTuiFlightRecorder,
@@ -482,6 +483,8 @@ function tuiContextSnapshot(
 
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
+    /** How Outrider is found and run. Supplied by a test that has no binary on the machine. */
+    readonly outrider?: OutriderDriver;
     readonly appearance?: TuiAppearance;
     readonly copyText?: (text: string) => Promise<void>;
     readonly openConfigurationFile?: (path: string) => Promise<void>;
