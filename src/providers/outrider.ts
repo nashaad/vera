@@ -43,11 +43,23 @@ export function outriderCheckCommand(profile: string): readonly string[] {
     return [OUTRIDER_BINARY, "--json", "check", profile];
 }
 
-export const OUTRIDER_INSTALL_URL = "https://get.corvines.com/outrider";
+export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/outrider";
 
-/** The binary cannot place itself, so the one thing Vera does not get from the CLI is the CLI. */
+/** Where the installer is fetched from. `OUTRIDER_INSTALL_URL` points it at a local server, which is what makes the install path drivable before anything is published. */
+export function outriderInstallUrl(): string {
+    const override = process.env.OUTRIDER_INSTALL_URL;
+    return override === undefined || override === ""
+        ? OUTRIDER_INSTALL_URL_DEFAULT
+        : override;
+}
+
+/** Fetch first, then run, because a pipeline reports the exit status of its last command: `curl | sh` answers for the `sh`, which succeeds on empty input, so a download that never arrived reads as an install that worked. */
+const INSTALL_SCRIPT =
+    'set -e; f=$(mktemp); trap \'rm -f "$f"\' EXIT; curl -fsSL "$1" > "$f"; sh "$f"';
+
+/** The binary cannot place itself, so the one thing Vera does not get from the CLI is the CLI. The URL arrives as an argument rather than spliced into the script, so a value read from the environment stays a URL and cannot become a second command. */
 export function outriderInstallCommand(): readonly string[] {
-    return ["sh", "-c", `curl -fsSL ${OUTRIDER_INSTALL_URL} | sh`];
+    return ["sh", "-c", INSTALL_SCRIPT, "sh", outriderInstallUrl()];
 }
 
 interface StatusPayload {

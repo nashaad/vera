@@ -3,7 +3,9 @@ import { expect, test } from "bun:test";
 import {
     awaitingRuntime,
     downloadSize,
+    OUTRIDER_INSTALL_URL_DEFAULT,
     outriderInstallCommand,
+    outriderInstallUrl,
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
@@ -18,6 +20,38 @@ test("the commands are the ones the CLI actually has", () => {
     expect(outriderServeCommand("qwen35b-mtp"))
         .toEqual(["outrider", "--json", "serve", "qwen35b-mtp"]);
     expect(outriderInstallCommand()[0]).toBe("sh");
+});
+
+test("the install URL comes from the environment, and stays an argument", () => {
+    const before = process.env.OUTRIDER_INSTALL_URL;
+    try {
+        delete process.env.OUTRIDER_INSTALL_URL;
+        expect(outriderInstallUrl()).toBe(OUTRIDER_INSTALL_URL_DEFAULT);
+
+        process.env.OUTRIDER_INSTALL_URL = "http://127.0.0.1:8000/install.sh";
+        const local = outriderInstallCommand();
+        expect(local[0]).toBe("sh");
+        expect(local[1]).toBe("-c");
+        expect(local.at(-1)).toBe("http://127.0.0.1:8000/install.sh");
+        // The download lands in a file that is run afterwards. Piped straight
+        // into sh, the pipeline would answer for the sh, which succeeds on the
+        // empty input a failed download leaves behind.
+        expect(local[2]).toContain("set -e");
+        expect(local[2]).not.toMatch(/curl[^;]*\|\s*sh/);
+
+        // A URL spliced into the script would put everything after the
+        // semicolon on the command line. As an argument it is one string.
+        process.env.OUTRIDER_INSTALL_URL = "http://x/i.sh; echo pwned";
+        const command = outriderInstallCommand();
+        expect(command.at(-1)).toBe("http://x/i.sh; echo pwned");
+        expect(command[2]).not.toContain("pwned");
+
+        process.env.OUTRIDER_INSTALL_URL = "";
+        expect(outriderInstallUrl()).toBe(OUTRIDER_INSTALL_URL_DEFAULT);
+    } finally {
+        if (before === undefined) delete process.env.OUTRIDER_INSTALL_URL;
+        else process.env.OUTRIDER_INSTALL_URL = before;
+    }
 });
 
 test("a healthy running gateway is the only thing that reads as running", () => {
@@ -170,3 +204,4 @@ test("a report that is not JSON leaves no verdict to act on", () => {
     expect(partial.verdict).toBe("ready");
     expect(partial.checks).toEqual([]);
 });
+
