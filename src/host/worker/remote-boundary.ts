@@ -35,6 +35,7 @@ import type {
 } from "./start.ts";
 import { bindRemoteCompaction, type CompactionWireSpec } from
     "../../engine/compaction-binding.ts";
+import type { ToolResultLimits } from "../../engine/tool-result-history.ts";
 import {
     CompletionUnavailableError,
     type CompleteText,
@@ -51,6 +52,7 @@ export interface RemoteHostBoundaryOptions {
     readonly localExtensionTools?: readonly RegisteredTool[];
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
+    readonly toolResults?: ToolResultLimits;
 }
 
 export interface RemoteHostBoundary {
@@ -279,6 +281,9 @@ export function createRemoteHostBoundary(
             ...(reviewLog === undefined ? {} : { reviewLog }),
             ...(extensionTools.length === 0 ? {} : { extensionTools }),
             ...(compaction === undefined ? {} : { compaction }),
+            ...(options.toolResults === undefined
+                ? {}
+                : { toolResults: options.toolResults }),
             router: {
                 ...(capabilities.selectAgent
                     ? {

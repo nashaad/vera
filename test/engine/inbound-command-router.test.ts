@@ -1577,6 +1577,35 @@ test("a failed model settings write rejects without stopping later commands", as
     });
 });
 
+test("override rows reach the client, not just the numbers beside them", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const rows = [
+        { key: "summaryWordCap", value: 250, source: "configured" },
+        {
+            key: "compactionTargetTokens",
+            source: "default",
+            inert: "the window is known, so the target is a share of it",
+        },
+    ] as const;
+    new InboundCommandRouter(channel.engine, events, {
+        readModelSettings: () => ({
+            model: "current-model",
+            overrides: { rows },
+        }),
+    });
+
+    channel.client.send({ type: "get_model_settings", requestId: "read" });
+
+    // A settings pane with no rows shows every lever as unset, which reads as
+    // a config that was ignored.
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings",
+        settings: { overrides: { rows } },
+    });
+});
+
 test("a catalog refresh reports the new settings, and no owner rejects it", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

@@ -946,6 +946,9 @@ export class AgentRegistry {
                 get compaction() {
                     return boundCompaction();
                 },
+                ...(this.options.toolResults === undefined
+                    ? {}
+                    : { toolResults: this.options.toolResults }),
                 applyToolEffect,
                 requestMissingSubagentConfiguration:
                     (request, context, signal) =>
@@ -1003,7 +1006,7 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
-                    this.options.developerSettings?.(),
+                    this.options.configuredOverrides?.(),
                     store.header.cwd,
                     this.options.refreshableProviders?.(),
                 ),

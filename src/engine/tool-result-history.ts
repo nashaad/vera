@@ -44,6 +44,19 @@ export function toolResultAgingLevel(
     return "tight";
 }
 
+/**
+ * What a config says about tool result size, in engine terms. Kept together
+ * because the two ends are one decision: a per-result ceiling that lets one
+ * result through is pointless if the combined budget rejects it anyway.
+ */
+export interface ToolResultLimits {
+    readonly ceilingBytes?: number;
+    readonly totalBudgetBytes?: number;
+    readonly stubAfterTurns?: number;
+    /** Undefined leaves the row to be chosen by the window. */
+    readonly agingLevel?: ToolResultAgingLevel;
+}
+
 export interface ToolResultAgingPolicy {
     readonly capacity?: number;
     readonly overheadTokens?: number;

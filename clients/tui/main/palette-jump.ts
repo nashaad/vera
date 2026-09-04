@@ -7,7 +7,7 @@ import { openPreferencesList, openReviewerMenu, openReviewerPicker, openThemePic
 import { openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
-import { startTuiContextLimitPicker, startTuiDeveloperMenu, startTuiDeveloperValuePicker, startTuiSettingsMenu, withTuiPickerParent, type TuiSettingsMenuTarget, type TuiSettingsPickerState } from "../settings-picker.ts";
+import { startTuiContextLimitPicker, startTuiOverridesMenu, startTuiOverrideValuePicker, startTuiSettingsMenu, withTuiPickerParent, type TuiSettingsMenuTarget, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, fg } from "@opentui/core";
@@ -34,19 +34,19 @@ export function openSettingsMenuTarget(rt: TuiRuntime,
         focusActiveSurface(rt);
         return;
     }
-    if (target === "developer") {
+    if (target === "overrides") {
         rt.settingsPicker = withTuiPickerParent(
-            startTuiDeveloperMenu(rt.state.modelSettings?.developer),
+            startTuiOverridesMenu(rt.state.modelSettings?.overrides),
             parent,
         );
         renderState(rt);
         focusActiveSurface(rt);
         return;
     }
-    if (target.startsWith("developer_")) {
-        const pane = startTuiDeveloperValuePicker(
+    if (target.startsWith("override_")) {
+        const pane = startTuiOverrideValuePicker(
             target,
-            rt.state.modelSettings?.developer,
+            rt.state.modelSettings?.overrides,
         );
         if (pane !== undefined) {
             rt.settingsPicker = withTuiPickerParent(pane, parent);

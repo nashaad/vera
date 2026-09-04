@@ -74,13 +74,14 @@ Project instruction files, selected-agent instructions, memory, imports, and sta
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 Use `/context` to see which instruction sources are loaded and how much of the model window they consume.
 
-## Context and bounded research [lines=7]
+## Context and bounded research [lines=8]
 Use `/context all` to inspect individual message and tool-result sizes. A single large read can dominate the working window.
 For a known product question, consult this file first. Do not read configuration or provider implementation files to rediscover documented behavior.
 Search headings before reading a long document. Read the smallest relevant section or a bounded line range.
 If one bounded lookup does not establish the answer, state what is missing or hand off. Do not enter an open-ended source-research loop.
 Smaller models should run with shorter fresh context and earlier compaction. Prefer a stronger dedicated compactor or deterministic summary so confusion is not preserved.
 Tool results should be visibly bounded, truncated, or paginated. Oversized output must not silently consume the session.
+How much context Vera keeps is configurable: `/settings` then Overrides, or `context_limit` and the `compaction` and `tool_results` blocks in the config. A lever the current model's window leaves unused is labelled inert rather than hidden.
 
 ## Diagnostics and recovery [lines=6]
 `/diagnostics` and `/doctor` inspect the current runtime. `/context` explains context occupancy without making a model request.

@@ -6,6 +6,7 @@ import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { HostBoundaryOffers } from "../../engine/host-boundary.ts";
 import type { LoopState } from "../../engine/host-protocol.ts";
 import type { CompactionWireSpec } from "../../engine/compaction-binding.ts";
+import type { ToolResultLimits } from "../../engine/tool-result-history.ts";
 import type { RunHeadlessLoopData } from "../../engine/loop-services.ts";
 
 export interface WorkerAdapterSpec {
@@ -50,6 +51,7 @@ export interface WorkerStartNotification {
     readonly state: LoopState;
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
+    readonly toolResults?: ToolResultLimits;
 }
 
 export interface ClientUpdateNotification {

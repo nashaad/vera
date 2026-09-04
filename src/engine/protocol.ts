@@ -15,14 +15,14 @@ import type {
     ToolPresentation,
 } from "../model/types.ts";
 import type {
-    DeveloperSettingsPatch,
+    OverrideSettingsPatch,
     ModelSettingsPatch,
     ModelTurnSettings,
     ReviewerSettingsPatch,
 } from "./model-settings.ts";
 import {
     contextWindowForModel,
-    isDeveloperSettingsPatch,
+    isOverrideSettingsPatch,
     isReviewerSettingsPatch,
 } from "./model-settings.ts";
 import {
@@ -1557,10 +1557,10 @@ function parseModelSettingsPatch(
     const hasReasoningEffort = Object.hasOwn(source, "reasoningEffort");
     const hasContextLimit = Object.hasOwn(source, "contextLimit");
     const hasReviewer = Object.hasOwn(source, "reviewer");
-    const hasDeveloper = Object.hasOwn(source, "developer");
+    const hasOverrides = Object.hasOwn(source, "overrides");
     if (
         (!hasProvider && !hasModel && !hasReasoningEffort && !hasContextLimit
-            && !hasReviewer && !hasDeveloper)
+            && !hasReviewer && !hasOverrides)
         || (hasProvider
             && (typeof source.provider !== "string"
                 || source.provider.trim().length === 0))
@@ -1577,9 +1577,9 @@ function parseModelSettingsPatch(
         || (hasReviewer
             && source.reviewer !== null
             && !isReviewerSettingsPatch(source.reviewer))
-        || (hasDeveloper
-            && source.developer !== null
-            && !isDeveloperSettingsPatch(source.developer))
+        || (hasOverrides
+            && source.overrides !== null
+            && !isOverrideSettingsPatch(source.overrides))
     ) {
         return undefined;
     }
@@ -1596,10 +1596,10 @@ function parseModelSettingsPatch(
         ...(model === undefined ? {} : { model }),
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         ...(contextLimit === undefined ? {} : { contextLimit }),
-        ...(hasDeveloper
+        ...(hasOverrides
             ? {
-                developer: source.developer as
-                    | DeveloperSettingsPatch
+                overrides: source.overrides as
+                    | OverrideSettingsPatch
                     | null,
             }
             : {}),

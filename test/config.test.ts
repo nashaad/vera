@@ -10,8 +10,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { catalogMaxAgeMs } from "../src/host/runtime.ts";
 import { DEFAULT_CATALOG_MAX_AGE_MS } from "../src/model/catalog-cache.ts";
+import { OVERRIDE_KEYS } from "../src/engine/override-rows.ts";
 
 import {
+    configuredCompaction,
     configuredModelFallback,
     configuredReviewer,
     configuredReviewers,
@@ -19,7 +21,10 @@ import {
     eventLogEnabled,
     loadOptionalVeraConfig,
     loadOrCreateVeraConfig,
-    developerOverrides,
+    configuredCompactionOverrides,
+    configuredToolResults,
+    configuredOverrides,
+    overridePatchDefaults,
     loadVeraConfig,
     updateVeraConfigDefaults,
     type VeraConfig,
@@ -1475,25 +1480,376 @@ test("Vera config rejects a catalog max age that is not a count", () => {
     }
 });
 
-test("developer overrides merge field by field and read as off until enabled", () => {
+test("a tool result patch merges field by field", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
     }));
 
-    updateVeraConfigDefaults({ developer: { context_limit: 8_192 } }, { path });
-    const stored = loadVeraConfig({ path });
-    expect(stored.developer).toEqual({ context_limit: 8_192 });
-    // Written but not in force: nothing reads an override while the block is
-    // off, which is what makes turning it off one move rather than four.
-    expect(developerOverrides(stored)).toBeUndefined();
+    updateVeraConfigDefaults({ tool_results: { ceiling_bytes: 8_192 } }, { path });
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ ceiling_bytes: 8_192 });
 
-    updateVeraConfigDefaults({ developer: { enabled: true } }, { path });
-    const enabled = loadVeraConfig({ path });
-    expect(developerOverrides(enabled))
-        .toEqual({ context_limit: 8_192, enabled: true });
+    updateVeraConfigDefaults({ tool_results: { aging_level: "tight" } }, { path });
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ ceiling_bytes: 8_192, aging_level: "tight" });
 
-    updateVeraConfigDefaults({ developer: { context_limit: null } }, { path });
-    expect(loadVeraConfig({ path }).developer).toEqual({ enabled: true });
+    updateVeraConfigDefaults({ tool_results: { ceiling_bytes: null } }, { path });
+    expect(loadVeraConfig({ path }).tool_results).toEqual({ aging_level: "tight" });
+});
+
+test("configured overrides carry only what the config wrote", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        context_limit: 32_768,
+        compaction: { trigger_fraction: 0.6 },
+        tool_results: { ceiling_bytes: 8_192, aging_level: "auto" },
+    }));
+
+    // `auto` is what a session does with nothing set, so it is not a value the
+    // pane should show as chosen.
+    expect(configuredOverrides(loadVeraConfig({ path }))).toEqual({
+        contextLimit: 32_768,
+        compactionTriggerFraction: 0.6,
+        toolResultCeilingBytes: 8_192,
+    });
+});
+
+test("an override patch lands in the blocks its levers belong to", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+
+    updateVeraConfigDefaults(
+        overridePatchDefaults({
+            contextLimit: 32_768,
+            compactionTriggerFraction: 0.6,
+            summaryWordCap: 500,
+            toolResultCeilingBytes: 8_192,
+            toolResultAgingLevel: "tight",
+        }),
+        { path },
+    );
+
+    expect(configuredOverrides(loadVeraConfig({ path }))).toEqual({
+        contextLimit: 32_768,
+        compactionTriggerFraction: 0.6,
+        summaryWordCap: 500,
+        toolResultCeilingBytes: 8_192,
+        toolResultAgingLevel: "tight",
+    });
+});
+
+test("a reset clears every lever and leaves the rest of the config alone", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        context_limit: 32_768,
+        approval_mode: "ask",
+        models: [{ provider: "openrouter", model: "anthropic/claude-opus-4.8" }],
+        model_routes: { summarizer: ["anthropic_claude_opus_4_8_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+            trigger_fraction: 0.6,
+        },
+        tool_results: { ceiling_bytes: 8_192 },
+    }));
+
+    const cleared: Record<string, null> = {};
+    for (const key of OVERRIDE_KEYS) {
+        cleared[key] = null;
+    }
+    updateVeraConfigDefaults(overridePatchDefaults(cleared), { path });
+
+    const config = loadVeraConfig({ path });
+    expect(configuredOverrides(config)).toEqual({});
+    // The strategy is a binding, not a number, so a reset must not unbind it.
+    expect(config.compaction?.strategy).toBe("vera/full-summary");
+    expect(config.approval_mode).toBe("ask");
+});
+
+test("tool result limits load as written", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: {
+            ceiling_bytes: 32_768,
+            total_budget_bytes: 262_144,
+            stub_after_turns: 5,
+            aging_level: "tight",
+        },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results).toEqual({
+        ceiling_bytes: 32_768,
+        total_budget_bytes: 262_144,
+        stub_after_turns: 5,
+        aging_level: "tight",
+    });
+});
+
+test("an absent tool result block leaves the key off the config", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results).toBeUndefined();
+});
+
+test("a partial tool result block keeps only the keys it names", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { stub_after_turns: 0 },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ stub_after_turns: 0 });
+});
+
+test("Vera config rejects unusable tool result limits", () => {
+    // The control: without it every case below passes on a parser that
+    // rejects everything.
+    const accepted = temporaryConfigPath();
+    writeFileSync(accepted, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { ceiling_bytes: 1 },
+    }));
+    expect(loadVeraConfig({ path: accepted }).tool_results)
+        .toEqual({ ceiling_bytes: 1 });
+
+    const rejected: readonly unknown[] = [
+        [],
+        "tight",
+        { ceiling_bytes: 0 },
+        { ceiling_bytes: 1.5 },
+        { ceiling_bytes: "65536" },
+        { total_budget_bytes: -1 },
+        { stub_after_turns: -1 },
+        { stub_after_turns: 2.5 },
+        { aging_level: "loose" },
+        { aging_level: 3 },
+        { ceiling_bytes: 262_144, total_budget_bytes: 131_072 },
+        { ceiling_bytes: Number.MAX_SAFE_INTEGER + 1 },
+        { stub_after_turns: Number.MAX_SAFE_INTEGER + 1 },
+        // Each alone contradicts the other's standing value: the ceiling is
+        // 64 KiB and the budget for all results together is 128 KiB.
+        { ceiling_bytes: 200_000 },
+        { total_budget_bytes: 32_768 },
+    ];
+
+    for (const tool_results of rejected) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            tool_results,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
+test("a ceiling equal to the whole budget is allowed", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { ceiling_bytes: 65_536, total_budget_bytes: 65_536 },
+    }));
+
+    expect(loadVeraConfig({ path }).tool_results)
+        .toEqual({ ceiling_bytes: 65_536, total_budget_bytes: 65_536 });
+});
+
+test("a numbers-only compaction block survives a full config load", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        compaction: {
+            trigger_fraction: 0.7,
+            target_fraction: 0.4,
+            min_summary_tokens: 500,
+            max_attempts: 2,
+            summary_word_cap: 2_000,
+            assumed_window_tokens: 64_000,
+            unknown_target_fraction: 0.3,
+        },
+    }));
+
+    const loaded = loadVeraConfig({ path });
+    expect(loaded.compaction).toEqual({
+        trigger_fraction: 0.7,
+        target_fraction: 0.4,
+        min_summary_tokens: 500,
+        max_attempts: 2,
+        summary_word_cap: 2_000,
+        assumed_window_tokens: 64_000,
+        unknown_target_fraction: 0.3,
+    });
+    // Numbers alone bind no strategy, so the session keeps the compaction it
+    // would have run anyway.
+    expect(configuredCompaction(loaded)).toBeUndefined();
+});
+
+test("an unrelated write leaves a stored compaction block alone", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        compaction: { trigger_fraction: 0.7 },
+        tool_results: { stub_after_turns: 4 },
+    }));
+
+    updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+    const reloaded = loadVeraConfig({ path });
+    expect(reloaded.model).toBe("anthropic/other-model");
+    expect(reloaded.compaction).toEqual({ trigger_fraction: 0.7 });
+    expect(reloaded.tool_results).toEqual({ stub_after_turns: 4 });
+});
+
+test("a written compaction number leaves the strategy and its routes alone", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{ provider: "openrouter", model: "anthropic/claude-opus-4.8" }],
+        model_routes: { summarizer: ["anthropic_claude_opus_4_8_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+            trigger_fraction: 0.7,
+        },
+    }));
+
+    updateVeraConfigDefaults({ compaction: { summary_word_cap: 300 } }, {
+        path,
+    });
+
+    // Retuning a number must not unbind the models compaction runs on.
+    expect(loadVeraConfig({ path }).compaction).toEqual({
+        strategy: "vera/full-summary",
+        models: { summarizer: "summarizer" },
+        trigger_fraction: 0.7,
+        summary_word_cap: 300,
+    });
+
+    updateVeraConfigDefaults({ compaction: { trigger_fraction: null } }, {
+        path,
+    });
+    expect(loadVeraConfig({ path }).compaction?.trigger_fraction)
+        .toBeUndefined();
+});
+
+test("compaction numbers retune the scheduler on their own", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        compaction: {
+            trigger_fraction: 0.6,
+            trigger_tokens: 40_000,
+            target_tokens: 12_000,
+            target_fraction: 0.3,
+            summary_word_cap: 400,
+            retained_user_turns: 5,
+        },
+    }));
+
+    // Developer mode decides what a pane shows, not which numbers are live.
+    expect(configuredCompactionOverrides(loadVeraConfig({ path }))).toEqual({
+        triggerFraction: 0.6,
+        triggerTokens: 40_000,
+        targetTokens: 12_000,
+        postCompactionTargetFraction: 0.3,
+        summaryWordCap: 400,
+        retainedUserTurns: 5,
+    });
+});
+
+test("tool result limits reach the engine in its own terms", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: {
+            ceiling_bytes: 16_384,
+            total_budget_bytes: 49_152,
+            stub_after_turns: 1,
+            aging_level: "tight",
+        },
+    }));
+
+    expect(configuredToolResults(loadVeraConfig({ path }))).toEqual({
+        ceilingBytes: 16_384,
+        totalBudgetBytes: 49_152,
+        stubAfterTurns: 1,
+        agingLevel: "tight",
+    });
+});
+
+test("an auto aging level leaves the row to the window", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: { aging_level: "auto", stub_after_turns: 0 },
+    }));
+
+    // `auto` is the absence of a choice, so it must not pin a row.
+    expect(configuredToolResults(loadVeraConfig({ path }))).toEqual({
+        stubAfterTurns: 0,
+    });
+});
+
+test("an empty tool result block limits nothing", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        tool_results: {},
+    }));
+
+    expect(configuredToolResults(loadVeraConfig({ path }))).toBeUndefined();
+});
+
+test("a compaction block with no numbers overrides nothing", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        models: [{ provider: "openrouter", model: "anthropic/claude-opus-4.8" }],
+        model_routes: { summarizer: ["anthropic_claude_opus_4_8_openrouter"] },
+        reviewer_profiles: {},
+        compaction: {
+            strategy: "vera/full-summary",
+            models: { summarizer: "summarizer" },
+        },
+    }));
+
+    expect(configuredCompactionOverrides(loadVeraConfig({ path })))
+        .toBeUndefined();
+
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(configuredCompactionOverrides(loadVeraConfig({ path: bare })))
+        .toBeUndefined();
 });

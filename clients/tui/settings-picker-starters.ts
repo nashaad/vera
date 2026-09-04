@@ -36,12 +36,16 @@ import {
     type VeraProviderProtocol,
 } from "../../src/config.ts";
 import type {
-    DeveloperSettings,
-    DeveloperSettingsPatch,
+    OverrideSettings,
+    OverrideSettingsPatch,
     ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
+import type {
+    OverrideKey,
+    OverrideRow,
+} from "../../src/engine/override-rows.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     TUI_ACCENT,
@@ -112,7 +116,8 @@ import {
     TUI_PROVIDER_GROUP_RANK,
     type TuiAssignmentParentModel,
     type TuiConfigureFile,
-    type TuiDeveloperKey,
+    overrideMenuTarget,
+    type OverrideMenuTarget,
     type TuiExtensionPickerAction,
     type TuiExtensionPickerRow,
     type TuiExtensionPickerState,
@@ -127,6 +132,7 @@ import {
     type TuiSettingsPickerSelection,
     type TuiSettingsPickerState,
     tuiPickerMenuAncestor,
+    OVERRIDES_RESET_VALUE,
 } from "./settings-picker-types.ts";
 
 import {
@@ -416,16 +422,12 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         searchText: "effort think",
     },
     {
-        value: "context_limit",
-        label: "Context limit",
-        description: "maximum conversation context across models",
-        searchText: "tokens window memory cap",
-    },
-    {
-        value: "developer",
-        label: "Developer",
-        description: "overrides for testing Vera itself",
-        searchText: "debug override compaction window",
+        value: "overrides",
+        label: "Overrides",
+        description: "how much context Vera keeps, and when it summarises",
+        searchText:
+            "developer debug compaction window tool result levers"
+            + " context limit tokens memory cap",
     },
     {
         value: "permissions",
@@ -444,6 +446,10 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
 
 export const CONTEXT_LIMIT_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "auto", label: "Auto", description: "use each model's maximum" },
+    { value: "8192", label: "8k", description: "compacts within a few turns" },
+    { value: "16384", label: "16k", description: "compacts within a short session" },
+    { value: "32768", label: "32k", description: "compacts after real work" },
+    { value: "65536", label: "64k", description: "the smallest window a model is happy in" },
     { value: "131072", label: "128k", description: "smaller, more frequent summaries" },
     { value: "204800", label: "200k", description: "balanced context ceiling" },
     { value: "262144", label: "256k", description: "extended context" },
@@ -467,51 +473,104 @@ export function startTuiContextLimitPicker(
     };
 }
 
-export interface DeveloperValueRow {
-    readonly key: TuiDeveloperKey;
-    readonly target: TuiSettingsMenuTarget;
+export interface OverrideValueRow {
+    readonly key: OverrideKey;
+    readonly target: OverrideMenuTarget;
     readonly label: string;
-    readonly description: string;
+    /** The trailing column, for a terminal too narrow for the detail pane. */
+    readonly means: string;
+    /** What the lever does, for the pane beside the list. */
+    readonly detail: string;
     readonly options: readonly TuiSettingsPickerOption[];
-    readonly format: (value: number) => string;
+    readonly format: (value: number | string) => string;
 }
 
-export const DEVELOPER_VALUE_ROWS: readonly DeveloperValueRow[] = [
+const OFF: TuiSettingsPickerOption = {
+    value: "default",
+    label: "Default",
+    description: "use the value Vera ships with",
+};
+
+function bytes(value: number | string): string {
+    return typeof value === "number"
+        ? `${Math.round(value / 1_024)}k`
+        : String(value);
+}
+
+function plain(value: number | string): string {
+    return String(value);
+}
+
+function ratio(value: number | string): string {
+    return typeof value === "number" ? value.toFixed(2) : String(value);
+}
+
+export const OVERRIDE_VALUE_ROWS: readonly OverrideValueRow[] = [
     {
         key: "contextLimit",
-        target: "developer_context_limit",
+        target: overrideMenuTarget("contextLimit"),
         label: "Context limit",
-        description: "windows below what the normal setting offers",
-        format: (value) => `${Math.round(value / 1_024)}k`,
-        options: [
-            { value: "default", label: "Off", description: "use the normal context limit" },
-            { value: "8192", label: "8k", description: "compacts within a few turns" },
-            { value: "16384", label: "16k", description: "compacts within a short session" },
-            { value: "32768", label: "32k", description: "compacts after real work" },
-            { value: "65536", label: "64k", description: "smallest window a model is happy in" },
-        ],
+        means: "the window every fraction below is a share of",
+        detail:
+            "How much of the model's window Vera will use. Every fraction here is a share of this. Unset, Vera uses the window the model declares, and a model that declares none leaves the fractions with nothing to divide.",
+        format: bytes,
+        options: CONTEXT_LIMIT_OPTIONS,
     },
     {
         key: "compactionTriggerFraction",
-        target: "developer_compaction_trigger",
+        target: overrideMenuTarget("compactionTriggerFraction"),
         label: "Compaction trigger",
-        description: "share of the window that fires a compaction",
-        format: (value) => value.toFixed(2),
+        means: "share of the window that fires a compaction",
+        detail:
+            "How full the window gets before Vera summarises. At 0.82, a 200k window compacts near 164k.",
+        format: ratio,
         options: [
-            { value: "default", label: "Off", description: "use the configured trigger" },
+            OFF,
             { value: "0.3", label: "0.30", description: "fires early" },
             { value: "0.5", label: "0.50", description: "fires at half" },
             { value: "0.7", label: "0.70", description: "fires late" },
+            { value: "0.82", label: "0.82", description: "what Vera ships with" },
+        ],
+    },
+    {
+        key: "compactionTriggerTokens",
+        target: overrideMenuTarget("compactionTriggerTokens"),
+        label: "Compaction trigger tokens",
+        means: "a fixed token count that fires a compaction",
+        detail:
+            "A fixed token count that fires a compaction whatever the window is. This is what a model with no declared window falls back on.",
+        format: plain,
+        options: [
+            OFF,
+            { value: "8000", label: "8000", description: "fires inside a short session" },
+            { value: "24000", label: "24000", description: "fires after real work" },
+            { value: "100000", label: "100000", description: "what an unknown window uses" },
+        ],
+    },
+    {
+        key: "compactionTargetTokens",
+        target: overrideMenuTarget("compactionTargetTokens"),
+        label: "Compaction target tokens",
+        means: "how small a summary lands, when the window is unknown",
+        detail:
+            "How small the summary has to land, counted in tokens. Only read when the window is unknown: with a window, the target is a share of it instead.",
+        format: plain,
+        options: [
+            OFF,
+            { value: "4000", label: "4000", description: "a short note" },
+            { value: "12000", label: "12000", description: "a fuller note" },
         ],
     },
     {
         key: "postCompactionTargetFraction",
-        target: "developer_target_fraction",
+        target: overrideMenuTarget("postCompactionTargetFraction"),
         label: "Post-compaction target",
-        description: "share of the window a summary lands under",
-        format: (value) => value.toFixed(2),
+        means: "share of the window a summary lands under",
+        detail:
+            "How much of the window is still in use once a summary lands. At 0.45, a 200k window comes back near 90k.",
+        format: ratio,
         options: [
-            { value: "default", label: "Off", description: "use the built-in 0.45" },
+            OFF,
             { value: "0.2", label: "0.20", description: "a much smaller note" },
             { value: "0.45", label: "0.45", description: "what Vera ships with" },
             { value: "0.6", label: "0.60", description: "a longer note" },
@@ -519,70 +578,205 @@ export const DEVELOPER_VALUE_ROWS: readonly DeveloperValueRow[] = [
     },
     {
         key: "summaryWordCap",
-        target: "developer_summary_words",
+        target: overrideMenuTarget("summaryWordCap"),
         label: "Summary word cap",
-        description: "the most words a note is asked for",
-        format: (value) => String(value),
+        means: "the most words a summary is asked for",
+        detail:
+            "The most words a summary is asked for. Lower is blunter, and cheaper to carry for the rest of the session.",
+        format: plain,
         options: [
-            { value: "default", label: "Off", description: "use the built-in 3000" },
+            OFF,
             { value: "250", label: "250", description: "short enough to read whole" },
-            { value: "750", label: "750" , description: "a page" },
+            { value: "750", label: "750", description: "a page" },
             { value: "3000", label: "3000", description: "what Vera ships with" },
+        ],
+    },
+    {
+        key: "retainedUserTurns",
+        target: overrideMenuTarget("retainedUserTurns"),
+        label: "Retained user turns",
+        means: "turns kept verbatim behind the summary",
+        detail:
+            "How many of your most recent turns survive a compaction word for word, sitting behind the summary.",
+        format: plain,
+        options: [
+            OFF,
+            { value: "1", label: "1", description: "the last turn only" },
+            { value: "2", label: "2", description: "what Vera ships with" },
+            { value: "4", label: "4", description: "more recent history kept" },
+        ],
+    },
+    {
+        key: "toolResultCeilingBytes",
+        target: overrideMenuTarget("toolResultCeilingBytes"),
+        label: "Tool result ceiling",
+        means: "the most one tool result may carry",
+        detail:
+            "The most one tool result may carry into the conversation. A longer one is cut, and the whole result stays on disk for the agent to read back.",
+        format: bytes,
+        options: [
+            OFF,
+            { value: "8192", label: "8k", description: "small models see a page at a time" },
+            { value: "16384", label: "16k", description: "a long file is still cut" },
+            { value: "65536", label: "64k", description: "what Vera ships with" },
+        ],
+    },
+    {
+        key: "toolResultTotalBudgetBytes",
+        target: overrideMenuTarget("toolResultTotalBudgetBytes"),
+        label: "Tool result budget",
+        means: "the most every carried result may add up to",
+        detail:
+            "The most every carried tool result may add up to. Past it, the oldest results are replaced by stubs to make room.",
+        format: bytes,
+        options: [
+            OFF,
+            { value: "16384", label: "16k", description: "results are stubbed early" },
+            { value: "49152", label: "48k", description: "a middle budget" },
+            { value: "131072", label: "128k", description: "what Vera ships with" },
+        ],
+    },
+    {
+        key: "toolResultStubAfterTurns",
+        target: overrideMenuTarget("toolResultStubAfterTurns"),
+        label: "Stub after turns",
+        means: "turns a result stays whole before it may be stubbed",
+        detail:
+            "How many turns a tool result stays whole before it may become a stub. It follows the aging level unless you set it yourself.",
+        format: plain,
+        options: [
+            OFF,
+            { value: "1", label: "1", description: "stubs almost at once" },
+            { value: "3", label: "3", description: "what a normal window uses" },
+            { value: "5", label: "5", description: "what a large window uses" },
+        ],
+    },
+    {
+        key: "toolResultAgingLevel",
+        target: overrideMenuTarget("toolResultAgingLevel"),
+        label: "Aging level",
+        means: "which row of the aging ladder a session uses",
+        detail:
+            "How hard Vera pushes old tool results out of the conversation. Auto picks the row from the window: relaxed above 400k, normal above 128k, tight below that.",
+        format: plain,
+        options: [
+            { value: "auto", label: "Auto", description: "pick the row from the window" },
+            { value: "relaxed", label: "Relaxed", description: "ages late, keeps reads whole" },
+            { value: "normal", label: "Normal", description: "ages at three turns" },
+            { value: "tight", label: "Tight", description: "ages at the lowest gate" },
         ],
     },
 ];
 
-export function startTuiDeveloperMenu(
-    developer: DeveloperSettings | undefined,
-): TuiSettingsPickerState {
-    const enabled = developer?.enabled === true;
-    const options: TuiSettingsPickerOption[] = [{
-        value: enabled ? "developer_enabled_off" : "developer_enabled_on",
-        label: enabled ? "Turn off" : "Turn on",
-        description: enabled
-            ? "restore every normal setting at once"
-            : "let the overrides below take effect",
-    }];
-    if (enabled) {
-        for (const row of DEVELOPER_VALUE_ROWS) {
-            const current = developer?.[row.key];
-            options.push({
-                value: row.target,
-                label: row.label,
-                description: current === undefined
-                    ? row.description
-                    : `${row.format(current)} · ${row.description}`,
-            });
-        }
-    }
+const OVERRIDE_LABEL_WIDTH = 26;
+const OVERRIDE_VALUE_WIDTH = 10;
+const OVERRIDE_SOURCE_WIDTH = 9;
+
+function overrideColumns(row: OverrideValueRow, fact: OverrideRow | undefined): string {
+    const value = fact?.value === undefined ? "none" : row.format(fact.value);
+    const source = fact?.source === "configured" ? "set" : "default";
+    const reads = fact?.inert === undefined ? "live" : "inert";
+    return row.label.padEnd(OVERRIDE_LABEL_WIDTH)
+        + value.padEnd(OVERRIDE_VALUE_WIDTH)
+        + source.padEnd(OVERRIDE_SOURCE_WIDTH)
+        + reads;
+}
+
+/**
+ * Every lever on one screen. The columns are words rather than colours so the
+ * pane still reads when nothing on the terminal is coloured.
+ */
+/**
+ * The pane beside the list: what the lever is, where its value came from, and
+ * whether this session reads it at all.
+ */
+function overrideDetail(
+    row: OverrideValueRow,
+    fact: OverrideRow | undefined,
+): {
+    readonly detailTitle: string;
+    readonly detailFacts: readonly (readonly [string, string])[];
+    readonly note: string;
+} {
     return {
-        kind: "developer_settings",
+        detailTitle: row.label,
+        detailFacts: [
+            ["Now", fact?.value === undefined ? "not set" : row.format(fact.value)],
+            ["Source", fact?.source === "configured" ? "you set this" : "shipped default"],
+            ["Engine", fact?.inert === undefined ? "reads it" : "does not read it"],
+        ],
+        note: fact?.inert === undefined
+            ? row.detail
+            : `${row.detail} Not here: ${fact.inert}.`,
+    };
+}
+
+export function startTuiOverridesMenu(
+    overrides: OverrideSettings | undefined,
+): TuiSettingsPickerState {
+    const facts = new Map(
+        (overrides?.rows ?? []).map((fact) => [fact.key, fact]),
+    );
+    const configured = (overrides?.rows ?? []).filter((fact) =>
+        fact.source === "configured"
+    ).length;
+    const options: TuiSettingsPickerOption[] = OVERRIDE_VALUE_ROWS.map((row) => {
+        const fact = facts.get(row.key);
+        return {
+            value: row.target,
+            label: overrideColumns(row, fact),
+            description: fact?.inert ?? row.means,
+            searchText: `${row.label} ${row.key}`,
+            ...overrideDetail(row, fact),
+        };
+    });
+    options.push({
+        value: OVERRIDES_RESET_VALUE,
+        label: "Reset all to defaults",
+        description: configured === 0
+            ? "nothing is set: every lever already ships as it stands"
+            : `clears the ${configured} you have set`,
+        action: true,
+        detailTitle: "Reset all to defaults",
+        detailFacts: [["Set now", configured === 0 ? "none" : String(configured)]],
+        note: configured === 0
+            ? "Every lever is already at the value Vera ships with, so this"
+                + " would change nothing."
+            : "Drops every lever above out of your config. Nothing else in the"
+                + " config is touched.",
+    });
+    return {
+        kind: "overrides_settings",
         allOptions: options,
         options,
         selectedIndex: 0,
         query: "",
-        title: "Developer",
-        subtitle: enabled
-            ? "overrides are in force"
-            : "off: nothing here is read",
-        ...(developer === undefined ? {} : { developerSettings: developer }),
+        title: "Overrides",
+        subtitle: configured === 0
+            ? "every lever is at its shipped default"
+            : `${configured} set, the rest shipped`,
+        ...(overrides === undefined ? {} : { overrides }),
     };
 }
 
-export function startTuiDeveloperValuePicker(
+export function startTuiOverrideValuePicker(
     target: TuiSettingsMenuTarget,
-    developer: DeveloperSettings | undefined,
+    overrides: OverrideSettings | undefined,
 ): TuiSettingsPickerState | undefined {
-    const row = DEVELOPER_VALUE_ROWS.find(
+    const row = OVERRIDE_VALUE_ROWS.find(
         (candidate) => candidate.target === target,
     );
     if (row === undefined) {
         return undefined;
     }
-    const current = developer?.[row.key];
-    const value = current === undefined ? "default" : String(current);
+    const fact = overrides?.rows.find((entry) => entry.key === row.key);
+    const value = fact?.source === "configured" && fact.value !== undefined
+        ? String(fact.value)
+        : row.key === "toolResultAgingLevel"
+        ? "auto"
+        : "default";
     return {
-        kind: "developer_value",
+        kind: "override_value",
         allOptions: row.options,
         options: row.options,
         selectedIndex: Math.max(
@@ -591,7 +785,8 @@ export function startTuiDeveloperValuePicker(
         ),
         query: "",
         title: row.label,
-        developerKey: row.key,
+        overrideKey: row.key,
+        ...(overrides === undefined ? {} : { overrides }),
     };
 }
 
@@ -671,15 +866,10 @@ export function tuiPickerAfterSelection(
     if (selection.kind === "model" || previous === undefined) {
         return undefined;
     }
-    if (
-        selection.kind === "developer"
-        && previous.kind === "developer_settings"
-        && selection.patch.enabled !== undefined
-    ) {
-        return startTuiDeveloperMenu({
-            ...previous.developerSettings,
-            enabled: selection.patch.enabled,
-        });
+    // A reset is chosen on the Overrides pane itself, so the pane stays put
+    // and the settings update that follows repaints its columns.
+    if (selection.kind === "overrides" && previous.kind === "overrides_settings") {
+        return previous;
     }
     return tuiPickerMenuAncestor(previous);
 }
@@ -981,24 +1171,27 @@ export function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
 }
 
 export function settingsMenuOptions(
-    developer: DeveloperSettings | undefined,
+    overrides: OverrideSettings | undefined,
 ): readonly TuiSettingsPickerOption[] {
-    if (developer?.enabled !== true) {
+    const configured = (overrides?.rows ?? []).filter((row) =>
+        row.source === "configured"
+    ).length;
+    if (configured === 0) {
         return SETTINGS_MENU_OPTIONS;
     }
     return SETTINGS_MENU_OPTIONS.map((option) =>
-        option.value === "developer"
-            ? { ...option, description: "on: overrides are in force" }
+        option.value === "overrides"
+            ? { ...option, description: `${configured} set` }
             : option
     );
 }
 
 export function startTuiSettingsMenu(
     kind: TuiSettingsMenuKind,
-    developer?: DeveloperSettings,
+    overrides?: OverrideSettings,
 ): TuiSettingsPickerState {
     const options = kind === "settings"
-        ? settingsMenuOptions(developer)
+        ? settingsMenuOptions(overrides)
         : PERMISSION_SETTINGS_OPTIONS;
     return {
         kind,

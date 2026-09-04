@@ -11,6 +11,17 @@ import type { ToolOutput } from "../../tools/types.ts";
 import { delegationAllows, reviewerDefaultOf, settingsForClient } from "./helpers.ts";
 import { samePair, type AgentRegistryOptions, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
+import { OVERRIDE_KEYS, type OverrideKey } from "../../engine/override-rows.ts";
+import type { OverrideSettingsPatch } from "../../engine/model-settings.ts";
+
+/** A patch that returns every lever to its shipped default. */
+function clearedOverrides(): OverrideSettingsPatch {
+    const cleared: Record<OverrideKey, null> = {} as Record<OverrideKey, null>;
+    for (const key of OVERRIDE_KEYS) {
+        cleared[key] = null;
+    }
+    return cleared;
+}
 
 export function modelsForClient(reg: AgentRegistry): readonly SuggestedModel[] {
         const refreshed = reg.options.refreshAvailableModels?.();
@@ -42,7 +53,7 @@ export function readHostModelSettings(reg: AgentRegistry, workspace?: string): M
             undefined,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
-            reg.options.developerSettings?.(),
+            reg.options.configuredOverrides?.(),
             workspace,
             reg.options.refreshableProviders?.(),
         );
@@ -187,16 +198,16 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
         }
-        if (patch.developer !== undefined) {
-            if (reg.options.updateDeveloperSettings === undefined) {
+        if (patch.overrides !== undefined) {
+            if (reg.options.updateOverrides === undefined) {
                 return undefined;
             }
-            reg.options.updateDeveloperSettings(
-                patch.developer === null ? { enabled: false } : patch.developer,
+            reg.options.updateOverrides(
+                patch.overrides === null ? clearedOverrides() : patch.overrides,
             );
         }
         if (
-            patch.developer !== undefined
+            patch.overrides !== undefined
             && patch.contextLimit === undefined
             && patch.provider === undefined
             && patch.model === undefined
@@ -213,7 +224,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                 entry.requestedReasoningEffort,
                 reg.reviewerDefault(),
                 reg.options.contextLimit?.(),
-                reg.options.developerSettings?.(),
+                reg.options.configuredOverrides?.(),
                 entry.store.header.cwd,
                 reg.options.refreshableProviders?.(),
             );
@@ -237,7 +248,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                     entry.requestedReasoningEffort,
                     reg.reviewerDefault(),
                     reg.options.contextLimit?.(),
-                    reg.options.developerSettings?.(),
+                    reg.options.configuredOverrides?.(),
                     entry.store.header.cwd,
                     reg.options.refreshableProviders?.(),
                 );
@@ -262,7 +273,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                     entry.requestedReasoningEffort,
                     reg.reviewerDefault(),
                     reg.options.contextLimit?.(),
-                    reg.options.developerSettings?.(),
+                    reg.options.configuredOverrides?.(),
                     entry.store.header.cwd,
                     reg.options.refreshableProviders?.(),
                 );
@@ -293,7 +304,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             entry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
-            reg.options.developerSettings?.(),
+            reg.options.configuredOverrides?.(),
             entry.store.header.cwd,
             reg.options.refreshableProviders?.(),
         );
@@ -350,7 +361,7 @@ export async function applySessionModelSettings(reg: AgentRegistry, id: string, 
                 entry.requestedReasoningEffort,
                 reg.reviewerDefault(),
                 reg.options.contextLimit?.(),
-                reg.options.developerSettings?.(),
+                reg.options.configuredOverrides?.(),
                 entry.store.header.cwd,
                 reg.options.refreshableProviders?.(),
             ),
@@ -408,7 +419,7 @@ export async function poolAdd(reg: AgentRegistry, id: string, entry: { readonly 
                 agentEntry.requestedReasoningEffort,
                 reg.reviewerDefault(),
                 reg.options.contextLimit?.(),
-                reg.options.developerSettings?.(),
+                reg.options.configuredOverrides?.(),
                 agentEntry.store.header.cwd,
                 reg.options.refreshableProviders?.(),
             ),
@@ -490,7 +501,7 @@ export async function refreshCatalog(reg: AgentRegistry, id: string, provider: s
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
-            reg.options.developerSettings?.(),
+            reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
         );
@@ -520,7 +531,7 @@ export async function poolRemove(reg: AgentRegistry, id: string, entry: { readon
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
-            reg.options.developerSettings?.(),
+            reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
         );
@@ -553,7 +564,7 @@ export async function poolName(reg: AgentRegistry, id: string, entry: { readonly
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
-            reg.options.developerSettings?.(),
+            reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
         );
@@ -586,7 +597,7 @@ export async function poolMove(reg: AgentRegistry, id: string, entry: { readonly
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
-            reg.options.developerSettings?.(),
+            reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
         );
