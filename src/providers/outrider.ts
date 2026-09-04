@@ -30,17 +30,17 @@ export const OUTRIDER_BINARY = "outrider";
 
 /** `ps` is the status command; `status` is its compatibility alias. */
 export function outriderStatusCommand(): readonly string[] {
-    return [OUTRIDER_BINARY, "ps"];
+    return [OUTRIDER_BINARY, "--json", "ps"];
 }
 
 /** One command fetches the runtime, fetches the weights, and brings the gateway up on that profile. There is no separate install or pull. */
 export function outriderServeCommand(profile: string): readonly string[] {
-    return [OUTRIDER_BINARY, "serve", profile];
+    return [OUTRIDER_BINARY, "--json", "serve", profile];
 }
 
 /** Does this profile fit this machine, in Outrider's own reckoning rather than ours. */
 export function outriderCheckCommand(profile: string): readonly string[] {
-    return [OUTRIDER_BINARY, "check", profile];
+    return [OUTRIDER_BINARY, "--json", "check", profile];
 }
 
 export const OUTRIDER_INSTALL_URL = "https://get.corvines.com/outrider";
@@ -143,4 +143,82 @@ export function remaining(seconds: number): string {
     const minutes = Math.round(seconds / 60);
     if (minutes < 60) return `~${minutes} min`;
     return `~${Math.round(minutes / 6) / 10} hr`;
+}
+
+/** One line of a `check` report. `warn` is not a refusal: the profile still runs, and a report can carry several. */
+export type OutriderCheckResult = "pass" | "warn" | "fail";
+
+export interface OutriderCheck {
+    readonly id: string;
+    readonly result: OutriderCheckResult;
+    readonly measured?: string;
+    readonly required?: string;
+    readonly nextAction?: string;
+}
+
+export interface OutriderVerdict {
+    /** Outrider's own word for the whole report. */
+    readonly verdict: string;
+    readonly checks: readonly OutriderCheck[];
+}
+
+function checkResult(value: unknown): OutriderCheckResult | undefined {
+    return value === "pass" || value === "warn" || value === "fail"
+        ? value
+        : undefined;
+}
+
+function text(value: unknown): string | undefined {
+    return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+/** What `check` said, sub-checks kept. A report read as one word cannot tell a machine that is too small from a runtime that has not been fetched yet, and those need opposite answers. */
+export function readOutriderVerdict(stdout: string): OutriderVerdict {
+    let payload: { class?: unknown; checks?: unknown };
+    try {
+        payload = JSON.parse(stdout) as { class?: unknown; checks?: unknown };
+    } catch {
+        return { verdict: "unknown", checks: [] };
+    }
+    const raw = Array.isArray(payload.checks) ? payload.checks : [];
+    const checks = raw.flatMap((entry): OutriderCheck[] => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const line = entry as Record<string, unknown>;
+        const id = text(line.id);
+        const result = checkResult(line.result);
+        if (id === undefined || result === undefined) return [];
+        const measured = text(line.measured);
+        const required = text(line.required);
+        const nextAction = text(line.nextAction);
+        return [{
+            id,
+            result,
+            ...(measured === undefined ? {} : { measured }),
+            ...(required === undefined ? {} : { required }),
+            ...(nextAction === undefined ? {} : { nextAction }),
+        }];
+    });
+    return { verdict: text(payload.class) ?? "unknown", checks };
+}
+
+/** The sub-check that says the gateway has no runtime yet. Every profile reports it on a machine that has never served one, so it says nothing about the profile. */
+const RUNTIME_CHECK = "runtime_capabilities";
+
+/** The sub-check that measures this machine against what the profile was qualified on. */
+const MEMORY_CHECK = "physical_memory";
+
+function warned(verdict: OutriderVerdict, id: string): boolean {
+    return verdict.checks.some((check) =>
+        check.id === id && check.result !== "pass"
+    );
+}
+
+/** The report is held back only by a runtime that is not fetched yet, which `serve` fixes on its way to the model. Asking before that point tells you nothing, so a caller may go ahead. */
+export function awaitingRuntime(verdict: OutriderVerdict): boolean {
+    return warned(verdict, RUNTIME_CHECK);
+}
+
+/** This machine is under the memory the profile was qualified on. Unlike the runtime warning, nothing Vera does next clears it. */
+export function shortOfMemory(verdict: OutriderVerdict): boolean {
+    return warned(verdict, MEMORY_CHECK);
 }

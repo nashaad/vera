@@ -1,19 +1,22 @@
 import { expect, test } from "bun:test";
 
 import {
+    awaitingRuntime,
     downloadSize,
     outriderInstallCommand,
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
     readOutriderStatus,
+    readOutriderVerdict,
     remaining,
+    shortOfMemory,
 } from "../../src/providers/outrider.ts";
 
 test("the commands are the ones the CLI actually has", () => {
-    expect(outriderStatusCommand()).toEqual(["outrider", "ps"]);
+    expect(outriderStatusCommand()).toEqual(["outrider", "--json", "ps"]);
     expect(outriderServeCommand("qwen35b-mtp"))
-        .toEqual(["outrider", "serve", "qwen35b-mtp"]);
+        .toEqual(["outrider", "--json", "serve", "qwen35b-mtp"]);
     expect(outriderInstallCommand()[0]).toBe("sh");
 });
 
@@ -86,4 +89,84 @@ test("sizes and waits are said the way a person reads them", () => {
     expect(downloadSize(9_400_000)).toBe("9.4 MB");
     expect(remaining(45)).toBe("~45 sec");
     expect(remaining(840)).toBe("~14 min");
+});
+
+/** A cold home, as the gateway actually reports it: everything passes but the runtime, which is not on the machine until `serve` fetches it. */
+const COLD_HOME_CHECK = JSON.stringify({
+    profile: "qwen35b-mtp",
+    class: "degraded",
+    checks: [
+        { id: "platform", result: "pass" },
+        { id: "artifact", result: "pass" },
+        { id: "state_directory", result: "pass" },
+        {
+            id: "disk_space",
+            result: "pass",
+            measured: "86920040448 bytes",
+            required: "22674477247 bytes",
+        },
+        {
+            id: "physical_memory",
+            result: "pass",
+            measured: "68719476736 bytes",
+            required: "validated at 68719476736 bytes",
+        },
+        {
+            id: "memory_pressure",
+            result: "pass",
+            measured: "92% free",
+            required: "at least 10% free",
+        },
+        { id: "port", result: "pass" },
+        {
+            id: "runtime_capabilities",
+            result: "warn",
+            measured: "runtime executable unavailable",
+            required: "every profile flag advertised by llama-server",
+            nextAction:
+                "install the pinned runtime before treating this report as complete",
+        },
+    ],
+});
+
+test("a cold home reads as degraded only because the runtime is missing", () => {
+    const verdict = readOutriderVerdict(COLD_HOME_CHECK);
+    expect(verdict.verdict).toBe("degraded");
+    expect(verdict.checks).toHaveLength(8);
+    // The word alone would send the user away from a machine that runs it fine.
+    expect(awaitingRuntime(verdict)).toBe(true);
+    expect(shortOfMemory(verdict)).toBe(false);
+});
+
+test("the memory warning is told apart from the runtime warning", () => {
+    const small = JSON.stringify({
+        class: "degraded",
+        checks: [
+            {
+                id: "physical_memory",
+                result: "warn",
+                measured: "17179869184 bytes",
+                required: "validated at 68719476736 bytes",
+            },
+            { id: "runtime_capabilities", result: "pass" },
+        ],
+    });
+    const verdict = readOutriderVerdict(small);
+    expect(shortOfMemory(verdict)).toBe(true);
+    expect(awaitingRuntime(verdict)).toBe(false);
+    expect(verdict.checks[0]?.measured).toBe("17179869184 bytes");
+});
+
+test("a report that is not JSON leaves no verdict to act on", () => {
+    expect(readOutriderVerdict("not json")).toEqual({
+        verdict: "unknown",
+        checks: [],
+    });
+    // A line with no id or no result cannot be reasoned about, so it is dropped
+    // rather than guessed at.
+    const partial = readOutriderVerdict(
+        JSON.stringify({ class: "ready", checks: [{ id: "port" }, 7] }),
+    );
+    expect(partial.verdict).toBe("ready");
+    expect(partial.checks).toEqual([]);
 });
