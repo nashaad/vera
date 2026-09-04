@@ -4,12 +4,13 @@ This file is rope. It exists so you never have to derive Vera's behavior from Ve
 
 Use this file for questions about using Vera or explaining how Vera behaves. Read `## How to answer` and `## Keep the user in the loop` first, every time. The first matches the ask to a rope and names the section that carries the answer; the second is the shape of the turn. Then read only the one section named. In each header, `[lines=N]` is the exact number of physical lines after the header and before the next `##` header or end of file.
 
-## How to answer [lines=9]
+## How to answer [lines=10]
 Match the ask to one row, then follow that row. Rows are intent, not wording; a user rarely uses these words.
 Explain how something works: read the one section that names it and answer in two or three sentences. Name the surface if one exists.
 Find where to do something: name the exact slash command and what it opens, in one line. The user is about to look at it.
 Set something up: name the surface that validates. Never edit a configuration file, never give a file path as the way to change a setting, and never repeat a key back in an answer.
 Install or download a model: the first-run wizard installs and starts it. A download stops with `esc` and does not continue in the background.
+Find a command or a flag: `vera help` prints the whole reference and the topic list, and `vera help <topic>` reads one topic. `/commands` browses them in the TUI.
 Something is not working: run one bounded check, report what it actually said, then offer at most one recovery. Do not loop.
 Report a problem: `/failure-report` writes a shareable report of recorded model failures. Vera has no general bug-report path.
 Anything this guide does not cover: say so, name the nearest thing it does cover, and stop. Never read source code instead.
@@ -29,16 +30,24 @@ The host owns live conversations, provider connections, tool execution, permissi
 Closing a client does not necessarily stop its conversation. Reconnecting changes the client connection, not the installed Vera build.
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 
-## Start, development, and upgrades [lines=7]
+## Start, development, and upgrades [lines=8]
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home.
-Closing and reopening the TUI, `/reconnect`, and `vera host stop` restart or replace processes. They do not install checkout code.
-Run `bun run install:local` from the intended checkout to pack, verify, and activate that build for the installed `vera` command.
+Restarting the TUI does not run edited checkout code. Neither does `/reconnect` or `vera host stop`; they restart or replace processes and install nothing.
+To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
+You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
 
+## Finding a command [lines=6]
+Run `vera help` for the command and flag reference followed by the list of help topics. `vera --help` and `vera -h` print the same thing.
+Read one topic with `vera help <topic>`. Aliases resolve to the canonical topic, so an inexact name still lands.
+CLI help needs no TUI, no resident host, no provider, no network request, and no model call. It is safe to run anywhere.
+In the TUI, `/commands` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes.
+`vera help --llms` prints the whole help corpus as compact Markdown for an agent or a script. It is a projection of the same corpus, so it cannot drift from what `vera help <topic>` shows.
+
 ## First-run setup [lines=11]
-A Vera with no provider says so on home and offers a `Connect a provider` row. There is no slash command for it.
+To connect the first provider, choose the `Connect a provider` row that a Vera with no provider offers on home. There is no slash command for it; the row is the only entry point.
 That row opens a three-step wizard: the provider, whatever that provider needs, then the model. `enter` advances and `esc` goes back one step.
 The provider step lists a few providers and a `300+ more` line. It is a short list to get started, not the catalog; every other provider is added later from `/model`.
 The second step is a key field for a provider that needs a credential, an install gate for a provider that runs models on this machine, and a settled step for one that needs neither.
@@ -46,7 +55,7 @@ The key field takes a paste and shows what it holds. A refused key returns to th
 A provider that runs locally is installed and started from inside the wizard. The model step fetches and starts the chosen profile before verifying it.
 The model step asks the provider for its models every time it opens, so leaving the step with `esc` and re-entering it is how to ask again after installing a model.
 A model list that comes back empty says how to get that provider a model, in that provider's own terms.
-A download shows a bar with the file name, percent, sizes, and time left. `esc` stops it and returns to the model list; it does not continue in the background.
+`esc` stops a running download and returns to the model list. A stopped download does not continue in the background and is not resumed. While it runs it shows a bar with the file name, percent, sizes, and time left.
 A prompt typed before setup runs afterwards on the model that was chosen.
 
 ## Models and providers [lines=8]
@@ -58,18 +67,25 @@ The provider and model shown in the status line are the route Vera is using. A l
 For OpenRouter, connect the API key, select an `openrouter` model in `/model`, and send one minimal prompt to verify the route.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 
-## Conversations and background work [lines=6]
+## Conversations and background work [lines=8]
 `/resume` opens another conversation. Enter stops the conversation being left; Tab keeps it running.
 `/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
-Submitting while Vera is working queues another prompt. Empty Enter stops the current turn and sends the whole queue; empty Escape sends only the oldest queued prompt.
+Submitting while Vera is working queues another prompt. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape sends only the oldest queued prompt and leaves the turn running.
 Ctrl+C stops the active turn without sending queued work.
-The agent sidebar groups conversations by needs-you, working, idle, and recent state across workspaces.
+The conversation rail groups sessions by needs-you, working, idle, and recent, never by workspace. It is a browse list: opening a row paints that session's file and starts no worker.
+Resuming is a separate act. Press Enter on the file already on screen, or `ctrl+r` for the picker covering anything the rail does not list.
+Park a live conversation with `/close`, or `ctrl+w` from the composer. The rail has no close control.
 
-## Tools, permissions, and agents [lines=5]
+## Tools, permissions, and agents [lines=10]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
+Which models a subagent may use is a list you set under Defaults then Subagents, tried in the order you put them in.
+A model named on a spawn call runs only if it is in that list, or if it is the parent session's model and the separate `Spawning session model` row is on. That row is off unless you turn it on.
+When an assigned model cannot run, Vera walks the rest of your list and stops there. It never reaches for an unassigned model, a same-family sibling, or a pool failsafe.
+If nothing is assigned and that row is off, no child starts. An interactive client opens the Subagents assignment so you can fix it.
+A substitution is reported in one sentence naming what was asked for, what ran, and why. A first choice that works says nothing.
 
 ## Skills and standing instructions [lines=6]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
@@ -78,6 +94,14 @@ Project instruction files, selected-agent instructions, memory, imports, and sta
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 Use `/context` to see which instruction sources are loaded and how much of the model window they consume.
 
+## Extensions [lines=7]
+Open `/extensions` for the picker of installed extensions. `/extension list` opens the same one, and the palette action is `Manage extensions`.
+Each row is one installed copy: id, version, and a status word, one of `enabled`, `disabled`, `failed`, `unmanaged`, or `shadowed`. A home-scope copy whose id also exists in the project reads `shadowed`.
+Space enables or disables a managed copy immediately. Escape closes the picker.
+Enter opens details, which offer Enable or Disable and Remove. Remove deletes the managed copy and leaves the source untouched.
+Install with `/extension install <path>` from the composer. The picker has no file chooser.
+Client extensions reload as soon as a change lands. Host-side capabilities need the resident host restarted, and the note left in the transcript says so.
+
 ## Context and bounded research [lines=8]
 Use `/context all` to inspect individual message and tool-result sizes. A single large read can dominate the working window.
 For a known product question, consult this file first. Do not read configuration or provider implementation files to rediscover documented behavior.
@@ -85,11 +109,15 @@ Search headings before reading a long document. Read the smallest relevant secti
 If one bounded lookup does not establish the answer, state what is missing or hand off. Do not enter an open-ended source-research loop.
 Smaller models should run with shorter fresh context and earlier compaction. Prefer a stronger dedicated compactor or deterministic summary so confusion is not preserved.
 Tool results should be visibly bounded, truncated, or paginated. Oversized output must not silently consume the session.
-How much context Vera keeps is configurable: `/settings` then Overrides, or `context_limit` and the `compaction` and `tool_results` blocks in the config. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, and asks before clearing every lever at once.
+How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, and asks before clearing every lever at once.
 
-## Diagnostics and recovery [lines=6]
+## Diagnostics and recovery [lines=10]
 `/diagnostics` and `/doctor` inspect the current runtime. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, use `/reconnect`. This attaches to or replaces the host process while preserving the same installed build.
+`/reconnect` does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
+An absent or dead host is started and reattached. A live process behind a silent socket is force-stopped first. A healthy host is asked to shut down for replacement.
+A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it, it is not force-killed, and the composer stays usable.
+After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, typed `/reconnect` is the next move.
 If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
 Use `/usage` for local session usage and cost. It reads session files from the current Vera home and does not contact an account portal.
 Treat request captures, session files, reviewer logs, and inspected model requests as sensitive local data.
