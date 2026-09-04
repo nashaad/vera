@@ -242,7 +242,9 @@ function valueModels(session: WizardSession): readonly WizardModel[] {
 function valueNote(session: WizardSession): readonly string[] {
     return valueModels(session).length === 0
         ? []
-        : ["The models at the top are cheap and score close to the dear ones."];
+        : [
+            "Here are some recommended models that are cheap but score well.",
+        ];
 }
 
 function modelRow(model: WizardModel): OnboardingChoiceRow {
@@ -358,10 +360,9 @@ function modelGroups(
         ...pairs.map((pair) => pair.model.id),
         ...worth.map((model) => model.id),
     ]);
-    // Ahead of OTHER but behind what the provider itself recommends, which is
-    // named for the job it does rather than for what it costs.
+    // Ahead of OTHER, behind the models the provider itself puts forward.
     if (worth.length !== 0) {
-        groups.push({ label: "GOOD VALUE", rows: worth.map(modelRow) });
+        groups.push({ label: "RECOMMENDED", rows: worth.map(modelRow) });
     }
     const rest = session.models.filter((model) => !promoted.has(model.id));
     if (groups.length === 0) return [{ rows: rest.map(modelRow) }];

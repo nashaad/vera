@@ -433,7 +433,7 @@ function modelStep(models: WizardSession["models"]): WizardSession {
 function suggested(models: WizardSession["models"]): readonly string[] {
     const body = wizardScreen(COLD, modelStep(models), MAC).body;
     if (body.kind !== "choice") return [];
-    const group = body.groups.find((entry) => entry.label === "GOOD VALUE");
+    const group = body.groups.find((entry) => entry.label === "RECOMMENDED");
     return group?.rows.map((row) => row.id) ?? [];
 }
 
@@ -461,7 +461,7 @@ test("the cheap models that score well are offered as rows, cheapest first", () 
         "z-ai/glm-5.3-flash",
     ]);
     expect(modelNotes(SMALL_LIST)).toEqual([
-        "The models at the top are cheap and score close to the dear ones.",
+        "Here are some recommended models that are cheap but score well.",
     ]);
 });
 
@@ -541,8 +541,8 @@ test("the suggestion is painted under its own heading, above everything else", (
         { id: "openai/gpt-9", label: "GPT-9", outputPrice: 60, waScore: 1700 },
         { id: "z-ai/glm-5.3-flash", label: "GLM 5.3 Flash", onPareto: true, outputPrice: 0.25, waScore: 1604 },
     ]));
-    expect(text).toContain("GOOD VALUE");
-    expect(text.indexOf("GOOD VALUE")).toBeLessThan(text.indexOf("OTHER"));
+    expect(text).toContain("RECOMMENDED");
+    expect(text.indexOf("RECOMMENDED")).toBeLessThan(text.indexOf("OTHER"));
     expect(text.indexOf("GLM 5.3 Flash")).toBeLessThan(text.indexOf("GPT-9"));
 });
 
