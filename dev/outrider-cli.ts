@@ -1,4 +1,4 @@
-/** A stand-in for the `outrider` binary while the real one has no JSON progress and no installer. It speaks the surface `src/providers/outrider.ts` drives: `ps`, `serve`, `check`, `stop`, JSON on stdout and progress lines on stderr. */
+/** Optional stand-in when no real `outrider` is on PATH. The real CLI emits the same JSON progress on stderr. */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -184,7 +184,7 @@ function stop(): void {
     print({ kind: "stopped", endpoint: ENDPOINT, logFile: statePath() });
 }
 
-const [command, argument] = Bun.argv.slice(2);
+const [command, argument] = Bun.argv.slice(2).filter((value) => value !== "--json");
 switch (command) {
     case "serve":
     case "up":
