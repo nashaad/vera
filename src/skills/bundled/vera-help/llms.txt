@@ -29,12 +29,13 @@ The host owns live conversations, provider connections, tool execution, permissi
 Closing a client does not necessarily stop its conversation. Reconnecting changes the client connection, not the installed Vera build.
 Product behavior is defined by Vera's manual and feature contracts. Source code is implementation evidence, not the user manual.
 
-## Start, development, and upgrades [lines=6]
+## Start, development, and upgrades [lines=7]
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home.
 Closing and reopening the TUI, `/reconnect`, and `vera host stop` restart or replace processes. They do not install checkout code.
 Run `bun run install:local` from the intended checkout to pack, verify, and activate that build for the installed `vera` command.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
+A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
 
 ## First-run setup [lines=8]
 A Vera with no provider says so on home and offers a `Connect a provider` row. There is no slash command for it.
