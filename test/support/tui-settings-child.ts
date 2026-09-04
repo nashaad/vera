@@ -4,6 +4,10 @@ import {
     type TuiDependencies,
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import {
+    overrideRows,
+    type ConfiguredOverrides,
+} from "../../src/engine/override-rows.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import {
     emptyUsage,
@@ -15,6 +19,10 @@ import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiSettingsDependencies(): TuiDependencies {
     let reasoningEffort: ModelReasoningEffort = "high";
+    // The real host derives the rows from what the config holds, so the
+    // fixture holds the config and derives them the same way.
+    let configured: ConfiguredOverrides = {};
+    const contextWindow = 200_000;
     const provider = "faux";
     // Mirrors what a real host sends since nash-50 slice 4b: the running model's
     // own levels ride along on `availableModels`, not a flat effort list.
@@ -46,9 +54,14 @@ export function createTuiSettingsDependencies(): TuiDependencies {
             approvalMode: "auto",
         },
         {
-            readModelSettings: () => (
-                { provider, model: "test", reasoningEffort, availableModels }
-            ),
+            readModelSettings: () => ({
+                provider,
+                model: "test",
+                reasoningEffort,
+                availableModels,
+                contextWindow,
+                overrides: { rows: overrideRows(configured, contextWindow) },
+            }),
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => "auto",
             router: {
@@ -56,11 +69,30 @@ export function createTuiSettingsDependencies(): TuiDependencies {
                     if (patch.reasoningEffort !== undefined) {
                         reasoningEffort = patch.reasoningEffort ?? "high";
                     }
+                    if (patch.overrides === null) {
+                        configured = {};
+                    } else if (patch.overrides !== undefined) {
+                        const next: Record<string, number | string> = {
+                            ...configured,
+                        };
+                        for (const [key, value] of Object.entries(patch.overrides)) {
+                            if (value === null || value === undefined) {
+                                delete next[key];
+                            } else {
+                                next[key] = value;
+                            }
+                        }
+                        configured = next as ConfiguredOverrides;
+                    }
                     return {
                         provider,
                         model: "test",
                         reasoningEffort,
                         availableModels,
+                        contextWindow,
+                        overrides: {
+                            rows: overrideRows(configured, contextWindow),
+                        },
                     };
                 },
             },

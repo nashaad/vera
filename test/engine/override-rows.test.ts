@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    overrideConflict,
     overrideRows,
     type ConfiguredOverrides,
     type OverrideKey,
@@ -107,4 +108,40 @@ test("every lever gets a row, once", () => {
 
     expect(keys.length).toBe(11);
     expect(new Set(keys).size).toBe(11);
+});
+
+test("a pick that stands beside what is set is not refused", () => {
+    const rows = overrideRows({ compactionTriggerFraction: 0.7 }, 200_000);
+
+    expect(overrideConflict(rows, { postCompactionTargetFraction: 0.45 }))
+        .toBeUndefined();
+    expect(overrideConflict(rows, { summaryWordCap: 500 })).toBeUndefined();
+});
+
+test("a refusal names both levers, not only the one just picked", () => {
+    const rows = overrideRows({ compactionTriggerFraction: 0.3 }, 200_000);
+
+    expect(overrideConflict(rows, { postCompactionTargetFraction: 0.45 }))
+        .toBe("A 0.45 summary target is not under the 0.30 trigger.");
+});
+
+test("a lever left at its shipped default is still one side of a rule", () => {
+    // Nothing is set, so the ceiling this is measured against is the one
+    // Vera ships, and the pane has to say so rather than write a file that
+    // will not load.
+    expect(overrideConflict(overrideRows({}, 200_000), {
+        toolResultTotalBudgetBytes: 16_384,
+    })).toBe("A 16k total budget is under the 64k one-result ceiling.");
+});
+
+test("clearing a lever clears the rule it was one side of", () => {
+    const rows = overrideRows(
+        { toolResultCeilingBytes: 8_192, toolResultTotalBudgetBytes: 16_384 },
+        200_000,
+    );
+
+    expect(overrideConflict(rows, { toolResultCeilingBytes: null }))
+        .toBe("A 16k total budget is under the 64k one-result ceiling.");
+    expect(overrideConflict(rows, { toolResultTotalBudgetBytes: null }))
+        .toBeUndefined();
 });

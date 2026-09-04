@@ -457,10 +457,16 @@ export type TuiAnySettingsPickerState =
     | TuiSettingsPickerState
     | TuiExtensionPickerState;
 
+/** The line under a picker's list. A refusal is labelled and coloured apart from a tip, so a pick that did not land never reads as advice. */
+export interface TuiPickerTipLine {
+    readonly tone: "tip" | "refusal";
+    readonly text: string;
+}
+
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
-    tip?: string;
+    tip?: string | TuiPickerTipLine;
     verification?: {
         readonly subject: string;
         readonly steps?: readonly {
