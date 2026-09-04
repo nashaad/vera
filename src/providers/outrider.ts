@@ -91,6 +91,29 @@ export function readInstallPath(stdout: string): string | undefined {
     return undefined;
 }
 
+/** Outrider records where it put itself, under the home for a per-user install and under `/usr/local` for a packaged one. */
+const USER_MARKER_RELATIVE = ".local/share/outrider/install.json";
+const SYSTEM_MARKER = "/usr/local/share/outrider/install.json";
+
+/** Both marker files, per-user first, in the order a caller should try them. */
+export function outriderMarkerPaths(home: string): readonly string[] {
+    return home === ""
+        ? [SYSTEM_MARKER]
+        : [`${home}/${USER_MARKER_RELATIVE}`, SYSTEM_MARKER];
+}
+
+/** The binary a marker file points at. Mirrors `Marker` in `internal/installer/installer.go`. */
+export function readInstallMarker(text: string): string | undefined {
+    let payload: { target?: unknown };
+    try {
+        payload = JSON.parse(text) as { target?: unknown };
+    } catch {
+        return undefined;
+    }
+    const target = payload.target;
+    return typeof target === "string" && target !== "" ? target : undefined;
+}
+
 /** The profile ids `ls` reported, in the order it reported them. Vera takes the roster from Outrider and keeps its own words for the ids it has words for. */
 export function readOutriderProfiles(stdout: string): readonly string[] {
     let payload: { profiles?: unknown };

@@ -10,6 +10,8 @@ import {
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
+    outriderMarkerPaths,
+    readInstallMarker,
     readInstallPath,
     readOutriderProfiles,
     readOutriderStatus,
@@ -241,6 +243,30 @@ test("the installer names where it put the binary", () => {
         "outrider-install-path=/second/outrider",
     ].join("\n");
     expect(readInstallPath(twice)).toBe("/first/outrider");
+});
+
+test("an earlier install is found through the record Outrider keeps", () => {
+    expect(outriderMarkerPaths("/Users/x")).toEqual([
+        "/Users/x/.local/share/outrider/install.json",
+        "/usr/local/share/outrider/install.json",
+    ]);
+
+    // No home leaves only the packaged install to look at.
+    expect(outriderMarkerPaths("")).toEqual([
+        "/usr/local/share/outrider/install.json",
+    ]);
+
+    const marker = JSON.stringify({
+        schema: 1,
+        target: "/Users/x/.local/bin/outrider",
+        sha256: "9b26",
+    });
+    expect(readInstallMarker(marker)).toBe("/Users/x/.local/bin/outrider");
+
+    expect(readInstallMarker("not json")).toBeUndefined();
+    expect(readInstallMarker("{}")).toBeUndefined();
+    expect(readInstallMarker(JSON.stringify({ target: "" }))).toBeUndefined();
+    expect(readInstallMarker(JSON.stringify({ target: 7 }))).toBeUndefined();
 });
 
 test("the roster is whatever the catalog listed, in its order", () => {

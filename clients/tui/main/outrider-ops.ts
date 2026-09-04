@@ -5,15 +5,18 @@ import {
     OUTRIDER_BINARY,
     outriderInstallCommand,
     outriderListCommand,
+    outriderMarkerPaths,
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
+    readInstallMarker,
     readOutriderProfiles,
     readOutriderStatus,
     type OutriderPresence,
     type OutriderProgress,
 } from "../../../src/providers/outrider.ts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 
 export interface RuntimeRun {
     readonly ok: boolean;
@@ -70,12 +73,27 @@ export function rememberOutriderBinary(path: string): void {
     installedBinary = path;
 }
 
-/** What to run: the binary an install placed, else whatever the search path turns up. */
+/** Where a past install put the binary, read back from the record Outrider keeps of its own installs. A new run of Vera has no memory of an install, and the directory the binary sits in need not be on PATH. */
+function markedBinary(): string | undefined {
+    for (const marker of outriderMarkerPaths(homedir())) {
+        let text: string;
+        try {
+            text = readFileSync(marker, "utf8");
+        } catch {
+            continue;
+        }
+        const target = readInstallMarker(text);
+        if (target !== undefined && existsSync(target)) return target;
+    }
+    return undefined;
+}
+
+/** What to run: the binary an install placed, else whatever the search path turns up, else the one an earlier install recorded. */
 export function outriderBinary(): string | undefined {
     if (installedBinary !== undefined && existsSync(installedBinary)) {
         return installedBinary;
     }
-    return Bun.which(OUTRIDER_BINARY) ?? undefined;
+    return Bun.which(OUTRIDER_BINARY) ?? markedBinary();
 }
 
 /** Where Outrider is. No binary anywhere is the one state Vera can act on by installing. */
