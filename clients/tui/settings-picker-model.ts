@@ -846,7 +846,8 @@ export function modelTabLabel(tab: TuiModelPickerTab): string {
 
 export const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool: "Models you keep close. More holds what this list can do, or browse All models.",
+    pool:
+        'Models you keep close. "More" holds what this list can do, or browse All models.',
     all: "Everything your providers offer. Enter runs one without adding it.",
     actions: "Everything this pane can do besides choose a model.",
     help: "What the marks and the keys in this pane mean.",
