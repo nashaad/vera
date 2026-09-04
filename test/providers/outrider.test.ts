@@ -9,6 +9,7 @@ import {
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
+    readInstallPath,
     readOutriderStatus,
     readOutriderVerdict,
     remaining,
@@ -203,5 +204,38 @@ test("a report that is not JSON leaves no verdict to act on", () => {
     );
     expect(partial.verdict).toBe("ready");
     expect(partial.checks).toEqual([]);
+});
+
+test("the binary to run can be a path, because an install does not change PATH", () => {
+    expect(outriderStatusCommand()).toEqual(["outrider", "--json", "ps"]);
+    expect(outriderStatusCommand("/Users/x/.local/bin/outrider"))
+        .toEqual(["/Users/x/.local/bin/outrider", "--json", "ps"]);
+    expect(outriderServeCommand("qwen35-2b", "/Users/x/.local/bin/outrider"))
+        .toEqual([
+            "/Users/x/.local/bin/outrider",
+            "--json",
+            "serve",
+            "qwen35-2b",
+        ]);
+});
+
+test("the installer names where it put the binary", () => {
+    const stdout = [
+        "outrider-install-path=/Users/x/.local/bin/outrider",
+        "installed outrider to /Users/x/.local/bin/outrider",
+    ].join("\n");
+    expect(readInstallPath(stdout)).toBe("/Users/x/.local/bin/outrider");
+
+    // An older installer says nothing, which leaves the caller its lookup.
+    expect(readInstallPath("installed outrider to /somewhere\n"))
+        .toBeUndefined();
+    expect(readInstallPath("outrider-install-path=\n")).toBeUndefined();
+
+    // The first one wins, so a later line cannot move the answer.
+    const twice = [
+        "outrider-install-path=/first/outrider",
+        "outrider-install-path=/second/outrider",
+    ].join("\n");
+    expect(readInstallPath(twice)).toBe("/first/outrider");
 });
 

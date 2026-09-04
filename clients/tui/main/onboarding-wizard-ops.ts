@@ -16,11 +16,15 @@ import {
     type WizardRuntime,
     type WizardSession,
 } from "../onboarding-wizard.ts";
-import type { OutriderProgress } from "../../../src/providers/outrider.ts";
+import {
+    readInstallPath,
+    type OutriderProgress,
+} from "../../../src/providers/outrider.ts";
 import {
     installOutrider,
     mergeProgress,
     outriderPresence,
+    rememberOutriderBinary,
     serveOutrider,
     type RuntimeCommand,
 } from "./outrider-ops.ts";
@@ -343,7 +347,12 @@ function runtimeIsPresent(
     requestWizardModels(rt, provider);
 }
 
-async function checkRuntime(rt: TuiRuntime, provider: string): Promise<void> {
+/** `said` is what an install that has just finished reported. An install can succeed and still leave nothing Vera can run, and the installer explains that on its own stream, so the screen repeats it rather than saying only that the binary is absent. */
+async function checkRuntime(
+    rt: TuiRuntime,
+    provider: string,
+    said = "",
+): Promise<void> {
     const presence = await outriderPresence();
     const session = rt.onboardingWizard;
     if (session === undefined || session.chosen !== provider) return;
@@ -353,6 +362,7 @@ async function checkRuntime(rt: TuiRuntime, provider: string): Promise<void> {
         updateWizardSession(rt, {
             ...session,
             runtime: { state: "absent", progress: [] },
+            ...(said === "" ? {} : { alert: said }),
         });
         return;
     }
@@ -390,11 +400,16 @@ function installRuntime(
             });
             return;
         }
+        // The installer names the path it placed the binary at, which is what
+        // gets run from here. A directory that was not on PATH when the wizard
+        // started is not on it now either.
+        const placed = readInstallPath(result.stdout);
+        if (placed !== undefined) rememberOutriderBinary(placed);
         updateWizardSession(rt, {
             ...live,
             runtime: { state: "checking", progress: [] },
         });
-        await checkRuntime(rt, provider);
+        await checkRuntime(rt, provider, result.detail);
     });
 }
 

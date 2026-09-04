@@ -29,18 +29,26 @@ export interface OutriderProgress {
 export const OUTRIDER_BINARY = "outrider";
 
 /** `ps` is the status command; `status` is its compatibility alias. */
-export function outriderStatusCommand(): readonly string[] {
-    return [OUTRIDER_BINARY, "--json", "ps"];
+export function outriderStatusCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "ps"];
 }
 
 /** One command fetches the runtime, fetches the weights, and brings the gateway up on that profile. There is no separate install or pull. */
-export function outriderServeCommand(profile: string): readonly string[] {
-    return [OUTRIDER_BINARY, "--json", "serve", profile];
+export function outriderServeCommand(
+    profile: string,
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "serve", profile];
 }
 
 /** Does this profile fit this machine, in Outrider's own reckoning rather than ours. */
-export function outriderCheckCommand(profile: string): readonly string[] {
-    return [OUTRIDER_BINARY, "--json", "check", profile];
+export function outriderCheckCommand(
+    profile: string,
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "check", profile];
 }
 
 export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/outrider";
@@ -60,6 +68,20 @@ const INSTALL_SCRIPT =
 /** The binary cannot place itself, so the one thing Vera does not get from the CLI is the CLI. The URL arrives as an argument rather than spliced into the script, so a value read from the environment stays a URL and cannot become a second command. */
 export function outriderInstallCommand(): readonly string[] {
     return ["sh", "-c", INSTALL_SCRIPT, "sh", outriderInstallUrl()];
+}
+
+/** The key the installer writes its target path under, on stdout, ahead of anything a person reads. */
+const INSTALL_PATH_PREFIX = "outrider-install-path=";
+
+/** Where the installer says it put the binary. The install directory is not always on PATH, and an install does not change the PATH of the process that started it, so a lookup right after one finds nothing. Absent on an older installer, which leaves the caller its lookup. */
+export function readInstallPath(stdout: string): string | undefined {
+    for (const line of stdout.split("\n")) {
+        const text = line.trim();
+        if (!text.startsWith(INSTALL_PATH_PREFIX)) continue;
+        const path = text.slice(INSTALL_PATH_PREFIX.length).trim();
+        if (path !== "") return path;
+    }
+    return undefined;
 }
 
 interface StatusPayload {

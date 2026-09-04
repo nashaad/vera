@@ -2,6 +2,7 @@
 
 import {
     mergeProgress,
+    OUTRIDER_BINARY,
     outriderInstallCommand,
     outriderServeCommand,
     outriderStatusCommand,
@@ -10,6 +11,7 @@ import {
     type OutriderPresence,
     type OutriderProgress,
 } from "../../../src/providers/outrider.ts";
+import { existsSync } from "node:fs";
 
 export interface RuntimeRun {
     readonly ok: boolean;
@@ -58,11 +60,27 @@ export function runOutrider(
     return { finished, stop: () => child.kill() };
 }
 
-/** Where Outrider is. Nothing on PATH is the one state Vera can act on by installing. */
+/** The path the last install reported. */
+let installedBinary: string | undefined;
+
+/** Hold on to where an install put the binary. The directory it lands in need not be on PATH, and nothing an install does changes the PATH of the process that ran it. */
+export function rememberOutriderBinary(path: string): void {
+    installedBinary = path;
+}
+
+/** What to run: the binary an install placed, else whatever the search path turns up. */
+export function outriderBinary(): string | undefined {
+    if (installedBinary !== undefined && existsSync(installedBinary)) {
+        return installedBinary;
+    }
+    return Bun.which(OUTRIDER_BINARY) ?? undefined;
+}
+
+/** Where Outrider is. No binary anywhere is the one state Vera can act on by installing. */
 export async function outriderPresence(): Promise<OutriderPresence> {
-    const command = outriderStatusCommand();
-    if (Bun.which(command[0] ?? "") === null) return { state: "absent" };
-    const run = runOutrider(command, () => {});
+    const binary = outriderBinary();
+    if (binary === undefined) return { state: "absent" };
+    const run = runOutrider(outriderStatusCommand(binary), () => {});
     const result = await run.finished;
     return result.ok ? readOutriderStatus(result.stdout) : { state: "stopped" };
 }
@@ -78,7 +96,10 @@ export function serveOutrider(
     profile: string,
     onProgress: (line: OutriderProgress) => void,
 ): RuntimeCommand {
-    return runOutrider(outriderServeCommand(profile), onProgress);
+    return runOutrider(
+        outriderServeCommand(profile, outriderBinary() ?? OUTRIDER_BINARY),
+        onProgress,
+    );
 }
 
 export { mergeProgress };
