@@ -1,13 +1,30 @@
 #!/usr/bin/env bun
 
+import { fstatSync } from "node:fs";
+
 import { startAnnexServer } from "./server.ts";
 import { annexPathsFromHome } from "./home.ts";
+import { installLiveProcess } from "../live-process.ts";
 
 process.title = "vera-annex";
 
 function fail(message: string): never {
     process.stderr.write(`vera-annex: ${message}\n`);
     process.exit(1);
+}
+
+/**
+ * A pipe or socket on stdin comes from a parent that holds the other end. A
+ * terminal or /dev/null is a launch by hand, which nothing is waiting to
+ * outlive.
+ */
+function stdinIsAParentsLifeline(): boolean {
+    try {
+        const stats = fstatSync(0);
+        return stats.isFIFO() || stats.isSocket();
+    } catch {
+        return false;
+    }
 }
 
 function parseArgs(argv: readonly string[]): {
@@ -67,12 +84,22 @@ if (import.meta.main) {
             ...(assets === undefined ? {} : { webRoot: assets }),
         });
         process.stdout.write(`${server.url}\n`);
+        installLiveProcess("annex", home);
         const shutdown = async (): Promise<void> => {
             await server.close();
             process.exit(0);
         };
         process.on("SIGTERM", () => void shutdown());
         process.on("SIGINT", () => void shutdown());
+        if (stdinIsAParentsLifeline()) {
+            // The host holds the other end, so its death closes this stdin
+            // whatever signal took it, SIGKILL included. The data listener is
+            // what starts the read; without it the end never arrives.
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", () => {});
+            process.stdin.on("end", () => void shutdown());
+            process.stdin.on("close", () => void shutdown());
+        }
     } catch (error) {
         fail(error instanceof Error ? error.message : String(error));
     }

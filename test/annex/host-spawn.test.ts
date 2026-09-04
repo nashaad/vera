@@ -121,3 +121,53 @@ test("host exit leaves no orphan annex", async () => {
     }
     expect(processAlive(pid)).toBe(false);
 });
+
+test("an annex outlives no host, even one that never got to clean up", async () => {
+    const assets = await packedAssets();
+    const home = tempDir("vera-annex-orphan-");
+    const owner = tempDir("vera-annex-owner-");
+    const script = join(owner, "owner.ts");
+    // A host killed with SIGKILL never reaches stopAnnexChild, so the only
+    // thing left to end the annex is the stdin pipe closing with its parent.
+    await Bun.write(
+        script,
+        `import { startAnnexProcess } from ${
+            JSON.stringify(join(import.meta.dir, "../../src/host/annex-process.ts"))
+        };
+const annex = await startAnnexProcess({
+    home: ${JSON.stringify(home)},
+    assets: ${JSON.stringify(assets)},
+    command: [${JSON.stringify(process.execPath)}, ${
+            JSON.stringify(join(import.meta.dir, "../../src/annex/main.ts"))
+        }],
+});
+process.stdout.write(String(annex.pid) + "\\n");
+await new Promise(() => {});
+`,
+    );
+
+    const parent = Bun.spawn([process.execPath, script], {
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const reader = parent.stdout.getReader();
+    const decoder = new TextDecoder();
+    let seen = "";
+    while (!seen.includes("\n")) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        seen += decoder.decode(chunk.value);
+    }
+    const annexPid = Number(seen.trim());
+    expect(Number.isInteger(annexPid)).toBe(true);
+    expect(processAlive(annexPid)).toBe(true);
+
+    parent.kill("SIGKILL");
+    await parent.exited;
+
+    const started = Date.now();
+    while (processAlive(annexPid) && Date.now() - started < 5_000) {
+        await Bun.sleep(50);
+    }
+    expect(processAlive(annexPid)).toBe(false);
+}, 30_000);

@@ -13,8 +13,12 @@ export function veraHomeDirectory(home?: string): string {
     return join(homedir(), ".vera");
 }
 
+export function veraMachineDirectoryIn(veraHome: string): string {
+    return join(veraHome, "machine");
+}
+
 export function veraMachineDirectory(home?: string): string {
-    return join(veraHomeDirectory(home), "machine");
+    return veraMachineDirectoryIn(veraHomeDirectory(home));
 }
 
 export function veraProfileDirectory(_env = process.env, home?: string): string {
