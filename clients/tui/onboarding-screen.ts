@@ -264,6 +264,9 @@ function fit(text: string, width: number): string {
     return `${text.slice(0, Math.max(0, width - 1))}…`;
 }
 
+/** What marks an alert line when color is not read. Continuations line up under the text. */
+const ALERT_MARKER = "! ";
+
 function indent(text: string): string {
     return `${" ".repeat(CONTENT_INDENT)}${text}`;
 }
@@ -621,7 +624,20 @@ export function onboardingCardLines(
         { text: "", tone: "frame" },
     ];
     if (state.alert !== undefined) {
-        inner.push({ text: indent(`! ${state.alert}`), tone: "alert" });
+        // A runtime reports its own failure, and the remedy tends to sit at the
+        // end of the sentence, which is the half a single clipped line loses.
+        const lines = wrapped(
+            state.alert,
+            INNER_WIDTH - CONTENT_INDENT * 2 - ALERT_MARKER.length,
+        );
+        inner.push(
+            ...lines.map((line, index) => ({
+                text: indent(
+                    `${index === 0 ? ALERT_MARKER : " ".repeat(ALERT_MARKER.length)}${line}`,
+                ),
+                tone: "alert" as const,
+            })),
+        );
         inner.push({ text: "", tone: "frame" });
     }
     if (state.heading !== "") {

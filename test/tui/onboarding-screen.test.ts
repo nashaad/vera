@@ -142,6 +142,20 @@ describe("the setup screen", () => {
         expect(rendered(refused)).toContain("! no auth credentials found");
     });
 
+    test("a long refusal keeps the end of the sentence", () => {
+        const said =
+            "qwen35-2b did not start: cached model checksum mismatch, "
+            + "delete the cached file and serve it again";
+        const long: OnboardingScreenState = { ...keyStep, alert: said };
+        const lines = onboardingCardLines(long);
+        // The remedy is the last words, so a clipped single line loses it.
+        expect(rendered(long)).toContain("serve it again");
+        for (const line of lines) {
+            expect([...line.text].length).toBe(ONBOARDING_CARD_COLUMNS);
+            expect(line.text).not.toContain("…");
+        }
+    });
+
     test("nothing can push the frame open", () => {
         const long = "x".repeat(400);
         const wide: OnboardingScreenState = {
