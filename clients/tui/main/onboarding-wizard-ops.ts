@@ -24,6 +24,7 @@ import {
     installOutrider,
     mergeProgress,
     outriderPresence,
+    outriderProfiles,
     rememberOutriderBinary,
     serveOutrider,
     type RuntimeCommand,
@@ -195,7 +196,22 @@ export function wizardTookCatalogRefresh(
     return true;
 }
 
-function fillWizardModels(rt: TuiRuntime, provider: string): void {
+/** The runtime names its own profiles, so the list is asked for rather than held in Vera. What Vera keeps is the words for the ids it has words for, which is why the answer comes back through the same fill. */
+async function askRuntimeForProfiles(
+    rt: TuiRuntime,
+    provider: string,
+): Promise<void> {
+    const roster = await outriderProfiles();
+    const session = rt.onboardingWizard;
+    if (session === undefined || session.chosen !== provider) return;
+    fillWizardModels(rt, provider, roster);
+}
+
+function fillWizardModels(
+    rt: TuiRuntime,
+    provider: string,
+    roster?: readonly string[],
+): void {
     const session = rt.onboardingWizard;
     if (session === undefined) return;
     const live = (focusedAgentState(rt).modelSettings?.availableModels ?? [])
@@ -210,14 +226,16 @@ function fillWizardModels(rt: TuiRuntime, provider: string): void {
             ...(model.waScore === undefined ? {} : { waScore: model.waScore }),
         }));
     // A local gateway lists nothing until it is up, and it does not come up
-    // until a profile is picked. The profiles the definition names are what
-    // there is to pick from until then.
+    // until a profile is picked. Until then the profiles are the runtime's own
+    // answer, which is a command away rather than to hand.
     const descriptor = findConfiguredProvider(provider, loadOptionalVeraConfig());
-    const models = live.length === 0 && descriptor?.localRuntime !== undefined
-        ? (descriptor.recommendModels ?? []).map((entry) => ({
-            id: entry.id,
-            label: entry.id,
-        }))
+    const local = live.length === 0 && descriptor?.localRuntime !== undefined;
+    if (local && roster === undefined) {
+        void askRuntimeForProfiles(rt, provider);
+        return;
+    }
+    const models = local
+        ? (roster ?? []).map((id) => ({ id, label: id }))
         : live;
     if (models.length === 0) {
         updateWizardSession(rt, {

@@ -101,7 +101,7 @@ test("a keyless provider draws its second gate as settled, never hidden", () => 
 
 const OUTRIDER_MODELS = [
     { id: "tiny", label: "tiny" },
-    { id: "granite4.2-3b", label: "granite4.2-3b" },
+    { id: "qwen35-2b", label: "qwen35-2b" },
     { id: "qwen35b-mtp", label: "qwen35b-mtp" },
 ];
 
@@ -130,7 +130,7 @@ test("the model step offers jobs before model names", () => {
     const groups = screen.body.kind === "choice" ? screen.body.groups : [];
     expect(groups[0]?.label).toBe("RECOMMENDED");
     expect(groups[0]?.rows.map((row) => row.id))
-        .toEqual(["qwen35b-mtp", "granite4.2-3b"]);
+        .toEqual(["qwen35b-mtp", "qwen35-2b"]);
     expect(groups[0]?.rows[0]?.label).toBe("A model that does the work");
     expect(groups[1]?.label).toBe("OTHER");
     expect(groups[1]?.rows.map((row) => row.id)).toEqual(["tiny"]);
@@ -150,7 +150,7 @@ test("a small Mac is still recommended Outrider, with the lite job first", () =>
     }, { os: "darwin", arch: "arm64", memoryGb: 16 });
     const groups = screen.body.kind === "choice" ? screen.body.groups : [];
     expect(groups[0]?.label).toBe("RECOMMENDED");
-    expect(groups[0]?.rows.map((row) => row.id)).toEqual(["granite4.2-3b"]);
+    expect(groups[0]?.rows.map((row) => row.id)).toEqual(["qwen35-2b"]);
     expect(groups[1]?.label).toBe("WILL NOT FIT ON THIS MAC");
     expect(groups[1]?.rows.map((row) => row.id)).toEqual(["qwen35b-mtp"]);
     expect(groups[1]?.rows[0]?.note)
@@ -226,13 +226,13 @@ test("the last screen says a lite model is a way in, and names the way on", () =
         }, MAC).body;
         return body.kind === "done" ? body.lines.join(" ") : "";
     };
-    expect(said("granite4.2-3b")).toContain("It is small.");
-    expect(said("granite4.2-3b")).toContain('how do I add OpenRouter"');
+    expect(said("qwen35-2b")).toContain("It is small.");
+    expect(said("qwen35-2b")).toContain('how do I add OpenRouter"');
     expect(said("qwen35b-mtp")).not.toContain("It is small.");
     const drawn = onboardingCardLines(wizardScreen(COLD, {
         ...newWizardSession("model"),
         chosen: "outrider",
-        connected: "granite4.2-3b",
+        connected: "qwen35-2b",
     }, MAC));
     expect(drawn.some((line) => line.text.includes("way around. When"))).toBe(
         true,

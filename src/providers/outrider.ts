@@ -51,6 +51,13 @@ export function outriderCheckCommand(
     return [binary, "--json", "check", profile];
 }
 
+/** The profiles this binary will serve. Development profiles are hidden unless `OUTRIDER_DEV` is set, so a default catalog is short on purpose. */
+export function outriderListCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "ls", "--json"];
+}
+
 export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/outrider";
 
 /** Where the installer is fetched from. `OUTRIDER_INSTALL_URL` points it at a local server, which is what makes the install path drivable before anything is published. */
@@ -82,6 +89,22 @@ export function readInstallPath(stdout: string): string | undefined {
         if (path !== "") return path;
     }
     return undefined;
+}
+
+/** The profile ids `ls` reported, in the order it reported them. Vera takes the roster from Outrider and keeps its own words for the ids it has words for. */
+export function readOutriderProfiles(stdout: string): readonly string[] {
+    let payload: { profiles?: unknown };
+    try {
+        payload = JSON.parse(stdout) as { profiles?: unknown };
+    } catch {
+        return [];
+    }
+    if (!Array.isArray(payload.profiles)) return [];
+    return payload.profiles.flatMap((entry): string[] => {
+        if (typeof entry !== "object" || entry === null) return [];
+        const id = (entry as Record<string, unknown>).id;
+        return typeof id === "string" && id !== "" ? [id] : [];
+    });
 }
 
 interface StatusPayload {

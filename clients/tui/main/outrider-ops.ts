@@ -4,9 +4,11 @@ import {
     mergeProgress,
     OUTRIDER_BINARY,
     outriderInstallCommand,
+    outriderListCommand,
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
+    readOutriderProfiles,
     readOutriderStatus,
     type OutriderPresence,
     type OutriderProgress,
@@ -83,6 +85,15 @@ export async function outriderPresence(): Promise<OutriderPresence> {
     const run = runOutrider(outriderStatusCommand(binary), () => {});
     const result = await run.finished;
     return result.ok ? readOutriderStatus(result.stdout) : { state: "stopped" };
+}
+
+/** The profiles this machine's Outrider will serve, or nothing when there is no binary to ask. */
+export async function outriderProfiles(): Promise<readonly string[]> {
+    const binary = outriderBinary();
+    if (binary === undefined) return [];
+    const result = await runOutrider(outriderListCommand(binary), () => {})
+        .finished;
+    return result.ok ? readOutriderProfiles(result.stdout) : [];
 }
 
 export function installOutrider(

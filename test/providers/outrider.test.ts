@@ -6,10 +6,12 @@ import {
     OUTRIDER_INSTALL_URL_DEFAULT,
     outriderInstallCommand,
     outriderInstallUrl,
+    outriderListCommand,
     outriderServeCommand,
     outriderStatusCommand,
     parseOutriderProgress,
     readInstallPath,
+    readOutriderProfiles,
     readOutriderStatus,
     readOutriderVerdict,
     remaining,
@@ -217,6 +219,8 @@ test("the binary to run can be a path, because an install does not change PATH",
             "serve",
             "qwen35-2b",
         ]);
+    expect(outriderListCommand("/Users/x/.local/bin/outrider"))
+        .toEqual(["/Users/x/.local/bin/outrider", "ls", "--json"]);
 });
 
 test("the installer names where it put the binary", () => {
@@ -239,3 +243,20 @@ test("the installer names where it put the binary", () => {
     expect(readInstallPath(twice)).toBe("/first/outrider");
 });
 
+test("the roster is whatever the catalog listed, in its order", () => {
+    const catalog = JSON.stringify({
+        profiles: [
+            { id: "qwen35b-mtp", runnable: true },
+            { id: "qwen35-2b", runnable: true },
+        ],
+        developmentModels: [],
+    });
+    expect(readOutriderProfiles(catalog))
+        .toEqual(["qwen35b-mtp", "qwen35-2b"]);
+
+    // Nothing to pick from is an empty roster, never a throw.
+    expect(readOutriderProfiles("not json")).toEqual([]);
+    expect(readOutriderProfiles("{}")).toEqual([]);
+    expect(readOutriderProfiles(JSON.stringify({ profiles: [{}, { id: "" }] })))
+        .toEqual([]);
+});
