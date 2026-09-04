@@ -58,7 +58,10 @@ import {
     startTuiModelAssignmentPicker,
     tuiModelAssignmentOptions,
 } from "../../clients/tui/settings-picker.ts";
-import { MODEL_ARROW_HINT } from "../../clients/tui/settings-picker-model.ts";
+import {
+    LISTED_FACTS_FOOTNOTE,
+    MODEL_ARROW_HINT,
+} from "../../clients/tui/settings-picker-model.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
 // pane renders whatever order it is given, and `inferReasoningSelection`'s
@@ -1989,7 +1992,7 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     try {
         await setup.flush();
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(19);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(18);
         expect(tuiPickerViewportRows(setup.renderer, state)).toBeLessThan(40);
         expect(view.box.height).toBeLessThan(
             setup.renderer.height - 4,
@@ -4712,3 +4715,24 @@ test("nothing in the page is lit while the tab strip has the keys", async () => 
     expect(frame).toContain("┌");
 });
 
+
+test("the star on the WA Score column is answered under the list", async () => {
+    const all = switchedModelTab(listedFactsPicker(), "all");
+    const frame = await pickerFrame(all, 100, 55);
+    const lines = frame.split("\n");
+
+    const footnote = lines.findIndex((line) =>
+        line.includes(LISTED_FACTS_FOOTNOTE)
+    );
+    const header = lines.findIndex((line) => line.includes("WA Score*"));
+    expect(header).toBeGreaterThanOrEqual(0);
+    expect(footnote).toBeGreaterThan(header);
+    expect(LISTED_FACTS_FOOTNOTE.startsWith("*")).toBe(true);
+
+    const shortlist = await pickerFrame(
+        switchedModelTab(listedFactsPicker(), "pool"),
+        100,
+        55,
+    );
+    expect(shortlist).not.toContain(LISTED_FACTS_FOOTNOTE);
+});

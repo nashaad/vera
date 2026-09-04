@@ -88,6 +88,7 @@ import {
     enclosingSection,
     intelligenceScaleLines,
     isPooled,
+    listedFactsFootnoteNode,
     listedFactsHeaderText,
     metaPartsLength,
     modelActionCursor,
@@ -1516,6 +1517,9 @@ export function renderListPickerRows(
         );
         listColumn.add(prices);
         nodes.push(prices);
+        const footnote = listedFactsFootnoteNode(renderer, rowWidth);
+        listColumn.add(footnote);
+        nodes.push(footnote);
         lines += allModelsPriceChromeLines();
     }
     if (listAction !== undefined && !stackedPage) {
