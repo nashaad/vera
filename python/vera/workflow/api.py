@@ -8,15 +8,17 @@ into smaller steps.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from functools import update_wrapper
 from pathlib import Path
+from threading import Thread
+import time
 from types import MappingProxyType
 from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, cast
 
 from ._canonical import digest, dumps
-from ._errors import Run, RunError, Suspend, WorkflowError
+from ._errors import Run, RunError, StepTimeout, Suspend, WorkflowError
 from ._hooks import (
     CommandHook,
     PrepareStepHook,
@@ -42,6 +44,7 @@ WorkflowArgs = TypeVarTuple("WorkflowArgs")
 __all__ = [
     "workflow",
     "step",
+    "StepTimeout",
     "Suspend",
     "WorkflowError",
     "Run",
@@ -72,6 +75,45 @@ class _Current:
     @property
     def cancelled(self) -> bool:
         return False
+
+    @property
+    def deadline(self) -> float | None:
+        """Absolute `time.monotonic()` the running step must finish by.
+
+        `None` when the step declared no timeout. A step that can outlast its
+        deadline is responsible for its own interruption, because the runtime
+        stops waiting but cannot stop the work.
+        """
+        return _deadline.get()
+
+    def step(
+        self,
+        name: str,
+        function: Callable[..., R],
+        *args: object,
+        key: str,
+        timeout: float | None = None,
+        **kwargs: object,
+    ) -> R:
+        """Call `function` as a step journaled under an explicit key.
+
+        The escape hatch for callers whose steps are chosen at runtime rather
+        than written out. The key replaces the positional ordinal, so inserting
+        or removing calls elsewhere in the run does not invalidate this one.
+        The caller owns key uniqueness: two calls sharing a key and arguments
+        return the first recorded value and the second body never runs.
+        """
+        if isinstance(function, _Step):
+            raise WorkflowError(
+                "step",
+                "current.step takes a plain function; a @step already has a key",
+            )
+        if not key:
+            raise WorkflowError("step", "current.step requires a non-empty key")
+        runtime = _runtime.get()
+        if runtime is None:
+            return function(*args, **kwargs)
+        return runtime.call_step(name, function, args, kwargs, key=key, timeout=timeout)
 
 
 class _UserFailure(BaseException):
@@ -118,16 +160,20 @@ class _Runtime:
         function: Callable[P, R],
         args: P.args,
         kwargs: P.kwargs,
+        *,
+        key: str | None = None,
+        timeout: float | None = None,
     ) -> R:
-        ordinal = self._ordinals.get(step_name, 0)
-        self._ordinals[step_name] = ordinal + 1
         positional_args = tuple(args)
         keyword_args = dict(kwargs)
+        if key is None:
+            ordinal = self._ordinals.get(step_name, 0)
+            self._ordinals[step_name] = ordinal + 1
+            name = f"{step_name}#{ordinal}"
+        else:
+            name = key
         try:
-            key = (
-                f"{self.workflow_name}/{step_name}#{ordinal}:"
-                f"{digest(positional_args, keyword_args)}"
-            )
+            key = f"{self.workflow_name}/{name}:{digest(positional_args, keyword_args)}"
         except WorkflowError as error:
             raise _RuntimeFault(error) from error
         if key in self.journal.records:
@@ -170,7 +216,7 @@ class _Runtime:
                 call_kwargs = chain.kwargs
         typed_args = cast("P.args", call_args)
         typed_kwargs = cast("P.kwargs", call_kwargs)
-        value = _call_user_code(lambda: function(*typed_args, **typed_kwargs))
+        value = _invoke(step_name, function, typed_args, typed_kwargs, timeout)
         try:
             dumps(value)
             self.journal.append(key, value)
@@ -180,6 +226,7 @@ class _Runtime:
 
 
 _runtime: ContextVar[_Runtime | None] = ContextVar("vera_workflow_runtime", default=None)
+_deadline: ContextVar[float | None] = ContextVar("vera_step_deadline", default=None)
 current = _Current()
 
 
@@ -187,10 +234,57 @@ def _error_message(error: Exception) -> str:
     return str(error) or error.__class__.__name__
 
 
+def _invoke(
+    step_name: str,
+    function: Callable[..., R],
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+    timeout: float | None,
+) -> R:
+    """Run a step body, under a deadline when it declared one.
+
+    A Python thread cannot be killed. When the deadline passes the runtime
+    stops waiting and raises, but the body keeps running until it returns. A
+    body that can outlast its deadline reads `current.deadline` and interrupts
+    itself, for instance by passing the remaining time to a subprocess.
+    """
+    if timeout is None:
+        return _call_user_code(lambda: function(*args, **kwargs))
+    token = _deadline.set(time.monotonic() + timeout)
+    try:
+        context = copy_context()
+    finally:
+        _deadline.reset(token)
+    outcome: list[tuple[bool, object]] = []
+
+    def body() -> None:
+        try:
+            outcome.append((True, function(*args, **kwargs)))
+        except Exception as error:  # noqa: BLE001 - reported through _UserFailure
+            outcome.append((False, error))
+
+    worker = Thread(
+        target=lambda: context.run(body),
+        name=f"vera-step-{step_name}",
+        daemon=True,
+    )
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise _UserFailure(StepTimeout(step_name, timeout))
+    succeeded, value = outcome[0]
+    if succeeded:
+        return cast(R, value)
+    raise _UserFailure(cast(Exception, value))
+
+
 class _Step(Generic[P, R]):
-    def __init__(self, function: Callable[P, R]) -> None:
+    def __init__(self, function: Callable[P, R], timeout: float | None = None) -> None:
+        if timeout is not None and timeout <= 0:
+            raise ValueError("timeout must be greater than zero")
         self._function = function
         self.name = function.__name__
+        self.timeout = timeout
         update_wrapper(self, function, updated=())
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -202,6 +296,7 @@ class _Step(Generic[P, R]):
             self._function,
             args,
             kwargs,
+            timeout=self.timeout,
         )
         return value
 
@@ -295,14 +390,15 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
                 RunError("suspended", suspended.reason),
             )
         except _UserFailure as failure:
+            kind = "timeout" if isinstance(failure.error, StepTimeout) else "step"
             message = _error_message(failure.error)
             journal.reload_inbox()
-            journal.mark_failed("step", message)
+            journal.mark_failed(kind, message)
             return Run(
                 journal.run_id,
                 "failed",
                 None,
-                RunError("step", message),
+                RunError(kind, message),
             )
         except _RuntimeFault as fault:
             error = fault.error
@@ -324,8 +420,27 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         return Run(journal.run_id, "ok", result, None)
 
 
-def step(function: Callable[P, R]) -> _Step[P, R]:
-    return _Step(function)
+def step(
+    function: Callable[P, R] | None = None,
+    *,
+    timeout: float | None = None,
+) -> _Step[P, R] | Callable[[Callable[P, R]], _Step[P, R]]:
+    """Mark a function as a journaled step, bare or with arguments.
+
+    `@step` and `@step(timeout=30)` are both accepted. A timeout is a deadline
+    on one call, not a retry budget: the runtime stops waiting and fails the
+    run with kind `timeout`. The workflow cannot catch it, so a timeout means
+    the run does not continue. Nothing is journaled, so a resumed run tries the
+    step again. A caller that needs a deadline to be an outcome rather than the
+    end of the run enforces it inside the step and returns a value.
+    """
+    if function is not None:
+        return _Step(function, timeout)
+
+    def decorate(inner: Callable[P, R]) -> _Step[P, R]:
+        return _Step(inner, timeout)
+
+    return decorate
 
 
 def workflow(

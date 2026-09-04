@@ -23,6 +23,15 @@ class WorkflowError(Exception):
         self.kind = kind
 
 
+class StepTimeout(Exception):
+    """Raised in the workflow when a step exceeds its deadline."""
+
+    def __init__(self, step_name: str, timeout: float) -> None:
+        super().__init__(f"{step_name} exceeded {timeout}s")
+        self.step_name = step_name
+        self.timeout = timeout
+
+
 class Suspend(BaseException):
     reason: str
 

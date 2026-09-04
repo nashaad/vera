@@ -8,10 +8,13 @@ import {
     configuredSubagentModel,
     configuredCompaction,
     configuredCompactionModels,
+    configuredCompactionOverrides,
+    configuredOverrides,
+    overridePatchDefaults,
     configuredReviewers,
+    configuredToolResults,
     createLiveVeraConfigReader,
     defaultVeraConfigPath,
-    developerOverrides,
     eventLogEnabled,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -52,6 +55,11 @@ import {
     type SessionFacts,
 } from "../store/session-facts.ts";
 import { contextWindowForModel } from "../engine/model-settings.ts";
+import {
+    cachedProviderModels,
+    readCachedWindowIndex,
+    withCachedWindows,
+} from "../model/cached-windows.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
 import { refreshWebDevArena } from "../model/webdev-arena.ts";
@@ -623,11 +631,7 @@ export async function startResidentHost(
                 reasoning_effort: settings.reasoningEffort ?? null,
             });
         },
-        contextLimit: () => {
-            const config = currentConfig();
-            return developerOverrides(config)?.context_limit
-                ?? config.context_limit;
-        },
+        contextLimit: () => currentConfig().context_limit,
         updateContextLimit: (limit) => {
             updateVeraConfigDefaults({ context_limit: limit });
         },
@@ -693,76 +697,15 @@ export async function startResidentHost(
         get compaction() {
             return configuredCompaction(currentConfig());
         },
-        developerSettings: () => {
-            const developer = currentConfig().developer;
-            return {
-                enabled: developer?.enabled === true,
-                ...(developer?.context_limit === undefined
-                    ? {}
-                    : { contextLimit: developer.context_limit }),
-                ...(developer?.compaction_trigger_fraction === undefined
-                    ? {}
-                    : {
-                        compactionTriggerFraction:
-                            developer.compaction_trigger_fraction,
-                    }),
-                ...(developer?.post_compaction_target_fraction === undefined
-                    ? {}
-                    : {
-                        postCompactionTargetFraction:
-                            developer.post_compaction_target_fraction,
-                    }),
-                ...(developer?.summary_word_cap === undefined
-                    ? {}
-                    : { summaryWordCap: developer.summary_word_cap }),
-            };
-        },
-        updateDeveloperSettings: (patch) => {
-            updateVeraConfigDefaults({
-                developer: {
-                    ...(patch.enabled === undefined
-                        ? {}
-                        : { enabled: patch.enabled }),
-                    ...(patch.contextLimit === undefined
-                        ? {}
-                        : { context_limit: patch.contextLimit }),
-                    ...(patch.compactionTriggerFraction === undefined
-                        ? {}
-                        : {
-                            compaction_trigger_fraction:
-                                patch.compactionTriggerFraction,
-                        }),
-                    ...(patch.postCompactionTargetFraction === undefined
-                        ? {}
-                        : {
-                            post_compaction_target_fraction:
-                                patch.postCompactionTargetFraction,
-                        }),
-                    ...(patch.summaryWordCap === undefined
-                        ? {}
-                        : { summary_word_cap: patch.summaryWordCap }),
-                },
-            });
+        configuredOverrides: () => configuredOverrides(currentConfig()),
+        updateOverrides: (patch) => {
+            updateVeraConfigDefaults(overridePatchDefaults(patch));
         },
         get compactionOverrides() {
-            const developer = developerOverrides(currentConfig());
-            if (developer === undefined) {
-                return undefined;
-            }
-            return {
-                ...(developer.compaction_trigger_fraction === undefined
-                    ? {}
-                    : { triggerFraction: developer.compaction_trigger_fraction }),
-                ...(developer.post_compaction_target_fraction === undefined
-                    ? {}
-                    : {
-                        postCompactionTargetFraction:
-                            developer.post_compaction_target_fraction,
-                    }),
-                ...(developer.summary_word_cap === undefined
-                    ? {}
-                    : { summaryWordCap: developer.summary_word_cap }),
-            };
+            return configuredCompactionOverrides(currentConfig());
+        },
+        get toolResults() {
+            return configuredToolResults(currentConfig());
         },
         get compactionModels() {
             return configuredCompactionModels(
@@ -1514,6 +1457,10 @@ async function discoverAvailableModels(
     }
     catalog.push(...discoveredDeepSeekModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
+    catalog.push(...cachedProviderModels(
+        configuredProviders(config).map((provider) => provider.id),
+        catalog,
+    ));
     if (!catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
     )) {
@@ -1524,7 +1471,10 @@ async function discoverAvailableModels(
             description: "configured model",
         });
     }
-    return withProviderRefreshability(catalog, config);
+    return withProviderRefreshability(
+        withCachedWindows(catalog, readCachedWindowIndex()),
+        config,
+    );
 }
 
 function withProviderRefreshability(
@@ -2045,7 +1995,7 @@ function positiveModelLength(value: unknown): number | undefined {
 
 export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
     const catalog = catalogModels(config);
-    return catalog.some((item) =>
+    const complete = catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
     )
         ? catalog
@@ -2055,6 +2005,7 @@ export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[]
             label: config.model,
             description: "configured model",
         }, ...catalog];
+    return withCachedWindows(complete, readCachedWindowIndex());
 }
 
 function catalogModels(config: VeraConfig): SuggestedModel[] {

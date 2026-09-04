@@ -2219,6 +2219,11 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
         ...(settings.webdevArenaSnapshot === undefined
             ? {}
             : { webdevArenaSnapshot: settings.webdevArenaSnapshot }),
+        ...(settings.overrides === undefined ? {} : {
+            overrides: {
+                rows: settings.overrides.rows.map((row) => ({ ...row })),
+            },
+        }),
     };
 }
 

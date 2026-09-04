@@ -185,6 +185,9 @@ export async function startWorker(
         ...(services.compaction === undefined
             ? {}
             : { compaction: compactionWireSpec(services.compaction) }),
+        ...(services.toolResults === undefined
+            ? {}
+            : { toolResults: services.toolResults }),
         ...(options.extensionTools === undefined
             ? {}
             : {

@@ -501,7 +501,7 @@ export function openSettingsMenu(rt: TuiRuntime): void {
     rt.settingsPickerAgent = focusedAgentClient(rt);
     rt.settingsPicker = startTuiSettingsMenu(
         "settings",
-        focusedAgentState(rt)?.modelSettings?.developer,
+        focusedAgentState(rt)?.modelSettings?.overrides,
     );
     rt.composer.blur();
     renderState(rt);

@@ -24,8 +24,6 @@ import {
     type VeraProviderProtocol,
 } from "../../src/config.ts";
 import type {
-    DeveloperSettings,
-    DeveloperSettingsPatch,
     ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,
@@ -73,6 +71,7 @@ import {
     modelAssignmentOfValue,
     pickerPageHasKeys,
     tuiModelActionOfValue,
+    OVERRIDES_RESET_VALUE,
 } from "./settings-picker-types.ts";
 
 export function moveTuiSettingsPickerPointer(
@@ -126,6 +125,7 @@ export function mergeTuiModelPickerSettings(
 export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     // The More page replaces the list, so there is no row left to describe.
     if (state.kind === "model" && state.modelFocus === "page") return false;
+    if (state.kind === "overrides_settings") return true;
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     return tab === "pool" || tab === "defaults" || tab === "actions";
 }
@@ -133,6 +133,9 @@ export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
 export const MODEL_DETAIL_MIN_WIDTH = 30;
 
 export const MODEL_LIST_MIN_WIDTH = 28;
+
+/** An overrides row is four columns wide before any prose. */
+export const OVERRIDE_LIST_MIN_WIDTH = 54;
 
 export const MODEL_DETAIL_RULE = "│  ";
 
@@ -157,9 +160,11 @@ export function modelPaneSplit(
         Math.floor(cardWidth * 0.32),
     );
     const listWidth = cardWidth - detailWidth - MODEL_DETAIL_RULE.length;
-    return listWidth < MODEL_LIST_MIN_WIDTH
-        ? undefined
-        : { listWidth, detailWidth };
+    const minimum = state.kind === "overrides_settings"
+        ? OVERRIDE_LIST_MIN_WIDTH
+        : MODEL_LIST_MIN_WIDTH;
+    // Too narrow to hold both, so the rows keep their own trailing prose.
+    return listWidth < minimum ? undefined : { listWidth, detailWidth };
 }
 
 export function pickerContentWidth(
@@ -2251,24 +2256,27 @@ export function pickerSelection(
             limit: value === "auto" ? null : Number(value),
         };
     }
-    if (kind === "developer_value") {
-        const key = state.developerKey;
+    if (kind === "override_value") {
+        const key = state.overrideKey;
         if (key === undefined) {
-            throw new Error("developer value pane has no key");
+            throw new Error("override value pane has no key");
         }
         return {
-            kind: "developer",
-            patch: { [key]: value === "default" ? null : Number(value) },
+            kind: "overrides",
+            patch: {
+                [key]: value === "default" || value === "auto"
+                    ? null
+                    : key === "toolResultAgingLevel"
+                    ? value
+                    : Number(value),
+            },
         };
     }
-    if (kind === "developer_settings") {
-        if (value === "developer_enabled_on" || value === "developer_enabled_off") {
-            return {
-                kind: "developer",
-                patch: { enabled: value === "developer_enabled_on" },
-            };
-        }
-        return { kind: "menu", target: value as TuiSettingsMenuTarget };
+    if (kind === "overrides_settings") {
+        // A null patch is the reset: the host clears every lever at once.
+        return value === OVERRIDES_RESET_VALUE
+            ? { kind: "overrides", patch: null }
+            : { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
     if (kind === "session") {
         return {

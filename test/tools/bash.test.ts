@@ -86,11 +86,10 @@ test("a blocking Git editor yields as an owned process", async () => {
         await chmod(editor, 0o755);
         const setup = await runBash(
             "git init -q"
+                + " && git config user.name Nash"
+                + " && git config user.email nash@example.invalid"
                 + " && git add seed.txt"
-                + " && git -c commit.gpgSign=false"
-                + " -c user.name=Nash"
-                + " -c user.email=nash@example.invalid"
-                + " commit -qm seed"
+                + " && git -c commit.gpgSign=false commit -qm seed"
                 + ` && git config core.editor ${JSON.stringify(editor)}`
                 + " && git config tag.gpgSign true",
             workspace,

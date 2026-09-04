@@ -5,7 +5,11 @@ import {
     processIsAlive,
     recordMatchesRunningProcess,
 } from "./host/process-identity.ts";
-import { veraMachineDirectory, veraRuntimeDirectory } from "./profile-paths.ts";
+import {
+    veraHomeDirectory,
+    veraMachineDirectoryIn,
+    veraRuntimeDirectory,
+} from "./profile-paths.ts";
 
 export const LIVE_PROCESS_ARGV0 = {
     host: "vera-host",
@@ -13,6 +17,7 @@ export const LIVE_PROCESS_ARGV0 = {
     worker: "vera-worker",
     supervisor: "vera-supervisor",
     watchdog: "vera-watchdog",
+    annex: "vera-annex",
 } as const;
 
 export type LiveProcessKind = keyof typeof LIVE_PROCESS_ARGV0;
@@ -27,12 +32,48 @@ export interface LiveProcessRecord {
 
 export const LIVE_PROCESS_SCHEMA_VERSION = 1 as const;
 
+/**
+ * The `home` arguments below name the user's home, the way `veraHomeDirectory`
+ * reads them. The `In` forms name a Vera home outright, which is what a caller
+ * holding a path to some other Vera has.
+ */
+export function liveProcessDirectoryIn(veraHome: string): string {
+    return join(veraMachineDirectoryIn(veraHome), "live");
+}
+
 export function liveProcessDirectory(home?: string): string {
-    return join(veraMachineDirectory(home), "live");
+    return liveProcessDirectoryIn(veraHomeDirectory(home));
 }
 
 export function liveProcessPath(pid: number, home?: string): string {
     return join(liveProcessDirectory(home), `${pid}.json`);
+}
+
+export function postLiveProcessIn(
+    veraHome: string,
+    kind: LiveProcessKind,
+    options: {
+        readonly pid?: number;
+        readonly startedAt?: string;
+        readonly runtimeDir?: string;
+    } = {},
+): LiveProcessRecord {
+    const record: LiveProcessRecord = {
+        schema_version: LIVE_PROCESS_SCHEMA_VERSION,
+        pid: options.pid ?? process.pid,
+        kind,
+        started_at: options.startedAt
+            ?? new Date(Date.now() - process.uptime() * 1_000).toISOString(),
+        runtime_dir: options.runtimeDir ?? veraRuntimeDirectory(),
+    };
+    const directory = liveProcessDirectoryIn(veraHome);
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    writeFileSync(
+        join(directory, `${record.pid}.json`),
+        `${JSON.stringify(record)}\n`,
+        { encoding: "utf8", mode: 0o600 },
+    );
+    return record;
 }
 
 export function postLiveProcess(
@@ -44,37 +85,29 @@ export function postLiveProcess(
         readonly home?: string;
     } = {},
 ): LiveProcessRecord {
-    const record: LiveProcessRecord = {
-        schema_version: LIVE_PROCESS_SCHEMA_VERSION,
-        pid: options.pid ?? process.pid,
-        kind,
-        started_at: options.startedAt
-            ?? new Date(Date.now() - process.uptime() * 1_000).toISOString(),
-        runtime_dir: options.runtimeDir ?? veraRuntimeDirectory(),
-    };
-    const directory = liveProcessDirectory(options.home);
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    writeFileSync(
-        liveProcessPath(record.pid, options.home),
-        `${JSON.stringify(record)}\n`,
-        { encoding: "utf8", mode: 0o600 },
-    );
-    return record;
+    return postLiveProcessIn(veraHomeDirectory(options.home), kind, options);
 }
 
-export function dropLiveProcess(pid = process.pid, home?: string): void {
+export function dropLiveProcessIn(veraHome: string, pid: number): void {
     try {
-        unlinkSync(liveProcessPath(pid, home));
+        unlinkSync(join(liveProcessDirectoryIn(veraHome), `${pid}.json`));
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
 }
 
-export function installLiveProcess(kind: LiveProcessKind): () => void {
+export function dropLiveProcess(pid = process.pid, home?: string): void {
+    dropLiveProcessIn(veraHomeDirectory(home), pid);
+}
+
+export function installLiveProcess(
+    kind: LiveProcessKind,
+    veraHome = veraHomeDirectory(),
+): () => void {
     process.title = LIVE_PROCESS_ARGV0[kind];
-    postLiveProcess(kind);
+    postLiveProcessIn(veraHome, kind);
     const drop = (): void => {
-        dropLiveProcess();
+        dropLiveProcessIn(veraHome, process.pid);
     };
     process.once("exit", drop);
     return () => {
@@ -83,10 +116,11 @@ export function installLiveProcess(kind: LiveProcessKind): () => void {
     };
 }
 
-export function listLiveProcesses(home?: string): LiveProcessRecord[] {
+export function listLiveProcessesIn(veraHome: string): LiveProcessRecord[] {
+    const directory = liveProcessDirectoryIn(veraHome);
     let names: string[];
     try {
-        names = readdirSync(liveProcessDirectory(home));
+        names = readdirSync(directory);
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
         throw error;
@@ -94,7 +128,7 @@ export function listLiveProcesses(home?: string): LiveProcessRecord[] {
     const records: LiveProcessRecord[] = [];
     for (const name of names) {
         if (!/^\d+\.json$/.test(name)) continue;
-        const path = join(liveProcessDirectory(home), name);
+        const path = join(directory, name);
         const record = readLiveProcessFile(path);
         if (record === undefined) {
             try {
@@ -105,7 +139,7 @@ export function listLiveProcesses(home?: string): LiveProcessRecord[] {
             continue;
         }
         if (!processIsAlive(record.pid) || !recordMatchesRunningProcess(record)) {
-            dropLiveProcess(record.pid, home);
+            dropLiveProcessIn(veraHome, record.pid);
             continue;
         }
         records.push(record);
@@ -113,6 +147,10 @@ export function listLiveProcesses(home?: string): LiveProcessRecord[] {
     return records.sort((left, right) =>
         kindOrder(left.kind) - kindOrder(right.kind) || left.pid - right.pid
     );
+}
+
+export function listLiveProcesses(home?: string): LiveProcessRecord[] {
+    return listLiveProcessesIn(veraHomeDirectory(home));
 }
 
 export function renderVeraPrune(

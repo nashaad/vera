@@ -136,3 +136,12 @@ test("an extension tip competes in the pool on the same terms", () => {
         selectTuiTip(now, { ...history, [extensionTip.id]: 4 }, pool),
     ).toBeUndefined();
 });
+
+test("a tip about the model picker waits until the model picker is open", () => {
+    const elsewhere = { ...context, inModelPicker: false };
+    const offered = TUI_TIPS.filter((entry) => entry.isRelevant(elsewhere))
+        .map((entry) => entry.id);
+
+    expect(offered).not.toContain("name-pool-entry");
+    expect(offered).not.toContain("verify-model");
+});

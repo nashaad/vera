@@ -1,3 +1,5 @@
+import { COMPACTION_TRIGGER_FRACTION } from
+    "../engine/compaction-scheduler.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
 import { isVeraProviderId, type VeraProviderId } from "../config.ts";
 
@@ -140,13 +142,26 @@ export function resolveReviewerProfile(
 }
 
 export interface VeraCompactionConfig {
-    readonly strategy: string;
-    readonly models: Readonly<Record<string, string>>;
+    /**
+     * A strategy and its slot routes are set together or not at all. A block
+     * that carries only numbers tunes whatever compaction the session would
+     * have run anyway.
+     */
+    readonly strategy?: string;
+    readonly models?: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
     readonly trigger_fraction?: number;
     readonly trigger_tokens?: number;
     readonly target_tokens?: number;
+    readonly target_fraction?: number;
     readonly retained_user_turns?: number;
+    readonly min_summary_tokens?: number;
+    readonly max_attempts?: number;
+    readonly summary_word_cap?: number;
+    /** The window assumed for a model whose real one is unknown. */
+    readonly assumed_window_tokens?: number;
+    /** The target fraction used against an assumed window. */
+    readonly unknown_target_fraction?: number;
 }
 
 export interface ResolvedCompactionProfile {
@@ -173,14 +188,24 @@ export function parseCompactionConfig(
     const triggerFraction = value.trigger_fraction;
     const triggerTokens = value.trigger_tokens;
     const targetTokens = value.target_tokens;
+    const targetFraction = value.target_fraction;
+    const unknownTargetFraction = value.unknown_target_fraction;
     const retainedTurns = value.retained_user_turns;
+    const minSummaryTokens = value.min_summary_tokens;
+    const maxAttempts = value.max_attempts;
+    const summaryWordCap = value.summary_word_cap;
+    const assumedWindow = value.assumed_window_tokens;
+    // One without the other is a typo, not a numbers-only block.
+    if ((strategy === undefined) !== (models === undefined)) {
+        return undefined;
+    }
     if (
-        typeof strategy !== "string"
-        || !isStrategyId(strategy)
-        || !isRecord(models)
+        (strategy !== undefined
+            && (typeof strategy !== "string" || !isStrategyId(strategy)))
+        || (models !== undefined && !isRecord(models))
         || (timeout !== undefined
             && (typeof timeout !== "number"
-                || !Number.isInteger(timeout)
+                || !Number.isSafeInteger(timeout)
                 || timeout < 1_000
                 || timeout > 600_000))
         || (triggerFraction !== undefined
@@ -190,21 +215,61 @@ export function parseCompactionConfig(
                 || triggerFraction > 1))
         || (triggerTokens !== undefined
             && (typeof triggerTokens !== "number"
-                || !Number.isInteger(triggerTokens)
+                || !Number.isSafeInteger(triggerTokens)
                 || triggerTokens < 1))
         || (targetTokens !== undefined
             && (typeof targetTokens !== "number"
-                || !Number.isInteger(targetTokens)
+                || !Number.isSafeInteger(targetTokens)
                 || targetTokens < 1))
+        || (targetFraction !== undefined
+            && (typeof targetFraction !== "number"
+                || !Number.isFinite(targetFraction)
+                || targetFraction <= 0
+                || targetFraction > 1))
+        || (unknownTargetFraction !== undefined
+            && (typeof unknownTargetFraction !== "number"
+                || !Number.isFinite(unknownTargetFraction)
+                || unknownTargetFraction <= 0
+                || unknownTargetFraction > 1))
         || (retainedTurns !== undefined
             && (typeof retainedTurns !== "number"
-                || !Number.isInteger(retainedTurns)
+                || !Number.isSafeInteger(retainedTurns)
                 || retainedTurns < 0))
+        || (minSummaryTokens !== undefined
+            && (typeof minSummaryTokens !== "number"
+                || !Number.isSafeInteger(minSummaryTokens)
+                || minSummaryTokens < 1))
+        || (maxAttempts !== undefined
+            && (typeof maxAttempts !== "number"
+                || !Number.isSafeInteger(maxAttempts)
+                || maxAttempts < 1))
+        || (summaryWordCap !== undefined
+            && (typeof summaryWordCap !== "number"
+                || !Number.isSafeInteger(summaryWordCap)
+                || summaryWordCap < 1))
+        || (assumedWindow !== undefined
+            && (typeof assumedWindow !== "number"
+                || !Number.isSafeInteger(assumedWindow)
+                || assumedWindow < 1))
     ) {
         return undefined;
     }
+    // Both are fractions of the same window, so a target at or above the
+    // trigger compacts straight back to the point that started it. A target
+    // set alone is measured against the standing trigger; a trigger set alone
+    // is not measured against the standing target, because that would reject
+    // a low trigger, which is a shape configs already carry and which only
+    // makes compaction eager rather than repeating.
+    if (typeof targetFraction === "number") {
+        const trigger = typeof triggerFraction === "number"
+            ? triggerFraction
+            : COMPACTION_TRIGGER_FRACTION;
+        if (targetFraction >= trigger) {
+            return undefined;
+        }
+    }
     const slots: Record<string, string> = {};
-    for (const [slot, route] of Object.entries(models)) {
+    for (const [slot, route] of Object.entries(models ?? {})) {
         if (
             !isConfigName(slot)
             || typeof route !== "string"
@@ -215,8 +280,9 @@ export function parseCompactionConfig(
         slots[slot] = route;
     }
     return {
-        strategy,
-        models: slots,
+        ...(strategy === undefined
+            ? {}
+            : { strategy: strategy as string, models: slots }),
         ...(timeout === undefined ? {} : { timeout_ms: timeout }),
         ...(triggerFraction === undefined
             ? {}
@@ -227,9 +293,25 @@ export function parseCompactionConfig(
         ...(targetTokens === undefined
             ? {}
             : { target_tokens: targetTokens }),
+        ...(targetFraction === undefined
+            ? {}
+            : { target_fraction: targetFraction }),
+        ...(unknownTargetFraction === undefined
+            ? {}
+            : { unknown_target_fraction: unknownTargetFraction }),
         ...(retainedTurns === undefined
             ? {}
             : { retained_user_turns: retainedTurns }),
+        ...(minSummaryTokens === undefined
+            ? {}
+            : { min_summary_tokens: minSummaryTokens }),
+        ...(maxAttempts === undefined ? {} : { max_attempts: maxAttempts }),
+        ...(summaryWordCap === undefined
+            ? {}
+            : { summary_word_cap: summaryWordCap }),
+        ...(assumedWindow === undefined
+            ? {}
+            : { assumed_window_tokens: assumedWindow }),
     };
 }
 
@@ -237,6 +319,9 @@ export function resolveCompactionProfile(
     config: VeraModelCatalogConfig,
     compaction: VeraCompactionConfig,
 ): ResolvedCompactionProfile | undefined {
+    if (compaction.strategy === undefined || compaction.models === undefined) {
+        return undefined;
+    }
     const slots: Record<string, readonly VeraCatalogModel[]> = {};
     const routes: Record<string, string> = {};
     for (const [slot, routeName] of Object.entries(compaction.models)) {

@@ -42,16 +42,19 @@ import type { ModelFallbackPolicy } from "../../engine/recovery.ts";
 import type { EffortPool } from "../../model/effort-pool.ts";
 import {
     availableModels,
+    budgetContextWindow,
     contextWindowForModel,
     effectiveContextWindow,
     isModelReasoningEffort,
     publishedReasoningLevels,
     reasoningEffortForModel,
-    type DeveloperSettings,
-    type DeveloperSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../../engine/model-settings.ts";
+import {
+    overrideRows,
+    type ConfiguredOverrides,
+} from "../../engine/override-rows.ts";
 import { inferReasoningSelection } from "../../model/reasoning-effort.ts";
 import type { EffectiveCatalogOptions } from "../../model/catalog.ts";
 import type {
@@ -307,7 +310,7 @@ export function settingsForClient(
     requestedReasoningEffort?: ModelReasoningEffort,
     reviewerDefault?: ReviewerModelDefault,
     contextLimit?: number,
-    developer?: DeveloperSettings,
+    configured?: ConfiguredOverrides,
     projectRoot?: string,
     refreshableProviders?: readonly string[],
 ): ModelTurnSettings {
@@ -382,7 +385,12 @@ export function settingsForClient(
             ? {}
             : { modelContextWindow }),
         ...(contextLimit === undefined ? {} : { contextLimit }),
-        ...(developer === undefined ? {} : { developer }),
+        overrides: {
+            rows: overrideRows(
+                configured ?? {},
+                budgetContextWindow(modelContextWindow, contextLimit),
+            ),
+        },
     };
 }
 

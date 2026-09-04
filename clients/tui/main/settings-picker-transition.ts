@@ -1,4 +1,4 @@
-import { applySelectedTheme, beginSessionResume, refreshHomeSessions, developerChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
+import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
@@ -13,6 +13,8 @@ import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { saveTuiThemePreference } from "../theme-preference.ts";
 import type { TuiRuntime } from "./runtime.ts";
+import { overrideConflict } from "../../../src/engine/override-rows.ts";
+import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { randomUUID } from "node:crypto";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
@@ -419,13 +421,49 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 `context limit to ${label}`,
                 rt.settingsPickerAgent,
             );
-        } else if (selection.kind === "developer") {
-            requestModelSettingsChange(rt, 
-                { developer: selection.patch },
-                developerChangeLabel(selection.patch),
-                developerChangeLabel(selection.patch),
-                rt.settingsPickerAgent,
-            );
+        } else if (selection.kind === "overrides") {
+            // A reset drops every lever at once, which no rule can refuse.
+            const valuePane = previousPicker?.kind === "override_value"
+                ? previousPicker
+                : undefined;
+            const refusal = valuePane === undefined || selection.patch === null
+                ? undefined
+                : overrideConflict(
+                    valuePane.overrides?.rows ?? [],
+                    selection.patch,
+                );
+            if (valuePane !== undefined && refusal !== undefined) {
+                // The pane stays open on the value that was turned down. A
+                // status notice would say this behind the picker covering it,
+                // and the user is looking at the list they must pick from.
+                rt.settingsPicker = valuePane;
+                rt.pickerTipKind = valuePane.kind;
+                rt.settingsPickerView.tip = { tone: "refusal", text: refusal };
+                rt.composer.blur();
+                rt.settingsPickerView.update(valuePane);
+                rt.settingsPickerView.focus();
+                renderState(rt);
+                return;
+            }
+            const clearing = selection.patch === null
+                ? tuiOverridesResetLevers(
+                    previousPicker?.kind === "overrides_settings"
+                        ? previousPicker.overrides?.rows ?? []
+                        : [],
+                )
+                : [];
+            if (clearing.length > 0) {
+                // Nothing is written until the answer comes back. The pane
+                // behind stays as it was, so cancelling leaves no trace.
+                rt.overridesResetCandidate = clearing;
+            } else {
+                requestModelSettingsChange(rt, 
+                    { overrides: selection.patch },
+                    overrideChangeLabel(selection.patch),
+                    overrideChangeLabel(selection.patch),
+                    rt.settingsPickerAgent,
+                );
+            }
         } else if (selection.kind === "menu") {
             rt.settingsPicker = undefined;
             openSettingsMenuTarget(rt, 
@@ -558,6 +596,10 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.composer.blur();
         rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label);
         rt.providerForgetConfirmView.box.focus();
+    } else if (rt.overridesResetCandidate !== undefined) {
+        rt.composer.blur();
+        rt.overridesResetConfirmView.update(rt.overridesResetCandidate);
+        rt.overridesResetConfirmView.box.focus();
     } else if (rt.settingsPicker === undefined) {
         closeSettingsPickerSurface(rt);
     } else {
@@ -568,6 +610,20 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     if (returningToModelPicker) {
         requestAgentSettings(rt, focusedAgentClient(rt));
     }
+    renderState(rt);
+}
+
+/** The reset was confirmed: clear every lever the card named. The pane behind the card stays open, and the cleared rows arrive on it. */
+export function applyOverridesReset(rt: TuiRuntime): void {
+    rt.overridesResetCandidate = undefined;
+    requestModelSettingsChange(
+        rt,
+        { overrides: null },
+        overrideChangeLabel(null),
+        overrideChangeLabel(null),
+        rt.settingsPickerAgent,
+    );
+    focusActiveSurface(rt);
     renderState(rt);
 }
 

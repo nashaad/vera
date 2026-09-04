@@ -23,7 +23,7 @@ import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_BACKGROUND_Z_INDEX, DIALOG_
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
     effectiveContextWindow,
-    type DeveloperSettingsPatch,
+    type OverrideSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../../src/engine/model-settings.ts";
@@ -173,6 +173,7 @@ import { createTuiPermissionsConfirmView } from "./permissions-confirm.ts";
 import { createTuiSessionTrashConfirmView } from "./session-trash-confirm.ts";
 import { createTuiSessionCloseConfirmView } from "./session-close-confirm.ts";
 import { createTuiProviderForgetConfirmView } from "./provider-forget-confirm.ts";
+import { createTuiOverridesResetConfirmView } from "./overrides-reset-confirm.ts";
 import { createTuiAdmissionDialogView } from "./admission-dialog.ts";
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
@@ -287,7 +288,7 @@ import { openReviewerMenu, openReviewerPicker, reviewerPatchFor, reviewerToast, 
 import { forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest } from "./main/provider-forms.ts";
 import { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo } from "./main/palette-jump.ts";
 import { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp } from "./main/workspace-ops.ts";
-import { applySettingsPickerTransition, closeSettingsPickerSurface } from "./main/settings-picker-transition.ts";
+import { applyOverridesReset, applySettingsPickerTransition, closeSettingsPickerSurface } from "./main/settings-picker-transition.ts";
 import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings } from "./main/onboarding-wizard-ops.ts";
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
@@ -302,7 +303,7 @@ export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeCom
 export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview };
 export { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings };
 export { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission };
-export { applySettingsPickerTransition, closeSettingsPickerSurface };
+export { applyOverridesReset, applySettingsPickerTransition, closeSettingsPickerSurface };
 export { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp };
 export { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo };
 export { forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest };
@@ -1696,6 +1697,8 @@ export async function startTui(
         createTuiSessionCloseConfirmView(rt.renderer);
     rt.providerForgetConfirmView =
         createTuiProviderForgetConfirmView(rt.renderer);
+    rt.overridesResetConfirmView =
+        createTuiOverridesResetConfirmView(rt.renderer);
     rt.approvalView = createTuiApprovalView(rt.renderer);
     rt.questionView = createTuiQuestionView(rt.renderer);
     [
@@ -1719,6 +1722,7 @@ export async function startTui(
         rt.sessionTrashConfirmView,
         rt.sessionCloseConfirmView,
         rt.providerForgetConfirmView,
+        rt.overridesResetConfirmView,
         rt.approvalView,
         rt.questionView,
     ].forEach((view) => registerDialogCard(view.box));
@@ -2270,6 +2274,7 @@ export async function startTui(
     rt.app.add(rt.sessionTrashConfirmView.surface);
     rt.app.add(rt.sessionCloseConfirmView.surface);
     rt.app.add(rt.providerForgetConfirmView.surface);
+    rt.app.add(rt.overridesResetConfirmView.surface);
     rt.app.add(rt.composerTipText);
     rt.app.add(rt.experimentalTuiHost.footer);
     rt.app.add(rt.experimentalTuiHost.composerAdornment);
@@ -2832,6 +2837,7 @@ export async function startTui(
         ...rt.sessionTrashConfirmView.themeBindings,
         ...rt.sessionCloseConfirmView.themeBindings,
         ...rt.providerForgetConfirmView.themeBindings,
+        ...rt.overridesResetConfirmView.themeBindings,
     ];
 
     return rt.finished.promise;
@@ -2876,25 +2882,32 @@ export function describeModelPatch(patch: ModelSettingsPatch): string {
     return parts.filter((part) => part !== undefined).join(" ");
 }
 
-const DEVELOPER_FIELD_NAMES: Readonly<Record<string, string>> = {
-    contextLimit: "developer context limit",
-    compactionTriggerFraction: "developer compaction trigger",
-    postCompactionTargetFraction: "developer post-compaction target",
-    summaryWordCap: "developer summary word cap",
+const OVERRIDE_FIELD_NAMES: Readonly<Record<string, string>> = {
+    contextLimit: "context limit",
+    compactionTriggerFraction: "compaction trigger",
+    compactionTriggerTokens: "compaction trigger tokens",
+    compactionTargetTokens: "compaction target tokens",
+    postCompactionTargetFraction: "post-compaction target",
+    summaryWordCap: "summary word cap",
+    retainedUserTurns: "retained user turns",
+    toolResultCeilingBytes: "tool result ceiling",
+    toolResultTotalBudgetBytes: "tool result budget",
+    toolResultStubAfterTurns: "stub after turns",
+    toolResultAgingLevel: "aging level",
 };
 
-export function developerChangeLabel(patch: DeveloperSettingsPatch): string {
-    if (patch.enabled !== undefined) {
-        return patch.enabled
-            ? "developer overrides on"
-            : "developer overrides off";
+export function overrideChangeLabel(
+    patch: OverrideSettingsPatch | null,
+): string {
+    if (patch === null) {
+        return "every override back to its default";
     }
     const [field, value] = Object.entries(patch)[0] ?? [];
     const name = field === undefined
-        ? "developer settings"
-        : DEVELOPER_FIELD_NAMES[field] ?? "developer settings";
+        ? "overrides"
+        : OVERRIDE_FIELD_NAMES[field] ?? "overrides";
     return value === null || value === undefined
-        ? `${name} off`
+        ? `${name} back to its default`
         : `${name} to ${value}`;
 }
 

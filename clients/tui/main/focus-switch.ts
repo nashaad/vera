@@ -83,6 +83,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.providerForgetCandidate !== undefined) {
         return () => rt.providerForgetConfirmView.box.focus();
     }
+    if (rt.overridesResetCandidate !== undefined) {
+        return () => rt.overridesResetConfirmView.box.focus();
+    }
     if (rt.requestOptionsEditor !== undefined) {
         return () => rt.requestOptionsEditorView.focus();
     }

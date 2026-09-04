@@ -40,7 +40,7 @@ export async function startAnnexProcess(
     ];
     const child: ChildProcess = spawn(bin as string, args, {
         argv0: "vera-annex",
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         env: { ...process.env },
     });
     const pid = child.pid;

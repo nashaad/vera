@@ -13,6 +13,7 @@
     "install:local": "bun run scripts/install-local.ts",
     "host": "bun run pack:release && bun run clients/host/main.ts",
     "tui": "bun run pack:release && bun run clients/tui/main.ts",
+    "dev:sweep": "bun scripts/dev-sweep.ts",
     "dev:tui": "bun run pack:release && bun run scripts/dev-tui.ts",
     "factory:home": "bun run scripts/synthesize-factory-home.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",

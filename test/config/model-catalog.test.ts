@@ -4,7 +4,9 @@ import {
     derivedModelName,
     parseCompactionConfig,
     parseModelCatalogConfig,
+    resolveCompactionProfile,
     resolveReviewerProfile,
+    type VeraModelCatalogConfig,
 } from "../../src/config/model-catalog.ts";
 
 test("model names derive from concrete settings unless explicitly named", () => {
@@ -184,4 +186,96 @@ test("out-of-range compaction trigger bounds are rejected", () => {
         expect(parseCompactionConfig({ ...base, ...trigger }, routes))
             .toBeUndefined();
     }
+});
+
+test("a compaction block may carry numbers with no strategy", () => {
+    const routes = { summarizer: ["primary"] };
+    expect(parseCompactionConfig(
+        {
+            trigger_fraction: 0.7,
+            target_fraction: 0.4,
+            retained_user_turns: 3,
+            min_summary_tokens: 500,
+            max_attempts: 2,
+            summary_word_cap: 2_000,
+            assumed_window_tokens: 64_000,
+            unknown_target_fraction: 0.3,
+        },
+        routes,
+    )).toEqual({
+        trigger_fraction: 0.7,
+        target_fraction: 0.4,
+        retained_user_turns: 3,
+        min_summary_tokens: 500,
+        max_attempts: 2,
+        summary_word_cap: 2_000,
+        assumed_window_tokens: 64_000,
+        unknown_target_fraction: 0.3,
+    });
+    expect(parseCompactionConfig({}, routes)).toEqual({});
+});
+
+test("a strategy without routes, or routes without a strategy, is rejected", () => {
+    const routes = { summarizer: ["primary"] };
+    expect(parseCompactionConfig({ strategy: "vera/full-summary" }, routes))
+        .toBeUndefined();
+    expect(parseCompactionConfig({ models: { summarizer: "summarizer" } }, routes))
+        .toBeUndefined();
+});
+
+test("a numbers-only compaction block resolves to no profile", () => {
+    const catalog: VeraModelCatalogConfig = {
+        models: [
+            { name: "primary", provider: "ollama", model: "gemma4:26b" },
+        ],
+        model_routes: { summarizer: ["primary"] },
+        reviewer_profiles: {},
+    };
+    const parsed = parseCompactionConfig(
+        { trigger_fraction: 0.7 },
+        catalog.model_routes,
+    );
+    expect(parsed).toEqual({ trigger_fraction: 0.7 });
+    expect(resolveCompactionProfile(catalog, parsed!)).toBeUndefined();
+});
+
+test("out-of-range compaction numbers are rejected", () => {
+    const routes = { summarizer: ["primary"] };
+    // The control: without it every case below passes on a parser that
+    // rejects everything.
+    expect(parseCompactionConfig({ target_fraction: 0.4 }, routes))
+        .toEqual({ target_fraction: 0.4 });
+    for (const value of [
+        { target_fraction: 0 },
+        { target_fraction: 1.5 },
+        { target_fraction: "0.4" },
+        { unknown_target_fraction: 0 },
+        { unknown_target_fraction: 1.5 },
+        { min_summary_tokens: 0 },
+        { min_summary_tokens: 1.5 },
+        { max_attempts: 0 },
+        { max_attempts: 2.5 },
+        { summary_word_cap: 0 },
+        { summary_word_cap: "2000" },
+        { assumed_window_tokens: 0 },
+        { assumed_window_tokens: 1.5 },
+        { min_summary_tokens: Number.MAX_SAFE_INTEGER + 1 },
+        { assumed_window_tokens: Number.MAX_SAFE_INTEGER + 1 },
+        // A summary aimed at or above the point that triggers one.
+        { trigger_fraction: 0.5, target_fraction: 0.5 },
+        { trigger_fraction: 0.2, target_fraction: 0.9 },
+        // Alone, the target is measured against the standing trigger of 0.82.
+        { target_fraction: 0.9 },
+        { target_fraction: 0.82 },
+    ]) {
+        expect(parseCompactionConfig(value, routes)).toBeUndefined();
+    }
+    expect(parseCompactionConfig(
+        { trigger_fraction: 0.82, target_fraction: 0.45 },
+        routes,
+    )).toEqual({ trigger_fraction: 0.82, target_fraction: 0.45 });
+    // A trigger set alone keeps parsing whatever it is. Measuring it against
+    // the standing target would reject blocks that load today.
+    expect(parseCompactionConfig({ trigger_fraction: 0.2 }, routes))
+        .toEqual({ trigger_fraction: 0.2 });
 });

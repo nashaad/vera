@@ -7,7 +7,7 @@ import { settleWizardVerification, wizardTookCatalogRefresh, wizardTookModelSett
 import { releaseDroppedImage } from "../main/prompt-routing.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { syncTuiPreferencesList } from "../preferences-list.ts";
-import { startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
+import { startTuiOverridesMenu, startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, beginNextQueuedTuiTurn } from "../state.ts";
 import { applyTuiTimelineReply } from "../timeline-picker.ts";
 import { applyTuiUiRequestUpdate } from "../ui-request-queue.ts";
@@ -494,6 +494,26 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             ) {
                 rt.settingsPicker = withTuiPickerParent(
                     startTuiReviewerMenu(rt.state.modelSettings?.reviewerDefault),
+                    rt.settingsPicker.parent,
+                );
+            }
+            if (
+                update.type === "model_settings"
+                && rt.settingsPicker?.kind === "overrides_settings"
+            ) {
+                // The rows are the same eleven levers either way, so the
+                // cursor stays on the one that was just changed.
+                const repainted = startTuiOverridesMenu(
+                    rt.state.modelSettings?.overrides,
+                );
+                rt.settingsPicker = withTuiPickerParent(
+                    {
+                        ...repainted,
+                        selectedIndex: Math.min(
+                            rt.settingsPicker.selectedIndex,
+                            repainted.options.length - 1,
+                        ),
+                    },
                     rt.settingsPicker.parent,
                 );
             }

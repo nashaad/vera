@@ -27,6 +27,7 @@ import type {
 import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
+import type { ToolResultLimits } from "./tool-result-history.ts";
 import type { RequestMissingSubagentConfiguration } from "./subagent.ts";
 
 export interface HostBoundaryOffers {
@@ -45,6 +46,7 @@ export interface HostOwnedObjects {
     readonly processRegistry?: ManagedProcessRegistry;
     readonly extensionTools?: readonly RegisteredTool[];
     readonly compaction?: SessionCompactionOptions;
+    readonly toolResults?: ToolResultLimits;
     readonly router: InboundRouterHostHooks;
 }
 
@@ -146,6 +148,9 @@ export function createLocalHostBoundary(
             ...(services.extensionTools === undefined
                 ? {}
                 : { extensionTools: services.extensionTools }),
+            ...(services.toolResults === undefined
+                ? {}
+                : { toolResults: services.toolResults }),
             get compaction() {
                 return services.compaction;
             },

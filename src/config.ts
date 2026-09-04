@@ -16,6 +16,18 @@ import {
     parseApprovalMode,
     type ApprovalMode,
 } from "./engine/permissions.ts";
+import {
+    TOOL_RESULT_TOTAL_BUDGET_BYTES,
+    type ToolResultLimits,
+} from "./engine/tool-result-history.ts";
+import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
+import type { CompactionOverrides } from "./engine/compaction-binding.ts";
+import {
+    OVERRIDE_KEYS,
+    type ConfiguredOverrides,
+    type OverrideKey,
+} from "./engine/override-rows.ts";
+import type { OverrideSettingsPatch } from "./engine/model-settings.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
@@ -226,7 +238,7 @@ export interface VeraConfig {
     readonly disabled_builtin_extensions?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
-    readonly developer?: VeraDeveloperConfig;
+    readonly tool_results?: VeraToolResultsConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
     readonly tui?: VeraTuiConfig;
@@ -301,33 +313,32 @@ export interface VeraExperimentalConfig {
 }
 
 /**
- * Overrides for testing Vera itself, kept in one block so that clearing
- * `enabled` returns every one of them at once. Nothing here is read while
- * `enabled` is false, and none of these values has a normal-use meaning: the
- * windows are below what any real session wants, and the compaction numbers
- * exist so a summary can be provoked in a minute rather than an afternoon.
+ * Which row of the aging ladder a session uses. `auto` picks the row from the
+ * resolved context window, which is what a session does when nothing is set.
  */
-export interface VeraDeveloperConfig {
-    readonly enabled?: boolean;
-    /** Replaces `context_limit`, and reaches below the values it offers. */
-    readonly context_limit?: number;
-    /** Replaces the compaction profile's `trigger_fraction`. */
-    readonly compaction_trigger_fraction?: number;
-    /** Share of the window a compaction aims to land under. */
-    readonly post_compaction_target_fraction?: number;
-    /** Ceiling on the words a summary is asked for. */
-    readonly summary_word_cap?: number;
-}
+export type VeraToolResultAgingLevel =
+    | "auto"
+    | "relaxed"
+    | "normal"
+    | "tight";
+
+export const VERA_TOOL_RESULT_AGING_LEVELS: readonly VeraToolResultAgingLevel[] =
+    ["auto", "relaxed", "normal", "tight"];
 
 /**
- * The developer overrides in force, or undefined when the block is off or
- * absent. Every reader goes through this, so "off" cannot mean one thing in
- * one place and another somewhere else.
+ * How much of a turn's context tool results are allowed to occupy. A single
+ * result large enough to fill a small window is the failure these bound, so
+ * the byte ceilings matter most on the smallest models.
  */
-export function developerOverrides(
-    config: VeraConfig,
-): VeraDeveloperConfig | undefined {
-    return config.developer?.enabled === true ? config.developer : undefined;
+export interface VeraToolResultsConfig {
+    /** Bytes of one result kept before head and tail truncation. */
+    readonly ceiling_bytes?: number;
+    /** Bytes of every result combined in one request. */
+    readonly total_budget_bytes?: number;
+    /** Turns a result stays whole before it can be stubbed. `0` stubs at once. */
+    readonly stub_after_turns?: number;
+    /** Pins a row of the aging ladder instead of choosing one by window. */
+    readonly aging_level?: VeraToolResultAgingLevel;
 }
 
 export interface LoadVeraConfigOptions {
@@ -386,12 +397,19 @@ export interface VeraConfigDefaultsPatch {
     };
     readonly inbox?: VeraInboxConfig | null;
     /**
-     * Developer overrides, merged field by field. `null` clears the block.
-     * A field set to `null` clears that field alone.
+     * Tool result limits, merged field by field. A field set to `null` clears
+     * that field alone.
      */
-    readonly developer?:
-        | Readonly<Record<string, number | boolean | null | undefined>>
-        | null;
+    readonly tool_results?: Readonly<
+        Record<string, number | string | null | undefined>
+    >;
+    /**
+     * Compaction numbers, merged field by field. A field set to `null` clears
+     * that field alone. The strategy and its routes are left as they stand:
+     * a pane that retunes a number must not unbind the models compaction runs
+     * on.
+     */
+    readonly compaction?: Readonly<Record<string, number | null | undefined>>;
 }
 
 export function defaultVeraConfigPath(): string {
@@ -408,6 +426,17 @@ export class VeraConfigError extends Error {
     constructor(path: string, problem: string) {
         super(`Vera config at ${path} could not be read: ${problem}`);
         this.name = "VeraConfigError";
+        this.path = path;
+    }
+}
+
+/** A write refused because the file it would leave could not be loaded back. */
+export class VeraConfigWriteError extends Error {
+    readonly path: string;
+
+    constructor(path: string, problem: string) {
+        super(`Vera config at ${path} was not written: ${problem}`);
+        this.name = "VeraConfigWriteError";
         this.path = path;
     }
 }
@@ -695,12 +724,21 @@ export function updateVeraConfigDefaults(
         ...(patch.inbox === undefined
             ? {}
             : { inbox: patch.inbox === null ? undefined : patch.inbox }),
-        ...(patch.developer === undefined
+        ...(patch.tool_results === undefined
             ? {}
             : {
-                developer: patch.developer === null
-                    ? undefined
-                    : patchedDeveloper(current.developer, patch.developer),
+                tool_results: patchedToolResults(
+                    current.tool_results,
+                    patch.tool_results,
+                ),
+            }),
+        ...(patch.compaction === undefined
+            ? {}
+            : {
+                compaction: patchedCompaction(
+                    current.compaction,
+                    patch.compaction,
+                ),
             }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
@@ -746,22 +784,30 @@ function writeVeraConfigFile(
     path: string,
     config: VeraConfig | Omit<VeraConfig, "approval_mode">,
 ): void {
+    const written = {
+        ...foreignConfigEntries(path),
+        ...configForDisk(config),
+        ...writtenHooks(path),
+    };
+    // Cross-field rules make some pairs of settings, each legal alone, invalid
+    // together. A file holding such a pair does not load, and the config is
+    // what the panes that would fix it are reached through, so it has to be
+    // caught before the rename rather than on the next start.
+    if (parseVeraConfig(migrateShippedProviderDeclarations(path, written))
+        === undefined
+    ) {
+        throw new VeraConfigWriteError(
+            path,
+            "the settings it would leave contradict each other, so the file"
+                + " it wrote could not be read back",
+        );
+    }
     const directory = dirname(path);
     const temporaryPath = join(directory, `.config-${randomUUID()}.tmp`);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    writeFileSync(
-        temporaryPath,
-        `${JSON.stringify(
-            {
-                ...foreignConfigEntries(path),
-                ...configForDisk(config),
-                ...writtenHooks(path),
-            },
-            null,
-            2,
-        )}\n`,
-        { mode: 0o600 },
-    );
+    writeFileSync(temporaryPath, `${JSON.stringify(written, null, 2)}\n`, {
+        mode: 0o600,
+    });
     renameSync(temporaryPath, path);
 }
 
@@ -1082,7 +1128,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     );
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
-    const developer = parseDeveloperConfig(config.developer);
+    const toolResults = parseToolResultsConfig(config.tool_results);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
@@ -1114,7 +1160,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledPromptContributions === undefined
         || experimental === undefined
         || inbox === undefined
-        || developer === undefined
+        || toolResults === undefined
         || eventLog === undefined
         || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
@@ -1194,7 +1240,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.inbox === undefined ? {} : { inbox }),
-        ...(config.developer === undefined ? {} : { developer }),
+        ...(config.tool_results === undefined
+            ? {}
+            : { tool_results: toolResults }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
         ...(config.tui === undefined ? {} : { tui }),
@@ -1518,16 +1566,14 @@ function parseExperimental(
     return raw.inbox === undefined ? {} : { inbox: raw.inbox };
 }
 
-const DEVELOPER_NUMBER_KEYS = [
-    "context_limit",
-    "compaction_trigger_fraction",
-    "post_compaction_target_fraction",
-    "summary_word_cap",
+const TOOL_RESULT_BYTE_KEYS = [
+    "ceiling_bytes",
+    "total_budget_bytes",
 ] as const;
 
-function parseDeveloperConfig(
+function parseToolResultsConfig(
     value: unknown,
-): VeraDeveloperConfig | undefined {
+): VeraToolResultsConfig | undefined {
     if (value === undefined) {
         return {};
     }
@@ -1535,31 +1581,57 @@ function parseDeveloperConfig(
         return undefined;
     }
     const raw = value as Record<string, unknown>;
-    if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") {
-        return undefined;
-    }
-    const parsed: Record<string, number | boolean> = {};
-    if (raw.enabled !== undefined) {
-        parsed.enabled = raw.enabled;
-    }
-    for (const key of DEVELOPER_NUMBER_KEYS) {
+    const parsed: Record<string, number | string> = {};
+    for (const key of TOOL_RESULT_BYTE_KEYS) {
         const entry = raw[key];
         if (entry === undefined) {
             continue;
         }
-        if (typeof entry !== "number" || !Number.isFinite(entry) || entry <= 0) {
+        if (!Number.isSafeInteger(entry) || (entry as number) < 1) {
             return undefined;
         }
-        parsed[key] = entry;
+        parsed[key] = entry as number;
     }
-    return parsed as VeraDeveloperConfig;
+    if (raw.stub_after_turns !== undefined) {
+        if (
+            !Number.isSafeInteger(raw.stub_after_turns)
+            || (raw.stub_after_turns as number) < 0
+        ) {
+            return undefined;
+        }
+        parsed.stub_after_turns = raw.stub_after_turns as number;
+    }
+    if (raw.aging_level !== undefined) {
+        if (
+            typeof raw.aging_level !== "string"
+            || !VERA_TOOL_RESULT_AGING_LEVELS.includes(
+                raw.aging_level as VeraToolResultAgingLevel,
+            )
+        ) {
+            return undefined;
+        }
+        parsed.aging_level = raw.aging_level;
+    }
+    // One result may not be allowed more than every result together, which
+    // would let a single tool call spend a budget meant for the whole turn.
+    // Setting one alone is the case that needs the defaults: lowering the
+    // budget under the standing ceiling is the same contradiction written
+    // with one key instead of two.
+    const ceiling = (parsed.ceiling_bytes as number | undefined)
+        ?? TOOL_RESULT_CEILING_BYTES;
+    const total = (parsed.total_budget_bytes as number | undefined)
+        ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
+    if (ceiling > total) {
+        return undefined;
+    }
+    return parsed as VeraToolResultsConfig;
 }
 
-function patchedDeveloper(
-    current: VeraDeveloperConfig | undefined,
-    patch: Readonly<Record<string, number | boolean | null | undefined>>,
-): VeraDeveloperConfig | undefined {
-    const merged: Record<string, number | boolean> = { ...(current ?? {}) };
+function patchedToolResults(
+    current: VeraToolResultsConfig | undefined,
+    patch: Readonly<Record<string, number | string | null | undefined>>,
+): VeraToolResultsConfig | undefined {
+    const merged: Record<string, unknown> = { ...(current ?? {}) };
     for (const [key, value] of Object.entries(patch)) {
         if (value === null) {
             delete merged[key];
@@ -1571,7 +1643,26 @@ function patchedDeveloper(
     }
     return Object.keys(merged).length === 0
         ? undefined
-        : merged as VeraDeveloperConfig;
+        : merged as VeraToolResultsConfig;
+}
+
+function patchedCompaction(
+    current: VeraCompactionConfig | undefined,
+    patch: Readonly<Record<string, number | null | undefined>>,
+): VeraCompactionConfig | undefined {
+    const merged: Record<string, unknown> = { ...(current ?? {}) };
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null) {
+            delete merged[key];
+            continue;
+        }
+        if (value !== undefined) {
+            merged[key] = value;
+        }
+    }
+    return Object.keys(merged).length === 0
+        ? undefined
+        : merged as VeraCompactionConfig;
 }
 
 function parseInboxConfig(value: unknown): VeraInboxConfig | undefined {
@@ -1940,6 +2031,167 @@ export function configuredCompaction(
         model_routes: config.model_routes,
         reviewer_profiles: config.reviewer_profiles ?? {},
     }, config.compaction);
+}
+
+/**
+ * The tool result limits a config sets, or undefined when it sets none. An
+ * `auto` aging level is the absence of a choice, not a level: it leaves the
+ * row to be picked from the window the session actually has.
+ */
+export function configuredToolResults(
+    config: VeraConfig,
+): ToolResultLimits | undefined {
+    const limits = config.tool_results;
+    if (limits === undefined) {
+        return undefined;
+    }
+    const resolved: ToolResultLimits = {
+        ...(limits.ceiling_bytes === undefined
+            ? {}
+            : { ceilingBytes: limits.ceiling_bytes }),
+        ...(limits.total_budget_bytes === undefined
+            ? {}
+            : { totalBudgetBytes: limits.total_budget_bytes }),
+        ...(limits.stub_after_turns === undefined
+            ? {}
+            : { stubAfterTurns: limits.stub_after_turns }),
+        ...(limits.aging_level === undefined || limits.aging_level === "auto"
+            ? {}
+            : { agingLevel: limits.aging_level }),
+    };
+    return Object.keys(resolved).length === 0 ? undefined : resolved;
+}
+
+/**
+ * What the config wrote for each context lever, in the engine's own key names
+ * and with nothing filled in. The defaults belong to the engine, so a value
+ * missing here has to stay missing.
+ */
+export function configuredOverrides(config: VeraConfig): ConfiguredOverrides {
+    const compaction = config.compaction;
+    const limits = config.tool_results;
+    return {
+        ...(config.context_limit === undefined
+            ? {}
+            : { contextLimit: config.context_limit }),
+        ...(compaction?.trigger_fraction === undefined
+            ? {}
+            : { compactionTriggerFraction: compaction.trigger_fraction }),
+        ...(compaction?.trigger_tokens === undefined
+            ? {}
+            : { compactionTriggerTokens: compaction.trigger_tokens }),
+        ...(compaction?.target_tokens === undefined
+            ? {}
+            : { compactionTargetTokens: compaction.target_tokens }),
+        ...(compaction?.target_fraction === undefined
+            ? {}
+            : { postCompactionTargetFraction: compaction.target_fraction }),
+        ...(compaction?.summary_word_cap === undefined
+            ? {}
+            : { summaryWordCap: compaction.summary_word_cap }),
+        ...(compaction?.retained_user_turns === undefined
+            ? {}
+            : { retainedUserTurns: compaction.retained_user_turns }),
+        ...(limits?.ceiling_bytes === undefined
+            ? {}
+            : { toolResultCeilingBytes: limits.ceiling_bytes }),
+        ...(limits?.total_budget_bytes === undefined
+            ? {}
+            : { toolResultTotalBudgetBytes: limits.total_budget_bytes }),
+        ...(limits?.stub_after_turns === undefined
+            ? {}
+            : { toolResultStubAfterTurns: limits.stub_after_turns }),
+        ...(limits?.aging_level === undefined || limits.aging_level === "auto"
+            ? {}
+            : { toolResultAgingLevel: limits.aging_level }),
+    };
+}
+
+/**
+ * The config keys an override patch writes into, one per lever. The pane
+ * hands back engine key names; only this table knows where each one lands.
+ */
+export const OVERRIDE_CONFIG_KEYS: Readonly<
+    Record<OverrideKey, readonly ["context_limit" | "compaction" | "tool_results", string]>
+> = {
+    contextLimit: ["context_limit", "context_limit"],
+    compactionTriggerFraction: ["compaction", "trigger_fraction"],
+    compactionTriggerTokens: ["compaction", "trigger_tokens"],
+    compactionTargetTokens: ["compaction", "target_tokens"],
+    postCompactionTargetFraction: ["compaction", "target_fraction"],
+    summaryWordCap: ["compaction", "summary_word_cap"],
+    retainedUserTurns: ["compaction", "retained_user_turns"],
+    toolResultCeilingBytes: ["tool_results", "ceiling_bytes"],
+    toolResultTotalBudgetBytes: ["tool_results", "total_budget_bytes"],
+    toolResultStubAfterTurns: ["tool_results", "stub_after_turns"],
+    toolResultAgingLevel: ["tool_results", "aging_level"],
+};
+
+/**
+ * Where one override patch lands in the config. A `null` clears that lever;
+ * the blocks a patch says nothing about are left out, so writing one lever
+ * never rewrites the rest.
+ */
+export function overridePatchDefaults(
+    patch: OverrideSettingsPatch,
+): VeraConfigDefaultsPatch {
+    const compaction: Record<string, number | null> = {};
+    const toolResults: Record<string, number | string | null> = {};
+    let contextLimit: number | null | undefined;
+    for (const key of OVERRIDE_KEYS) {
+        const value = patch[key];
+        if (value === undefined) {
+            continue;
+        }
+        const [block, field] = OVERRIDE_CONFIG_KEYS[key];
+        if (block === "context_limit") {
+            contextLimit = value as number | null;
+        } else if (block === "compaction") {
+            compaction[field] = value as number | null;
+        } else {
+            toolResults[field] = value;
+        }
+    }
+    return {
+        ...(contextLimit === undefined ? {} : { context_limit: contextLimit }),
+        ...(Object.keys(compaction).length === 0 ? {} : { compaction }),
+        ...(Object.keys(toolResults).length === 0 ? {} : { tool_results: toolResults }),
+    };
+}
+
+/**
+ * The compaction numbers a config sets, or undefined when it sets none. These
+ * ride over the binding rather than replacing it, so a block that names no
+ * strategy still retunes the compaction the session would have run anyway.
+ */
+export function configuredCompactionOverrides(
+    config: VeraConfig,
+): CompactionOverrides | undefined {
+    const compaction = config.compaction;
+    if (compaction === undefined) {
+        return undefined;
+    }
+    const overrides: CompactionOverrides = {
+        ...(compaction.trigger_fraction === undefined
+            ? {}
+            : { triggerFraction: compaction.trigger_fraction }),
+        ...(compaction.trigger_tokens === undefined
+            ? {}
+            : { triggerTokens: compaction.trigger_tokens }),
+        ...(compaction.target_tokens === undefined
+            ? {}
+            : { targetTokens: compaction.target_tokens }),
+        ...(compaction.target_fraction === undefined
+            ? {}
+            : { postCompactionTargetFraction: compaction.target_fraction }),
+        ...(compaction.summary_word_cap === undefined
+            ? {}
+            : { summaryWordCap: compaction.summary_word_cap }),
+        ...(compaction.retained_user_turns === undefined
+            ? {}
+            : { retainedUserTurns: compaction.retained_user_turns }),
+    };
+    return Object.keys(overrides).length === 0 ? undefined : overrides;
 }
 
 /**
