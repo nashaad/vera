@@ -5,6 +5,7 @@ import type { ProviderDescriptor } from "../../src/providers/registry.ts";
 import {
     meetsRequirement,
     recommendedProviders,
+    workModelMemoryGb,
 } from "../../src/providers/recommendation.ts";
 
 const MAC: { os: string; arch: string; memoryGb: number } = {
@@ -63,4 +64,17 @@ test("a machine short of the requirement is not offered the provider", () => {
 test("no requirement is met by any machine", () => {
     expect(meetsRequirement(undefined, { os: "linux", arch: "x64", memoryGb: 4 }))
         .toBe(true);
+});
+
+test("the work model's requirement is the provider's own number", () => {
+    // The screen that draws the line between real work and getting started
+    // reads it from here, so the definition is the only place it is written.
+    const outrider = configuredProviders(undefined)
+        .find((entry) => entry.id === "outrider")!;
+    expect(workModelMemoryGb(outrider)).toBe(32);
+});
+
+test("a provider that recommends no work model draws no line", () => {
+    const bare = provider("openrouter", { rank: 1, reason: "keys" });
+    expect(workModelMemoryGb(bare)).toBeUndefined();
 });

@@ -11,6 +11,7 @@ import {
     machineFacts,
     meetsRequirement,
     recommendedProviders,
+    workModelMemoryGb,
     type MachineFacts,
 } from "../../src/providers/recommendation.ts";
 import type {
@@ -443,7 +444,8 @@ function runtimeScreen(
             ),
         };
     }
-    const room = machine.memoryGb >= 32
+    const needed = workModelMemoryGb(provider);
+    const room = needed === undefined || machine.memoryGb >= needed
         ? "plenty"
         : "enough for the lite model";
     return {

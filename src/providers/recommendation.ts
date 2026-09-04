@@ -62,3 +62,16 @@ export function recommendedProviders(
             reason: provider.recommend?.reason ?? "",
         }));
 }
+
+/**
+ * The memory the work model asks for, which is the line between a machine that
+ * can do real work on this provider and one that can only get started. The
+ * number lives on the definition, so a screen that draws the line reads it here
+ * rather than holding its own copy.
+ */
+export function workModelMemoryGb(
+    provider: ProviderDescriptor,
+): number | undefined {
+    return provider.recommendModels?.find((entry) => entry.role === "work")
+        ?.requires?.memory_gb;
+}

@@ -28,8 +28,11 @@ const COLD: OnboardingInput = {
     env: {},
 };
 
-function screenText(session: WizardSession): string {
-    return onboardingCardLines(wizardScreen(COLD, session, MAC))
+function screenText(
+    session: WizardSession,
+    machine: MachineFacts = MAC,
+): string {
+    return onboardingCardLines(wizardScreen(COLD, session, machine))
         .map((line) => line.text)
         .join("\n");
 }
@@ -541,4 +544,40 @@ test("the suggestion is painted under its own heading, above everything else", (
     expect(text).toContain("GOOD VALUE");
     expect(text.indexOf("GOOD VALUE")).toBeLessThan(text.indexOf("OTHER"));
     expect(text.indexOf("GLM 5.3 Flash")).toBeLessThan(text.indexOf("GPT-9"));
+});
+
+test("the install screen sizes the machine against the work model", () => {
+    const absent: WizardSession = {
+        ...newWizardSession("key"),
+        chosen: "outrider",
+        runtime: { state: "absent", progress: [] },
+    };
+    expect(screenText(absent)).toContain("You have 64 GB, which is plenty.");
+    expect(screenText(absent, { ...MAC, memoryGb: 16 }))
+        .toContain("You have 16 GB, which is enough for the lite model.");
+});
+
+test("the line the install screen draws is the work model's own number", () => {
+    // A provider asking for 48 puts a 40 GB machine on the lite side, where
+    // any number written into the screen itself would have put it on the other.
+    const outrider = PROVIDERS.find((entry) => entry.id === "outrider")!;
+    const hungry = {
+        ...outrider,
+        recommendModels: outrider.recommendModels?.map((entry) =>
+            entry.role === "work"
+                ? { ...entry, requires: { memory_gb: 48 } }
+                : entry
+        ),
+    };
+    const session: WizardSession = {
+        ...newWizardSession("key"),
+        chosen: "outrider",
+        runtime: { state: "absent", progress: [] },
+    };
+    const text = onboardingCardLines(wizardScreen(
+        { ...COLD, providers: [hungry] },
+        session,
+        { ...MAC, memoryGb: 40 },
+    )).map((line) => line.text).join("\n");
+    expect(text).toContain("You have 40 GB, which is enough for the lite model.");
 });
