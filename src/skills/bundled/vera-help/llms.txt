@@ -60,7 +60,7 @@ Search headings before reading a long document. Read the smallest relevant secti
 If one bounded lookup does not establish the answer, state what is missing or hand off. Do not enter an open-ended source-research loop.
 Smaller models should run with shorter fresh context and earlier compaction. Prefer a stronger dedicated compactor or deterministic summary so confusion is not preserved.
 Tool results should be visibly bounded, truncated, or paginated. Oversized output must not silently consume the session.
-How much context Vera keeps is configurable: `/settings` then Overrides, or `context_limit` and the `compaction` and `tool_results` blocks in the config. A lever the current model's window leaves unused is labelled inert rather than hidden.
+How much context Vera keeps is configurable: `/settings` then Overrides, or `context_limit` and the `compaction` and `tool_results` blocks in the config. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, and asks before clearing every lever at once.
 
 ## Diagnostics and recovery [lines=6]
 `/diagnostics` and `/doctor` inspect the current runtime. `/context` explains context occupancy without making a model request.

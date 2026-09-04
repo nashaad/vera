@@ -41,6 +41,7 @@ import type { TuiNamePromptState, TuiNamePromptView } from "../name-prompt.ts";
 import type { TuiPermissionsConfirmView } from "../permissions-confirm.ts";
 import type { TuiPreferencesListState, TuiPreferencesListView } from "../preferences-list.ts";
 import type { TuiProviderForgetConfirmView } from "../provider-forget-confirm.ts";
+import type { TuiOverridesResetConfirmView } from "../overrides-reset-confirm.ts";
 import type { ProviderHealthStatus } from "../provider-health.ts";
 import type { TuiQuestionView } from "../question.ts";
 import type { TuiQuote } from "../quote.ts";
@@ -266,6 +267,8 @@ export interface TuiRuntime {
         readonly label: string;
         readonly pane: TuiSettingsPickerState | undefined;
     } | undefined;
+    /** The levers a pending reset would clear, by label. Undefined when no reset is waiting on an answer. */
+    overridesResetCandidate: readonly string[] | undefined;
     commandSuggestionIndex: number;
     commandSuggestionMoved: boolean;
     argumentSuggestions: readonly string[];
@@ -408,6 +411,7 @@ export interface TuiRuntime {
     sessionTrashConfirmView: TuiSessionTrashConfirmView;
     sessionCloseConfirmView: TuiSessionCloseConfirmView;
     providerForgetConfirmView: TuiProviderForgetConfirmView;
+    overridesResetConfirmView: TuiOverridesResetConfirmView;
     approvalView: TuiApprovalView;
     questionView: TuiQuestionView;
     commandSuggestionsText: TextRenderable;
