@@ -5,7 +5,7 @@ import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { bindModelAssignmentFromPicker, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
-import { enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
+import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
@@ -382,7 +382,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             // A provider that needs no credential has cleared the key gate by
             // being chosen, so an unfinished flow carries on to the model step
             // rather than stopping on the notice.
-            if (asked === "none" && homeNeedsProvider(rt)) {
+            if (asked === "install") {
+                enterWizardInstallStep(rt, selection.providerId);
+            } else if (asked === "none" && homeNeedsProvider(rt)) {
                 enterWizardModelStep(rt, selection.providerId);
             }
             return;

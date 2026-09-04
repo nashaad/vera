@@ -698,11 +698,11 @@ export function openProviderPicker(rt: TuiRuntime,
     focusActiveSurface(rt);
 }
 
-/** Opens whatever the provider needs to be usable, and says which credential it asked for. A caller walking the gates reads `none` as the key step being already done. */
+/** Opens whatever the provider needs to be usable, and says which credential it asked for. A caller walking the gates reads `none` as the key step being already done, and `install` as a gate that is still open. */
 export function connectProvider(rt: TuiRuntime, 
     providerId: string,
     pane: TuiSettingsPickerState | undefined,
-): "key" | "none" | "sign_in" | undefined {
+): "key" | "none" | "sign_in" | "install" | undefined {
     const provider = findConfiguredProvider(
         providerId,
         loadOptionalVeraConfig(),
@@ -723,6 +723,11 @@ export function connectProvider(rt: TuiRuntime,
     }
     rt.settingsPicker = undefined;
     closeSettingsPickerSurface(rt);
+    // What this provider needs is a binary, not a credential, and saying it
+    // needs nothing is wrong whenever the binary is not on the machine.
+    if (provider.localRuntime !== undefined) {
+        return "install";
+    }
     if (provider.credential === "none") {
         rt.state = appendTuiNotice(
             rt.state,

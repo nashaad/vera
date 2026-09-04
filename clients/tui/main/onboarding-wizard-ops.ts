@@ -108,6 +108,20 @@ export function enterWizardModelStep(
     requestWizardModels(rt, provider);
 }
 
+/** A provider Vera can put on the machine owes the user a binary before it owes them a model, and there is one place that asks for one. */
+export function enterWizardInstallStep(
+    rt: TuiRuntime,
+    provider: string,
+): void {
+    showWizard(rt, {
+        ...newWizardSession("key"),
+        chosen: provider,
+        runtime: { state: "checking", progress: [] },
+    });
+    startWizardSpinner(rt);
+    void checkRuntime(rt, provider);
+}
+
 export function closeOnboardingWizard(rt: TuiRuntime): void {
     stopWizardSpinner(rt);
     clearRuntimeCommand(rt);
