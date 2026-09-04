@@ -422,16 +422,12 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         searchText: "effort think",
     },
     {
-        value: "context_limit",
-        label: "Context limit",
-        description: "maximum conversation context across models",
-        searchText: "tokens window memory cap",
-    },
-    {
         value: "overrides",
         label: "Overrides",
         description: "how much context Vera keeps, and when it summarises",
-        searchText: "developer debug compaction window tool result levers",
+        searchText:
+            "developer debug compaction window tool result levers"
+            + " context limit tokens memory cap",
     },
     {
         value: "permissions",

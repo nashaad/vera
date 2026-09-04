@@ -1159,12 +1159,16 @@ test("the settings menu routes into permissions and its two entries", () => {
     expect(settings.options.map((option) => option.value)).toEqual([
         "model",
         "reasoning",
-        "context_limit",
         "overrides",
         "permissions",
         "reviewer",
         "theme",
     ]);
+    // The context limit is a lever inside Overrides, so searching for it by
+    // its old name lands there rather than nowhere.
+    const limit = updateTuiSettingsPickerSearch(settings, "context limit").state!;
+    expect(limit.options.map((option) => option.value)).toEqual(["overrides"]);
+
     const permissions = updateTuiSettingsPickerSearch(settings, "perm").state!;
     expect(handleTuiSettingsPickerKey(permissions, { name: "enter" }).selection)
         .toEqual({ kind: "menu", target: "permissions" });

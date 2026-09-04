@@ -430,6 +430,17 @@ export class VeraConfigError extends Error {
     }
 }
 
+/** A write refused because the file it would leave could not be loaded back. */
+export class VeraConfigWriteError extends Error {
+    readonly path: string;
+
+    constructor(path: string, problem: string) {
+        super(`Vera config at ${path} was not written: ${problem}`);
+        this.name = "VeraConfigWriteError";
+        this.path = path;
+    }
+}
+
 /**
  * For callers that only want the optional fields (a client reading its own
  * extension list, say). A host cannot run without a config, but a client
@@ -773,22 +784,30 @@ function writeVeraConfigFile(
     path: string,
     config: VeraConfig | Omit<VeraConfig, "approval_mode">,
 ): void {
+    const written = {
+        ...foreignConfigEntries(path),
+        ...configForDisk(config),
+        ...writtenHooks(path),
+    };
+    // Cross-field rules make some pairs of settings, each legal alone, invalid
+    // together. A file holding such a pair does not load, and the config is
+    // what the panes that would fix it are reached through, so it has to be
+    // caught before the rename rather than on the next start.
+    if (parseVeraConfig(migrateShippedProviderDeclarations(path, written))
+        === undefined
+    ) {
+        throw new VeraConfigWriteError(
+            path,
+            "the settings it would leave contradict each other, so the file"
+                + " it wrote could not be read back",
+        );
+    }
     const directory = dirname(path);
     const temporaryPath = join(directory, `.config-${randomUUID()}.tmp`);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    writeFileSync(
-        temporaryPath,
-        `${JSON.stringify(
-            {
-                ...foreignConfigEntries(path),
-                ...configForDisk(config),
-                ...writtenHooks(path),
-            },
-            null,
-            2,
-        )}\n`,
-        { mode: 0o600 },
-    );
+    writeFileSync(temporaryPath, `${JSON.stringify(written, null, 2)}\n`, {
+        mode: 0o600,
+    });
     renameSync(temporaryPath, path);
 }
 
