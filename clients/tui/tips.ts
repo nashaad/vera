@@ -27,14 +27,17 @@ export const TUI_TIPS: readonly TuiTip[] = [
             } on a shortlisted model to give it a short name`,
         cooldownLaunches: 5,
         isRelevant: (context) =>
-            context.pooledCount > 0 && context.namedPoolCount < 3,
+            context.inModelPicker && context.pooledCount > 0
+            && context.namedPoolCount < 3,
     },
     {
         id: "verify-model",
         text: () =>
             `Press ${tuiKeyChord("verify_model")} to probe the highlighted model`,
         cooldownLaunches: 8,
-        isRelevant: (context) => context.pooledCount > 0 && !context.anyVerified,
+        isRelevant: (context) =>
+            context.inModelPicker && context.pooledCount > 0
+            && !context.anyVerified,
     },
     {
         id: "pool-a-model",
