@@ -7,6 +7,7 @@
     "access": "subscription",
     "credential": "oauth",
     "hint": "ChatGPT Plus/Pro subscription",
+    "shortlist": true,
     "protocol": "contributed",
     "behavior_id": "openai-codex",
     "default_base_url": "https://chatgpt.com/backend-api/codex",

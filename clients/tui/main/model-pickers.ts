@@ -7,7 +7,7 @@ import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalo
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
-import { openGate, providerAnswerLabel, stepPosition, stepperSteps, type OnboardingInput, type OnboardingStepId } from "../../../src/providers/onboarding.ts";
+import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
 import { configuredProviders, findConfiguredProvider, isProviderConnected } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -18,12 +18,11 @@ import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { renderState } from "../main/render-state.ts";
-import { onboardingRail } from "../onboarding-rail.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { renderPermissionInspection } from "../permission-inspection.ts";
 import { startTuiPreferencesList } from "../preferences-list.ts";
 import { startTuiSecretPrompt } from "../secret-prompt.ts";
-import { startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiOnboardingModelPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
+import { startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { openTuiStandingNudges } from "../standing-nudges.ts";
 import { appendTuiError, appendTuiNotice, type TuiState } from "../state.ts";
 import { tuiThemePreferencePath } from "../theme-preference.ts";
@@ -635,55 +634,6 @@ export function onboardingInput(
     };
 }
 
-/** The rail belongs over the provider list only while onboarding is unfinished. A user who already has a working provider is adding a second one, not being walked through the gates. */
-function onboardingRailOptions(
-    input: OnboardingInput,
-): { readonly subtitle?: string } {
-    if (openGate(input) === "ready") return {};
-    const steps = stepperSteps(input);
-    return { subtitle: onboardingRail(steps, stepPosition(input)) };
-}
-
-/** The rail over a step that already knows which provider it is for. */
-function onboardingRailFor(
-    rt: TuiRuntime,
-    chosen: string,
-    at: OnboardingStepId,
-): string | undefined {
-    const input = { ...onboardingInput(rt), chosen, at };
-    if (openGate(input) === "ready") return undefined;
-    return onboardingRail(stepperSteps(input), stepPosition(input));
-}
-
-/** The last gate. The models are the ones the session already knows about, narrowed to the provider the user picked. */
-export function openOnboardingModelStep(
-    rt: TuiRuntime,
-    provider: string,
-): void {
-    const models = (focusedAgentState(rt).modelSettings?.availableModels ?? [])
-        .filter((model) => model.provider === provider)
-        .map((model) => ({ model: model.model, label: model.label }));
-    if (models.length === 0) {
-        // The provider answered no list, so the shortlist's own entry is the
-        // way through rather than a step with nothing on it.
-        rt.state = appendTuiNotice(
-            rt.state,
-            `${provider} listed no models, open the model picker to name one`,
-            "soft",
-        );
-        renderState(rt);
-        return;
-    }
-    rt.settingsPicker = startTuiOnboardingModelPicker(
-        provider,
-        models,
-        onboardingRailFor(rt, provider, "model") ?? "",
-    );
-    rt.composer.blur();
-    renderState(rt);
-    focusActiveSurface(rt);
-}
-
 /** Whether any provider has answered yet. The card leads with Connect until one has. */
 export function homeNeedsProvider(rt: TuiRuntime): boolean {
     try {
@@ -739,7 +689,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         : { endpointEditable: true }),
                 };
             }),
-            { ...onboardingRailOptions(answers), ...options },
+            options,
         ),
         parent,
     );
@@ -752,7 +702,6 @@ export function openProviderPicker(rt: TuiRuntime,
 export function connectProvider(rt: TuiRuntime, 
     providerId: string,
     pane: TuiSettingsPickerState | undefined,
-    refusal?: string,
 ): "key" | "none" | "sign_in" | undefined {
     const provider = findConfiguredProvider(
         providerId,
@@ -765,12 +714,7 @@ export function connectProvider(rt: TuiRuntime,
         provider.credential === "api_key"
         || provider.credential === "api_key_optional"
     ) {
-        rt.secretPrompt = startTuiSecretPrompt(
-            provider,
-            pane,
-            onboardingRailFor(rt, provider.id, "key"),
-            refusal,
-        );
+        rt.secretPrompt = startTuiSecretPrompt(provider, pane);
         rt.settingsPicker = undefined;
         rt.composer.blur();
         renderState(rt);

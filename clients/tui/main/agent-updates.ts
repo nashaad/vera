@@ -3,7 +3,7 @@ import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, def
 import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { adoptFallbackSessionTitle, applyTerminalTitle, refreshTerminalTitle } from "../main/chrome.ts";
 import { isSettingsRetryTrigger, noticeRepeatedModelFailure, retryMissingAgentSettings } from "../main/diagnostics-ops.ts";
-import { openPendingOnboardingStep, settleOnboardingVerification } from "../main/onboarding-flow.ts";
+import { settleWizardVerification, wizardTookCatalogRefresh, wizardTookModelSettings } from "../main/onboarding-wizard-ops.ts";
 import { releaseDroppedImage } from "../main/prompt-routing.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { syncTuiPreferencesList } from "../preferences-list.ts";
@@ -364,7 +364,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             }
             if (
                 update.type === "pool_admission_result"
-                && settleOnboardingVerification(rt, update)
+                && settleWizardVerification(rt, update)
             ) {
                 renderState(rt);
                 continue;
@@ -431,7 +431,13 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 notifyExtensionSettings(rt, rt.state.modelSettings);
             }
             if (update.type === "model_settings") {
-                openPendingOnboardingStep(rt);
+                wizardTookModelSettings(rt);
+            }
+            if (
+                update.type === "model_settings"
+                || update.type === "model_settings_rejected"
+            ) {
+                wizardTookCatalogRefresh(rt, update.requestId);
             }
             if (
                 update.type === "model_settings"

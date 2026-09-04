@@ -5,7 +5,7 @@ import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { bindModelAssignmentFromPicker, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
-import { beginOnboardingVerification, enterOnboardingModelStep } from "../main/onboarding-flow.ts";
+import { enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
@@ -385,7 +385,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             // being chosen, so an unfinished flow carries on to the model step
             // rather than stopping on the notice.
             if (asked === "none" && homeNeedsProvider(rt)) {
-                enterOnboardingModelStep(rt, selection.providerId);
+                enterWizardModelStep(rt, selection.providerId);
             }
             return;
         } else if (selection.kind === "reasoning") {
@@ -570,9 +570,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 );
                 return;
             }
-        } else if (selection.kind === "onboarding_model") {
-            beginOnboardingVerification(rt, selection.provider, selection.model);
-            return;
         } else {
             beginSessionResume(rt, 
                 selection.sessionPath,

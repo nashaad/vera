@@ -203,27 +203,36 @@ describe("moving through the setup screen", () => {
         expect(rendered(withBlocked)).toContain("needs 32 GB");
     });
 
-    test("the key field takes typing, backspace, and enter", () => {
-        const typed = handleOnboardingKey(keyStep, {
-            name: "k",
-            sequence: "k",
-        }).state;
-        expect(typed?.body.kind === "secret" && typed.body.value).toBe("k");
-        expect(rendered(typed ?? keyStep)).toContain("sk-or-v1-•");
-        const back = handleOnboardingKey(typed ?? keyStep, {
-            name: "backspace",
-        }).state;
-        expect(back?.body.kind === "secret" && back.body.value).toBe("");
-        const sent = handleOnboardingKey(typed ?? keyStep, { name: "return" });
-        expect(sent.action).toEqual({ kind: "submit", value: "k" });
+    test("typing on the key step belongs to the field, not to the card", () => {
+        expect(handleOnboardingKey(keyStep, { name: "k", sequence: "k" }))
+            .toEqual({ handled: false });
+        expect(handleOnboardingKey(keyStep, { name: "backspace" }))
+            .toEqual({ handled: false });
+        const held: OnboardingScreenState = {
+            ...keyStep,
+            body: { ...keyStep.body, value: "k" } as OnboardingScreenState[
+                "body"
+            ],
+        };
+        expect(handleOnboardingKey(held, { name: "return" }).action)
+            .toEqual({ kind: "submit", value: "k" });
     });
 
-    test("the key is never drawn back to the screen", () => {
-        const typed = handleOnboardingKey(keyStep, {
-            name: "s",
-            sequence: "s",
-        }).state;
-        expect(rendered(typed ?? keyStep)).not.toContain("sk-or-v1-s");
+    test("one line is marked as the field, and it carries what was typed", () => {
+        const held: OnboardingScreenState = {
+            ...keyStep,
+            body: { ...keyStep.body, value: "sk-or-v1-abc" } as
+                OnboardingScreenState["body"],
+        };
+        const entries = onboardingCardLines(held).filter((line) =>
+            line.entry === true
+        );
+        expect(entries).toHaveLength(1);
+        expect(entries[0]?.text).toContain("sk-or-v1-abc");
+        const empty = onboardingCardLines(keyStep).filter((line) =>
+            line.entry === true
+        );
+        expect(empty[0]?.text).toContain("sk-or-v1-");
     });
 
     test("a long list filters as you type", () => {

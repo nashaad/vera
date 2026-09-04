@@ -15,6 +15,7 @@ import {
     candidateHomePath,
     candidateLaunchEnv,
     disableOutboundConsumers,
+    evictHome,
     formatDevInstanceMarker,
     factoryHomePath,
     parseDevTuiArgs,
@@ -229,18 +230,21 @@ test("leftover root files on a clone move into machine/leftover", () => {
     mkdirSync(join(home, "runtime"), { recursive: true });
     writeFileSync(join(home, "tui.json"), "{}\n");
     writeFileSync(join(home, "whisker"), "stay-out\n");
+    writeFileSync(join(home, "notes.md"), "loose\n");
     writeFileSync(join(home, "extensions.json"), "[]\n");
     try {
         quarantineUnknownHomeEntries(home);
         expect(existsSync(join(home, "tui.json"))).toBe(true);
+        // The home owns its extension registry, so it is not a leftover.
+        expect(existsSync(join(home, "extensions.json"))).toBe(true);
         expect(existsSync(join(home, "whisker"))).toBe(false);
-        expect(existsSync(join(home, "extensions.json"))).toBe(false);
+        expect(existsSync(join(home, "notes.md"))).toBe(false);
         expect(readFileSync(join(home, "machine", "leftover", "whisker"), "utf8"))
             .toBe("stay-out\n");
         expect(readFileSync(
-            join(home, "machine", "leftover", "extensions.json"),
+            join(home, "machine", "leftover", "notes.md"),
             "utf8",
-        )).toBe("[]\n");
+        )).toBe("loose\n");
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
@@ -486,4 +490,98 @@ test("candidate launch env drops runtime islands and names the DEV instance", ()
     expect(env.VERA_RUNTIME_DIR).toBeUndefined();
     expect(env.VERA_WORKTREE_RUNTIME).toBeUndefined();
     expect(env.VERA_DEV_INSTANCE).toBe("ovu26 vera-deadbeef");
+});
+
+/** A machine with `pids` running against the home. `politely` says whether they stop on SIGTERM; SIGKILL always stops them. */
+function machine(pids: readonly number[], politely: boolean) {
+    const alive = new Set(pids);
+    const signalled: string[] = [];
+    return {
+        alive,
+        signalled,
+        processesUsingHome: () => [...alive],
+        signalProcess: (pid: number, signal: NodeJS.Signals) => {
+            signalled.push(`${signal} ${pid}`);
+            if (signal === "SIGKILL" || politely) alive.delete(pid);
+        },
+    };
+}
+
+test("a fresh start clears every process holding the home, not just the one in the lockfile", async () => {
+    // The lockfile names one host. Four are running, because each fresh start
+    // overwrote the record of the one before it.
+    const box = machine([101, 102, 103, 104], true);
+    const stderr: string[] = [];
+    const code = await evictHome(
+        "/tmp/whatever/.vera",
+        { write: (text) => stderr.push(String(text)) },
+        { ...box, sigtermGraceMs: 50, sigkillGraceMs: 50 },
+    );
+    expect(code).toBe(0);
+    expect(box.alive.size).toBe(0);
+    expect(box.signalled).toEqual([
+        "SIGTERM 101",
+        "SIGTERM 102",
+        "SIGTERM 103",
+        "SIGTERM 104",
+    ]);
+    expect(stderr.join("")).toContain("Stopped 4 process(es)");
+});
+
+test("a process that ignores the polite signal is killed", async () => {
+    const box = machine([201], false);
+    const code = await evictHome("/tmp/whatever/.vera", { write: () => {} }, {
+        ...box,
+        sigtermGraceMs: 50,
+        sigkillGraceMs: 50,
+    });
+    expect(code).toBe(0);
+    expect(box.signalled).toEqual(["SIGTERM 201", "SIGKILL 201"]);
+});
+
+test("an empty home is evicted silently", async () => {
+    const stderr: string[] = [];
+    const code = await evictHome(
+        "/tmp/whatever/.vera",
+        { write: (text) => stderr.push(String(text)) },
+        machine([], true),
+    );
+    expect(code).toBe(0);
+    expect(stderr).toEqual([]);
+});
+
+test("a survivor stops the fresh start rather than having its home deleted underneath it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-survivor");
+    const sourceHome = dailyHome(root);
+    const stderr: string[] = [];
+    try {
+        await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot: join(root, "instances"),
+            spawnTui: async (_args, env) => {
+                writeFileSync(join(env.VERA_HOME!, "keep-me"), "yes\n");
+                return 0;
+            },
+        });
+        const code = await runDevTui(["--fresh", "--yes"], worktree, {
+            sourceHome,
+            temporaryRoot: join(root, "instances"),
+            stderr: { write: (text) => stderr.push(String(text)) },
+            processesUsingHome: () => [909],
+            signalProcess: () => {},
+            sigtermGraceMs: 50,
+            sigkillGraceMs: 50,
+            spawnTui: async () => {
+                throw new Error("must not launch over a home someone still holds");
+            },
+        });
+        expect(code).toBe(1);
+        expect(stderr.join("")).toContain("Could not stop 1 process(es)");
+        const dest = candidateHomePath(worktree, join(root, "instances"));
+        expect(readFileSync(join(dest, "keep-me"), "utf8")).toBe("yes\n");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
 });

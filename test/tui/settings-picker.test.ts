@@ -52,14 +52,16 @@ import {
     tuiProviderFormRows,
     type TuiProviderFormState,
     startTuiCatalogRefreshScopePicker,
-    startTuiOnboardingModelPicker,
     startTuiPoolVerifyScopePicker,
     MODEL_ASSIGNMENT_BROWSE_VALUE,
     MODEL_ASSIGNMENT_SELF_VALUE,
     startTuiModelAssignmentPicker,
     tuiModelAssignmentOptions,
 } from "../../clients/tui/settings-picker.ts";
-import { MODEL_ARROW_HINT } from "../../clients/tui/settings-picker-model.ts";
+import {
+    LISTED_FACTS_FOOTNOTE,
+    MODEL_ARROW_HINT,
+} from "../../clients/tui/settings-picker-model.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
 // pane renders whatever order it is given, and `inferReasoningSelection`'s
@@ -1994,7 +1996,7 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     try {
         await setup.flush();
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(19);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(18);
         expect(tuiPickerViewportRows(setup.renderer, state)).toBeLessThan(40);
         expect(view.box.height).toBeLessThan(
             setup.renderer.height - 4,
@@ -4775,27 +4777,24 @@ test("nothing in the page is lit while the tab strip has the keys", async () => 
     expect(frame).toContain("┌");
 });
 
-test("the onboarding model step lists one provider's models and names the gate", () => {
-    const pane = startTuiOnboardingModelPicker(
-        "deepseek",
-        [
-            { model: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
-            { model: "deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-        ],
-        "Provider > Key > Model    step 3 of 3",
+
+test("the star on the WA Score column is answered under the list", async () => {
+    const all = switchedModelTab(listedFactsPicker(), "all");
+    const frame = await pickerFrame(all, 100, 55);
+    const lines = frame.split("\n");
+
+    const footnote = lines.findIndex((line) =>
+        line.includes(LISTED_FACTS_FOOTNOTE)
     );
-    expect(pane.title).toBe("Choose a model");
-    expect(pane.subtitle).toContain("step 3 of 3");
-    expect(pane.options.map((option) => option.label)).toEqual([
-        "DeepSeek V4 Pro",
-        "DeepSeek V4 Flash",
-    ]);
-    expect(pickerFooter(pane)).toBe("↑↓ move · ⏎ use this one · esc leave");
-    expect(
-        handleTuiSettingsPickerKey(pane, { name: "enter" }).selection,
-    ).toEqual({
-        kind: "onboarding_model",
-        provider: "deepseek",
-        model: "deepseek-v4-pro",
-    });
+    const header = lines.findIndex((line) => line.includes("WA Score*"));
+    expect(header).toBeGreaterThanOrEqual(0);
+    expect(footnote).toBeGreaterThan(header);
+    expect(LISTED_FACTS_FOOTNOTE.startsWith("*")).toBe(true);
+
+    const shortlist = await pickerFrame(
+        switchedModelTab(listedFactsPicker(), "pool"),
+        100,
+        55,
+    );
+    expect(shortlist).not.toContain(LISTED_FACTS_FOOTNOTE);
 });

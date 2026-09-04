@@ -11,6 +11,7 @@ import {
     machineFacts,
     meetsRequirement,
     recommendedProviders,
+    workModelMemoryGb,
     type MachineFacts,
 } from "../../src/providers/recommendation.ts";
 import type {
@@ -33,6 +34,10 @@ import {
 export interface WizardModel {
     readonly id: string;
     readonly label: string;
+    /** On or near the score-against-price front, so it is worth naming to someone who has never heard of it. */
+    readonly onPareto?: boolean;
+    readonly outputPrice?: number;
+    readonly waScore?: number;
 }
 
 /** What the model step is waiting on. Verification is a request in flight, not a stored fact, so it lives here rather than in the pool. */
@@ -77,6 +82,8 @@ export interface WizardSession {
     /** The model that answered, which closes the flow. */
     readonly connected?: string;
     readonly models: readonly WizardModel[];
+    /** Set while the provider itself is being asked for its list, and kept so it is asked once per visit. */
+    readonly asking?: boolean;
     readonly spinnerFrame: number;
     /** Only set for a provider Vera can put on the machine itself. */
     readonly runtime?: WizardRuntime;
@@ -161,14 +168,20 @@ function providerRow(
     };
 }
 
-/** Recommended first with the reason the definition gives, then everything else with its own hint. */
+/** What the second group stands for once it stops naming every provider. */
+const OTHER_MORE = "300+ more";
+
+/** Recommended first with the reason the definition gives, then a short list of the rest with its own hint. */
 export function providerGroups(
     providers: readonly ProviderDescriptor[],
     machine: MachineFacts,
 ): readonly OnboardingChoiceGroup[] {
     const recommended = recommendedProviders(providers, machine);
     const promoted = new Set(recommended.map((entry) => entry.provider.id));
-    const rest = providers.filter((provider) => !promoted.has(provider.id));
+    const rest = providers.filter((provider) =>
+        !promoted.has(provider.id) &&
+        (provider.shortlist === true || provider.custom === true)
+    );
     const groups: OnboardingChoiceGroup[] = [];
     if (recommended.length !== 0) {
         groups.push({
@@ -184,6 +197,7 @@ export function providerGroups(
             rows: rest.map((provider) =>
                 providerRow(provider, provider.hint ?? "")
             ),
+            more: OTHER_MORE,
         });
     }
     return groups;
@@ -191,6 +205,47 @@ export function providerGroups(
 
 /** Long enough that scanning it by eye stops working. */
 const SEARCHABLE_FROM = 12;
+
+/** More than a few names stops being a suggestion and becomes another list. */
+const NAMED_VALUE_MODELS = 3;
+
+/** Dollars per million output tokens, above which a model is no longer the cheap answer. */
+const MOST_PER_MILLION = 2.75;
+
+/** WA Score under which a model cannot do the work, whatever it costs. */
+const LEAST_SCORE = 1400;
+
+/**
+ * The cheap models worth suggesting, in the order they are offered. A provider
+ * lists hundreds of ids, and a list that opens on whichever one sorted first is
+ * a list that answers itself.
+ *
+ * The front runs all the way down to models that cost almost nothing and score
+ * hundreds of points below the rest, so a price ceiling alone would suggest one
+ * of those. Both bars are absolute: everything past them is good enough, so the
+ * cheapest go first.
+ */
+function valueModels(session: WizardSession): readonly WizardModel[] {
+    return session.models
+        .filter((model) =>
+            model.onPareto === true
+            && (model.outputPrice ?? Infinity) <= MOST_PER_MILLION
+            && (model.waScore ?? 0) >= LEAST_SCORE
+        )
+        .toSorted((left, right) =>
+            (left.outputPrice ?? 0) - (right.outputPrice ?? 0)
+        )
+        .slice(0, NAMED_VALUE_MODELS);
+}
+
+/** Why this handful is at the top, said once above the rows rather than on each of them. */
+function valueNote(session: WizardSession): readonly string[] {
+    return valueModels(session).length === 0
+        ? []
+        : [
+            "Here are some recommended models that are cheap but score well.",
+        ];
+}
 
 function modelRow(model: WizardModel): OnboardingChoiceRow {
     return {
@@ -300,7 +355,15 @@ function modelGroups(
             ),
         });
     }
-    const promoted = new Set(pairs.map((pair) => pair.model.id));
+    const worth = valueModels(session);
+    const promoted = new Set([
+        ...pairs.map((pair) => pair.model.id),
+        ...worth.map((model) => model.id),
+    ]);
+    // Ahead of OTHER, behind the models the provider itself puts forward.
+    if (worth.length !== 0) {
+        groups.push({ label: "RECOMMENDED", rows: worth.map(modelRow) });
+    }
     const rest = session.models.filter((model) => !promoted.has(model.id));
     if (groups.length === 0) return [{ rows: rest.map(modelRow) }];
     if (rest.length !== 0) {
@@ -382,7 +445,8 @@ function runtimeScreen(
             ),
         };
     }
-    const room = machine.memoryGb >= 32
+    const needed = workModelMemoryGb(provider);
+    const room = needed === undefined || machine.memoryGb >= needed
         ? "plenty"
         : "enough for the lite model";
     return {
@@ -511,12 +575,23 @@ export function wizardScreen(
         };
     }
     if (session.at === "model") {
+        const groups = modelGroups(provider, session, machine);
+        // A question with no answers under it is a dead end, so the provider
+        // says how to get itself a model. Until it has answered, an empty list
+        // is only a list that has not arrived.
+        const empty = groups.every((group) => group.rows.length === 0);
+        const notes = !empty
+            ? valueNote(session)
+            : session.asking === true
+            ? [`Asking ${provider?.label ?? "the provider"} for its models…`]
+            : provider?.noModels;
         return {
             ...common,
             heading: "What should Vera run?",
             body: {
                 kind: "choice",
-                groups: modelGroups(provider, session, machine),
+                groups,
+                ...(notes === undefined || notes.length === 0 ? {} : { notes }),
                 enterHint: "connect",
                 ...(session.models.length >= SEARCHABLE_FROM
                     ? { query: session.query }
@@ -554,6 +629,15 @@ function sessionFrom(
             ? { query: body.query }
             : {}),
     };
+}
+
+/** True when the open step is the key field, so typing and pasting belong to it. */
+export function wizardFieldIsOpen(
+    input: OnboardingInput,
+    session: WizardSession,
+    machine?: MachineFacts,
+): boolean {
+    return wizardScreen(input, session, machine).body.kind === "secret";
 }
 
 export function handleWizardKey(

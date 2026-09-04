@@ -851,7 +851,8 @@ export function modelTabLabel(tab: TuiModelPickerTab): string {
 
 export const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool: "Models you keep close. More holds what this list can do, or browse All models.",
+    pool:
+        'Models you keep close. "More" holds what this list can do, or browse All models.',
     all: "Everything your providers offer. Enter runs one without adding it.",
     actions: "Everything this pane can do besides choose a model.",
     help: "What the marks and the keys in this pane mean.",
@@ -1381,11 +1382,13 @@ export type AllModelsPriceChrome = "fill" | "border";
 
 export const ALL_MODELS_PRICE_CHROME: AllModelsPriceChrome = "fill";
 
+/** The price strip plus the footnote drawn under it. */
 export function allModelsPriceChromeLines(): number {
     const boxHeight = ALL_MODELS_PRICE_CHROME === "fill"
         ? ALL_MODELS_PRICE_FACTS + 2 * ALL_MODELS_PRICE_PAD
         : ALL_MODELS_PRICE_FACTS;
-    return 2 * ALL_MODELS_PRICE_MARGIN + boxHeight;
+    return 2 * ALL_MODELS_PRICE_MARGIN + boxHeight
+        + LISTED_FACTS_FOOTNOTE_LINES;
 }
 
 export function showsIntelligenceCutoff(state: TuiAnySettingsPickerState): boolean {
@@ -1504,6 +1507,25 @@ export function listedFactsHeaderText(): string {
     return `${"WA Score*".padStart(LISTED_SCORE_WIDTH)}  ${
         "7:2:1".padStart(LISTED_RATES_WIDTH)
     }${" ".repeat(LISTED_TRAILING_WIDTH)}`;
+}
+
+/** The star on the WA Score column, answered on the screen that draws the star rather than only under Help. */
+export const LISTED_FACTS_FOOTNOTE =
+    "* WA Score: an Elo rating from blind head-to-head votes. Higher wins more often.";
+
+export const LISTED_FACTS_FOOTNOTE_LINES = 1;
+
+export function listedFactsFootnoteNode(
+    renderer: RenderContext,
+    width: number,
+): TextRenderable {
+    return new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(TUI_MUTED)(clippedTo(LISTED_FACTS_FOOTNOTE, width)),
+        ]),
+        width,
+        height: LISTED_FACTS_FOOTNOTE_LINES,
+    });
 }
 
 export function listedFactsParts(
@@ -2287,13 +2309,6 @@ export function pickerSelection(
             kind,
             onlyUnverified: value === POOL_VERIFY_UNVERIFIED_VALUE,
         };
-    }
-    if (kind === "onboarding_model") {
-        const provider = state.onboardingProvider;
-        if (provider === undefined) {
-            throw new Error("onboarding model picker is missing its provider");
-        }
-        return { kind, provider, model: value };
     }
     if (kind === "catalog_refresh_scope") {
         return {

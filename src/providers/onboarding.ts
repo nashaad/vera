@@ -43,7 +43,7 @@ function needsCredential(provider: ProviderDescriptor): boolean {
 }
 
 /** A stored key is a key Vera holds. A provider that needs none holds none, so it never reads `key stored`. */
-function holdsCredential(
+export function holdsCredential(
     provider: ProviderDescriptor,
     input: OnboardingInput,
 ): boolean {
@@ -190,19 +190,27 @@ export function currentStep(input: StepperInput): OnboardingStepId | undefined {
     return stepperSteps(input).find((step) => step.state === "current")?.id;
 }
 
-/** The rail's position, counting from one. Undefined when no step is current. */
-export function stepPosition(input: StepperInput): number | undefined {
-    const index = stepperSteps(input).findIndex(
-        (step) => step.state === "current",
-    );
-    return index === -1 ? undefined : index + 1;
-}
-
 /** What a `pool_add` verdict says, narrowed to what the gates care about. */
 export interface AdmissionOutcome {
     readonly verdict: string;
     readonly reason?: string;
     readonly statusCode?: number;
+}
+
+/** The sentence inside a provider's error envelope. A card has one line for this, and a serialised body spends it on punctuation. */
+export function providerMessage(reason: string): string {
+    const start = reason.indexOf("{");
+    if (start === -1) {
+        return reason;
+    }
+    try {
+        const body: unknown = JSON.parse(reason.slice(start));
+        const message = (body as { error?: { message?: unknown } }).error
+            ?.message ?? (body as { message?: unknown }).message;
+        return typeof message === "string" ? message : reason;
+    } catch {
+        return reason;
+    }
 }
 
 /**
@@ -216,17 +224,5 @@ export function credentialRefusal(
     if (outcome.statusCode !== 401 && outcome.statusCode !== 403) {
         return undefined;
     }
-    const reason = outcome.reason ?? "no reason given";
-    const start = reason.indexOf("{");
-    if (start === -1) {
-        return reason;
-    }
-    try {
-        const body: unknown = JSON.parse(reason.slice(start));
-        const message = (body as { error?: { message?: unknown } }).error
-            ?.message ?? (body as { message?: unknown }).message;
-        return typeof message === "string" ? message : reason;
-    } catch {
-        return reason;
-    }
+    return providerMessage(outcome.reason ?? "no reason given");
 }

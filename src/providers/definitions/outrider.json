@@ -22,7 +22,7 @@
             "requires": { "memory_gb": 32 }
         },
         {
-            "id": "granite4.2-3b",
+            "id": "qwen35-2b",
             "rank": 2,
             "role": "lite",
             "label": "Lite model to get started",

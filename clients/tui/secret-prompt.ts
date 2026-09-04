@@ -32,9 +32,7 @@ export interface TuiSecretPromptState {
     readonly label: string;
     readonly hint?: string;
     /** The onboarding step line, present only while the gates are unfinished. */
-    readonly rail?: string;
     /** What the provider said when it turned the last key down. */
-    readonly refusal?: string;
     readonly value: string;
     readonly parent?: TuiSettingsPickerState;
 }
@@ -76,16 +74,12 @@ export function startTuiSecretPrompt(
         readonly hint?: string;
     },
     parent?: TuiSettingsPickerState,
-    rail?: string,
-    refusal?: string,
 ): TuiSecretPromptState {
     return {
         editorSession: nextEditorSession++,
         providerId: provider.id,
         label: provider.label,
         ...(provider.hint === undefined ? {} : { hint: provider.hint }),
-        ...(rail === undefined ? {} : { rail }),
-        ...(refusal === undefined ? {} : { refusal }),
         value: "",
         ...(parent === undefined ? {} : { parent }),
     };
@@ -124,12 +118,6 @@ export function createTuiSecretPromptView(
         width: "100%",
         height: 1,
     });
-    const rail = new TextRenderable(renderer, {
-        content: "",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: "auto",
-    });
     const hint = new TextRenderable(renderer, {
         content: "",
         fg: TUI_MUTED,
@@ -143,14 +131,6 @@ export function createTuiSecretPromptView(
         "secret-prompt-entry",
         "API key",
     );
-    const refusal = new TextRenderable(renderer, {
-        content: "",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: "auto",
-        wrapMode: "word",
-        marginTop: 1,
-    });
     const footer = new TextRenderable(renderer, {
         content: `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`,
         fg: TUI_MUTED,
@@ -172,10 +152,8 @@ export function createTuiSecretPromptView(
         paddingBottom: 1,
     });
     card.add(title);
-    card.add(rail);
     card.add(hint);
     card.add(entry);
-    card.add(refusal);
     card.add(footer);
     const box = new BoxRenderable(renderer, {
         id: "secret-prompt",
@@ -198,8 +176,6 @@ export function createTuiSecretPromptView(
         card,
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
-            tuiThemeProperties(rail, { fg: "muted" }),
-            tuiThemeProperties(refusal, { fg: "muted" }),
             tuiThemeProperties(hint, { fg: "muted" }),
             tuiThemeProperties(entry, {
                 textColor: "text",
@@ -238,17 +214,10 @@ export function createTuiSecretPromptView(
                 shownEditorSession = state.editorSession;
             }
             title.content = `${state.label} API key`;
-            rail.content = state.rail ?? "";
             hint.content = state.hint ?? "";
             updateDialogTextFieldNode(entry, state.value, "API key");
-            refusal.content = state.refusal === undefined
-                ? ""
-                : `${state.label} refused this key: ${state.refusal}`;
-            footer.content = state.refusal === undefined
-                ? `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`
-                : `⏎ try again · ${
-                    tuiKeyHint("clear_secret")
-                } · esc change provider`;
+            footer.content =
+                `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`;
         },
     };
 }

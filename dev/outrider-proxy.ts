@@ -14,6 +14,22 @@ const PROXIED_PATHS = [
     "/v1/responses",
 ];
 
+function requestedAlias(argv: readonly string[]): string | undefined {
+    const at = argv.indexOf("--serve-as");
+    return at === -1 ? undefined : argv[at + 1];
+}
+
+function requestedPort(argv: readonly string[]): number {
+    const at = argv.indexOf("--port");
+    if (at === -1) return DEFAULT_PORT;
+    const value = Number(argv[at + 1]);
+    return Number.isInteger(value) && value > 0 ? value : DEFAULT_PORT;
+}
+
+const alias = requestedAlias(Bun.argv.slice(2));
+let upstreamNames: readonly string[] = [];
+const port = requestedPort(Bun.argv.slice(2));
+
 interface OutriderModel {
     readonly id: string;
     readonly object: "model";
@@ -62,6 +78,11 @@ async function fetchJson(url: string, timeoutMs = 2000): Promise<unknown> {
 
 /** The real gateway, when it is up. Its list is already in the shape this serves. */
 async function outriderUpstream(): Promise<Upstream | undefined> {
+    if (port === OUTRIDER_PORT) {
+        // The stand-in is on the gateway's own port, so probing it is probing
+        // itself, and every probe would start another one.
+        return undefined;
+    }
     const base = `http://127.0.0.1:${OUTRIDER_PORT}`;
     try {
         await fetchJson(`${base}/health`);
@@ -101,7 +122,8 @@ async function ollamaUpstream(): Promise<Upstream | undefined> {
                 meta: { n_ctx: context, n_ctx_train: context },
             }];
         });
-        return { name: "ollama", base: `${base}/v1`, models };
+        // The proxied paths already carry the /v1 that Ollama serves them under.
+        return { name: "ollama", base, models };
     } catch {
         return undefined;
     }
@@ -112,11 +134,24 @@ async function resolveUpstream(): Promise<Upstream | undefined> {
     return await outriderUpstream() ?? await ollamaUpstream();
 }
 
+/** The name the CLI stand-in served under, answered by whatever model the upstream actually has. Without it the two stand-ins name different models and the wizard asks for one nothing serves. */
+function servedAs(
+    upstream: Upstream,
+    alias: string | undefined,
+): Upstream {
+    const first = upstream.models[0];
+    if (alias === undefined || first === undefined) return upstream;
+    return { ...upstream, models: [{ ...first, id: alias }] };
+}
+
+
 let upstream: Upstream | undefined;
 
 async function currentUpstream(): Promise<Upstream | undefined> {
     if (upstream !== undefined) return upstream;
-    upstream = await resolveUpstream();
+    const resolved = await resolveUpstream();
+    upstream = resolved === undefined ? undefined : servedAs(resolved, alias);
+    upstreamNames = resolved?.models.map((entry) => entry.id) ?? [];
     if (upstream !== undefined) {
         console.log(
             `[outrider-proxy] upstream ${upstream.name} at ${upstream.base}, `
@@ -145,12 +180,18 @@ async function proxyModelRequest(request: Request): Promise<Response> {
         return failure(`unknown model "${model}"`, 404);
     }
     const path = new URL(request.url).pathname;
+    const sent = alias === undefined || model !== alias
+        ? body
+        : JSON.stringify({
+            ...JSON.parse(body) as Record<string, unknown>,
+            model: upstreamNames[0] ?? model,
+        });
     let response: Response;
     try {
         response = await fetch(`${active.base}${path}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body,
+            body: sent,
         });
     } catch (error) {
         // A dead upstream is re-resolved on the next request rather than held.
@@ -186,14 +227,6 @@ async function handle(request: Request): Promise<Response> {
     return failure(`no route for ${request.method} ${path}`, 404);
 }
 
-function requestedPort(argv: readonly string[]): number {
-    const at = argv.indexOf("--port");
-    if (at === -1) return DEFAULT_PORT;
-    const value = Number(argv[at + 1]);
-    return Number.isInteger(value) && value > 0 ? value : DEFAULT_PORT;
-}
-
-const port = requestedPort(Bun.argv.slice(2));
 Bun.serve({ port, hostname: "127.0.0.1", fetch: handle });
 console.log(`[outrider-proxy] listening on http://127.0.0.1:${port}`);
 void currentUpstream();

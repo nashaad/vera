@@ -2,7 +2,10 @@
 
 import {
     BoxRenderable,
+    fg,
     parseColor,
+    Renderable,
+    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -11,9 +14,22 @@ import type {
     OnboardingStep,
     OnboardingStepId,
 } from "../../src/providers/onboarding.ts";
-import { gigabytes, remaining } from "../../src/providers/outrider.ts";
+import { downloadSize, remaining } from "../../src/providers/outrider.ts";
 import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
-import { TUI_ACCENT, TUI_BACKGROUND, TUI_DANGER, TUI_MUTED, TUI_TEXT } from "./state.ts";
+import {
+    createTuiSingleLineTextarea,
+    insertTuiSingleLinePaste,
+    syncTuiSingleLineTextarea,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
+import {
+    TUI_ACCENT,
+    TUI_BACKGROUND,
+    TUI_DANGER,
+    TUI_MUTED,
+    TUI_SUCCESS,
+    TUI_TEXT,
+} from "./state.ts";
 
 export const ONBOARDING_TITLE = "Set up Vera";
 
@@ -55,6 +71,8 @@ export interface OnboardingChoiceRow {
 export interface OnboardingChoiceGroup {
     readonly label?: string;
     readonly rows: readonly OnboardingChoiceRow[];
+    /** What the group holds beyond the rows it shows, said in the group's own words. */
+    readonly more?: string;
 }
 
 export interface OnboardingChoiceBody {
@@ -142,14 +160,28 @@ export type OnboardingLineTone =
     | "note"
     | "alert"
     | "field"
-    | "footer";
+    | "footer"
+    /** A gate the user has cleared. */
+    | "cleared"
+    /** The key that moves the user forward from here. */
+    | "invite";
+
+/** A run inside one line, for a line that is not all one tone. */
+export interface OnboardingSpan {
+    readonly text: string;
+    readonly tone: OnboardingLineTone;
+}
 
 export interface OnboardingLine {
     readonly text: string;
     readonly tone: OnboardingLineTone;
+    /** The runs the text is made of, when parts of it are toned differently. Concatenated they are the text. */
+    readonly spans?: readonly OnboardingSpan[];
     readonly selected?: boolean;
     /** The row this line can be clicked to choose. */
     readonly rowId?: string;
+    /** The line the live text field sits on. Its text is what the field holds, for anything that reads the card as text. */
+    readonly entry?: boolean;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴"];
@@ -191,18 +223,27 @@ function selectedRowId(state: OnboardingScreenState): string | undefined {
 
 const MARKER_FIELD = 4;
 
+interface StepCell {
+    readonly head: string;
+    readonly under: string;
+    /** A gate the user cleared. A gate that never applied is not one of these. */
+    readonly cleared?: boolean;
+}
+
 function stepCell(
     step: OnboardingStep,
     index: number,
     answer: OnboardingAnswer | undefined,
-): { readonly head: string; readonly under: string } {
+): StepCell {
     const number = String(index + 1);
     if (step.state === "done") {
-        const marker = answer?.skipped === true ? MARKER_SKIPPED : MARKER_DONE;
+        const skipped = answer?.skipped === true;
+        const marker = skipped ? MARKER_SKIPPED : MARKER_DONE;
         const head = `${pad(marker, MARKER_FIELD)}${step.label}`;
         return {
             head,
             under: `${" ".repeat(MARKER_FIELD)}${answer?.text ?? ""}`,
+            ...(skipped ? {} : { cleared: true }),
         };
     }
     if (step.state === "current") {
@@ -236,10 +277,35 @@ export function spineLines(
     );
     const head = cells.map((cell) => pad(cell.head, STEP_CELL_WIDTH)).join("");
     const under = cells.map((cell) => pad(cell.under, STEP_CELL_WIDTH)).join("");
+    const spans = trimSpans([
+        { text: " ".repeat(CONTENT_INDENT), tone: "spine" as const },
+        ...cells.map((cell) => ({
+            text: pad(cell.head, STEP_CELL_WIDTH),
+            tone: (cell.cleared === true ? "cleared" : "spine") as
+                OnboardingLineTone,
+        })),
+    ]);
     return [
-        { text: indent(head.trimEnd()), tone: "spine" },
+        { text: indent(head.trimEnd()), tone: "spine", spans },
         { text: indent(under.trimEnd()), tone: "answer" },
     ];
+}
+
+/** Drops the padding the text drops, so the runs still spell the line. */
+function trimSpans(
+    spans: readonly OnboardingSpan[],
+): readonly OnboardingSpan[] {
+    const kept = [...spans];
+    while (kept.length > 0) {
+        const last = kept[kept.length - 1]!;
+        const trimmed = last.text.trimEnd();
+        if (trimmed !== "") {
+            kept[kept.length - 1] = { ...last, text: trimmed };
+            break;
+        }
+        kept.pop();
+    }
+    return kept;
 }
 
 function spinnerGlyph(frame: number | undefined): string {
@@ -390,6 +456,9 @@ function choiceLines(
                 lines.push({ text: "", tone: "frame" });
             }
         }
+        if (group.more !== undefined) {
+            lines.push({ text: indent(`    ${group.more}`), tone: "note" });
+        }
         if (lines.at(-1)?.text !== "") {
             lines.push({ text: "", tone: "frame" });
         }
@@ -409,9 +478,7 @@ const FIELD_WIDTH = INNER_WIDTH - CONTENT_INDENT * 2 - 2;
 function secretLines(
     body: OnboardingSecretBody,
 ): readonly OnboardingLine[] {
-    const shown = body.value === ""
-        ? body.placeholder
-        : `${body.placeholder}${"•".repeat(body.value.length)}`;
+    const shown = body.value === "" ? body.placeholder : body.value;
     return [
         {
             text: indent(`╭${"─".repeat(FIELD_WIDTH)}╮`),
@@ -420,6 +487,7 @@ function secretLines(
         {
             text: indent(`│ ${pad(shown, FIELD_WIDTH - 2)} │`),
             tone: "field",
+            entry: true,
         },
         {
             text: indent(`╰${"─".repeat(FIELD_WIDTH)}╯`),
@@ -457,7 +525,9 @@ function progressLines(
             tone: "note" as const,
         })),
         ...barLines(body.bar),
-        ...noteLines(body.notes),
+        ...(body.notes === undefined || body.notes.length === 0
+            ? []
+            : [{ text: "", tone: "frame" as const }, ...noteLines(body.notes)]),
     ];
 }
 
@@ -473,7 +543,7 @@ function barLines(
         : Math.min(1, Math.max(0, bar.downloaded / bar.total));
     const filled = Math.round(fraction * BAR_WIDTH);
     const drawn = "\u2588".repeat(filled) + "\u2591".repeat(BAR_WIDTH - filled);
-    const size = `${gigabytes(bar.downloaded)} / ${gigabytes(bar.total)}`;
+    const size = `${downloadSize(bar.downloaded)} / ${downloadSize(bar.total)}`;
     const left = bar.etaSeconds === undefined || bar.etaSeconds <= 0
         ? ""
         : `    ${remaining(bar.etaSeconds)}`;
@@ -491,13 +561,12 @@ function barLines(
     ];
 }
 
-/** Sentences under whatever the body is showing. */
+/** Sentences under whatever the body is showing. The blank line above them belongs to whatever they follow, so notes that open a body do not stack a second one under the heading. */
 function noteLines(
     notes: readonly string[] | undefined,
 ): readonly OnboardingLine[] {
     if (notes === undefined || notes.length === 0) return [];
     return [
-        { text: "", tone: "frame" },
         ...notes.flatMap((note) =>
             wrapped(note, INNER_WIDTH - CONTENT_INDENT * 2).map((line) => ({
                 text: indent(line),
@@ -508,17 +577,34 @@ function noteLines(
     ];
 }
 
-/** The last line: what the keys do here, named in words. */
-export function footerText(state: OnboardingScreenState): string {
+/** The last line, in runs: what the keys do here, named in words, with the key that moves forward lit. */
+export function footerSpans(
+    state: OnboardingScreenState,
+): readonly OnboardingSpan[] {
     const escape = onFirstStep(state) ? "esc leave setup" : "esc back";
     const body = state.body;
     if (body.kind === "choice") {
-        const enter = `enter ${body.enterHint ?? "next"}`;
-        return `↑↓ choose    ${enter}    ${escape}`;
+        return [
+            { text: "↑↓ choose    ", tone: "footer" },
+            { text: `enter ${body.enterHint ?? "next"}`, tone: "invite" },
+            { text: `    ${escape}`, tone: "footer" },
+        ];
     }
-    if (body.kind === "secret") return `enter next    ${escape}`;
-    if (body.kind === "progress") return body.escHint ?? escape;
-    return "enter start working";
+    if (body.kind === "secret") {
+        return [
+            { text: "enter next", tone: "invite" },
+            { text: `    ${escape}`, tone: "footer" },
+        ];
+    }
+    if (body.kind === "progress") {
+        return [{ text: body.escHint ?? escape, tone: "footer" }];
+    }
+    return [{ text: "enter start working", tone: "invite" }];
+}
+
+/** The last line: what the keys do here, named in words. */
+export function footerText(state: OnboardingScreenState): string {
+    return footerSpans(state).map((span) => span.text).join("");
 }
 
 function onFirstStep(state: OnboardingScreenState): boolean {
@@ -544,7 +630,14 @@ export function onboardingCardLines(
     }
     inner.push(...bodyLines(state));
     inner.push({ text: "", tone: "frame" });
-    inner.push({ text: indent(footerText(state)), tone: "footer" });
+    inner.push({
+        text: indent(footerText(state)),
+        tone: "footer",
+        spans: [
+            { text: " ".repeat(CONTENT_INDENT), tone: "footer" },
+            ...footerSpans(state),
+        ],
+    });
     // The frame is padded at the top, so it is padded at the bottom too.
     inner.push({ text: "", tone: "frame" });
     const title = ` ${ONBOARDING_TITLE} `;
@@ -633,25 +726,9 @@ export function handleOnboardingKey(
             ? { handled: true }
             : { action: { kind: "choose", id: chosen }, handled: true };
     }
-    if (body.kind === "secret") {
-        if (key.name === "backspace") {
-            return {
-                state: {
-                    ...state,
-                    body: { ...body, value: body.value.slice(0, -1) },
-                },
-                handled: true,
-            };
-        }
-        const typed = typedCharacter(key);
-        return typed === undefined ? { handled: false } : {
-            state: {
-                ...state,
-                body: { ...body, value: `${body.value}${typed}` },
-            },
-            handled: true,
-        };
-    }
+    // Everything else on the key step belongs to the field, which is a real
+    // editor rather than a line of text.
+    if (body.kind === "secret") return { handled: false };
     if (key.name === "up") return moveSelection(state, -1);
     if (key.name === "down") return moveSelection(state, 1);
     if (body.kind === "choice" && body.query !== undefined) {
@@ -684,6 +761,8 @@ export interface OnboardingAppearance {
     readonly mutedColor: string;
     readonly accentColor: string;
     readonly dangerColor: string;
+    /** What a cleared gate and the key that moves forward are painted in. */
+    readonly successColor: string;
     /** The wizard owns the whole terminal, so it paints its own ground rather than letting the composer show through. */
     readonly backgroundColor: string;
 }
@@ -693,6 +772,61 @@ export interface TuiOnboardingView {
     readonly box: BoxRenderable;
     update(state: OnboardingScreenState): void;
     applyAppearance(appearance: OnboardingAppearance): void;
+    /** Puts the cursor where the typing goes: the key field when there is one. */
+    focus(): void;
+    /** What the live field holds. The wizard keeps this in its session. */
+    fieldValue(): string;
+    /** The keys the wizard did not claim, handed to the field. */
+    handleFieldKey(key: OnboardingKey): string;
+    handleFieldPaste(text: string): string;
+}
+
+/** The card's own bars are chrome. A lit row lights its text, not the frame it sits inside. */
+function framedContent(
+    line: OnboardingLine,
+    colors: OnboardingAppearance,
+): StyledText {
+    const bar = fg(colors.mutedColor);
+    const body = [...line.text];
+    const interior = body.slice(1, -1).join("");
+    return new StyledText([
+        bar(body[0] ?? ""),
+        ...interiorChunks(line, interior, colors),
+        bar(body[body.length - 1] ?? ""),
+    ]);
+}
+
+/** The interior painted run by run, where a line names its runs, and in one colour where it does not. */
+function interiorChunks(
+    line: OnboardingLine,
+    interior: string,
+    colors: OnboardingAppearance,
+): ReturnType<ReturnType<typeof fg>>[] {
+    const base = lineColor(line, colors);
+    if (line.spans === undefined || line.selected === true) {
+        return [fg(base)(interior)];
+    }
+    const chunks: ReturnType<ReturnType<typeof fg>>[] = [];
+    let at = 0;
+    for (const span of line.spans) {
+        const text = interior.slice(at, at + span.text.length);
+        if (text === "") break;
+        chunks.push(fg(toneColor(span.tone, base, colors))(text));
+        at += span.text.length;
+    }
+    // Whatever the fitting added past the runs, in the line's own colour.
+    if (at < interior.length) chunks.push(fg(base)(interior.slice(at)));
+    return chunks;
+}
+
+function toneColor(
+    tone: OnboardingLineTone,
+    base: string,
+    colors: OnboardingAppearance,
+): string {
+    if (tone === "cleared" || tone === "invite") return colors.successColor;
+    if (tone === "spine") return colors.textColor;
+    return base;
 }
 
 function lineColor(
@@ -703,6 +837,9 @@ function lineColor(
     if (line.selected === true) return colors.accentColor;
     if (line.tone === "heading" || line.tone === "spine") {
         return colors.textColor;
+    }
+    if (line.tone === "cleared" || line.tone === "invite") {
+        return colors.successColor;
     }
     return colors.mutedColor;
 }
@@ -716,6 +853,7 @@ export function createTuiOnboardingView(
         mutedColor: TUI_MUTED,
         accentColor: TUI_ACCENT,
         dangerColor: TUI_DANGER,
+        successColor: TUI_SUCCESS,
         backgroundColor: TUI_BACKGROUND,
     };
     const box = new BoxRenderable(renderer, {
@@ -741,17 +879,65 @@ export function createTuiOnboardingView(
         visible: false,
     });
     surface.add(box);
-    let lines: TextRenderable[] = [];
+    // The key line is a real editor, the same one every other field in Vera
+    // uses, so a key can be pasted, corrected, and seen.
+    const field = createTuiSingleLineTextarea(renderer, {
+        id: "onboarding-key-field",
+        placeholder: " ",
+        backgroundColor: TUI_BACKGROUND,
+    });
+    field.width = FIELD_WIDTH - 2;
+    const fieldBefore = new TextRenderable(renderer, {
+        content: "",
+        width: CONTENT_INDENT + 3,
+        height: 1,
+    });
+    const fieldAfter = new TextRenderable(renderer, {
+        content: "",
+        width: CONTENT_INDENT + 3,
+        height: 1,
+    });
+    const fieldRow = new BoxRenderable(renderer, {
+        id: "onboarding-key-row",
+        border: false,
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+    });
+    fieldRow.add(fieldBefore);
+    fieldRow.add(field);
+    fieldRow.add(fieldAfter);
+    let lines: Renderable[] = [];
     let rendered: OnboardingScreenState | undefined;
+    const paintFieldRow = (line: OnboardingLine): void => {
+        const body = [...line.text];
+        fieldBefore.content = body.slice(0, CONTENT_INDENT + 3).join("");
+        fieldBefore.fg = colors.mutedColor;
+        fieldAfter.content = body.slice(-(CONTENT_INDENT + 3)).join("");
+        fieldAfter.fg = colors.mutedColor;
+        field.textColor = colors.textColor;
+        field.focusedTextColor = colors.textColor;
+        field.backgroundColor = colors.backgroundColor;
+        field.focusedBackgroundColor = colors.backgroundColor;
+        field.cursorColor = colors.accentColor;
+    };
     const paint = (state: OnboardingScreenState): void => {
-        for (const line of lines) line.destroyRecursively();
+        for (const line of lines) {
+            if (line === fieldRow) box.remove(fieldRow.id);
+            else line.destroyRecursively();
+        }
         lines = [];
         for (const [index, line] of onboardingCardLines(state).entries()) {
+            if (line.entry === true) {
+                paintFieldRow(line);
+                lines.push(fieldRow);
+                box.add(fieldRow);
+                continue;
+            }
             const rowId = line.rowId;
             const text = new TextRenderable(renderer, {
                 id: `onboarding-line-${index}`,
-                content: line.text,
-                fg: lineColor(line, colors),
+                content: framedContent(line, colors),
                 width: "100%",
                 height: 1,
                 onMouseDown: rowId === undefined
@@ -767,12 +953,30 @@ export function createTuiOnboardingView(
         box,
         update(state): void {
             rendered = state;
+            if (state.body.kind === "secret") {
+                syncTuiSingleLineTextarea(field, state.body.value);
+            }
             paint(state);
         },
         applyAppearance(appearance): void {
             colors = appearance;
             surface.backgroundColor = parseColor(appearance.backgroundColor);
             if (rendered !== undefined) paint(rendered);
+        },
+        focus(): void {
+            if (rendered?.body.kind === "secret") field.focus();
+            else box.focus();
+        },
+        fieldValue(): string {
+            return field.plainText;
+        },
+        handleFieldKey(key): string {
+            field.handleKeyPress(tuiTextareaKey(key));
+            return field.plainText;
+        },
+        handleFieldPaste(text): string {
+            insertTuiSingleLinePaste(field, text);
+            return field.plainText;
         },
     };
 }

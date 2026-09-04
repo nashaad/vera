@@ -37,13 +37,16 @@ Run `bun run install:local` from the intended checkout to pack, verify, and acti
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
 
-## First-run setup [lines=8]
+## First-run setup [lines=11]
 A Vera with no provider says so on home and offers a `Connect a provider` row. There is no slash command for it.
 That row opens a three-step wizard: the provider, whatever that provider needs, then the model. `enter` advances and `esc` goes back one step.
+The provider step lists a few providers and a `300+ more` line. It is a short list to get started, not the catalog; every other provider is added later from `/model`.
 The second step is a key field for a provider that needs a credential, an install gate for a provider that runs models on this machine, and a settled step for one that needs neither.
+The key field takes a paste and shows what it holds. A refused key returns to the key step carrying the provider's own refusal text.
 A provider that runs locally is installed and started from inside the wizard. The model step fetches and starts the chosen profile before verifying it.
+The model step asks the provider for its models every time it opens, so leaving the step with `esc` and re-entering it is how to ask again after installing a model.
+A model list that comes back empty says how to get that provider a model, in that provider's own terms.
 A download shows a bar with the file name, percent, sizes, and time left. `esc` stops it and returns to the model list; it does not continue in the background.
-A refused key returns to the key step carrying the provider's own refusal text.
 A prompt typed before setup runs afterwards on the model that was chosen.
 
 ## Models and providers [lines=8]

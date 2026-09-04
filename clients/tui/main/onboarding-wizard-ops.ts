@@ -1,7 +1,7 @@
 /** The wizard's side of the runtime: opening it, moving it a step, and the one real request that closes it. */
 
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
-import { credentialRefusal } from "../../../src/providers/onboarding.ts";
+import { credentialRefusal, holdsCredential, providerMessage } from "../../../src/providers/onboarding.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -16,11 +16,16 @@ import {
     type WizardRuntime,
     type WizardSession,
 } from "../onboarding-wizard.ts";
-import type { OutriderProgress } from "../../../src/providers/outrider.ts";
+import {
+    readInstallPath,
+    type OutriderProgress,
+} from "../../../src/providers/outrider.ts";
 import {
     installOutrider,
     mergeProgress,
     outriderPresence,
+    outriderProfiles,
+    rememberOutriderBinary,
     serveOutrider,
     type RuntimeCommand,
 } from "./outrider-ops.ts";
@@ -32,6 +37,8 @@ import { onboardingInput } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { requestPoolAdmission } from "../main.ts";
+import { sendCommand } from "./extension-bridge.ts";
+import { randomUUID } from "node:crypto";
 import {
     beginCreateSession,
     requestModelSettingsChange,
@@ -39,6 +46,11 @@ import {
 } from "./session-ops.ts";
 
 const SPINNER_INTERVAL_MS = 120;
+
+/** The user picked a name off a list, so that name is what they are told about. */
+function providerLabel(id: string): string {
+    return findConfiguredProvider(id, loadOptionalVeraConfig())?.label ?? id;
+}
 
 export function wizardIsOpen(rt: TuiRuntime): boolean {
     return rt.onboardingWizard !== undefined;
@@ -60,23 +72,38 @@ export function updateWizardSession(
     renderOnboardingWizard(rt);
 }
 
-export function openOnboardingWizard(rt: TuiRuntime): void {
-    const input = onboardingInput(rt);
-    const at = wizardOpensAt(input);
-    const chosen = at === "provider" ? undefined : input.config?.provider;
-    rt.onboardingWizard = {
-        ...newWizardSession(at),
-        ...(chosen === undefined ? {} : { chosen }),
-    };
+/** The wizard takes the terminal, so whatever else was open gives it up. */
+function showWizard(rt: TuiRuntime, session: WizardSession): void {
+    rt.onboardingWizard = session;
     rt.settingsPicker = undefined;
     rt.secretPrompt = undefined;
+    rt.providerForm = undefined;
     rt.composer.blur();
     renderState(rt);
     renderOnboardingWizard(rt);
     focusActiveSurface(rt);
+}
+
+export function openOnboardingWizard(rt: TuiRuntime): void {
+    const input = onboardingInput(rt);
+    const at = wizardOpensAt(input);
+    const chosen = at === "provider" ? undefined : input.config?.provider;
+    showWizard(rt, {
+        ...newWizardSession(at),
+        ...(chosen === undefined ? {} : { chosen }),
+    });
     if (at === "model" && chosen !== undefined) {
         requestWizardModels(rt, chosen);
     }
+}
+
+/** A provider that cleared its own gate somewhere else still owes the user a model, and there is one place that asks for one. */
+export function enterWizardModelStep(
+    rt: TuiRuntime,
+    provider: string,
+): void {
+    showWizard(rt, { ...newWizardSession("model"), chosen: provider });
+    requestWizardModels(rt, provider);
 }
 
 export function closeOnboardingWizard(rt: TuiRuntime): void {
@@ -128,35 +155,97 @@ function startWizardSpinner(rt: TuiRuntime): void {
 
 /** A model list belongs to a conversation, so the wizard opens one and holds the step until its settings arrive. */
 function requestWizardModels(rt: TuiRuntime, provider: string): void {
+    const session = rt.onboardingWizard;
+    // The list is out, so the step says so rather than showing an empty one.
+    if (session !== undefined) {
+        const { alert: _dropped, ...rest } = session;
+        updateWizardSession(rt, { ...rest, asking: true });
+    }
     if (!isHomeClient(rt.client)) {
         fillWizardModels(rt, provider);
+        askProviderForModels(rt, provider);
         return;
     }
     rt.pendingOnboardingStep = provider;
     beginCreateSession(rt, "stop");
 }
 
-function fillWizardModels(rt: TuiRuntime, provider: string): void {
+/** What the host has saved is what it was told last time, which on a first run is nothing. Every visit to this step asks the provider itself. */
+function askProviderForModels(rt: TuiRuntime, provider: string): void {
+    const session = rt.onboardingWizard;
+    if (session === undefined) return;
+    const requestId = randomUUID();
+    rt.onboardingCatalogRefresh = requestId;
+    const { alert: _dropped, ...rest } = session;
+    updateWizardSession(rt, { ...rest, asking: true });
+    sendCommand(rt, { type: "catalog_refresh", requestId, provider });
+}
+
+/** The provider has answered, so the list stands on its own words. */
+export function wizardTookCatalogRefresh(
+    rt: TuiRuntime,
+    requestId: string,
+): boolean {
+    if (rt.onboardingCatalogRefresh !== requestId) return false;
+    rt.onboardingCatalogRefresh = undefined;
+    const session = rt.onboardingWizard;
+    if (session === undefined || session.at !== "model") return true;
+    const { asking: _answered, ...rest } = session;
+    rt.onboardingWizard = rest;
+    fillWizardModels(rt, session.chosen ?? "");
+    return true;
+}
+
+/** The runtime names its own profiles, so the list is asked for rather than held in Vera. What Vera keeps is the words for the ids it has words for, which is why the answer comes back through the same fill. */
+async function askRuntimeForProfiles(
+    rt: TuiRuntime,
+    provider: string,
+): Promise<void> {
+    const roster = await outriderProfiles();
+    const session = rt.onboardingWizard;
+    if (session === undefined || session.chosen !== provider) return;
+    fillWizardModels(rt, provider, roster);
+}
+
+function fillWizardModels(
+    rt: TuiRuntime,
+    provider: string,
+    roster?: readonly string[],
+): void {
     const session = rt.onboardingWizard;
     if (session === undefined) return;
     const live = (focusedAgentState(rt).modelSettings?.availableModels ?? [])
         .filter((model) => model.provider === provider)
-        .map((model) => ({ id: model.model, label: model.label }));
+        .map((model) => ({
+            id: model.model,
+            label: model.label,
+            ...(model.onPareto === true ? { onPareto: true } : {}),
+            ...(model.pricing === undefined
+                ? {}
+                : { outputPrice: model.pricing.output }),
+            ...(model.waScore === undefined ? {} : { waScore: model.waScore }),
+        }));
     // A local gateway lists nothing until it is up, and it does not come up
-    // until a profile is picked. The profiles the definition names are what
-    // there is to pick from until then.
+    // until a profile is picked. Until then the profiles are the runtime's own
+    // answer, which is a command away rather than to hand.
     const descriptor = findConfiguredProvider(provider, loadOptionalVeraConfig());
-    const models = live.length === 0 && descriptor?.localRuntime !== undefined
-        ? (descriptor.recommendModels ?? []).map((entry) => ({
-            id: entry.id,
-            label: entry.id,
-        }))
+    const local = live.length === 0 && descriptor?.localRuntime !== undefined;
+    if (local && roster === undefined) {
+        void askRuntimeForProfiles(rt, provider);
+        return;
+    }
+    const models = local
+        ? (roster ?? []).map((id) => ({ id, label: id }))
         : live;
     if (models.length === 0) {
         updateWizardSession(rt, {
             ...session,
             at: "model",
-            alert: `${provider} listed no models`,
+            // While the provider is still being asked, an empty list is not
+            // yet an answer.
+            ...(session.asking === true
+                ? {}
+                : { alert: `${providerLabel(provider)} listed no models` }),
         });
         return;
     }
@@ -172,6 +261,7 @@ export function wizardTookModelSettings(rt: TuiRuntime): boolean {
     }
     rt.pendingOnboardingStep = undefined;
     fillWizardModels(rt, provider);
+    askProviderForModels(rt, provider);
     return true;
 }
 
@@ -214,9 +304,13 @@ function chooseProvider(
         void checkRuntime(rt, id);
         return;
     }
+    // A key already in the shell or the keychain is an answered gate. Asking
+    // for it again leaves nothing to press, since an empty field submits
+    // nothing.
     if (
-        provider.credential === "api_key"
-        || provider.credential === "api_key_optional"
+        (provider.credential === "api_key"
+            || provider.credential === "api_key_optional")
+        && !holdsCredential(provider, onboardingInput(rt))
     ) {
         updateWizardSession(rt, {
             ...rest,
@@ -271,7 +365,12 @@ function runtimeIsPresent(
     requestWizardModels(rt, provider);
 }
 
-async function checkRuntime(rt: TuiRuntime, provider: string): Promise<void> {
+/** `said` is what an install that has just finished reported. An install can succeed and still leave nothing Vera can run, and the installer explains that on its own stream, so the screen repeats it rather than saying only that the binary is absent. */
+async function checkRuntime(
+    rt: TuiRuntime,
+    provider: string,
+    said = "",
+): Promise<void> {
     const presence = await outriderPresence();
     const session = rt.onboardingWizard;
     if (session === undefined || session.chosen !== provider) return;
@@ -281,6 +380,7 @@ async function checkRuntime(rt: TuiRuntime, provider: string): Promise<void> {
         updateWizardSession(rt, {
             ...session,
             runtime: { state: "absent", progress: [] },
+            ...(said === "" ? {} : { alert: said }),
         });
         return;
     }
@@ -318,11 +418,16 @@ function installRuntime(
             });
             return;
         }
+        // The installer names the path it placed the binary at, which is what
+        // gets run from here. A directory that was not on PATH when the wizard
+        // started is not on it now either.
+        const placed = readInstallPath(result.stdout);
+        if (placed !== undefined) rememberOutriderBinary(placed);
         updateWizardSession(rt, {
             ...live,
             runtime: { state: "checking", progress: [] },
         });
-        await checkRuntime(rt, provider);
+        await checkRuntime(rt, provider, result.detail);
     });
 }
 
@@ -525,7 +630,9 @@ export function settleWizardVerification(
             ...rest,
             at: "key",
             key: "",
-            alert: `${pending.provider} refused that key: ${refusal}`,
+            alert: `${providerLabel(pending.provider)} refused that key: ${
+                refusal
+            }`,
         });
         return true;
     }
@@ -533,7 +640,9 @@ export function settleWizardVerification(
         updateWizardSession(rt, {
             ...rest,
             alert: `${pending.model} did not answer${
-                update.reason === undefined ? "" : `: ${update.reason}`
+                update.reason === undefined
+                    ? ""
+                    : `: ${providerMessage(update.reason)}`
             }`,
         });
         return true;

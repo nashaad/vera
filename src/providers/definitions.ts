@@ -92,6 +92,10 @@ export interface ProviderDefinition {
     readonly recommend_models?: readonly RecommendedModel[];
     /** The CLI that puts this provider on the machine and brings it up. Only a provider Vera can install itself names one. */
     readonly local_runtime?: ProviderLocalRuntime;
+    /** Kept on the first-run list under the recommended ones. Everything else waits to be found. */
+    readonly shortlist?: boolean;
+    /** What to tell someone whose model list came back empty, in this provider's own terms. */
+    readonly no_models?: readonly string[];
 }
 
 export interface ProviderDeclaration {
@@ -287,6 +291,7 @@ export function parseProviderDefinition(
     const compatibility = parseLayers(value.compatibility, context);
     const requestOptions = parseRequestOptions(value.request_options, context);
     const recommend = parseRecommendation(value.recommend, context);
+    const noModels = parseLines(value.no_models, context);
     const recommendModels = parseRecommendedModels(
         value.recommend_models,
         context,
@@ -319,7 +324,23 @@ export function parseProviderDefinition(
         ...(value.local_runtime === "outrider"
             ? { local_runtime: "outrider" as const }
             : {}),
+        ...(value.shortlist === true ? { shortlist: true } : {}),
+        ...(noModels === undefined ? {} : { no_models: noModels }),
     };
+}
+
+function parseLines(
+    value: unknown,
+    context: string,
+): readonly string[] | undefined {
+    if (value === undefined) return undefined;
+    if (
+        !Array.isArray(value)
+        || value.some((line) => typeof line !== "string" || line === "")
+    ) {
+        throw new Error(`${context}: no_models must be a list of lines`);
+    }
+    return value as readonly string[];
 }
 
 function parseRecommendation(

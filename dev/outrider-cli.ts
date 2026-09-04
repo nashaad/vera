@@ -1,4 +1,4 @@
-/** A stand-in for the `outrider` binary while the real one has no JSON progress and no installer. It speaks the surface `src/providers/outrider.ts` drives: `ps`, `serve`, `check`, `stop`, JSON on stdout and progress lines on stderr. */
+/** Optional stand-in when no real `outrider` is on PATH. The real CLI emits the same JSON progress on stderr. */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,12 +15,34 @@ const RUNTIME_BYTES = 128_000_000;
 interface Profile {
     readonly bytes: number;
     readonly memoryGb: number;
+    readonly description: string;
+    /** Hidden unless `OUTRIDER_DEV` is set, the way the real catalog hides them. */
+    readonly development?: boolean;
 }
 
 const PROFILES: Record<string, Profile> = {
-    "tiny": { bytes: 400_000_000, memoryGb: 4 },
-    "granite4.2-3b": { bytes: 2_100_000_000, memoryGb: 8 },
-    "qwen35b-mtp": { bytes: 21_000_000_000, memoryGb: 32 },
+    "qwen35b-mtp": {
+        bytes: 22_663_387_424,
+        memoryGb: 32,
+        description: "Qwen3.6 35B-A3B MTP primary local agent",
+    },
+    "qwen35-2b": {
+        bytes: 1_280_835_840,
+        memoryGb: 8,
+        description: "Qwen3.5 2B Q4_K_M helper at 32K context",
+    },
+    "tiny": {
+        bytes: 563_036_064,
+        memoryGb: 4,
+        description: "Qwen3.5 0.8B official Q4_0 GGUF for the local smoke proof",
+        development: true,
+    },
+    "granite4.2-3b": {
+        bytes: 2_244_012_160,
+        memoryGb: 8,
+        description: "Granite 4.2 3B Q4_K_M as a non-thinking helper candidate",
+        development: true,
+    },
 };
 
 interface State {
@@ -100,9 +122,16 @@ async function listening(): Promise<boolean> {
 }
 
 /** The gateway the stand-in brings up is the wire stand-in that already exists. */
-function startGateway(): void {
+function startGateway(id: string): void {
     const proxy = join(import.meta.dir, "outrider-proxy.ts");
-    Bun.spawn(["bun", proxy, "--port", String(GATEWAY_PORT)], {
+    Bun.spawn([
+        "bun",
+        proxy,
+        "--port",
+        String(GATEWAY_PORT),
+        "--serve-as",
+        id,
+    ], {
         stdout: "ignore",
         stderr: "ignore",
         stdin: "ignore",
@@ -123,7 +152,7 @@ async function serve(id: string): Promise<void> {
     }
     emit({ name: `starting on 127.0.0.1:${GATEWAY_PORT}`, done: false });
     if (!await listening()) {
-        startGateway();
+        startGateway(id);
         for (let attempt = 0; attempt < 40 && !await listening(); attempt += 1) {
             await sleep(250);
         }
@@ -154,20 +183,54 @@ async function ps(): Promise<void> {
     });
 }
 
+const GB = 1024 ** 3;
+
 function check(id: string): void {
     const profile = PROFILES[id];
     if (profile === undefined) fail(`unknown profile ${id}`);
     const memoryGb = Math.round(
         Number(process.env.OUTRIDER_FAKE_MEMORY_GB ?? "64"),
     );
+    const fits = memoryGb >= profile.memoryGb;
+    const state = readState();
+    const runtime = state.cached.includes("llama.cpp");
     print({
         profile: id,
-        admitted: memoryGb >= profile.memoryGb,
-        checks: [{
-            name: "memory",
-            ok: memoryGb >= profile.memoryGb,
-            detail: `needs ${profile.memoryGb} GB, this machine has ${memoryGb} GB`,
-        }],
+        class: fits && runtime ? "ready" : "blocked",
+        checks: [
+            {
+                id: "physical_memory",
+                result: fits ? "pass" : "fail",
+                measured: `${memoryGb * GB} bytes`,
+                required: `validated at ${profile.memoryGb * GB} bytes`,
+            },
+            {
+                id: "runtime_capabilities",
+                result: runtime ? "pass" : "warn",
+                measured: runtime
+                    ? "all profile flags advertised"
+                    : "no runtime fetched yet",
+                required: "every profile flag advertised by llama-server",
+            },
+        ],
+    });
+}
+
+/** The catalog. Vera takes the roster from here, so the stand-in has to answer it. */
+function ls(): void {
+    const dev = (process.env.OUTRIDER_DEV ?? "") !== "";
+    print({
+        profiles: Object.entries(PROFILES)
+            .filter(([, profile]) => dev || profile.development !== true)
+            .map(([id, profile]) => ({
+                id,
+                runnable: true,
+                description: profile.description,
+                sizeBytes: profile.bytes,
+                context: 32768,
+                mtp: false,
+            })),
+        developmentModels: [],
     });
 }
 
@@ -177,7 +240,7 @@ function stop(): void {
     print({ kind: "stopped", endpoint: ENDPOINT, logFile: statePath() });
 }
 
-const [command, argument] = Bun.argv.slice(2);
+const [command, argument] = Bun.argv.slice(2).filter((value) => value !== "--json");
 switch (command) {
     case "serve":
     case "up":
@@ -191,6 +254,10 @@ switch (command) {
     case "check":
         if (argument === undefined) fail("check expects one profile id");
         check(argument);
+        break;
+    case "ls":
+    case "models":
+        ls();
         break;
     case "stop":
     case "down":

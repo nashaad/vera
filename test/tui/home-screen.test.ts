@@ -69,18 +69,56 @@ describe("the home card", () => {
     });
 
     test("a cold machine leads with the way to a provider", () => {
+        // The reason comes before the rows, and the row that fixes it stands
+        // apart from the rows that cannot work until it does.
         expect(rendered(cold())).toBe(
             [
                 "             V  E  R  A",
                 "  ────────────────────────────────",
                 "",
+                "  Vera has no provider yet",
+                "",
                 "❯ Connect a provider  enter",
+                "",
                 "  New conversation",
                 "  Commands            ctrl+p",
-                "",
-                "  Vera has no provider yet",
             ].join("\n"),
         );
+    });
+
+    test("the way out is a filled button, and still readable unfilled", () => {
+        const row = homeCardLines(cold()).find((line) =>
+            line.rowId === "connect"
+        );
+        // The fill covers the label and the space either side of it, and stops
+        // before the key hint.
+        expect(row?.text.slice(row.fill?.from, row.fill?.to))
+            .toBe(" Connect a provider ");
+        // Colour is decoration: the marker and the key say the same thing.
+        expect(row?.text).toBe("❯ Connect a provider  enter");
+        expect(homeCardLines(cold()).filter((line) => line.fill !== undefined))
+            .toHaveLength(1);
+    });
+
+    test("the key hints line up whether a row is filled or not", () => {
+        const withHints = new Set(
+            homeRows(cold()).filter((row) => row.keyHint !== "").map((row) =>
+                row.id
+            ),
+        );
+        const lines = homeCardLines(cold()).filter((line) =>
+            line.rowId !== undefined && withHints.has(line.rowId)
+        );
+        expect(lines.length).toBeGreaterThan(1);
+        for (const line of lines) {
+            expect(hintColumn(line.text)).toBe(HOME_HINT_COLUMN);
+        }
+    });
+
+    test("a cold machine offers no caret, having nowhere to send a prompt", () => {
+        expect(rendered(cold())).not.toContain(HOME_TYPING_HINT);
+        expect(homeCardLines(cold()).some((line) => line.tone === "hint"))
+            .toBe(false);
     });
 
     test("a connected machine says nothing about providers", () => {
@@ -173,9 +211,18 @@ describe("home keys", () => {
             action: { kind: "connect_provider" },
             handled: true,
         });
+    });
+
+    test("the conversation row leads to the provider until there is one", () => {
+        // Opening a conversation nothing can answer is a dead end, so it goes
+        // where the other row goes.
         const moved = handleHomeKey(cold(), { name: "down" });
         expect(moved.state?.selectedId).toBe("new");
         expect(handleHomeKey(moved.state!, { name: "return" })).toEqual({
+            action: { kind: "connect_provider" },
+            handled: true,
+        });
+        expect(handleHomeKey(home(), { name: "return" })).toEqual({
             action: { kind: "new_session" },
             handled: true,
         });

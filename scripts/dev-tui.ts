@@ -11,6 +11,7 @@ import {
     statSync,
     writeFileSync,
 } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -160,7 +161,7 @@ export function candidateBuildId(worktreeRoot: string): string {
     }
 }
 
-export interface DevTuiDependencies {
+export interface DevTuiDependencies extends EvictHomeOptions {
     readonly stdout?: { write(text: string): unknown };
     readonly stderr?: { write(text: string): unknown };
     readonly confirm?: (question: string) => Promise<boolean>;
@@ -175,6 +176,13 @@ export interface DevTuiDependencies {
     ) => Promise<void>;
     readonly temporaryRoot?: string;
     readonly sourceHome?: string;
+}
+
+export interface EvictHomeOptions {
+    readonly processesUsingHome?: (home: string) => readonly number[];
+    readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
+    readonly sigtermGraceMs?: number;
+    readonly sigkillGraceMs?: number;
 }
 
 export async function runDevTui(
@@ -211,6 +219,8 @@ export async function runDevTui(
             return 0;
         }
         await stopCandidate(destinationHome, stderr);
+        const stranded = await evictHome(destinationHome, stderr, dependencies);
+        if (stranded !== 0) return stranded;
         rmSync(instanceRoot, { recursive: true, force: true });
         stdout.write(`Discarded ${destinationHome}\n`);
         return 0;
@@ -225,6 +235,8 @@ export async function runDevTui(
             return 0;
         }
         await stopCandidate(destinationHome, stderr);
+        const stranded = await evictHome(destinationHome, stderr, dependencies);
+        if (stranded !== 0) return stranded;
         rmSync(destinationHome, { recursive: true, force: true });
     }
 
@@ -391,6 +403,87 @@ async function stopCandidate(
         stderr.write(`Development host PID ${outcome.pid} did not stop.\n`);
         return 1;
     }
+    return 0;
+}
+
+const EVICTION_SIGTERM_GRACE_MS = 3_000;
+
+const EVICTION_SIGKILL_GRACE_MS = 2_000;
+
+const EVICTION_POLL_MS = 50;
+
+/** Every live process holding this home, found by the home it was given rather than by a lockfile one of them has since overwritten. */
+export function processesUsingHome(home: string): readonly number[] {
+    const listed = spawnSync("ps", ["axeww", "-o", "pid=,command="], {
+        encoding: "utf8",
+        // Every process is listed with its whole environment, which on a
+        // developer's machine runs to megabytes.
+        maxBuffer: 64 * 1024 * 1024,
+    });
+    if (listed.status !== 0 || typeof listed.stdout !== "string") return [];
+    const holds = new RegExp(
+        `VERA_HOME=${home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|$)`,
+    );
+    return listed.stdout.split("\n").flatMap((line) => {
+        if (!holds.test(line)) return [];
+        const pid = Number.parseInt(line.trimStart().split(/\s/)[0] ?? "", 10);
+        return Number.isInteger(pid) && pid !== process.pid ? [pid] : [];
+    });
+}
+
+function signalProcess(pid: number, signal: NodeJS.Signals): void {
+    try {
+        process.kill(pid, signal);
+    } catch {
+        // Already gone, or not ours to signal. Either way it is counted below.
+    }
+}
+
+async function noneLeft(
+    home: string,
+    graceMs: number,
+    list: (home: string) => readonly number[],
+): Promise<boolean> {
+    const deadline = Date.now() + graceMs;
+    while (list(home).length > 0) {
+        if (Date.now() >= deadline) return false;
+        await new Promise((resolve) => setTimeout(resolve, EVICTION_POLL_MS));
+    }
+    return true;
+}
+
+/**
+ * Empties a development home of everything still running against it. A host
+ * that outlived its lockfile still holds the socket the next one needs, so a
+ * fresh start that leaves one behind is not a fresh start.
+ */
+export async function evictHome(
+    home: string,
+    stderr: { write(text: string): unknown },
+    options: EvictHomeOptions = {},
+): Promise<number> {
+    const list = options.processesUsingHome ?? processesUsingHome;
+    const signal = options.signalProcess ?? signalProcess;
+    const holding = list(home);
+    if (holding.length === 0) return 0;
+    for (const pid of holding) signal(pid, "SIGTERM");
+    const polite = options.sigtermGraceMs ?? EVICTION_SIGTERM_GRACE_MS;
+    if (!await noneLeft(home, polite, list)) {
+        for (const pid of list(home)) signal(pid, "SIGKILL");
+        await noneLeft(home, options.sigkillGraceMs ?? EVICTION_SIGKILL_GRACE_MS, list);
+    }
+    const survivors = list(home);
+    if (survivors.length > 0) {
+        stderr.write(
+            `Could not stop ${survivors.length} process(es) still using `
+                + `${home}: ${survivors.join(", ")}.\n`,
+        );
+        return 1;
+    }
+    stderr.write(
+        `Stopped ${holding.length} process(es) from the previous `
+            + "development instance.\n",
+    );
     return 0;
 }
 

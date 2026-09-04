@@ -5,10 +5,11 @@ import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
     credentialRefusal,
     currentStep,
+    holdsCredential,
     openGate,
+    providerMessage,
     providerAnswerLabel,
     providerAnswerState,
-    stepPosition,
     stepperSteps,
 } from "../../src/providers/onboarding.ts";
 import {
@@ -190,12 +191,6 @@ test("a stepper with nothing chosen sits on the provider step", () => {
     expect(stateOf(steps, "provider")).toBe("current");
     expect(stateOf(steps, "key")).toBe("locked");
     expect(stateOf(steps, "model")).toBe("locked");
-    expect(stepPosition({
-        providers: PROVIDERS,
-        pool: EMPTY_POOL,
-        authStorage: storage({}),
-        env: NO_ENV,
-    })).toBe(1);
 });
 
 test("choosing a provider that needs a key moves the stepper to the key", () => {
@@ -209,7 +204,6 @@ test("choosing a provider that needs a key moves the stepper to the key", () => 
     expect(stateOf(stepperSteps(input), "provider")).toBe("done");
     expect(currentStep(input)).toBe("key");
     expect(stateOf(stepperSteps(input), "model")).toBe("locked");
-    expect(stepPosition(input)).toBe(2);
 });
 
 test("a credential-free provider shows the key step done, not hidden", () => {
@@ -223,7 +217,6 @@ test("a credential-free provider shows the key step done, not hidden", () => {
     };
     expect(stateOf(stepperSteps(input), "key")).toBe("done");
     expect(currentStep(input)).toBe("model");
-    expect(stepPosition(input)).toBe(3);
 });
 
 test("a stored key clears the key step and opens the model step", () => {
@@ -253,7 +246,6 @@ test("a model that answered leaves no step current", () => {
         "done",
     ]);
     expect(currentStep(input)).toBeUndefined();
-    expect(stepPosition(input)).toBeUndefined();
 });
 
 test("a provider chosen that is not configured leaves the stepper on provider", () => {
@@ -278,7 +270,6 @@ test("the step the client has open wins over the key it already holds", () => {
     };
     expect(stateOf(stepperSteps(input), "key")).toBe("current");
     expect(stateOf(stepperSteps(input), "model")).toBe("locked");
-    expect(stepPosition(input)).toBe(2);
 });
 
 test("a 401 hands back the provider's own sentence, not the envelope", () => {
@@ -310,4 +301,46 @@ test("a failure that is not about the key keeps the user on the model step", () 
         }),
     ).toBeUndefined();
     expect(credentialRefusal({ verdict: "pool_write_refused" })).toBeUndefined();
+});
+
+test("a key in the shell counts as held, the same as one in the keychain", () => {
+    const openrouter = findProvider("openrouter")!;
+    expect(
+        holdsCredential(openrouter, {
+            providers: PROVIDERS,
+            pool: EMPTY_POOL,
+            authStorage: storage({}),
+            env: NO_ENV,
+        }),
+    ).toBe(false);
+    expect(
+        holdsCredential(openrouter, {
+            providers: PROVIDERS,
+            pool: EMPTY_POOL,
+            authStorage: storage({}),
+            env: { OPENROUTER_API_KEY: "sk-or-v1-from-the-shell" },
+        }),
+    ).toBe(true);
+    expect(
+        holdsCredential(openrouter, {
+            providers: PROVIDERS,
+            pool: EMPTY_POOL,
+            authStorage: storage({ openrouter: "sk-or-v1-stored" }),
+            env: NO_ENV,
+        }),
+    ).toBe(true);
+});
+
+test("a failure that is not about the key still shows the sentence, not the body", () => {
+    // The model step has one line for this, and the envelope spends it on
+    // braces and quoting.
+    const body = JSON.stringify({
+        error: {
+            message: 'unknown model "qwen35b-mtp"',
+            type: "outrider_model_error",
+        },
+    });
+    expect(providerMessage(`outrider returned HTTP 404: ${body}`))
+        .toBe('unknown model "qwen35b-mtp"');
+    expect(providerMessage("the provider is down")).toBe("the provider is down");
 });
