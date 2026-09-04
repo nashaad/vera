@@ -86,6 +86,35 @@ class _Current:
         """
         return _deadline.get()
 
+    def step(
+        self,
+        name: str,
+        function: Callable[..., R],
+        *args: object,
+        key: str,
+        timeout: float | None = None,
+        **kwargs: object,
+    ) -> R:
+        """Call `function` as a step journaled under an explicit key.
+
+        The escape hatch for callers whose steps are chosen at runtime rather
+        than written out. The key replaces the positional ordinal, so inserting
+        or removing calls elsewhere in the run does not invalidate this one.
+        The caller owns key uniqueness: two calls sharing a key and arguments
+        return the first recorded value and the second body never runs.
+        """
+        if isinstance(function, _Step):
+            raise WorkflowError(
+                "step",
+                "current.step takes a plain function; a @step already has a key",
+            )
+        if not key:
+            raise WorkflowError("step", "current.step requires a non-empty key")
+        runtime = _runtime.get()
+        if runtime is None:
+            return function(*args, **kwargs)
+        return runtime.call_step(name, function, args, kwargs, key=key, timeout=timeout)
+
 
 class _UserFailure(BaseException):
     def __init__(self, error: Exception) -> None:
@@ -132,14 +161,19 @@ class _Runtime:
         args: P.args,
         kwargs: P.kwargs,
         *,
+        key: str | None = None,
         timeout: float | None = None,
     ) -> R:
         positional_args = tuple(args)
         keyword_args = dict(kwargs)
-        ordinal = self._ordinals.get(step_name, 0)
-        self._ordinals[step_name] = ordinal + 1
+        if key is None:
+            ordinal = self._ordinals.get(step_name, 0)
+            self._ordinals[step_name] = ordinal + 1
+            name = f"{step_name}#{ordinal}"
+        else:
+            name = key
         try:
-            key = f"{self.workflow_name}/{step_name}#{ordinal}:{digest(positional_args, keyword_args)}"
+            key = f"{self.workflow_name}/{name}:{digest(positional_args, keyword_args)}"
         except WorkflowError as error:
             raise _RuntimeFault(error) from error
         if key in self.journal.records:
