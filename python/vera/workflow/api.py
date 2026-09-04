@@ -428,9 +428,11 @@ def step(
     """Mark a function as a journaled step, bare or with arguments.
 
     `@step` and `@step(timeout=30)` are both accepted. A timeout is a deadline
-    on one call, not a retry budget: the runtime stops waiting and raises
-    `StepTimeout`, which fails the run with kind `timeout` unless the caller
-    handles it. Nothing is journaled, so a resumed run tries the step again.
+    on one call, not a retry budget: the runtime stops waiting and fails the
+    run with kind `timeout`. The workflow cannot catch it, so a timeout means
+    the run does not continue. Nothing is journaled, so a resumed run tries the
+    step again. A caller that needs a deadline to be an outcome rather than the
+    end of the run enforces it inside the step and returns a value.
     """
     if function is not None:
         return _Step(function, timeout)
