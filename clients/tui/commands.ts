@@ -203,7 +203,13 @@ export interface InvokeSkillTuiCommandAction {
     readonly argumentsText: string;
 }
 
+export interface OpenModelUtilityAction {
+    readonly type: "open_model_utility";
+    readonly utility: "dials" | "verify";
+}
+
 export type TuiCommandAction =
+    | OpenModelUtilityAction
     | ResumeViewedSessionTuiCommandAction
     | OpenRewindTuiCommandAction
     | OpenForkTuiCommandAction
@@ -260,6 +266,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "create_session":
         case "update_session_name":
             return "focused_agent";
+        case "open_model_utility":
+            return action.utility === "dials" ? "focused_agent" : "application";
         case "open_settings_destination":
             return action.destination.kind === "provider"
                     || action.destination.kind === "model_shortlist"
@@ -1670,6 +1678,16 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         group: "Settings",
         action: { type: "open_preferences_list" },
     });
+    for (const [name, label, description, kind] of [
+        ["manage_shortlist", "Manage shortlist", "keep or unkeep discovered models", "model_shortlist"],
+        ["model_defaults", "Assign model defaults", "bind verified shortlisted models to default slots", "model_assignments"],
+    ] as const) registry.registerPaletteAction({ name, label, description, group: "Settings",
+        action: { type: "open_settings_destination", destination: { kind } } });
+    for (const [utility, label, description] of [
+        ["dials", "Dial strip", "stage model, effort, access and agent together"],
+        ["verify", "Verify shortlisted models", "send real requests to check your shortlisted models"],
+    ] as const) registry.registerPaletteAction({ name: utility, label, description, group: "Settings",
+        action: { type: "open_model_utility", utility } });
     return registry;
 }
 

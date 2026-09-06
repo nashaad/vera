@@ -91,7 +91,6 @@ export function startCatalogRefreshSweep(rt: TuiRuntime, providers: readonly str
             rt.state.modelSettings?.availableModels,
             rt.state.modelSettings?.refreshableProviders,
         );
-    rt.settingsPicker = undefined;
     rt.composer.blur();
     if (rt.catalogRefreshSweep !== undefined) {
         showStatusNotice(rt, "a refresh is already running");

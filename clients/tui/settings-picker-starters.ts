@@ -1,3 +1,4 @@
+import { journeyModels } from "./model-journeys.ts";
 import {
     bg,
     BoxRenderable,
@@ -297,6 +298,8 @@ export function syncTuiModelPicker(
     const actionOptions = settings?.actionOptions ?? state.actionOptions ?? [];
     const onTab = {
         ...rebuilt,
+        modelJourney: state.modelJourney,
+        title: state.title,
         tab,
         ...modelSyncedFocus(state, { ...rebuilt, tab, actionOptions }),
         modelActionIndex: state.modelActionIndex ?? 0,
@@ -331,7 +334,9 @@ export function syncTuiModelPicker(
             state.initialModel,
         ),
     };
-    const options = state.query.length === 0
+    const options = state.modelJourney !== undefined
+        ? journeyModels({ ...onTab, query: state.query })
+        : state.query.length === 0
         ? onTab.options
         : searched(onTab, state.query).state?.options ?? onTab.options;
     const selectedIndex = options.findIndex(

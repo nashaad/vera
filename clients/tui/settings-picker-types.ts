@@ -244,6 +244,7 @@ export interface TuiSettingsPickerState {
     readonly subtitle?: string;
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
+    readonly modelJourney?: "switch" | "shortlist";
     readonly loading?: boolean;
     readonly tab?: TuiModelPickerTab;
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
@@ -405,6 +406,8 @@ export interface TuiSettingsPickerTransition {
     readonly selection?: TuiSettingsPickerSelection;
     readonly handled: boolean;
     readonly poolToggle?: TuiPoolToggle;
+    readonly refreshAllCatalogs?: boolean;
+    readonly poolBulk?: { readonly action: "add" | "remove"; readonly models: readonly TuiSettingsPickerOption[] };
     readonly undoPoolChange?: boolean;
     readonly poolVerify?: TuiPoolVerify;
     readonly poolVerifySweep?: boolean;

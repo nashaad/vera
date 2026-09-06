@@ -1,3 +1,4 @@
+import { modelJourney } from "../model-journeys.ts";
 import { configuredModelAssignments, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
 import { derivedModelName } from "../../../src/config/model-catalog.ts";
@@ -141,6 +142,7 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
             selectedIndex: 0,
         };
     }
+    rt.settingsPicker = modelJourney(rt.settingsPicker, "switch");
     requestAgentSettings(rt, focusedAgentClient(rt));
     renderState(rt);
     focusActiveSurface(rt);

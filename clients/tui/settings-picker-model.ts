@@ -1,3 +1,4 @@
+import { journeyModels } from "./model-journeys.ts";
 import { bg, BoxRenderable, fg, StyledText, TextRenderable, type MouseEvent, type RenderContext, type TextChunk } from "@opentui/core";
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
@@ -1974,6 +1975,7 @@ export function modelListFor(
         intelligenceCutoff?: IntelligenceCutoff;
     } = {},
 ): readonly TuiSettingsPickerOption[] {
+    if (state.modelJourney !== undefined) return journeyModels({ ...state, ...patch });
     return modelPickerOptions(
         state.allOptions,
         patch.tab ?? state.tab ?? "all",

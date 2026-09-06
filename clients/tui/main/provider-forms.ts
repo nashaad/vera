@@ -1,3 +1,4 @@
+import { modelJourney } from "../model-journeys.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
 import { isConfigurationRequiredUiRequestUpdate, type UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import type { RenameSessionResult } from "../../../src/host/session-rename-client.ts";
@@ -558,15 +559,15 @@ export function openSettingsDestination(rt: TuiRuntime,
         });
     } else if (route.type === "model_shortlist") {
         openModelPicker(rt);
-        rt.settingsPicker = switchedModelTab(
+        rt.settingsPicker = modelJourney(
             rt.settingsPicker as TuiSettingsPickerState,
-            "pool",
+            "shortlist",
         );
         renderState(rt);
     } else if (route.type === "model_assignments") {
         openModelPicker(rt);
         rt.settingsPicker = switchedModelTab(
-            rt.settingsPicker as TuiSettingsPickerState,
+            { ...rt.settingsPicker as TuiSettingsPickerState, modelJourney: undefined, title: "Assign model defaults" },
             "defaults",
         );
         renderState(rt);
@@ -618,7 +619,7 @@ export function activateConfigurationRequiredRequest(rt: TuiRuntime,
     ) {
         openModelPicker(rt);
         parent = switchedModelTab(
-            rt.settingsPicker as TuiSettingsPickerState,
+            { ...rt.settingsPicker as TuiSettingsPickerState, modelJourney: undefined, title: "Assign model defaults" },
             "defaults",
         );
         rt.settingsPicker = undefined;

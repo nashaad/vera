@@ -1,3 +1,5 @@
+import { openDials } from "./agents-dials.ts";
+import { openPoolVerifyScopePicker } from "./pool-admission.ts";
 import type { TuiCommandAction, TuiPaletteEntry } from "../commands.ts";
 import { jumpMenuLines, type JumpRow } from "../jump.ts";
 import { beginSessionResume, openHelp, openSearchOverlay, openWorkTab, renderCommandSuggestions, resumeJsonlView } from "../main.ts";
@@ -77,7 +79,9 @@ export function openSettingsMenuTarget(rt: TuiRuntime,
 
 export function runPaletteAction(rt: TuiRuntime, entry: TuiPaletteEntry): void {
     if (
-        entry.action.type === "prefill_composer"
+        entry.action.type === "open_settings_destination"
+        || entry.action.type === "open_model_utility"
+        || entry.action.type === "prefill_composer"
         || entry.slashName === undefined
     ) {
         rt.composer.clearComposer();
@@ -90,6 +94,7 @@ export function runPaletteAction(rt: TuiRuntime, entry: TuiPaletteEntry): void {
 }
 
 export function runStandalonePaletteAction(rt: TuiRuntime, action: TuiCommandAction): void {
+    if (action.type === "open_model_utility") return action.utility === "dials" ? openDials(rt) : openPoolVerifyScopePicker(rt);
     if (action.type === "resume_viewed_session") return resumeJsonlView(rt);
     if (action.type === "prefill_composer") {
         rt.composer.setComposerText(action.text);

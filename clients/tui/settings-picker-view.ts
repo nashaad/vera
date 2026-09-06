@@ -1,3 +1,4 @@
+import { handleModelJourneyKey, journeyHeader, journeyFooter } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -212,6 +213,7 @@ export function handleTuiSettingsPickerKey(
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
     }
+    if (state.modelJourney !== undefined) return handleModelJourneyKey(state, key);
     if (state.kind === "model") {
         // Whoever rebuilt this pane may have taken the focused section away.
         // Settle that once, here, so no handler below has to ask.
@@ -951,6 +953,7 @@ export function createTuiSettingsPickerView(
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (
                 !pickerIsSearchable(state)
+                || (state.modelJourney !== undefined && (key.ctrl === true || key.name === "tab"))
                 || (state.kind === "model" && state.tab === "help")
                 || key.name === "escape" || key.name === "up"
                 || key.name === "down" || key.name === "return"
@@ -1139,6 +1142,39 @@ export function renderListPickerRows(
     search?: ReturnType<typeof createDialogSearchNode>,
     railInset = 0,
 ): void {
+    if (state.kind === "model" && state.modelJourney !== undefined) {
+        const width = pickerContentWidth(renderer, state, railInset);
+        const add = (node: Renderable) => { box.add(node); nodes.push(node); };
+        add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
+        const header = journeyHeader(state);
+        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: 2, width: "100%" }));
+        if (search !== undefined) {
+            updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
+            box.add(search);
+        }
+        const maximum = Math.max(1, renderer.height - 16);
+        const start = Math.max(0, Math.min(state.selectedIndex - Math.floor(maximum / 2), state.options.length - maximum));
+        const rows = state.options.slice(start, start + maximum);
+        if (rows.length === 0) add(new TextRenderable(renderer, {
+            content: state.allOptions.length === 0
+                ? "No discovered models. Configure providers (^e), or refresh their catalogs (^r)."
+                : state.query ? "No models match your search. Clear the search to see models."
+                : state.modelJourney === "switch" && state.tab !== "all"
+                ? "Your shortlist is empty. Tab shows all models; ^s opens Manage shortlist."
+                : "No models pass this cutoff. ^i changes the cutoff.",
+            fg: TUI_MUTED, height: 2, width: "100%",
+        }));
+        for (const node of dialogOptionRows(renderer, rows.map((row, index) => ({
+            label: row.label, active: start + index === state.selectedIndex,
+            meta: `${row.provider}  ${state.modelJourney === "shortlist"
+                ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
+                : row.value === state.initialModel ? "current" : ""}`,
+            ...dialogRowPointer(pointer, start + index),
+        })), width)) add(node);
+        add(dialogFooterNode(renderer, journeyFooter(state)));
+        box.height = Math.min(renderer.height - 4, Math.max(10, rows.length + 9));
+        return;
+    }
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     const stripPane = modelStripPane(state);
     const stop = modelStripStop(state);

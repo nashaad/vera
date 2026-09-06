@@ -1,3 +1,4 @@
+import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
@@ -213,8 +214,40 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         });
         return;
     }
+    if ("refreshAllCatalogs" in transition && transition.refreshAllCatalogs) {
+        startCatalogRefreshSweep(rt, []);
+        return;
+    }
+    if ("poolBulk" in transition && transition.poolBulk !== undefined) {
+        const bulk = transition.poolBulk;
+        const bound = currentModelAssignmentRows(rt).filter((slot) => slot.declared.some((entry) =>
+            bulk.models.some((model) => model.provider === entry.provider && model.model === entry.model)));
+        if (bulk.action === "remove" && bound.length > 0) {
+            showStatusNotice(rt, `Cannot unkeep: bound to ${bound.map((slot) => slot.label).join(", ")}. Reassign those slots first.`);
+            renderState(rt);
+            return;
+        }
+        for (const model of bulk.models) {
+            if (model.provider === undefined || model.model === undefined) continue;
+            sendCommand(rt, { type: bulk.action === "add" ? "pool_add" : "pool_remove",
+                requestId: randomUUID(), provider: model.provider, model: model.model });
+        }
+        return;
+    }
     if ("poolToggle" in transition && transition.poolToggle !== undefined) {
         const toggle = transition.poolToggle;
+        const bound = currentModelAssignmentRows(rt).filter((slot) => slot.declared.some((entry) =>
+            entry.provider === toggle.provider && entry.model === toggle.model));
+        if (toggle.action === "remove" && bound.length > 0) {
+            showStatusNotice(rt, `Cannot unkeep: bound to ${bound.map((slot) => slot.label).join(", ")}. Reassign that slot or cancel.`);
+            renderState(rt);
+            return;
+        }
+        if (previousPicker?.kind === "model" && previousPicker.modelJourney === "shortlist") {
+            sendCommand(rt, { type: toggle.action === "add" ? "pool_add" : "pool_remove",
+                requestId: randomUUID(), provider: toggle.provider, model: toggle.model });
+            return;
+        }
         rt.poolChangeUndo = undefined;
         if (rt.settingsPicker?.kind === "model") {
             rt.settingsPicker = {
@@ -334,7 +367,13 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             void openConfigureEditor(rt, selection.file);
             return;
         }
-        if (selection.kind === "model") {
+        if (selection.kind === "model" && previousPicker?.kind === "model" && previousPicker.modelJourney === "switch") {
+            const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
+            void target.send({ type: "update_session_model_settings", requestId: randomUUID(),
+                patch: { provider: selection.provider, model: selection.model, reasoningEffort: null } })
+                .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
+            showStatusNotice(rt, `${selection.model}. Applies to the next request. Not added to the shortlist.`);
+        } else if (selection.kind === "model") {
             const chosenLevels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)
                 : undefined;
