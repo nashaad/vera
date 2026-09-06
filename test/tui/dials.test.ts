@@ -51,27 +51,7 @@ test("position one is always the committed pair, and nothing repeats", () => {
     expect(composition.slots[0]?.pair).toEqual(SOL);
 });
 
-test("the HUD draws every row the composition built", () => {
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: Array.from({ length: DIAL_HUD_CAP - 1 }, (_, index) => ({
-            provider: "zai",
-            model: `glm-5-${index}`,
-        })),
-        pool: POOL,
-        cap: DIAL_HUD_CAP,
-    });
-    expect(composition.slots).toHaveLength(DIAL_HUD_CAP);
-    expect(composition.overflow).toBe(0);
-    const lines = renderDialStrip(
-        openDialStrip(composition, SOL),
-        "hints",
-        80,
-    );
-    expect(lines.filter((line) => /^[› ] {0,5}(MODEL)? *[●○↺]/.test(line)))
-        .toHaveLength(DIAL_HUD_CAP);
-    expect(lines.join("\n")).not.toContain("…");
-});
+
 
 test("the strip cap does not invent an unreachable overflow row", () => {
     const composition = composeDialStrip({
@@ -88,29 +68,7 @@ test("the strip cap does not invent an unreachable overflow row", () => {
         .not.toContain("…");
 });
 
-test("a windowed model lane labels itself once", () => {
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: Array.from({ length: DIAL_HUD_CAP - 1 }, (_, index) => ({
-            provider: "zai",
-            model: `glm-5-${index}`,
-        })),
-        pool: POOL,
-        cap: DIAL_HUD_CAP,
-    });
-    const state = {
-        ...openDialStrip(composition, SOL),
-        index: 6,
-        lane: "model" as const,
-    };
-    const lines = renderDialStrip(state, "hints", 80, DIAL_HUD_CAP - 1);
-    expect(lines.filter((line) => line.includes("MODEL"))).toHaveLength(1);
-    const overflowLines = lines.filter((line) =>
-        line.trimStart().startsWith("…")
-    );
-    expect(overflowLines).toHaveLength(1);
-    expect(overflowLines[0]).not.toContain("MODEL");
-});
+
 
 test("the HUD windows long lanes instead of wrapping them", () => {
     const composition = composeDialStrip({
@@ -131,10 +89,10 @@ test("the HUD windows long lanes instead of wrapping them", () => {
     );
     expect(lines.length).toBeGreaterThanOrEqual(5);
     expect(lines.every((line) => line.replace("\u001e", "").length <= 44)).toBe(true);
-    expect(lines.at(-1)?.replace("\u001e", "")).toEndWith("esc close");
+    expect(lines.at(-1)?.replace("\u001e", "")).toEndWith("esc cancel");
     expect(lines.join("\n")).toContain("qwen3:32b");
     expect(lines.join("\n")).not.toContain("openai-codex");
-    expect(lines.join("\n")).toContain("›reviewer");
+    expect(lines.join("\n")).toContain("‹ reviewer ›");
     expect(lines.join("\n")).not.toContain("full access");
     expect(lines.join("\n")).toContain("EFFORT");
     expect(lines.join("\n")).toContain("AGENT");
@@ -144,15 +102,15 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         "hints",
         36,
     );
-    expect(compact.join("\n")).not.toContain("MODEL");
-    expect(compact.join("\n")).not.toContain("EFFORT");
-    expect(compact.at(-1)).toContain("↑/↓ · ←/→");
+    expect(compact.join("\n")).toContain("MODEL");
+    expect(compact.join("\n")).toContain("EFFORT");
+    expect(compact.at(-1)).toContain("↑/↓ lane · ←/→");
     const wide = renderDialStrip(
         openDialStrip(composition, SOL),
         "hints",
         90,
     );
-    expect(wide.join("\n")).toContain("RECENTLY USED");
+    expect(wide).toHaveLength(5);
 });
 
 test("the effort scale explains the faster-to-smarter direction when it fits", () => {
@@ -170,23 +128,7 @@ test("the effort scale explains the faster-to-smarter direction when it fits", (
     expect(renderEffortScale(["low", "high"], "low", 48)).toEqual([]);
 });
 
-test("the model lane names where each choice came from", () => {
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: [{ provider: "ollama", model: "qwen3:32b" }],
-        pool: POOL,
-        includePool: true,
-    });
-    const lines = renderDialStrip(
-        moveDialLane(openDialStrip(composition, SOL), 2),
-        "hints",
-    );
-    const modelList = lines.join("\n");
-    expect(modelList).toContain("● › 1 sol");
-    expect(modelList).toContain("↺   2 qwen3:32b");
-    expect(modelList).toContain("○   3 luna");
-    expect(lines.at(-1)).toContain("● current · ↺ recent · ○ pool");
-});
+
 
 test("moving sideways discards an uncommitted effort edit", () => {
     const composition = composeDialStrip({
@@ -229,8 +171,8 @@ test("a pair with no effort dial takes the arrows without complaint", () => {
     expect(adjustDialEffort(state, 1)).toBe(state);
     expect(adjustDialEffort(state, -1)).toBe(state);
     expect(dialStripSelection(state)).toEqual(bare);
-    expect(renderDialStrip(moveDialLane(state, 2), "hints").at(-1)).toContain(
-        "no effort dial",
+    expect(renderDialStrip(moveDialLane(state, 2), "hints")[0]).toContain(
+        "‹ default ›",
     );
 });
 
@@ -246,7 +188,7 @@ test("a number jumps to a position, and out of range does nothing", () => {
     expect(jumpDialStrip(state, 0)).toBe(state);
 });
 
-test("the HUD opens on its top rung and tab walks down and wraps", () => {
+test("the HUD opens on its top rung and arrows walk down and wraps", () => {
     const state = openDialStrip(
         composeDialStrip({ current: SOL, recents: [], pool: POOL }),
         SOL,
@@ -259,160 +201,13 @@ test("the HUD opens on its top rung and tab walks down and wraps", () => {
     expect(moveDialLane(state, -1).lane).toBe("agent");
 });
 
-test("tab changes HUD lanes and horizontal arrows change that lane", () => {
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: [],
-        pool: POOL,
-    });
-    // The HUD opens on its top rung, so the walk down to model comes first.
-    let state = moveDialLane(
-        openDialStrip(composition, SOL, {
-            agents: ["default", "reviewer"],
-            currentAgent: "default",
-            permissionModes: ["readonly", "ask", "auto"],
-            currentPermission: "ask",
-        }),
-        2,
-    );
-    const higherEffort = handleDialStripKey(
-        state,
-        { name: "right" },
-        "dials.pair.next",
-    );
-    expect(higherEffort.kind).toBe("state");
-    if (higherEffort.kind !== "state") return;
-    state = higherEffort.state;
-    expect(dialStripSelection(state)?.effort).toBe("medium");
-    // Tab walks down the HUD, so from the model rung it reaches agent next.
-    const agentLane = handleDialStripKey(state, { name: "tab" }, undefined);
-    expect(agentLane.kind).toBe("state");
-    if (agentLane.kind !== "state") return;
-    state = agentLane.state;
-    expect(state.lane).toBe("agent");
-    const agentFrame = renderDialStrip(state, "hints", 90);
-    expect(agentFrame).toHaveLength(renderDialStrip(
-        higherEffort.state,
-        "hints",
-        90,
-    ).length);
-    expect(agentFrame.join("\n")).toContain("  MODEL");
-    expect(agentFrame.join("\n")).toContain("› AGENT");
-    const nextAgent = handleDialStripKey(
-        state,
-        { name: "right" },
-        "dials.pair.next",
-    );
-    expect(nextAgent.kind).toBe("state");
-    if (nextAgent.kind !== "state") return;
-    state = nextAgent.state;
-    expect(state.agents[state.agentIndex]).toBe("reviewer");
-    const modelAgain = handleDialStripKey(
-        state,
-        { name: "tab", shift: true },
-        undefined,
-    );
-    expect(modelAgain.kind === "state" && modelAgain.state.lane).toBe("model");
-    if (modelAgain.kind !== "state") return;
-    const accessAgain = handleDialStripKey(
-        modelAgain.state,
-        { name: "tab", shift: true },
-        undefined,
-    );
-    expect(accessAgain.kind === "state" && accessAgain.state.lane).toBe("access");
-});
 
-test("up and down also walk the HUD's rungs, off the model lane", () => {
-    // Every rung but model has no vertical list of its own, so up/down does
-    // what tab does there: move to the next rung. Getting from effort to
-    // model used to need tab; this is the more discoverable way in.
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: [],
-        pool: POOL,
-    });
-    const state = openDialStrip(composition, SOL);
-    expect(state.lane).toBe("effort");
 
-    const toAccess = handleDialStripKey(
-        state,
-        { name: "down" },
-        "dials.effort.down",
-    );
-    expect(toAccess.kind === "state" && toAccess.state.lane).toBe("access");
-    if (toAccess.kind !== "state") return;
 
-    const toModel = handleDialStripKey(
-        toAccess.state,
-        { name: "down" },
-        "dials.effort.down",
-    );
-    expect(toModel.kind === "state" && toModel.state.lane).toBe("model");
-    if (toModel.kind !== "state") return;
 
-    // Wrapping backward from effort reaches the last rung, same as tab does.
-    const wrappedUp = handleDialStripKey(
-        state,
-        { name: "up" },
-        "dials.effort.up",
-    );
-    expect(wrappedUp.kind === "state" && wrappedUp.state.lane).toBe("agent");
 
-    // Vim keys (j/k) reach the same bindings when nothing remapped them.
-    const viaJ = handleDialStripKey(state, { name: "j" }, undefined);
-    expect(viaJ.kind === "state" && viaJ.state.lane).toBe("access");
-});
 
-test("up and down move the vertical model list", () => {
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: [LUNA],
-        pool: POOL,
-    });
-    let state = moveDialLane(openDialStrip(composition, SOL), 2);
-    const down = handleDialStripKey(
-        state,
-        { name: "down" },
-        "dials.effort.down",
-    );
-    expect(down.kind).toBe("state");
-    if (down.kind !== "state") return;
-    state = down.state;
-    expect(dialStripSelection(state)).toEqual(LUNA);
-    expect(state.index).toBe(1);
-    const wrapped = handleDialStripKey(
-        state,
-        { name: "j" },
-        undefined,
-    );
-    expect(wrapped.kind === "state" && wrapped.state.index).toBe(0);
-    const upWrapped = handleDialStripKey(
-        wrapped.kind === "state" ? wrapped.state : state,
-        { name: "k" },
-        undefined,
-    );
-    expect(upWrapped.kind === "state" && upWrapped.state.index).toBe(1);
-});
 
-test("the HUD is modal and h/l mirror horizontal arrows", () => {
-    const composition = composeDialStrip({
-        current: SOL,
-        recents: [],
-        pool: POOL,
-    });
-    let state = moveDialLane(openDialStrip(composition, SOL), 2);
-    const right = handleDialStripKey(state, { name: "l" }, undefined);
-    expect(right.kind).toBe("state");
-    if (right.kind !== "state") return;
-    state = right.state;
-    expect(dialStripSelection(state)?.effort).toBe("medium");
-    const left = handleDialStripKey(state, { name: "h" }, undefined);
-    expect(left.kind).toBe("state");
-    if (left.kind !== "state") return;
-    expect(dialStripSelection(left.state)?.effort).toBe("low");
-    expect(handleDialStripKey(state, { name: "x", sequence: "x" }, undefined))
-        .toEqual({ kind: "ignore" });
-});
 
 test("full access is not offered or changed without an explicit HUD move", () => {
     const composition = composeDialStrip({
@@ -456,7 +251,7 @@ test("an agent's forbidden access stays visible but cannot be selected", () => {
     expect(plan.state.permissionModes[plan.state.permissionIndex])
         .toBe("readonly");
     expect(renderDialStrip(plan.state, "hints", 100).join("\n"))
-        .toContain("auto unavailable — plan is readonly");
+        .toContain("auto (off)");
 
     const access = { ...plan.state, lane: "access" as const };
     const left = handleDialStripKey(
@@ -695,122 +490,21 @@ function scaleStrip(
     );
 }
 
-test("the model lane reads exactly this", () => {
-    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 2))).toEqual([
-        "                              Faster                       Smarter",
-        "  EFFORT       ›default ····· ───────────────────────────────────",
-        "                ▲ (medium)    low           medium           high",
-        "",
-        "  ACCESS        readonly ›ask  auto",
-        "",
-        "› MODEL     ● › 1 sol                                 RECENTLY USED",
-        "            ↺   2 luna                                luna",
-        "",
-        "  AGENT        ›default  reviewer",
-        "",
-        "↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · ○ pool      esc close",
-    ]);
-});
 
-test("the effort lane on default reads exactly this", () => {
-    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 0))).toEqual([
-        "                              Faster                       Smarter",
-        "› EFFORT       ›default ····· ───────────────────────────────────",
-        "                ▲ (medium)    low           medium           high",
-        "",
-        "  ACCESS        readonly ›ask  auto",
-        "",
-        "  MODEL     ● › 1 sol                                 RECENTLY USED",
-        "            ↺   2 luna                                luna",
-        "",
-        "  AGENT        ›default  reviewer",
-        "",
-        "←/→ effort · ↑/↓ lane                                                  esc close",
-    ]);
-});
 
-test("the effort lane on a level reads exactly this", () => {
-    expect(dialText(adjustDialEffort(moveDialLane(scaleStrip(PLAIN_SOL), 0), 1)))
-        .toEqual([
-            "                              Faster                       Smarter",
-            "› EFFORT        default ····· ▲──────────────────────────────────",
-            "                (medium)      low           medium           high",
-            "",
-            "  ACCESS        readonly ›ask  auto",
-            "",
-            "  MODEL     ● › 1 sol                                 RECENTLY USED",
-            "            ↺   2 luna                                luna",
-            "",
-            "  AGENT        ›default  reviewer",
-            "",
-            "←/→ effort · ↑/↓ lane                                                  esc close",
-        ]);
-});
 
-test("the agent lane reads exactly this", () => {
-    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 3))).toEqual([
-        "                              Faster                       Smarter",
-        "  EFFORT       ›default ····· ───────────────────────────────────",
-        "                ▲ (medium)    low           medium           high",
-        "",
-        "  ACCESS        readonly ›ask  auto",
-        "",
-        "  MODEL     ● › 1 sol                                 RECENTLY USED",
-        "            ↺   2 luna                                luna",
-        "",
-        "› AGENT        ›default  reviewer",
-        "",
-        "hints                                                                  esc close",
-    ]);
-});
 
-test("the access lane reads exactly this", () => {
-    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 1))).toEqual([
-        "                              Faster                       Smarter",
-        "  EFFORT       ›default ····· ───────────────────────────────────",
-        "                ▲ (medium)    low           medium           high",
-        "",
-        "› ACCESS        readonly ›ask  auto",
-        "",
-        "  MODEL     ● › 1 sol                                 RECENTLY USED",
-        "            ↺   2 luna                                luna",
-        "",
-        "  AGENT        ›default  reviewer",
-        "",
-        "hints                                                                  esc close",
-    ]);
-});
 
-test("a narrow terminal drops the scale and reads exactly this", () => {
-    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 0), 50)).toEqual([
-        "› EFFORT       ›default  low  medium  high",
-        "",
-        "  ACCESS        readonly ›ask  auto",
-        "",
-        "  MODEL     ● › 1 sol   ",
-        "            ↺   2 luna  ",
-        "",
-        "  AGENT        ›default  reviewer",
-        "",
-        "←/→ effort · ↑/↓ lane                    esc close",
-    ]);
-});
 
-test("a model with no effort dial reads exactly this", () => {
-    expect(dialText(moveDialLane(scaleStrip(QWEN, []), 0))).toEqual([
-        "› EFFORT        not available",
-        "",
-        "  ACCESS        readonly ›ask  auto",
-        "",
-        "  MODEL     ● › 1 qwen3:32b  ollama  ",
-        "",
-        "  AGENT        ›default  reviewer",
-        "",
-        "←/→ effort · ↑/↓ lane                                                  esc close",
-    ]);
-});
 
-test("tab walks the rungs in the order they are drawn", () => {
+
+
+
+
+
+
+
+test("arrows walk the rungs in the order they are drawn", () => {
     // Read off the screen rather than restated here: a rung that moves on
     // screen without moving in the walk is the failure this catches.
     const drawn = dialText(scaleStrip(PLAIN_SOL))
@@ -843,4 +537,60 @@ test("the smarter end of the effort axis is never a weak level", () => {
         const efforts = strip.slots[0]?.efforts ?? [];
         expect(weak).not.toContain(efforts.at(-1) as string);
     }
+});
+
+function press(state: DialStripState, name: string): DialStripState {
+    const action = handleDialStripKey(state, { name }, undefined);
+    expect(action.kind).toBe("state");
+    if (action.kind !== "state") throw new Error("expected staged state");
+    return action.state;
+}
+
+test("arrows stage all lanes and Enter commits them together; Escape commits nothing", () => {
+    const original = openDialStrip(composeDialStrip({ current: SOL, recents: [],
+        pool: POOL, includePool: true }), SOL, {
+        permissionModes: ["ask", "auto"], currentPermission: "ask",
+        agents: ["default", "reviewer"], currentAgent: "default",
+    });
+    let state = press(original, "right");
+    expect(dialStripSelection(state)?.effort).toBe("medium");
+    state = press(press(state, "down"), "right");
+    state = press(press(state, "down"), "right");
+    expect(state.lane).toBe("model");
+    expect(dialStripSelection(state)?.model).toBe("glm-5");
+    state = press(press(state, "down"), "right");
+    expect(handleDialStripKey(state, { name: "enter" }, undefined)).toEqual({
+        kind: "commit", pair: { provider: "zai", model: "glm-5" },
+        permission: "auto", agent: "reviewer",
+    });
+    expect(handleDialStripKey(state, { name: "escape" }, undefined)).toEqual({ kind: "cancel" });
+    expect(dialStripSelection(original)).toEqual(SOL);
+    expect(original.permissionModes[original.permissionIndex]).toBe("ask");
+});
+
+test("only arrows move; model stepping wraps through a shortlist larger than ten", () => {
+    const pool = Array.from({ length: 15 }, (_, index) => ({
+        provider: "test", model: `model-${index}`, levels: [],
+    }));
+    let state = openDialStrip(composeDialStrip({ current: undefined, recents: [],
+        pool, includePool: true, cap: Infinity }), undefined);
+    state = press(press(state, "down"), "down");
+    for (let i = 0; i < 15; i += 1) state = press(state, "right");
+    expect(state.index).toBe(0);
+    state = press(state, "left");
+    expect(state.index).toBe(14);
+    for (const name of ["tab", "h", "j", "k", "l", "1", "m"]) {
+        expect(handleDialStripKey(state, { name }, undefined)).toEqual({ kind: "ignore" });
+    }
+    const lines = renderDialStrip(state, "", 60);
+    expect(lines).toHaveLength(5);
+    expect(lines[2]).toContain("‹ model-14 ›");
+    expect(lines[2]).toMatch(/\+\d+/);
+    expect(lines.slice(0, 4).filter((line) => line.startsWith("› "))).toHaveLength(1);
+});
+
+test("pending values appear beside live values", () => {
+    const state = openDialStrip(composeDialStrip({ current: SOL, recents: [], pool: POOL }), SOL);
+    expect(renderDialStrip(press(state, "right"), "", 90)[0])
+        .toContain("‹ medium › high  live: low");
 });

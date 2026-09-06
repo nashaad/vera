@@ -187,8 +187,8 @@ function colorOnAgentRow(
 test("a chosen value on an unfocused rung sits between lit and muted", () => {
     // The agent rung holds "default" either way: focused it is full text,
     // left behind it settles, and it never drops to the unchosen weight.
-    expect(colorOnAgentRow(strip("agent"), "›default")).toBe(THEME.text);
-    const away = colorOnAgentRow(strip("model"), "›default");
+    expect(colorOnAgentRow(strip("agent"), "‹ default ›")).toBe(THEME.background);
+    const away = colorOnAgentRow(strip("model"), "‹ default ›");
     expect(away).toBe(settled(THEME.text));
     expect(away).not.toBe(THEME.muted);
 });
@@ -198,11 +198,11 @@ test("unchosen values stay muted even on the focused rung", () => {
 });
 
 test("access modes keep their hue when the cursor is elsewhere", () => {
-    expect(spanOf(paint(strip("access")), "›ask")).toMatchObject({
+    expect(spanOf(paint(strip("access")), "‹ ask ›")).toMatchObject({
         color: THEME.background,
         background: THEME.accessAsk,
     });
-    expect(colorOf(paint(strip("model")), "›ask")).toBe(
+    expect(colorOf(paint(strip("model")), "‹ ask ›")).toBe(
         settled(THEME.accessAsk),
     );
 });
@@ -211,7 +211,7 @@ test("each active access mode fills with its own colour", () => {
     const modeSpan = (mode: string): DialSpan | undefined => {
         let state = opened(mode);
         while (state.lane !== "access") state = moveDialLane(state, 1);
-        return spanOf(paint(state), `›${mode}`);
+        return spanOf(paint(state), `‹ ${mode} ›`);
     };
     expect(modeSpan("readonly")).toMatchObject({
         color: THEME.background,
@@ -241,7 +241,7 @@ test("each active access mode fills with its own colour", () => {
         });
     let veraState = opened("auto");
     while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);
-    expect(spanOf(veraPaint(veraState), "›auto")?.background).toBe("#40C977");
+    expect(spanOf(veraPaint(veraState), "‹ auto ›")?.background).toBe("#40C977");
 });
 
 test("entering auto draws a tracer only on the HUD's right edge", () => {
@@ -348,46 +348,15 @@ test("invalid tracer geometry is inert", () => {
     ).not.toThrow();
 });
 
-test("the effort track lights only while the effort rung is focused", () => {
-    expect(colorOf(paint(strip("effort")), "──")).toBe(THEME.accent);
-    expect(colorOf(paint(strip("model")), "──")).toBe(THEME.muted);
-});
 
-test("the resolved-default marker keeps its notice colour, settled when away", () => {
-    expect(colorOf(paint(strip("effort")), "▲")).toBe(THEME.notice);
-    expect(colorOf(paint(strip("model")), "▲")).toBe(settled(THEME.notice));
-});
 
-test("the whole effort block counts as one rung", () => {
-    const rows = rowsOf(strip("effort"));
-    const map = mapDialRows(rows);
-    expect(map.effortScaleRows).toBe(2);
-    const painted = paintDialHud(rows, "effort", THEME);
-    // The axis caption a row above EFFORT belongs to the focused rung, and the
-    // level labels a row below it do too.
-    for (const row of [map.effort - 1, map.effort + 1]) {
-        expect(painted[row]?.some((span) => span.color === THEME.accent))
-            .toBe(true);
-    }
-});
 
-test("stepping the effort dial keeps the levels on the track colour", () => {
-    const painted = paint(adjustDialEffort(strip("effort"), 1));
-    expect(colorOf(painted, "low")).toBe(THEME.accent);
-});
 
-test("a pending effort edit lights while model selection keeps focus", () => {
-    const model = strip("model");
-    expect(colorOf(paint(model), "──")).toBe(THEME.muted);
 
-    const changed = adjustDialEffort(model, 1);
-    expect(dialEffortPending(changed)).toBe(true);
-    expect(colorOf(paint(changed), "──")).toBe(THEME.accent);
 
-    const restored = adjustDialEffort(changed, -1);
-    expect(dialEffortPending(restored)).toBe(false);
-    expect(colorOf(paint(restored), "──")).toBe(THEME.muted);
-});
+
+
+
 
 test("every span carries a colour the theme names", () => {
     const known = new Set<string>([
@@ -427,4 +396,13 @@ test("painting covers every row and drops none of its text", () => {
             }
         }
     }
+});
+
+test("four lanes retain exactly one filled cursor, including when effort is pending", () => {
+    const state = moveDialLane(adjustDialEffort(strip("effort"), 1), 2);
+    const painted = paint(state);
+    expect(painted).toHaveLength(4);
+    expect(painted.flat().filter((span) => span.background !== undefined)).toHaveLength(1);
+    expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(0);
+    expect(rowsOf(state)[0]).toContain("live: default");
 });

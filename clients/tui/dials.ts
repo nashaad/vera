@@ -1,5 +1,5 @@
 
-import { isTuiDialTabKey } from "./keymap.ts";
+
 
 export interface DialPair {
     readonly provider?: string;
@@ -262,7 +262,8 @@ function moveChoice(
     state: DialStripState,
     delta: number,
 ): DialStripState {
-    if (state.lane === "model" || state.lane === "effort") {
+    if (state.lane === "model") return moveDialStrip(state, delta);
+    if (state.lane === "effort") {
         return adjustDialEffort(state, delta);
     }
     if (state.lane === "agent") {
@@ -316,8 +317,12 @@ export function moveDialStrip(
     state: DialStripState,
     delta: number,
 ): DialStripState {
-    const next = cycleIndex(state.index, delta, state.slots.length);
-    if (next === state.index) return state;
+    let next = state.index;
+    for (let step = 0; step < state.slots.length; step += 1) {
+        next = cycleIndex(next, delta, state.slots.length);
+        if (state.slots[next]?.unavailable === undefined) break;
+    }
+    if (next === state.index || state.slots[next]?.unavailable !== undefined) return state;
     const { editedEffort: _discarded, ...rest } = state;
     return { ...rest, index: next };
 }
@@ -376,128 +381,33 @@ export function renderDialStrip(
     width = Number.POSITIVE_INFINITY,
     maxModelRows = DIAL_HUD_CAP,
 ): readonly string[] {
-    const cells = state.slots.map((slot, index) => {
-        const label = slot.label;
-        const source = slot.source === "current"
-            ? "●"
-            : slot.source === "recent"
-                    ? "↺"
-                    : "○";
-        const choice = `${source} ${index + 1} ${label}`;
-        const provider = slot.pair?.provider;
-        return provider === undefined
-            ? choice
-            : `${choice}${DIAL_PROVIDER_SEPARATOR}${provider}`;
-    });
-    const modelLines = renderExpandedModelLane(
-        cells,
-        width,
-        state.index,
-        maxModelRows,
-        state.recent.map((slot) => slot.label),
-        state.lane === "model",
-    );
     const slot = state.slots[state.index];
-    const note = slot === undefined
-        ? "nothing to dial"
-        : slot.pair === undefined
-            ? `${slot.unavailable ?? "unavailable"}`
-            : slot.efforts.length === 0
-                ? "no effort dial"
-                : hints;
-    const agentCells = state.agents.map((agent, index) =>
-        dialChoiceCell(agent, index === state.agentIndex)
-    );
-    const permissionCells = state.permissionModes.map((mode, index) =>
-        dialChoiceCell(
-            mode.replaceAll("_", " "),
-            index === state.permissionIndex,
-        )
-    );
-    const selectedSlot = state.slots[state.index];
-    const selectedEffort = state.editedEffort === undefined
-        ? selectedSlot?.pair?.effort
-        : state.editedEffort ?? undefined;
-    const effortCells = [
-        dialChoiceCell("default", selectedEffort === undefined),
-        ...(selectedSlot?.efforts.map((effort) =>
-            dialChoiceCell(effort, effort === selectedEffort)
-        ) ?? []),
-    ];
-    const showEffortScale = Number.isFinite(width)
-        && width >= 56
-        && (selectedSlot?.efforts.length ?? 0) >= 2;
-    const accessLine = renderDialLane(
-        state.lane === "access",
-        "ACCESS",
-        permissionCells,
-        state.permissionIndex,
-        width,
-    );
-    const selectedAgent = state.agents[state.agentIndex];
-    const forbidden = selectedAgent === undefined
-        ? []
-        : state.agentForbiddenAccess[selectedAgent] ?? [];
-    const unavailable = state.permissionModes.find((mode) =>
-        forbidden.includes(mode)
-    );
-    const accessNote = unavailable === undefined || selectedAgent === undefined
-        ? undefined
-        : `${unavailable.replaceAll("_", " ")} unavailable — ${selectedAgent} is ${
-            state.agentPostures[selectedAgent] ?? "restricted"
-        }`;
+    const effort = state.editedEffort === undefined
+        ? slot?.pair?.effort : state.editedEffort ?? undefined;
+    const efforts = ["default", ...(slot?.efforts ?? [])];
+    const agent = state.agents[state.agentIndex];
+    const forbidden = agent === undefined ? [] : state.agentForbiddenAccess[agent] ?? [];
+    const lane = (name: DialLane, values: readonly string[], selected: number, live?: string) => {
+        const cells = values.map((value, index) =>
+            index === selected && value !== "unavailable" ? `‹ ${value} ›` : value);
+        const liveNote = live === undefined || values[selected] === live
+            ? "" : `  live: ${live}`;
+        return renderDialLane(state.lane === name, name.toUpperCase(), cells,
+            selected, Math.max(12, width - liveNote.length)) + liveNote;
+    };
+    const permission = state.permissionModes.map((mode) =>
+        `${mode.replaceAll("_", " ")}${forbidden.includes(mode) ? " (off)" : ""}`);
     return [
-        ...(showEffortScale ? [] : [renderDialLane(
-            state.lane === "effort",
-            "EFFORT",
-            selectedSlot?.efforts.length === 0
-                ? [dialChoiceCell("not available", false)]
-                : effortCells,
-            selectedEffort === undefined
-                ? 0
-                : Math.max(
-                    0,
-                    (selectedSlot?.efforts.indexOf(selectedEffort) ?? -1) + 1,
-                ),
-            width,
-        )]),
-        ...renderEffortScale(
-            selectedSlot?.efforts ?? [],
-            selectedEffort,
-            width,
-            dialChoiceCell("default", selectedEffort === undefined),
-            selectedSlot?.defaultEffort,
-            state.lane === "effort",
-        ),
-        "",
-        accessNote === undefined
-            ? accessLine
-            : appendDialNote(accessLine, accessNote, width),
-        "",
-        ...modelLines,
-        "",
-        renderDialLane(
-            state.lane === "agent",
-            "AGENT",
-            agentCells.length === 0
-                ? [dialChoiceCell("unavailable", false)]
-                : agentCells,
-            state.agentIndex,
-            width,
-        ),
-        "",
-        renderDialFooter(
-            state.lane === "effort"
-                ? Number.isFinite(width) && width < 42
-                    ? "←/→"
-                    : "←/→ effort · ↑/↓ lane"
-                : state.lane === "model"
-                ? Number.isFinite(width) && width < 42
-                    ? "↑/↓ · ←/→"
-                    : `${note === "nothing to dial" || note === "no effort dial" ? `${note} · ` : ""}↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · ○ pool`
-                : hints,
-            width,
-        ),
+        lane("effort", efforts, Math.max(0, efforts.indexOf(effort ?? "default")),
+            state.opened?.effort ?? "default"),
+        lane("access", permission.length === 0 ? ["unavailable"] : permission,
+            state.permissionIndex, state.openedPermission),
+        lane("model", state.slots.length === 0 ? ["unavailable"] : state.slots.map(
+            (entry) => `${entry.label}${entry.unavailable === undefined ? "" : " (off)"}`),
+            state.index, state.slots.find((entry) => entry.source === "current")?.label),
+        lane("agent", state.agents.length === 0 ? ["unavailable"] : state.agents,
+            state.agentIndex, state.openedAgent),
+        renderDialFooter("↑/↓ lane · ←/→ change · ⏎ apply · apply or cancel before Switch model", width),
     ];
 }
 
@@ -591,7 +501,7 @@ function appendDialNote(line: string, note: string, width: number): string {
 }
 
 function renderDialFooter(hints: string, width: number): string {
-    const exit = "esc close";
+    const exit = "esc cancel";
     if (!Number.isFinite(width)) {
         return `${hints}  ${DIAL_EXIT_SEPARATOR}${exit}`;
     }
@@ -701,7 +611,7 @@ function dialChoiceCell(label: string, picked: boolean): string {
     return `${picked ? DIAL_PICK_MARKER : " "}${label}`;
 }
 
-const DIAL_CHOICE_COLUMN = 16;
+const DIAL_CHOICE_COLUMN = 10;
 const DIAL_CHOICE_COLUMN_COMPACT = 6;
 
 function renderDialLane(
@@ -712,16 +622,13 @@ function renderDialLane(
     width: number,
     hiddenAfter = false,
 ): string {
-    const prefix = Number.isFinite(width) && width < 42
-        ? `${active ? "›" : " "} `.padEnd(DIAL_CHOICE_COLUMN_COMPACT - 1)
-        : `${active ? "›" : " "} ${
-            label.padEnd(DIAL_CHOICE_COLUMN - 3)
-        }`;
+    const prefix = `${active ? "›" : " "} ${label.padEnd(7)}`;
     let start = 0;
     let end = cells.length;
     const line = () => {
-        const before = start > 0 ? "… " : "";
-        const after = end < cells.length || hiddenAfter ? " …" : "";
+        const before = "";
+        const hidden = start + cells.length - end;
+        const after = hidden > 0 ? ` +${hidden}` : "";
         return `${prefix}${before}${cells.slice(start, end).join(" ")}${after}`;
     };
     while (end - start > 1 && line().length > width) {
@@ -794,47 +701,12 @@ export function handleDialStripKey(
                 : { permission: state.permissionModes[state.permissionIndex] }),
         };
     }
-    if (isTuiDialTabKey(key)) {
-        return {
-            kind: "state",
-            state: moveDialLane(state, key.shift === true ? -1 : 1),
-        };
+    if (key.ctrl === true) return { kind: "ignore" };
+    switch (key.name) {
+        case "left": return { kind: "state", state: moveChoice(state, -1) };
+        case "right": return { kind: "state", state: moveChoice(state, 1) };
+        case "up": return { kind: "state", state: moveDialLane(state, -1) };
+        case "down": return { kind: "state", state: moveDialLane(state, 1) };
+        default: return { kind: "ignore" };
     }
-    const vimBinding = key.name === "h"
-        ? "dials.pair.prev"
-        : key.name === "l"
-            ? "dials.pair.next"
-            : key.name === "k"
-                ? "dials.effort.up"
-                : key.name === "j"
-                    ? "dials.effort.down"
-                    : undefined;
-    bindingId ??= vimBinding;
-    switch (bindingId) {
-        case "dials.pair.prev":
-            return { kind: "state", state: moveChoice(state, -1) };
-        case "dials.pair.next":
-            return { kind: "state", state: moveChoice(state, 1) };
-        case "dials.effort.up":
-            return {
-                kind: "state",
-                state: state.lane === "model"
-                    ? moveDialStrip(state, -1)
-                    : moveDialLane(state, -1),
-            };
-        case "dials.effort.down":
-            return {
-                kind: "state",
-                state: state.lane === "model"
-                    ? moveDialStrip(state, 1)
-                    : moveDialLane(state, 1),
-            };
-    }
-    if (key.ctrl === true) {
-        return { kind: "ignore" };
-    }
-    if (/^[1-9]$/.test(key.name)) {
-        return { kind: "state", state: jumpDialStrip(state, Number(key.name)) };
-    }
-    return { kind: "ignore" };
 }
