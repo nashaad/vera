@@ -10,6 +10,8 @@ import type { ToolRuntime } from "./runtime.ts";
 import type { AgentSnapshot } from "../agents/snapshot.ts";
 
 export interface ToolOutput {
+    /** Image files returned by the tool, copied into the owning session. */
+    readonly imagePaths?: readonly string[];
     readonly kind: "output";
     readonly output: string;
     readonly isError: boolean;

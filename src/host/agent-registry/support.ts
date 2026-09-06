@@ -239,11 +239,7 @@ export type RegisteredAgentStatus =
 
 export type RegisteredAgentKind = "interactive" | "background";
 
-export const IMAGE_ATTACHMENT_LIMITS = {
-    maxBytes: 20 * 1_024 * 1_024,
-    maxWidth: 16_384,
-    maxHeight: 16_384,
-} as const;
+export { IMAGE_ATTACHMENT_LIMITS } from "../../attachments/image.ts";
 
 export const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 

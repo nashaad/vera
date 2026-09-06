@@ -12,6 +12,12 @@ export type ImageValidationErrorCode =
     | "corrupt"
     | "dimensions_exceeded";
 
+export const IMAGE_ATTACHMENT_LIMITS = {
+    maxBytes: 20 * 1_024 * 1_024,
+    maxWidth: 16_384,
+    maxHeight: 16_384,
+} as const;
+
 export interface ImageValidationLimits {
     readonly maxBytes: number;
     readonly maxWidth: number;
