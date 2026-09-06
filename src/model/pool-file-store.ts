@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import {
     EMPTY_POOL_FILE,
     issueSeverity,
+    isCuratedPoolEntry,
     NO_PRESERVED_POOL_FIELDS,
     type LearnedFact,
     type LearnedFacts,
@@ -144,6 +145,33 @@ export function removePoolModel(
         const models = { ...file.models };
         delete models[modelId];
         return { ...file, models };
+    });
+}
+
+export function setPoolMembership(
+    modelIds: readonly string[], kept: boolean, options: PoolStoreOptions = {},
+): PoolFile {
+    return updatePoolFile(options, (file) => {
+        const models = { ...file.models };
+        for (const id of modelIds) models[id] = { ...models[id], added: kept };
+        return { ...file, models };
+    });
+}
+
+export function renameModelDisplay(modelId: string, displayName: string, options: PoolStoreOptions = {}): PoolFile {
+    return updatePoolFile(options, (file) => {
+        const entry = file.models[modelId] ?? { added: false };
+        return { ...file, models: { ...file.models, [modelId]: { ...entry, displayName } } };
+    });
+}
+
+export function recordModelVerification(modelId: string, facts: LearnedFacts, options: PoolStoreOptions = {}): PoolFile {
+    return updatePoolFile(options, (file) => {
+        const entry = file.models[modelId];
+        return { ...file, models: { ...file.models, [modelId]: {
+            ...entry, added: entry !== undefined && isCuratedPoolEntry(entry),
+            learned: { ...entry?.learned, ...facts },
+        } } };
     });
 }
 

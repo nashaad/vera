@@ -31,6 +31,7 @@ export const POOL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 export interface PoolFileModel {
     readonly added?: boolean;
+    readonly displayName?: string;
     readonly name?: string;
     readonly family?: string;
     readonly tools?: boolean;
@@ -140,6 +141,7 @@ const DEFAULTS_KEYS = [
 ] as const;
 const MODEL_KEYS = [
     "added",
+    "displayName",
     "name",
     "family",
     "tools",
@@ -174,7 +176,9 @@ function warnUnknownKeys(
 }
 
 export function isCuratedPoolEntry(entry: PoolFileModel): boolean {
-    return entry.learned === undefined || Object.keys(entry).length > 1;
+    if (entry.added !== undefined) return entry.added;
+    const { displayName: _label, ...legacy } = entry;
+    return legacy.learned === undefined || Object.keys(legacy).length > 1;
 }
 
 export function isVerifiedPoolEntry(entry: PoolFileModel): boolean {
@@ -364,6 +368,7 @@ function parseModel(
 
     return {
         ...(added === undefined ? {} : { added }),
+        ...(asNonEmptyString(record.displayName) === undefined ? {} : { displayName: asNonEmptyString(record.displayName) }),
         ...(name === undefined ? {} : { name }),
         ...(family === undefined ? {} : { family }),
         ...(tools === undefined ? {} : { tools }),

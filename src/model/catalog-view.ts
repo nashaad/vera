@@ -34,6 +34,8 @@ export interface AvailableModel {
     readonly onPareto?: boolean;
     readonly imageSupport?: boolean;
     readonly refreshable?: boolean;
+    readonly verified?: boolean;
+    readonly verificationError?: string;
     readonly hiddenByDefault?: ReductionReason;
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
@@ -91,7 +93,9 @@ export function availableModelsWithLevels(
         return {
             provider: model.provider,
             model: model.model,
-            label: model.label,
+            label: entry?.displayName ?? model.label,
+            ...(entry?.learned?.probe === undefined ? {} : { verified: isVerifiedPoolEntry(entry) }),
+            ...(entry?.learned?.probe?.error === undefined ? {} : { verificationError: entry.learned.probe.error }),
             description: model.description,
             ...(model.contextWindow === undefined
                 ? {}
@@ -151,7 +155,7 @@ export function pooledModels(
             return [{
                 provider,
                 model: name,
-                label: name,
+                label: entry.displayName ?? name,
                 ...named,
                 available: false,
                 verified,
@@ -165,7 +169,7 @@ export function pooledModels(
         return [{
             provider,
             model: name,
-            label: model.label,
+            label: entry.displayName ?? model.label,
             ...named,
             available: true,
             verified,
