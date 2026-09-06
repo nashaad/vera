@@ -5,6 +5,7 @@ import {
     renderTuiActivityAnimation,
     renderTuiActivityPulse,
     renderTuiSpokes,
+    transcriptShimmerFrame,
 } from "../../clients/tui/activity-pulse.ts";
 
 const colors = {
@@ -13,6 +14,13 @@ const colors = {
     inactive: "#5C6370",
     text: "#7AA2F7",
 };
+
+test("transcript shimmer advances every 40ms independently of footer settings", () => {
+    expect(transcriptShimmerFrame(0)).toBe(0);
+    expect(transcriptShimmerFrame(39)).toBe(0);
+    expect(transcriptShimmerFrame(40)).toBe(1);
+    expect(transcriptShimmerFrame(160)).toBe(4);
+});
 
 const shimmerColors = {
     ...colors,

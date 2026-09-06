@@ -15,6 +15,9 @@ export type TuiActivityAnimation =
     | "off";
 
 const DEFAULT_PULSE_WIDTH = 7;
+export function transcriptShimmerFrame(nowMs: number): number {
+    return Math.floor(nowMs / 40);
+}
 const DEFAULT_SYMMETRIC_WAVE_WIDTH = 5;
 export const BRAILLE_FRAMES = [
     "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",

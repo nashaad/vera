@@ -2382,12 +2382,16 @@ export async function startTui(
         showSearchTarget(rt);
     });
 
+    let lastTimedSurfaceRefresh = 0;
     rt.statusTimer = setInterval(() => {
         renderStatus(rt);
-        refreshTimedSurfaces(rt);
-    }, rt.activityAnimation === "shimmer"
-        ? rt.activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
-        : STATUS_REFRESH_INTERVAL_MS);
+        if (Date.now() - lastTimedSurfaceRefresh >= STATUS_REFRESH_INTERVAL_MS) {
+            refreshTimedSurfaces(rt);
+            lastTimedSurfaceRefresh = Date.now();
+        }
+    }, rt.activityAnimation === "off"
+        ? STATUS_REFRESH_INTERVAL_MS
+        : SHIMMER_FRAME_INTERVAL_MS);
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);

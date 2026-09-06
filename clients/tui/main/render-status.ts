@@ -1,5 +1,5 @@
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
-import { renderTuiActivityAnimation, renderTuiSpokes } from "../activity-pulse.ts";
+import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
 import { tuiApprovalHint } from "../approval.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS, paintDialHud } from "../dial-paint.ts";
 import { DIAL_EXIT_SEPARATOR, DIAL_HUD_CAP, dialEffortPending, renderDialStrip } from "../dials.ts";
@@ -27,7 +27,7 @@ export function renderStatus(rt: TuiRuntime): void {
     if (rt.transcriptWorking.visible) {
         rt.transcriptWorking.content = renderTuiActivityAnimation(
             rt.activityAnimation === "off" ? "off" : "shimmer",
-            activityFrame(rt),
+            transcriptShimmerFrame(Date.now()),
             `Working (${elapsedWorkingTime(rt)} · esc to interrupt)`,
             { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT },
         );
