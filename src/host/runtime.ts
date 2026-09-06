@@ -1,3 +1,5 @@
+import { applyModelOperation } from "../model/model-operations.ts";
+import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -954,6 +956,15 @@ export async function startResidentHost(
                 resumeSession,
             ),
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
+            operateModels: async (request, onResult) => {
+                await applyModelOperation(request, {
+                    discovered: registry.modelsForClient(),
+                    assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
+                    createAdapter: (provider) => createAdapter(provider),
+                    onResult,
+                });
+                return registry.readHostModelSettings(request.workspace);
+            },
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
             refreshCatalog: async (provider, workspace) => {

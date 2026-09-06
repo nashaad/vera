@@ -1,3 +1,5 @@
+import type { ModelOperationRequest } from "./protocol.ts";
+import type { ModelOperationResult } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmod, mkdir, stat, unlink } from "node:fs/promises";
@@ -125,6 +127,7 @@ export interface StartHostServerOptions {
         workspace?: string,
     ) => Promise<ModelTurnSettings | undefined>;
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
+    readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -406,6 +409,7 @@ export async function startHostServer(
             options.readModelSettings ?? (() => undefined),
             options.refreshCatalog,
             options.refreshCatalogs,
+            options.operateModels,
             options.readAnnex,
             options.checkpointStores,
             resolveHostLimits(options.limits),
@@ -538,6 +542,7 @@ function receiveConnection(
         workspace?: string,
     ) => Promise<ModelTurnSettings | undefined>) | undefined,
     refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
+    operateModels: StartHostServerOptions["operateModels"],
     readAnnex: (() =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -1042,6 +1047,25 @@ function receiveConnection(
                 }
                 socket.end();
             }, () => socket.destroy());
+            return;
+        }
+        if (request?.type === "model_operation") {
+            clearDeadline();
+            finished = true;
+            let sending = Promise.resolve();
+            const onResult = (result: ModelOperationResult) => {
+                sending = sending.then(() => send({ type: "model_operation_result", result })).catch(() => {});
+            };
+            void (async () => {
+                try {
+                    if (operateModels === undefined) throw new Error("This host does not support model operations.");
+                    const settings = await operateModels(request, onResult);
+                    await sending;
+                    await send({ type: "model_operation_complete", settings });
+                } catch (error) {
+                    await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+                } finally { socket.end(); }
+            })();
             return;
         }
         if (request?.type === "model_settings") {

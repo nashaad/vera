@@ -1,3 +1,4 @@
+import type { ModelOperation, ModelOperationResult } from "../model/model-operations.ts";
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 
@@ -555,7 +556,22 @@ export interface ProtocolErrorResponse {
     readonly reason: "unsupported_or_invalid_command" | "frame_too_large";
 }
 
+export interface ModelOperationRequest extends ModelOperation {
+    readonly type: "model_operation";
+    readonly workspace?: string;
+}
+export interface ModelOperationProgressResponse {
+    readonly type: "model_operation_result";
+    readonly result: ModelOperationResult;
+}
+export interface ModelOperationCompleteResponse {
+    readonly type: "model_operation_complete";
+    readonly settings?: ModelTurnSettings;
+    readonly error?: string;
+}
+
 export type HostRequest =
+    | ModelOperationRequest
     | HostIdentityRequest
     | ModelSettingsRequest
     | CatalogRefreshRequest
@@ -583,6 +599,8 @@ export type AttachedClientMessage =
     | ListExtensionCommandsRequest
     | RunExtensionCommandRequest;
 export type HostResponse =
+    | ModelOperationProgressResponse
+    | ModelOperationCompleteResponse
     | HostIdentityResponse
     | ModelSettingsResponse
     | CatalogRefreshResponse
@@ -643,6 +661,19 @@ function parseSessionFactNames(
 
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
+    if (value?.type === "model_operation") {
+        if (!["keep", "unkeep", "verify", "rename"].includes(String(value.operation))
+            || !Array.isArray(value.models) || value.models.length === 0 || value.models.length > 10_000
+            || value.models.some((entry) => !entry || typeof entry !== "object"
+                || typeof entry.provider !== "string" || !entry.provider.trim()
+                || typeof entry.model !== "string" || !entry.model.trim()
+                || /[\u0000-\u001f]/u.test(entry.provider + entry.model))) return undefined;
+        if (value.operation === "rename" && (value.models.length !== 1 || typeof value.displayName !== "string")) return undefined;
+        return { type: "model_operation", operation: value.operation as ModelOperation["operation"],
+            models: value.models.map((entry) => ({ provider: entry.provider, model: entry.model })),
+            ...(typeof value.displayName === "string" ? { displayName: value.displayName } : {}),
+            ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}) };
+    }
     if (value?.type === "host_identity") {
         return { type: "host_identity" };
     }
