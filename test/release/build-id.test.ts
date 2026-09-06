@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -23,8 +23,8 @@ function git(cwd: string, args: readonly string[]): string {
 function initRepo(): string {
     const directory = mkdtempSync(join(tmpdir(), "vera-build-id-"));
     git(directory, ["init", "-q"]);
-    git(directory, ["config", "user.email", "ovu05@example.test"]);
-    git(directory, ["config", "user.name", "ovu05"]);
+    git(directory, ["config", "user.email", "nashaad@gmail.com"]);
+    git(directory, ["config", "user.name", "nashaad"]);
     writeFileSync(join(directory, "file.txt"), "clean\n");
     git(directory, ["add", "file.txt"]);
     git(directory, ["commit", "-q", "-m", "init"]);
@@ -43,6 +43,21 @@ test("a clean commit is vera-shortsha with no dirty suffix", () => {
         expect(identity.buildId).toBe(`vera-${short}`);
         expect(releaseBuildId(directory)).toBe(identity.buildId);
         expect(releaseBuildId(directory)).toBe(releaseBuildId(directory));
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("untracked directory and broken symlinks hash their targets without following them", () => {
+    const directory = initRepo();
+    try {
+        const link = join(directory, "skill");
+        symlinkSync(".", link);
+        const first = releaseBuildId(directory);
+        expect(releaseBuildId(directory)).toBe(first);
+        unlinkSync(link);
+        symlinkSync("missing-target", link);
+        expect(releaseBuildId(directory)).not.toBe(first);
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }

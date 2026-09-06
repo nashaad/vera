@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -57,7 +57,13 @@ function dirtyTreeDigest(cwd: string, status: string): string {
     for (const relative of paths) {
         hash.update(relative);
         hash.update("\0");
-        hash.update(readFileSync(join(cwd, relative)));
+        const path = join(cwd, relative);
+        if (lstatSync(path).isSymbolicLink()) {
+            hash.update("symlink\0");
+            hash.update(readlinkSync(path));
+        } else {
+            hash.update(readFileSync(path));
+        }
         hash.update("\0");
     }
     return hash.digest("hex").slice(0, DIRTY_DIGEST_LENGTH);
