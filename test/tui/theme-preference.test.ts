@@ -100,7 +100,7 @@ test("TUI theme preference persists outside the engine configuration", () => {
     const path = join(directory, "tui.json");
 
     expect(loadTuiThemePreference(path)).toBe("default");
-    expect(loadTuiActivityAnimationPreference(path)).toBe("conveyor");
+    expect(loadTuiActivityAnimationPreference(path)).toBe("shimmer");
     saveTuiThemePreference("nightowl", path);
     saveTuiActivityAnimationPreference("symmetric_wave", path);
     expect(loadTuiThemePreference(path)).toBe("nightowl");
@@ -132,7 +132,7 @@ test("legacy TUI preferences gain the default animation when saved", () => {
     writeFileSync(path, JSON.stringify({ theme: "github" }));
 
     expect(loadTuiThemePreference(path)).toBe("github");
-    expect(loadTuiActivityAnimationPreference(path)).toBe("conveyor");
+    expect(loadTuiActivityAnimationPreference(path)).toBe("shimmer");
     saveTuiActivityAnimationPreference("off", path);
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
         theme: "github",
@@ -216,7 +216,7 @@ test("saving an unrelated preference does not add an empty quickslot block", () 
 
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
         theme: "orng",
-        animation: "conveyor",
+        animation: "shimmer",
     });
 });
 

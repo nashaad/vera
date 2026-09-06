@@ -107,7 +107,7 @@ export function renderStatus(rt: TuiRuntime): void {
         lifecycleHint = waitingToRetry
             ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
                 + ` · ${focusedElapsed}`
-            : `${modelActivity === undefined ? focusedActivity : "thinking"}`
+            : `Working · ${modelActivity === undefined ? focusedActivity : "thinking"}`
                 + ` · ${focusedElapsed}`;
     } else if (rt.pendingImages.some((image) => image.id === undefined)) {
         lifecycleHint = "attaching image…";

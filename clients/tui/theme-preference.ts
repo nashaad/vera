@@ -523,7 +523,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
                     ? animation
-                    : "conveyor",
+                    : "shimmer",
                 ...(typeof recentSessionId === "string"
                         && recentSessionId.length > 0
                     ? { recent_session_id: recentSessionId }
@@ -571,7 +571,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
     } catch {
         // Missing or malformed client preferences must not prevent startup.
     }
-    return { theme: "default", animation: "conveyor" };
+    return { theme: "default", animation: "shimmer" };
 }
 
 function parsePersistedAgentPanes(value: unknown): readonly DiskPersistedAgentPane[] {
