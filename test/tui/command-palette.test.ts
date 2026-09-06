@@ -231,3 +231,10 @@ test("the palette is vertically centered on a tall terminal", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("palette terms match in either order and tolerate extra spaces", async () => {
+    for (const query of ["mod switch", "  switch   mod  "]) {
+        const state = await editedPalette(commands, [...query].map((key) => key === " " ? "space" : key));
+        expect(state.commands.map((entry) => entry.name)).toEqual(["model"]);
+    }
+});
