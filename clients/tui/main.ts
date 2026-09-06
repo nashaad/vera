@@ -1426,6 +1426,16 @@ export async function startTui(
     rt.transcriptEntryWindow.add(rt.transcriptWindowTopSpacer);
     rt.transcriptEntryWindow.add(rt.transcriptWindowBottomSpacer);
     rt.transcript.add(rt.transcriptEntryWindow);
+    rt.transcriptWorking = new TextRenderable(rt.renderer, {
+        id: "transcript-working",
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+        marginTop: 1,
+        marginLeft: rt.appearance.activityIndent,
+        visible: false,
+    });
+    rt.transcript.add(rt.transcriptWorking);
 
     // Parallel sparse arrays keyed by reduced transcript index; assign or delete node and kind together.
     rt.entryNodes = [];

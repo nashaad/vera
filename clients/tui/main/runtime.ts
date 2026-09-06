@@ -340,6 +340,7 @@ export interface TuiRuntime {
     sidebarJumpText: TextRenderable;
     sidebarJump: BoxRenderable;
     placeholder: TextRenderable;
+    transcriptWorking: TextRenderable;
     transcriptEntryWindow: BoxRenderable;
     transcriptWindowTopSpacer: BoxRenderable;
     transcriptWindowBottomSpacer: BoxRenderable;

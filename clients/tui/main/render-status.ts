@@ -23,6 +23,15 @@ export function renderStatus(rt: TuiRuntime): void {
         return;
     }
     const statusState = focusedAgentState(rt);
+    rt.transcriptWorking.visible = rt.state.working && !isWorkerFreeClient(rt.client);
+    if (rt.transcriptWorking.visible) {
+        rt.transcriptWorking.content = renderTuiActivityAnimation(
+            rt.activityAnimation === "off" ? "off" : "shimmer",
+            activityFrame(rt),
+            `Working (${elapsedWorkingTime(rt)} · esc to interrupt)`,
+            { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT },
+        );
+    }
     const uiRequest = focusedUiRequest(rt);
     const focusedSide = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
     const focusedAbort = focusedAbortRequested(rt);
@@ -107,7 +116,7 @@ export function renderStatus(rt: TuiRuntime): void {
         lifecycleHint = waitingToRetry
             ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
                 + ` · ${focusedElapsed}`
-            : `Working · ${modelActivity === undefined ? focusedActivity : "thinking"}`
+            : `${modelActivity === undefined ? focusedActivity : "thinking"}`
                 + ` · ${focusedElapsed}`;
     } else if (rt.pendingImages.some((image) => image.id === undefined)) {
         lifecycleHint = "attaching image…";
