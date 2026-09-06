@@ -450,7 +450,7 @@ export function renderStatus(rt: TuiRuntime): void {
             && uiRequest === undefined
             && !focusedAbort
         ? renderTuiActivityAnimation(
-            rt.activityAnimation,
+            rt.activityAnimation === "off" ? "off" : "braille",
             activityFrame(rt),
             statusLine,
             {
