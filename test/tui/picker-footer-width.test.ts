@@ -93,8 +93,8 @@ test("a subtitle does not cost the card its bottom padding", async () => {
         );
         const setup = await createTestRenderer({ width: 100, height: 30 });
         const view = createTuiSettingsPickerView(setup.renderer);
-        setup.renderer.root.add(view.box);
-        view.box.visible = true;
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
         view.update(
             subtitled ? state : { ...state, subtitle: undefined },
         );
@@ -133,8 +133,8 @@ test("every pane keeps a blank row under whatever it draws", async () => {
             for (const tab of tabs) {
                 const setup = await createTestRenderer({ width, height: 40 });
                 const view = createTuiSettingsPickerView(setup.renderer);
-                setup.renderer.root.add(view.box);
-                view.box.visible = true;
+                setup.renderer.root.add(view.surface);
+                view.surface.visible = true;
                 // The theme rows draw a swatch, so that pane needs a name
                 // the catalog knows rather than the shared model fixture.
                 const state = kind === "theme"
@@ -162,8 +162,8 @@ test("the command palette keeps a blank row under its hints", async () => {
     );
     const setup = await createTestRenderer({ width: 80, height: 40 });
     const view = createTuiCommandPaletteView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     view.update({
         commands: [{
             name: "help",

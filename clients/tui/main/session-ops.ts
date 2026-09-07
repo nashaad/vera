@@ -152,7 +152,7 @@ export function switchToClient(rt: TuiRuntime,
             id,
         }));
     }
-    rt.settingsPickerView.box.visible = false;
+    rt.settingsPickerView.surface.visible = false;
     focusActiveSurface(rt);
     renderCommandSuggestions(rt);
     renderState(rt);
@@ -555,7 +555,7 @@ export function beginSessionResume(rt: TuiRuntime,
     rt.settingsPicker = undefined;
     if (sessionId !== undefined && sessionId === rt.client.agentId) {
         setSidebarFocused(rt, false);
-        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerView.surface.visible = false;
         focusActiveSurface(rt);
         renderState(rt);
         return;
@@ -565,14 +565,14 @@ export function beginSessionResume(rt: TuiRuntime,
         && sessionId !== undefined
         && sessionId === rt.hostedSidebar.pane?.agentId
     ) {
-        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerView.surface.visible = false;
         focusActiveSurface(rt);
         renderState(rt);
         return;
     }
     if (rt.dependencies.resumeSession === undefined) {
         rt.state = appendTuiError(rt.state, "Switching sessions is unavailable");
-        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerView.surface.visible = false;
         focusActiveSurface(rt);
         renderState(rt);
         return;
@@ -585,7 +585,7 @@ export function beginSessionResume(rt: TuiRuntime,
             rt.state,
             "Wait for the skill command to be accepted or rejected before switching conversations.",
         );
-        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerView.surface.visible = false;
         focusActiveSurface(rt);
         renderState(rt);
         return;
@@ -606,7 +606,7 @@ export function beginSessionResume(rt: TuiRuntime,
     const draft = currentDraft(rt);
     rt.sessionSwitchPending = true;
     rt.sessionSwitchActivity = "switching conversation…";
-    rt.settingsPickerView.box.visible = false;
+    rt.settingsPickerView.surface.visible = false;
     renderState(rt);
     void withSessionSwitchDeadline(rt, 
         openSwitchDestination(rt, sessionPath, sessionId, destinationOpen),

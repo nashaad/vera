@@ -470,6 +470,7 @@ export interface TuiPickerTipLine {
 
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
+    readonly surface: BoxRenderable;
     pointer?: DialogRowPointer;
     tip?: string | TuiPickerTipLine;
     verification?: {

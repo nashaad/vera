@@ -94,7 +94,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.requestOptionsEditor === undefined
         && rt.providerForm === undefined
         && rt.secretPrompt !== undefined;
-    rt.settingsPickerView.box.visible = (uiRequest === undefined
+    rt.settingsPickerView.surface.visible = (uiRequest === undefined
             || configurationRequired)
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
@@ -270,7 +270,7 @@ export function renderState(rt: TuiRuntime): void {
         || rt.approvalView.box.visible
         || rt.questionView.box.visible
         || rt.timelinePickerView.box.visible
-        || rt.settingsPickerView.box.visible
+        || rt.settingsPickerView.surface.visible
         || rt.preferencesListView.surface.visible
         || rt.standingNudgesView.surface.visible
         || rt.extensionsListView.box.visible

@@ -46,8 +46,8 @@ test("live shortlist search accepts spaces and row actions do not appear as anot
     try {
         let state = modelJourney(base, "shortlist");
         view.update(state);
-        setup.renderer.root.add(view.box);
-        view.box.visible = true;
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
         for (const name of ["b", "space", "p"]) {
             state = view.handleEditorKey(state, { name, sequence: name === "space" ? " " : name }).state ?? state;
             view.update(state);
@@ -89,8 +89,8 @@ test("a kept current model that disappears stays removable but cannot be selecte
 test("model journey cards contain the footer and padding for empty, short, and full lists", async () => {
     const setup = await createTestRenderer({ width: 110, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         for (const count of [0, 1, 30]) {
             const options = Array.from({ length: count }, (_, index) => ({
@@ -118,8 +118,8 @@ test("model journey cards contain the footer and padding for empty, short, and f
 test("providers opened from either model journey never expose the legacy tabs", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         for (const journey of ["switch", "shortlist"] as const) {
             const parent = modelJourney(base, journey);
@@ -197,8 +197,8 @@ test("large provider trees start folded and bounded windows keep the selected mo
 test("provider headings have a blank row between groups inside the card", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         view.update(modelJourney(base, "shortlist"));
         await setup.renderOnce();
@@ -214,8 +214,8 @@ test("provider headings have a blank row between groups inside the card", async 
 test("the intelligence slider is visible in All and arrows adjust it without folding providers", async () => {
     const setup = await createTestRenderer({ width: 110, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         let state = handleModelJourneyKey(modelJourney(base, "switch"), { name: "tab" }).state!;
         state = { ...state, selectedIndex: 0 };
@@ -250,8 +250,8 @@ test("the intelligence slider is visible in All and arrows adjust it without fol
 test("highlighted model details follow the row and distinguish verified, failed, and unknown facts", async () => {
     const setup = await createTestRenderer({ width: 140, height: 40 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         const options = [{ ...rows[0]!, unverified: false, images: true },
             { ...rows[1]!, verificationError: "probe refused" }];
@@ -280,8 +280,8 @@ test("highlighted model details follow the row and distinguish verified, failed,
 test("All restores aligned score and blended-price columns with top-pick, image, Pareto, and kept marks", async () => {
     const setup = await createTestRenderer({ width: 170, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         const options = [{ ...rows[0]!, label: "Preferred", recommended: true, pooledRank: 0,
             waScore: 1629, pricing: { input: 3, output: 15 }, images: true, onPareto: true },
@@ -328,13 +328,40 @@ test("All restores aligned score and blended-price columns with top-pick, image,
 test("All keeps its price band and footer inside a short terminal with cutoff and refresh notice", async () => {
     const setup = await createTestRenderer({ width: 110, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
         const state = handleModelJourneyKey(modelJourney(base, "switch"), { name: "tab" }).state!;
         view.update({ ...state, intelligenceCutoff: "1400", journeyNotice: "Catalog refreshed." });
         await setup.renderOnce();
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(23);
         expect(setup.captureCharFrame()).toContain("run it");
+    } finally { setup.renderer.destroy(); }
+});
+
+
+test("journey panels stay vertically centred as scope, content, and terminal size change", async () => {
+    const setup = await createTestRenderer({ width: 140, height: 44 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    try {
+        const shortlist = modelJourney(base, "switch");
+        for (const state of [shortlist, handleModelJourneyKey(shortlist, { name: "tab" }).state!, modelJourney(base, "shortlist")]) {
+            view.update(state);
+            await setup.renderOnce();
+            const above = view.box.screenY;
+            const below = setup.renderer.height - above - view.box.height;
+            expect(above).toBeGreaterThan(1);
+            expect(Math.abs(above - below)).toBeLessThanOrEqual(1);
+        }
+        setup.resize(100, 24);
+        view.update(shortlist);
+        await setup.renderOnce();
+        expect(view.box.screenY).toBeGreaterThanOrEqual(1);
+        expect(Math.abs(2 * view.box.screenY + view.box.height - 24)).toBeLessThanOrEqual(1);
+        view.surface.visible = false;
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).not.toContain("Switch model");
     } finally { setup.renderer.destroy(); }
 });

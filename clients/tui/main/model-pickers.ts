@@ -694,7 +694,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         : { endpointEditable: true }),
                 };
             }),
-            { ...options, subtitle: options.subtitle ?? (providers.length ? "^f refresh catalog · ^r edit endpoint · del forget credentials" : "No provider connected. Add provider to discover models.") },
+            { ...options, subtitle: options.subtitle ?? (providers.length ? undefined : "No provider connected. Add provider to discover models.") },
         ),
         parent,
     );

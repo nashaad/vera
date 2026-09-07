@@ -35,7 +35,7 @@ import {
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
-import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_BUTTON_LINES, dialogButtonNode, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, registerDialogCard } from "./dialog-chrome.ts";
+import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_BUTTON_LINES, dialogButtonNode, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, centeredDialogSurface } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import {
     tuiThemeProperties,
@@ -929,9 +929,6 @@ export function createTuiSettingsPickerView(
         id: "settings-picker",
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: dialogInsetTop(renderer),
-        left: "10%",
         width: "80%",
         height: 8,
         zIndex: DIALOG_CARD_Z_INDEX,
@@ -940,12 +937,12 @@ export function createTuiSettingsPickerView(
         paddingTop: 2,
         paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
-    registerDialogCard(box);
+    const surface = centeredDialogSurface(renderer, "settings-picker-surface", box);
 
     const view: TuiSettingsPickerView = {
         box,
+        surface,
         focus(): void {
             if (searchLive) search.focus();
             else box.focus();
@@ -1004,11 +1001,10 @@ export function createTuiSettingsPickerView(
                 && pickerIsSearchable(state)
                 && !(state.kind === "model" && state.tab === "help");
             box.title = undefined;
+            surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
             if (state.kind === "theme") {
                 box.paddingTop = 2;
                 box.paddingBottom = 1;
-                box.top = themePickerTop(renderer, state.allOptions.length);
-                box.left = "20%";
                 box.width = "60%";
                 box.height = "auto";
                 renderThemePickerRows(
@@ -1021,12 +1017,6 @@ export function createTuiSettingsPickerView(
                 );
                 return;
             }
-            box.top = state.kind === "session" ? 0 : dialogInsetTop(renderer);
-            box.left = state.kind === "session"
-                ? 0
-                : state.kind === "model"
-                ? "2%"
-                : "10%";
             box.width = state.kind === "session"
                 ? "100%"
                 : state.kind === "model"

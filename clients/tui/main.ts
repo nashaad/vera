@@ -2097,7 +2097,7 @@ export async function startTui(
         event.stopPropagation();
         applySettingsPickerTransition(rt, transition);
     };
-    rt.app.add(rt.settingsPickerView.box);
+    rt.app.add(rt.settingsPickerView.surface);
     rt.app.add(rt.secretPromptView.box);
     rt.app.add(rt.namePromptView.surface);
     rt.app.add(rt.providerFormView.surface);
@@ -2537,7 +2537,7 @@ export async function startTui(
         if (
             rt.settingsPicker !== undefined
             && rt.settingsPicker.kind !== "extension"
-            && rt.settingsPickerView.box.visible
+            && rt.settingsPickerView.surface.visible
         ) {
             const transition = rt.settingsPickerView.handleEditorPaste(
                 rt.settingsPicker,

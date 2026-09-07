@@ -85,8 +85,8 @@ async function pickerFrame(
     const setup = await createTestRenderer({ width, height });
     const view = createTuiSettingsPickerView(setup.renderer);
     view.tip = tip;
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     view.update(state);
     try {
         await setup.flush();
@@ -96,25 +96,24 @@ async function pickerFrame(
     }
 }
 
-test("inset pickers sit on the screen's top padding row", async () => {
-    const { renderer } = await createTestRenderer({ width: 100, height: 40 });
+test("pickers centre their cards while the session browser stays at the top", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 40 });
     try {
-        const view = createTuiSettingsPickerView(renderer);
-        view.update(startTuiSettingsPicker(
-            "model",
-            undefined,
-            undefined,
-            "auto",
-            availableModels,
-            "default",
-        ));
-        expect(view.box.top).toBe(1);
-
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        for (const state of [startTuiProviderPicker([]), startTuiSettingsPicker("model", undefined, undefined, "auto", availableModels, "default")]) {
+            view.update(state);
+            await setup.renderOnce();
+            const above = view.box.screenY;
+            const below = setup.renderer.height - above - view.box.height;
+            expect(above).toBeGreaterThan(1);
+            expect(Math.abs(above - below)).toBeLessThanOrEqual(1);
+        }
         view.update(startTuiSessionPicker([], undefined, false));
-        expect(view.box.top).toBe(0);
-    } finally {
-        renderer.destroy();
-    }
+        await setup.renderOnce();
+        expect(view.box.screenY).toBe(0);
+    } finally { setup.renderer.destroy(); }
 });
 
 test("session picker filters titled durable conversations and selects an agent", async () => {
@@ -421,8 +420,8 @@ test("the two visible panes form a shared group without implying ancestry", asyn
 test("session rows stay on one line at 80 columns", async () => {
     const setup = await createTestRenderer({ width: 80, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     view.update(startTuiSessionPicker([{
         id: "long-session",
         workspace: "/work/a-very-long-workspace-name",
@@ -1394,8 +1393,8 @@ test("Norton Commander renders the theme picker with retro styling", async () =>
     const setup = await createTestRenderer({ width: 100, height: 24 });
     applyTuiTheme(await resolveTuiTheme(setup.renderer, "norton-commander"));
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     view.update(startTuiSettingsPicker(
         "theme",
         undefined,
@@ -1426,8 +1425,8 @@ test("theme picker renders as a borderless palette card with swatches", async ()
     // OpenTUI's BoxRenderable constructor overrides `border: false` when any
     // border styling option is also passed, which is what used to need resetting.
     expect(view.box.border).toBe(false);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     view.update(startTuiSettingsPicker(
         "theme",
         undefined,
@@ -1649,8 +1648,8 @@ test("the model pane's rows stay inside the card when it sits beside a workspace
     const railInset = 44;
     const setup = await createTestRenderer({ width, height });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
 
     view.update(modelPickerWithPool(), railInset);
     const chatColumns = Math.max(0, width - railInset);
@@ -1658,7 +1657,7 @@ test("the model pane's rows stay inside the card when it sits beside a workspace
     view.box.width = Math.max(20, Math.floor(chatColumns * 0.96));
     await setup.flush();
 
-    const cardRight = (view.box.left as number) + (view.box.width as number);
+    const cardRight = view.box.screenX + view.box.width;
     const frame = setup.captureCharFrame();
     for (const line of frame.split("\n")) {
         const rightmost = line.trimEnd().length;
@@ -1990,8 +1989,8 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     );
     const setup = await createTestRenderer({ width: 100, height: 50 });
     const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     view.update(state);
     try {
         await setup.flush();
@@ -2001,8 +2000,9 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
         expect(view.box.height).toBeLessThan(
             setup.renderer.height - 4,
         );
-        expect(setup.renderer.height - view.box.screenY - view.box.height)
-            .toBeGreaterThanOrEqual(4);
+        const below = setup.renderer.height - view.box.screenY - view.box.height;
+        expect(below).toBeGreaterThanOrEqual(2);
+        expect(Math.abs(view.box.screenY - below)).toBeLessThanOrEqual(1);
     } finally {
         setup.renderer.destroy();
     }

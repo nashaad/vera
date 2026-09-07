@@ -42,7 +42,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             rowId: transition.selection.rowId,
             actionId: transition.selection.actionId,
         });
-        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerView.surface.visible = false;
         focusActiveSurface(rt);
         renderState(rt);
         return;
@@ -55,7 +55,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.pendingExtensionPicker = undefined;
         pending?.removeAbortListener();
         pending?.resolve({ outcome: "cancelled" });
-        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerView.surface.visible = false;
         focusActiveSurface(rt);
         renderState(rt);
         return;
@@ -647,7 +647,7 @@ export function applyOverridesReset(rt: TuiRuntime): void {
 }
 
 export function closeSettingsPickerSurface(rt: TuiRuntime): void {
-    rt.settingsPickerView.box.visible = false;
+    rt.settingsPickerView.surface.visible = false;
     rt.settingsPickerAgent = undefined;
     if (rt.pendingUiRequest === undefined) {
         rt.composer.focus();
