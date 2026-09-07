@@ -9,7 +9,7 @@ Match the ask to one row, then follow that row. Rows are intent, not wording; a 
 Explain how something works: read the one section that names it and answer in two or three sentences. Name the surface if one exists.
 Find where to do something: name the exact slash command and what it opens, in one line. The user is about to look at it.
 Set something up: name the surface that validates. Never edit a configuration file, never give a file path as the way to change a setting, and never repeat a key back in an answer.
-Install or download a model: the first-run wizard installs and starts it. A download stops with `esc` and does not continue in the background.
+Install or download a model: provider connection expects a running endpoint. It does not install or download models.
 Find a command or a flag: `vera help` prints the whole reference and the topic list, and `vera help <topic>` reads one topic. `/commands` browses them in the TUI.
 Something is not working: run one bounded check, report what it actually said, then offer at most one recovery. Do not loop.
 Report a problem: `/failure-report` writes a shareable report of recorded model failures. Vera has no general bug-report path.
@@ -46,25 +46,25 @@ CLI help needs no TUI, no resident host, no provider, no network request, and no
 In the TUI, `/commands` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes.
 `vera help --llms` prints the whole help corpus as compact Markdown for an agent or a script. It is a projection of the same corpus, so it cannot drift from what `vera help <topic>` shows.
 
-## First-run setup [lines=11]
-To connect the first provider, choose the `Connect a provider` row that a Vera with no provider offers on home. There is no slash command for it; the row is the only entry point.
-That row opens a three-step wizard: the provider, whatever that provider needs, then the model. `enter` advances and `esc` goes back one step.
-The provider step lists a few providers and a `300+ more` line. It is a short list to get started, not the catalog; every other provider is added later from `/model`.
-The second step is a key field for a provider that needs a credential, an install gate for a provider that runs models on this machine, and a settled step for one that needs neither.
-The key field takes a paste and shows what it holds. A refused key returns to the key step carrying the provider's own refusal text.
-A provider that runs locally is installed and started from inside the wizard. The model step fetches and starts the chosen profile before verifying it.
-The model step asks the provider for its models every time it opens, so leaving the step with `esc` and re-entering it is how to ask again after installing a model.
-A model list that comes back empty says how to get that provider a model, in that provider's own terms.
-`esc` stops a running download and returns to the model list. A stopped download does not continue in the background and is not resumed. While it runs it shows a bar with the file name, percent, sizes, and time left.
-A prompt typed before setup runs afterwards on the model that was chosen.
+## First-run setup [lines=6]
+Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add provider.
+Enter the provider name, endpoint, and API key. Known API providers prefill the endpoint; custom endpoints also expose protocol and credential choices.
+Save reads the catalog immediately. It discovers models without keeping, verifying, assigning, or selecting them.
+A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
+Open Switch model, use Tab for all models, and press Enter to open a conversation with the chosen model.
 
-## Models and providers [lines=8]
-Open `/model` to search models, change the active model, and open the provider list with `ctrl+e`.
-Selecting a model changes the current conversation and becomes the default for new conversations unless a more specific assignment applies.
-Provider credentials and endpoint configuration belong to the Vera home. A custom OpenAI-compatible provider can expose models through its `/v1/models` endpoint.
-After a provider's model catalog changes, refresh models from the model pane or with `vera models refresh`.
-The provider and model shown in the status line are the route Vera is using. A local serving layer may load or unload the requested model behind that stable provider endpoint.
-For OpenRouter, connect the API key, select an `openrouter` model in `/model`, and send one minimal prompt to verify the route.
+## Models and providers [lines=13]
+Open `/model` or Switch model from Ctrl+P. It opens on shortlist even when empty; Tab changes to all models on the same screen.
+Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
+Open `/shortlist` or Manage shortlist to keep or unkeep with Enter. Keeping saves immediately and does not switch or verify.
+In Manage shortlist, Ctrl+R renames the display name, Ctrl+Y verifies one model, Ctrl+K keeps search matches, and Ctrl+U unkeeps kept search matches.
+Verify shortlisted models combines scope and coverage in one screen. Tab toggles unverified-only/all; Enter starts real requests. Leaving the results screen does not stop checks.
+Only kept and verified models can be newly assigned in Assign model defaults (`/defaults`): snappy, eco, extra, classifier, compaction, subagents. Assigning leaves the conversation model unchanged.
+A bound model cannot be unkept until its slots are reassigned or cleared. A failed verification leaves existing assignments unchanged.
+In Switch model, Ctrl+R refreshes connected catalogs in place; Ctrl+E opens Configure providers. The CLI also has `vera models refresh`.
+Provider credentials and endpoint configuration belong to the Vera home. Forget credentials removes its models, unsets affected defaults, and clears conversations using it; an environment credential must be unset in the host environment.
+Dial strip from Ctrl+P has effort, access, model, and agent lanes. Up/Down crosses lanes, Left/Right stages values, Enter applies, and Escape cancels. Tab does nothing; unavailable values are skipped.
+The conversation header shows model, effort, and access. The unverified-shortlist nudge uses Ctrl+Shift+Y to verify or Ctrl+Shift+X to dismiss for the TUI session.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 
 ## Conversations and background work [lines=8]
