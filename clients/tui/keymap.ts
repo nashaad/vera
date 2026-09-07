@@ -6,6 +6,9 @@ export type TuiKeyScope =
     | "unfocused"
     | "workspace"
     | "picker"
+    | "switch_model_picker"
+    | "shortlist_picker"
+    | "verification_picker"
     | "model_picker"
     | "model_assignment_picker"
     | "session_picker"
@@ -27,6 +30,9 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "workspace",
     "picker",
     "model_picker",
+    "switch_model_picker",
+    "shortlist_picker",
+    "verification_picker",
     "model_assignment_picker",
     "session_picker",
     "secret_prompt",
@@ -47,6 +53,9 @@ export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
 const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
+    "switch_model_picker",
+    "shortlist_picker",
+    "verification_picker",
     "model_assignment_picker",
     "session_picker",
     "secret_prompt",
@@ -107,6 +116,67 @@ export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
     .map((binding) => binding.id);
 
 export const TUI_KEYMAP: readonly TuiBinding[] = [
+    {
+        id: "journey_scope", keys: ["tab"], scope: "switch_model_picker",
+        description: "Change between shortlist and all models", hint: "tab scope",
+    },
+    {
+        id: "journey_refresh", keys: ["ctrl+r"], scope: "switch_model_picker",
+        description: "Refresh connected catalogs in place", hint: "^r refresh",
+    },
+    {
+        id: "journey_cutoff", keys: ["ctrl+g", "ctrl+shift+g"], scope: "switch_model_picker",
+        description: "Step the visible intelligence cutoff", hint: "^g cutoff",
+        overrides: ["switch_pane"],
+    },
+    {
+        id: "journey_manage", keys: ["ctrl+s"], scope: "switch_model_picker",
+        description: "Open Manage shortlist", hint: "^s manage shortlist",
+        remappable: true,
+    },
+    {
+        id: "journey_providers", keys: ["ctrl+e"], scope: "switch_model_picker",
+        description: "Open Configure providers", hint: "^e providers",
+        remappable: true,
+        overrides: ["toggle_workspace_sidebar"],
+    },
+    {
+        id: "shortlist_providers", keys: ["ctrl+e"], scope: "shortlist_picker",
+        description: "Open Configure providers", hint: "^e providers",
+        remappable: true,
+        overrides: ["toggle_workspace_sidebar"],
+    },
+    {
+        id: "shortlist_rename", keys: ["ctrl+r"], scope: "shortlist_picker",
+        description: "Rename the selected display name", hint: "^r rename",
+        remappable: true,
+    },
+    {
+        id: "shortlist_verify", keys: ["ctrl+y"], scope: "shortlist_picker",
+        description: "Verify the selected model and show results", hint: "^y verify",
+        remappable: true,
+    },
+    {
+        id: "shortlist_keep_matches", keys: ["ctrl+k"], scope: "shortlist_picker",
+        description: "Keep the visible search matches", hint: "^k keep matches",
+    },
+    {
+        id: "shortlist_unkeep_matches", keys: ["ctrl+u"], scope: "shortlist_picker",
+        description: "Unkeep the visible kept matches", hint: "^u unkeep matches",
+    },
+    {
+        id: "verification_coverage", keys: ["tab"], scope: "verification_picker",
+        description: "Change the visible verification coverage", hint: "tab coverage",
+    },
+    {
+        id: "verification_nudge_open", keys: ["ctrl+shift+y"], scope: "conversation",
+        description: "Open verification from the shortlist nudge", hint: "^⇧y verify",
+        remappable: true,
+    },
+    {
+        id: "verification_nudge_dismiss", keys: ["ctrl+shift+x"], scope: "conversation",
+        description: "Dismiss the visible verification nudge for this TUI session", hint: "^⇧x not now",
+    },
     {
         id: "open_palette",
         keys: ["ctrl+p"],

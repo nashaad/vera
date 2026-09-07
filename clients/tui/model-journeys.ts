@@ -1,3 +1,4 @@
+import { tuiBindingId } from "./keymap.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import type { TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
 
@@ -39,7 +40,7 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
     const cutoff = ["any", "1400", "1450", "1500", "1550", "1600"].map((value) => value === floor ? `[${value}]` : value).join(" ");
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));
     const unscored = hidden.filter((row) => row.waScore === undefined).length;
-    return `Scope: ${scope} · tab scope    Cutoff: ${cutoff} · ^i cutoff\n`
+    return `Scope: ${scope} · tab scope    Cutoff: ${cutoff} · ^g cutoff\n`
         + (hidden.length ? `${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "");
 }
 
@@ -53,26 +54,27 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     const same = { state, handled: true };
     const selected = state.options[state.selectedIndex];
     const managing = state.modelJourney === "shortlist";
+    const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
-    if (key.name === "tab") {
+    if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
         if (managing) return same;
         const next = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const, selectedIndex: 0 };
         return { state: { ...next, options: journeyModels(next) }, handled: true };
     }
-    if (key.ctrl) {
-        if (key.name === "e") return { ...same, openProviders: true };
-        if (!managing && key.name === "s") return { state: modelJourney(state, "shortlist"), handled: true };
-        if (!managing && key.name === "r") return { ...same, refreshAllCatalogs: true };
-        if (!managing && key.name === "i" && state.tab === "all") {
+    if (binding !== undefined || key.ctrl) {
+        if (binding === "journey_providers" || binding === "shortlist_providers") return { ...same, openProviders: true };
+        if (binding === "journey_manage") return { state: modelJourney(state, "shortlist"), handled: true };
+        if (binding === "journey_refresh") return { ...same, refreshAllCatalogs: true };
+        if (binding === "journey_cutoff" && state.tab === "all") {
             const next = { ...state, intelligenceCutoff: state.intelligenceCutoff === "1600" && !key.shift ? "any" as const : stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.shift ? -1 : 1), selectedIndex: 0 };
             return { state: { ...next, options: journeyModels(next) }, handled: true };
         }
-        if (managing && (key.name === "k" || key.name === "u")) return { ...same,
-            poolBulk: { action: key.name === "k" ? "add" : "remove", models: state.options.filter((row) =>
-                key.name === "k" ? row.pooledRank === undefined : row.pooledRank !== undefined) } };
+        if (binding === "shortlist_keep_matches" || binding === "shortlist_unkeep_matches") return { ...same,
+            poolBulk: { action: binding === "shortlist_keep_matches" ? "add" : "remove", models: state.options.filter((row) =>
+                binding === "shortlist_keep_matches" ? row.pooledRank === undefined : row.pooledRank !== undefined) } };
         if (managing && selected?.provider && selected.model) {
-            if (key.name === "r") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
-            if (key.name === "y") return { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
+            if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
+            if (binding === "shortlist_verify") return { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
         }
         return same;
     }
@@ -94,5 +96,5 @@ export function emptyModelJourney(state: TuiSettingsPickerState): string {
     if (state.allOptions.length === 0) return "All provider catalogs were refreshed; none served any models. ^e opens Configure providers.";
     if (state.query) return "No models match your search. Clear the search to see models.";
     if (state.modelJourney === "switch" && state.tab !== "all") return "Your shortlist is empty. Tab shows all models; ^s opens Manage shortlist.";
-    return "No models pass this cutoff. ^i changes the cutoff.";
+    return "No models pass this cutoff. ^g changes the cutoff.";
 }

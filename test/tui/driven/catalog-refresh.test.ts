@@ -30,6 +30,9 @@ test("the model picker's refresh key asks the provider and shows the new list", 
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Two");
         expect(pane).toContain("Refreshed 1 catalogs");
+        session.sendKey("C-g");
+        pane = await session.waitForVisiblePane("2 hidden below the cutoff");
+        expect(pane).toContain("2 unscored models");
     } finally {
         await session.close();
     }

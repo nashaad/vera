@@ -1,3 +1,4 @@
+import { tuiBindingId } from "./keymap.ts";
 import type { ModelOperationResult, ModelReference } from "../../src/model/model-operations.ts";
 import type { TuiSettingsPickerKey, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
 
@@ -25,7 +26,7 @@ export function verificationPicker(models: readonly VerificationTarget[], onlyUn
 
 export function handleVerificationKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition {
     if (key.name === "escape") return { state: state.parent, handled: true };
-    if (key.name === "tab" && state.verificationTargets !== undefined) return {
+    if (tuiBindingId("verification_picker", key) === "verification_coverage" && state.verificationTargets !== undefined) return {
         state: { ...verificationPicker(state.verificationTargets, !state.onlyUnverified, state.selectedIndex), parent: state.parent }, handled: true };
     if (key.name === "up" || key.name === "down") return { state: { ...state,
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) }, handled: true };

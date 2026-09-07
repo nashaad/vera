@@ -965,7 +965,7 @@ export function createTuiSettingsPickerView(
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (
                 !pickerIsSearchable(state)
-                || (state.modelJourney !== undefined && (key.ctrl === true || key.name === "tab"))
+                || (state.modelJourney !== undefined && (key.ctrl === true || tuiBindingId("switch_model_picker", key) === "journey_scope"))
                 || (state.kind === "model" && state.tab === "help")
                 || key.name === "escape" || key.name === "up"
                 || key.name === "down" || key.name === "return"

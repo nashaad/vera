@@ -68,6 +68,9 @@ test("no TUI surface matches a chord outside the keymap", async () => {
  * force. Blind cycling is the thing being kept out.
  */
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
+    // The selected model-journey contract makes these actions visible in their open screen.
+    "journey_scope", "journey_refresh", "journey_cutoff", "shortlist_keep_matches",
+    "shortlist_unkeep_matches", "verification_coverage", "verification_nudge_dismiss",
     "interrupt",
     "toggle_thinking",
     "toggle_session_header",
@@ -293,7 +296,8 @@ test("a workspace chord is free in every scope it can be reached from", () => {
         for (const chord of binding?.keys ?? []) {
             for (const scope of EVERY_SCOPE) {
                 const owner = tuiChordOwner(chord, scope)?.id;
-                if (owner !== undefined && owner !== id) {
+                if (owner !== undefined && owner !== id
+                    && !TUI_KEYMAP.find((row) => row.id === owner)?.overrides?.includes(id)) {
                     collisions.push(`${chord} in ${scope}: ${owner} not ${id}`);
                 }
             }
