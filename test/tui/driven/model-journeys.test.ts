@@ -30,7 +30,7 @@ test("live shortlist keeps through the host operation and verification can be le
         await session.waitForVisiblePane("Manage shortlist");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not kept ✗");
-        session.sendKey("Enter");
+        session.sendKey("C-s");
         await session.waitForVisiblePane("1 kept of 1 discovered");
         expect(operations[0]?.operation).toBe("keep");
         session.sendKey("C-y");
@@ -100,5 +100,31 @@ test("Home stages empty dials without creating a session, then switching applies
             && command.patch.model === "one/model")).toBe(true);
         expect(commands.some((command) => command.type === "update_session_permission_mode" && command.mode === "auto")).toBe(true);
         expect(commands.some((command) => command.type === "pool_add")).toBe(false);
+    } finally { await session.close(); }
+}, 15_000);
+
+
+test("Switch model Ctrl+S keeps and unkeeps without switching or verifying", async () => {
+    const operations: ModelOperation[] = [];
+    const available = [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }];
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-keep-")), width: 140, height: 40,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({ pooled: [] }),
+            operateModels: async (operation) => {
+                operations.push(operation);
+                return { model: "one/model", provider: "openrouter", availableModels: available,
+                    pooled: operation.operation === "keep" ? [{ ...available[0]!, available: true, verified: false }] : [] };
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your shortlist is empty");
+        session.sendKey("Tab"); await session.waitForVisiblePane("not shortlisted");
+        session.sendKey("C-s"); await session.waitForVisiblePane("on your shortlist");
+        session.sendKey("C-s"); await session.waitForVisiblePane("not shortlisted");
+        expect(operations.map((operation) => operation.operation)).toEqual(["keep", "unkeep"]);
+        expect(session.captureVisiblePane()).toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);

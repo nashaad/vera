@@ -225,7 +225,7 @@ export function handleTuiSettingsPickerKey(
         }
     }
     if (state.kind === "model_verification" || state.verificationTargets !== undefined) return handleVerificationKey(state, key);
-    if (state.modelJourney !== undefined) return handleModelJourneyKey(state, key);
+    if (state.modelJourney !== undefined) return handleModelJourneyKey(state, key, viewportRows);
     if (state.kind === "model") {
         // Whoever rebuilt this pane may have taken the focused section away.
         // Settle that once, here, so no handler below has to ask.
@@ -1076,6 +1076,7 @@ export function tuiPickerViewportRows(
     state: TuiAnySettingsPickerState,
     extraChrome = 0,
 ): number {
+    if (state.kind === "model" && state.modelJourney !== undefined) return journeyListLayout(renderer, state).rows;
     const stripHeight = modelStripStop(state) === undefined
         ? 0
         : modelTabStripHeight(pickerContentWidth(renderer, state));
@@ -1105,6 +1106,17 @@ export function tuiPickerViewportRows(
     return state.kind === "model" && state.tab === "all"
         ? Math.min(rows, MODEL_ALL_MAX_ROWS)
         : rows;
+}
+
+function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
+    const headerHeight = Math.max(2, (journeyHeader(state) + (state.journeyNotice ? `\n${state.journeyNotice}` : "")).split("\n").length);
+    const cutoff = state.modelJourney === "switch" && state.tab === "all";
+    const priceLines = cutoff ? (renderer.height < 30 ? 1 : 3) : 0;
+    const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0) - priceLines);
+    const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
+    const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
+    const listed = cutoff && rowWidth >= 48 && room >= 4;
+    return { priceLines, room, listed, rows: Math.max(1, Math.min(12, room - (listed ? 2 : 0))) };
 }
 
 export type PickerDisplayRow =
@@ -1150,12 +1162,10 @@ export function renderListPickerRows(
             content: new StyledText([...chunks]), width: "100%", height: 1,
         }));
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
-        const priceLines = cutoff ? (renderer.height < 30 ? 1 : 3) : 0;
-        const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0) - priceLines);
+        const { priceLines, room, listed, rows: maxRows } = journeyListLayout(renderer, state, railInset);
         const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
-        const listed = cutoff && rowWidth >= 48 && room >= 4;
-        const rows = journeyWindow(state, Math.max(1, Math.min(12, room - (listed ? 2 : 0))));
+        const rows = journeyWindow(state, maxRows);
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
         const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
         body.add(list);

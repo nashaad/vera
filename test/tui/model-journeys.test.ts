@@ -10,7 +10,7 @@ const rows = [
 ];
 const base: TuiSettingsPickerState = { kind: "model", allOptions: rows, options: rows, selectedIndex: 0, query: "" };
 
-test("switching has only one verb in either scope and never toggles membership", () => {
+test("Enter switches in either scope without toggling membership", () => {
     let state = modelJourney(base, "switch");
     expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c"]);
     expect(journeyHeader(state)).not.toContain("Cutoff");
@@ -37,7 +37,7 @@ test("cutoff excludes unscored models only in all scope; search scopes bulk acti
     expect(journeyModels(state).filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a"]);
     expect(journeyHeader(state)).toContain("2 hidden below the cutoff, including 2 unscored");
     const manage = updateTuiSettingsPickerSearch(modelJourney(base, "shortlist"), "beta").state!;
-    expect(handleModelJourneyKey(manage, { name: "u", ctrl: true }).poolBulk?.models.map((row) => row.model)).toEqual(["b"]);
+    expect(handleModelJourneyKey(manage, { name: "k", ctrl: true, shift: true }).poolBulk?.models.map((row) => row.model)).toEqual(["b"]);
 });
 
 test("live shortlist search accepts spaces and row actions do not appear as another screen", async () => {
@@ -364,4 +364,35 @@ test("journey panels stay vertically centred as scope, content, and terminal siz
         await setup.renderOnce();
         expect(setup.captureCharFrame()).not.toContain("Switch model");
     } finally { setup.renderer.destroy(); }
+});
+
+
+test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggle", () => {
+    const options = Array.from({ length: 30 }, (_, index) => ({ ...rows[0]!, value: `p/${index}`, model: `${index}`, pooledRank: index }));
+    for (const journey of ["switch", "shortlist"] as const) {
+        const start = modelJourney({ ...base, allOptions: options }, journey);
+        const down = handleTuiSettingsPickerKey(start, { name: "d", ctrl: true }, 8);
+        expect(down.state?.selectedIndex).toBe(start.selectedIndex + 4);
+        expect(down.poolBulk).toBeUndefined();
+        expect(down.poolToggle).toBeUndefined();
+        const up = handleTuiSettingsPickerKey(down.state!, { name: "u", ctrl: true }, 8);
+        expect(up.state?.selectedIndex).toBe(start.selectedIndex);
+        expect(up.poolBulk).toBeUndefined();
+        expect(up.poolToggle).toBeUndefined();
+        const atTop = handleTuiSettingsPickerKey({ ...start, selectedIndex: 0 }, { name: "u", ctrl: true }, 8);
+        expect(atTop.state?.selectedIndex).toBe(0);
+        expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual({
+            action: "remove", provider: start.options[start.selectedIndex]!.provider!, model: start.options[start.selectedIndex]!.model!,
+        });
+        expect(handleTuiSettingsPickerKey({ ...start, selectedIndex: 0 }, { name: "s", ctrl: true }).poolToggle).toBeUndefined();
+        if (journey === "shortlist") {
+            expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk?.action).toBe("remove");
+        } else {
+            expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelJourney).toBe("shortlist");
+            let all = handleTuiSettingsPickerKey(start, { name: "tab" }).state!;
+            all = handleTuiSettingsPickerKey(all, { name: "right" }).state!;
+            all = handleTuiSettingsPickerKey(all, { name: "down" }).state!;
+            expect(handleTuiSettingsPickerKey(all, { name: "s", ctrl: true }).poolToggle?.action).toBe("remove");
+        }
+    }
 });

@@ -1,3 +1,4 @@
+import { halfPageCursor } from "./list-window.ts";
 import { tuiBindingId } from "./keymap.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import type { TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
@@ -131,14 +132,25 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
 export function journeyFooter(state: TuiSettingsPickerState): string {
     const reveal = state.revealAll ? "show fewer" : "show every model";
     return state.modelJourney === "shortlist"
-        ? "↵ keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^u unkeep matches · esc done\n←/→ fold provider · ⇧←/→ fold all · ^a " + reveal
-        : "↵ run it · tab scope · ^r refresh catalogs · ^s manage shortlist · ^e providers · esc\n←/→ fold provider · ⇧←/→ fold all · ^a " + reveal;
+        ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ←/→ fold provider · ⇧←/→ fold all · ^a " + reveal
+        : "↵ run it · ^s keep/unkeep · tab scope · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ←/→ fold provider · ⇧←/→ fold all · ^a " + reveal;
 }
 
-export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition {
+export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
     const same = { state, handled: true };
     const selected = state.options[state.selectedIndex];
     const managing = state.modelJourney === "shortlist";
+    const paging = tuiBindingId("picker", key);
+    if (paging === "half_page_down" || paging === "half_page_up") return {
+        handled: true, state: { ...state, modelFocus: "list",
+            selectedIndex: halfPageCursor(state.selectedIndex, state.options.length, Math.min(12, viewportRows),
+                paging === "half_page_down" ? "down" : "up") },
+    };
+    if (tuiBindingId("model_picker", key) === "toggle_pooled") {
+        return selected?.provider && selected.model ? { ...same,
+            poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",
+                provider: selected.provider, model: selected.model } } : same;
+    }
     const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
     if (!managing && state.tab === "all" && state.modelFocus === "intelligence" && !key.ctrl) {

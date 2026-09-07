@@ -59,7 +59,7 @@ Models are grouped by provider. Left/Right folds or opens a group; Shift+Left/Ri
 Older and duplicate models are hidden by default unless kept. Ctrl+A shows all or fewer; search finds hidden models within the intelligence cutoff.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 Open `/shortlist` or Manage shortlist to keep or unkeep with Enter. Keeping saves immediately and does not switch or verify.
-In Manage shortlist, Ctrl+R renames the display name, Ctrl+Y verifies one model, Ctrl+K keeps search matches, and Ctrl+U unkeeps kept search matches.
+In Manage shortlist, Ctrl+R renames the display name, Ctrl+Y verifies one model, Ctrl+K keeps search matches, and Ctrl+Shift+K unkeeps kept search matches. In Switch and Manage, Ctrl+S keeps or unkeeps the highlighted model and Ctrl+D/Ctrl+U page down/up.
 Verify shortlisted models combines scope and coverage in one screen. Tab toggles unverified-only/all; Enter starts real requests. Leaving the results screen does not stop checks.
 Only kept and verified models can be newly assigned in Assign model defaults (`/defaults`): snappy, eco, extra, classifier, compaction, subagents. Assigning leaves the conversation model unchanged.
 A bound model cannot be unkept until its slots are reassigned or cleared. A failed verification leaves existing assignments unchanged.

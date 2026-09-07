@@ -138,8 +138,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         overrides: ["switch_pane"],
     },
     {
-        id: "journey_manage", keys: ["ctrl+s"], scope: "switch_model_picker",
-        description: "Open Manage shortlist", hint: "^s manage shortlist",
+        id: "journey_manage", keys: ["ctrl+shift+s"], scope: "switch_model_picker",
+        description: "Open Manage shortlist", hint: "^⇧s manage shortlist",
         remappable: true,
     },
     {
@@ -169,8 +169,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Keep the visible search matches", hint: "^k keep matches",
     },
     {
-        id: "shortlist_unkeep_matches", keys: ["ctrl+u"], scope: "shortlist_picker",
-        description: "Unkeep the visible kept matches", hint: "^u unkeep matches",
+        id: "shortlist_unkeep_matches", keys: ["ctrl+shift+k"], scope: "shortlist_picker",
+        description: "Unkeep the visible kept matches", hint: "^⇧k unkeep matches",
     },
     {
         id: "verification_coverage", keys: ["tab"], scope: "verification_picker",

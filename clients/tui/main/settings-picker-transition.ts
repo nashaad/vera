@@ -243,7 +243,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        if (previousPicker?.kind === "model" && previousPicker.modelJourney === "shortlist") {
+        if (previousPicker?.kind === "model" && previousPicker.modelJourney !== undefined) {
             runModelOperation(rt, { operation: toggle.action === "add" ? "keep" : "unkeep",
                 models: [{ provider: toggle.provider, model: toggle.model }] });
             return;
