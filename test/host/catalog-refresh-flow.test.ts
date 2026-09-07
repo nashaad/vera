@@ -361,7 +361,7 @@ const adapter: ModelAdapter = {
             model: "gpt-5.6-sol",
             approval_mode: "ask",
             providers: {
-                outrider: {
+                "test-gateway": {
                     protocol: "openai-chat",
                     base_url: `http://127.0.0.1:${oldServer.port}/v1`,
                     credential: "none",
@@ -383,20 +383,20 @@ const adapter: ModelAdapter = {
                 workspace: root,
                 sessionPath: join(root, "sessions", "agent.jsonl"),
             });
-            const first = await host.registry.refreshCatalog(agent.id, "outrider");
+            const first = await host.registry.refreshCatalog(agent.id, "test-gateway");
             expect(first?.availableModels).toContainEqual(expect.objectContaining({
-                provider: "outrider",
+                provider: "test-gateway",
                 model: "qwen3-1.7b",
             }));
             expect(oldHits).toEqual(["/v1/models"]);
             expect(newHits).toEqual([]);
-            const cachedBefore = readProviderCatalogSnapshot("outrider");
+            const cachedBefore = readProviderCatalogSnapshot("test-gateway");
             expect(cachedBefore.models.map((model) => model.id))
                 .toEqual(["qwen3-1.7b"]);
 
             updateVeraConfigDefaults({
                 custom_provider: {
-                    id: "outrider",
+                    id: "test-gateway",
                     declaration: {
                         protocol: "openai-chat",
                         base_url: `http://127.0.0.1:${newServer.port}/v1`,
@@ -405,21 +405,21 @@ const adapter: ModelAdapter = {
                 },
             }, { path: configPath });
 
-            const moved = await host.registry.refreshCatalog(agent.id, "outrider");
+            const moved = await host.registry.refreshCatalog(agent.id, "test-gateway");
             expect(moved?.availableModels).toContainEqual(expect.objectContaining({
-                provider: "outrider",
+                provider: "test-gateway",
                 model: "qwen35-9b-provisional",
             }));
             expect(
                 moved?.availableModels?.some((model) =>
-                    model.provider === "outrider" && model.model === "qwen3-1.7b"
+                    model.provider === "test-gateway" && model.model === "qwen3-1.7b"
                 ),
             ).toBe(false);
             expect(oldHits).toEqual(["/v1/models"]);
             expect(newHits).toEqual(["/v1/models"]);
-            expect(readProviderCatalogSnapshot("outrider").models.map((model) => model.id))
+            expect(readProviderCatalogSnapshot("test-gateway").models.map((model) => model.id))
                 .toEqual(["qwen35-9b-provisional"]);
-            expect(readProviderCatalogSnapshot("outrider").fetched_at)
+            expect(readProviderCatalogSnapshot("test-gateway").fetched_at)
                 .not.toBe(cachedBefore.fetched_at);
         } finally {
             await host.close();
@@ -468,7 +468,7 @@ const adapter: ModelAdapter = {
             model: "gpt-5.6-sol",
             approval_mode: "ask",
             providers: {
-                outrider: {
+                "test-gateway": {
                     protocol: "openai-chat",
                     base_url: `http://127.0.0.1:${oldServer.port}/v1`,
                     credential: "none",
@@ -486,9 +486,9 @@ const adapter: ModelAdapter = {
         });
 
         try {
-            const first = await refreshCatalogThroughHost(socketPath, "outrider", root);
+            const first = await refreshCatalogThroughHost(socketPath, "test-gateway", root);
             expect(first?.availableModels).toContainEqual(expect.objectContaining({
-                provider: "outrider",
+                provider: "test-gateway",
                 model: "qwen3-1.7b",
             }));
             expect(oldHits).toHaveLength(1);
@@ -496,7 +496,7 @@ const adapter: ModelAdapter = {
 
             updateVeraConfigDefaults({
                 custom_provider: {
-                    id: "outrider",
+                    id: "test-gateway",
                     declaration: {
                         protocol: "openai-chat",
                         base_url: `http://127.0.0.1:${newServer.port}/v1`,
@@ -505,9 +505,9 @@ const adapter: ModelAdapter = {
                 },
             }, { path: configPath });
 
-            const moved = await refreshCatalogThroughHost(socketPath, "outrider", root);
+            const moved = await refreshCatalogThroughHost(socketPath, "test-gateway", root);
             expect(moved?.availableModels).toContainEqual(expect.objectContaining({
-                provider: "outrider",
+                provider: "test-gateway",
                 model: "qwen35-9b-provisional",
             }));
             expect(oldHits).toHaveLength(1);

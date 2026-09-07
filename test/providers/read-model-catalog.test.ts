@@ -34,6 +34,6 @@ test("Anthropic catalogs paginate and use their own credential headers", async (
 
 test("network and malformed responses fail without a catalog", async () => {
     const options = { provider: "x", baseUrl: "https://example", protocol: "openai-chat" };
-    await expect(readModelCatalog({ ...options, fetch: (async () => { throw new Error("offline"); }) as typeof fetch })).rejects.toThrow("No response from that host");
-    await expect(readModelCatalog({ ...options, fetch: (async () => Response.json({ invalid: true })) as typeof fetch })).rejects.toThrow("invalid model catalog");
+    await expect(readModelCatalog({ ...options, fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch })).rejects.toThrow("No response from that host");
+    await expect(readModelCatalog({ ...options, fetch: (async () => Response.json({ invalid: true })) as unknown as typeof fetch })).rejects.toThrow("invalid model catalog");
 });

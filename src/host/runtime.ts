@@ -501,10 +501,13 @@ export async function startResidentHost(
 
                     const descriptor = configuredProviders(config)
                         .find((entry) => entry.id === provider);
-                    if (descriptor?.protocol === "anthropic-messages" && descriptor.baseUrl !== undefined) {
+                    if (descriptor !== undefined && descriptor.baseUrl !== undefined && descriptor.protocol !== undefined
+                        && (descriptor.protocol === "anthropic-messages" || descriptor.behaviorId === "openrouter")) {
                         const stored = authStorage.getCredential(provider);
                         const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
-                        const catalog = await readModelCatalog({ provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key });
+                        const catalog = await readModelCatalog({ provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key })
+                            .catch(() => undefined);
+                        if (catalog === undefined) return undefined;
                         writeProviderCatalogSnapshot(catalog);
                         models = modelsFromConnectedCatalogs(config, models, { authStorage });
                         return models;
