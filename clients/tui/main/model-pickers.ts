@@ -666,12 +666,12 @@ export function openProviderPicker(rt: TuiRuntime,
     const providers = configuredProviders(config).filter((row) => connected.has(row.id));
     const answers = onboardingInput(rt, config);
     const declared = new Set(Object.keys(config?.providers ?? {}));
-    const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
     rt.settingsPicker = withTuiPickerParent(
         startTuiProviderPicker(
             providers.map((provider) => {
                 const snapshot = readProviderCatalogSnapshot(provider.id);
-                const answerLabel = "connected" as const;
+                const answerLabel = snapshot.fetched_at === undefined
+                    ? providerAnswerLabel(provider, answers) : "connected";
                 const catalogHint = snapshot.fetched_at === undefined ? "catalog never refreshed" : `catalog read: ${snapshot.models.length} models`;
                 return {
                     id: provider.id,
@@ -680,7 +680,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         provider.access,
                         declared.has(provider.id),
                     ),
-                    hint: `${catalogHint} · ${provider.baseUrl ?? provider.hint ?? ""}`,
+                    hint: `${provider.custom || provider.endpointOverridden ? provider.baseUrl : provider.hint ?? provider.baseUrl ?? ""} · ${catalogHint}`,
                     hasCredential: providerHasCredential(rt, provider),
                     ...(answerLabel === undefined
                         ? {}

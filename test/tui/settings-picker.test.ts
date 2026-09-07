@@ -2847,6 +2847,11 @@ test("the connect pane groups providers by access and spells out connected statu
     expect(frame).toContain("API key, pay per token");
     expect(frame).not.toContain("⇥ tabs");
     expect(frame).toContain("esc back");
+    const lines = frame.split("\n");
+    for (const label of ["API keys", "Local", "Added in config", "Add provider…"]) {
+        const at = lines.findIndex((line) => line.includes(label));
+        expect(lines[at - 1]?.trim()).toBe("");
+    }
 });
 
 test("provider access facts map to stable TUI groups", () => {
@@ -2993,7 +2998,7 @@ test("⏎ on the declare row asks for the same form the chord asks for", () => {
     expect(transition.handled).toBe(true);
     expect(transition.declareProvider).toBe(true);
     expect(transition.selection).toBeUndefined();
-    expect(pickerFooter(onDeclare)).toContain("⏎ declare");
+    expect(pickerFooter(onDeclare)).toContain("⏎ add provider");
 });
 
 test("the connect pane can open on a named row", () => {
@@ -3027,8 +3032,8 @@ test("the declare row offers its action once", () => {
     const onDeclare = { ...pane, selectedIndex: pane.options.length - 1 };
 
     const footer = pickerFooter(onDeclare);
-    expect(footer).toContain("⏎ declare");
-    expect(footer.split("declare")).toHaveLength(2);
+    expect(footer).toContain("⏎ add provider");
+    expect(footer.split("add provider")).toHaveLength(2);
     // The chord still reads on a row that does not offer ⏎ declare.
     expect(pickerFooter(pane)).toContain(tuiKeyHint("declare_provider"));
 });
@@ -3483,8 +3488,8 @@ test("ctrl+shift+n on the connect pane asks for the declaration form", () => {
 test("the connect pane offers declaring on every row", () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
 
-    expect(pickerFooter({ ...pane, selectedIndex: 0 })).toContain("declare");
-    expect(pickerFooter({ ...pane, selectedIndex: 1 })).toContain("declare");
+    expect(pickerFooter({ ...pane, selectedIndex: 0 })).toContain("add provider");
+    expect(pickerFooter({ ...pane, selectedIndex: 1 })).toContain("add provider");
 });
 
 test("the declaration form opens on the name, ready to type", () => {

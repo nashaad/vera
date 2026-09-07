@@ -1586,7 +1586,8 @@ export function renderListPickerRows(
         const node = row.kind === "group"
             ? dialogGroupHeaderNode(renderer, row.label, position > 0)
             : optionNodes[optionNodeIndex++]!;
-        lines += row.kind === "group" ? (position > 0 ? 2 : 1) : 1;
+        lines += row.kind === "group" ? (position > 0 ? 2 : 1)
+            : state.kind === "provider" && row.option.action === true ? 2 : 1;
         modelTree.add(node);
         nodes.push(node);
     });
@@ -1916,7 +1917,7 @@ export function pickerFooterText(
         return [
             "↑↓ move",
             selected?.action === true
-                ? "⏎ declare"
+                ? "⏎ add provider"
                 : selected?.declared === true
                 ? "⏎ edit"
                 : selected?.hasCredential === true

@@ -520,8 +520,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "declare_provider",
         keys: ["ctrl+shift+n"],
         scope: "model_picker",
-        description: "Declare a provider Vera does not ship",
-        hint: "^⇧n declare",
+        description: "Add a provider connection",
+        hint: "^⇧n add provider",
     },
     {
         id: "edit_endpoint",
