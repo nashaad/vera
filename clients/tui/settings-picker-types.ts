@@ -1,3 +1,4 @@
+import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
 import { BoxRenderable } from "@opentui/core";
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
@@ -247,6 +248,7 @@ export interface TuiSettingsPickerState {
     readonly subtitle?: string;
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
+    readonly providerCatalogs?: readonly ProviderCatalogState[];
     readonly modelJourney?: "switch" | "shortlist";
     readonly journeyNotice?: string;
     readonly verificationTargets?: readonly import("./model-verification.ts").VerificationTarget[];

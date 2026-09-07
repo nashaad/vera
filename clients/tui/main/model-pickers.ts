@@ -1,3 +1,6 @@
+import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
+import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
+import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { modelJourney } from "../model-journeys.ts";
 import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
@@ -133,6 +136,7 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
                 webdevArenaSnapshot:
                     targetState.modelSettings.webdevArenaSnapshot,
             }),
+        providerCatalogs: providerCatalogsOf(targetState.modelSettings),
         modelCatalogUnavailable: targetState.modelSettings === undefined
             && isHomeClient(focusedAgentClient(rt)),
     };
@@ -654,7 +658,8 @@ export function openProviderPicker(rt: TuiRuntime,
     } = {},
 ): void {
     const config = loadOptionalVeraConfig();
-    const providers = configuredProviders(config);
+    const connected = new Set(connectedProviderCatalogs(config, { authStorage: rt.authStorage }).map((row) => row.id));
+    const providers = configuredProviders(config).filter((row) => connected.has(row.id));
     const answers = onboardingInput(rt, config);
     const declared = new Set(Object.keys(config?.providers ?? {}));
     const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
@@ -666,7 +671,9 @@ export function openProviderPicker(rt: TuiRuntime,
     rt.settingsPicker = withTuiPickerParent(
         startTuiProviderPicker(
             providers.map((provider) => {
-                const answerLabel = providerAnswerLabel(provider, answers);
+                const snapshot = readProviderCatalogSnapshot(provider.id);
+                const answerLabel = "connected" as const;
+                const catalogHint = snapshot.fetched_at === undefined ? "catalog never refreshed" : `catalog read: ${snapshot.models.length} models`;
                 return {
                     id: provider.id,
                     label: provider.label,
@@ -674,11 +681,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         provider.access,
                         declared.has(provider.id),
                     ),
-                    ...(moved.has(provider.id)
-                        ? { hint: provider.baseUrl ?? "" }
-                        : provider.hint === undefined
-                        ? {}
-                        : { hint: provider.hint }),
+                    hint: `${catalogHint} · ${provider.baseUrl ?? provider.hint ?? ""}`,
                     hasCredential: providerHasCredential(rt, provider),
                     ...(answerLabel === undefined
                         ? {}
@@ -692,7 +695,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         : { endpointEditable: true }),
                 };
             }),
-            options,
+            { ...options, subtitle: options.subtitle ?? (providers.length ? "^f refresh catalog · ^r edit endpoint · ^⇧x forget credentials" : "No provider connected. Add provider to discover models.") },
         ),
         parent,
     );

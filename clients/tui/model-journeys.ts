@@ -3,7 +3,7 @@ import type { TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerSt
 
 export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     const terms = state.query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-    return state.allOptions.filter((row) => row.model !== undefined && row.provider !== undefined
+    return state.allOptions.filter((row) => (state.providerCatalogs === undefined || row.description !== "current model" || row.pooledRank !== undefined) && row.model !== undefined && row.provider !== undefined
         && (state.modelJourney === "shortlist" || state.tab === "all" || row.pooledRank !== undefined)
         && (state.modelJourney === "shortlist" || state.tab !== "all"
             || passesIntelligenceCutoff(row.waScore, state.intelligenceCutoff ?? "any"))
@@ -15,7 +15,9 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
 }
 
 export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "shortlist"): TuiSettingsPickerState {
-    const next: TuiSettingsPickerState = { ...state, modelJourney: mode,
+    const next: TuiSettingsPickerState = { ...state,
+        allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
+        modelJourney: mode,
         title: mode === "switch" ? "Switch model" : "Manage shortlist",
         tab: mode === "switch" ? "pool" : "all", modelFocus: "list", query: "", queryCursor: 0,
         selectedIndex: 0, pickerLevel: "page" };
@@ -75,9 +77,20 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) } };
     if ((key.name === "enter" || key.name === "return") && selected?.provider && selected.model) {
+        if (selected.unavailable && !managing) return same;
         if (managing) return { ...same, poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",
             provider: selected.provider, model: selected.model } };
         return { handled: true, selection: { kind: "model", provider: selected.provider, model: selected.model } };
     }
     return { state, handled: false };
+}
+
+export function emptyModelJourney(state: TuiSettingsPickerState): string {
+    if (state.providerCatalogs?.length === 0) return "No provider connected. ^e opens Configure providers.";
+    const never = state.providerCatalogs?.filter((provider) => provider.refreshedAt === undefined) ?? [];
+    if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. ^r reads it now.`;
+    if (state.allOptions.length === 0) return "All provider catalogs were refreshed; none served any models. ^e opens Configure providers.";
+    if (state.query) return "No models match your search. Clear the search to see models.";
+    if (state.modelJourney === "switch" && state.tab !== "all") return "Your shortlist is empty. Tab shows all models; ^s opens Manage shortlist.";
+    return "No models pass this cutoff. ^i changes the cutoff.";
 }

@@ -1,3 +1,4 @@
+import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 import { verificationResults } from "../model-verification.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
@@ -38,7 +39,7 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
             // Home settings carry host defaults; retain the live conversation's pair.
             rt.state = { ...rt.state, modelSettings: { ...settings, ...rt.state.modelSettings,
                 availableModels: settings.availableModels, pooled: settings.pooled } };
-            if (rt.settingsPicker?.kind === "model") rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, settings);
+            if (rt.settingsPicker?.kind === "model") rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, { ...settings, providerCatalogs: providerCatalogsOf(settings) });
         }
     }).catch((error) => {
         const reason = error instanceof Error ? error.message : String(error);

@@ -1,3 +1,4 @@
+import { normalizeOpenRouterModels } from "../model/openrouter-catalog.ts";
 import type { ProviderCatalog } from "../model/catalog-shape.ts";
 
 export function providerEndpointError(value: string): string | undefined {
@@ -25,7 +26,10 @@ export async function readModelCatalog(options: ReadModelCatalogOptions): Promis
         : options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {};
     const models = new Map<string, ProviderCatalog["models"][number]>();
     let next: string | undefined = endpoint;
+    const pages = new Set<string>();
     while (next !== undefined) {
+        if (pages.has(next)) throw new Error("The host repeated a catalog page");
+        pages.add(next);
         let response: Response;
         try {
             response = await (options.fetch ?? fetch)(next, { headers, signal: AbortSignal.timeout(15_000), redirect: "error" });
@@ -34,7 +38,9 @@ export async function readModelCatalog(options: ReadModelCatalogOptions): Promis
         let body: { data?: unknown; has_more?: boolean; last_id?: string };
         try { body = await response.json() as typeof body; } catch { throw new Error("The host returned an invalid model catalog"); }
         if (!Array.isArray(body.data)) throw new Error("The host returned an invalid model catalog");
-        for (const row of body.data) {
+        if (options.provider === "openrouter") {
+            for (const model of normalizeOpenRouterModels(body).models) models.set(model.id, model);
+        } else for (const row of body.data) {
             if (typeof row?.id !== "string" || row.id.length === 0) continue;
             models.set(row.id, { id: row.id, label: typeof row.display_name === "string" ? row.display_name
                 : typeof row.name === "string" ? row.name : row.id, levels: [] });

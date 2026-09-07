@@ -1,5 +1,5 @@
 import { handleVerificationKey } from "./model-verification.ts";
-import { handleModelJourneyKey, journeyHeader, journeyFooter } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -1168,17 +1168,12 @@ export function renderListPickerRows(
         const start = Math.max(0, Math.min(state.selectedIndex - Math.floor(maximum / 2), state.options.length - maximum));
         const rows = state.options.slice(start, start + maximum);
         if (rows.length === 0) add(new TextRenderable(renderer, {
-            content: state.allOptions.length === 0
-                ? "No discovered models. Configure providers (^e), or refresh their catalogs (^r)."
-                : state.query ? "No models match your search. Clear the search to see models."
-                : state.modelJourney === "switch" && state.tab !== "all"
-                ? "Your shortlist is empty. Tab shows all models; ^s opens Manage shortlist."
-                : "No models pass this cutoff. ^i changes the cutoff.",
+            content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
         for (const node of dialogOptionRows(renderer, rows.map((row, index) => ({
             label: row.label, active: start + index === state.selectedIndex,
-            meta: `${row.provider}  ${state.modelJourney === "shortlist"
+            meta: `${row.provider}  ${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
                 ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
                 : row.value === state.initialModel ? "current" : ""}`,
             ...dialogRowPointer(pointer, start + index),

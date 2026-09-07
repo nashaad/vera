@@ -118,7 +118,9 @@ export function advanceCatalogRefreshSweep(rt: TuiRuntime): void {
     const next = sweep.queue[sweep.index];
     if (next === undefined) {
         rt.catalogRefreshSweep = undefined;
-        showStatusNotice(rt, catalogRefreshSummary(rt, sweep.results));
+        const summary = catalogRefreshSummary(rt, sweep.results);
+        showStatusNotice(rt, summary);
+        if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney !== undefined) rt.settingsPicker = { ...rt.settingsPicker, journeyNotice: summary };
         renderState(rt);
         return;
     }
@@ -154,19 +156,11 @@ export function catalogRefreshSummary(rt: TuiRuntime,
         readonly after?: number;
     }[],
 ): string {
-    return results
-        .map((entry) => {
-            if (entry.after === undefined) {
-                return `${entry.provider}: could not ask`;
-            }
-            const delta = entry.after - entry.before;
-            return delta === 0
-                ? `${entry.provider}: ${entry.after}, nothing new`
-                : `${entry.provider}: ${entry.after}, ${
-                    delta > 0 ? `+${delta} new` : `${-delta} gone`
-                }`;
-        })
-        .join(" \u00b7 ");
+    const passed = results.filter((row) => row.after !== undefined);
+    const added = passed.reduce((sum, row) => sum + Math.max(0, row.after! - row.before), 0);
+    const failed = results.filter((row) => row.after === undefined).map((row) => row.provider);
+    return `Refreshed ${passed.length} catalogs, ${added} new models.`
+        + (failed.length ? ` Could not refresh: ${failed.join(", ")}.` : "");
 }
 
 export function openPoolVerifyScopePicker(rt: TuiRuntime): void {

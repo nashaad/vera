@@ -1,3 +1,6 @@
+import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
+import { readModelCatalog } from "../providers/read-model-catalog.ts";
+import { effectiveCatalog } from "../model/catalog.ts";
 import { applyModelOperation } from "../model/model-operations.ts";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
 import { readdir, realpath, stat } from "node:fs/promises";
@@ -477,20 +480,16 @@ export async function startResidentHost(
         availableModels: models,
         refreshAvailableModels: options.createAdapter === undefined
             ? () => {
-                models = refreshDynamicAvailableModels(
-                    models,
-                    currentConfig(),
-                    authStorage,
-                );
+                models = withProviderRefreshability(modelsFromConnectedCatalogs(currentConfig(), models, { authStorage }), currentConfig());
                 return models;
             }
             : undefined,
+        providerCatalogs: () => connectedProviderCatalogs(currentConfig(), { authStorage }),
         refreshableProviders: () => {
             const config = currentConfig();
-            return configuredProviders(config)
-                .filter((provider) =>
-                    isRefreshableProvider(provider.id, config)
-                )
+            return connectedProviderCatalogs(config, { authStorage })
+                .filter((provider) => isRefreshableProvider(provider.id, config)
+                    || configuredProviders(config).find((row) => row.id === provider.id)?.protocol === "anthropic-messages")
                 .map((provider) => provider.id);
         },
         refreshCatalog: (provider) => {
@@ -498,9 +497,18 @@ export async function startResidentHost(
                 const config = currentConfig();
                 const webdev = refreshWebDevArena({ maxAgeMs: 0 });
                 try {
-                    if (!isRefreshableProvider(provider, config)) return undefined;
+
                     const descriptor = configuredProviders(config)
                         .find((entry) => entry.id === provider);
+                    if (descriptor?.protocol === "anthropic-messages" && descriptor.baseUrl !== undefined) {
+                        const stored = authStorage.getCredential(provider);
+                        const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
+                        const catalog = await readModelCatalog({ provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key });
+                        writeProviderCatalogSnapshot(catalog);
+                        models = modelsFromConnectedCatalogs(config, models, { authStorage });
+                        return models;
+                    }
+                    if (!isRefreshableProvider(provider, config)) return undefined;
                     if (descriptor?.behaviorId === "ollama") {
                         const discovered = await discoverOllamaModelCatalog({
                             log: hostLog,
@@ -961,6 +969,7 @@ export async function startResidentHost(
                     discovered: registry.modelsForClient(),
                     assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
                     createAdapter: (provider) => createAdapter(provider),
+                    catalog: (provider, model) => effectiveCatalog(provider).models.find((row) => row.id === model),
                     onResult,
                 });
                 return registry.readHostModelSettings(request.workspace);

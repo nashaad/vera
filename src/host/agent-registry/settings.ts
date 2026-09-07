@@ -56,6 +56,7 @@ export function readHostModelSettings(reg: AgentRegistry, workspace?: string): M
             reg.options.configuredOverrides?.(),
             workspace,
             reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
         );
     }
 
@@ -227,6 +228,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                 reg.options.configuredOverrides?.(),
                 entry.store.header.cwd,
                 reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
             );
         }
         if (patch.contextLimit !== undefined) {
@@ -251,6 +253,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                     reg.options.configuredOverrides?.(),
                     entry.store.header.cwd,
                     reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
                 );
             }
         }
@@ -276,6 +279,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                     reg.options.configuredOverrides?.(),
                     entry.store.header.cwd,
                     reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
                 );
             }
         }
@@ -307,6 +311,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             reg.options.configuredOverrides?.(),
             entry.store.header.cwd,
             reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
         );
     }
 
@@ -364,6 +369,7 @@ export async function applySessionModelSettings(reg: AgentRegistry, id: string, 
                 reg.options.configuredOverrides?.(),
                 entry.store.header.cwd,
                 reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
             ),
             origin,
         };
@@ -422,6 +428,7 @@ export async function poolAdd(reg: AgentRegistry, id: string, entry: { readonly 
                 reg.options.configuredOverrides?.(),
                 agentEntry.store.header.cwd,
                 reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
             ),
         };
     }
@@ -504,6 +511,7 @@ export async function refreshCatalog(reg: AgentRegistry, id: string, provider: s
             reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
         );
     }
 
@@ -534,6 +542,7 @@ export async function poolRemove(reg: AgentRegistry, id: string, entry: { readon
             reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
         );
     }
 
@@ -567,6 +576,7 @@ export async function poolName(reg: AgentRegistry, id: string, entry: { readonly
             reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
         );
     }
 
@@ -600,5 +610,6 @@ export async function poolMove(reg: AgentRegistry, id: string, entry: { readonly
             reg.options.configuredOverrides?.(),
             agentEntry.store.header.cwd,
             reg.options.refreshableProviders?.(),
+            reg.options.providerCatalogs?.(),
         );
     }

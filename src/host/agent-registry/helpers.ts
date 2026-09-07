@@ -1,3 +1,5 @@
+import type { HostModelCatalogSettings } from "../model-catalog-settings.ts";
+import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
@@ -313,7 +315,8 @@ export function settingsForClient(
     configured?: ConfiguredOverrides,
     projectRoot?: string,
     refreshableProviders?: readonly string[],
-): ModelTurnSettings {
+    providerCatalogs?: readonly ProviderCatalogState[],
+): HostModelCatalogSettings {
     const modelContextWindow = contextWindowForModel(
         provider,
         settings.model,
@@ -359,6 +362,7 @@ export function settingsForClient(
             : {}),
         availableReasoningEfforts: admitted,
         availableModels: listed.available,
+        ...(providerCatalogs === undefined ? {} : { providerCatalogs }),
         refreshableProviders: refreshableProviders
             ?? [...new Set(models.flatMap((model) =>
                 model.refreshable === true ? [model.provider] : []

@@ -1,3 +1,4 @@
+import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
 import { journeyModels } from "./model-journeys.ts";
 import {
     bg,
@@ -268,6 +269,7 @@ export function startTuiConfigurePicker(
 export function syncTuiModelPicker(
     state: TuiSettingsPickerState,
     settings: {
+        readonly providerCatalogs?: readonly ProviderCatalogState[];
         readonly provider?: string;
         readonly model?: string;
         readonly availableModels?: readonly SuggestedModel[];
@@ -298,6 +300,8 @@ export function syncTuiModelPicker(
     const actionOptions = settings?.actionOptions ?? state.actionOptions ?? [];
     const onTab = {
         ...rebuilt,
+        allOptions: settings?.providerCatalogs === undefined ? rebuilt.allOptions : rebuilt.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
+        providerCatalogs: settings?.providerCatalogs ?? state.providerCatalogs,
         modelJourney: state.modelJourney,
         title: state.title,
         tab,

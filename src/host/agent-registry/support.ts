@@ -1,3 +1,4 @@
+import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
@@ -319,6 +320,7 @@ export interface AgentRegistryOptions {
     readonly availableModels?: readonly SuggestedModel[];
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
     readonly refreshableProviders?: () => readonly string[];
+    readonly providerCatalogs?: () => readonly ProviderCatalogState[];
     /** Asks a provider for its model list now, past whatever age the snapshot would otherwise be trusted for, and returns the replacement list. */
     readonly refreshCatalog?: (
         provider: string,
