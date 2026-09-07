@@ -27,6 +27,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
 ): void {
     const extensionPickerWasOpen = rt.settingsPicker?.kind === "extension";
     const previousPicker = rt.settingsPicker;
+    const providerParent = previousPicker?.kind === "provider_actions"
+        ? previousPicker.parent
+        : previousPicker?.kind === "provider" ? previousPicker : undefined;
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
     rt.settingsPicker = transition.state;
@@ -141,7 +144,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     ) {
         openProviderEditForm(rt, 
             transition.editProvider,
-            previousPicker?.kind === "provider" ? previousPicker : undefined,
+            providerParent,
         );
         return;
     }
@@ -151,7 +154,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     ) {
         openProviderEndpointForm(rt, 
             transition.editEndpoint,
-            previousPicker?.kind === "provider" ? previousPicker : undefined,
+            providerParent,
         );
         return;
     }
@@ -424,9 +427,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         } else if (selection.kind === "provider") {
             const asked = connectProvider(rt, 
                 selection.providerId,
-                previousPicker?.kind === "extension"
+                providerParent ?? (previousPicker?.kind === "extension"
                     ? undefined
-                    : previousPicker,
+                    : previousPicker),
             );
             // A provider that needs no credential has cleared the key gate by
             // being chosen, so an unfinished flow carries on to the model step

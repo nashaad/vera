@@ -65,6 +65,7 @@ import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 export type TuiSettingsPickerKind =
     | "model"
     | "provider"
+    | "provider_actions"
     | "reasoning"
     | "permissions"
     | "theme"

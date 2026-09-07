@@ -1,4 +1,5 @@
 import { handleVerificationKey } from "./model-verification.ts";
+import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -835,8 +836,11 @@ export function handleTuiSettingsPickerKey(
         if (state.kind === "provider" && selected.action === true) {
             return { state, handled: true, declareProvider: true };
         }
-        if (state.kind === "provider" && selected.declared === true) {
-            return { state, handled: true, editProvider: selected.value };
+        if (state.kind === "provider") {
+            return { state: providerActions(state, selected), handled: true };
+        }
+        if (state.kind === "provider_actions") {
+            return providerActionTransition(state);
         }
         const action = state.kind === "model"
             ? modelActionTransition(state as TuiSettingsPickerState, selected)
@@ -1960,17 +1964,16 @@ export function pickerFooterText(
     if (state.kind === "reasoning" && state.pendingModel !== undefined) {
         return "↑↓ move · ⏎ select · esc back";
     }
+    if (state.kind === "provider_actions") {
+        return "↑↓ move · ⏎ select · esc back";
+    }
     if (state.kind === "provider") {
         const selected = state.options[state.selectedIndex];
         return [
             "↑↓ move",
             selected?.action === true
                 ? "⏎ add provider"
-                : selected?.declared === true
-                ? "⏎ edit"
-                : selected?.hasCredential === true
-                ? "⏎ reconnect"
-                : "⏎ connect",
+                : "⏎ actions",
             ...(selected?.hasCredential === true
                 ? [tuiKeyHint("forget_provider")]
                 : []),

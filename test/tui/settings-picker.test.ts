@@ -2942,8 +2942,8 @@ test("the connect pane opens on the first provider still to be connected", () =>
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
 
     expect(pane.options[pane.selectedIndex]?.value).toBe("openrouter");
-    expect(handleTuiSettingsPickerKey(pane, { name: "enter" }).selection)
-        .toEqual({ kind: "provider", providerId: "openrouter" });
+    expect(handleTuiSettingsPickerKey(pane, { name: "enter" }).state?.kind)
+        .toBe("provider_actions");
 });
 
 test("delete on the connect pane names the row to forget", () => {
@@ -3865,20 +3865,41 @@ test("a keyless declaration submits without a key", () => {
 });
 
 
-test("opening a declared row edits it, and a shipped row still connects", () => {
-    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "gemini" });
+test("provider Enter offers edit and refresh without starting either", async () => {
+    for (const provider of ["gemini", "openrouter", "ollama"]) {
+        const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: provider });
+        const opened = handleTuiSettingsPickerKey(pane, { name: "enter" });
+        const actions = opened.state as TuiSettingsPickerState;
+        expect(actions.kind).toBe("provider_actions");
+        expect(actions.options.map((row) => row.label)).toEqual(["Edit", "Refresh"]);
+        expect(opened.selection).toBeUndefined();
+        expect(opened).not.toHaveProperty("refreshCatalog");
+        expect(pickerFooter(pane)).toContain("⏎ actions");
+        expect(handleTuiSettingsPickerKey(actions, { name: "escape" }).state).toBe(pane);
+        const edit = handleTuiSettingsPickerKey(actions, { name: "enter" });
+        expect(edit).toMatchObject(provider === "gemini"
+            ? { editProvider: provider, state: pane }
+            : { editEndpoint: provider, state: pane });
+        const refresh = handleTuiSettingsPickerKey(
+            handleTuiSettingsPickerKey(actions, { name: "down" }).state!,
+            { name: "enter" },
+        );
+        expect(refresh).toMatchObject({ refreshCatalog: provider, state: pane });
+        expect(refresh.selection).toBeUndefined();
+        const frame = await pickerFrame(actions, 100, 30);
+        expect(frame).toContain("Edit");
+        expect(frame).toContain("Refresh");
+        expect(frame).toContain("esc back");
+    }
+});
 
-    const edit = handleTuiSettingsPickerKey(pane, { name: "return" });
-    expect("editProvider" in edit ? edit.editProvider : undefined)
-        .toBe("gemini");
-    expect(pickerFooter(pane)).toContain("⏎ edit");
-
-    const shipped = handleTuiSettingsPickerKey(
-        { ...pane, selectedIndex: 0 },
-        { name: "return" },
-    );
-    expect("editProvider" in shipped ? shipped.editProvider : undefined)
-        .toBeUndefined();
+test("fixed subscription endpoints retain reconnect without unsupported actions", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "openai-codex" });
+    const actions = handleTuiSettingsPickerKey(pane, { name: "enter" }).state!;
+    expect(actions.options.map((row) => row.label)).toEqual(["Reconnect"]);
+    expect(handleTuiSettingsPickerKey(actions, { name: "enter" })).toMatchObject({
+        state: pane, selection: { kind: "provider", providerId: "openai-codex" },
+    });
 });
 
 test("a shipped row's endpoint opens on the chord, and Codex's does not", () => {
@@ -3890,8 +3911,7 @@ test("a shipped row's endpoint opens on the chord, and Codex's does not", () => 
         .toBe("ollama");
     expect(pickerFooter(pane)).toContain("endpoint");
 
-    // A declared row's endpoint is already what ⏎ opens, so the chord lands on
-    // the same form rather than a second one.
+    // The direct chord reaches the same form as the Edit action.
     const declared = handleTuiSettingsPickerKey(
         startTuiProviderPicker(PROVIDER_ROWS, { selected: "gemini" }),
         chord,
