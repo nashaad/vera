@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import { handleModelJourneyKey, modelJourney, journeyHeader, journeyModels } from "../../clients/tui/model-journeys.ts";
-import { createTuiSettingsPickerView, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
+import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
     { value: "p/a", provider: "p", model: "a", label: "Alpha", description: "", waScore: 1550 },
@@ -111,6 +111,32 @@ test("model journey cards contain the footer and padding for empty, short, and f
                     expect(footer).toBeLessThan(bottom - 1);
                 }
             }
+        }
+    } finally { setup.renderer.destroy(); }
+});
+
+test("providers opened from either model journey never expose the legacy tabs", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 32 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        for (const journey of ["switch", "shortlist"] as const) {
+            const parent = modelJourney(base, journey);
+            const providers = withTuiPickerParent(startTuiProviderPicker([], {
+                subtitle: "No provider connected. Add provider to discover models.",
+            }), parent);
+            view.update(providers);
+            await setup.renderOnce();
+            const frame = setup.captureCharFrame();
+            expect(frame).toContain("Configure providers");
+            expect(frame).toContain("Add provider");
+            expect(frame).not.toContain("Providers ^e");
+            expect(frame).not.toContain("⇥ tabs");
+            for (const shift of [false, true]) {
+                expect(handleTuiSettingsPickerKey(providers, { name: "tab", shift }).state).toBe(providers);
+            }
+            expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state).toBe(parent);
         }
     } finally { setup.renderer.destroy(); }
 });

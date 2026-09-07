@@ -2830,8 +2830,8 @@ test("the connect pane groups providers by access and spells out connected statu
     );
     const frame = await pickerFrame(pane, 151, 36);
 
-    expect(frame).toContain("Select model");
-    expect(frame).toContain("Providers ^e");
+    expect(frame).toContain("Configure providers");
+    expect(frame).not.toContain("Providers ^e");
     expect(frame).toContain("Subscriptions");
     expect(frame).toContain("API keys");
     expect(frame).toContain("Local");
@@ -2845,7 +2845,8 @@ test("the connect pane groups providers by access and spells out connected statu
     // what it is going to ask for.
     expect(frame).toContain("ChatGPT Plus/Pro subscription");
     expect(frame).toContain("API key, pay per token");
-    expect(frame).toContain("⇥ tabs · esc back");
+    expect(frame).not.toContain("⇥ tabs");
+    expect(frame).toContain("esc back");
 });
 
 test("provider access facts map to stable TUI groups", () => {
@@ -3098,26 +3099,28 @@ test("escape from the connect pane returns to the model pane it was opened over"
         .toBe(model);
 });
 
-test("the connect pane opened from the model pane draws in the same card", async () => {
+test("Configure providers is a standalone card even when opened from a model pane", async () => {
     const providers = withTuiPickerParent(
         startTuiProviderPicker(PROVIDER_ROWS),
         modelPickerWithPool(),
     );
-
     const frame = await pickerFrame(providers);
-
-    // Same title, same tab strip: one card that changes what it lists, so the
-    // strip the user tabbed along is still there to tab back on.
-    expect(frame).toContain("Select model");
-    expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(
-        /Shortlist \(2\)\s+All \(\d+\)\s+Actions\s+Defaults\s+Help\s+Providers \^e/,
-    );
+    expect(frame).toContain("Configure providers");
+    expect(frame).not.toContain("Select model");
+    expect(frame).not.toContain("Providers ^e");
+    expect(frame).not.toContain("⇥ tabs");
+    expect(frame).not.toContain("All models");
     expect(frame).toContain("^f refresh");
     expect(frame).toContain("OpenRouter");
+    for (const shift of [false, true]) {
+        const transition = handleTuiSettingsPickerKey(providers, { name: "tab", shift });
+        expect(transition.state).toBe(providers);
+        expect(transition.selection).toBeUndefined();
+    }
+    expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state).toBe(providers.parent);
 });
 
-test("⇥ walks from the last tab onto the connect pane and back off it", () => {
+test("legacy model tabs can open providers without making providers a tab", () => {
     const help = switchedModelTab(modelPickerWithPool(), "help");
 
     const onto = handleTuiSettingsPickerKey(onStrip(help), { name: "tab" });
@@ -3132,11 +3135,11 @@ test("⇥ walks from the last tab onto the connect pane and back off it", () => 
         onto.state as TuiSettingsPickerState,
     );
     const off = handleTuiSettingsPickerKey(providers, { name: "tab" });
-    expect(off.handled).toBe(true);
-    expect(off.state).toBe(onto.state);
+    expect(off.handled).toBe(false);
+    expect(off.state).toBe(providers);
 });
 
-test("shift+tab walks left across model tabs and the providers pane", () => {
+test("legacy model tabs wrap left but providers ignores shift+tab", () => {
     const all = switchedModelTab(modelPickerWithPool(), "all");
     const pool = handleTuiSettingsPickerKey(onStrip(all), {
         name: "tab",
@@ -3159,7 +3162,8 @@ test("shift+tab walks left across model tabs and the providers pane", () => {
         name: "tab",
         shift: true,
     });
-    expect((help.state as TuiSettingsPickerState).tab).toBe("help");
+    expect(help.handled).toBe(false);
+    expect(help.state).toBe(providers);
 });
 
 test("the wheel moves the cursor, so enter still means the row on screen", () => {

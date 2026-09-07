@@ -498,18 +498,6 @@ export function handleTuiSettingsPickerKey(
     }
     if (
         state.kind === "provider"
-        && state.parent?.kind === "model"
-        && tuiBindingId("model_picker", key) === "switch_tab"
-    ) {
-        return {
-            state: key.shift === true
-                ? switchedModelTab(state.parent, "help")
-                : state.parent,
-            handled: true,
-        };
-    }
-    if (
-        state.kind === "provider"
         && tuiBindingId("model_picker", key) === "declare_provider"
     ) {
         return { state, handled: true, declareProvider: true };
@@ -1903,7 +1891,6 @@ export function pickerFooterText(
             ...(selected?.refreshable === true
                 ? [tuiKeyHint("refresh_catalog")]
                 : []),
-            ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
     }

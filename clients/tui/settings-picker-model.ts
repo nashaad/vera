@@ -750,9 +750,7 @@ export function modelStripPane(
     if (state.kind === "model") {
         return state;
     }
-    return state.kind === "provider" && state.parent?.kind === "model"
-        ? state.parent
-        : undefined;
+    return undefined;
 }
 
 export function modelStripStop(
