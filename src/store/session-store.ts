@@ -917,6 +917,8 @@ export class SessionStore {
                     ? {}
                     : { provider: settings.provider.trim() }),
                 model: settings.model.trim(),
+                ...("selectionCleared" in settings && settings.selectionCleared === true
+                    ? { selectionCleared: true } : {}),
                 ...(settings.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: settings.reasoningEffort }),
@@ -2172,6 +2174,8 @@ function parseModelSettingsEntry(
                 ? {}
                 : { provider: settings.provider.trim() }),
             model: settings.model.trim(),
+            ...("selectionCleared" in settings && settings.selectionCleared === true
+                ? { selectionCleared: true } : {}),
             ...(settings.reasoningEffort === undefined
                 ? {}
                 : { reasoningEffort: settings.reasoningEffort }),

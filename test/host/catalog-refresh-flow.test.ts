@@ -523,3 +523,54 @@ const adapter: ModelAdapter = {
     },
     15_000,
 );
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "forgetting a provider clears the live reply and the persisted selection",
+    async () => {
+        const { forgetProviderThroughHost } = await import("../../src/host/provider-forget-client.ts");
+        const { modelSelectionCleared } = await import("../../src/host/model-catalog-settings.ts");
+        const { SessionStore } = await import("../../src/store/session-store.ts");
+        const root = await realpath(await mkdtemp(join(tmpdir(), "vera-forget-flow-")));
+        const previousHome = process.env.VERA_HOME;
+        process.env.VERA_HOME = root;
+        let hasKey = true;
+        const authStorage: AuthStorage = {
+            getCredential: (id) => id === "test-gateway" && hasKey ? { type: "api_key", key: "fixture" } : undefined,
+            setCredential() {}, deleteCredential() { hasKey = false; },
+        };
+        const server = Bun.serve({ port: 0, fetch: () => Response.json({ data: [{ id: "alpha" }] }) });
+        const configPath = join(root, "config.json");
+        const sessionPath = join(root, "sessions", "agent.jsonl");
+        const socketPath = join(root, "host.sock");
+        await writeFile(configPath, JSON.stringify({ schema_version: 1, provider: "test-gateway", model: "alpha", approval_mode: "ask",
+            providers: { "test-gateway": { protocol: "openai-chat", base_url: `http://127.0.0.1:${server.port}/v1`, credential: "api_key" } },
+            model_assignments: { eco: { models: [{ provider: "test-gateway", model: "alpha" }] } },
+        }));
+        await writeFile(join(root, "pool.json"), JSON.stringify({ models: { "test-gateway/alpha": { added: true, learned: { probe: { ok: true, seen: "2026-09-06" } } } } }));
+        const host = await startResidentHost({ config: loadVeraConfig({ path: configPath }), createAdapter: () => adapter,
+            authStorage, socketPath, lockPath: join(root, "host.json"), sessionDirectory: join(root, "sessions"), eventLogDirectory: join(root, "logs") });
+        try {
+            const agent = await host.registry.create({ workspace: root, sessionPath });
+            const attachment = agent.attach();
+            try {
+                const settings = await forgetProviderThroughHost(socketPath, "test-gateway", root);
+                expect(settings?.pooled?.some((model) => model.provider === "test-gateway")).toBe(false);
+                expect(loadVeraConfig({ path: configPath }).model_assignments?.eco).toBeUndefined();
+                attachment.send({ type: "get_model_settings", requestId: "after-forget" });
+                while (true) {
+                    const update = await attachment.receive(AbortSignal.timeout(3_000));
+                    if (update.type === "model_settings" && update.requestId === "after-forget") {
+                        expect(modelSelectionCleared(update.settings)).toBe(true);
+                        break;
+                    }
+                }
+                expect(modelSelectionCleared((await SessionStore.open(sessionPath)).modelSettings())).toBe(true);
+            } finally { attachment.detach(); }
+        } finally {
+            await host.close(); server.stop(true);
+            if (previousHome === undefined) delete process.env.VERA_HOME;
+            else process.env.VERA_HOME = previousHome;
+            await rm(root, { recursive: true, force: true });
+        }
+    }, 15_000,
+);

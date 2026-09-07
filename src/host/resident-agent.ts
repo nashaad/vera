@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { HostModelCatalogSettings } from "./model-catalog-settings.ts";
 
 import { AsyncQueue } from "../engine/async-queue.ts";
 import type {
@@ -48,6 +49,7 @@ export class AgentCommandQueueFullError extends Error {
 }
 
 export interface ResidentAgentOptions {
+    readonly modelCatalogFacts?: () => Pick<HostModelCatalogSettings, "providerCatalogs" | "selectionCleared">;
     readonly maxPendingCommands?: number;
     readonly clientPromptRefusal?: string | (() => string | undefined);
     readonly onClientPrompt?: () => void;
@@ -454,6 +456,9 @@ export class ResidentAgent {
     }
 
     private broadcast(update: AgentUpdate): void {
+        if (update.type === "model_settings" && this.options.modelCatalogFacts !== undefined) {
+            update = { ...update, settings: { ...update.settings, ...this.options.modelCatalogFacts() } };
+        }
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();
         }

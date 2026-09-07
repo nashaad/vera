@@ -842,3 +842,24 @@ test("a cleared selection refuses a prompt and selecting again recovers", async 
         expect(await agent.engine.receive()).toMatchObject({ type: "prompt", content: "second" });
     } finally { attachment.detach(); agent.close(); }
 });
+
+test("model settings replies restore live host facts omitted by the engine projection", async () => {
+    let cleared = true;
+    const catalogs = [{ id: "remaining", label: "Remaining" }];
+    const agent = new ResidentAgent("catalog-agent", "/work/one", {
+        modelCatalogFacts: () => ({ providerCatalogs: catalogs, selectionCleared: cleared }),
+    });
+    const attachment = agent.attach();
+    try {
+        await attachment.receive();
+        agent.engine.send({ type: "model_settings", requestId: "first", pending: false,
+            settings: { provider: "removed", model: "previous" }, seq: 1 });
+        expect(await attachment.receive()).toMatchObject({ type: "model_settings",
+            settings: { selectionCleared: true, providerCatalogs: catalogs } });
+        cleared = false;
+        agent.engine.send({ type: "model_settings", requestId: "next", pending: false,
+            settings: { provider: "remaining", model: "next" }, seq: 2 });
+        expect(await attachment.receive()).toMatchObject({ type: "model_settings",
+            settings: { model: "next", selectionCleared: false } });
+    } finally { attachment.detach(); agent.close(); }
+});

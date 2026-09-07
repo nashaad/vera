@@ -650,6 +650,10 @@ export class AgentRegistry {
             IMAGE_ATTACHMENT_LIMITS,
         );
         const agent = new ResidentAgent(store.header.id, store.header.cwd, {
+            modelCatalogFacts: () => ({
+                providerCatalogs: this.options.providerCatalogs?.(),
+                selectionCleared: modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings),
+            }),
             attachImage: (path, signal) =>
                 imageAttachments.attachFile(path, signal),
             onRunStateChanged: () => this.notifyRosterChanged(),

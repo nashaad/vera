@@ -2488,3 +2488,15 @@ function values<T>(...items: T[]): () => T {
         return item;
     };
 }
+
+test("a cleared model selection survives reopening until a new model is selected", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "cleared-model", cwd: directory });
+    const cleared = { provider: "removed-provider", model: "previous", selectionCleared: true };
+    await store.appendModelSettings(cleared);
+    const reopened = await SessionStore.open(path);
+    expect(reopened.modelSettings()).toEqual(cleared);
+    await reopened.appendModelSettings({ provider: "openrouter", model: "next" });
+    expect((await SessionStore.open(path)).modelSettings()).toEqual({ provider: "openrouter", model: "next" });
+});
