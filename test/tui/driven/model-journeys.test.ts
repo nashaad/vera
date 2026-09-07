@@ -61,3 +61,44 @@ test("defaults expose six slots and empty eligibility offers recovery", async ()
         expect(assign).toContain("Manage shortlist");
     } finally { await session.close(); }
 }, 15_000);
+
+test("Home stages empty dials without creating a session, then switching applies the chosen model", async () => {
+    const { createHomeClient } = await import("../../../clients/tui/home-client.ts");
+    const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
+    const commands: import("../../../src/engine/protocol.ts").ClientCommand[] = [];
+    let created = 0;
+    const settings = { provider: "openrouter", model: "one/model", pooled: [],
+        availableModels: [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }] };
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-home-dials-")), width: 120, height: 36,
+        dependencies: () => ({
+            client: createHomeClient("/work/vera", { readModelSettings: async () => settings }),
+            authStorage: { getCredential: () => ({ type: "api_key", key: "fixture" }), setCredential() {}, deleteCredential() {} },
+            createSession: async () => {
+                created++;
+                return createSettingsAnsweringClient({ agentId: "new-model-session", workspace: "/work/vera", model: "one/model", mode: "ask",
+                    modelSettings: settings, onCommand: (command) => commands.push(command) });
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("V  E  R  A");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("dial strip"); await session.waitForVisiblePane("Dial strip");
+        session.sendKey("Enter"); await session.waitForVisiblePane("EFFORT");
+        session.sendKey("Down"); session.sendKey("Right");
+        await session.waitForVisiblePane("live: ask");
+        session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
+        expect(created).toBe(0);
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your shortlist is empty");
+        session.sendKey("Tab"); await session.waitForVisiblePane("One");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
+        await session.settle();
+        expect(created).toBe(1);
+        expect(commands.some((command) => command.type === "update_session_model_settings"
+            && command.patch.model === "one/model")).toBe(true);
+        expect(commands.some((command) => command.type === "update_session_permission_mode" && command.mode === "auto")).toBe(true);
+        expect(commands.some((command) => command.type === "pool_add")).toBe(false);
+    } finally { await session.close(); }
+}, 15_000);

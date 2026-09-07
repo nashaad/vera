@@ -1,5 +1,6 @@
 import { modelSelectionCleared } from "../../../src/host/model-catalog-settings.ts";
 import { isHomeClient } from "../home-client.ts";
+import { isApprovalMode } from "../../../src/engine/permissions.ts";
 import type { UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { HOST_CAPABILITY_PROMPT_QUEUE_RELEASE, HOST_CAPABILITY_SESSION_SCOPED_STATE } from "../../../src/host/capabilities.ts";
 import type { IdentifiedTuiAgentClient, TuiAgentClient } from "../agent-client.ts";
@@ -13,6 +14,7 @@ import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
 import { appendTuiNotice, type TuiState } from "../state.ts";
 import type { TuiAgentCatalog, TuiAgentCatalogRow, TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+import { beginCreateSession, currentDraft } from "./session-ops.ts";
 
 export async function openExtensionAgent(rt: TuiRuntime, 
     extensionId: string,
@@ -470,36 +472,48 @@ export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
 }
 
 export function commitDials(rt: TuiRuntime, 
-    pair: DialPair,
+    pair: DialPair | undefined,
     agent: string | undefined,
     permission: string | undefined,
 ): void {
     const target = focusedAgentClient(rt);
     const opened = rt.dialStrip;
     closeDials(rt);
-    if (opened?.opened === undefined
-        || pair.model !== opened.opened.model
-        || pair.provider !== opened.opened.provider
-        || pair.effort !== opened.opened.effort) {
-        void target.send({
-            type: "update_session_model_settings",
-            requestId: randomUUID(),
-            patch: {
-                ...(pair.provider === undefined
-                    ? {}
-                    : { provider: pair.provider }),
-                model: pair.model,
-                reasoningEffort: pair.effort ?? null,
-            },
-        }).catch(((error: unknown) => reportConnectionError(rt, error)));
+    if (isHomeClient(target) && pair === undefined) {
+        if (isApprovalMode(permission)) rt.state = { ...rt.state, approvalMode: permission };
+        renderState(rt);
+        return;
     }
-    if (agent !== undefined && agent !== opened?.openedAgent) {
-        selectAgent(rt, agent);
-    }
-    if (permission !== undefined
-        && permission !== opened?.openedPermission) {
-        requestPermissionsChange(rt, permission, target, "session");
-    }
+    const apply = () => {
+        const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
+        if (pair !== undefined && (opened?.opened === undefined
+            || pair.model !== opened.opened.model
+            || pair.provider !== opened.opened.provider
+            || pair.effort !== opened.opened.effort)) {
+            void client.send({
+                type: "update_session_model_settings",
+                requestId: randomUUID(),
+                patch: {
+                    ...(pair.provider === undefined
+                        ? {}
+                        : { provider: pair.provider }),
+                    model: pair.model,
+                    reasoningEffort: pair.effort ?? null,
+                },
+            }).catch(((error: unknown) => reportConnectionError(rt, error)));
+        }
+        if (agent !== undefined && agent !== opened?.openedAgent) {
+            selectAgent(rt, agent);
+        }
+        if (permission !== undefined
+            && permission !== opened?.openedPermission) {
+            requestPermissionsChange(rt, permission, client, "session");
+        }
+    };
+    if (isHomeClient(target)) {
+        const draft = currentDraft(rt);
+        beginCreateSession(rt, "stop", () => draft, apply);
+    } else apply();
 }
 
 export function setSidebarFocused(rt: TuiRuntime, focused: boolean): void {

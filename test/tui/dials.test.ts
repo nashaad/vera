@@ -604,5 +604,17 @@ test("unavailable models and access values are marked and skipped", () => {
     expect(dialStripSelection(state)?.model).toBe("qwen3:32b");
     const action = handleDialStripKey({ ...state, lane: "access" }, { name: "right" }, undefined);
     expect(action.kind === "state" && action.state.permissionModes[action.state.permissionIndex]).toBe("ask");
-    expect(renderDialStrip(state).join("\n")).toContain("full (off)");
+    expect(renderDialStrip(state, "").join("\n")).toContain("full (off)");
+});
+
+test("an empty model lane still applies staged access", () => {
+    const empty = openDialStrip(composeDialStrip({ current: undefined, recents: [], pool: [], includePool: true }), undefined, {
+        permissionModes: ["ask", "auto"], currentPermission: "ask",
+    });
+    const moved = handleDialStripKey({ ...empty, lane: "access" }, { name: "right" }, undefined);
+    expect(moved.kind).toBe("state");
+    if (moved.kind !== "state") return;
+    expect(handleDialStripKey(moved.state, { name: "enter" }, undefined)).toEqual({
+        kind: "commit", pair: undefined, permission: "auto",
+    });
 });

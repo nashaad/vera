@@ -668,7 +668,7 @@ export type DialStripAction =
     | { readonly kind: "state"; readonly state: DialStripState }
     | {
         readonly kind: "commit";
-        readonly pair: DialPair;
+        readonly pair: DialPair | undefined;
         readonly agent?: string;
         readonly permission?: string;
     }
@@ -692,7 +692,7 @@ export function handleDialStripKey(
     }
     if (key.name === "return" || key.name === "enter") {
         const pair = dialStripSelection(state);
-        return pair === undefined ? { kind: "ignore" } : {
+        return {
             kind: "commit",
             pair,
             ...(state.agents[state.agentIndex] === undefined

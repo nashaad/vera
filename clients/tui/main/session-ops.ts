@@ -24,6 +24,7 @@ import { sessionPickerLists, startTuiSessionPicker } from "../settings-picker.ts
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, createTuiState, dropTuiAdmission, setTuiWorkspaceRoot } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+import { requestPermissionsChange } from "./pool-admission.ts";
 
 export function switchToClient(rt: TuiRuntime, 
     next: TuiAgentClient,
@@ -396,6 +397,7 @@ export function beginCreateSession(rt: TuiRuntime,
     const clearingSidebar = rt.sidebar.isFocused()
         && rt.hostedSidebar.pane !== undefined;
     const sourceClient = focusedAgentClient(rt);
+    const homePermission = isHomeClient(sourceClient) ? rt.state.approvalMode : undefined;
     const sourceCompanions = clearingSidebar
         || rt.hostedSidebar.pane === undefined
         ? []
@@ -491,6 +493,7 @@ export function beginCreateSession(rt: TuiRuntime,
             return;
         }
         switchToClient(rt, next, draft?.());
+        if (homePermission !== undefined) requestPermissionsChange(rt, homePermission, next, "session");
         onReady?.();
         if (rt.homeSubmitPending) {
             rt.homeSubmitPending = false;
