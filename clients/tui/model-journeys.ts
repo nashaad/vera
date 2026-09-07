@@ -104,7 +104,7 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
     const reveal = state.revealAll ? "show fewer" : "show every model";
     return state.modelJourney === "shortlist"
         ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ^a " + reveal
-        : "↵ run it · ^s keep/unkeep · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ^a " + reveal + (state.tab === "all" ? " · ^g cutoff · ↑ from first model to slider" : "");
+        : "↵ run it · ^s keep/unkeep · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ^a " + reveal + (state.tab === "all" ? " · ← slider · ↓ list · ^g cutoff" : "");
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
@@ -127,16 +127,17 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     if (!managing && state.tab === "all" && state.modelFocus === "intelligence" && !key.ctrl) {
         if (key.name === "left" || key.name === "right") return { state: rebuiltJourney({ ...state,
             intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
-        }), handled: true };
+        }, selected?.value), handled: true };
         if (key.name === "down" || key.name === "enter" || key.name === "return") return { state: { ...state, modelFocus: "list" }, handled: true };
         if (key.name === "up") return same;
     }
     if (!managing && state.tab === "all" && key.name === "up" && state.selectedIndex === 0) {
         return { state: { ...state, modelFocus: "intelligence" }, handled: true };
     }
-    if (key.name === "left" || key.name === "right") {
-        return same;
+    if (!managing && state.tab === "all" && key.name === "left" && !key.ctrl) {
+        return { state: { ...state, modelFocus: "intelligence" }, handled: true };
     }
+    if (key.name === "left" || key.name === "right") return same;
     if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
         if (managing) return same;
         const next = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const, modelFocus: "list" as const, selectedIndex: 0 };

@@ -423,3 +423,40 @@ test("scope is prominent and highlighting across provider boundaries never moves
         }
     } finally { setup.renderer.destroy(); }
 });
+
+
+test("Switch scope keeps its card and footer fixed; Left enters the slider and Down returns to the selected model", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 44 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    try {
+        for (const height of [44, 24]) {
+            setup.resize(110, height);
+            let state = modelJourney(base, "switch");
+            let geometry: number[] | undefined;
+            for (let i = 0; i < 4; i++) {
+                view.update(state); await setup.renderOnce();
+                const footer = setup.captureCharFrame().split("\n").findIndex((line) => line.includes("^d/^u page"));
+                const next = [view.box.screenY, view.box.height, footer];
+                if (geometry) expect(next).toEqual(geometry); else geometry = next;
+                expect(view.box.screenY).toBeGreaterThanOrEqual(0);
+                expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(height);
+                state = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
+            }
+        }
+        let all = handleTuiSettingsPickerKey(modelJourney(base, "switch"), { name: "tab" }).state!;
+        all = updateTuiSettingsPickerSearch(all, "alpha").state!;
+        const model = all.options[all.selectedIndex]?.model;
+        view.update(all);
+        expect(view.handleEditorKey(all, { name: "left" }).handled).toBe(false);
+        all = handleTuiSettingsPickerKey(all, { name: "left" }).state!;
+        expect(all.modelFocus).toBe("intelligence");
+        all = handleTuiSettingsPickerKey(all, { name: "right" }).state!;
+        expect(all.intelligenceCutoff).toBe("1400");
+        all = handleTuiSettingsPickerKey(all, { name: "down" }).state!;
+        expect(all.modelFocus).toBe("list");
+        expect(all.options[all.selectedIndex]?.model).toBe(model);
+        expect(all.query).toBe("alpha");
+    } finally { setup.renderer.destroy(); }
+});

@@ -1,5 +1,5 @@
 import { handleVerificationKey } from "./model-verification.ts";
-import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -952,7 +952,8 @@ export function createTuiSettingsPickerView(
             if (
                 !pickerIsSearchable(state)
                 || (state.modelJourney !== undefined && (key.ctrl === true || tuiBindingId("switch_model_picker", key) === "journey_scope"
-                    || (state.modelFocus === "intelligence" && (key.name === "left" || key.name === "right"))))
+                    || (state.tab === "all" && key.name === "left")
+                    || (state.modelFocus === "intelligence" && key.name === "right")))
                 || (state.kind === "model" && state.tab === "help")
                 || key.name === "escape" || key.name === "up"
                 || key.name === "down" || key.name === "return"
@@ -1000,7 +1001,7 @@ export function createTuiSettingsPickerView(
             nodes = [];
             searchLive = state.kind !== "extension"
                 && pickerIsSearchable(state)
-                && !(state.kind === "model" && state.tab === "help");
+                && !(state.kind === "model" && (state.tab === "help" || state.modelFocus === "intelligence"));
             box.title = undefined;
             surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
             if (state.kind === "theme") {
@@ -1109,7 +1110,7 @@ export function tuiPickerViewportRows(
         : rows;
 }
 
-function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
+function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
     const text = [journeyHeader(state), state.journeyNotice].filter(Boolean).join("\n");
     const headerLines = text ? text.split("\n").flatMap((line) => wrappedTo(line, pickerContentWidth(renderer, state, railInset))) : [];
     const scope = state.modelJourney === "switch";
@@ -1127,8 +1128,17 @@ function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerStat
     const detailHeight = split === undefined ? 0 : Math.max(0, ...state.options.map((_, selectedIndex) =>
         modelDetailHeight({ ...state, selectedIndex }, split.detailWidth)));
     const bodyHeight = Math.max(1, Math.min(room - (listed ? 1 : 0), Math.max(listHeight + (listed ? 1 : 0), detailHeight)));
-    return { priceLines, listed, rows, bodyHeight, headerLines, summaryMargin };
+    return { priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
 
+}
+
+function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
+    const layout = journeyScopeLayout(renderer, state, railInset);
+    if (state.modelJourney !== "switch") return layout;
+    const other = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const };
+    const alternative = journeyScopeLayout(renderer, { ...other, options: journeyModels(other) }, railInset);
+    const height = Math.max(layout.chromeHeight + layout.bodyHeight, alternative.chromeHeight + alternative.bodyHeight);
+    return { ...layout, bodyHeight: height - layout.chromeHeight };
 }
 
 export type PickerDisplayRow =
@@ -1184,7 +1194,7 @@ export function renderListPickerRows(
             marginTop: layout.summaryMargin, width: "100%",
         }));
         if (search !== undefined) {
-            updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
+            updateDialogSearchNode(search, state.query, "Search models", state.modelFocus !== "intelligence", state.queryCursor);
             box.add(search);
         }
         const cutoff = state.modelJourney === "switch" && state.tab === "all";
