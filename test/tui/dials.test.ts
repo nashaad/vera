@@ -618,3 +618,20 @@ test("an empty model lane still applies staged access", () => {
         kind: "commit", pair: undefined, permission: "auto",
     });
 });
+
+test("agent changes skip disabled postures and agents without permitted access", () => {
+    const original = openDialStrip(composeDialStrip({ current: SOL, recents: [], pool: POOL }), SOL, {
+        agents: ["default", "restricted", "blocked"], currentAgent: "default",
+        agentPostures: { restricted: "full_access" },
+        agentForbiddenAccess: { restricted: ["auto"], blocked: ["ask", "auto"] },
+        permissionModes: ["ask", "auto", "full_access"], currentPermission: "auto", disabledPermissionModes: ["full_access"],
+    });
+    const staged = press({ ...original, lane: "agent" }, "right");
+    expect(staged.agents[staged.agentIndex]).toBe("restricted");
+    expect(staged.permissionModes[staged.permissionIndex]).toBe("ask");
+    expect(handleDialStripKey(staged, { name: "enter" }, undefined)).toEqual({
+        kind: "commit", pair: SOL, agent: "restricted", permission: "ask",
+    });
+    expect(press(staged, "right").agentIndex).toBe(0);
+    expect(handleDialStripKey({ ...staged, permissionIndex: 2 }, { name: "enter" }, undefined)).toEqual({ kind: "ignore" });
+});

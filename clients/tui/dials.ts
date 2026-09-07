@@ -262,6 +262,16 @@ export function moveDialLane(
     return { ...state, lane: DIAL_LANES[next]! };
 }
 
+export function dialAccessAllowed(
+    state: DialStripState,
+    mode: string | undefined,
+    agent = state.agents[state.agentIndex],
+): boolean {
+    return mode !== undefined && state.permissionModes.includes(mode)
+        && !state.disabledPermissionModes?.includes(mode)
+        && !(agent === undefined ? [] : state.agentForbiddenAccess[agent] ?? []).includes(mode);
+}
+
 function moveChoice(
     state: DialStripState,
     delta: number,
@@ -271,40 +281,23 @@ function moveChoice(
         return adjustDialEffort(state, delta);
     }
     if (state.lane === "agent") {
-        const agentIndex = cycleIndex(
-            state.agentIndex,
-            delta,
-            state.agents.length,
-        );
-        const agent = state.agents[agentIndex];
-        const forbidden = agent === undefined
-            ? []
-            : state.agentForbiddenAccess[agent] ?? [];
-        const current = state.permissionModes[state.permissionIndex];
-        if (current === undefined || !forbidden.includes(current)) {
-            return { ...state, agentIndex };
+        let agentIndex = state.agentIndex;
+        for (let step = 0; step < state.agents.length; step += 1) {
+            agentIndex = cycleIndex(agentIndex, delta, state.agents.length);
+            const agent = state.agents[agentIndex];
+            const current = state.permissionModes[state.permissionIndex];
+            if (dialAccessAllowed(state, current, agent)) return { ...state, agentIndex };
+            const posture = agent === undefined ? undefined : state.agentPostures[agent];
+            const permissionIndex = dialAccessAllowed(state, posture, agent)
+                ? state.permissionModes.indexOf(posture!)
+                : state.permissionModes.findIndex((mode) => dialAccessAllowed(state, mode, agent));
+            if (permissionIndex >= 0) return { ...state, agentIndex, permissionIndex, permissionEdited: true };
         }
-        const posture = agent === undefined
-            ? undefined
-            : state.agentPostures[agent];
-        const permissionIndex = posture === undefined
-            || forbidden.includes(posture)
-            ? state.permissionModes.findIndex((mode) => !forbidden.includes(mode))
-            : state.permissionModes.indexOf(posture);
-        return {
-            ...state,
-            agentIndex,
-            permissionIndex: Math.max(0, permissionIndex),
-            permissionEdited: true,
-        };
+        return state;
     }
-    const agent = state.agents[state.agentIndex];
-    const forbidden = agent === undefined
-        ? []
-        : state.agentForbiddenAccess[agent] ?? [];
     const allowed = state.permissionModes
         .map((mode, index) => ({ mode, index }))
-        .filter(({ mode }) => !forbidden.includes(mode) && !state.disabledPermissionModes?.includes(mode));
+        .filter(({ mode }) => dialAccessAllowed(state, mode));
     if (allowed.length === 0) return state;
     const at = Math.max(
         0,
@@ -691,6 +684,8 @@ export function handleDialStripKey(
         return { kind: "cancel" };
     }
     if (key.name === "return" || key.name === "enter") {
+        if ((state.permissionEdited === true || state.agents[state.agentIndex] !== state.openedAgent)
+            && !dialAccessAllowed(state, state.permissionModes[state.permissionIndex])) return { kind: "ignore" };
         const pair = dialStripSelection(state);
         return {
             kind: "commit",

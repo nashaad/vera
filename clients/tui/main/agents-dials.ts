@@ -7,7 +7,7 @@ import type { IdentifiedTuiAgentClient, TuiAgentClient } from "../agent-client.t
 import { visibleTuiAgentMentions } from "../agent-message-routing.ts";
 import { isCurrentTuiExtensionComposeTarget, type TuiExtensionComposeTarget } from "../client-extension-compose.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS } from "../dial-paint.ts";
-import { composeDialStrip, openDialStrip, type DialPair, type DialPoolEntry } from "../dials.ts";
+import { dialAccessAllowed, composeDialStrip, openDialStrip, type DialPair, type DialPoolEntry } from "../dials.ts";
 import { abortProviderHealthCheck, displayModeLabel, focusActiveSurface, notifyExtensionSettings, rejectPendingExtensionSettingsFor, rememberOpenPaneGroup, renderState, reportConnectionError, requestAgentSettings, requestExtensionPicker, requestPermissionsChange, sendCommand, showModeToast, showStatusNotice, switchToClient } from "../main.ts";
 import { clearSidebarEntryNodes } from "../main/chrome.ts";
 import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
@@ -478,6 +478,11 @@ export function commitDials(rt: TuiRuntime,
 ): void {
     const target = focusedAgentClient(rt);
     const opened = rt.dialStrip;
+    if (opened !== undefined && permission !== undefined && !dialAccessAllowed(opened, permission, agent)) {
+        rt.state = appendTuiNotice(rt.state, "That access mode is unavailable.");
+        renderState(rt);
+        return;
+    }
     closeDials(rt);
     if (isHomeClient(target) && pair === undefined) {
         if (isApprovalMode(permission)) rt.state = { ...rt.state, approvalMode: permission };
