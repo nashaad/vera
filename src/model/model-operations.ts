@@ -82,7 +82,13 @@ export async function applyModelOperation(operation: ModelOperation, options: Mo
                 result(model, "failed", verdict.reason);
             }
         } catch (error) {
-            result(model, "failed", error instanceof Error ? error.message : String(error));
+            const reason = error instanceof Error ? error.message : String(error);
+            try {
+                recordModelVerification(ref(model), { probe: { ok: false, seen: new Date().toISOString(), error: reason } }, options);
+                result(model, "failed", reason);
+            } catch (writeError) {
+                result(model, "failed", `${reason}. Could not save verification: ${writeError instanceof Error ? writeError.message : String(writeError)}`);
+            }
         }
     }
     return results;

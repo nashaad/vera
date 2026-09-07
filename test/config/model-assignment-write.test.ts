@@ -77,6 +77,10 @@ test("null unbinds only the named assignment", () => {
 
 test("new assignments require independent membership and successful verification", () => {
     withConfigFile((path) => {
+        writeFileSync(join(path, "..", "pool.json"), JSON.stringify({ models: {
+            "openrouter/not-kept": { added: false, learned: { probe: { ok: true, seen: "2026-09-06" } } },
+            "openrouter/not-verified": { added: true },
+        } }));
         for (const model of ["not-kept", "not-verified"]) {
             expect(() => updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
                 models: [{ name: model, provider: "openrouter", model }],

@@ -82,8 +82,10 @@ test("verification makes real adapter requests and does not keep a model", async
 test("verification failure leaves membership and assignments untouched", async () => {
     const opts = options();
     await applyModelOperation({ operation: "keep", models: [model] }, opts);
-    const before = readUserPoolFile(opts);
+    recordModelVerification("test/one", { probe: { ok: true, seen: "2026-09-06" } }, opts);
     const results = await applyModelOperation({ operation: "verify", models: [model] }, opts);
     expect(results[0]?.status).toBe("failed");
-    expect(readUserPoolFile(opts)).toEqual(before);
+    expect(isCuratedPoolEntry(entry(opts))).toBe(true);
+    expect(isVerifiedPoolEntry(entry(opts))).toBe(false);
+    expect(entry(opts).learned?.probe?.error).toBe("No request was expected");
 });
