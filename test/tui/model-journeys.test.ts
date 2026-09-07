@@ -305,8 +305,36 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(preferred.indexOf("1629")).toBe(steady.indexOf("1400"));
         expect(header.indexOf("WA Score*") + "WA Score*".length).toBe(preferred.indexOf("1629") + 4);
         expect(unknown).not.toMatch(/\b0\b/);
+        expect(frame).toContain("full 3/15");
+        expect(frame).toContain("blended 4.2 at 7:2:1  images");
+        expect(frame.indexOf("full 3/15")).toBeGreaterThan(frame.indexOf("Steady"));
+        expect(frame).toContain("Catalog: fewer models");
+        expect(frame).toContain("show every model");
+        const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
+        view.update(unknownState);
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).not.toContain("full 3/15");
+        view.update(handleModelJourneyKey(unknownState, { name: "a", ctrl: true }).state!);
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).toContain("Catalog: all models");
+        expect(setup.captureCharFrame()).toContain("show fewer");
         expect(frame).toContain("* WA Score: an Elo rating");
         expect(frame).toContain("Model ID");
         expect(frame).toContain("Smarter");
+    } finally { setup.renderer.destroy(); }
+});
+
+
+test("All keeps its price band and footer inside a short terminal with cutoff and refresh notice", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 24 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        const state = handleModelJourneyKey(modelJourney(base, "switch"), { name: "tab" }).state!;
+        view.update({ ...state, intelligenceCutoff: "1400", journeyNotice: "Catalog refreshed." });
+        await setup.renderOnce();
+        expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(23);
+        expect(setup.captureCharFrame()).toContain("run it");
     } finally { setup.renderer.destroy(); }
 });

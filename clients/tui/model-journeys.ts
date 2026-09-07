@@ -108,7 +108,9 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
 
 export function journeyHeader(state: TuiSettingsPickerState): string {
     const hiddenCount = journeyMatches(state, true).length - journeyMatches(state, false).length;
-    const reduced = hiddenCount > 0 ? `\n${hiddenCount} older, duplicate or superseded models ${state.revealAll ? "included" : "hidden"} · ^a ${state.revealAll ? "show fewer" : "show all"}` : "";
+    const reduced = `\nCatalog: ${state.revealAll ? "all models" : "fewer models"} · ^a ${state.revealAll ? "show fewer" : "show every model"}`
+        + (state.query.trim() ? " · search includes hidden models" : hiddenCount > 0
+            ? ` · ${hiddenCount} older, duplicate or superseded models ${state.revealAll ? "included" : "hidden"}` : "");
     if (state.modelJourney === "shortlist") {
         const kept = state.allOptions.filter((row) => row.pooledRank !== undefined);
         const verified = kept.filter((row) => row.unverified !== true).length;
@@ -122,14 +124,15 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
     const floor = state.intelligenceCutoff ?? "any";
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));
     const unscored = hidden.filter((row) => row.waScore === undefined).length;
-    return `Scope: ${scope} · tab scope    Intelligence cutoff · ^g step · ↑ from the first row to adjust\n`
-        + (hidden.length ? `${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "") + reduced;
+    return `Scope: ${scope} · tab scope    Intelligence cutoff · ^g step · ↑ from the first row to adjust`
+        + (hidden.length ? `\n` + `${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "") + reduced;
 }
 
 export function journeyFooter(state: TuiSettingsPickerState): string {
+    const reveal = state.revealAll ? "show fewer" : "show every model";
     return state.modelJourney === "shortlist"
-        ? "↵ keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^u unkeep matches · esc done\n←/→ fold provider · ⇧←/→ fold all · ^a show all/fewer"
-        : "↵ run it · tab scope · ^r refresh catalogs · ^s manage shortlist · ^e providers · esc\n←/→ fold provider · ⇧←/→ fold all · ^a show all/fewer";
+        ? "↵ keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^u unkeep matches · esc done\n←/→ fold provider · ⇧←/→ fold all · ^a " + reveal
+        : "↵ run it · tab scope · ^r refresh catalogs · ^s manage shortlist · ^e providers · esc\n←/→ fold provider · ⇧←/→ fold all · ^a " + reveal;
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition {

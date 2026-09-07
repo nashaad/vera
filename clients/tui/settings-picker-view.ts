@@ -1160,7 +1160,8 @@ export function renderListPickerRows(
             content: new StyledText([...chunks]), width: "100%", height: 1,
         }));
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
-        const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0));
+        const priceLines = cutoff ? (renderer.height < 30 ? 1 : 3) : 0;
+        const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0) - priceLines);
         const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
         const listed = cutoff && rowWidth >= 48 && room >= 4;
@@ -1208,6 +1209,15 @@ export function renderListPickerRows(
             body.height = height;
             list.height = height;
             body.add(modelDetailNode(renderer, state, split.detailWidth, height));
+        }
+        if (priceLines > 0) {
+            const selected = state.options[state.selectedIndex];
+            const prices = allModelsPriceNode(renderer, selected?.model === undefined ? undefined : selected, width);
+            if (priceLines === 1) {
+                prices.marginTop = 0;
+                prices.marginBottom = 0;
+            }
+            add(prices);
         }
         if (listed) add(listedFactsFootnoteNode(renderer, width));
         add(dialogFooterNode(renderer, journeyFooter(state)));
