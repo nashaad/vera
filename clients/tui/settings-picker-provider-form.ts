@@ -87,7 +87,7 @@ export function tuiProviderFormFields(
 ): readonly TuiProviderFormFieldId[] {
     const shown = state.shipped === true && state.editing !== undefined
         ? ["base_url", "api_key"] as const
-        : state.shipped === true ? ["id", "base_url", "api_key"] as const : TUI_PROVIDER_FORM_FIELDS;
+        : providerFormTemplate(state.id) !== undefined ? ["id", "base_url", "api_key"] as const : TUI_PROVIDER_FORM_FIELDS;
     return state.credential === "api_key"
         ? shown
         : shown.filter((field) => field !== "api_key");
@@ -328,11 +328,11 @@ export function editedProviderFormField(
 ): TuiProviderFormState {
     const { error: _error, ...rest } = state;
     if (state.field === "id") {
-        const provider = findProvider(value.trim());
-        const previous = findProvider(state.id.trim());
+        const provider = providerFormTemplate(value.trim());
+        const previous = providerFormTemplate(state.id.trim());
         const prefill = state.baseUrl.length === 0 || state.baseUrl === previous?.baseUrl;
         return { ...rest, id: value, ...(provider === undefined ? { shipped: false } : {
-            shipped: true,
+            shipped: isVeraProviderId(value.trim()),
             ...(prefill ? { baseUrl: provider.baseUrl ?? "" } : {}),
             protocol: provider.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
             credential: provider.credential === "none" ? "none" : "api_key",
@@ -668,3 +668,14 @@ function providerFormControlKey(key: TuiProviderFormKey): boolean {
 }
 
 let nextProviderFormEditorSession = 1;
+
+function providerFormTemplate(id: string) {
+    const shipped = findProvider(id);
+    if (shipped !== undefined) return shipped;
+    const templates: Record<string, { baseUrl: string; protocol: "openai-chat" | "anthropic-messages"; credential: "api_key" }> = {
+        anthropic: { baseUrl: "https://api.anthropic.com/v1", protocol: "anthropic-messages", credential: "api_key" },
+        openai: { baseUrl: "https://api.openai.com/v1", protocol: "openai-chat", credential: "api_key" },
+        google: { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", protocol: "openai-chat", credential: "api_key" },
+    };
+    return templates[id];
+}

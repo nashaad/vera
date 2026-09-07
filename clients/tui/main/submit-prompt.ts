@@ -1128,8 +1128,7 @@ export function submitPrompt(rt: TuiRuntime,
         // A turn with no provider behind it can only fail, so the first prompt
         // opens the gates instead of being sent. It stays in the composer and
         // runs there once a model has answered.
-        rt.onboardingPromptWaiting = true;
-        openOnboardingWizard(rt);
+        openSettingsDestination(rt, { kind: "provider" });
         return;
     }
     const chipOrder = rt.composer.imageChipRequestIds();

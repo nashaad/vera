@@ -1,3 +1,4 @@
+import { beginCreateSession, currentDraft } from "./session-ops.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
@@ -368,10 +369,18 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         }
         if (selection.kind === "model" && previousPicker?.kind === "model" && previousPicker.modelJourney === "switch") {
             const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
-            void target.send({ type: "update_session_model_settings", requestId: randomUUID(),
-                patch: { provider: selection.provider, model: selection.model, reasoningEffort: null } })
-                .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
-            showStatusNotice(rt, `${selection.model}. Applies to the next request. Not added to the shortlist.`);
+            const apply = () => {
+                const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
+                void client.send({ type: "update_session_model_settings", requestId: randomUUID(),
+                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: null } })
+                    .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
+                showStatusNotice(rt, `${selection.model}. Applies to the next request. Not added to the shortlist.`);
+                renderState(rt);
+            };
+            if (isHomeClient(target)) {
+                const draft = currentDraft(rt);
+                beginCreateSession(rt, "stop", () => draft, apply);
+            } else apply();
         } else if (selection.kind === "model") {
             const chosenLevels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)

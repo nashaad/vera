@@ -163,11 +163,12 @@ export function paneHeaderText(rt: TuiRuntime,
 ): string {
     const left = `${name} · ${approvalMode ?? "loading"}`;
     const model = settings?.model;
-    const right = modelSelectionCleared(settings) ? "no model selected" : model === undefined
+    const selected = modelSelectionCleared(settings) ? "no model selected" : model === undefined
         ? "model loading"
         : settings?.provider === undefined
         ? model
         : `${settings.provider}/${model}`;
+    const right = `${selected} · ${modelSelectionCleared(settings) ? "default" : settings?.reasoningEffort ?? "default"}`;
     const contentWidth = Math.max(1, width - rt.composerHorizontalInset);
     const indent = " ".repeat(rt.composerContentIndent);
     if (left.length + right.length + 3 <= contentWidth) {

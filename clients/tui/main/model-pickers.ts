@@ -644,7 +644,7 @@ export function onboardingInput(
 /** Whether any provider has answered yet. The card leads with Connect until one has. */
 export function homeNeedsProvider(rt: TuiRuntime): boolean {
     try {
-        return openGate(onboardingInput(rt)) !== "ready";
+        return connectedProviderCatalogs(loadOptionalVeraConfig(), { authStorage: rt.authStorage }).length === 0;
     } catch {
         return false;
     }

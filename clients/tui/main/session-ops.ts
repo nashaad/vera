@@ -291,13 +291,7 @@ export function beginParkToJsonl(rt: TuiRuntime): void {
 
 export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
     if (action.kind === "connect_provider") {
-        // The wizard is the cold path. Once a provider has answered, adding a
-        // second one is the ordinary picker rather than a walk through gates.
-        if (homeNeedsProvider(rt)) {
-            openOnboardingWizard(rt);
-        } else {
-            openProviderPicker(rt);
-        }
+        openProviderPicker(rt);
         return;
     }
     if (action.kind === "resume_picker") {

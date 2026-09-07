@@ -3687,7 +3687,7 @@ test("the provider form visibly offers no-key authentication", async () => {
     view.surface.visible = true;
     let form: TuiProviderFormState = {
         ...startTuiProviderForm(),
-        id: "outrider",
+        id: "custom-local",
         baseUrl: "http://127.0.0.1:11435/v1",
         field: "credential",
     };
@@ -4797,4 +4797,13 @@ test("the star on the WA Score column is answered under the list", async () => {
         55,
     );
     expect(shortlist).not.toContain(LISTED_FACTS_FOOTNOTE);
+});
+
+test("named provider connection prefills its endpoint and protocol without hiding the name", () => {
+    let form = startTuiProviderForm();
+    form = handleTuiProviderFormPaste(form, "anthropic");
+    expect(form.baseUrl).toBe("https://api.anthropic.com/v1");
+    expect(form.protocol).toBe("anthropic-messages");
+    expect(tuiProviderFormFields(form)).toEqual(["id", "base_url", "api_key"]);
+    expect(form.editing).toBeUndefined();
 });
