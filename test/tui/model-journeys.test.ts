@@ -72,3 +72,16 @@ test("default assignment offers only verified shortlist models and both recovery
     expect(pane.options.some((row) => row.label === "Verify shortlisted models")).toBe(true);
     expect(pane.options.some((row) => row.label === "Manage shortlist")).toBe(true);
 });
+
+test("a kept current model that disappears stays removable but cannot be selected", async () => {
+    const { startTuiSettingsPicker } = await import("../../clients/tui/settings-picker.ts");
+    const picker = startTuiSettingsPicker("model", "gone", undefined, "ask", [], "default", "p", undefined, [
+        { provider: "p", model: "gone", label: "Gone", available: false, verified: true, levels: [] },
+    ]);
+    const switched = modelJourney({ ...picker, providerCatalogs: [{ id: "p", label: "P", refreshedAt: "2026-09-06" }] }, "switch");
+    expect(switched.options[0]?.unavailable).toBe(true);
+    expect(handleModelJourneyKey(switched, { name: "enter" }).selection).toBeUndefined();
+    const managed = modelJourney(switched, "shortlist");
+    expect(journeyHeader(managed)).toContain("1 kept of 0 discovered");
+    expect(handleModelJourneyKey(managed, { name: "enter" }).poolToggle?.action).toBe("remove");
+});

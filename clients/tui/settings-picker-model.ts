@@ -1862,6 +1862,7 @@ export function modelOptions(
             provider: currentProvider,
             model: currentModel,
             ...poolMarks(currentValue),
+            ...(available === undefined ? {} : { unavailable: true }),
         });
     }
     const orphanEntries = pooled.flatMap((entry, rank) => {
