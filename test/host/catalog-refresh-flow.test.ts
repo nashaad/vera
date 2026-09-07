@@ -536,7 +536,7 @@ const adapter: ModelAdapter = {
         let hasKey = true;
         const authStorage: AuthStorage = {
             getCredential: (id) => id === "test-gateway" && hasKey ? { type: "api_key", key: "fixture" } : undefined,
-            setCredential() {}, deleteCredential() { hasKey = false; },
+            setCredential() { hasKey = true; }, deleteCredential() { hasKey = false; },
         };
         const server = Bun.serve({ port: 0, fetch: () => Response.json({ data: [{ id: "alpha" }] }) });
         const configPath = join(root, "config.json");
@@ -565,6 +565,18 @@ const adapter: ModelAdapter = {
                     }
                 }
                 expect(modelSelectionCleared((await SessionStore.open(sessionPath)).modelSettings())).toBe(true);
+                updateVeraConfigDefaults({ custom_provider: { id: "test-gateway", declaration: {
+                    protocol: "openai-chat", base_url: `http://127.0.0.1:${server.port}/v1`, credential: "api_key",
+                } } });
+                authStorage.setCredential("test-gateway", { type: "api_key", key: "fixture" });
+                const effortOnly = await host.registry.applySessionModelSettings(agent.id, { reasoningEffort: null });
+                expect(effortOnly).toBeDefined();
+                expect(modelSelectionCleared(effortOnly?.settings)).toBe(true);
+                expect(modelSelectionCleared((await SessionStore.open(sessionPath)).modelSettings())).toBe(true);
+                const selected = await host.registry.applySessionModelSettings(agent.id, { provider: "test-gateway", model: "alpha" });
+                expect(selected).toBeDefined();
+                expect(modelSelectionCleared(selected?.settings)).toBe(false);
+
             } finally { attachment.detach(); }
         } finally {
             await host.close(); server.stop(true);

@@ -1,4 +1,5 @@
 import { isVeraProviderId } from "../../config.ts";
+import { modelSelectionCleared } from "../model-catalog-settings.ts";
 import type { PoolAdmissionVerdict } from "../../engine/events.ts";
 import { isModelReasoningEffort, publishedReasoningLevels, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../../engine/model-settings.ts";
 import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
@@ -176,6 +177,8 @@ export function resolveModelPatch(reg: AgentRegistry, entry: RegisteredAgentEntr
         const settings: ModelTurnSettings = {
             provider,
             model,
+            ...(patch.model === undefined && modelSelectionCleared(entry.modelSettings)
+                ? { selectionCleared: true } : {}),
             ...(reasoningEffort === undefined
                 ? {}
                 : { reasoningEffort }),
