@@ -320,6 +320,7 @@ export interface TuiExtensionPickerState {
 
 export interface TuiSettingsPickerKey {
     readonly name: string;
+    readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly super?: boolean;

@@ -308,7 +308,7 @@ export function renderState(rt: TuiRuntime): void {
         && isJsonlViewClient(rt.client)
         && !rt.jsonlCommandMode;
     rt.homeView.surface.visible = isHomeClient(rt.client)
-        && rt.onboardingWizard === undefined;
+        && rt.onboardingWizard === undefined && !overlayVisible;
     rt.onboardingWizardView.surface.visible = rt.onboardingWizard !== undefined;
     renderCommandSuggestions(rt);
     if (

@@ -1,4 +1,5 @@
 import { journeyModels } from "./model-journeys.ts";
+import { providerCatalogsOf, type HostModelCatalogSettings } from "../../src/host/model-catalog-settings.ts";
 import { bg, BoxRenderable, fg, StyledText, TextRenderable, type MouseEvent, type RenderContext, type TextChunk } from "@opentui/core";
 
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
@@ -117,10 +118,14 @@ export function moveTuiSettingsPickerPointer(
 export function mergeTuiModelPickerSettings(
     target: ModelTurnSettings | undefined,
     poolSource: ModelTurnSettings | undefined,
-): ModelTurnSettings | undefined {
+): HostModelCatalogSettings | undefined {
     if (target === undefined) return poolSource;
-    if (poolSource?.pooled === undefined) return target;
-    return { ...target, pooled: poolSource.pooled };
+    if (poolSource === undefined) return target;
+    return { ...target,
+        ...(poolSource.pooled === undefined ? {} : { pooled: poolSource.pooled }),
+        ...(poolSource.availableModels === undefined ? {} : { availableModels: poolSource.availableModels }),
+        ...(providerCatalogsOf(poolSource) === undefined ? {} : { providerCatalogs: providerCatalogsOf(poolSource) }),
+    };
 }
 
 export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {

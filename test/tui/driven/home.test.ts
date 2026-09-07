@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { configuredProviders } from "../../../src/providers/registry.ts";
 import type { TuiDependencies } from "../../../clients/tui/main.ts";
 import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import {
@@ -21,34 +22,30 @@ import {
     HOME_TYPING_HINT,
 } from "../../../clients/tui/home-screen.ts";
 
-// Every test here runs on a machine a provider has already answered, which is
-// what makes the card the four rows below. The cold card is its own test.
-const ANSWERED_POOL = join(
-    mkdtempSync(join(tmpdir(), "vera-tui-home-pool-")),
-    "pool.json",
-);
-writeFileSync(
-    ANSWERED_POOL,
-    JSON.stringify({
-        models: {
-            "openrouter/one/model": {
-                added: true,
-                learned: { probe: { ok: true, seen: "2026-09-02" } },
-            },
-        },
-    }),
-);
-process.env.VERA_POOL_FILE = ANSWERED_POOL;
+const providerEnv = new Map(configuredProviders(undefined).flatMap((provider) =>
+    provider.envVar === undefined ? [] : [[provider.envVar, process.env[provider.envVar]] as const]));
+for (const key of providerEnv.keys()) delete process.env[key];
+afterAll(() => {
+    for (const [key, value] of providerEnv) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+});
 
 /** Home plus the listing, search, and creation hooks its rows reach for. */
 function homeDependencies(
     home: string,
     hasSessions: boolean,
     createDelayMs = 0,
+    connected = true,
 ): TuiDependencies {
     const scenario = createTuiResumeScenario({ home });
     return {
         ...scenario.dependencies,
+        authStorage: {
+            getCredential: (provider) => connected && provider === "openrouter" ? { type: "api_key", key: "fixture" } : undefined,
+            setCredential() {}, deleteCredential() {},
+        },
         client: createHomeClient("/work/vera"),
         homeHasSessions: hasSessions,
         // The real scan over the transcripts the scenario wrote: home reads
@@ -169,17 +166,11 @@ test("enter on the first row leaves home for a new conversation", async () => {
     }
 }, 15_000);
 
-test("a machine with no answer leads to the provider list", async () => {
-    // No pool entry has passed a probe, so nothing here has answered yet.
-    const previousPool = process.env.VERA_POOL_FILE;
-    process.env.VERA_POOL_FILE = join(
-        mkdtempSync(join(tmpdir(), "vera-tui-home-cold-pool-")),
-        "pool.json",
-    );
+test("a machine with no connection leads to the provider list", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-"));
     const session = await startTuiTestSession({
         home,
-        dependencies: () => homeDependencies(home, true),
+        dependencies: () => homeDependencies(home, true, 0, false),
     });
 
     try {
@@ -190,38 +181,31 @@ test("a machine with no answer leads to the provider list", async () => {
         expect(card).toContain("Vera has no provider yet");
         expect(card).not.toContain(HOME_TYPING_HINT);
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("Set up Vera");
-        expect(pane).toContain("Who runs your models?");
-        expect(pane).toContain("OpenRouter");
+        const pane = await session.waitForVisiblePane("Configure providers");
+        expect(pane).toContain("No provider connected");
+        expect(pane).toContain("Add provider");
     } finally {
         await session.close();
-        process.env.VERA_POOL_FILE = previousPool;
     }
 }, 15_000);
 
-test("new conversation with no provider opens the gates instead", async () => {
-    const previousPool = process.env.VERA_POOL_FILE;
-    process.env.VERA_POOL_FILE = join(
-        mkdtempSync(join(tmpdir(), "vera-tui-home-cold-new-pool-")),
-        "pool.json",
-    );
+test("new conversation with no provider opens provider configuration", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-new-"));
     const session = await startTuiTestSession({
         home,
-        dependencies: () => homeDependencies(home, true),
+        dependencies: () => homeDependencies(home, true, 0, false),
     });
 
     try {
         await session.waitForVisiblePane("Connect a provider");
         session.sendKey("Down");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("Set up Vera");
+        const pane = await session.waitForVisiblePane("Configure providers");
         // The row that would open a conversation with nothing to answer it
         // opens the gates instead.
         expect(pane).not.toContain("Message Vera");
     } finally {
         await session.close();
-        process.env.VERA_POOL_FILE = previousPool;
     }
 }, 15_000);
 

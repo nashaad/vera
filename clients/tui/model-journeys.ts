@@ -28,7 +28,9 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
     if (state.modelJourney === "shortlist") {
         const kept = state.allOptions.filter((row) => row.pooledRank !== undefined);
         const verified = kept.filter((row) => row.unverified !== true).length;
-        return `${kept.length} kept of ${state.allOptions.length} discovered · ${verified} verified\n`
+        const unavailable = kept.filter((row) => row.unavailable).length;
+        const discovered = state.allOptions.filter((row) => !row.unavailable).length;
+        return `${kept.length} kept of ${discovered} discovered · ${verified} verified${unavailable ? ` · ${unavailable} kept unavailable` : ""}\n`
             + `A default slot only accepts a verified model; ${kept.length - verified} cannot hold one yet.`;
     }
     const scope = state.tab === "all" ? "shortlist [all]" : "[shortlist] all";

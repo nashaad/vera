@@ -971,7 +971,7 @@ export function createTuiSettingsPickerView(
                 || key.name === "down" || key.name === "return"
                 || key.name === "enter" || key.name === "kpenter"
                 || tuiBindingId("picker", key) !== undefined
-                || (state.kind === "model"
+                || ((state.kind === "model" || state.kind === "provider")
                     && tuiBindingId("model_picker", key) !== undefined)
                 || (state.kind === "session"
                     && tuiBindingId("session_picker", key) !== undefined)
@@ -1159,12 +1159,12 @@ export function renderListPickerRows(
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
         add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
         const header = journeyHeader(state) + (state.journeyNotice ? `\n${state.journeyNotice}` : "");
-        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: state.journeyNotice ? 3 : 2, width: "100%" }));
+        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: state.journeyNotice ? 3 : 2, marginTop: 1, width: "100%" }));
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search);
         }
-        const maximum = Math.max(1, renderer.height - 16);
+        const maximum = Math.max(1, renderer.height - 17);
         const start = Math.max(0, Math.min(state.selectedIndex - Math.floor(maximum / 2), state.options.length - maximum));
         const rows = state.options.slice(start, start + maximum);
         if (rows.length === 0) add(new TextRenderable(renderer, {
@@ -1175,11 +1175,11 @@ export function renderListPickerRows(
             label: row.label, active: start + index === state.selectedIndex,
             meta: `${row.provider}  ${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
                 ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
-                : row.value === state.initialModel ? "current" : ""}`,
+                : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
             ...dialogRowPointer(pointer, start + index),
         })), width)) add(node);
         add(dialogFooterNode(renderer, journeyFooter(state)));
-        box.height = Math.min(renderer.height - 4, Math.max(10, rows.length + 9));
+        box.height = Math.min(renderer.height - 4, Math.max(11, rows.length + 10));
         return;
     }
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
@@ -1679,7 +1679,8 @@ export function renderListPickerRows(
     const tipLine: TuiPickerTipLine | undefined = typeof tip === "string"
         ? { tone: "tip", text: tip }
         : tip;
-    if (tipLine !== undefined && tipLine.text.length > 0) {
+    if (tipLine !== undefined && tipLine.text.length > 0 && (state.kind === "extension" || state.verificationTargets === undefined)
+        && state.kind !== "model_verification" && state.kind !== "model_defaults") {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
                 { text: DIALOG_GUTTER } as TextChunk,

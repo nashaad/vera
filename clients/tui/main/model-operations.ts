@@ -1,7 +1,7 @@
 import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 import { verificationResults } from "../model-verification.ts";
-import { syncTuiModelPicker } from "../settings-picker.ts";
+import { mergeTuiModelPickerSettings, syncTuiModelPicker } from "../settings-picker.ts";
 import { focusedAgentClient } from "./agents-dials.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { showStatusNotice } from "./notices.ts";
@@ -37,8 +37,10 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
     }, focusedAgentClient(rt).workspace).then((settings) => {
         if (settings !== undefined) {
             // Home settings carry host defaults; retain the live conversation's pair.
-            rt.state = { ...rt.state, modelSettings: { ...settings, ...rt.state.modelSettings,
-                availableModels: settings.availableModels, pooled: settings.pooled } };
+            rt.state = { ...rt.state, modelSettings: mergeTuiModelPickerSettings(rt.state.modelSettings, settings) };
+            const sidebar = rt.hostedSidebar.pane?.state;
+            if (sidebar !== undefined) sidebar.state = { ...sidebar.state,
+                modelSettings: mergeTuiModelPickerSettings(sidebar.state.modelSettings, settings) };
             if (rt.settingsPicker?.kind === "model") rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, { ...settings, providerCatalogs: providerCatalogsOf(settings) });
         }
     }).catch((error) => {

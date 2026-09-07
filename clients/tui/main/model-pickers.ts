@@ -1,5 +1,7 @@
+import { isRefreshableProvider } from "../../../src/model/refreshable-providers.ts";
 import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
 import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
+import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { modelJourney } from "../model-journeys.ts";
 import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
@@ -641,10 +643,12 @@ export function onboardingInput(
     };
 }
 
-/** Whether any provider has answered yet. The card leads with Connect until one has. */
+/** Home is built before the runtime credential store is assigned. */
 export function homeNeedsProvider(rt: TuiRuntime): boolean {
     try {
-        return connectedProviderCatalogs(loadOptionalVeraConfig(), { authStorage: rt.authStorage }).length === 0;
+        return connectedProviderCatalogs(loadOptionalVeraConfig(), {
+            authStorage: rt.authStorage ?? rt.dependencies.authStorage ?? createAuthStorage(),
+        }).length === 0;
     } catch {
         return false;
     }
@@ -663,11 +667,6 @@ export function openProviderPicker(rt: TuiRuntime,
     const answers = onboardingInput(rt, config);
     const declared = new Set(Object.keys(config?.providers ?? {}));
     const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
-    const targetState = rt.state;
-    const refreshable = new Set(refreshableProvidersOf(rt, 
-        targetState.modelSettings?.availableModels,
-        targetState.modelSettings?.refreshableProviders,
-    ));
     rt.settingsPicker = withTuiPickerParent(
         startTuiProviderPicker(
             providers.map((provider) => {
@@ -686,7 +685,7 @@ export function openProviderPicker(rt: TuiRuntime,
                     ...(answerLabel === undefined
                         ? {}
                         : { answerState: answerLabel }),
-                    ...(refreshable.has(provider.id)
+                    ...(isRefreshableProvider(provider.id, config) || provider.protocol === "anthropic-messages"
                         ? { refreshable: true }
                         : {}),
                     ...(declared.has(provider.id) ? { declared: true } : {}),
@@ -695,7 +694,7 @@ export function openProviderPicker(rt: TuiRuntime,
                         : { endpointEditable: true }),
                 };
             }),
-            { ...options, subtitle: options.subtitle ?? (providers.length ? "^f refresh catalog · ^r edit endpoint · ^⇧x forget credentials" : "No provider connected. Add provider to discover models.") },
+            { ...options, subtitle: options.subtitle ?? (providers.length ? "^f refresh catalog · ^r edit endpoint · del forget credentials" : "No provider connected. Add provider to discover models.") },
         ),
         parent,
     );

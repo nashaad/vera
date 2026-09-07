@@ -850,6 +850,7 @@ export function startTuiProviderPicker(
         : allOptions.findIndex((option) => option.value === options.selected);
     return {
         kind: "provider",
+        title: "Configure providers",
         allOptions,
         options: allOptions,
         selectedIndex: named >= 0 ? named : Math.max(0, firstUnconnected),

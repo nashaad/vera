@@ -278,7 +278,6 @@ async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, subm
         rt.providerForm = undefined;
         const notice = `${provider?.label ?? submitted.id} saved and its catalog read: ${catalog.models.length} models discovered. `
             + "Discovery decides nothing: none is shortlisted, verified, or bound.";
-        rt.state = appendTuiNotice(rt.state, notice);
         requestAgentSettings(rt, focusedAgentClient(rt));
         openProviderPicker(rt, form.parent?.parent, { selected: submitted.id, subtitle: notice });
     } catch (error) {

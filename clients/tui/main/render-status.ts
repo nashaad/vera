@@ -426,7 +426,7 @@ export function renderStatus(rt: TuiRuntime): void {
         ]);
     rt.agentNoticeRows = agentSection.length +
         (nudgeIndicator === undefined ? 0 : 1);
-    const verifyNudge = anyOverlayOpen(rt) ? undefined : verificationNudge(
+    const verifyNudge = isWorkerFreeClient(rt.client) || anyOverlayOpen(rt) ? undefined : verificationNudge(
         statusState.modelSettings?.pooled ?? [], rt.verificationNudgeDismissed === true);
     if (verifyNudge !== undefined) {
         rt.agentNoticeText.content = new StyledText([

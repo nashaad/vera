@@ -21,15 +21,15 @@ test("the model picker's refresh key asks the provider and shows the new list", 
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/model");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane("One");
-        expect(pane).toContain("Select model");
+        let pane = await session.waitForVisiblePane("Switch model");
+        expect(pane).toContain("Switch model");
         expect(pane).not.toContain("Two");
 
-        session.sendKey("Down");
-        session.sendKey("C-f");
-        await session.waitForVisiblePane("asking openrouter");
+        session.sendKey("Tab");
+        await session.waitForVisiblePane("One");
+        session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Two");
-        expect(pane).toContain("openrouter: 2 models");
+        expect(pane).toContain("Refreshed 1 catalogs");
     } finally {
         await session.close();
     }
