@@ -199,7 +199,8 @@ export function openDials(rt: TuiRuntime): void {
                     : [[agent.name, agent.forbiddenAccess] as const]
             ) ?? [],
         ),
-        permissionModes: ["readonly", "ask", "auto"],
+        permissionModes: [...(focusedAgentState(rt).approvalMode === "readonly" ? ["readonly"] : []), "ask", "auto", "full_access"],
+        disabledPermissionModes: ["full_access"],
         currentPermission: focusedAgentState(rt).approvalMode ?? "ask",
     });
     renderState(rt);

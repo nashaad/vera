@@ -130,7 +130,7 @@ test("the effort scale explains the faster-to-smarter direction when it fits", (
 
 
 
-test("moving sideways discards an uncommitted effort edit", () => {
+test("moving sideways retains an uncommitted effort edit", () => {
     const composition = composeDialStrip({
         current: SOL,
         recents: [LUNA],
@@ -141,8 +141,8 @@ test("moving sideways discards an uncommitted effort edit", () => {
     expect(dialStripSelection(state)?.effort).toBe("medium");
     state = moveDialStrip(state, 1);
     state = moveDialStrip(state, -1);
-    // Back where it started, and the edit did not follow.
-    expect(dialStripSelection(state)?.effort).toBe("low");
+    // Returning to a compatible model restores the staged effort.
+    expect(dialStripSelection(state)?.effort).toBe("medium");
 });
 
 test("effort cycles through the provider default", () => {
@@ -593,4 +593,16 @@ test("pending values appear beside live values", () => {
     const state = openDialStrip(composeDialStrip({ current: SOL, recents: [], pool: POOL }), SOL);
     expect(renderDialStrip(press(state, "right"), "", 90)[0])
         .toContain("‹ medium › high  live: low");
+});
+
+test("unavailable models and access values are marked and skipped", () => {
+    const pool = [POOL[0]!, { ...POOL[1]!, available: false }, POOL[2]!];
+    let state = openDialStrip(composeDialStrip({ current: SOL, recents: [], pool, includePool: true }), SOL, {
+        permissionModes: ["ask", "auto", "full_access"], currentPermission: "auto", disabledPermissionModes: ["full_access"],
+    });
+    state = moveDialStrip(state, 1);
+    expect(dialStripSelection(state)?.model).toBe("qwen3:32b");
+    const action = handleDialStripKey({ ...state, lane: "access" }, { name: "right" }, undefined);
+    expect(action.kind === "state" && action.state.permissionModes[action.state.permissionIndex]).toBe("ask");
+    expect(renderDialStrip(state).join("\n")).toContain("full (off)");
 });

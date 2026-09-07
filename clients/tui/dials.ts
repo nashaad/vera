@@ -30,7 +30,7 @@ export interface DialSlot {
     readonly source: DialSlotSource;
     readonly efforts: readonly string[];
     readonly defaultEffort?: string;
-    readonly unavailable?: "not in your pool";
+    readonly unavailable?: "not in your pool" | "not available";
 }
 
 export interface DialStripComposition {
@@ -177,6 +177,7 @@ function slotFor(
         label: entry?.poolName ?? shortModel(pair.model),
         pair,
         source,
+        ...(entry?.available === false ? { unavailable: "not available" as const } : {}),
         efforts: orderEfforts(facts?.levels ?? []),
         ...(facts?.defaultLevel === undefined
             ? {}
@@ -200,6 +201,7 @@ export interface DialStripState {
     readonly openedAgent?: string;
     readonly agentPostures: Readonly<Record<string, string>>;
     readonly agentForbiddenAccess: Readonly<Record<string, readonly string[]>>;
+    readonly disabledPermissionModes?: readonly string[];
     readonly permissionModes: readonly string[];
     readonly permissionIndex: number;
     readonly openedPermission?: string;
@@ -217,6 +219,7 @@ export function openDialStrip(
         readonly agentForbiddenAccess?: Readonly<
             Record<string, readonly string[]>
         >;
+        readonly disabledPermissionModes?: readonly string[];
         readonly permissionModes?: readonly string[];
         readonly currentPermission?: string;
     } = {},
@@ -233,6 +236,7 @@ export function openDialStrip(
         agentPostures: options.agentPostures ?? {},
         agentForbiddenAccess: options.agentForbiddenAccess ?? {},
         permissionModes,
+        disabledPermissionModes: options.disabledPermissionModes,
         recent: composition.recent,
         permissionIndex: permissionModes.indexOf(options.currentPermission ?? ""),
         ...(current === undefined ? {} : { opened: current }),
@@ -300,7 +304,7 @@ function moveChoice(
         : state.agentForbiddenAccess[agent] ?? [];
     const allowed = state.permissionModes
         .map((mode, index) => ({ mode, index }))
-        .filter(({ mode }) => !forbidden.includes(mode));
+        .filter(({ mode }) => !forbidden.includes(mode) && !state.disabledPermissionModes?.includes(mode));
     if (allowed.length === 0) return state;
     const at = Math.max(
         0,
@@ -323,8 +327,7 @@ export function moveDialStrip(
         if (state.slots[next]?.unavailable === undefined) break;
     }
     if (next === state.index || state.slots[next]?.unavailable !== undefined) return state;
-    const { editedEffort: _discarded, ...rest } = state;
-    return { ...rest, index: next };
+    return { ...state, index: next };
 }
 
 export function jumpDialStrip(
@@ -356,7 +359,7 @@ export function dialStripSelection(
     state: DialStripState,
 ): DialPair | undefined {
     const slot = state.slots[state.index];
-    if (slot?.pair === undefined) return undefined;
+    if (slot?.pair === undefined || slot.unavailable !== undefined) return undefined;
     const effort = state.editedEffort === undefined
         ? slot.pair.effort
         : state.editedEffort ?? undefined;
@@ -365,7 +368,7 @@ export function dialStripSelection(
             ? {}
             : { provider: slot.pair.provider }),
         model: slot.pair.model,
-        ...(effort === undefined ? {} : { effort }),
+        ...(effort === undefined || !slot.efforts.includes(effort) ? {} : { effort }),
     };
 }
 
@@ -392,11 +395,11 @@ export function renderDialStrip(
             index === selected && value !== "unavailable" ? `‹ ${value} ›` : value);
         const liveNote = live === undefined || values[selected] === live
             ? "" : `  live: ${live}`;
-        return renderDialLane(state.lane === name, name.toUpperCase(), cells,
-            selected, Math.max(12, width - liveNote.length)) + liveNote;
+        return fitDialText(renderDialLane(state.lane === name, name.toUpperCase(), cells,
+            selected, Math.max(12, width - liveNote.length)) + liveNote, width);
     };
     const permission = state.permissionModes.map((mode) =>
-        `${mode.replaceAll("_", " ")}${forbidden.includes(mode) ? " (off)" : ""}`);
+        `${mode === "full_access" ? "full" : mode.replaceAll("_", " ")}${forbidden.includes(mode) || state.disabledPermissionModes?.includes(mode) ? " (off)" : ""}`);
     return [
         lane("effort", efforts, Math.max(0, efforts.indexOf(effort ?? "default")),
             state.opened?.effort ?? "default"),
