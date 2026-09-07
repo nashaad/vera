@@ -143,9 +143,19 @@ test("help renders general guidance and extension attribution", async () => {
         // The Transcript scope stays on the first page: a scope that only
         // exists while one pane holds focus is not listed here, so the global
         // block does not grow past the fold.
-        expect(frame).toContain("ctrl+end");
+        expect(frame).toContain("ctrl+t");
         expect(frame).toContain("Transcript");
         expect(frame).not.toContain("workspace list");
+
+        const keys = state;
+        for (const [query, detail] of [["ctrl+end", "Transcript"], ["show all", "Switch model"], ["Keep the visible", "Manage shortlist"]]) {
+            view.update(keys);
+            state = view.handleEditorPaste(keys, query!);
+            view.update(state);
+            await setup.flush();
+            expect(setup.captureCharFrame()).toContain(detail!);
+        }
+        state = keys;
 
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
