@@ -86,7 +86,8 @@ export function paintDialRow(
         return line.split(/(▲)/u).filter(Boolean).map((text) => ({ text,
             color: text === "▲" ? lane === "effort" ? theme.accent : theme.text : theme.muted }));
     }
-    const active = line.startsWith("› ");
+    const modelRow = rows.modelStart >= 0 && index >= rows.modelStart && index < rows.modelEnd;
+    const active = modelRow ? lane === "model" : line.startsWith("› ");
     const prefix = line.match(/^[› ] (?:EFFORT|ACCESS|MODEL|AGENT)\s*/)?.[0] ?? "";
     const spans: DialSpan[] = [{ text: prefix, color: active ? theme.text : theme.muted }];
     for (const text of line.slice(prefix.length).split(/(‹ .*? ›)/u).filter(Boolean)) {

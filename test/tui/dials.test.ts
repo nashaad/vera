@@ -110,7 +110,7 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         "hints",
         90,
     );
-    expect(wide).toHaveLength(8);
+    expect(wide).toHaveLength(7 + composition.slots.length);
     expect(wide.join("\n")).toContain("Faster");
     expect(wide.join("\n")).toContain("Smarter");
 });
@@ -585,10 +585,10 @@ test("only arrows move; model stepping wraps through a shortlist larger than ten
         expect(handleDialStripKey(state, { name }, undefined)).toEqual({ kind: "ignore" });
     }
     const lines = renderDialStrip(state, "", 60);
-    expect(lines).toHaveLength(5);
-    expect(lines[2]).toContain("‹ model-14 ›");
-    expect(lines[2]).toMatch(/\+\d+/);
-    expect(lines.slice(0, 4).filter((line) => line.startsWith("› "))).toHaveLength(1);
+    expect(lines).toHaveLength(14);
+    expect(lines.some((line) => line.includes("‹ model-14 ›"))).toBe(true);
+    expect(lines[2]).toContain("+5");
+    expect(lines.filter((line) => line.startsWith("› "))).toHaveLength(1);
 });
 
 test("pending values appear beside live values", () => {
@@ -649,4 +649,30 @@ test("the HUD effort slider marker moves with staged effort and Escape preserves
     expect(after[0]).toContain("live: low");
     expect(handleDialStripKey(moved, { name: "escape" }, undefined)).toEqual({ kind: "cancel" });
     expect(dialStripSelection(state)).toEqual(SOL);
+});
+
+
+test("HUD model choices are vertical with fixed highlight width and stable height across effort capabilities", () => {
+    const pool = [
+        { provider: "p", model: "short", levels: ["low", "high"] },
+        { provider: "p", model: "a much longer model name", levels: [] },
+        { provider: "p", model: "medium", levels: ["medium", "high"] },
+    ];
+    let state = openDialStrip(composeDialStrip({ current: undefined, recents: [], pool, includePool: true }), undefined);
+    state = { ...state, lane: "model" };
+    let height: number | undefined;
+    let highlight: number[] | undefined;
+    for (let i = 0; i < pool.length; i++) {
+        const lines = renderDialStrip(state, "", 100);
+        height ??= lines.length;
+        expect(lines).toHaveLength(height);
+        const selected = lines.find((line) => line.includes("‹ ") && !line.includes("EFFORT") && !line.includes("ACCESS") && !line.includes("AGENT"))!;
+        const geometry = [selected.indexOf("‹ "), selected.indexOf(" ›") + 2];
+        if (highlight) expect(geometry).toEqual(highlight); else highlight = geometry;
+        const start = lines.findIndex((line) => line.includes("MODEL"));
+        const end = lines.findIndex((line) => line.includes("AGENT"));
+        expect(lines.slice(start, end)).toHaveLength(3);
+        expect(lines.slice(start, end).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
+        state = moveDialStrip(state, 1);
+    }
 });
