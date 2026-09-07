@@ -161,7 +161,8 @@ export function setPoolMembership(
 export function renameModelDisplay(modelId: string, displayName: string, options: PoolStoreOptions = {}): PoolFile {
     return updatePoolFile(options, (file) => {
         const entry = file.models[modelId] ?? { added: false };
-        return { ...file, models: { ...file.models, [modelId]: { ...entry, displayName } } };
+        const renamed = { ...entry, displayName: displayName || undefined };
+        return { ...file, models: { ...file.models, [modelId]: renamed } };
     });
 }
 

@@ -61,8 +61,8 @@ export async function applyModelOperation(operation: ModelOperation, options: Mo
     }
     if (operation.operation === "rename") {
         const name = operation.displayName?.trim();
-        if (models.length !== 1 || !name || name.length > 120 || /[\u0000-\u001f\u007f]/u.test(name)) {
-            for (const model of models) result(model, "failed", "Use a display name of 1–120 characters without control characters.");
+        if (models.length !== 1 || name === undefined || name.length > 120 || /[\u0000-\u001f\u007f]/u.test(name)) {
+            for (const model of models) result(model, "failed", "Use a display name of up to 120 characters without control characters; empty clears it.");
             return results;
         }
         renameModelDisplay(ref(models[0]!), name, options);

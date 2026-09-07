@@ -33,6 +33,10 @@ test("keep, rename, unkeep preserve independent evidence through real store relo
     await applyModelOperation({ operation: "keep", models: [model] }, opts);
     expect(entry(opts).displayName).toBe("My Daily Model");
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
+    await applyModelOperation({ operation: "rename", models: [model], displayName: "" }, opts);
+    expect(entry(opts).displayName).toBeUndefined();
+    expect(isCuratedPoolEntry(entry(opts))).toBe(true);
+    expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
 });
 
 test("rename of a discovered model does not keep or verify it", async () => {
