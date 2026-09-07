@@ -547,13 +547,30 @@ const adapter: ModelAdapter = {
             model_assignments: { eco: { models: [{ provider: "test-gateway", model: "alpha" }] } },
         }));
         await writeFile(join(root, "pool.json"), JSON.stringify({ models: { "test-gateway/alpha": { added: true, learned: { probe: { ok: true, seen: "2026-09-06" } } } } }));
-        const host = await startResidentHost({ config: loadVeraConfig({ path: configPath }), createAdapter: () => adapter,
+        const started = Promise.withResolvers<void>();
+        const release = Promise.withResolvers<void>();
+        const slowAdapter: ModelAdapter = { stream(request) {
+            started.resolve();
+            const stream = adapter.stream(request);
+            return { async *[Symbol.asyncIterator]() { await release.promise; yield* stream; }, result: () => stream.result() };
+        } };
+        const host = await startResidentHost({ config: loadVeraConfig({ path: configPath }), createAdapter: () => slowAdapter,
             authStorage, socketPath, lockPath: join(root, "host.json"), sessionDirectory: join(root, "sessions"), eventLogDirectory: join(root, "logs") });
         try {
             const agent = await host.registry.create({ workspace: root, sessionPath });
             const attachment = agent.attach();
             try {
+                const { operateModelsThroughHost } = await import("../../src/host/model-operation-client.ts");
+                const { readUserPoolFile } = await import("../../src/model/pool-file-store.ts");
+                const outcomes: string[] = [];
+                const verification = operateModelsThroughHost(socketPath, { operation: "verify",
+                    models: [{ provider: "test-gateway", model: "alpha" }] }, (row) => outcomes.push(row.reason ?? row.status), root);
+                await started.promise;
                 const settings = await forgetProviderThroughHost(socketPath, "test-gateway", root);
+                release.resolve();
+                await verification;
+                expect(outcomes).toEqual(["Provider connection changed; verification discarded."]);
+                expect(readUserPoolFile().models["test-gateway/alpha"]).toBeUndefined();
                 expect(settings?.pooled?.some((model) => model.provider === "test-gateway")).toBe(false);
                 expect(loadVeraConfig({ path: configPath }).model_assignments?.eco).toBeUndefined();
                 attachment.send({ type: "get_model_settings", requestId: "after-forget" });
@@ -579,6 +596,7 @@ const adapter: ModelAdapter = {
 
             } finally { attachment.detach(); }
         } finally {
+            release.resolve();
             await host.close(); server.stop(true);
             if (previousHome === undefined) delete process.env.VERA_HOME;
             else process.env.VERA_HOME = previousHome;

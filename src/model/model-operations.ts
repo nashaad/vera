@@ -21,6 +21,7 @@ export interface ModelOperationOptions extends PoolStoreOptions {
     readonly assignments: readonly { readonly label: string; readonly models: readonly ModelReference[] }[];
     readonly createAdapter: (provider: string) => ModelAdapter;
     readonly catalog?: (provider: string, model: string) => CatalogModel | undefined;
+    readonly isCurrent?: (model: ModelReference) => boolean;
     readonly onResult?: (result: ModelOperationResult) => void;
 }
 const ref = (model: ModelReference): string => `${model.provider}/${model.model}`;
@@ -69,11 +70,18 @@ export async function applyModelOperation(operation: ModelOperation, options: Mo
         result(models[0]!, "passed", "Display name changed. Provider identity is untouched.");
         return results;
     }
+    const obsolete = (model: ModelReference): boolean => {
+        if (options.isCurrent?.(model) !== false) return false;
+        result(model, "failed", "Provider connection changed; verification discarded.");
+        return true;
+    };
     for (const model of models) {
+        if (obsolete(model)) continue;
         try {
             const verdict = await admitModel({ provider: model.provider, model: model.model,
                 adapter: options.createAdapter(model.provider),
                 catalogModel: options.catalog?.(model.provider, model.model) });
+            if (obsolete(model)) continue;
             if (verdict.status === "added") {
                 recordModelVerification(ref(model), verdict.learned, options);
                 result(model, "passed");
@@ -82,6 +90,7 @@ export async function applyModelOperation(operation: ModelOperation, options: Mo
                 result(model, "failed", verdict.reason);
             }
         } catch (error) {
+            if (obsolete(model)) continue;
             const reason = error instanceof Error ? error.message : String(error);
             try {
                 recordModelVerification(ref(model), { probe: { ok: false, seen: new Date().toISOString(), error: reason } }, options);

@@ -942,6 +942,7 @@ export async function startResidentHost(
                 return [];
             }
         };
+        const providerGenerations = new Map<string, number>();
         server = await timed(
             "server_listen_and_lockfile",
             () => startHostServer({
@@ -972,6 +973,7 @@ export async function startResidentHost(
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
             forgetProvider: async (provider, workspace) => {
                 forgetProviderConnection(provider, authStorage);
+                providerGenerations.set(provider, (providerGenerations.get(provider) ?? 0) + 1);
                 for (const entry of registry.agents.values()) {
                     if (entry.modelSettings.provider !== provider) continue;
                     const settings = { ...entry.modelSettings, selectionCleared: true };
@@ -982,7 +984,10 @@ export async function startResidentHost(
                 return registry.readHostModelSettings(workspace);
             },
             operateModels: async (request, onResult) => {
+                const generations = new Map(request.models.map(({ provider }) =>
+                    [provider, providerGenerations.get(provider) ?? 0]));
                 await applyModelOperation(request, {
+                    isCurrent: ({ provider }) => generations.get(provider) === (providerGenerations.get(provider) ?? 0),
                     discovered: registry.modelsForClient(),
                     assignments: modelOperationAssignments(currentConfig()).map((slot) => ({ label: slot.label, models: slot.declared })),
                     createAdapter: (provider) => createAdapter(provider),

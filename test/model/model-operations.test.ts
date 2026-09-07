@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyModelOperation, eligibleForDefault, type ModelOperationOptions } from "../../src/model/model-operations.ts";
 import { isCuratedPoolEntry, isVerifiedPoolEntry } from "../../src/model/pool-file.ts";
-import { readUserPoolFile, recordModelVerification } from "../../src/model/pool-file-store.ts";
+import { readUserPoolFile, recordModelVerification, removeProviderPoolModels } from "../../src/model/pool-file-store.ts";
 import { emptyUsage, type AssistantMessage, type ModelAdapter } from "../../src/model/types.ts";
 
 const dirs: string[] = [];
@@ -93,3 +93,42 @@ test("verification failure leaves membership and assignments untouched", async (
     expect(isVerifiedPoolEntry(entry(opts))).toBe(false);
     expect(entry(opts).learned?.probe?.error).toBe("No request was expected");
 });
+
+for (const fails of [false, true]) {
+    test(`obsolete verification discards ${fails ? "failure" : "success"} and queued checks after reconnect`, async () => {
+        const opts = options();
+        let current = true;
+        const started = Promise.withResolvers<void>();
+        const gate = Promise.withResolvers<void>();
+        const calls: string[] = [];
+        const adapter: ModelAdapter = { stream(request) {
+            calls.push(request.model);
+            started.resolve();
+            const tool = request.tools?.[0];
+            const message: AssistantMessage = { role: "assistant", content: tool === undefined
+                ? [{ type: "text", text: "vera-admission-ok" }]
+                : [{ type: "tool_call", id: "call", name: tool.name, input: { value: "ok" } }],
+                source: { provider: "test", api: "test", model: request.model },
+                usage: emptyUsage(), stopReason: tool === undefined ? "stop" : "tool_use" };
+            return { async *[Symbol.asyncIterator]() {
+                await gate.promise;
+                if (fails) throw new Error("late failure");
+                yield { type: "done" as const, message };
+            }, result: async () => { await gate.promise; return message; } };
+        } };
+        const pending = applyModelOperation({ operation: "verify", models: opts.discovered }, {
+            ...opts, createAdapter: () => adapter, isCurrent: () => current,
+        });
+        await started.promise;
+        current = false;
+        removeProviderPoolModels("test", opts);
+        await applyModelOperation({ operation: "keep", models: [model] }, opts);
+        const reconnected = readUserPoolFile(opts);
+        gate.resolve();
+        const results = await pending;
+        expect(results).toHaveLength(2);
+        expect(results.every((row) => row.status === "failed" && row.reason?.includes("discarded"))).toBe(true);
+        expect(readUserPoolFile(opts)).toEqual(reconnected);
+        expect(calls).not.toContain("two");
+    });
+}
