@@ -356,7 +356,9 @@ export function syncTuiModelPicker(
             ? { canUndoPoolChange: true }
             : {}),
         selectedIndex: selectedIndex === -1
-            ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
+            ? state.modelJourney === undefined
+                ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
+                : Math.max(0, options.findIndex((option) => option.model !== undefined))
             : selectedIndex,
     };
 }

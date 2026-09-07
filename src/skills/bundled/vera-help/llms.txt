@@ -53,8 +53,10 @@ Save reads the catalog immediately. It discovers models without keeping, verifyi
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, use Tab for all models, and press Enter to open a conversation with the chosen model.
 
-## Models and providers [lines=13]
+## Models and providers [lines=15]
 Open `/model` or Switch model from Ctrl+P. It opens on shortlist even when empty; Tab changes to all models on the same screen.
+Models are grouped by provider. Left/Right folds or opens a group; Shift+Left/Right folds or opens all groups.
+Older and duplicate models are hidden by default unless kept. Ctrl+A shows all or fewer; search finds hidden models within the intelligence cutoff.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 Open `/shortlist` or Manage shortlist to keep or unkeep with Enter. Keeping saves immediately and does not switch or verify.
 In Manage shortlist, Ctrl+R renames the display name, Ctrl+Y verifies one model, Ctrl+K keeps search matches, and Ctrl+U unkeeps kept search matches.

@@ -117,6 +117,14 @@ export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
 
 export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
+        id: "journey_reveal", keys: ["ctrl+a"], scope: "switch_model_picker",
+        description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
+    },
+    {
+        id: "shortlist_reveal", keys: ["ctrl+a"], scope: "shortlist_picker",
+        description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
+    },
+    {
         id: "journey_scope", keys: ["tab"], scope: "switch_model_picker",
         description: "Change between shortlist and all models", hint: "tab scope",
     },

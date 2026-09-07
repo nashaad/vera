@@ -1,5 +1,5 @@
 import { handleVerificationKey } from "./model-verification.ts";
-import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -1147,25 +1147,33 @@ export function renderListPickerRows(
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
         add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
         const header = journeyHeader(state) + (state.journeyNotice ? `\n${state.journeyNotice}` : "");
-        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: state.journeyNotice ? 3 : 2, marginTop: 1, width: "100%" }));
+        const headerHeight = Math.max(2, header.split("\n").length);
+        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: headerHeight, marginTop: 1, width: "100%" }));
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search);
         }
-        const maximum = Math.max(1, renderer.height - 17 - (state.journeyNotice ? 1 : 0));
-        const start = Math.max(0, Math.min(state.selectedIndex - Math.floor(maximum / 2), state.options.length - maximum));
-        const rows = state.options.slice(start, start + maximum);
+        const rows = journeyWindow(state, Math.max(1, Math.min(12, renderer.height - 15 - headerHeight)));
         if (rows.length === 0) add(new TextRenderable(renderer, {
             content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
-        for (const node of dialogOptionRows(renderer, rows.map((row, index) => ({
-            label: row.label, active: start + index === state.selectedIndex,
-            meta: `${row.provider}  ${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
-                ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
-                : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
-            ...dialogRowPointer(pointer, start + index),
-        })), width)) add(node);
+        for (const { option: row, index } of rows) {
+            if (row === undefined) {
+                add(new TextRenderable(renderer, { content: "", height: 1 }));
+                continue;
+            }
+            const heading = row.section !== undefined;
+            for (const node of dialogOptionRows(renderer, [{
+                label: heading ? row.label : `  ${row.label}`,
+                active: index === state.selectedIndex,
+                ...(heading ? { marker: row.sectionCollapsed ? "▶" : "▼", tint: true } : {}),
+                meta: heading ? "" : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
+                    ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
+                    : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
+                ...dialogRowPointer(pointer, index),
+            }], width)) add(node);
+        }
         add(dialogFooterNode(renderer, journeyFooter(state)));
         box.height = "auto";
         return;

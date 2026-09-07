@@ -1747,7 +1747,7 @@ export function searched(
     const next = {
         ...state,
         options,
-        selectedIndex: 0,
+        selectedIndex: state.modelJourney === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
         query,
         queryCursor,
         // A query is about rows, so it carries the reader down out of the tab

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { handleModelJourneyKey, modelJourney, journeyHeader, journeyModels } from "../../clients/tui/model-journeys.ts";
+import { handleModelJourneyKey, modelJourney, journeyHeader, journeyModels, journeyMatches, journeyWindow } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -12,18 +12,18 @@ const base: TuiSettingsPickerState = { kind: "model", allOptions: rows, options:
 
 test("switching has only one verb in either scope and never toggles membership", () => {
     let state = modelJourney(base, "switch");
-    expect(state.options.map((row) => row.model)).toEqual(["b", "c"]);
+    expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c"]);
     expect(journeyHeader(state)).not.toContain("Cutoff");
     expect(handleModelJourneyKey(state, { name: "enter" }).selection).toEqual({ kind: "model", provider: "p", model: "b" });
     state = handleModelJourneyKey(state, { name: "tab" }).state!;
-    expect(state.options).toHaveLength(3);
+    expect(journeyMatches(state)).toHaveLength(3);
     expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toBeUndefined();
     expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).refreshAllCatalogs).toBe(true);
 });
 
 test("shortlist Enter only keeps or unkeeps and row verbs are chords", () => {
     const state = modelJourney(base, "shortlist");
-    expect(state.options.map((row) => row.model)).toEqual(["b", "c", "a"]);
+    expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c", "a"]);
     expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
     expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
     expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).poolName?.model).toBe("b");
@@ -34,7 +34,7 @@ test("shortlist Enter only keeps or unkeeps and row verbs are chords", () => {
 
 test("cutoff excludes unscored models only in all scope; search scopes bulk actions", () => {
     let state = { ...modelJourney(base, "switch"), tab: "all" as const, intelligenceCutoff: "1500" as const };
-    expect(journeyModels(state).map((row) => row.model)).toEqual(["a"]);
+    expect(journeyModels(state).filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a"]);
     expect(journeyHeader(state)).toContain("2 hidden below the cutoff, including 2 unscored");
     const manage = updateTuiSettingsPickerSearch(modelJourney(base, "shortlist"), "beta").state!;
     expect(handleModelJourneyKey(manage, { name: "u", ctrl: true }).poolBulk?.models.map((row) => row.model)).toEqual(["b"]);
@@ -53,7 +53,7 @@ test("live shortlist search accepts spaces and row actions do not appear as anot
             view.update(state);
         }
         expect(state.query).toBe("b p");
-        expect(state.options.map((row) => row.model)).toEqual(["b"]);
+        expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b"]);
         await setup.renderOnce();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Manage shortlist");
@@ -79,7 +79,7 @@ test("a kept current model that disappears stays removable but cannot be selecte
         { provider: "p", model: "gone", label: "Gone", available: false, verified: true, levels: [] },
     ]);
     const switched = modelJourney({ ...picker, providerCatalogs: [{ id: "p", label: "P", refreshedAt: "2026-09-06" }] }, "switch");
-    expect(switched.options[0]?.unavailable).toBe(true);
+    expect(switched.options[switched.selectedIndex]?.unavailable).toBe(true);
     expect(handleModelJourneyKey(switched, { name: "enter" }).selection).toBeUndefined();
     const managed = modelJourney(switched, "shortlist");
     expect(journeyHeader(managed)).toContain("1 kept of 0 discovered");
@@ -138,5 +138,75 @@ test("providers opened from either model journey never expose the legacy tabs", 
             }
             expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state).toBe(parent);
         }
+    } finally { setup.renderer.destroy(); }
+});
+
+test("provider trees keep shortlist entries first, fold independently, and search opens matches", () => {
+    let state = modelJourney(base, "shortlist");
+    expect(state.options.filter((row) => row.section !== undefined).map((row) => row.label))
+        .toEqual(["Kept · p (1)", "Kept · q (1)", "p (1)"]);
+    const folded = handleModelJourneyKey(state, { name: "left" }).state!;
+    expect(folded.options[folded.selectedIndex]?.sectionCollapsed).toBe(true);
+    expect(folded.options.some((row) => row.model === "b")).toBe(false);
+    expect(folded.options.some((row) => row.model === "a")).toBe(true);
+    state = handleModelJourneyKey(folded, { name: "enter" }).state!;
+    expect(state.options.some((row) => row.model === "b")).toBe(true);
+    const closed = handleModelJourneyKey(state, { name: "left", shift: true }).state!;
+    expect(closed.options.every((row) => row.sectionCollapsed)).toBe(true);
+    const searched = updateTuiSettingsPickerSearch(closed, "beta").state!;
+    expect(searched.options[searched.selectedIndex]?.model).toBe("b");
+    expect(handleModelJourneyKey(searched, { name: "enter" }).poolToggle?.model).toBe("b");
+    expect(updateTuiSettingsPickerSearch(searched, "").state?.options.every((row) => row.sectionCollapsed)).toBe(true);
+});
+
+test("reduced catalogs hide old entries without hiding kept models or search results", () => {
+    const options = [rows[0]!, { ...rows[1]!, hiddenByDefault: "old" as const },
+        { ...rows[2]!, pooledRank: undefined, hiddenByDefault: "superseded" as const }];
+    let state = handleModelJourneyKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
+    expect(journeyMatches(state).map((row) => row.model)).toEqual(["a", "b"]);
+    expect(journeyHeader(state)).toContain("1 older, duplicate or superseded models hidden");
+    state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
+    expect(journeyMatches(state)).toHaveLength(3);
+    expect(journeyHeader(state)).toContain("models included");
+    state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
+    const search = updateTuiSettingsPickerSearch(state, "gamma").state!;
+    expect(search.options[search.selectedIndex]?.model).toBe("c");
+    const managed = modelJourney({ ...base, allOptions: options }, "shortlist");
+    expect(handleModelJourneyKey(managed, { name: "k", ctrl: true }).poolBulk?.models.map((row) => row.model)).toEqual(["a"]);
+});
+
+test("large provider trees start folded and bounded windows keep the selected model's heading", () => {
+    const options = Array.from({ length: 60 }, (_, index) => ({
+        ...rows[0]!, value: JSON.stringify(["p", `model-${index}`]), model: `model-${index}`, label: `Model ${index}`,
+    }));
+    let state = handleModelJourneyKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
+    expect(state.options).toHaveLength(1);
+    expect(state.options[0]?.label).toBe("p (60)");
+    state = handleModelJourneyKey(state, { name: "right" }).state!;
+    state = { ...state, selectedIndex: 40 };
+    const window = journeyWindow(state, 12);
+    expect(window.length).toBeLessThanOrEqual(12);
+    expect(window[0]?.option?.section).toBe("all:p");
+    expect(window.some((row) => row.index === state.selectedIndex)).toBe(true);
+    const refreshed = syncTuiModelPicker(state, { provider: "p", model: "model-0",
+        availableModels: options.map((row) => ({ provider: row.provider, model: row.model, label: row.label, description: "", levels: [] })) });
+    expect(refreshed.collapsed ?? []).toEqual(state.collapsed);
+    expect(refreshed.options[refreshed.selectedIndex]?.value).toBe(state.options[state.selectedIndex]?.value);
+});
+
+test("provider headings have a blank row between groups inside the card", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 32 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        view.update(modelJourney(base, "shortlist"));
+        await setup.renderOnce();
+        const lines = setup.captureCharFrame().split("\n");
+        const heading = lines.findIndex((line) => line.includes("Kept · q (1)"));
+        expect(heading).toBeGreaterThan(0);
+        expect(lines[heading - 1]?.trim()).toBe("");
+        expect(lines[heading + 1]).toContain("Gamma");
+        expect(view.box.screenY + view.box.height).toBeLessThan(setup.renderer.height);
     } finally { setup.renderer.destroy(); }
 });
