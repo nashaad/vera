@@ -205,7 +205,7 @@ test("provider headings have a blank row between groups inside the card", async 
         const lines = setup.captureCharFrame().split("\n");
         const heading = lines.findIndex((line) => line.includes("Kept · q (1)"));
         expect(heading).toBeGreaterThan(0);
-        expect(lines[heading - 1]?.trim()).toBe("");
+        expect(lines[heading - 1]?.split("│")[0]?.trim()).toBe("");
         expect(lines[heading + 1]).toContain("Gamma");
         expect(view.box.screenY + view.box.height).toBeLessThan(setup.renderer.height);
     } finally { setup.renderer.destroy(); }
@@ -244,5 +244,35 @@ test("the intelligence slider is visible in All and arrows adjust it without fol
         view.update(state);
         await setup.renderOnce();
         expect(setup.captureCharFrame()).not.toContain("Smarter");
+    } finally { setup.renderer.destroy(); }
+});
+
+test("highlighted model details follow the row and distinguish verified, failed, and unknown facts", async () => {
+    const setup = await createTestRenderer({ width: 140, height: 40 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        const options = [{ ...rows[0]!, unverified: false, images: true },
+            { ...rows[1]!, verificationError: "probe refused" }];
+        let state = modelJourney({ ...base, allOptions: options }, "shortlist");
+        state = { ...state, selectedIndex: state.options.findIndex((row) => row.model === "a") };
+        view.update(state);
+        await setup.renderOnce();
+        let frame = setup.captureCharFrame();
+        expect(frame).toContain("answered a live probe");
+        expect(frame).toContain("Images");
+        expect(frame).toContain("Model ID");
+        expect(frame).toContain("WA Score");
+        expect(frame.split("\n").some((line) => line.includes("│") && line.includes("Alpha"))).toBe(true);
+        state = { ...state, selectedIndex: state.options.findIndex((row) => row.model === "b") };
+        view.update(state);
+        await setup.renderOnce();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("failed: probe refused");
+        expect(frame).toContain("not known");
+        expect(frame).not.toContain("answered a live probe");
+        expect(frame).not.toContain("→ actions");
+        expect(frame).not.toContain("Unpin");
     } finally { setup.renderer.destroy(); }
 });

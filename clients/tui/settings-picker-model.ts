@@ -132,6 +132,7 @@ export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     // The More page replaces the list, so there is no row left to describe.
     if (state.kind === "model" && state.modelFocus === "page") return false;
     if (state.kind === "overrides_settings") return true;
+    if (state.kind === "model" && state.modelJourney !== undefined) return true;
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     return tab === "pool" || tab === "defaults" || tab === "actions";
 }
@@ -420,6 +421,22 @@ export function modelDetailNode(
         }
         return pane;
     }
+    if (described && state.kind === "model" && state.modelJourney !== undefined) {
+        line([fg(TUI_TEXT)(clippedTo(option.label, width))]);
+        line([fg(TUI_MUTED)(clippedTo(option.provider ?? "", width))]);
+        line();
+        const facts = modelDetailFacts(state, option);
+        const compact = height < 3 + facts.length * 2;
+        for (const [label, value, tone] of facts) {
+            const color = tone === "positive" ? TUI_SUCCESS : TUI_TEXT;
+            if (compact) line([fg(TUI_MUTED)(`${label}: `), fg(color)(clippedTo(value, Math.max(1, width - label.length - 2)))]);
+            else {
+                line([fg(TUI_MUTED)(label)]);
+                line([fg(color)(clippedTo(value, width))]);
+            }
+        }
+        return pane;
+    }
     if (described) {
         const actions = modelDetailActions(state, option);
         const factLimit = Math.max(
@@ -629,6 +646,7 @@ export function modelDetailHeight(
         return 3 + option.detailFacts.length * 2
             + wrappedTo(option.note ?? "", width).length;
     }
+    if (described && state.kind === "model" && state.modelJourney !== undefined) return 3 + modelDetailFacts(state, option).length * 2;
     const facts = described ? modelDetailFacts(state, option) : [];
     const factLines = described
         ? modelDetailFactRowCount(facts) * 2 + 1
@@ -688,10 +706,18 @@ export function modelDetailFacts(
             ? ["Shortlist", "not shortlisted"]
             : ["Shortlist", "on your shortlist", "positive"]);
     }
-    facts.push(option.unverified === true || option.pooledRank === undefined
-        ? ["Verified", "not probed yet"]
-        : ["Verified", "answered a live probe", "positive"]);
-    facts.push(["Images", option.images === true ? "i" : "not known"]);
+    const journey = state.kind === "model" && state.modelJourney !== undefined;
+    if (journey) {
+        facts.push(option.verificationError !== undefined ? ["Verified", `failed: ${option.verificationError}`]
+            : option.unverified === false || option.pooledRank !== undefined && option.unverified !== true
+                ? ["Verified", "answered a live probe", "positive"] : ["Verified", "not probed yet"]);
+        facts.push(["Images", option.images === true ? "yes" : option.images === false ? "no" : "not known"]);
+        facts.push(["Model ID", option.model ?? "—"]);
+    } else {
+        facts.push(option.unverified === true || option.pooledRank === undefined
+            ? ["Verified", "not probed yet"] : ["Verified", "answered a live probe", "positive"]);
+        facts.push(["Images", option.images === true ? "i" : "not known"]);
+    }
     if (option.waScore !== undefined) {
         facts.push(["WA Score", String(option.waScore)]);
     }
@@ -703,7 +729,7 @@ export function modelDetailFacts(
     if (blended !== undefined) {
         facts.push(["Blended price", `${blended}  7:2:1`]);
     }
-    facts.push(["Model ID", option.model ?? "—"]);
+    if (!journey) facts.push(["Model ID", option.model ?? "—"]);
     if (option.unavailable === true) {
         facts.push(["Available", "not from its provider"]);
     }

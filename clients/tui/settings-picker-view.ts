@@ -1160,14 +1160,22 @@ export function renderListPickerRows(
             content: new StyledText([...chunks]), width: "100%", height: 1,
         }));
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
-        const rows = journeyWindow(state, Math.max(1, Math.min(12, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0))));
-        if (rows.length === 0) add(new TextRenderable(renderer, {
+        const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0));
+        const rows = journeyWindow(state, Math.min(12, room));
+        const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
+        const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
+        const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
+        body.add(list);
+        add(body);
+        const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
+        const addRow = (node: Renderable) => list.add(node);
+        if (rows.length === 0) addRow(new TextRenderable(renderer, {
             content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
         for (const { option: row, index } of rows) {
             if (row === undefined) {
-                add(new TextRenderable(renderer, { content: "", height: 1 }));
+                addRow(new TextRenderable(renderer, { content: "", height: 1 }));
                 continue;
             }
             const heading = row.section !== undefined;
@@ -1180,7 +1188,13 @@ export function renderListPickerRows(
                     ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
                     : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
                 ...dialogRowPointer(pointer, index),
-            }], width)) add(node);
+            }], rowWidth)) addRow(node);
+        }
+        if (split !== undefined) {
+            const height = Math.min(room, Math.max(rows.length, modelDetailHeight(state, split.detailWidth)));
+            body.height = height;
+            list.height = height;
+            body.add(modelDetailNode(renderer, state, split.detailWidth, height));
         }
         add(dialogFooterNode(renderer, journeyFooter(state)));
         box.height = "auto";
