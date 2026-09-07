@@ -134,6 +134,7 @@ import {
     themePreview,
     toggledSection,
     unchanged,
+    wrappedTo,
 } from "./settings-picker-model.ts";
 
 export function handleTuiExtensionPickerKey(
@@ -1109,14 +1110,25 @@ export function tuiPickerViewportRows(
 }
 
 function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
-    const headerHeight = Math.max(2, (journeyHeader(state) + (state.journeyNotice ? `\n${state.journeyNotice}` : "")).split("\n").length);
+    const text = [journeyHeader(state), state.journeyNotice].filter(Boolean).join("\n");
+    const headerLines = text ? text.split("\n").flatMap((line) => wrappedTo(line, pickerContentWidth(renderer, state, railInset))) : [];
+    const scope = state.modelJourney === "switch";
+    const summaryMargin = scope && renderer.height < 30 ? 0 : 1;
+    const headerHeight = (scope ? 2 : 0) + (headerLines.length ? headerLines.length + summaryMargin : 0);
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
     const priceLines = cutoff ? (renderer.height < 30 ? 1 : 3) : 0;
-    const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0) - priceLines);
+    const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines);
     const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
-    return { priceLines, room, listed, rows: Math.max(1, Math.min(12, room - (listed ? 2 : 0))) };
+    const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
+    const groups = state.options.filter((row, index) => index === 0 || row.group !== state.options[index - 1]?.group).length;
+    const listHeight = Math.min(rows, Math.max(2, state.options.length + groups * 2 - 1));
+    const detailHeight = split === undefined ? 0 : Math.max(0, ...state.options.map((_, selectedIndex) =>
+        modelDetailHeight({ ...state, selectedIndex }, split.detailWidth)));
+    const bodyHeight = Math.max(1, Math.min(room - (listed ? 1 : 0), Math.max(listHeight + (listed ? 1 : 0), detailHeight)));
+    return { priceLines, listed, rows, bodyHeight, headerLines, summaryMargin };
+
 }
 
 export type PickerDisplayRow =
@@ -1149,9 +1161,28 @@ export function renderListPickerRows(
         const width = pickerContentWidth(renderer, state, railInset);
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
         add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
-        const header = journeyHeader(state) + (state.journeyNotice ? `\n${state.journeyNotice}` : "");
-        const headerHeight = Math.max(2, header.split("\n").length);
-        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: headerHeight, marginTop: 1, width: "100%" }));
+        const layout = journeyListLayout(renderer, state, railInset);
+        if (state.modelJourney === "switch") {
+            const scope = new BoxRenderable(renderer, { width: "100%", height: 1, marginTop: 1, flexDirection: "row", gap: 2 });
+            for (const [tab, label] of [["pool", "Shortlist"], ["all", "All models"]] as const) {
+                const active = state.tab === tab;
+                const chip = new TextRenderable(renderer, {
+                    content: active ? `[ ${label} ]` : `  ${label}  `, height: 1,
+                    fg: active ? TUI_SELECTION_TEXT : TUI_MUTED,
+                    bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
+                });
+                if (onTab !== undefined) chip.onMouseDown = (event) => {
+                    event.preventDefault(); event.stopPropagation(); onTab(tab);
+                };
+                scope.add(chip);
+            }
+            scope.add(new TextRenderable(renderer, { content: "tab to switch", fg: TUI_MUTED, height: 1 }));
+            add(scope);
+        }
+        if (layout.headerLines.length) add(new TextRenderable(renderer, {
+            content: layout.headerLines.join("\n"), fg: TUI_MUTED, height: layout.headerLines.length,
+            marginTop: layout.summaryMargin, width: "100%",
+        }));
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search);
@@ -1162,7 +1193,7 @@ export function renderListPickerRows(
             content: new StyledText([...chunks]), width: "100%", height: 1,
         }));
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
-        const { priceLines, room, listed, rows: maxRows } = journeyListLayout(renderer, state, railInset);
+        const { priceLines, listed, rows: maxRows, bodyHeight } = layout;
         const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
         const rows = journeyWindow(state, maxRows);
@@ -1175,8 +1206,8 @@ export function renderListPickerRows(
             content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
-        const prefixWidth = listed ? Math.max(0, ...rows.map(({ option }) => option?.model === undefined ? 0
-            : metaPartsLength(optionMetaPrefixParts(state, { ...option, poolName: undefined }, true)))) : 0;
+        const prefixWidth = listed ? Math.max(0, ...state.options.map((option) =>
+            metaPartsLength(optionMetaPrefixParts(state, { ...option, poolName: undefined }, true)))) : 0;
         const rowNodes = dialogOptionRows(renderer, [
             ...(listed ? [{ label: "", active: false,
                 meta: `${" ".repeat(prefixWidth)}${listedFactsHeaderText()}` }] : []),
@@ -1204,12 +1235,9 @@ export function renderListPickerRows(
                 ? new TextRenderable(renderer, { content: "", height: 1 })
                 : rowNodes[at++]!);
         }
-        if (split !== undefined) {
-            const height = Math.min(room - (listed ? 1 : 0), Math.max(rows.length + (listed ? 1 : 0), modelDetailHeight(state, split.detailWidth)));
-            body.height = height;
-            list.height = height;
-            body.add(modelDetailNode(renderer, state, split.detailWidth, height));
-        }
+        body.height = bodyHeight;
+        list.height = bodyHeight;
+        if (split !== undefined) body.add(modelDetailNode(renderer, state, split.detailWidth, bodyHeight));
         if (priceLines > 0) {
             const selected = state.options[state.selectedIndex];
             const prices = allModelsPriceNode(renderer, selected?.model === undefined ? undefined : selected, width);

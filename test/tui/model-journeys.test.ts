@@ -160,10 +160,10 @@ test("reduced catalogs hide old entries without hiding kept models or search res
         { ...rows[2]!, pooledRank: undefined, hiddenByDefault: "superseded" as const }];
     let state = handleModelJourneyKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
     expect(journeyMatches(state).map((row) => row.model)).toEqual(["a", "b"]);
-    expect(journeyHeader(state)).toContain("1 older, duplicate or superseded models hidden");
+    expect(journeyHeader(state)).toContain("1 hidden (older, duplicate or superseded)");
     state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
     expect(journeyMatches(state)).toHaveLength(3);
-    expect(journeyHeader(state)).toContain("models included");
+    expect(journeyHeader(state)).toContain("1 included");
     state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
     const search = updateTuiSettingsPickerSearch(state, "gamma").state!;
     expect(search.options[search.selectedIndex]?.model).toBe("c");
@@ -388,4 +388,38 @@ test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggl
             expect(handleTuiSettingsPickerKey(all, { name: "s", ctrl: true }).poolToggle?.action).toBe("remove");
         }
     }
+});
+
+
+test("scope is prominent and highlighting across provider boundaries never moves the card or footer", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 44 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    try {
+        const options = Array.from({ length: 28 }, (_, index) => ({ ...rows[0]!, value: `p/${index}`, model: `${index}`,
+            provider: index < 15 ? "p" : "q", label: `Model ${index}`, pooledRank: index < 3 ? index : undefined,
+            ...(index % 2 ? { pricing: { input: 1, output: 3 }, images: true, recommended: true } : {}) }));
+        for (const mode of ["switch", "shortlist"] as const) {
+            const state = mode === "switch" ? handleTuiSettingsPickerKey(modelJourney({ ...base, allOptions: options }, mode), { name: "tab" }).state!
+                : modelJourney({ ...base, allOptions: options }, mode);
+            let geometry: number[] | undefined;
+            for (let selectedIndex = 0; selectedIndex < state.options.length; selectedIndex++) {
+                view.update({ ...state, selectedIndex });
+                await setup.renderOnce();
+                const frame = setup.captureCharFrame();
+                const footerY = frame.split("\n").findIndex((line) => line.includes("^d/^u page"));
+                const current = [view.box.screenY, view.box.height, footerY];
+                if (geometry) expect(current).toEqual(geometry); else geometry = current;
+                expect(frame).not.toContain("fold provider");
+                expect(frame).not.toContain("▶");
+                expect(frame).not.toContain("▼");
+                if (mode === "switch") {
+                    expect(frame).toContain("[ All models ]");
+                    expect(frame).toContain("Shortlist");
+                    expect(frame).toContain("Catalog: fewer models");
+                }
+            }
+        }
+    } finally { setup.renderer.destroy(); }
 });

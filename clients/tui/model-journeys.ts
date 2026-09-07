@@ -84,7 +84,7 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
     const hiddenCount = journeyMatches(state, true).length - journeyMatches(state, false).length;
     const reduced = `\nCatalog: ${state.revealAll ? "all models" : "fewer models"} · ^a ${state.revealAll ? "show fewer" : "show every model"}`
         + (state.query.trim() ? " · search includes hidden models" : hiddenCount > 0
-            ? ` · ${hiddenCount} older, duplicate or superseded models ${state.revealAll ? "included" : "hidden"}` : "");
+            ? ` · ${hiddenCount} ${state.revealAll ? "included" : "hidden"} (older, duplicate or superseded)` : "");
     if (state.modelJourney === "shortlist") {
         const kept = state.allOptions.filter((row) => row.pooledRank !== undefined);
         const verified = kept.filter((row) => row.unverified !== true).length;
@@ -93,20 +93,18 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
         return `${kept.length} kept of ${discovered} discovered · ${verified} verified${unavailable ? ` · ${unavailable} kept unavailable` : ""}\n`
             + `A default slot only accepts a verified model; ${kept.length - verified} cannot hold one yet.${reduced}`;
     }
-    const scope = state.tab === "all" ? "shortlist [all]" : "[shortlist] all";
-    if (state.tab !== "all") return `Scope: ${scope} · tab scope`;
+    if (state.tab !== "all") return "";
     const floor = state.intelligenceCutoff ?? "any";
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));
     const unscored = hidden.filter((row) => row.waScore === undefined).length;
-    return `Scope: ${scope} · tab scope    Intelligence cutoff · ^g step · ↑ from the first row to adjust`
-        + (hidden.length ? `\n` + `${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "") + reduced;
+    return reduced.trimStart() + (hidden.length ? `\n${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "");
 }
 
 export function journeyFooter(state: TuiSettingsPickerState): string {
     const reveal = state.revealAll ? "show fewer" : "show every model";
     return state.modelJourney === "shortlist"
         ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ^a " + reveal
-        : "↵ run it · ^s keep/unkeep · tab scope · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ^a " + reveal;
+        : "↵ run it · ^s keep/unkeep · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ^a " + reveal + (state.tab === "all" ? " · ^g cutoff · ↑ from first model to slider" : "");
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
