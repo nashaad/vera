@@ -232,6 +232,11 @@ export function updateDefaults(
     }));
 }
 
+export function removeProviderPoolModels(provider: string, options: PoolStoreOptions = {}): PoolFile {
+    return updatePoolFile(options, (file) => ({ ...file,
+        models: Object.fromEntries(Object.entries(file.models).filter(([id]) => !id.startsWith(`${provider}/`))) }));
+}
+
 function updatePoolFile(
     options: PoolStoreOptions,
     update: (file: PoolFile) => PoolFile,

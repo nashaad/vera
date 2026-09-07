@@ -1,3 +1,4 @@
+import { modelSelectionCleared } from "../../src/host/model-catalog-settings.ts";
 import { homedir } from "node:os";
 
 import {
@@ -35,7 +36,7 @@ export function tuiStatusSnapshot(
         turn,
         workspace,
         runningBackgroundAgents,
-        ...(settings === undefined ? {} : {
+        ...(settings === undefined || modelSelectionCleared(settings) ? {} : {
             model: {
                 model: settings.model,
                 ...(settings.provider === undefined
@@ -174,12 +175,12 @@ export function renderTuiStatusDetailsRows(
     const providerLabel = settings?.provider === undefined
         ? undefined
         : findProvider(settings.provider)?.shortLabel ?? settings.provider;
-    const model = settings?.model === undefined
+    const model = modelSelectionCleared(settings) ? "no model selected" : settings?.model === undefined
         ? "loading"
         : providerLabel === undefined
             ? settings.model
             : `${providerLabel}/${settings.model}`;
-    const requested = settings?.reasoningEffort ?? "default";
+    const requested = modelSelectionCleared(settings) ? "default" : settings?.reasoningEffort ?? "default";
     const substituted = substitution !== undefined
         && settings?.model === substitution.model
         && requested === substitution.requested;

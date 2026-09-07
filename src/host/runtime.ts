@@ -1,3 +1,4 @@
+import { forgetProviderConnection } from "../providers/forget-provider.ts";
 import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
 import { readModelCatalog } from "../providers/read-model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
@@ -964,6 +965,17 @@ export async function startResidentHost(
                 resumeSession,
             ),
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
+            forgetProvider: async (provider, workspace) => {
+                forgetProviderConnection(provider, authStorage);
+                for (const entry of registry.agents.values()) {
+                    if (entry.modelSettings.provider !== provider) continue;
+                    const settings = { ...entry.modelSettings, selectionCleared: true };
+                    await entry.store.appendModelSettings(settings, registry.originFor(entry, settings));
+                    entry.modelSettings = settings;
+                    registry.pushWorkerState(entry.agent.id);
+                }
+                return registry.readHostModelSettings(workspace);
+            },
             operateModels: async (request, onResult) => {
                 await applyModelOperation(request, {
                     discovered: registry.modelsForClient(),

@@ -413,7 +413,7 @@ export function renderState(rt: TuiRuntime): void {
         rt.sessionCloseConfirmView.update(rt.sessionTitle ?? "untitled");
     }
     if (rt.providerForgetCandidate !== undefined) {
-        rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label);
+        rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === rt.providerForgetCandidate?.providerId).length);
     }
     if (rt.overridesResetCandidate !== undefined) {
         rt.overridesResetConfirmView.update(rt.overridesResetCandidate);

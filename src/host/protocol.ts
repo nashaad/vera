@@ -570,7 +570,10 @@ export interface ModelOperationCompleteResponse {
     readonly error?: string;
 }
 
+export interface ProviderForgetRequest { readonly type: "provider_forget"; readonly provider: string; readonly workspace?: string; }
+
 export type HostRequest =
+    | ProviderForgetRequest
     | ModelOperationRequest
     | HostIdentityRequest
     | ModelSettingsRequest
@@ -661,6 +664,10 @@ function parseSessionFactNames(
 
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
+    if (value?.type === "provider_forget" && typeof value.provider === "string" && /^[a-z0-9][a-z0-9._-]*$/.test(value.provider)) {
+        return { type: "provider_forget", provider: value.provider,
+            ...(typeof value.workspace === "string" ? { workspace: value.workspace } : {}) };
+    }
     if (value?.type === "model_operation") {
         if (!["keep", "unkeep", "verify", "rename"].includes(String(value.operation))
             || !Array.isArray(value.models) || value.models.length === 0 || value.models.length > 10_000

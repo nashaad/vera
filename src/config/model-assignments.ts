@@ -100,6 +100,7 @@ export function assignmentLabel(
 export function parseModelAssignmentsConfig(
     value: unknown,
     routes: Readonly<Record<string, readonly string[]>>,
+    customProviderIds: ReadonlySet<string> = new Set(),
 ): VeraModelAssignmentsConfig | undefined {
     if (value === undefined) {
         return {};
@@ -121,7 +122,7 @@ export function parseModelAssignmentsConfig(
         if (!isModelSlotId(name)) {
             return undefined;
         }
-        const parsed = parseSlot(name, entry, routes);
+        const parsed = parseSlot(name, entry, routes, customProviderIds);
         if (parsed === undefined) {
             return undefined;
         }
@@ -134,6 +135,7 @@ function parseSlot(
     assignment: ModelAssignmentId,
     value: unknown,
     routes: Readonly<Record<string, readonly string[]>>,
+    customProviderIds: ReadonlySet<string>,
 ): VeraModelAssignmentConfig | undefined {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return undefined;
@@ -172,7 +174,7 @@ function parseSlot(
     }
     const models: VeraCatalogModel[] = [];
     for (const entry of inline) {
-        const model = parseCatalogModel(entry);
+        const model = parseCatalogModel(entry, customProviderIds);
         if (model === undefined) {
             return undefined;
         }

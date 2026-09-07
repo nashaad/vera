@@ -1,3 +1,4 @@
+import { modelSelectionCleared } from "./model-catalog-settings.ts";
 import { randomUUID } from "node:crypto";
 import { link, mkdir, mkdtemp, readdir, realpath, rm, rmdir, unlink } from "node:fs/promises";
 import { tmpdir, totalmem } from "node:os";
@@ -658,9 +659,8 @@ export class AgentRegistry {
                     woken.peerHop = 0;
                 }
             },
-            ...(clientPromptRefusal === undefined
-                ? {}
-                : { clientPromptRefusal }),
+            clientPromptRefusal: () => clientPromptRefusal ?? (modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings)
+                ? "No model selected. Open Switch model before sending a request." : undefined),
         });
         const events = new EngineEventBus();
         const instructionRoot = resolveInstructionRoot(store.header.cwd);
@@ -1009,6 +1009,7 @@ export class AgentRegistry {
                     this.options.configuredOverrides?.(),
                     store.header.cwd,
                     this.options.refreshableProviders?.(),
+                    this.options.providerCatalogs?.(),
                 ),
                 readSelectedAgent: () => entry.selectedAgent,
                 readApprovalMode: () => entry.approvalMode,

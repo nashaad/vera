@@ -127,6 +127,7 @@ export interface StartHostServerOptions {
         workspace?: string,
     ) => Promise<ModelTurnSettings | undefined>;
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
+    readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
@@ -410,6 +411,7 @@ export async function startHostServer(
             options.refreshCatalog,
             options.refreshCatalogs,
             options.operateModels,
+            options.forgetProvider,
             options.readAnnex,
             options.checkpointStores,
             resolveHostLimits(options.limits),
@@ -543,6 +545,7 @@ function receiveConnection(
     ) => Promise<ModelTurnSettings | undefined>) | undefined,
     refreshCatalogs: (() => Promise<readonly CatalogRefreshOutcome[]>) | undefined,
     operateModels: StartHostServerOptions["operateModels"],
+    forgetProvider: StartHostServerOptions["forgetProvider"],
     readAnnex: (() =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -1049,7 +1052,22 @@ function receiveConnection(
             }, () => socket.destroy());
             return;
         }
+        if (request?.type === "provider_forget") {
+            clearDeadline(); finished = true;
+            const operationClosed = operationOpened();
+            void (async () => {
+                try {
+                    if (forgetProvider === undefined) throw new Error("This host does not support forgetting providers.");
+                    const settings = await forgetProvider(request.provider, request.workspace);
+                    await send({ type: "model_operation_complete", settings });
+                } catch (error) {
+                    await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
+                } finally { operationClosed(); socket.end(); }
+            })();
+            return;
+        }
         if (request?.type === "model_operation") {
+            const operationClosed = operationOpened();
             clearDeadline();
             finished = true;
             let sending = Promise.resolve();
@@ -1064,7 +1082,7 @@ function receiveConnection(
                     await send({ type: "model_operation_complete", settings });
                 } catch (error) {
                     await send({ type: "model_operation_complete", error: error instanceof Error ? error.message : String(error) }).catch(() => {});
-                } finally { socket.end(); }
+                } finally { operationClosed(); socket.end(); }
             })();
             return;
         }

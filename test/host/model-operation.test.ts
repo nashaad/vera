@@ -1,3 +1,4 @@
+import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -54,4 +55,20 @@ test("closing the client does not cancel a verification operation", async () => 
         await startedPromise;
         connection.close(); release(); await finishedPromise;
     } finally { release(); await server.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test("provider removal has a host outcome and propagates a refusal", async () => {
+    const root = await mkdtemp("/tmp/vera-forget-rpc-");
+    const socketPath = join(root, "host.sock");
+    const server = await startHostServer({ socketPath, lockPath: join(root, "host.json"),
+        forgetProvider: async (provider) => {
+            if (provider === "refuse") throw new Error("Unset the host environment key");
+            return { model: "previous", availableModels: [], pooled: [] };
+        } });
+    try {
+        expect((await forgetProviderThroughHost(socketPath, "gateway"))?.pooled).toEqual([]);
+        const failure = await forgetProviderThroughHost(socketPath, "refuse").then(() => "unexpected success", (error: Error) => error.message);
+        expect(failure).toBe("Unset the host environment key");
+        expect(parseHostRequest(JSON.stringify({ type: "provider_forget", provider: "../bad" }))).toBeUndefined();
+    } finally { await server.close(); await rm(root, { recursive: true, force: true }); }
 });

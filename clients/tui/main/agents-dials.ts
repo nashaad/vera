@@ -1,3 +1,4 @@
+import { modelSelectionCleared } from "../../../src/host/model-catalog-settings.ts";
 import { isHomeClient } from "../home-client.ts";
 import type { UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { HOST_CAPABILITY_PROMPT_QUEUE_RELEASE, HOST_CAPABILITY_SESSION_SCOPED_STATE } from "../../../src/host/capabilities.ts";
@@ -143,7 +144,7 @@ export function dialCatalog(rt: TuiRuntime): readonly DialPoolEntry[] {
 export function committedDialPair(rt: TuiRuntime): DialPair | undefined {
     if (isHomeClient(focusedAgentClient(rt))) return undefined;
     const settings = focusedAgentState(rt).modelSettings;
-    return settings === undefined ? undefined : {
+    return settings === undefined || modelSelectionCleared(settings) ? undefined : {
         ...(settings.provider === undefined
             ? {}
             : { provider: settings.provider }),

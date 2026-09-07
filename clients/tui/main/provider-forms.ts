@@ -65,7 +65,7 @@ export function forgetProvider(rt: TuiRuntime,
         pane,
     };
     rt.composer.blur();
-    rt.providerForgetConfirmView.update(provider.label);
+    rt.providerForgetConfirmView.update(provider.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === provider.id).length);
     renderState(rt);
     focusActiveSurface(rt);
 }
@@ -78,24 +78,24 @@ export function forgetProviderCredential(rt: TuiRuntime, candidate: {
     rt.providerForgetCandidate = undefined;
     rt.settingsPicker = undefined;
     closeSettingsPickerSurface(rt);
-    try {
-        rt.authStorage.deleteCredential(candidate.providerId);
-    } catch (error) {
-        rt.state = appendTuiError(
-            rt.state,
-            `could not forget the ${candidate.label} credential: ${
-                error instanceof Error ? error.message : String(error)
-            }`,
-        );
-        renderState(rt);
-        return;
+    const forget = rt.dependencies.forgetProvider;
+    if (forget === undefined) {
+        rt.state = appendTuiError(rt.state, "This host does not support forgetting providers.");
+        renderState(rt); return;
     }
-    rt.state = appendTuiNotice(
-        rt.state,
-        `forgot the stored ${candidate.label} credential`,
-    );
-    requestAgentSettings(rt, focusedAgentClient(rt));
-    openProviderPicker(rt, candidate.pane, { selected: candidate.providerId });
+    void forget(candidate.providerId, focusedAgentClient(rt).workspace).then((settings) => {
+        if (settings !== undefined && rt.state.modelSettings !== undefined) {
+            const current = rt.state.modelSettings;
+            rt.state = { ...rt.state, modelSettings: { ...current, availableModels: settings.availableModels, pooled: settings.pooled,
+                ...(current.provider === candidate.providerId ? { selectionCleared: true } : {}) } };
+        }
+        rt.state = appendTuiNotice(rt.state, `Forgot ${candidate.label}. Its models were removed, affected defaults unset, and conversation selections cleared.`);
+        requestAgentSettings(rt, focusedAgentClient(rt));
+        openProviderPicker(rt, candidate.pane);
+    }).catch((error) => {
+        rt.state = appendTuiError(rt.state, `Could not finish forgetting ${candidate.label}: ${error instanceof Error ? error.message : String(error)}`);
+        openProviderPicker(rt, candidate.pane);
+    });
 }
 
 export async function defaultLoginProvider(rt: TuiRuntime, 

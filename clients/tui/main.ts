@@ -1,3 +1,4 @@
+import { forgetProviderThroughHost } from "../../src/host/provider-forget-client.ts";
 import { operateModelsThroughHost } from "../../src/host/model-operation-client.ts";
 import type { ModelOperation, ModelOperationResult } from "../../src/model/model-operations.ts";
 import { BoxRenderable, CliRenderEvents, decodePasteBytes, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, TextRenderable, createCliRenderer, KeyEvent, RGBA, type CliRenderer, type Selection, type MouseEvent } from "@opentui/core";
@@ -493,6 +494,7 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
         workspace: string,
@@ -733,6 +735,7 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            forgetProvider: (provider, workspace) => forgetProviderThroughHost(host.socket_path, provider, workspace),
             operateModels: (operation, onResult, workspace) => operateModelsThroughHost(host.socket_path, operation, onResult, workspace),
             readHostModelSettings: (workspace) =>
                 readModelSettingsThroughHost(host.socket_path, workspace),

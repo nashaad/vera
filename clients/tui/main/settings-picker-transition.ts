@@ -604,7 +604,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.sessionTrashConfirmView.box.focus();
     } else if (rt.providerForgetCandidate !== undefined) {
         rt.composer.blur();
-        rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label);
+        rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === rt.providerForgetCandidate?.providerId).length);
         rt.providerForgetConfirmView.box.focus();
     } else if (rt.overridesResetCandidate !== undefined) {
         rt.composer.blur();

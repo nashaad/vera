@@ -49,7 +49,7 @@ export class AgentCommandQueueFullError extends Error {
 
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
-    readonly clientPromptRefusal?: string;
+    readonly clientPromptRefusal?: string | (() => string | undefined);
     readonly onClientPrompt?: () => void;
     readonly createAttachmentId?: () => string;
     readonly attachImage?: (
@@ -186,13 +186,12 @@ export class ResidentAgent {
                 if (this.isClosed || this.terminalFailure !== undefined) {
                     throw new ResidentAgentClosedError();
                 }
-                if (
-                    command.type === "prompt"
-                    && this.options.clientPromptRefusal !== undefined
-                ) {
+                const refusal = typeof this.options.clientPromptRefusal === "function"
+                    ? this.options.clientPromptRefusal() : this.options.clientPromptRefusal;
+                if (command.type === "prompt" && refusal !== undefined) {
                     outgoing.push({
                         type: "prompt_rejected",
-                        reason: this.options.clientPromptRefusal,
+                        reason: refusal,
                     });
                     return;
                 }

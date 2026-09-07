@@ -1,3 +1,4 @@
+import { modelSelectionCleared } from "../../../src/host/model-catalog-settings.ts";
 import { renderTuiHeldAddress } from "../addressing.ts";
 import { COPY_NOTICE_DURATION_MS, MODE_TOAST_DURATION_MS, renderStatus } from "../main.ts";
 import { setComposerMargin } from "../main/chrome.ts";
@@ -162,7 +163,7 @@ export function paneHeaderText(rt: TuiRuntime,
 ): string {
     const left = `${name} · ${approvalMode ?? "loading"}`;
     const model = settings?.model;
-    const right = model === undefined
+    const right = modelSelectionCleared(settings) ? "no model selected" : model === undefined
         ? "model loading"
         : settings?.provider === undefined
         ? model

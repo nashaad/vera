@@ -13,15 +13,14 @@ const OPENROUTER = {
     envVar: "OPENROUTER_API_KEY",
 } as const;
 
-test("forgetting a credential requires the explicit numbered confirmation", () => {
+test("forgetting a credential requires confirmation", () => {
     expect(handleTuiProviderForgetConfirmKey({ name: "1" })).toBe("confirm");
     expect(handleTuiProviderForgetConfirmKey({ name: "1", ctrl: true }))
         .toBeUndefined();
     expect(handleTuiProviderForgetConfirmKey({ name: "1", shift: true }))
         .toBeUndefined();
-    // Nothing else answers the card, so no stray key deletes a secret.
     expect(handleTuiProviderForgetConfirmKey({ name: "enter" }))
-        .toBeUndefined();
+        .toBe("confirm");
     expect(handleTuiProviderForgetConfirmKey({ name: "delete" }))
         .toBeUndefined();
     expect(handleTuiProviderForgetConfirmKey({ name: "escape" })).toBe("cancel");
@@ -65,14 +64,15 @@ test("the confirmation names the provider it is about to forget", async () => {
     const view = createTuiProviderForgetConfirmView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    view.update("OpenRouter");
+    view.update("OpenRouter", 3);
     try {
         await setup.flush();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Forget this stored credential?");
         expect(frame).toContain("OpenRouter");
-        expect(frame).toContain("[1] forget");
-        expect(frame).toContain("[esc] cancel");
+        expect(frame).toContain("⏎ forget");
+        expect(frame).toContain("affects 3 shortlisted models");
+        expect(frame).toContain("esc cancel");
     } finally {
         setup.renderer.destroy();
     }

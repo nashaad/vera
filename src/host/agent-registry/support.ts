@@ -1,3 +1,4 @@
+import type { HostModelCatalogSettings } from "../model-catalog-settings.ts";
 import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -758,7 +759,7 @@ export interface RegisteredAgentEntry {
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath?: string;
     readonly parentId?: string;
-    modelSettings: ModelTurnSettings;
+    modelSettings: HostModelCatalogSettings;
     /** The level the last settings change asked for when it had to be coerced. Held beside the settings rather than inside them because it describes the request, not the choice, and mu… */
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;

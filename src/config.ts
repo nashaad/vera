@@ -1132,6 +1132,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const modelSlots = parseModelAssignmentsConfig(
         config.model_assignments,
         modelCatalog?.model_routes ?? {},
+        new Set(Object.keys(providers ?? {})),
     );
     const extensions = parseExtensionConfigs(config.extensions);
     const hooks = parseHookConfigs(config.hooks);

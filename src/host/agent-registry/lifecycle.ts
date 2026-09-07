@@ -1,3 +1,4 @@
+import { modelSelectionCleared } from "../model-catalog-settings.ts";
 import { randomUUID } from "node:crypto";
 import { link, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -228,6 +229,7 @@ export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentO
             store.agentFailure() === undefined
             && storedProvider !== undefined
             && !(storedProvider === "unknown" && reg.defaultProvider === "unknown")
+            && !modelSelectionCleared(store.modelSettings())
             && !reg.isKnownProvider(storedProvider)
         ) {
             throw new ProviderUnavailableError(storedProvider);

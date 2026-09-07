@@ -52,7 +52,7 @@ export interface TuiProviderForgetConfirmView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
-    update(label: string): void;
+    update(label: string, affected?: number): void;
 }
 
 export function handleTuiProviderForgetConfirmKey(
@@ -66,7 +66,7 @@ export function handleTuiProviderForgetConfirmKey(
     },
 ): TuiProviderForgetConfirmResult {
     if (
-        key.name === "1"
+        (key.name === "1" || key.name === "enter" || key.name === "return")
         && !key.ctrl
         && !key.meta
         && !key.shift
@@ -107,7 +107,7 @@ export function createTuiProviderForgetConfirmView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: "[1] forget · [esc] cancel",
+        content: "⏎ forget · esc cancel",
         fg: TUI_NOTICE,
         width: "100%",
         height: 1,
@@ -145,8 +145,9 @@ export function createTuiProviderForgetConfirmView(
             tuiThemeProperties(footer, { fg: "notice" }),
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
-        update(label): void {
-            name.content = label;
+        update(label, affected = 0): void {
+            name.content = `${label} · affects ${affected} shortlisted models`;
+            detail.content = "Forget credentials and remove this provider’s models. Affected default slots become unset; conversations using it have no model selected.";
         },
     };
 }

@@ -828,3 +828,17 @@ test("resident agent reports every start and stop of its turn, once each", () =>
         "idle",
     ]);
 });
+
+test("a cleared selection refuses a prompt and selecting again recovers", async () => {
+    let cleared = true;
+    const agent = new ResidentAgent("model-clear", "/tmp", { clientPromptRefusal: () => cleared ? "No model selected" : undefined });
+    const attachment = agent.attach();
+    try {
+        await attachment.receive();
+        attachment.send({ type: "prompt", content: "first" });
+        expect(await attachment.receive()).toEqual({ type: "prompt_rejected", reason: "No model selected" });
+        cleared = false;
+        attachment.send({ type: "prompt", content: "second" });
+        expect(await agent.engine.receive()).toMatchObject({ type: "prompt", content: "second" });
+    } finally { attachment.detach(); agent.close(); }
+});
