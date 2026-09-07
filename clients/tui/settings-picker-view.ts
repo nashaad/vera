@@ -1184,11 +1184,11 @@ export function renderListPickerRows(
                 if (row === undefined) return [];
                 const heading = row.section !== undefined;
                 return [{
-                    label: heading ? row.label : `  ${row.label}`,
+                    label: row.label,
                     active: index === state.selectedIndex,
                     current: row.value === state.initialModel,
                     dimmed: state.modelFocus === "intelligence",
-                    ...(heading ? { marker: row.sectionCollapsed ? "▶" : "▼", tint: true } : {}),
+
                     meta: heading ? "" : listed ? optionMeta(state, { ...row, poolName: undefined }, true, prefixWidth)
                         : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
                             ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
@@ -1200,7 +1200,7 @@ export function renderListPickerRows(
         let at = 0;
         if (listed) addRow(rowNodes[at++]!);
         for (const row of rows) {
-            addRow(row.option === undefined
+            addRow(row.heading !== undefined ? dialogGroupHeaderNode(renderer, row.heading, false) : row.option === undefined
                 ? new TextRenderable(renderer, { content: "", height: 1 })
                 : rowNodes[at++]!);
         }

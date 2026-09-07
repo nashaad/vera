@@ -55,7 +55,7 @@ Open Switch model, use Tab for all models, and press Enter to open a conversatio
 
 ## Models and providers [lines=15]
 Open `/model` or Switch model from Ctrl+P. It opens on shortlist even when empty; Tab changes to all models on the same screen.
-Models are grouped by provider. Left/Right folds or opens a group; Shift+Left/Right folds or opens all groups.
+Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
 Older and duplicate models are hidden by default unless kept. Ctrl+A shows all or fewer; search finds hidden models within the intelligence cutoff.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 Open `/shortlist` or Manage shortlist to keep or unkeep with Enter. Keeping saves immediately and does not switch or verify.

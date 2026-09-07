@@ -24,11 +24,6 @@ function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption)
 
 export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     const matches = journeyMatches(state);
-    const totals = new Map<string, number>();
-    for (const row of journeyMatches(state, true)) {
-        const key = sectionKey(state, row);
-        totals.set(key, (totals.get(key) ?? 0) + 1);
-    }
     const groups = new Map<string, TuiSettingsPickerOption[]>();
     for (const row of matches) {
         const key = sectionKey(state, row);
@@ -36,39 +31,35 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
         group.push(row);
         groups.set(key, group);
     }
-    return [...groups].flatMap(([key, rows]) => {
+    return [...groups.values()].flatMap((rows) => {
         const first = rows[0]!;
-        const provider = state.providerCatalogs?.find((provider) => provider.id === first.provider)?.label ?? first.group ?? first.provider;
-        const total = totals.get(key) ?? rows.length;
-        const count = rows.length === total ? `${total}` : `${rows.length} of ${total}`;
+        const provider = state.providerCatalogs?.find((provider) => provider.id === first.provider)?.label ?? first.provider;
         const kept = state.modelJourney === "shortlist" && first.pooledRank !== undefined ? "Kept · " : "";
-        const closed = state.query.trim() === "" && state.collapsed?.includes(key) === true;
-        const header: TuiSettingsPickerOption = { value: `section:${key}`, section: key,
-            label: `${kept}${provider} (${count})`, description: "", sectionCollapsed: closed };
-        return closed ? [header] : [header, ...rows];
+        return rows.map((row) => ({ ...row, group: `${kept}${provider}` }));
     });
 }
 
 export interface JourneyDisplayRow {
     readonly option?: TuiSettingsPickerOption;
+    readonly heading?: string;
     readonly index: number;
 }
 
 export function journeyWindow(state: TuiSettingsPickerState, maxLines: number): readonly JourneyDisplayRow[] {
-    const display = state.options.flatMap((option, index) => [
-        ...(option.section !== undefined && index > 0 ? [{ index: -1 }] : []),
+    const display: JourneyDisplayRow[] = state.options.flatMap((option, index) => [
+        ...(index === 0 || option.group !== state.options[index - 1]?.group
+            ? [...(index > 0 ? [{ index: -1 }] : []), { heading: option.group, index: -1 }] : []),
         { option, index },
     ]);
     const cursor = display.findIndex((row) => row.index === state.selectedIndex);
     const size = Math.max(1, maxLines - 1);
     const start = Math.max(0, Math.min(cursor - Math.floor(size / 2), display.length - size));
     const visible = display.slice(start, start + size);
-    while (visible[0]?.option === undefined && visible.length > 0) visible.shift();
+    while (visible[0]?.option === undefined && visible[0]?.heading === undefined && visible.length > 0) visible.shift();
     while (visible.at(-1)?.option === undefined && visible.length > 0) visible.pop();
     const first = visible[0];
-    if (maxLines > 1 && first !== undefined && first.option?.section === undefined) {
-        const parent = state.options.slice(0, first.index).findLastIndex((row) => row.section !== undefined);
-        if (parent >= 0) visible.unshift({ option: state.options[parent], index: parent });
+    if (maxLines > 1 && first?.option !== undefined) {
+        visible.unshift({ heading: first.option.group, index: -1 });
     }
     return visible;
 }
@@ -79,17 +70,6 @@ function rebuiltJourney(state: TuiSettingsPickerState, selectedValue?: string): 
     return { ...state, options, selectedIndex: selected >= 0 ? selected : Math.max(0, options.findIndex((row) => row.model !== undefined)) };
 }
 
-function foldJourney(state: TuiSettingsPickerState, close?: boolean, all = false): TuiSettingsPickerState {
-    if (state.query.trim() !== "") return state;
-    const section = state.options.slice(0, state.selectedIndex + 1).findLast((row) => row.section !== undefined);
-    if (section?.section === undefined) return state;
-    const keys = all ? journeyModels({ ...state, collapsed: [] }).flatMap((row) => row.section === undefined ? [] : [row.section]) : [section.section];
-    const closing = close ?? !section.sectionCollapsed;
-    const collapsed = new Set(state.collapsed ?? []);
-    for (const key of keys) { if (closing) collapsed.add(key); else collapsed.delete(key); }
-    return rebuiltJourney({ ...state, collapsed: [...collapsed] }, section.value);
-}
-
 export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "shortlist"): TuiSettingsPickerState {
     const next: TuiSettingsPickerState = { ...state,
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
@@ -97,14 +77,7 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
         title: mode === "switch" ? "Switch model" : "Manage shortlist",
         tab: mode === "switch" ? "pool" : "all", modelFocus: "list", query: "", queryCursor: 0,
         selectedIndex: 0, pickerLevel: "page" };
-    const counts = new Map<string, number>();
-    for (const row of journeyMatches({ ...next, tab: "all" })) {
-        const key = sectionKey({ ...next, tab: "all" }, row);
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const current = next.allOptions.find((row) => row.value === next.initialModel);
-    const open = current === undefined ? undefined : sectionKey({ ...next, tab: "all" }, current);
-    return rebuiltJourney({ ...next, collapsed: [...counts].filter(([key, count]) => count > 8 && key !== open && !key.startsWith("kept:")).map(([key]) => key) });
+    return rebuiltJourney({ ...next, collapsed: [] });
 }
 
 export function journeyHeader(state: TuiSettingsPickerState): string {
@@ -132,8 +105,8 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
 export function journeyFooter(state: TuiSettingsPickerState): string {
     const reveal = state.revealAll ? "show fewer" : "show every model";
     return state.modelJourney === "shortlist"
-        ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ←/→ fold provider · ⇧←/→ fold all · ^a " + reveal
-        : "↵ run it · ^s keep/unkeep · tab scope · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ←/→ fold provider · ⇧←/→ fold all · ^a " + reveal;
+        ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ^a " + reveal
+        : "↵ run it · ^s keep/unkeep · tab scope · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ^a " + reveal;
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
@@ -164,10 +137,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         return { state: { ...state, modelFocus: "intelligence" }, handled: true };
     }
     if (key.name === "left" || key.name === "right") {
-        return { state: foldJourney(state, key.name === "left", key.shift === true), handled: true };
-    }
-    if ((key.name === "enter" || key.name === "return") && selected?.section !== undefined) {
-        return { state: foldJourney(state), handled: true };
+        return same;
     }
     if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
         if (managing) return same;

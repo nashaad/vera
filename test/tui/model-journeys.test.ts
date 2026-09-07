@@ -141,22 +141,18 @@ test("providers opened from either model journey never expose the legacy tabs", 
     } finally { setup.renderer.destroy(); }
 });
 
-test("provider trees keep shortlist entries first, fold independently, and search opens matches", () => {
-    let state = modelJourney(base, "shortlist");
-    expect(state.options.filter((row) => row.section !== undefined).map((row) => row.label))
-        .toEqual(["Kept · p (1)", "Kept · q (1)", "p (1)"]);
-    const folded = handleModelJourneyKey(state, { name: "left" }).state!;
-    expect(folded.options[folded.selectedIndex]?.sectionCollapsed).toBe(true);
-    expect(folded.options.some((row) => row.model === "b")).toBe(false);
-    expect(folded.options.some((row) => row.model === "a")).toBe(true);
-    state = handleModelJourneyKey(folded, { name: "enter" }).state!;
-    expect(state.options.some((row) => row.model === "b")).toBe(true);
-    const closed = handleModelJourneyKey(state, { name: "left", shift: true }).state!;
-    expect(closed.options.every((row) => row.sectionCollapsed)).toBe(true);
-    const searched = updateTuiSettingsPickerSearch(closed, "beta").state!;
+test("plain provider groups keep shortlisted models first and headings never enter navigation", () => {
+    const state = modelJourney(base, "shortlist");
+    expect(state.options.map((row) => row.group)).toEqual(["Kept · p", "Kept · q", "p"]);
+    expect(state.options.every((row) => row.model !== undefined && row.section === undefined)).toBe(true);
+    for (const shift of [false, true]) for (const name of ["left", "right"]) {
+        expect(handleModelJourneyKey(state, { name, shift }).state).toBe(state);
+    }
+    const next = handleModelJourneyKey(state, { name: "down" }).state!;
+    expect(next.options[next.selectedIndex]?.model).toBe("c");
+    const searched = updateTuiSettingsPickerSearch(state, "beta").state!;
     expect(searched.options[searched.selectedIndex]?.model).toBe("b");
     expect(handleModelJourneyKey(searched, { name: "enter" }).poolToggle?.model).toBe("b");
-    expect(updateTuiSettingsPickerSearch(searched, "").state?.options.every((row) => row.sectionCollapsed)).toBe(true);
 });
 
 test("reduced catalogs hide old entries without hiding kept models or search results", () => {
@@ -175,18 +171,16 @@ test("reduced catalogs hide old entries without hiding kept models or search res
     expect(handleModelJourneyKey(managed, { name: "k", ctrl: true }).poolBulk?.models.map((row) => row.model)).toEqual(["a"]);
 });
 
-test("large provider trees start folded and bounded windows keep the selected model's heading", () => {
+test("large provider sections stay open and bounded windows retain provider context", () => {
     const options = Array.from({ length: 60 }, (_, index) => ({
         ...rows[0]!, value: JSON.stringify(["p", `model-${index}`]), model: `model-${index}`, label: `Model ${index}`,
     }));
     let state = handleModelJourneyKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
-    expect(state.options).toHaveLength(1);
-    expect(state.options[0]?.label).toBe("p (60)");
-    state = handleModelJourneyKey(state, { name: "right" }).state!;
+    expect(state.options).toHaveLength(60);
     state = { ...state, selectedIndex: 40 };
     const window = journeyWindow(state, 12);
     expect(window.length).toBeLessThanOrEqual(12);
-    expect(window[0]?.option?.section).toBe("all:p");
+    expect(window[0]?.heading).toBe("p");
     expect(window.some((row) => row.index === state.selectedIndex)).toBe(true);
     const refreshed = syncTuiModelPicker(state, { provider: "p", model: "model-0",
         availableModels: options.map((row) => ({ provider: row.provider, model: row.model, label: row.label, description: "", levels: [] })) });
@@ -203,7 +197,7 @@ test("provider headings have a blank row between groups inside the card", async 
         view.update(modelJourney(base, "shortlist"));
         await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
-        const heading = lines.findIndex((line) => line.includes("Kept · q (1)"));
+        const heading = lines.findIndex((line) => line.includes("Kept · q"));
         expect(heading).toBeGreaterThan(0);
         expect(lines[heading - 1]?.split("│")[0]?.trim()).toBe("");
         expect(lines[heading + 1]).toContain("Gamma");
@@ -384,7 +378,6 @@ test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggl
         expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual({
             action: "remove", provider: start.options[start.selectedIndex]!.provider!, model: start.options[start.selectedIndex]!.model!,
         });
-        expect(handleTuiSettingsPickerKey({ ...start, selectedIndex: 0 }, { name: "s", ctrl: true }).poolToggle).toBeUndefined();
         if (journey === "shortlist") {
             expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk?.action).toBe("remove");
         } else {
