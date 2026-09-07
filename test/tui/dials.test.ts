@@ -110,7 +110,9 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         "hints",
         90,
     );
-    expect(wide).toHaveLength(5);
+    expect(wide).toHaveLength(8);
+    expect(wide.join("\n")).toContain("Faster");
+    expect(wide.join("\n")).toContain("Smarter");
 });
 
 test("the effort scale explains the faster-to-smarter direction when it fits", () => {
@@ -634,4 +636,17 @@ test("agent changes skip disabled postures and agents without permitted access",
     });
     expect(press(staged, "right").agentIndex).toBe(0);
     expect(handleDialStripKey({ ...staged, permissionIndex: 2 }, { name: "enter" }, undefined)).toEqual({ kind: "ignore" });
+});
+
+test("the HUD effort slider marker moves with staged effort and Escape preserves the live value", () => {
+    const state = scaleStrip(SOL);
+    const before = renderDialStrip(state, "", 90);
+    const moved = press(state, "right");
+    const after = renderDialStrip(moved, "", 90);
+    expect(before[1]).toContain("Faster");
+    expect(before[1]).toContain("Smarter");
+    expect(after[2]!.indexOf("▲")).toBeGreaterThan(before[2]!.indexOf("▲"));
+    expect(after[0]).toContain("live: low");
+    expect(handleDialStripKey(moved, { name: "escape" }, undefined)).toEqual({ kind: "cancel" });
+    expect(dialStripSelection(state)).toEqual(SOL);
 });

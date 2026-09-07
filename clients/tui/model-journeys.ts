@@ -120,10 +120,9 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
     const scope = state.tab === "all" ? "shortlist [all]" : "[shortlist] all";
     if (state.tab !== "all") return `Scope: ${scope} · tab scope`;
     const floor = state.intelligenceCutoff ?? "any";
-    const cutoff = ["any", "1400", "1450", "1500", "1550", "1600"].map((value) => value === floor ? `[${value}]` : value).join(" ");
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));
     const unscored = hidden.filter((row) => row.waScore === undefined).length;
-    return `Scope: ${scope} · tab scope    Cutoff: ${cutoff} · ^g cutoff\n`
+    return `Scope: ${scope} · tab scope    Intelligence cutoff · ^g step · ↑ from the first row to adjust\n`
         + (hidden.length ? `${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "") + reduced;
 }
 
@@ -139,6 +138,16 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     const managing = state.modelJourney === "shortlist";
     const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
+    if (!managing && state.tab === "all" && state.modelFocus === "intelligence" && !key.ctrl) {
+        if (key.name === "left" || key.name === "right") return { state: rebuiltJourney({ ...state,
+            intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
+        }), handled: true };
+        if (key.name === "down" || key.name === "enter" || key.name === "return") return { state: { ...state, modelFocus: "list" }, handled: true };
+        if (key.name === "up") return same;
+    }
+    if (!managing && state.tab === "all" && key.name === "up" && state.selectedIndex === 0) {
+        return { state: { ...state, modelFocus: "intelligence" }, handled: true };
+    }
     if (key.name === "left" || key.name === "right") {
         return { state: foldJourney(state, key.name === "left", key.shift === true), handled: true };
     }
@@ -147,7 +156,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     }
     if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
         if (managing) return same;
-        const next = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const, selectedIndex: 0 };
+        const next = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const, modelFocus: "list" as const, selectedIndex: 0 };
         return { state: rebuiltJourney(next), handled: true };
     }
     if (binding !== undefined || key.ctrl) {

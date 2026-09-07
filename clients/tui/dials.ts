@@ -396,6 +396,7 @@ export function renderDialStrip(
     return [
         lane("effort", efforts, Math.max(0, efforts.indexOf(effort ?? "default")),
             state.opened?.effort ?? "default"),
+        ...renderEffortScale(slot?.efforts ?? [], effort, width),
         lane("access", permission.length === 0 ? ["unavailable"] : permission,
             state.permissionIndex, state.openedPermission),
         lane("model", state.slots.length === 0 ? ["unavailable"] : state.slots.map(

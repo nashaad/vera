@@ -953,7 +953,8 @@ export function createTuiSettingsPickerView(
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (
                 !pickerIsSearchable(state)
-                || (state.modelJourney !== undefined && (key.ctrl === true || tuiBindingId("switch_model_picker", key) === "journey_scope"))
+                || (state.modelJourney !== undefined && (key.ctrl === true || tuiBindingId("switch_model_picker", key) === "journey_scope"
+                    || (state.modelFocus === "intelligence" && (key.name === "left" || key.name === "right"))))
                 || (state.kind === "model" && state.tab === "help")
                 || key.name === "escape" || key.name === "up"
                 || key.name === "down" || key.name === "return"
@@ -1153,7 +1154,13 @@ export function renderListPickerRows(
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search);
         }
-        const rows = journeyWindow(state, Math.max(1, Math.min(12, renderer.height - 15 - headerHeight)));
+        const cutoff = state.modelJourney === "switch" && state.tab === "all";
+        const scaleLines = cutoff ? intelligenceScaleLines(width, state.intelligenceCutoff ?? "any", state.modelFocus === "intelligence") : [];
+        for (const chunks of scaleLines) add(new TextRenderable(renderer, {
+            content: new StyledText([...chunks]), width: "100%", height: 1,
+        }));
+        if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
+        const rows = journeyWindow(state, Math.max(1, Math.min(12, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0))));
         if (rows.length === 0) add(new TextRenderable(renderer, {
             content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
@@ -1167,6 +1174,7 @@ export function renderListPickerRows(
             for (const node of dialogOptionRows(renderer, [{
                 label: heading ? row.label : `  ${row.label}`,
                 active: index === state.selectedIndex,
+                dimmed: state.modelFocus === "intelligence",
                 ...(heading ? { marker: row.sectionCollapsed ? "▶" : "▼", tint: true } : {}),
                 meta: heading ? "" : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
                     ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`

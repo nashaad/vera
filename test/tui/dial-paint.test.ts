@@ -401,8 +401,8 @@ test("painting covers every row and drops none of its text", () => {
 test("four lanes retain exactly one filled cursor, including when effort is pending", () => {
     const state = moveDialLane(adjustDialEffort(strip("effort"), 1), 2);
     const painted = paint(state);
-    expect(painted).toHaveLength(4);
+    expect(painted).toHaveLength(7);
     expect(painted.flat().filter((span) => span.background !== undefined)).toHaveLength(1);
-    expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(0);
+    expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(3);
     expect(rowsOf(state)[0]).toContain("live: default");
 });

@@ -190,7 +190,7 @@ test("large provider trees start folded and bounded windows keep the selected mo
     expect(window.some((row) => row.index === state.selectedIndex)).toBe(true);
     const refreshed = syncTuiModelPicker(state, { provider: "p", model: "model-0",
         availableModels: options.map((row) => ({ provider: row.provider, model: row.model, label: row.label, description: "", levels: [] })) });
-    expect(refreshed.collapsed ?? []).toEqual(state.collapsed);
+    expect(refreshed.collapsed ?? []).toEqual(state.collapsed ?? []);
     expect(refreshed.options[refreshed.selectedIndex]?.value).toBe(state.options[state.selectedIndex]?.value);
 });
 
@@ -208,5 +208,41 @@ test("provider headings have a blank row between groups inside the card", async 
         expect(lines[heading - 1]?.trim()).toBe("");
         expect(lines[heading + 1]).toContain("Gamma");
         expect(view.box.screenY + view.box.height).toBeLessThan(setup.renderer.height);
+    } finally { setup.renderer.destroy(); }
+});
+
+test("the intelligence slider is visible in All and arrows adjust it without folding providers", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 24 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        let state = handleModelJourneyKey(modelJourney(base, "switch"), { name: "tab" }).state!;
+        state = { ...state, selectedIndex: 0 };
+        state = handleModelJourneyKey(state, { name: "up" }).state!;
+        expect(state.modelFocus).toBe("intelligence");
+        view.update(state);
+        await setup.renderOnce();
+        const before = setup.captureCharFrame();
+        expect(before).toContain("Smarter");
+        expect(before).toContain("▲");
+        expect(view.handleEditorKey(state, { name: "right" }).handled).toBe(false);
+        state = handleModelJourneyKey(state, { name: "right" }).state!;
+        expect(state.intelligenceCutoff).toBe("1400");
+        expect(journeyMatches(state).map((row) => row.model)).toEqual(["a"]);
+        view.update(state);
+        await setup.renderOnce();
+        const after = setup.captureCharFrame();
+        const marker = (frame: string) => frame.split("\n").find((line) => line.includes("▲"))!.indexOf("▲");
+        expect(marker(after)).toBeGreaterThan(marker(before));
+        for (const child of view.box.getChildren()) {
+            expect(child.screenY + child.height).toBeLessThanOrEqual(view.box.screenY + view.box.height - 1);
+        }
+        state = handleModelJourneyKey(state, { name: "down" }).state!;
+        expect(state.modelFocus).toBe("list");
+        state = handleModelJourneyKey(state, { name: "tab" }).state!;
+        view.update(state);
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).not.toContain("Smarter");
     } finally { setup.renderer.destroy(); }
 });

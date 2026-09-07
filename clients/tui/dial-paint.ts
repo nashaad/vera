@@ -53,10 +53,7 @@ export function mapDialRows(hudRows: readonly string[]): DialRowMap {
             line.replace(/^[› ]\s*/, "").startsWith(label)
         );
     const effort = hudRows.findIndex((line) => line.includes("EFFORT"));
-    const effortScaleRows = effort >= 1
-            && hudRows[effort - 1]?.includes("Faster") === true
-        ? 2
-        : 0;
+    const effortScaleRows = effort >= 0 && hudRows[effort + 1]?.includes("Faster") === true ? 3 : 0;
     const agent = rowIndex("AGENT");
     const modelStart = rowIndex("MODEL");
     return {
@@ -85,6 +82,10 @@ export function paintDialRow(
     state: DialPaintState = {},
 ): readonly DialSpan[] {
     const line = hudRows[index] ?? "";
+    if (rows.effortScaleRows > 0 && index > rows.effort && index <= rows.effort + rows.effortScaleRows) {
+        return line.split(/(▲)/u).filter(Boolean).map((text) => ({ text,
+            color: text === "▲" ? lane === "effort" ? theme.accent : theme.text : theme.muted }));
+    }
     const active = line.startsWith("› ");
     const prefix = line.match(/^[› ] (?:EFFORT|ACCESS|MODEL|AGENT)\s*/)?.[0] ?? "";
     const spans: DialSpan[] = [{ text: prefix, color: active ? theme.text : theme.muted }];
