@@ -217,7 +217,7 @@ export function handleTuiSettingsPickerKey(
     if (state.kind === "model_assignment" && state.options[state.selectedIndex]?.value === "verify_shortlist"
         && (key.name === "enter" || key.name === "return")) return { state, handled: true, poolVerifySweep: true };
     if (state.kind === "model_defaults") {
-        if (key.name === "escape") return { handled: true };
+        if (key.name === "escape") return { state: state.parent, handled: true };
         if (key.name === "enter" || key.name === "return") {
             const row = state.options[state.selectedIndex];
             return row === undefined ? { state, handled: true } : { state, handled: true,

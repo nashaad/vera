@@ -1798,7 +1798,7 @@ export function modelOptions(
             ...(held === undefined ? {} : { pooledRank: held.rank }),
             ...(held?.entry.poolName === undefined
                 ? {}
-                : { poolName: held.entry.poolName, label: held.entry.poolName }),
+                : { poolName: held.entry.poolName, label: held.entry.displayName ?? held.entry.poolName }),
             ...(held !== undefined && !held.entry.verified
                 ? { unverified: true }
                 : {}),
@@ -1863,7 +1863,7 @@ export function modelOptions(
         const value = providerModelKey(entry.provider, entry.model);
         return runnable.some((option) => option.value === value) ? [] : [{
             value,
-            label: entry.poolName ?? modelRowLabel(entry),
+            label: entry.displayName ?? entry.poolName ?? modelRowLabel(entry),
             description: "not available right now",
             searchText: `${entry.provider} ${entry.model}${
                 entry.poolName === undefined ? "" : ` ${entry.poolName}`

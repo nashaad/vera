@@ -201,6 +201,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             },
             transition.poolName.label,
             previousPicker?.kind === "extension" ? undefined : previousPicker,
+            previousPicker?.kind === "model" && previousPicker.modelJourney === "shortlist" ? transition.poolName.label : undefined,
         );
         return;
     }
@@ -224,7 +225,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         const bound = currentModelAssignmentRows(rt).filter((slot) => slot.declared.some((entry) =>
             bulk.models.some((model) => model.provider === entry.provider && model.model === entry.model)));
         if (bulk.action === "remove" && bound.length > 0) {
-            showStatusNotice(rt, `Cannot unkeep: bound to ${bound.map((slot) => slot.label).join(", ")}. Reassign those slots first.`);
+            openRemovalRecovery(rt, bound);
             renderState(rt);
             return;
         }
@@ -237,7 +238,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         const bound = currentModelAssignmentRows(rt).filter((slot) => slot.declared.some((entry) =>
             entry.provider === toggle.provider && entry.model === toggle.model));
         if (toggle.action === "remove" && bound.length > 0) {
-            showStatusNotice(rt, `Cannot unkeep: bound to ${bound.map((slot) => slot.label).join(", ")}. Reassign that slot or cancel.`);
+            openRemovalRecovery(rt, bound);
             renderState(rt);
             return;
         }
@@ -647,4 +648,14 @@ export function closeSettingsPickerSurface(rt: TuiRuntime): void {
     if (isHomeClient(rt.client)) {
         void refreshHomeSessions(rt);
     }
+}
+
+function openRemovalRecovery(rt: TuiRuntime, bound: ReturnType<typeof currentModelAssignmentRows>): void {
+    const parent = rt.settingsPicker?.kind === "model" ? rt.settingsPicker : undefined;
+    const options = bound.map((slot) => ({ value: slot.assignment, label: `Reassign ${slot.label}`,
+        description: slot.declared.map((model) => `${model.provider}/${model.model}`).join(", ") }));
+    rt.settingsPicker = { kind: "model_defaults", title: "Cannot remove a bound model", subtitle:
+        `Bound to ${bound.map((slot) => slot.label).join(", ")}. Reassign a slot below, or Esc to cancel. Nothing was removed.`,
+        query: "", selectedIndex: 0, allOptions: options, options, parent };
+    focusActiveSurface(rt);
 }

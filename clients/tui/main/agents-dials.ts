@@ -117,9 +117,7 @@ export function dialPool(rt: TuiRuntime): readonly DialPoolEntry[] {
         (entry) => ({
             provider: entry.provider,
             model: entry.model,
-            ...(entry.poolName === undefined
-                ? {}
-                : { poolName: entry.poolName }),
+            poolName: entry.displayName ?? entry.poolName ?? entry.label,
             levels: entry.levels.map((level) => level.id),
             ...(entry.defaultLevel === undefined
                 ? {}

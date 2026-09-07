@@ -48,6 +48,7 @@ export interface PooledModel {
     readonly model: string;
     readonly label: string;
     readonly poolName?: string;
+    readonly displayName?: string;
     readonly available: boolean;
     readonly verified: boolean;
     readonly description?: string;
@@ -148,7 +149,8 @@ export function pooledModels(
         }
         const name = id.slice(provider.length + 1);
         const poolName = poolNameOf(file, id);
-        const named = poolName === undefined ? {} : { poolName };
+        const named = { ...(poolName === undefined ? {} : { poolName }),
+            ...(entry.displayName === undefined ? {} : { displayName: entry.displayName }) };
         const verified = isVerifiedPoolEntry(entry);
         const model = knownModels.get(id);
         if (model === undefined) {
