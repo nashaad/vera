@@ -1763,6 +1763,7 @@ export function searched(
 export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
     return state.kind !== "extension"
         && state.kind !== "configure"
+        && state.kind !== "model_defaults"
         && state.kind !== "model_verification"
         && state.kind !== "pool_verify_scope"
         && state.kind !== "catalog_refresh_scope"
@@ -2362,7 +2363,7 @@ export function pickerSelection(
             }),
         };
     }
-    if (kind === "model_verification") throw new Error("Verification results are not selectable");
+    if (kind === "model_defaults" || kind === "model_verification") throw new Error("Verification results are not selectable");
     return { kind, theme: value as TuiThemeName };
 }
 

@@ -547,34 +547,6 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             );
             return;
         } else if (selection.kind === "model_assignment") {
-            const assignedLevels = selection.model === undefined
-                || selection.remove === true
-                || selection.reasoningEffort !== undefined
-                || selection.acceptDefaultReasoning === true
-                ? undefined
-                : modelLevelFacts(rt, selection.provider, selection.model);
-            if (
-                assignedLevels !== undefined
-                && assignedLevels.levels.length > 0
-                && previousPicker?.kind === "model_assignment"
-            ) {
-                rt.settingsPicker = startTuiReasoningPicker(
-                    assignedLevels.levels,
-                    assignedLevels.defaultLevel,
-                    undefined,
-                    {
-                        provider: selection.provider as string,
-                        model: selection.model as string,
-                        modelPaneState: previousPicker,
-                        assignment: selection.assignment,
-                    },
-                );
-                rt.composer.blur();
-                rt.settingsPickerView.update(rt.settingsPicker);
-                rt.settingsPickerView.focus();
-                renderState(rt);
-                return;
-            }
             const bindingError = bindModelAssignmentFromPicker(rt, selection);
             if (bindingError !== undefined) {
                 rt.settingsPicker = previousPicker?.kind === "model_assignment"

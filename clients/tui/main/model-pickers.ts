@@ -1,5 +1,5 @@
 import { modelJourney } from "../model-journeys.ts";
-import { configuredModelAssignments, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
+import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
 import { derivedModelName } from "../../../src/config/model-catalog.ts";
 import type { ModelSettingsPatch } from "../../../src/engine/model-settings.ts";
@@ -237,10 +237,7 @@ export function catalogSizeOf(rt: TuiRuntime, provider: string): number {
 }
 
 export function currentModelAssignmentRows(rt: TuiRuntime): readonly ModelAssignmentRow[] {
-    const configured = loadOptionalVeraConfig();
-    if (configured === undefined) {
-        return [];
-    }
+    const configured = loadOptionalVeraConfig() ?? startingVeraConfig();
     return configuredModelAssignments(
         configured,
         poolReachability(loadPoolFile({ projectRoot: process.cwd() }).merged),
@@ -292,6 +289,10 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
         readonly allowSelf?: boolean;
     },
 ): string | undefined {
+    if (selection.model !== undefined && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined) {
+        const model = focusedAgentState(rt).modelSettings?.pooled?.find((entry) => entry.provider === selection.provider && entry.model === selection.model);
+        if (model?.verified !== true) return "Only shortlisted and verified models can hold a default slot. Verify this model first.";
+    }
     const subagents = selection.assignment === "subagents";
     const row = subagents
         ? currentModelAssignmentRows(rt).find((entry) =>
@@ -363,7 +364,7 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     rt.state = appendTuiNotice(
         rt.state,
         unbinding
-            ? `${selection.assignment} unset. This session uses the fallback.`
+            ? `${selection.assignment} unset. The conversation model is unchanged.`
             : subagents
             ? `Subagent policy updated: ${models.length} assigned, parent fallback ${
                 allowSelf ? "on" : "off"
@@ -372,7 +373,7 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
                 selection.reasoningEffort === undefined
                     ? selection.model
                     : `${selection.model} (${selection.reasoningEffort})`
-            }. This session uses it.`,
+            }. The conversation model is unchanged.`,
         "soft",
     );
     return undefined;

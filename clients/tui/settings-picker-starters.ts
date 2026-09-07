@@ -1062,6 +1062,7 @@ export function startTuiModelAssignmentPicker(
     const available: TuiSettingsPickerOption[] = [];
     const standardRows: TuiSettingsPickerOption[] = [];
     for (const entry of pooled) {
+        if (!entry.verified) continue;
         const value = `${entry.provider}/${entry.model}`;
         if (seen.has(value)) continue;
         seen.add(value);
@@ -1094,7 +1095,7 @@ export function startTuiModelAssignmentPicker(
     };
     const browseRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_BROWSE_VALUE,
-        label: "Add another model…",
+        label: "Manage shortlist",
         description: `manage ${modelTabLabel("pool")}`,
         group: "Shortlist",
     };
@@ -1118,7 +1119,7 @@ export function startTuiModelAssignmentPicker(
             selfRow,
             browseRow,
         ]
-        : [clearRow, ...standardRows, browseRow];
+        : [clearRow, ...standardRows, { value: "verify_shortlist", label: "Verify shortlisted models", description: "make models eligible for a default" }, browseRow];
     const selectedIndex = selectedValue === undefined
         ? 0
         : Math.max(0, options.findIndex((option) => option.value === selectedValue));
@@ -1129,7 +1130,7 @@ export function startTuiModelAssignmentPicker(
             : `Assign a model to ${label}`,
         subtitle: assignment === "subagents"
             ? "Models subagents may use, in fallback order."
-            : intent,
+            : `${pooled.length} shortlisted; ${pooled.filter((model) => model.verified).length} verified. Only shortlisted and verified models are eligible.`,
         allOptions: options,
         options,
         selectedIndex,
@@ -1143,10 +1144,7 @@ export function startTuiModelAssignmentPicker(
 }
 
 export function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
-    if (assignment === "subagents") return "subagent spawns are refused";
-    return isJobAssignmentId(assignment)
-        ? `uses ${JOB_ASSIGNMENT_INTENTS[assignment] ?? "this session's model"}`
-        : "uses this session's model";
+    return isJobAssignmentId(assignment) ? "unset, inherits its intent" : "unset, no model bound";
 }
 
 export function settingsMenuOptions(

@@ -77,6 +77,7 @@ export type TuiSettingsPickerKind =
     | "reviewer_settings"
     | "reviewer"
     | "model_assignment"
+    | "model_defaults"
     | "model_verification"
     | "pool_verify_scope"
     | "catalog_refresh_scope";

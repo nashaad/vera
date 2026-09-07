@@ -43,3 +43,21 @@ test("live shortlist keeps through the host operation and verification can be le
         expect(operations.map((operation) => operation.operation)).toEqual(["keep", "verify"]);
     } finally { finish(); await session.close(); }
 }, 15_000);
+
+test("defaults expose six slots and empty eligibility offers recovery", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-defaults-journey-")), width: 120, height: 36,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("assign model defaults"); await session.waitForVisiblePane("Assign model defaults");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("unset, inherits its intent");
+        for (const label of ["snappy", "eco", "extra", "classifier", "compaction", "subagents"]) expect(pane).toContain(label);
+        session.sendKey("Enter");
+        const assign = await session.waitForVisiblePane("Only shortlisted and verified models are eligible");
+        expect(assign).toContain("Verify shortlisted models");
+        expect(assign).toContain("Manage shortlist");
+    } finally { await session.close(); }
+}, 15_000);

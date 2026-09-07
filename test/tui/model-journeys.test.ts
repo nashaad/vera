@@ -61,3 +61,14 @@ test("live shortlist search accepts spaces and row actions do not appear as anot
         expect(frame).not.toContain("Actions");
     } finally { setup.renderer.destroy(); }
 });
+
+test("default assignment offers only verified shortlist models and both recovery routes", async () => {
+    const { startTuiModelAssignmentPicker } = await import("../../clients/tui/settings-picker.ts");
+    const pane = startTuiModelAssignmentPicker("eco", "eco", "", [
+        { provider: "p", model: "a", label: "A", available: true, verified: false, levels: [] },
+        { provider: "p", model: "b", label: "B", available: true, verified: true, levels: [] },
+    ]);
+    expect(pane.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b"]);
+    expect(pane.options.some((row) => row.label === "Verify shortlisted models")).toBe(true);
+    expect(pane.options.some((row) => row.label === "Manage shortlist")).toBe(true);
+});

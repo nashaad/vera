@@ -13,6 +13,7 @@ function withConfigFile(run: (path: string) => void): void {
             path,
             JSON.stringify({ schema_version: 1, model: "seed" }),
         );
+        writeFileSync(join(directory, "pool.json"), JSON.stringify({ models: { "openrouter/big-1": { added: true, learned: { probe: { ok: true, seen: "2026-09-06" } } } } }));
         run(path);
     } finally {
         rmSync(directory, { recursive: true, force: true });
@@ -71,5 +72,16 @@ test("null unbinds only the named assignment", () => {
         const config = loadVeraConfig({ path });
         expect(config.model_assignments?.extra).toBeUndefined();
         expect(config.model_assignments?.eco).toBeDefined();
+    });
+});
+
+test("new assignments require independent membership and successful verification", () => {
+    withConfigFile((path) => {
+        for (const model of ["not-kept", "not-verified"]) {
+            expect(() => updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
+                models: [{ name: model, provider: "openrouter", model }],
+            } } }, { path })).toThrow("shortlisted and verified");
+        }
+        expect(loadVeraConfig({ path }).model_assignments?.eco).toBeUndefined();
     });
 });

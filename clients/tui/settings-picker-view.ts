@@ -214,6 +214,16 @@ export function handleTuiSettingsPickerKey(
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
     }
+    if (state.kind === "model_assignment" && state.options[state.selectedIndex]?.value === "verify_shortlist"
+        && (key.name === "enter" || key.name === "return")) return { state, handled: true, poolVerifySweep: true };
+    if (state.kind === "model_defaults") {
+        if (key.name === "escape") return { handled: true };
+        if (key.name === "enter" || key.name === "return") {
+            const row = state.options[state.selectedIndex];
+            return row === undefined ? { state, handled: true } : { state, handled: true,
+                selection: { kind: "model_assignment_open", assignment: row.value as ModelAssignmentId } };
+        }
+    }
     if (state.kind === "model_verification" || state.verificationTargets !== undefined) return handleVerificationKey(state, key);
     if (state.modelJourney !== undefined) return handleModelJourneyKey(state, key);
     if (state.kind === "model") {

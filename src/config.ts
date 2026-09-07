@@ -1,3 +1,5 @@
+import { eligibleForDefault } from "./model/model-operations.ts";
+import { loadPoolFile as loadAssignmentPool } from "./model/pool-file-loader.ts";
 import {
     existsSync,
     mkdirSync,
@@ -679,6 +681,19 @@ export function updateVeraConfigDefaults(
     const current = existsSync(path)
         ? loadVeraConfig({ path })
         : startingVeraConfig();
+    if (patch.model_assignment?.binding !== null && patch.model_assignment !== undefined) {
+        const assignment = patch.model_assignment.assignment;
+        const before = configuredModelAssignments(current).find((row) => row.assignment === assignment)?.declared ?? [];
+        const after = configuredModelAssignments({ ...current, model_assignments: {
+            ...current.model_assignments, [assignment]: patch.model_assignment.binding,
+        } }).find((row) => row.assignment === assignment)?.declared ?? [];
+        const pool = loadAssignmentPool({ userPath: join(dirname(path), "pool.json") }).merged;
+        for (const model of after) {
+            if (before.some((previous) => previous.provider === model.provider && previous.model === model.model)) continue;
+            if (!eligibleForDefault(pool, model)) throw new VeraConfigError(path,
+                `${model.provider}/${model.model} must be shortlisted and verified before assigning ${assignment}.`);
+        }
+    }
     const updated: VeraConfig = {
         ...current,
         ...(patch.provider === undefined ? {} : { provider: patch.provider }),
