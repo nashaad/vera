@@ -1,3 +1,4 @@
+import { runModelOperation } from "./model-operations.ts";
 import { modelJourney } from "../model-journeys.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
 import { isConfigurationRequiredUiRequestUpdate, type UiRequestUpdate } from "../../../src/engine/protocol.ts";
@@ -370,7 +371,10 @@ export function applySessionRenamePromptTransition(rt: TuiRuntime,
     rt.settingsPicker = prompt.target.kind === "pool"
         ? rt.settingsPicker ?? parent
         : parent;
-    if (transition.submitted !== undefined && prompt.target.kind === "pool") {
+    if (transition.submitted !== undefined && prompt.target.kind === "pool" && parent?.modelJourney === "shortlist") {
+        runModelOperation(rt, { operation: "rename", displayName: transition.submitted ?? "",
+            models: [{ provider: prompt.target.provider, model: prompt.target.model }] });
+    } else if (transition.submitted !== undefined && prompt.target.kind === "pool") {
         sendCommand(rt, {
             type: "pool_name",
             requestId: randomUUID(),

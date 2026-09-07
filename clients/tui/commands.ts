@@ -1605,7 +1605,8 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         ...POOL_COMMAND,
         parse: (argumentsText) => {
             const argument = argumentsText.trim();
-            if (argument.length === 0 || argument === "add") {
+            if (argument.length === 0) return { type: "open_settings_destination", destination: { kind: "model_shortlist" } };
+            if (argument === "add") {
                 return { type: "pool_current_model" };
             }
             return {
@@ -1615,8 +1616,8 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
         palette: {
             name: "shortlist",
-            label: "Open your shortlist",
-            description: "the models you keep",
+            label: "Manage shortlist",
+            description: "keep or unkeep discovered models",
             group: "Settings",
             action: {
                 type: "open_settings_destination",
@@ -1632,7 +1633,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
         palette: {
             name: "defaults",
-            label: "Show which model runs each job",
+            label: "Assign model defaults",
             description: "snappy, eco, extra, and the jobs that inherit them",
             group: "Settings",
             slashName: "defaults",
@@ -1650,7 +1651,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
         palette: {
             name: "providers",
-            label: "Connect a provider",
+            label: "Configure providers",
             description: "sign in, or add an endpoint of your own",
             group: "Settings",
             slashName: "providers",
@@ -1678,11 +1679,6 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         group: "Settings",
         action: { type: "open_preferences_list" },
     });
-    for (const [name, label, description, kind] of [
-        ["manage_shortlist", "Manage shortlist", "keep or unkeep discovered models", "model_shortlist"],
-        ["model_defaults", "Assign model defaults", "bind verified shortlisted models to default slots", "model_assignments"],
-    ] as const) registry.registerPaletteAction({ name, label, description, group: "Settings",
-        action: { type: "open_settings_destination", destination: { kind } } });
     for (const [utility, label, description] of [
         ["dials", "Dial strip", "stage model, effort, access and agent together"],
         ["verify", "Verify shortlisted models", "send real requests to check your shortlisted models"],

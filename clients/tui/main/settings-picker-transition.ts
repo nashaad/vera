@@ -1,3 +1,4 @@
+import { runModelOperation } from "./model-operations.ts";
 import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -227,11 +228,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        for (const model of bulk.models) {
-            if (model.provider === undefined || model.model === undefined) continue;
-            sendCommand(rt, { type: bulk.action === "add" ? "pool_add" : "pool_remove",
-                requestId: randomUUID(), provider: model.provider, model: model.model });
-        }
+        runModelOperation(rt, { operation: bulk.action === "add" ? "keep" : "unkeep", models: bulk.models.flatMap((model) =>
+            model.provider === undefined || model.model === undefined ? [] : [{ provider: model.provider, model: model.model }]) });
         return;
     }
     if ("poolToggle" in transition && transition.poolToggle !== undefined) {
@@ -244,8 +242,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             return;
         }
         if (previousPicker?.kind === "model" && previousPicker.modelJourney === "shortlist") {
-            sendCommand(rt, { type: toggle.action === "add" ? "pool_add" : "pool_remove",
-                requestId: randomUUID(), provider: toggle.provider, model: toggle.model });
+            runModelOperation(rt, { operation: toggle.action === "add" ? "keep" : "unkeep",
+                models: [{ provider: toggle.provider, model: toggle.model }] });
             return;
         }
         rt.poolChangeUndo = undefined;
@@ -527,7 +525,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 );
             }
         } else if (selection.kind === "pool_verify_scope") {
-            startPoolVerifySweep(rt, selection.onlyUnverified);
+            startPoolVerifySweep(rt, selection.onlyUnverified, selection.provider);
             return;
         } else if (selection.kind === "catalog_refresh_scope") {
             startCatalogRefreshSweep(rt, selection.providers);

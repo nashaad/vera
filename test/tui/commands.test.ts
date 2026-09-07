@@ -551,7 +551,7 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         destination: { kind: "model" },
     });
     expect(registry.dispatch("/shortlist")).toEqual({
-        type: "pool_current_model",
+        type: "open_settings_destination", destination: { kind: "model_shortlist" },
     });
     // Keep the formerly advertised spelling as a compatibility alias.
     expect(registry.dispatch("/shortlist add")).toEqual({

@@ -199,9 +199,9 @@ export function createTuiNamePromptView(
             const session = state.target.kind === "session";
             title.content = session
                 ? "Rename conversation"
-                : "Name shortlisted model";
+                : "Rename model display name";
             hint.visible = !session;
-            hint.content = session ? "" : state.label;
+            hint.content = session ? "" : "Display name only; provider identity is untouched.";
             updateDialogTextFieldNode(
                 entry,
                 state.value,

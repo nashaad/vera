@@ -1763,6 +1763,7 @@ export function searched(
 export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
     return state.kind !== "extension"
         && state.kind !== "configure"
+        && state.kind !== "model_verification"
         && state.kind !== "pool_verify_scope"
         && state.kind !== "catalog_refresh_scope"
         && !(state.kind === "model_assignment"
@@ -1829,6 +1830,8 @@ export function modelOptions(
                 : { hiddenByDefault: model.hiddenByDefault }),
             ...recommendationMarks(model),
             ...poolMarks(value),
+            ...(model.verified === undefined ? {} : { unverified: !model.verified }),
+            ...(model.verificationError === undefined ? {} : { verificationError: model.verificationError }),
             ...(model.imageSupport === true || poolEntry.get(value)?.entry.imageSupport === true
                 ? { images: true }
                 : {}),
@@ -2359,6 +2362,7 @@ export function pickerSelection(
             }),
         };
     }
+    if (kind === "model_verification") throw new Error("Verification results are not selectable");
     return { kind, theme: value as TuiThemeName };
 }
 

@@ -1,3 +1,4 @@
+import { handleVerificationKey } from "./model-verification.ts";
 import { handleModelJourneyKey, journeyHeader, journeyFooter } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -213,6 +214,7 @@ export function handleTuiSettingsPickerKey(
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
     }
+    if (state.kind === "model_verification" || state.verificationTargets !== undefined) return handleVerificationKey(state, key);
     if (state.modelJourney !== undefined) return handleModelJourneyKey(state, key);
     if (state.kind === "model") {
         // Whoever rebuilt this pane may have taken the focused section away.
@@ -1146,8 +1148,8 @@ export function renderListPickerRows(
         const width = pickerContentWidth(renderer, state, railInset);
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
         add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
-        const header = journeyHeader(state);
-        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: 2, width: "100%" }));
+        const header = journeyHeader(state) + (state.journeyNotice ? `\n${state.journeyNotice}` : "");
+        add(new TextRenderable(renderer, { content: header, fg: TUI_MUTED, height: state.journeyNotice ? 3 : 2, width: "100%" }));
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search);
@@ -1167,7 +1169,7 @@ export function renderListPickerRows(
         for (const node of dialogOptionRows(renderer, rows.map((row, index) => ({
             label: row.label, active: start + index === state.selectedIndex,
             meta: `${row.provider}  ${state.modelJourney === "shortlist"
-                ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
+                ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
                 : row.value === state.initialModel ? "current" : ""}`,
             ...dialogRowPointer(pointer, start + index),
         })), width)) add(node);
@@ -1834,6 +1836,8 @@ export function pickerFooterText(
     state: TuiAnySettingsPickerState,
     width = 0,
 ): string {
+    if (state.kind === "model_verification") return "↑↓ results · esc close (checks continue)";
+    if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session") {
         const leavingSomething = state.nothingToLeave !== true;
         return [

@@ -266,6 +266,9 @@ function filteredState(
             .toLowerCase()
 ;
         return terms.every((term) => searchable.includes(term));
+    }).toSorted((left, right) => {
+        const labelMatch = (entry: TuiPaletteEntry) => Number(terms.every((term) => entry.label.toLowerCase().includes(term)));
+        return labelMatch(right) - labelMatch(left);
     });
     return { allCommands, commands, selectedIndex: 0, query, queryCursor };
 }

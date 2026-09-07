@@ -248,6 +248,8 @@ export interface TuiRuntime {
         }[];
         requestId?: string;
     } | undefined;
+    modelVerification?: import("../model-verification.ts").VerificationRun;
+    verificationNudgeDismissed?: boolean;
     poolVerifySweep: {
         readonly queue: readonly { readonly provider: string; readonly model: string }[];
         readonly total: number;

@@ -9,6 +9,8 @@ export interface SuggestedModel {
     readonly provider: string;
     readonly model: string;
     readonly label: string;
+    readonly verified?: boolean;
+    readonly verificationError?: string;
     readonly description: string;
     readonly contextWindow?: number;
     readonly pricing?: ModelPricing;

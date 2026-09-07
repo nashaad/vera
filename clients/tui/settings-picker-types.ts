@@ -77,6 +77,7 @@ export type TuiSettingsPickerKind =
     | "reviewer_settings"
     | "reviewer"
     | "model_assignment"
+    | "model_verification"
     | "pool_verify_scope"
     | "catalog_refresh_scope";
 
@@ -141,6 +142,7 @@ export interface TuiSettingsPickerOption {
     readonly pricing?: ModelPricing;
     readonly onPareto?: boolean;
     readonly unverified?: boolean;
+    readonly verificationError?: string;
     readonly hiddenByDefault?: ReductionReason;
     readonly recommended?: boolean;
     readonly recommendedLevel?: string;
@@ -245,6 +247,9 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly modelJourney?: "switch" | "shortlist";
+    readonly journeyNotice?: string;
+    readonly verificationTargets?: readonly import("./model-verification.ts").VerificationTarget[];
+    readonly onlyUnverified?: boolean;
     readonly loading?: boolean;
     readonly tab?: TuiModelPickerTab;
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
@@ -352,7 +357,7 @@ export type TuiSettingsPickerSelection =
         readonly provider?: string;
         readonly model?: string;
     }
-    | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean }
+    | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean; readonly provider?: string }
     | {
         readonly kind: "catalog_refresh_scope";
         readonly providers: readonly string[];

@@ -1,3 +1,5 @@
+import { verificationPicker, verificationResults } from "../model-verification.ts";
+import { runModelOperation } from "./model-operations.ts";
 import { HOST_CAPABILITY_SESSION_SCOPED_STATE } from "../../../src/host/capabilities.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { showStatusNotice, showVerificationConsole } from "../main.ts";
@@ -168,38 +170,15 @@ export function catalogRefreshSummary(rt: TuiRuntime,
 }
 
 export function openPoolVerifyScopePicker(rt: TuiRuntime): void {
-    const kept = keptModels(rt);
-    if (kept.length === 0) {
-        showStatusNotice(rt, "nothing kept to probe yet");
-        return;
-    }
-    rt.settingsPicker = withTuiPickerParent(
-        startTuiPoolVerifyScopePicker(
-            kept.filter((entry) => !entry.verified).length,
-            kept.length,
-        ),
-        rt.settingsPicker?.kind === "model" ? rt.settingsPicker : undefined,
-    );
+    rt.settingsPicker = rt.modelVerification?.running
+        ? verificationResults(rt.modelVerification) : verificationPicker(keptModels(rt));
     renderState(rt);
     focusActiveSurface(rt);
 }
 
-export function startPoolVerifySweep(rt: TuiRuntime, onlyUnverified: boolean): void {
-    const queue = keptModels(rt)
-        .filter((entry) => !onlyUnverified || !entry.verified)
-        .map((entry) => ({ provider: entry.provider, model: entry.model }));
-    rt.settingsPicker = undefined;
-    rt.composer.blur();
-    if (queue.length === 0) {
-        showStatusNotice(rt, "everything you keep has been probed");
-        renderState(rt);
-        focusActiveSurface(rt);
-        return;
-    }
-    rt.poolVerifySweep = { queue, total: queue.length, index: 0, answered: 0 };
-    renderState(rt);
-    focusActiveSurface(rt);
-    advancePoolVerifySweep(rt);
+export function startPoolVerifySweep(rt: TuiRuntime, onlyUnverified: boolean, provider?: string): void {
+    runModelOperation(rt, { operation: "verify", models: keptModels(rt)
+        .filter((entry) => (!onlyUnverified || !entry.verified) && (provider === undefined || entry.provider === provider)) });
 }
 
 export function advancePoolVerifySweep(rt: TuiRuntime): void {
@@ -230,7 +209,7 @@ export function poolVerifySweepResult(rt: TuiRuntime, requestId: string, verdict
 }
 
 export function verifyModelInPicker(rt: TuiRuntime, provider: string, model: string): void {
-    requestPoolAdmission(rt, provider, model, true);
+    runModelOperation(rt, { operation: "verify", models: [{ provider, model }] });
     rt.composer.blur();
     renderState(rt);
     focusActiveSurface(rt);

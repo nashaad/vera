@@ -1,3 +1,5 @@
+import { verificationNudge } from "../model-verification.ts";
+import { openPoolVerifyScopePicker } from "./pool-admission.ts";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
@@ -717,6 +719,13 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
+    if (!anyOverlayOpen(rt) && verificationNudge(focusedAgentState(rt).modelSettings?.pooled ?? [],
+        rt.verificationNudgeDismissed === true) !== undefined && key.ctrl && key.shift && (key.name === "y" || key.name === "x")) {
+        key.preventDefault(); key.stopPropagation();
+        if (key.name === "y") openPoolVerifyScopePicker(rt);
+        else { rt.verificationNudgeDismissed = true; renderState(rt); }
+        return;
+    }
     if (rt.settingsPicker !== undefined) {
         const viewportRows = tuiPickerViewportRows(
             rt.renderer,
