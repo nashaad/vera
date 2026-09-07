@@ -28,3 +28,26 @@ test("connected never-refreshed and refreshed empty catalogs are separate facts"
         expect(modelsFromConnectedCatalogs(config, [], options).map((row) => row.model)).toEqual(["one"]);
     } finally { rmSync(cacheDir, { recursive: true, force: true }); }
 });
+
+
+test("snapshot refreshes preserve reduced browsing and recalculate it from the latest catalog", () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "vera-catalog-state-"));
+    try {
+        const options = { cacheDir, env: { OPENROUTER_API_KEY: "test" }, authStorage: { getCredential: () => undefined } };
+        const config = { ...startingVeraConfig(), model_picker_max_age_months: 6 };
+        const models = [
+            { id: "old", label: "Old", created: 1, levels: [] },
+            { id: "recommended", label: "Recommended", created: 1, recommended: true, levels: [] },
+            { id: "batch:batch", label: "Batch", levels: [] },
+            { id: "fresh", label: "Fresh", created: Math.floor(Date.now() / 1000), levels: [] },
+        ];
+        writeProviderCatalogSnapshot({ schema_version: 2, provider: "openrouter", models, fetched_at: new Date().toISOString() }, options);
+        const first = modelsFromConnectedCatalogs(config, [], options);
+        expect(first.map((row) => row.hiddenByDefault)).toEqual(["old", undefined, "batch", undefined]);
+        expect(modelsFromConnectedCatalogs(config, first, options)).toEqual(first);
+        const unlimited = modelsFromConnectedCatalogs({ ...config, model_picker_max_age_months: 0 }, first, options);
+        expect(unlimited[0]?.hiddenByDefault).toBeUndefined();
+        writeProviderCatalogSnapshot({ schema_version: 2, provider: "openrouter", models: [models[3]!], fetched_at: new Date().toISOString() }, options);
+        expect(modelsFromConnectedCatalogs(config, first, options).map((row) => row.model)).toEqual(["fresh"]);
+    } finally { rmSync(cacheDir, { recursive: true, force: true }); }
+});
