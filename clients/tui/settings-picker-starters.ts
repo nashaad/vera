@@ -858,8 +858,8 @@ export function startTuiProviderPicker(
 
 export const TUI_DECLARE_PROVIDER_OPTION: TuiSettingsPickerOption = {
     value: TUI_DECLARE_PROVIDER_VALUE,
-    label: "Declare a provider…",
-    description: "one Vera does not ship, by base URL",
+    label: "Add provider…",
+    description: "connect an endpoint and read its model catalog",
     searchText: "declare custom new add provider",
     action: true,
 };

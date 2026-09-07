@@ -2978,7 +2978,7 @@ test("the declare row is last on the connect pane and is not a provider", async 
     expect(pane.selectedIndex).toBe(1);
 
     const frame = await pickerFrame(pane);
-    expect(frame).toContain("Declare a provider…");
+    expect(frame).toContain("Add provider…");
     // It sits below the groups without inventing one of its own.
     expect(frame).not.toContain("Other");
 });
@@ -3053,12 +3053,12 @@ test("the declare row survives a search that matches no provider", async () => {
     expect(filtered.options.map((option) => option.value))
         .toEqual([TUI_DECLARE_PROVIDER_VALUE]);
     const frame = await pickerFrame(filtered, 151, 36);
-    expect(frame).toMatch(/›\s+Declare a provider/);
+    expect(frame).toMatch(/›\s+Add provider/);
     expect(frame).not.toContain("›+");
-    expect(frame).not.toMatch(/\+\s+Declare a provider/);
+    expect(frame).not.toMatch(/\+\s+Add provider/);
     // The door it opens sits at the trailing edge, where every other pressable
     // thing on the card puts it, leaving the gutter to the cursor alone.
-    expect(frame).toMatch(/Declare a provider….*›\s*$/m);
+    expect(frame).toMatch(/Add provider….*›\s*$/m);
     expect(handleTuiSettingsPickerKey(filtered, { name: "enter" })
         .declareProvider).toBe(true);
 });
@@ -3580,7 +3580,7 @@ test("a finished form submits the declaration", () => {
     });
 });
 
-test("an id Vera already ships is refused in the form", () => {
+test("a shipped provider can be connected with an endpoint override", () => {
     const form: TuiProviderFormState = {
         ...startTuiProviderForm(),
         id: "openrouter",
@@ -3589,9 +3589,8 @@ test("an id Vera already ships is refused in the form", () => {
 
     const transition = handleTuiProviderFormKey(form, { name: "enter" });
 
-    expect(transition.submitted).toBeUndefined();
-    expect(transition.state?.field).toBe("id");
-    expect(transition.state?.error).toContain("openrouter");
+    expect(transition.submitted?.id).toBe("openrouter");
+    expect(transition.submitted?.shipped).toBe(true);
 });
 
 test("a provider id that is not a safe lowercase slug is refused", () => {
@@ -3813,7 +3812,8 @@ test("a refused save keeps every other typed value and names the field", () => {
 
     expect(transition.submitted).toBeUndefined();
     expect(transition.state?.field).toBe("base_url");
-    expect(transition.state?.error).toContain("base URL");
+    expect(transition.state?.error).toContain("Not a valid URL");
+    expect(transition.state?.error).toEndWith("Your input is preserved");
     expect(transition.state?.error).not.toContain("sk-live-secret");
     expect(transition.state?.id).toBe("gateway");
     expect(transition.state?.apiKey).toBe("sk-live-secret");

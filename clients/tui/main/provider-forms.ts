@@ -1,3 +1,6 @@
+import { readModelCatalog } from "../../../src/providers/read-model-catalog.ts";
+import { writeProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
+import { isProviderConnected } from "../../../src/providers/registry.ts";
 import { runModelOperation } from "./model-operations.ts";
 import { modelJourney } from "../model-journeys.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
@@ -232,7 +235,23 @@ export function applyProviderFormTransition(rt: TuiRuntime,
         focusActiveSurface(rt);
         return;
     }
+    rt.providerForm = { ...form, saving: true };
+    renderState(rt);
+    void saveProviderForm(rt, form, submitted);
+}
+
+async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, submitted: NonNullable<TuiProviderFormTransition["submitted"]>): Promise<void> {
     try {
+        const provider = findConfiguredProvider(submitted.id, loadOptionalVeraConfig());
+        if (form.editing === undefined && provider !== undefined
+            && isProviderConnected(provider, { authStorage: rt.authStorage })
+            && provider.credential !== "none") throw new Error(`${submitted.id} is already connected`);
+        const stored = rt.authStorage.getCredential(submitted.id);
+        const key = submitted.apiKey ?? (stored?.type === "api_key" ? stored.key : undefined)
+            ?? (provider?.envVar === undefined ? undefined : process.env[provider.envVar]);
+        if (submitted.declaration.credential === "api_key" && !key) throw new Error("Missing API key");
+        const catalog = await readModelCatalog({ provider: submitted.id, baseUrl: submitted.declaration.base_url,
+            protocol: submitted.declaration.protocol, ...(key === undefined ? {} : { apiKey: key }) });
         updateVeraConfigDefaults(
             submitted.shipped === true
                 ? {
@@ -250,68 +269,24 @@ export function applyProviderFormTransition(rt: TuiRuntime,
                     },
                 },
         );
+        if (submitted.apiKey !== undefined) rt.authStorage.setCredential(submitted.id, { type: "api_key", key: submitted.apiKey });
+        writeProviderCatalogSnapshot(catalog);
+        if (submitted.replaces !== undefined) {
+            updateVeraConfigDefaults({ custom_provider: { id: submitted.replaces, declaration: null } });
+            rt.authStorage.deleteCredential(submitted.replaces);
+        }
+        rt.providerForm = undefined;
+        const notice = `${provider?.label ?? submitted.id} saved and its catalog read: ${catalog.models.length} models discovered. `
+            + "Discovery decides nothing: none is shortlisted, verified, or bound.";
+        rt.state = appendTuiNotice(rt.state, notice);
+        requestAgentSettings(rt, focusedAgentClient(rt));
+        openProviderPicker(rt, form.parent?.parent, { selected: submitted.id, subtitle: notice });
     } catch (error) {
-        rt.providerForm = {
-            ...form,
-            field: "base_url",
-            error: error instanceof Error ? error.message : String(error),
-        };
+        rt.providerForm = { ...form, field: "base_url",
+            error: `${error instanceof Error ? error.message : String(error)}. Your input is preserved` };
         renderState(rt);
         focusActiveSurface(rt);
-        return;
     }
-    if (submitted.replaces !== undefined) {
-        try {
-            updateVeraConfigDefaults({
-                custom_provider: {
-                    id: submitted.replaces,
-                    declaration: null,
-                },
-            });
-            rt.authStorage.deleteCredential(submitted.replaces);
-        } catch (error) {
-            rt.state = appendTuiError(
-                rt.state,
-                `renamed to ${submitted.id}, but ${submitted.replaces} `
-                    + `could not be removed: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
-            );
-        }
-    }
-    rt.state = appendTuiNotice(
-        rt.state,
-        submitted.replaces !== undefined
-            ? `renamed ${submitted.replaces} to ${submitted.id}`
-            : submitted.restore === true
-            ? `${submitted.id} answers where Vera ships it again`
-            : submitted.shipped === true
-            ? `${submitted.id} now answers at ${submitted.declaration.base_url}`
-            : form.editing === undefined
-            ? `declared ${submitted.id}`
-            : `updated ${submitted.id}`,
-    );
-    if (submitted.apiKey !== undefined) {
-        try {
-            rt.authStorage.setCredential(submitted.id, {
-                type: "api_key",
-                key: submitted.apiKey,
-            });
-            rt.state = appendTuiNotice(
-                rt.state,
-                `stored ${submitted.id} API key`,
-            );
-        } catch (error) {
-            rt.state = appendTuiError(
-                rt.state,
-                `could not store the ${submitted.id} API key: ${
-                    error instanceof Error ? error.message : String(error)
-                }`,
-            );
-        }
-    }
-    requestAgentSettings(rt, focusedAgentClient(rt));
-    openProviderPicker(rt, form.parent?.parent, { selected: submitted.id });
 }
 
 export function applySecretPromptTransition(rt: TuiRuntime, 

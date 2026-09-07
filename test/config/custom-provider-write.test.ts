@@ -164,7 +164,7 @@ test("a base URL the loader would refuse is refused here too", () => {
                 {
                     custom_provider: {
                         id: "gateway",
-                        declaration: { ...LOCAL, base_url: "http://example.com" },
+                        declaration: { ...LOCAL, base_url: "ftp://example.com" },
                     },
                 },
                 { path },

@@ -26,6 +26,8 @@ import {
     passesIntelligenceCutoff,
     type IntelligenceCutoff,
 } from "../../src/model/intelligence-cutoff.ts";
+import { findProvider } from "../../src/providers/registry.ts";
+import { providerEndpointError } from "../../src/providers/read-model-catalog.ts";
 import { isSafeProviderId } from "../../src/providers/provider-id.ts";
 import {
     isVeraProviderId,
@@ -83,11 +85,9 @@ export const TUI_PROVIDER_FORM_FIELDS: readonly TuiProviderFormFieldId[] = [
 export function tuiProviderFormFields(
     state: TuiProviderFormState,
 ): readonly TuiProviderFormFieldId[] {
-    const shown = state.shipped === true
-        ? TUI_PROVIDER_FORM_FIELDS.filter(
-            (field) => field === "base_url" || field === "api_key",
-        )
-        : TUI_PROVIDER_FORM_FIELDS;
+    const shown = state.shipped === true && state.editing !== undefined
+        ? ["base_url", "api_key"] as const
+        : state.shipped === true ? ["id", "base_url", "api_key"] as const : TUI_PROVIDER_FORM_FIELDS;
     return state.credential === "api_key"
         ? shown
         : shown.filter((field) => field !== "api_key");
@@ -102,6 +102,7 @@ export interface TuiProviderFormState {
     readonly apiKey: string;
     readonly field: TuiProviderFormFieldId;
     readonly error?: string;
+    readonly saving?: boolean;
     readonly parent?: TuiSettingsPickerState;
     readonly editing?: string;
     readonly shipped?: boolean;
@@ -188,6 +189,7 @@ export function handleTuiProviderFormKey(
     state: TuiProviderFormState,
     key: TuiProviderFormKey,
 ): TuiProviderFormTransition {
+    if (state.saving) return { state, handled: true };
     if (key.name === "escape") {
         return { handled: true };
     }
@@ -259,7 +261,7 @@ export function submittedProviderForm(
     state: TuiProviderFormState,
 ): TuiProviderFormTransition {
     const id = state.id.trim();
-    const baseUrl = state.baseUrl.trim();
+    const baseUrl = state.baseUrl.trim() || (state.shipped && state.editing ? findProvider(id)?.baseUrl ?? "" : "");
     if (id.length === 0) {
         return providerFormError(state, "id", "a name is required");
     }
@@ -273,12 +275,8 @@ export function submittedProviderForm(
             "use lowercase letters, numbers, dots, dashes, or underscores",
         );
     }
-    if (state.shipped !== true && isVeraProviderId(id)) {
-        return providerFormError(state, "id", `${id} is a provider Vera ships`);
-    }
-    if (baseUrl.length === 0 && state.shipped !== true) {
-        return providerFormError(state, "base_url", "a base URL is required");
-    }
+    const endpointError = providerEndpointError(baseUrl);
+    if (endpointError !== undefined) return providerFormError(state, "base_url", endpointError);
     const apiKey = state.credential === "api_key" ? state.apiKey.trim() : "";
     return {
         handled: true,
@@ -293,8 +291,8 @@ export function submittedProviderForm(
             ...(state.editing === undefined || state.editing === id
                 ? {}
                 : { replaces: state.editing }),
-            ...(state.shipped === true ? { shipped: true } : {}),
-            ...(state.shipped === true && baseUrl.length === 0
+            ...(state.shipped === true || isVeraProviderId(id) ? { shipped: true } : {}),
+            ...(state.shipped === true && state.baseUrl.trim().length === 0
                 ? { restore: true }
                 : {}),
         },
@@ -306,7 +304,7 @@ export function providerFormError(
     field: TuiProviderFormFieldId,
     error: string,
 ): TuiProviderFormTransition {
-    return { state: { ...state, field, error }, handled: true };
+    return { state: { ...state, field, error: `${error}. Your input is preserved` }, handled: true };
 }
 
 export function providerFormTextField(field: TuiProviderFormFieldId): boolean {
@@ -329,10 +327,20 @@ export function editedProviderFormField(
     value: string,
 ): TuiProviderFormState {
     const { error: _error, ...rest } = state;
-    return state.field === "id"
-        ? { ...rest, id: value }
-        : state.field === "api_key"
+    if (state.field === "id") {
+        const provider = findProvider(value.trim());
+        const previous = findProvider(state.id.trim());
+        const prefill = state.baseUrl.length === 0 || state.baseUrl === previous?.baseUrl;
+        return { ...rest, id: value, ...(provider === undefined ? { shipped: false } : {
+            shipped: true,
+            ...(prefill ? { baseUrl: provider.baseUrl ?? "" } : {}),
+            protocol: provider.protocol === "anthropic-messages" ? "anthropic-messages" : "openai-chat",
+            credential: provider.credential === "none" ? "none" : "api_key",
+        }) };
+    }
+    return state.field === "api_key"
         ? { ...rest, apiKey: value }
+
         : { ...rest, baseUrl: value };
 }
 
@@ -421,21 +429,21 @@ export const PROVIDER_FORM_PLACEHOLDERS: Readonly<
     base_url: "https://…/v1",
     protocol: "openai-chat",
     credential: "API key",
-    api_key: "paste or type it, or leave it for later",
+    api_key: "paste or type API key",
 };
 
 export function createTuiProviderFormView(
     renderer: RenderContext,
 ): TuiProviderFormView {
     const title = new TextRenderable(renderer, {
-        content: "Declare a provider",
+        content: "Add provider",
         fg: TUI_TEXT,
         attributes: 1,
         width: "100%",
         height: 1,
     });
     const hint = new TextRenderable(renderer, {
-        content: "An OpenAI- or Anthropic-compatible endpoint of your own.",
+        content: "Save connects and reads the catalog. No models are kept or verified.",
         fg: TUI_MUTED,
         width: "100%",
         height: "auto",
@@ -561,6 +569,7 @@ export function createTuiProviderFormView(
             box.focus();
         },
         handleKey(state, key): TuiProviderFormTransition {
+            if (state.saving) return { state, handled: true };
             const active = rows.find((row) => row.field === state.field);
             const current = active?.editor === undefined
                 ? state
@@ -577,6 +586,7 @@ export function createTuiProviderFormView(
             };
         },
         handlePaste(state, text): TuiProviderFormState {
+            if (state.saving) return state;
             const active = rows.find((row) => row.field === state.field);
             if (active?.editor === undefined) return state;
             insertTuiSingleLinePaste(active.editor, text);
@@ -584,17 +594,16 @@ export function createTuiProviderFormView(
         },
         update(state): void {
             shownState = state;
-            title.content = state.shipped === true
+            title.content = state.shipped === true && state.editing !== undefined
                 ? `Edit ${state.id}`
                 : state.editing === undefined
-                ? "Declare a provider"
+                ? "Add provider"
                 : "Edit provider";
             hint.content = state.shipped === true
-                ? "Where it answers, and the key that reaches it. Empty the"
-                    + " URL to go back to the one Vera ships."
+                ? "Save reads the catalog. Model membership and verification stay unchanged."
                 : state.editing === undefined
-                ? "An OpenAI- or Anthropic-compatible endpoint of your own."
-                : "Change the endpoint, the protocol, or the key you stored.";
+                ? "Save connects and reads the catalog. No models are kept or verified."
+                : "Change the endpoint or the key you stored.";
             const shownFields = new Set(tuiProviderFormFields(state));
             const lines = tuiProviderFormRows(state);
             for (const row of rows) {
@@ -607,7 +616,8 @@ export function createTuiProviderFormView(
                     ),
                 ]);
                 if (row.editor !== undefined && row.editorBox !== undefined) {
-                    if (shownEditorSession !== state.editorSession) {
+                    if (shownEditorSession !== state.editorSession
+                        || (state.field !== row.field && row.editor.plainText !== providerFormFieldValue(state, row.field))) {
                         row.editor.setText(providerFormFieldValue(state, row.field));
                         row.editor.gotoBufferEnd();
                     } else {
@@ -640,7 +650,7 @@ export function createTuiProviderFormView(
             }
             shownEditorSession = state.editorSession;
             error.content = state.error ?? "";
-            footer.content = `↑↓ ${tuiKeyHint("next_form_field")} · ${
+            footer.content = state.saving ? "Reading the provider catalog…" : `↑↓ ${tuiKeyHint("next_form_field")} · ${
                 providerFormTextField(state.field) ? "←→ move" : "←→ change"
             } · ⏎ save · esc cancel`;
         },
