@@ -276,3 +276,37 @@ test("highlighted model details follow the row and distinguish verified, failed,
         expect(frame).not.toContain("Unpin");
     } finally { setup.renderer.destroy(); }
 });
+
+test("All restores aligned score and blended-price columns with top-pick, image, Pareto, and kept marks", async () => {
+    const setup = await createTestRenderer({ width: 170, height: 44 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        const options = [{ ...rows[0]!, label: "Preferred", recommended: true, pooledRank: 0,
+            waScore: 1629, pricing: { input: 3, output: 15 }, images: true, onPareto: true },
+            { ...rows[1]!, label: "Steady", pooledRank: undefined, waScore: 1400, pricing: { input: 1, output: 4 } },
+            { ...rows[2]!, label: "Unknown", pooledRank: undefined }];
+        const state = handleModelJourneyKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
+        view.update(state);
+        await setup.renderOnce();
+        const frame = setup.captureCharFrame();
+        const lines = frame.split("\n").map((line) => line.split("│")[0]!);
+        const header = lines.find((line) => line.includes("WA Score*"))!;
+        const preferred = lines.find((line) => line.includes("Preferred"))!;
+        const steady = lines.find((line) => line.includes("Steady"))!;
+        const unknown = lines.find((line) => line.includes("Unknown"))!;
+        expect(header).toContain("7:2:1");
+        expect(preferred).toContain("top pick");
+        expect(preferred).toContain("P i ★");
+        expect(preferred).toContain("4.2");
+        expect(preferred).not.toContain("3/15");
+        expect(steady).toContain("1.3");
+        expect(preferred.indexOf("1629")).toBe(steady.indexOf("1400"));
+        expect(header.indexOf("WA Score*") + "WA Score*".length).toBe(preferred.indexOf("1629") + 4);
+        expect(unknown).not.toMatch(/\b0\b/);
+        expect(frame).toContain("* WA Score: an Elo rating");
+        expect(frame).toContain("Model ID");
+        expect(frame).toContain("Smarter");
+    } finally { setup.renderer.destroy(); }
+});

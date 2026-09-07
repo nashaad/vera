@@ -1161,41 +1161,55 @@ export function renderListPickerRows(
         }));
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
         const room = Math.max(1, renderer.height - 15 - headerHeight - (cutoff ? 4 : 0));
-        const rows = journeyWindow(state, Math.min(12, room));
         const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
+        const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
+        const listed = cutoff && rowWidth >= 48 && room >= 4;
+        const rows = journeyWindow(state, Math.max(1, Math.min(12, room - (listed ? 2 : 0))));
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
         const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
         body.add(list);
         add(body);
-        const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
         const addRow = (node: Renderable) => list.add(node);
         if (rows.length === 0) addRow(new TextRenderable(renderer, {
             content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
-        for (const { option: row, index } of rows) {
-            if (row === undefined) {
-                addRow(new TextRenderable(renderer, { content: "", height: 1 }));
-                continue;
-            }
-            const heading = row.section !== undefined;
-            for (const node of dialogOptionRows(renderer, [{
-                label: heading ? row.label : `  ${row.label}`,
-                active: index === state.selectedIndex,
-                dimmed: state.modelFocus === "intelligence",
-                ...(heading ? { marker: row.sectionCollapsed ? "▶" : "▼", tint: true } : {}),
-                meta: heading ? "" : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
-                    ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
-                    : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
-                ...dialogRowPointer(pointer, index),
-            }], rowWidth)) addRow(node);
+        const prefixWidth = listed ? Math.max(0, ...rows.map(({ option }) => option?.model === undefined ? 0
+            : metaPartsLength(optionMetaPrefixParts(state, { ...option, poolName: undefined }, true)))) : 0;
+        const rowNodes = dialogOptionRows(renderer, [
+            ...(listed ? [{ label: "", active: false,
+                meta: `${" ".repeat(prefixWidth)}${listedFactsHeaderText()}` }] : []),
+            ...rows.flatMap(({ option: row, index }) => {
+                if (row === undefined) return [];
+                const heading = row.section !== undefined;
+                return [{
+                    label: heading ? row.label : `  ${row.label}`,
+                    active: index === state.selectedIndex,
+                    current: row.value === state.initialModel,
+                    dimmed: state.modelFocus === "intelligence",
+                    ...(heading ? { marker: row.sectionCollapsed ? "▶" : "▼", tint: true } : {}),
+                    meta: heading ? "" : listed ? optionMeta(state, { ...row, poolName: undefined }, true, prefixWidth)
+                        : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
+                            ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
+                            : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
+                    ...dialogRowPointer(pointer, index),
+                }];
+            }),
+        ], rowWidth);
+        let at = 0;
+        if (listed) addRow(rowNodes[at++]!);
+        for (const row of rows) {
+            addRow(row.option === undefined
+                ? new TextRenderable(renderer, { content: "", height: 1 })
+                : rowNodes[at++]!);
         }
         if (split !== undefined) {
-            const height = Math.min(room, Math.max(rows.length, modelDetailHeight(state, split.detailWidth)));
+            const height = Math.min(room - (listed ? 1 : 0), Math.max(rows.length + (listed ? 1 : 0), modelDetailHeight(state, split.detailWidth)));
             body.height = height;
             list.height = height;
             body.add(modelDetailNode(renderer, state, split.detailWidth, height));
         }
+        if (listed) add(listedFactsFootnoteNode(renderer, width));
         add(dialogFooterNode(renderer, journeyFooter(state)));
         box.height = "auto";
         return;
