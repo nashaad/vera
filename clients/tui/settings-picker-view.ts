@@ -1164,7 +1164,7 @@ export function renderListPickerRows(
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search);
         }
-        const maximum = Math.max(1, renderer.height - 17);
+        const maximum = Math.max(1, renderer.height - 17 - (state.journeyNotice ? 1 : 0));
         const start = Math.max(0, Math.min(state.selectedIndex - Math.floor(maximum / 2), state.options.length - maximum));
         const rows = state.options.slice(start, start + maximum);
         if (rows.length === 0) add(new TextRenderable(renderer, {
@@ -1179,7 +1179,7 @@ export function renderListPickerRows(
             ...dialogRowPointer(pointer, start + index),
         })), width)) add(node);
         add(dialogFooterNode(renderer, journeyFooter(state)));
-        box.height = Math.min(renderer.height - 4, Math.max(11, rows.length + 10));
+        box.height = "auto";
         return;
     }
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;

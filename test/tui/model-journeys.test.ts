@@ -85,3 +85,32 @@ test("a kept current model that disappears stays removable but cannot be selecte
     expect(journeyHeader(managed)).toContain("1 kept of 0 discovered");
     expect(handleModelJourneyKey(managed, { name: "enter" }).poolToggle?.action).toBe("remove");
 });
+
+test("model journey cards contain the footer and padding for empty, short, and full lists", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 24 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        for (const count of [0, 1, 30]) {
+            const options = Array.from({ length: count }, (_, index) => ({
+                ...rows[1]!, value: `p/model-${index}`, model: `model-${index}`, pooledRank: index,
+            }));
+            for (const journey of ["switch", "shortlist"] as const) {
+                for (const journeyNotice of [undefined, "Catalog refreshed."]) {
+                    view.update({ ...modelJourney({ ...base, options, allOptions: options }, journey), journeyNotice });
+                    await setup.renderOnce();
+                    const bottom = view.box.screenY + view.box.height;
+                    expect(bottom).toBeLessThanOrEqual(setup.renderer.height - 1);
+                    for (const child of view.box.getChildren()) {
+                        expect(child.screenY + child.height).toBeLessThanOrEqual(bottom - 1);
+                    }
+                    const frame = setup.captureCharFrame().split("\n");
+                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "run it" : "keep or unkeep"));
+                    expect(footer).toBeGreaterThan(view.box.screenY);
+                    expect(footer).toBeLessThan(bottom - 1);
+                }
+            }
+        }
+    } finally { setup.renderer.destroy(); }
+});
