@@ -1,4 +1,3 @@
-import { normalizeOpenRouterModels } from "../model/openrouter-catalog.ts";
 import type { ProviderCatalog } from "../model/catalog-shape.ts";
 
 export function providerEndpointError(value: string): string | undefined {
@@ -14,6 +13,7 @@ export interface ReadModelCatalogOptions {
     readonly protocol: string;
     readonly apiKey?: string;
     readonly fetch?: typeof fetch;
+    readonly normalize?: (body: unknown) => ProviderCatalog;
 }
 
 // Reading a catalog produces discovery only. Callers persist it after a successful save.
@@ -38,8 +38,8 @@ export async function readModelCatalog(options: ReadModelCatalogOptions): Promis
         let body: { data?: unknown; has_more?: boolean; last_id?: string };
         try { body = await response.json() as typeof body; } catch { throw new Error("The host returned an invalid model catalog"); }
         if (!Array.isArray(body.data)) throw new Error("The host returned an invalid model catalog");
-        if (options.provider === "openrouter") {
-            for (const model of normalizeOpenRouterModels(body).models) models.set(model.id, model);
+        if (options.normalize !== undefined) {
+            for (const model of options.normalize(body).models) models.set(model.id, model);
         } else for (const row of body.data) {
             if (typeof row?.id !== "string" || row.id.length === 0) continue;
             models.set(row.id, { id: row.id, label: typeof row.display_name === "string" ? row.display_name

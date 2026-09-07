@@ -1,4 +1,5 @@
 import { readModelCatalog } from "../../../src/providers/read-model-catalog.ts";
+import { normalizeOpenRouterModels } from "../../../src/model/openrouter-catalog.ts";
 import { writeProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { isProviderConnected } from "../../../src/providers/registry.ts";
 import { runModelOperation } from "./model-operations.ts";
@@ -251,6 +252,7 @@ async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, subm
             ?? (provider?.envVar === undefined ? undefined : process.env[provider.envVar]);
         if (submitted.declaration.credential === "api_key" && !key) throw new Error("Missing API key");
         const catalog = await readModelCatalog({ provider: submitted.id, baseUrl: submitted.declaration.base_url,
+            ...(provider?.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {}),
             protocol: submitted.declaration.protocol, ...(key === undefined ? {} : { apiKey: key }) });
         updateVeraConfigDefaults(
             submitted.shipped === true

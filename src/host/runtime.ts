@@ -113,6 +113,7 @@ import {
     type CodexCatalogRefreshOptions,
 } from "../model/codex-catalog.ts";
 import {
+    normalizeOpenRouterModels,
     refreshOpenRouterCatalog,
     type OpenRouterCatalogRefreshOptions,
 } from "../model/openrouter-catalog.ts";
@@ -505,7 +506,8 @@ export async function startResidentHost(
                         && (descriptor.protocol === "anthropic-messages" || descriptor.behaviorId === "openrouter")) {
                         const stored = authStorage.getCredential(provider);
                         const key = stored?.type === "api_key" ? stored.key : descriptor.envVar === undefined ? undefined : process.env[descriptor.envVar];
-                        const catalog = await readModelCatalog({ provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key })
+                        const catalog = await readModelCatalog({ provider, baseUrl: descriptor.baseUrl, protocol: descriptor.protocol, apiKey: key,
+                            ...(descriptor.behaviorId === "openrouter" ? { normalize: normalizeOpenRouterModels } : {}) })
                             .catch(() => undefined);
                         if (catalog === undefined) return undefined;
                         writeProviderCatalogSnapshot(catalog);
