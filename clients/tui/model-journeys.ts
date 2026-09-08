@@ -9,16 +9,16 @@ export function journeyMatches(state: TuiSettingsPickerState, revealAll = state.
         && (state.modelJourney === "shortlist" || state.tab === "all" || row.pooledRank !== undefined)
         && (state.modelJourney === "shortlist" || state.tab !== "all"
             || passesIntelligenceCutoff(row.waScore, state.intelligenceCutoff ?? "any"))
-        && (revealAll || terms.length > 0 || row.hiddenByDefault === undefined || row.pooledRank !== undefined)
+        && (revealAll || terms.length > 0 || row.hiddenByDefault === undefined || row.pooledRank !== undefined
+            || state.modelJourney === "shortlist" && state.journeyRetainedModels?.includes(row.value))
         && terms.every((term) => `${row.label} ${row.provider} ${row.model}`.toLowerCase().includes(term)))
         .toSorted((a, b) => state.modelJourney === "shortlist"
-            ? Number(b.pooledRank !== undefined) - Number(a.pooledRank !== undefined)
-                || a.label.localeCompare(b.label)
+            ? (a.provider ?? "").localeCompare(b.provider ?? "") || a.label.localeCompare(b.label)
             : 0);
 }
 
 function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption): string {
-    const bucket = state.modelJourney === "shortlist" ? (row.pooledRank === undefined ? "available" : "kept") : state.tab;
+    const bucket = state.modelJourney === "shortlist" ? "shortlist" : state.tab;
     return `${bucket}:${row.provider}`;
 }
 
@@ -34,8 +34,7 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
     return [...groups.values()].flatMap((rows) => {
         const first = rows[0]!;
         const provider = state.providerCatalogs?.find((provider) => provider.id === first.provider)?.label ?? first.provider;
-        const kept = state.modelJourney === "shortlist" && first.pooledRank !== undefined ? "Kept · " : "";
-        return rows.map((row) => ({ ...row, group: `${kept}${provider}` }));
+        return rows.map((row) => ({ ...row, group: `${provider}` }));
     });
 }
 
@@ -74,6 +73,7 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
     const next: TuiSettingsPickerState = { ...state,
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         modelJourney: mode,
+        journeyRetainedModels: state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value),
         title: mode === "switch" ? "Switch model" : "Manage shortlist",
         tab: mode === "switch" ? "pool" : "all", modelFocus: "list", query: "", queryCursor: 0,
         selectedIndex: 0, pickerLevel: "page" };
@@ -81,18 +81,11 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
 }
 
 export function journeyHeader(state: TuiSettingsPickerState): string {
+    if (state.modelJourney === "shortlist") return "";
     const hiddenCount = journeyMatches(state, true).length - journeyMatches(state, false).length;
     const reduced = `\nCatalog: ${state.revealAll ? "all models" : "fewer models"} · ^a ${state.revealAll ? "show fewer" : "show every model"}`
         + (state.query.trim() ? " · search includes hidden models" : hiddenCount > 0
             ? ` · ${hiddenCount} ${state.revealAll ? "included" : "hidden"} (older, duplicate or superseded)` : "");
-    if (state.modelJourney === "shortlist") {
-        const kept = state.allOptions.filter((row) => row.pooledRank !== undefined);
-        const verified = kept.filter((row) => row.unverified !== true).length;
-        const unavailable = kept.filter((row) => row.unavailable).length;
-        const discovered = state.allOptions.filter((row) => !row.unavailable).length;
-        return `${kept.length} kept of ${discovered} discovered · ${verified} verified${unavailable ? ` · ${unavailable} kept unavailable` : ""}\n`
-            + `A default slot only accepts a verified model; ${kept.length - verified} cannot hold one yet.${reduced}`;
-    }
     if (state.tab !== "all") return "";
     const floor = state.intelligenceCutoff ?? "any";
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));

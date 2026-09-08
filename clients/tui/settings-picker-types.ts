@@ -252,6 +252,11 @@ export interface TuiSettingsPickerState {
     readonly providerCatalogs?: readonly ProviderCatalogState[];
     readonly modelJourney?: "switch" | "shortlist";
     readonly journeyNotice?: string;
+    readonly journeyRetainedModels?: readonly string[];
+    readonly journeyFeedback?: {
+        readonly status: "working" | "success" | "error";
+        readonly message: string;
+    };
     readonly verificationTargets?: readonly import("./model-verification.ts").VerificationTarget[];
     readonly onlyUnverified?: boolean;
     readonly loading?: boolean;
@@ -484,6 +489,7 @@ export interface TuiSettingsPickerView {
     onTab?: (tab: TuiModelPickerTab) => void;
     onConfigure?: () => void;
     focus(): void;
+    animateFeedback(frame: number, enabled: boolean): void;
     handleEditorKey(
         state: TuiSettingsPickerState,
         key: TuiSettingsPickerKey,

@@ -31,7 +31,7 @@ test("live shortlist keeps through the host operation and verification can be le
         session.sendKey("Enter");
         await session.waitForVisiblePane("not kept ✗");
         session.sendKey("C-s");
-        await session.waitForVisiblePane("1 kept of 1 discovered");
+        await session.waitForVisiblePane("✓ One added to shortlist");
         expect(operations[0]?.operation).toBe("keep");
         session.sendKey("C-y");
         await session.waitForVisiblePane("Verifying models");

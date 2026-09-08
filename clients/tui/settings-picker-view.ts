@@ -1,4 +1,5 @@
 import { handleVerificationKey } from "./model-verification.ts";
+import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels } from "./model-journeys.ts";
@@ -956,6 +957,11 @@ export function createTuiSettingsPickerView(
             if (searchLive) search.focus();
             else box.focus();
         },
+        animateFeedback(frame, enabled): void {
+            const node = nodes.find((node) => node.id === "model-operation-working");
+            if (node instanceof TextRenderable) node.content = renderTuiActivityAnimation(enabled ? "shimmer" : "off", frame, "Working",
+                { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT });
+        },
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (
                 !pickerIsSearchable(state)
@@ -1127,7 +1133,8 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
     const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
     const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
-    const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines);
+    const feedbackHeight = state.modelJourney === "shortlist" ? 2 : 0;
+    const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
     const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
@@ -1266,6 +1273,16 @@ export function renderListPickerRows(
             add(prices);
         }
         if (listed) add(listedFactsFootnoteNode(renderer, width));
+        if (state.modelJourney === "shortlist") {
+            const feedback = state.journeyFeedback;
+            add(new TextRenderable(renderer, {
+                id: feedback?.status === "working" ? "model-operation-working" : "model-operation-result",
+                content: feedback === undefined ? "" : feedback.status === "working" ? "Working"
+                    : clippedToWidth(`${feedback.status === "success" ? "✓" : "✗"} ${feedback.message}`, width),
+                fg: feedback?.status === "success" ? TUI_SUCCESS : feedback?.status === "error" ? TUI_DANGER : TUI_ACCENT,
+                height: 1, marginTop: 1, width: "100%",
+            }));
+        }
         add(dialogFooterNode(renderer, journeyFooter(state)));
         box.height = "auto";
         return;

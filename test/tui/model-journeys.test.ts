@@ -22,14 +22,14 @@ test("Enter switches in either scope without toggling membership", () => {
 });
 
 test("shortlist Enter only keeps or unkeeps and row verbs are chords", () => {
-    const state = modelJourney(base, "shortlist");
-    expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c", "a"]);
+    const state = { ...modelJourney(base, "shortlist"), selectedIndex: 1 };
+    expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a", "b", "c"]);
     expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
     expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
     expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).poolName?.model).toBe("b");
     expect(handleModelJourneyKey(state, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
     expect(handleModelJourneyKey(state, { name: "r" }).handled).toBe(false);
-    expect(journeyHeader(state)).toContain("2 kept of 3 discovered · 1 verified");
+    expect(journeyHeader(state)).toBe("");
 });
 
 test("cutoff excludes unscored models only in all scope; search scopes bulk actions", () => {
@@ -82,7 +82,7 @@ test("a kept current model that disappears stays removable but cannot be selecte
     expect(switched.options[switched.selectedIndex]?.unavailable).toBe(true);
     expect(handleModelJourneyKey(switched, { name: "enter" }).selection).toBeUndefined();
     const managed = modelJourney(switched, "shortlist");
-    expect(journeyHeader(managed)).toContain("1 kept of 0 discovered");
+    expect(journeyHeader(managed)).toBe("");
     expect(handleModelJourneyKey(managed, { name: "enter" }).poolToggle?.action).toBe("remove");
 });
 
@@ -141,15 +141,15 @@ test("providers opened from either model journey never expose the legacy tabs", 
     } finally { setup.renderer.destroy(); }
 });
 
-test("plain provider groups keep shortlisted models first and headings never enter navigation", () => {
+test("plain provider groups keep a stable order and headings never enter navigation", () => {
     const state = modelJourney(base, "shortlist");
-    expect(state.options.map((row) => row.group)).toEqual(["Kept · p", "Kept · q", "p"]);
+    expect(state.options.map((row) => row.group)).toEqual(["p", "p", "q"]);
     expect(state.options.every((row) => row.model !== undefined && row.section === undefined)).toBe(true);
     for (const shift of [false, true]) for (const name of ["left", "right"]) {
         expect(handleModelJourneyKey(state, { name, shift }).state).toBe(state);
     }
     const next = handleModelJourneyKey(state, { name: "down" }).state!;
-    expect(next.options[next.selectedIndex]?.model).toBe("c");
+    expect(next.options[next.selectedIndex]?.model).toBe("b");
     const searched = updateTuiSettingsPickerSearch(state, "beta").state!;
     expect(searched.options[searched.selectedIndex]?.model).toBe("b");
     expect(handleModelJourneyKey(searched, { name: "enter" }).poolToggle?.model).toBe("b");
@@ -197,7 +197,7 @@ test("provider headings have a blank row between groups inside the card", async 
         view.update(modelJourney(base, "shortlist"));
         await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
-        const heading = lines.findIndex((line) => line.includes("Kept · q"));
+        const heading = lines.findIndex((line) => line.split("│")[0]?.trim() === "q");
         expect(heading).toBeGreaterThan(0);
         expect(lines[heading - 1]?.split("│")[0]?.trim()).toBe("");
         expect(lines[heading + 1]).toContain("Gamma");
