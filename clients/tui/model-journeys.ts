@@ -150,7 +150,9 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
                 binding === "shortlist_keep_matches" ? row.pooledRank === undefined : row.pooledRank !== undefined) } };
         if (managing && selected?.provider && selected.model) {
             if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
-            if (binding === "shortlist_verify") return { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
+            if (binding === "shortlist_verify") return selected.pooledRank === undefined
+                ? { handled: true, state: { ...state, journeyFeedback: { status: "error", message: `Add ${selected.label} to your shortlist before verifying it.` } } }
+                : { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
         }
         return same;
     }

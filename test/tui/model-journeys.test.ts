@@ -40,6 +40,14 @@ test("cutoff excludes unscored models only in all scope; search scopes bulk acti
     expect(handleModelJourneyKey(manage, { name: "k", ctrl: true, shift: true }).poolBulk?.models.map((row) => row.model)).toEqual(["b"]);
 });
 
+test("verification refuses models that have not been shortlisted", () => {
+    const state = modelJourney(base, "shortlist");
+    const refused = handleModelJourneyKey(state, { name: "y", ctrl: true });
+    expect(refused.poolVerify).toBeUndefined();
+    expect(refused.state?.journeyFeedback?.message).toBe("Add Alpha to your shortlist before verifying it.");
+    expect(handleModelJourneyKey({ ...state, selectedIndex: 1 }, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
+});
+
 test("live shortlist search accepts spaces and row actions do not appear as another screen", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);

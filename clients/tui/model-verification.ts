@@ -19,8 +19,8 @@ export function verificationPicker(models: readonly VerificationTarget[], onlyUn
     });
     return { kind: "pool_verify_scope", title: "Verify shortlisted models", query: "", selectedIndex,
         verificationTargets: models, onlyUnverified,
-        subtitle: `Coverage: ${onlyUnverified ? "[unverified only] all" : "unverified only [all]"}\n`
-            + `${targets.length} targets of ${models.length} kept. Tab changes coverage.`,
+        subtitle: `${onlyUnverified ? "Unverified shortlisted models" : "All shortlisted models"} · tab to change\n`
+            + `${targets.length} shortlisted model${targets.length === 1 ? "" : "s"} to verify.`,
         allOptions: options, options };
 }
 
@@ -56,5 +56,5 @@ export function verificationResults(run: VerificationRun, from?: TuiSettingsPick
 export function verificationNudge(models: readonly { readonly verified: boolean }[], dismissed: boolean): string | undefined {
     const count = models.filter((model) => !model.verified).length;
     return dismissed || count === 0 ? undefined
-        : `${count} kept models unverified, so they cannot hold a default slot · Verify them now ^⇧y · Not now ^⇧x`;
+        : `${count} shortlisted model${count === 1 ? " hasn't" : "s haven't"} been verified · Verify shortlist ^⇧y · Not now ^⇧x`;
 }
