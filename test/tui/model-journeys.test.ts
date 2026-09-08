@@ -114,7 +114,7 @@ test("model journey cards contain the footer and padding for empty, short, and f
                         expect(child.screenY + child.height).toBeLessThanOrEqual(bottom - 1);
                     }
                     const frame = setup.captureCharFrame().split("\n");
-                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "switch model" : "Enter / Ctrl+S"));
+                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "switch model" : "⏎ / Ctrl+S"));
                     expect(footer).toBeGreaterThan(view.box.screenY);
                     expect(footer).toBeLessThan(bottom - 1);
                 }
@@ -500,7 +500,7 @@ test("Tab and Shift+Tab switch scopes without taking slider or search focus", ()
 test("Manage offers one model action and explains catalog visibility on its own line", () => {
     const state = modelJourney(base, "shortlist");
     expect(journeyFooter(state).split("\n")).toEqual([
-        "Enter / Ctrl+S  Add to library",
+        "⏎ / Ctrl+S  Add to library",
         "Ctrl+A  Show extra variants and older models",
         "Ctrl+R Rename · Ctrl+Y Verify · Esc Back",
     ]);

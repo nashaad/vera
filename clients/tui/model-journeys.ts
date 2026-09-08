@@ -96,8 +96,8 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
     return state.modelJourney === "shortlist"
-        ? `Enter / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : `${state.tab === "all" ? `Ctrl+A  ${reveal}` : ""}\n↑↓ choose · ↵ switch model · esc back`;
+        ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
+        : `${state.tab === "all" ? `Ctrl+A  ${reveal}` : ""}\n↑↓ choose · ⏎ switch model · esc back`;
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
