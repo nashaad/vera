@@ -1133,7 +1133,7 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
     const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
     const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
-    const feedbackHeight = state.modelJourney === "shortlist" ? 2 : 0;
+    const feedbackHeight = state.modelJourney === "shortlist" ? 3 : 0;
     const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;

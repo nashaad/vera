@@ -69,8 +69,8 @@ test("no TUI surface matches a chord outside the keymap", async () => {
  */
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
     // The selected model-journey contract makes these actions visible in their open screen.
-    "journey_scope", "journey_refresh", "journey_cutoff", "shortlist_keep_matches",
-    "shortlist_unkeep_matches", "verification_coverage", "verification_nudge_dismiss",
+    "journey_scope", "journey_refresh", "journey_cutoff",
+    "verification_coverage", "verification_nudge_dismiss",
     "interrupt",
     "toggle_thinking",
     "toggle_session_header",

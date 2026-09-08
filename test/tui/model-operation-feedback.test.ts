@@ -32,7 +32,7 @@ test("membership changes retain the row, provider sections, and feedback space",
             await setup.renderOnce();
             const lines = setup.captureCharFrame().split("\n");
             const beta = lines.findIndex((line) => line.includes("Beta") && line.includes("price unknown"));
-            const footer = lines.findIndex((line) => line.includes("keep or unkeep"));
+            const footer = lines.findIndex((line) => line.includes("Enter / Ctrl+S"));
             layouts.push(JSON.stringify([view.box.screenY, view.box.height, beta, footer]));
             expect(state.options.map((row) => row.value)).toEqual(initialOrder);
             expect(state.options[state.selectedIndex]?.model).toBe("beta");

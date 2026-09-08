@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { handleModelJourneyKey, modelJourney, journeyHeader, journeyModels, journeyMatches, journeyWindow } from "../../clients/tui/model-journeys.ts";
+import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyWindow } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -32,12 +32,12 @@ test("shortlist Enter only keeps or unkeeps and row verbs are chords", () => {
     expect(journeyHeader(state)).toBe("");
 });
 
-test("cutoff excludes unscored models only in all scope; search scopes bulk actions", () => {
+test("cutoff excludes unscored models only in all scope; search selects one model", () => {
     let state = { ...modelJourney(base, "switch"), tab: "all" as const, intelligenceCutoff: "1500" as const };
     expect(journeyModels(state).filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a"]);
     expect(journeyHeader(state)).toContain("2 hidden below the cutoff, including 2 unscored");
     const manage = updateTuiSettingsPickerSearch(modelJourney(base, "shortlist"), "beta").state!;
-    expect(handleModelJourneyKey(manage, { name: "k", ctrl: true, shift: true }).poolBulk?.models.map((row) => row.model)).toEqual(["b"]);
+    expect(handleModelJourneyKey(manage, { name: "enter" }).poolToggle?.model).toBe("b");
 });
 
 test("verification refuses models that have not been shortlisted", () => {
@@ -114,7 +114,7 @@ test("model journey cards contain the footer and padding for empty, short, and f
                         expect(child.screenY + child.height).toBeLessThanOrEqual(bottom - 1);
                     }
                     const frame = setup.captureCharFrame().split("\n");
-                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "switch model" : "keep or unkeep"));
+                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "switch model" : "Enter / Ctrl+S"));
                     expect(footer).toBeGreaterThan(view.box.screenY);
                     expect(footer).toBeLessThan(bottom - 1);
                 }
@@ -176,7 +176,7 @@ test("reduced catalogs hide old entries without hiding kept models or search res
     const search = updateTuiSettingsPickerSearch(state, "gamma").state!;
     expect(search.options[search.selectedIndex]?.model).toBe("c");
     const managed = modelJourney({ ...base, allOptions: options }, "shortlist");
-    expect(handleModelJourneyKey(managed, { name: "k", ctrl: true }).poolBulk?.models.map((row) => row.model)).toEqual(["a"]);
+    expect(handleModelJourneyKey(managed, { name: "enter" }).poolToggle?.model).toBe("a");
 });
 
 test("large provider sections stay open and bounded windows retain provider context", () => {
@@ -395,7 +395,7 @@ test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggl
             action: "remove", provider: start.options[start.selectedIndex]!.provider!, model: start.options[start.selectedIndex]!.model!,
         } : undefined);
         if (journey === "shortlist") {
-            expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk?.action).toBe("remove");
+            expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk).toBeUndefined();
         } else {
             expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelJourney).toBe("switch");
             let all = handleTuiSettingsPickerKey(start, { name: "tab" }).state!;
@@ -493,5 +493,24 @@ test("Tab and Shift+Tab switch scopes without taking slider or search focus", ()
         expect(shortlist.tab).toBe("pool");
         expect(shortlist.modelFocus).toBe("list");
         expect(shortlist.query).toBe("a");
+    }
+});
+
+
+test("Manage offers one model action and explains catalog visibility on its own line", () => {
+    const state = modelJourney(base, "shortlist");
+    expect(journeyFooter(state).split("\n")).toEqual([
+        "Enter / Ctrl+S  Add to shortlist",
+        "Ctrl+A  Show all models and variants",
+        "Ctrl+R Rename · Ctrl+Y Verify · Esc Back",
+    ]);
+    expect(journeyFooter({ ...state, selectedIndex: 1 })).toContain("Remove from shortlist");
+    expect(journeyFooter({ ...state, revealAll: true }).split("\n")[1]).toBe("Ctrl+A  Hide extra variants and older models");
+    for (const query of ["", "beta"]) for (const shift of [false, true]) {
+        const filtered = updateTuiSettingsPickerSearch(state, query).state!;
+        const ignored = handleTuiSettingsPickerKey(filtered, { name: "k", ctrl: true, shift });
+        expect(ignored.poolBulk).toBeUndefined();
+        expect(ignored.poolToggle).toBeUndefined();
+        expect(ignored.state).toBe(filtered);
     }
 });

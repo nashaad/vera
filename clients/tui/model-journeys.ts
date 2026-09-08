@@ -94,9 +94,12 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
 }
 
 export function journeyFooter(state: TuiSettingsPickerState): string {
-    const reveal = state.revealAll ? "show fewer" : "show every model";
+    const selected = state.options[state.selectedIndex];
+    const action = selected === undefined ? "Select a model"
+        : selected.pooledRank === undefined ? "Add to shortlist" : "Remove from shortlist";
+    const reveal = state.revealAll ? "Hide extra variants and older models" : "Show all models and variants";
     return state.modelJourney === "shortlist"
-        ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ^a " + reveal
+        ? `Enter / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
         : "↑↓ choose · ↵ switch model · esc back";
 }
 
@@ -145,9 +148,6 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
             const next = { ...state, intelligenceCutoff: state.intelligenceCutoff === "1600" && !key.shift ? "any" as const : stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.shift ? -1 : 1), selectedIndex: 0 };
             return { state: rebuiltJourney(next), handled: true };
         }
-        if (binding === "shortlist_keep_matches" || binding === "shortlist_unkeep_matches") return { ...same,
-            poolBulk: { action: binding === "shortlist_keep_matches" ? "add" : "remove", models: journeyMatches(state).filter((row) =>
-                binding === "shortlist_keep_matches" ? row.pooledRank === undefined : row.pooledRank !== undefined) } };
         if (managing && selected?.provider && selected.model) {
             if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
             if (binding === "shortlist_verify") return selected.pooledRank === undefined

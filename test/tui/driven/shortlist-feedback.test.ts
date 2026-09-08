@@ -27,6 +27,9 @@ test("Manage shows Working until save completes, then success or failure below t
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("manage shortlist"); await session.waitForVisiblePane("Manage shortlist");
         session.sendKey("Enter"); await session.waitForVisiblePane("not kept ✗");
+        session.sendKey("C-k"); await session.settle();
+        expect(calls).toBe(0);
+        expect(session.captureVisiblePane()).not.toContain("keep matches");
         session.sendKey("Enter"); await session.waitForVisiblePane("Working");
         session.sendKey("Enter"); await session.settle();
         expect(calls).toBe(1);

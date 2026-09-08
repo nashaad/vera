@@ -155,14 +155,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         remappable: true,
     },
     {
-        id: "shortlist_keep_matches", keys: ["ctrl+k"], scope: "shortlist_picker",
-        description: "Keep the visible search matches", hint: "^k keep matches",
-    },
-    {
-        id: "shortlist_unkeep_matches", keys: ["ctrl+shift+k"], scope: "shortlist_picker",
-        description: "Unkeep the visible kept matches", hint: "^⇧k unkeep matches",
-    },
-    {
         id: "verification_coverage", keys: ["tab"], scope: "verification_picker",
         description: "Change the visible verification coverage", hint: "tab coverage",
     },
