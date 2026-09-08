@@ -168,3 +168,32 @@ test("clicking a cutoff tick reaches the live picker without switching models", 
         expect(session.captureVisiblePane()).toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);
+
+test("Ctrl+K opens the relevant menu and Escape restores the live filtered picker", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-model-more-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
+        session.sendKey("C-k"); await session.waitForVisiblePane("Refresh model catalog");
+        expect(session.captureVisiblePane()).not.toContain("extra variants");
+        session.sendKey("Escape"); await session.waitForVisiblePane("Your library is empty");
+        session.sendKey("Tab"); await session.waitForVisiblePane("Models from your connected providers");
+        session.sendText("open"); await session.settle();
+        const before = session.captureVisiblePane();
+        expect(before).toContain("Ctrl+K More: variants, refresh");
+        session.sendKey("C-k"); await session.waitForVisiblePane("Show extra variants and older models");
+        session.sendKey("Escape"); await session.waitForVisiblePane("Switch model");
+        await session.settle();
+        expect(session.captureVisiblePane()).toBe(before);
+        session.sendKey("C-k"); await session.waitForVisiblePane("Show extra variants and older models");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("C-k"); await session.waitForVisiblePane("Hide extra variants and older models");
+        session.sendKey("Down"); session.sendKey("Enter");
+        const refreshed = await session.waitForVisiblePane("Refreshed 1 catalogs");
+        expect(refreshed).toContain("Switch model");
+        expect(refreshed).toContain("Two");
+    } finally { await session.close(); }
+}, 15_000);

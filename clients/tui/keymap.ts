@@ -117,6 +117,10 @@ export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
 
 export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
+        id: "journey_more", keys: ["ctrl+k"], scope: "switch_model_picker",
+        description: "Open model catalog visibility and refresh actions", hint: "Ctrl+K More",
+    },
+    {
         id: "journey_reveal", keys: ["ctrl+a"], scope: "switch_model_picker",
         description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
     },

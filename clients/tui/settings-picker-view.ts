@@ -2,7 +2,7 @@ import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
-import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels, journeyMatches } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyWindow, journeyModels, journeyMatches } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -218,6 +218,7 @@ export function handleTuiSettingsPickerKey(
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
     }
+    if (state.kind === "model_menu") return handleModelJourneyMenuKey(state, key);
     if (state.kind === "model_assignment" && state.options[state.selectedIndex]?.value === "verify_shortlist"
         && (key.name === "enter" || key.name === "return")) return { state, handled: true, poolVerifySweep: true };
     if (state.kind === "model_defaults") {
@@ -1060,6 +1061,7 @@ export function createTuiSettingsPickerView(
                 search,
                 railInset,
                 view.onCutoff,
+                view.onMore,
             );
         },
     };
@@ -1205,7 +1207,26 @@ export function renderListPickerRows(
     search?: ReturnType<typeof createDialogSearchNode>,
     railInset = 0,
     onCutoff?: (cutoff?: IntelligenceCutoff) => void,
+    onMore?: () => void,
 ): void {
+    if (state.kind === "model_menu") {
+        const add = (node: Renderable) => { box.add(node); nodes.push(node); };
+        box.width = Math.min(64, Math.max(1, renderer.width - 4));
+        box.height = "auto";
+        add(dialogHeaderNode(renderer, "More"));
+        state.options.forEach((option, index) => {
+            const active = state.selectedIndex === index;
+            const row = new TextRenderable(renderer, {
+                content: option.label, width: "100%", height: "auto", marginTop: index === 0 ? 1 : 0,
+                selectable: false, fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
+                bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
+            });
+            attachDialogRowPointer(row, pointer, index);
+            add(row);
+        });
+        add(dialogFooterNode(renderer, "↑↓ choose · ⏎ select · esc back"));
+        return;
+    }
     if (state.kind === "model" && state.modelJourney !== undefined) {
         const width = pickerContentWidth(renderer, state, railInset);
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
@@ -1313,7 +1334,15 @@ export function renderListPickerRows(
                 height: 1, marginTop: 1, width: "100%",
             }));
         }
-        add(dialogFooterNode(renderer, journeyFooter(state)));
+        const footer = dialogFooterNode(renderer, journeyFooter(state));
+        if (state.modelJourney === "switch" && onMore !== undefined) {
+            footer.selectable = false;
+            footer.onMouseDown = (event) => {
+                if (event.button !== 0 || event.y !== footer.screenY) return;
+                event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onMore();
+            };
+        }
+        add(footer);
         box.height = "auto";
         return;
     }

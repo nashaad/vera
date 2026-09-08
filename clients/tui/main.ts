@@ -219,7 +219,7 @@ import {
     type TuiStatusChunk,
 } from "./status.ts";
 import { watchWorkspaceBranch } from "./workspace-branch.ts";
-import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, setTuiSettingsPickerCutoff, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView } from "./settings-picker.ts";
+import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, handleTuiSettingsPickerScroll, switchedModelTab, setTuiSettingsPickerCutoff, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView } from "./settings-picker.ts";
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
@@ -2073,6 +2073,10 @@ export async function startTui(
         if (rt.settingsPicker?.kind !== "model") return;
         rt.settingsPicker = setTuiSettingsPickerCutoff(rt.settingsPicker, cutoff);
         renderState(rt);
+    };
+    rt.settingsPickerView.onMore = () => {
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        applySettingsPickerTransition(rt, handleTuiSettingsPickerKey(rt.settingsPicker, { name: "k", ctrl: true }));
     };
     rt.settingsPickerView.onConfigure = () => {
         if (rt.settingsPicker?.kind === "provider") return;

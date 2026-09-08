@@ -53,11 +53,12 @@ Save reads the catalog immediately. It discovers models without keeping, verifyi
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, use Tab for Catalog, and press Enter to open a conversation with the chosen model.
 
-## Models and providers [lines=16]
+## Models and providers [lines=17]
 Open `/model` or Switch model from Ctrl+P. It opens on Library even when empty; Tab or Shift+Tab changes to Catalog on the same screen.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
 Click the cutoff band to focus it, or click a number or track position to set it. Down returns to the model list.
-Older and duplicate models are hidden by default unless kept. Ctrl+A below the list shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
+Older and duplicate models are hidden by default unless kept. Ctrl+A shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
+In Switch model, Ctrl+K opens More for catalog visibility and refresh. Escape returns to the same picker.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 Open `/library` or Model Library to add or remove a model with Enter. Adding saves immediately and does not switch or verify.
 In Model Library, Ctrl+R renames the display name, Ctrl+Y verifies one model in your library. Ctrl+S adds or removes only in Model Library. Ctrl+D/Ctrl+U page down/up in Switch model and Model Library.

@@ -64,6 +64,7 @@ import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
+    | "model_menu"
     | "provider"
     | "provider_actions"
     | "reasoning"
@@ -490,6 +491,7 @@ export interface TuiSettingsPickerView {
     onTab?: (tab: TuiModelPickerTab) => void;
     onConfigure?: () => void;
     onCutoff?: (cutoff?: IntelligenceCutoff) => void;
+    onMore?: () => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
     handleEditorKey(

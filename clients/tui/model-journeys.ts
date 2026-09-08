@@ -97,7 +97,33 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : `${state.tab === "all" ? `Ctrl+A  ${reveal}` : ""}\n↑↓ choose · ⏎ switch model · esc back`;
+        : `Ctrl+K More: ${state.tab === "all" ? "variants, refresh" : "refresh"}\n↑↓ choose · ⏎ switch model · esc back`;
+}
+
+export function modelJourneyMenu(parent: TuiSettingsPickerState): TuiSettingsPickerState {
+    const options: TuiSettingsPickerOption[] = [
+        ...(parent.tab === "all" ? [{ value: "variants", label: parent.revealAll
+            ? "Hide extra variants and older models" : "Show extra variants and older models", description: "" }] : []),
+        { value: "refresh", label: "Refresh model catalog", description: "" },
+    ];
+    return { kind: "model_menu", title: "More", options, allOptions: options,
+        selectedIndex: 0, query: "", parent };
+}
+
+export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition {
+    const parent = state.parent;
+    if (key.name === "escape" || key.name === "esc" || tuiBindingId("switch_model_picker", key) === "journey_more") {
+        return { state: parent, handled: true };
+    }
+    if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,
+        selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) } };
+    if ((key.name === "enter" || key.name === "return") && parent?.kind === "model") {
+        if (state.options[state.selectedIndex]?.value === "variants") return {
+            state: rebuiltJourney({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
+        };
+        if (state.options[state.selectedIndex]?.value === "refresh") return { state: parent, handled: true, refreshAllCatalogs: true };
+    }
+    return { state, handled: true };
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
@@ -117,6 +143,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
                 provider: selected.provider, model: selected.model } } : same;
     }
     const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
+    if (binding === "journey_more") return { state: modelJourneyMenu(state), handled: true };
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
     if (!managing && state.tab === "all" && state.modelFocus === "intelligence" && !key.ctrl) {
         if (key.name === "left" || key.name === "right") return { state: rebuiltJourney({ ...state,
