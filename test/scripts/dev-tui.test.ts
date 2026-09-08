@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createConnection, createServer } from "node:net";
 
 import {
     candidateHomePath,
@@ -218,6 +219,50 @@ test("a reused clone drops a lifted daily host lock", async () => {
             },
         });
     } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("reusing a development home preserves its running host and socket", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-reuse-");
+    const worktree = linkedWorktree("reuse-host");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const server = createServer((socket) => socket.end("same host"));
+    try {
+        await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            spawnTui: async () => 0,
+        });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        const socketPath = join(home, "runtime", "host.sock");
+        const lockPath = join(home, "runtime", "host.json");
+        const lock = JSON.stringify({ pid: process.pid, socket_path: socketPath });
+        writeFileSync(lockPath, lock);
+        await new Promise<void>((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(socketPath, resolve);
+        });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            await runDevTui([], worktree, {
+                sourceHome,
+                temporaryRoot,
+                spawnTui: async () => {
+                    expect(readFileSync(lockPath, "utf8")).toBe(lock);
+                    const reply = await new Promise<string>((resolve, reject) => {
+                        const socket = createConnection(socketPath);
+                        socket.once("error", reject);
+                        socket.once("data", (data) => resolve(data.toString()));
+                    });
+                    expect(reply).toBe("same host");
+                    return 0;
+                },
+            });
+        }
+    } finally {
+        if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });
     }
