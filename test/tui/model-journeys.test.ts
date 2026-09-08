@@ -10,6 +10,42 @@ const rows = [
 ];
 const base: TuiSettingsPickerState = { kind: "model", allOptions: rows, options: rows, selectedIndex: 0, query: "" };
 
+test("scope counts ignore search and cutoff, follow catalog visibility, and keep equal tab widths", async () => {
+    const allOptions = Array.from({ length: 100 }, (_, index) => ({
+        ...rows[0]!, value: `p/${index}`, model: `${index}`,
+        ...(index < 9 ? { pooledRank: index } : {}),
+        ...(index >= 90 ? { hiddenByDefault: "old" as const } : {}),
+    }));
+    for (const width of [110, 50, 40]) {
+        const setup = await createTestRenderer({ width, height: 44 });
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        let expectedGeometry: number[] | undefined;
+        try {
+            for (const revealAll of [false, true]) {
+                for (const tab of ["pool", "all"] as const) {
+                    const state = { ...modelJourney({ ...base, allOptions }, "switch"), tab, revealAll,
+                        query: "missing", intelligenceCutoff: "1600" as const };
+                    view.update({ ...state, options: journeyModels(state) });
+                    await setup.renderOnce();
+                    const scope = view.box.getChildren().find((node) => node.getChildren().some((child) =>
+                        "plainText" in child && String(child.plainText).includes("(9)")))!;
+                    expect(scope).toBeDefined();
+                    const chips = scope.getChildren();
+                    const frame = setup.captureCharFrame();
+                    expect(frame).toContain(width === 40 ? "Lib. (9)" : "Library (9)");
+                    expect(frame).toContain(`${width === 40 ? "Cat." : "Catalog"} (${revealAll ? 100 : 90})`);
+                    expect(chips[0]!.width).toBe(chips[1]!.width);
+                    expect(chips[1]!.screenX + chips[1]!.width).toBeLessThanOrEqual(scope.screenX + scope.width);
+                    const geometry = chips.flatMap((chip) => [chip.screenX, chip.screenY, chip.width, chip.height]);
+                    if (expectedGeometry) expect(geometry).toEqual(expectedGeometry); else expectedGeometry = geometry;
+                }
+            }
+        } finally { setup.renderer.destroy(); }
+    }
+});
+
 test("Enter switches in either scope without toggling membership", () => {
     let state = modelJourney(base, "switch");
     expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c"]);

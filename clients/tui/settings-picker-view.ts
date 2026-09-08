@@ -2,7 +2,7 @@ import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
-import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels, journeyMatches } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -1212,16 +1212,25 @@ export function renderListPickerRows(
         add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
         const layout = journeyListLayout(renderer, state, railInset);
         if (state.modelJourney === "switch") {
+            const countState = { ...state, query: "", intelligenceCutoff: "any" as const };
+            const counts = {
+                pool: journeyMatches({ ...countState, tab: "pool" }).length,
+                all: journeyMatches({ ...countState, tab: "all" }).filter((row) => !row.unavailable).length,
+            };
+            const digits = String(state.allOptions.length).length;
+            const compact = 2 * (12 + digits) + 2 > width;
+            const tabWidth = (compact ? 9 : 12) + digits;
             const scope = new BoxRenderable(renderer, { width: "100%", height: 1, marginTop: 1, flexDirection: "row", gap: 2 });
             for (const [tab, label] of [["pool", "Library"], ["all", "Catalog"]] as const) {
                 const active = state.tab === tab;
                 const chip = new TextRenderable(renderer, {
-                    content: ` ${label} `, height: 1,
+                    content: ` ${compact ? label.slice(0, 3) + "." : label} (${counts[tab]}) `,
+                    width: tabWidth, height: 1, selectable: false,
                     fg: active ? TUI_SELECTION_TEXT : TUI_MUTED,
                     bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
                 });
                 if (onTab !== undefined) chip.onMouseDown = (event) => {
-                    event.preventDefault(); event.stopPropagation(); onTab(tab);
+                    event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onTab(tab);
                 };
                 scope.add(chip);
             }
