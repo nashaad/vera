@@ -68,7 +68,7 @@ An assigned model cannot be removed from the library until its slots are reassig
 In Switch model, Ctrl+R refreshes connected catalogs in place. Open Configure providers from Ctrl+P. The CLI also has `vera models refresh`.
 Provider credentials and endpoint configuration belong to the Vera home. Forget credentials removes its models, unsets affected defaults, and clears conversations using it; an environment credential must be unset in the host environment.
 Dial strip from Ctrl+P has effort, access, model, and agent lanes. Up/Down crosses lanes, Left/Right stages values, Enter applies, and Escape cancels. Tab does nothing; unavailable values are skipped.
-The conversation header shows model, effort, and access. The unverified-library reminder uses Ctrl+Shift+Y to verify or Ctrl+Shift+X to dismiss for the TUI session.
+The conversation header shows model, effort, and access.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 
 ## Conversations and background work [lines=8]

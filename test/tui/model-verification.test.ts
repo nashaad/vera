@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handleVerificationKey, verificationPicker, verificationResults, verificationNudge } from "../../clients/tui/model-verification.ts";
+import { handleVerificationKey, verificationPicker, verificationResults } from "../../clients/tui/model-verification.ts";
 const models = [
     { provider: "p", model: "one", verified: false },
     { provider: "q", model: "two", verified: true },
@@ -21,12 +21,6 @@ test("results retain waiting, passed and failed rows with failure reasons", () =
     expect(state.subtitle).toContain("Leaving this screen does not stop");
     expect(state.subtitle).toContain("failure changes no existing assignment");
     expect(handleVerificationKey(state, { name: "escape" })).toEqual({ state: undefined, handled: true });
-});
-
-test("the verification nudge is dismissible for the session", () => {
-    expect(verificationNudge(models, false)).toContain("1 model in your library hasn't been verified");
-    expect(verificationNudge(models, true)).toBeUndefined();
-    expect(verificationNudge([{ verified: true }], false)).toBeUndefined();
 });
 
 test("verification progress and completion preserve the caller and results cursor", () => {

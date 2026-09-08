@@ -30,8 +30,10 @@ test("live library keeps through the host operation and verification can be left
         await session.waitForVisiblePane("Model Library");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not kept ✗");
+        expect(session.captureVisiblePane()).toContain("Model Library (0)");
         session.sendKey("C-s");
         await session.waitForVisiblePane("✓ One added to library");
+        expect(session.captureVisiblePane()).toContain("Model Library (1)");
         expect(operations[0]?.operation).toBe("keep");
         session.sendKey("C-y");
         await session.waitForVisiblePane("Verifying models");
@@ -44,6 +46,42 @@ test("live library keeps through the host operation and verification can be left
         expect(operations.map((operation) => operation.operation)).toEqual(["keep", "verify"]);
         expect(session.captureVisiblePane()).toContain("Model Library");
     } finally { finish(); await session.close(); }
+}, 15_000);
+
+test("verification is explicit and all coverage includes only library models", async () => {
+    const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
+    const operations: ModelOperation[] = [];
+    const available = ["saved", "catalog-only"].map((model) => ({ provider: "openrouter", model, label: model, levels: [], description: "" }));
+    const settings = { provider: "openrouter", model: "saved", availableModels: available,
+        pooled: [{ ...available[0]!, available: true, verified: false }] };
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-library-verification-")), width: 130, height: 40,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies(),
+            client: createSettingsAnsweringClient({ agentId: "library-verification", workspace: "/work/vera", model: "saved", mode: "ask", modelSettings: settings }),
+            operateModels: async (operation, onResult) => {
+                operations.push(operation);
+                for (const model of operation.models) onResult({ ...model, status: "passed" });
+                return settings;
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        await session.settle();
+        expect(session.captureVisiblePane()).not.toContain("haven't been verified");
+        expect(session.captureVisiblePane()).not.toContain("hasn't been verified");
+        expect(session.captureVisiblePane()).not.toContain("Not now");
+        expect(operations).toEqual([]);
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("verify library"); await session.waitForVisiblePane("Verify library models");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Unverified models in your library");
+        session.sendKey("Tab"); await session.waitForVisiblePane("All models in your library");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Verification results");
+        expect(operations).toHaveLength(1);
+        expect(operations[0]?.operation).toBe("verify");
+        expect(operations[0]?.models.map(({ provider, model }) => ({ provider, model })))
+            .toEqual([{ provider: "openrouter", model: "saved" }]);
+        expect(session.captureVisiblePane()).not.toContain("catalog-only");
+    } finally { await session.close(); }
 }, 15_000);
 
 test("defaults expose six slots and empty eligibility offers recovery", async () => {

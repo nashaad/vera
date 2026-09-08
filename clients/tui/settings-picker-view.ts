@@ -1230,7 +1230,10 @@ export function renderListPickerRows(
     if (state.kind === "model" && state.modelJourney !== undefined) {
         const width = pickerContentWidth(renderer, state, railInset);
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
-        add(dialogHeaderNode(renderer, state.title ?? "Switch model"));
+        const title = state.modelJourney === "shortlist"
+            ? `Model Library (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`
+            : state.title ?? "Switch model";
+        add(dialogHeaderNode(renderer, title));
         const layout = journeyListLayout(renderer, state, railInset);
         if (state.modelJourney === "switch") {
             const countState = { ...state, query: "", intelligenceCutoff: "any" as const };

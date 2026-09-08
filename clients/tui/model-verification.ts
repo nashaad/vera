@@ -52,9 +52,3 @@ export function verificationResults(run: VerificationRun, from?: TuiSettingsPick
         parent: from?.kind === "model_verification" ? from.parent : from,
         query: "" };
 }
-
-export function verificationNudge(models: readonly { readonly verified: boolean }[], dismissed: boolean): string | undefined {
-    const count = models.filter((model) => !model.verified).length;
-    return dismissed || count === 0 ? undefined
-        : `${count} model${count === 1 ? "" : "s"} in your library ${count === 1 ? "hasn't" : "haven't"} been verified · Verify library ^⇧y · Not now ^⇧x`;
-}

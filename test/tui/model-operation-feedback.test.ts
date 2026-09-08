@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { TextRenderable, parseColor } from "@opentui/core";
 import { TUI_NOTICE, TUI_SUCCESS } from "../../clients/tui/state.ts";
 import { createTestRenderer } from "@opentui/core/testing";
-import { createTuiSettingsPickerView, startTuiSettingsPicker, syncTuiModelPicker } from "../../clients/tui/settings-picker.ts";
+import { createTuiSettingsPickerView, startTuiSettingsPicker, syncTuiModelPicker, updateTuiSettingsPickerSearch } from "../../clients/tui/settings-picker.ts";
 import { journeyModels, modelJourney } from "../../clients/tui/model-journeys.ts";
 import { shortlistOperationFeedback } from "../../clients/tui/model-operation-feedback.ts";
 
@@ -34,6 +34,7 @@ test("membership changes retain the row, provider sections, and feedback space",
             view.animateFeedback(0, true);
             await setup.renderOnce();
             const lines = setup.captureCharFrame().split("\n");
+            expect(lines.join("\n")).toContain(`Model Library (${feedback === undefined || feedback.status === "working" ? 2 : 1})`);
             const beta = lines.findIndex((line) => line.includes("Beta") && line.includes("price unknown"));
             const footer = lines.findIndex((line) => line.includes("⏎ / Ctrl+S"));
             layouts.push(JSON.stringify([view.box.screenY, view.box.height, beta, footer]));
@@ -60,6 +61,9 @@ test("membership changes retain the row, provider sections, and feedback space",
             }
         }
         expect(new Set(layouts).size).toBe(1);
+        view.update(updateTuiSettingsPickerSearch(state, "Alpha").state!);
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).toContain("Model Library (1)");
     } finally { setup.renderer.destroy(); }
 });
 

@@ -1,4 +1,3 @@
-import { verificationNudge } from "../model-verification.ts";
 import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
@@ -430,12 +429,6 @@ export function renderStatus(rt: TuiRuntime): void {
         ];
     rt.agentNoticeRows = agentSection.length +
         (nudgeIndicator === undefined ? 0 : 1);
-    const verifyNudge = isWorkerFreeClient(rt.client) || anyOverlayOpen(rt) ? undefined : verificationNudge(
-        statusState.modelSettings?.pooled ?? [], rt.verificationNudgeDismissed === true);
-    if (verifyNudge !== undefined) {
-        noticeChunks.push(fg(TUI_MUTED)(`${rt.agentNoticeRows > 0 ? "\n" : ""}${noticeIndent}${verifyNudge}`));
-        rt.agentNoticeRows += 1;
-    }
     setTextContent(rt.agentNoticeText, new StyledText(noticeChunks));
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;

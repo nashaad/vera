@@ -163,15 +163,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Change the visible verification coverage", hint: "tab coverage",
     },
     {
-        id: "verification_nudge_open", keys: ["ctrl+shift+y"], scope: "conversation",
-        description: "Open verification from the library nudge", hint: "^⇧y verify",
-        remappable: true,
-    },
-    {
-        id: "verification_nudge_dismiss", keys: ["ctrl+shift+x"], scope: "conversation",
-        description: "Dismiss the visible verification nudge for this TUI session", hint: "^⇧x not now",
-    },
-    {
         id: "open_palette",
         keys: ["ctrl+p"],
         scope: "global",
