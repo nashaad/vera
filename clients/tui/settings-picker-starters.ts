@@ -115,6 +115,7 @@ import {
     POOL_VERIFY_UNVERIFIED_VALUE,
     REVIEWER_CLEAR_VALUE,
     TUI_DECLARE_PROVIDER_VALUE,
+    TUI_REFRESH_PROVIDERS_VALUE,
     TUI_PROVIDER_GROUP_RANK,
     type TuiAssignmentParentModel,
     type TuiConfigureFile,
@@ -846,7 +847,16 @@ export function startTuiProviderPicker(
     const firstUnconnected = rows.findIndex(
         (option) => option.answerState !== "connected",
     );
-    const allOptions = [...rows, TUI_DECLARE_PROVIDER_OPTION];
+    const allOptions = [
+        ...rows,
+        ...(rows.some((row) => row.refreshable === true) ? [{
+            value: TUI_REFRESH_PROVIDERS_VALUE,
+            label: "Refresh providers",
+            description: "read model catalogs from all connected providers",
+            action: true,
+        }] : []),
+        TUI_DECLARE_PROVIDER_OPTION,
+    ];
     const named = options.selected === undefined
         ? -1
         : allOptions.findIndex((option) => option.value === options.selected);

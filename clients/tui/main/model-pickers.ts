@@ -4,6 +4,7 @@ import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.
 import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { modelJourney } from "../model-journeys.ts";
+import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
 import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
 import { derivedModelName } from "../../../src/config/model-catalog.ts";
@@ -701,6 +702,17 @@ export function openProviderPicker(rt: TuiRuntime,
     rt.composer.blur();
     renderState(rt);
     focusActiveSurface(rt);
+}
+
+export function refreshProviderPicker(rt: TuiRuntime, notice: string): void {
+    const previous = rt.settingsPicker;
+    if (previous?.kind !== "provider") return;
+    const selected = previous.options[previous.selectedIndex]?.value;
+    openProviderPicker(rt, previous.parent, { selected, subtitle: notice });
+    const current = rt.settingsPicker;
+    if (current?.kind !== "provider") return;
+    const searched = updateTuiSettingsPickerSearch(current, previous.query, previous.queryCursor).state!;
+    rt.settingsPicker = { ...searched, selectedIndex: Math.max(0, searched.options.findIndex((row) => row.value === selected)) };
 }
 
 /** Opens whatever the provider needs to be usable, and says which credential it asked for. A caller walking the gates reads `none` as the key step being already done, and `install` as a gate that is still open. */

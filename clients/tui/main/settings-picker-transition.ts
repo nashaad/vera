@@ -221,7 +221,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         return;
     }
     if ("refreshAllCatalogs" in transition && transition.refreshAllCatalogs) {
-        startCatalogRefreshSweep(rt, []);
+        startCatalogRefreshSweep(rt, previousPicker?.kind === "provider"
+            ? previousPicker.allOptions.filter((row) => row.refreshable === true).map((row) => row.value)
+            : []);
         return;
     }
     if ("poolBulk" in transition && transition.poolBulk !== undefined) {

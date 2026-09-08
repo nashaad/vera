@@ -496,6 +496,7 @@ export interface TuiSettingsPickerView {
 }
 
 export const TUI_DECLARE_PROVIDER_VALUE = "action:declare_provider";
+export const TUI_REFRESH_PROVIDERS_VALUE = "action:refresh_providers";
 
 export function withTuiPickerParent(
     state: TuiSettingsPickerState,

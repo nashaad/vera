@@ -14,6 +14,7 @@ import { applyTuiThemeBindings } from "../theme-bindings.ts";
 import { resolveTuiTheme } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+import { refreshProviderPicker } from "./model-pickers.ts";
 
 export function requestCatalogRefresh(rt: TuiRuntime, provider: string): void {
     const requestId = randomUUID();
@@ -120,6 +121,7 @@ export function advanceCatalogRefreshSweep(rt: TuiRuntime): void {
         rt.catalogRefreshSweep = undefined;
         const summary = catalogRefreshSummary(rt, sweep.results);
         showStatusNotice(rt, summary);
+        refreshProviderPicker(rt, summary);
         if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney !== undefined) rt.settingsPicker = { ...rt.settingsPicker, journeyNotice: summary };
         renderState(rt);
         return;

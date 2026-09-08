@@ -1,5 +1,6 @@
 import { handleVerificationKey } from "./model-verification.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
+import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelJourney, handleModelJourneyKey, journeyHeader, journeyFooter, journeyWindow, journeyModels } from "./model-journeys.ts";
 import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -834,6 +835,9 @@ export function handleTuiSettingsPickerKey(
             return toggledSection(state, selected.section);
         }
         if (state.kind === "provider" && selected.action === true) {
+            if (selected.value === TUI_REFRESH_PROVIDERS_VALUE) {
+                return { state, handled: true, refreshAllCatalogs: true };
+            }
             return { state, handled: true, declareProvider: true };
         }
         if (state.kind === "provider") {
@@ -1971,7 +1975,9 @@ export function pickerFooterText(
         const selected = state.options[state.selectedIndex];
         return [
             "↑↓ move",
-            selected?.action === true
+            selected?.value === TUI_REFRESH_PROVIDERS_VALUE
+                ? "⏎ refresh providers"
+                : selected?.action === true
                 ? "⏎ add provider"
                 : "⏎ actions",
             ...(selected?.hasCredential === true

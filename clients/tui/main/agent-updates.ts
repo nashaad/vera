@@ -13,6 +13,7 @@ import { applyTuiTimelineReply } from "../timeline-picker.ts";
 import { applyTuiUiRequestUpdate } from "../ui-request-queue.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+import { refreshProviderPicker } from "./model-pickers.ts";
 
 export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     const generation = rt.clientGeneration;
@@ -478,6 +479,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 const provider = rt.catalogRefreshes.get(update.requestId)!;
                 rt.catalogRefreshes.delete(update.requestId);
                 if (update.type === "model_settings_rejected") {
+                    refreshProviderPicker(rt, `Could not refresh ${provider}; its saved list stands.`);
                     showStatusNotice(rt, 
                         `could not ask ${provider}, its saved list stands`,
                     );
@@ -486,6 +488,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         .filter((entry) => entry.provider === provider)
                         .length;
                     showStatusNotice(rt, `${provider}: ${count} models`);
+                    refreshProviderPicker(rt, `${provider}: ${count} models`);
                 }
             }
             if (

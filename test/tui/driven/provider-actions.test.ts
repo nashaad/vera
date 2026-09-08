@@ -35,11 +35,19 @@ test("provider actions edit the selected connection or refresh its catalog", asy
         expect(parent).toContain("openrouter");
         session.sendKey("Enter"); await session.waitForVisiblePane("Read this provider's model catalog");
         session.sendKey("Down"); session.sendKey("Enter");
-        await session.waitForVisiblePane("Configure providers");
-        await session.settle();
+        const refreshed = await session.waitForVisiblePane("openrouter: 2 models");
+        expect(refreshed).toContain("Configure providers");
+        expect(refreshed).toContain("openrouter");
         expect(commands.filter((command) => command.type === "catalog_refresh")).toMatchObject([
             { type: "catalog_refresh", provider: "openrouter" },
         ]);
+        session.sendKey("Down");
+        await session.waitForVisiblePane("⏎ refresh providers");
+        session.sendKey("Enter");
+        const summary = await session.waitForVisiblePane("Refreshed 1 catalogs, 1 new models.");
+        expect(summary).toContain("Configure providers");
+        expect(summary).toContain("⏎ refresh providers");
+        expect(commands.filter((command) => command.type === "catalog_refresh")).toHaveLength(2);
         expect(commands.some((command) => command.type === "pool_add" || command.type === "prompt")).toBe(false);
     } finally { await session.close(); }
 }, 15_000);

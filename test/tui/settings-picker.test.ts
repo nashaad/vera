@@ -24,6 +24,7 @@ import {
     tuiModelActionOptions,
     startTuiProviderPicker,
     TUI_DECLARE_PROVIDER_VALUE,
+    TUI_REFRESH_PROVIDERS_VALUE,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
@@ -2929,6 +2930,7 @@ test("provider search keeps matching group headings in group order", async () =>
     expect(pane.options.map((option) => option.value)).toEqual([
         "openai-codex",
         "openrouter",
+        TUI_REFRESH_PROVIDERS_VALUE,
         TUI_DECLARE_PROVIDER_VALUE,
     ]);
     const frame = await pickerFrame(pane, 151, 36);
@@ -3052,12 +3054,13 @@ test("delete on the declare row asks to forget nothing", () => {
 test("the declare row survives a search that matches no provider", async () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
 
-    const filtered = updateTuiSettingsPickerSearch(pane, "zzz").state!;
+    const searched = updateTuiSettingsPickerSearch(pane, "zzz").state!;
+    const filtered = { ...searched, selectedIndex: searched.options.length - 1 };
 
     // A search that found nothing is exactly when declaring is the next thing
     // to do, so the row stays and stays last.
     expect(filtered.options.map((option) => option.value))
-        .toEqual([TUI_DECLARE_PROVIDER_VALUE]);
+        .toEqual([TUI_REFRESH_PROVIDERS_VALUE, TUI_DECLARE_PROVIDER_VALUE]);
     const frame = await pickerFrame(filtered, 151, 36);
     expect(frame).toMatch(/›\s+Add provider/);
     expect(frame).not.toContain("›+");
@@ -4835,4 +4838,19 @@ test("named provider connection prefills its endpoint and protocol without hidin
     expect(form.protocol).toBe("anthropic-messages");
     expect(tuiProviderFormFields(form)).toEqual(["id", "base_url", "api_key"]);
     expect(form.editing).toBeUndefined();
+});
+
+
+test("Refresh providers is a visible action that preserves the provider list", async () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: TUI_REFRESH_PROVIDERS_VALUE });
+    const frame = await pickerFrame(pane, 151, 36);
+    expect(frame).toContain("Refresh providers");
+    expect(frame).toContain("read model catalogs from all connected providers");
+    const transition = handleTuiSettingsPickerKey(pane, { name: "enter" });
+    expect(transition).toMatchObject({ state: pane, refreshAllCatalogs: true });
+    expect(transition.selection).toBeUndefined();
+    expect(transition).not.toHaveProperty("declareProvider");
+    expect(handleTuiSettingsPickerKey(pane, { name: "delete" })).not.toHaveProperty("forgetProvider");
+    expect(pickerFooter(pane)).toContain("⏎ refresh providers");
+    expect(startTuiProviderPicker([]).options.map((row) => row.value)).toEqual([TUI_DECLARE_PROVIDER_VALUE]);
 });
