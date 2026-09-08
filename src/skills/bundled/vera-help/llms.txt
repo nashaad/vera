@@ -51,22 +51,22 @@ Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add 
 Enter the provider name, endpoint, and API key. Known API providers prefill the endpoint; custom endpoints also expose protocol and credential choices.
 Save reads the catalog immediately. It discovers models without keeping, verifying, assigning, or selecting them.
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
-Open Switch model, use Tab for all models, and press Enter to open a conversation with the chosen model.
+Open Switch model, use Tab for Catalog, and press Enter to open a conversation with the chosen model.
 
 ## Models and providers [lines=15]
-Open `/model` or Switch model from Ctrl+P. It opens on shortlist even when empty; Tab changes to all models on the same screen.
+Open `/model` or Switch model from Ctrl+P. It opens on Library even when empty; Tab or Shift+Tab changes to Catalog on the same screen.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
 Older and duplicate models are hidden by default unless kept. Ctrl+A shows all or fewer; search finds hidden models within the intelligence cutoff.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
-Open `/shortlist` or Manage shortlist to keep or unkeep with Enter. Keeping saves immediately and does not switch or verify.
-In Manage shortlist, Ctrl+R renames the display name, Ctrl+Y verifies one shortlisted model. Ctrl+S keeps or unkeeps only in Manage. Ctrl+D/Ctrl+U page down/up in Switch and Manage.
-Verify shortlisted models combines scope and coverage in one screen. Tab toggles unverified-only/all; Enter starts real requests. Escape returns to the previous screen while checks continue. Only shortlisted models are checked.
+Open `/library` or Model Library to add or remove a model with Enter. Adding saves immediately and does not switch or verify.
+In Model Library, Ctrl+R renames the display name, Ctrl+Y verifies one model in your library. Ctrl+S adds or removes only in Model Library. Ctrl+D/Ctrl+U page down/up in Switch model and Model Library.
+Verify library models combines scope and coverage in one screen. Tab toggles unverified-only/all; Enter starts real requests. Escape returns to the previous screen while checks continue. Only models in your library are checked.
 Only kept and verified models can be newly assigned in Assign model defaults (`/defaults`): snappy, eco, extra, classifier, compaction, subagents. Assigning leaves the conversation model unchanged.
-A bound model cannot be unkept until its slots are reassigned or cleared. A failed verification leaves existing assignments unchanged.
+An assigned model cannot be removed from the library until its slots are reassigned or cleared. A failed verification leaves existing assignments unchanged.
 In Switch model, Ctrl+R refreshes connected catalogs in place. Open Configure providers from Ctrl+P. The CLI also has `vera models refresh`.
 Provider credentials and endpoint configuration belong to the Vera home. Forget credentials removes its models, unsets affected defaults, and clears conversations using it; an environment credential must be unset in the host environment.
 Dial strip from Ctrl+P has effort, access, model, and agent lanes. Up/Down crosses lanes, Left/Right stages values, Enter applies, and Escape cancels. Tab does nothing; unavailable values are skipped.
-The conversation header shows model, effort, and access. The unverified-shortlist nudge uses Ctrl+Shift+Y to verify or Ctrl+Shift+X to dismiss for the TUI session.
+The conversation header shows model, effort, and access. The unverified-library reminder uses Ctrl+Shift+Y to verify or Ctrl+Shift+X to dismiss for the TUI session.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 
 ## Conversations and background work [lines=8]

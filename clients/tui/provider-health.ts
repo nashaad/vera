@@ -144,7 +144,7 @@ export function summarizeProviderHealth(options: {
         return {
             kind: "ready",
             tone: "red",
-            summary: "no model on the shortlist",
+            summary: "no model in the library",
             next: "/model to add one",
         };
     }
@@ -184,7 +184,7 @@ export function summarizeProviderHealth(options: {
     return {
         kind: "ready",
         tone: "yellow",
-        summary: `only the last shortlist model answered (${rungLabel(first.rung)})`,
+        summary: `only the last library model answered (${rungLabel(first.rung)})`,
         next,
         ...extra,
     };

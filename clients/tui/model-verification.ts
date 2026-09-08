@@ -14,13 +14,13 @@ export function verificationPicker(models: readonly VerificationTarget[], onlyUn
     const scopes = [undefined, ...new Set(models.map((model) => model.provider))];
     const options = scopes.map((provider) => {
         const count = targets.filter((model) => provider === undefined || model.provider === provider).length;
-        return { value: provider ?? "", label: provider === undefined ? "Entire shortlist" : `${provider} shortlist`,
+        return { value: provider ?? "", label: provider === undefined ? "Entire library" : `${provider} library`,
             description: `${count} target${count === 1 ? "" : "s"}`, unavailable: count === 0 };
     });
-    return { kind: "pool_verify_scope", title: "Verify shortlisted models", query: "", selectedIndex,
+    return { kind: "pool_verify_scope", title: "Verify library models", query: "", selectedIndex,
         verificationTargets: models, onlyUnverified,
-        subtitle: `${onlyUnverified ? "Unverified shortlisted models" : "All shortlisted models"} · tab to change\n`
-            + `${targets.length} shortlisted model${targets.length === 1 ? "" : "s"} to verify.`,
+        subtitle: `${onlyUnverified ? "Unverified models in your library" : "All models in your library"} · tab to change\n`
+            + `${targets.length} model${targets.length === 1 ? "" : "s"} in your library to verify.`,
         allOptions: options, options };
 }
 
@@ -56,5 +56,5 @@ export function verificationResults(run: VerificationRun, from?: TuiSettingsPick
 export function verificationNudge(models: readonly { readonly verified: boolean }[], dismissed: boolean): string | undefined {
     const count = models.filter((model) => !model.verified).length;
     return dismissed || count === 0 ? undefined
-        : `${count} shortlisted model${count === 1 ? " hasn't" : "s haven't"} been verified · Verify shortlist ^⇧y · Not now ^⇧x`;
+        : `${count} model${count === 1 ? "" : "s"} in your library ${count === 1 ? "hasn't" : "haven't"} been verified · Verify library ^⇧y · Not now ^⇧x`;
 }

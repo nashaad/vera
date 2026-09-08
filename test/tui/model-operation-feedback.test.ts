@@ -23,7 +23,7 @@ test("membership changes retain the row, provider sections, and feedback space",
     try {
         const layouts: string[] = [];
         for (const feedback of [undefined, { status: "working" as const, message: "Working" },
-            { status: "success" as const, message: "Beta removed from shortlist" },
+            { status: "success" as const, message: "Beta removed from library" },
             { status: "error" as const, message: "Could not save" }]) {
             if (feedback?.status === "success") state = syncTuiModelPicker(state, { ...settings, pooled: settings.pooled.slice(1) });
             state = { ...state, journeyFeedback: feedback };
@@ -49,7 +49,7 @@ test("membership changes retain the row, provider sections, and feedback space",
                 view.animateFeedback(8, true);
                 expect(JSON.stringify((node as { content?: unknown }).content)).not.toBe(before);
             }
-            if (feedback?.status === "success") expect(lines.join("\n")).toContain("✓ Beta removed from shortlist");
+            if (feedback?.status === "success") expect(lines.join("\n")).toContain("✓ Beta removed from library");
         }
         expect(new Set(layouts).size).toBe(1);
     } finally { setup.renderer.destroy(); }
@@ -64,7 +64,7 @@ test("unkeeping an otherwise hidden model does not remove its row during editing
 
 test("only confirmed saves show a success tick", () => {
     const operation = { operation: "keep" as const, models: [models[1]!] };
-    expect(shortlistOperationFeedback(operation, "Beta", [], settings)).toEqual({ status: "success", message: "Beta added to shortlist" });
+    expect(shortlistOperationFeedback(operation, "Beta", [], settings)).toEqual({ status: "success", message: "Beta added to library" });
     expect(shortlistOperationFeedback(operation, "Beta", [], undefined).status).toBe("error");
     expect(shortlistOperationFeedback(operation, "Beta", [{ ...models[1]!, status: "failed", reason: "Disk full" }], settings))
         .toEqual({ status: "error", message: "Disk full" });

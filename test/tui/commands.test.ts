@@ -550,13 +550,16 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "open_settings_destination",
         destination: { kind: "model" },
     });
-    expect(registry.dispatch("/shortlist")).toEqual({
+    expect(registry.dispatch("/library")).toEqual({
         type: "open_settings_destination", destination: { kind: "model_shortlist" },
     });
     // Keep the formerly advertised spelling as a compatibility alias.
-    expect(registry.dispatch("/shortlist add")).toEqual({
+    expect(registry.dispatch("/library add")).toEqual({
         type: "pool_current_model",
     });
+    expect(registry.dispatch("/shortlist")).toEqual(registry.dispatch("/library"));
+    expect(registry.dispatch("/shortlist add")).toEqual(registry.dispatch("/library add"));
+    expect(registry.registeredCommands().some((command) => command.name === "shortlist")).toBe(false);
     expect(registry.dispatch("/effort")).toEqual({
         type: "open_settings_destination",
         destination: { kind: "reasoning" },
@@ -969,4 +972,17 @@ test("room for nothing still leaves one row", () => {
         rows: 1,
         hidden: 19,
     });
+});
+
+test("compatibility aliases reserve their names and leave with their command", () => {
+    const registry = new TuiCommandRegistry();
+    const command = { name: "library", aliases: ["shortlist"], description: "Models", usage: "/library", parse: () => ({ type: "pool_current_model" as const }) };
+    registry.registerCommand(command);
+    expect(registry.dispatch("/shortlist")).toEqual(registry.dispatch("/library"));
+    expect(registry.commandNames()).toEqual(["library"]);
+    expect(() => registry.registerCommand({ ...command, name: "shortlist", aliases: [] })).toThrow("Duplicate TUI command");
+    registry.unregisterCommand("library");
+    expect(registry.hasCommand("shortlist")).toBe(false);
+    registry.registerCommand({ ...command, name: "shortlist", aliases: [] });
+    expect(registry.hasCommand("shortlist")).toBe(true);
 });

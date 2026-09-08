@@ -896,7 +896,7 @@ export function tuiPoolListing(
     pooled: readonly PooledModel[] | undefined,
 ): string {
     if (pooled === undefined || pooled.length === 0) {
-        return "Your shortlist is empty. ^s in the model picker pins a model to it.";
+        return "Your library is empty. ^s in the model picker pins a model to it.";
     }
     const lines = pooled.map((entry) => {
         const effort = entry.defaultLevel ?? "provider default";
@@ -907,7 +907,7 @@ export function tuiPoolListing(
             : `${entry.poolName} (${entry.model})`;
         return `  ${named} · ${effort} · ${state} · ${entry.provider}${availability}`;
     });
-    return [`Shortlist (${pooled.length}):`, ...lines].join("\n");
+    return [`Library (${pooled.length}):`, ...lines].join("\n");
 }
 
 export function tuiAdmissionVerdictLine(
@@ -915,8 +915,8 @@ export function tuiAdmissionVerdictLine(
 ): string | undefined {
     if (admission.verdict === "added") {
         return admission.verifiedLevels === undefined
-            ? "Pinned to your shortlist"
-            : `Pinned to your shortlist (${admission.verifiedLevels} ${
+            ? "Pinned to your library"
+            : `Pinned to your library (${admission.verifiedLevels} ${
                 admission.verifiedLevels === 1 ? "level" : "levels"
             } verified)`;
     }
@@ -926,7 +926,7 @@ export function tuiAdmissionVerdictLine(
         }`;
     }
     if (admission.verdict === "pool_write_refused") {
-        return `Not pinned, your shortlist was left untouched${
+        return `Not pinned, your library was left untouched${
             admission.reason === undefined ? "" : `: ${admission.reason}`
         }`;
     }

@@ -84,7 +84,7 @@ test("new assignments require independent membership and successful verification
         for (const model of ["not-kept", "not-verified"]) {
             expect(() => updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
                 models: [{ name: model, provider: "openrouter", model }],
-            } } }, { path })).toThrow("shortlisted and verified");
+            } } }, { path })).toThrow("in your library and verified");
         }
         expect(loadVeraConfig({ path }).model_assignments?.eco).toBeUndefined();
     });

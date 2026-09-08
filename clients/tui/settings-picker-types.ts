@@ -563,13 +563,13 @@ export function tuiModelActionOptions(
         const current = options.currentModel;
         rows.push({
             value: tuiModelActionValue("shortlist_current"),
-            label: "Add current model to shortlist",
+            label: "Add current model to library",
             description: "enter",
             note:
-                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your shortlist.`,
+                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your library.`,
             detailTitle: "add current model",
             detailFacts: [["Current model", `${current.provider}/${current.model}`]],
-            searchText: `add pin keep current model shortlist ${current.provider} ${current.model}`,
+            searchText: `add pin keep current model library ${current.provider} ${current.model}`,
             provider: current.provider,
             model: current.model,
             action: true,
@@ -590,13 +590,13 @@ export function tuiModelActionOptions(
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
-            label: "Verify shortlisted models",
+            label: "Verify library models",
             description: tuiKeyHint("verify_pool").split(" ")[0] ?? "",
             note:
-                "Choose unverified models or the whole shortlist, then send one small request to each and mark the ones that answer.",
-            detailTitle: "verify shortlist",
+                "Choose unverified models or the whole library, then send one small request to each and mark the ones that answer.",
+            detailTitle: "verify library",
             detailFacts: [],
-            searchText: "verify check test probe working broken shortlist pool",
+            searchText: "verify check test probe working broken library pool",
         });
     }
     rows.push({
@@ -604,7 +604,7 @@ export function tuiModelActionOptions(
         label: "Show or hide the rarely used models",
         description: tuiKeyHint("reveal_all_models").split(" ")[0] ?? "",
         note:
-            "All models opens short by default. This is the switch between the short list and the whole catalog.",
+            "Catalog hides extra variants and older models by default. Show them here, or hide them again.",
         detailTitle: "show every model",
         detailFacts: [],
         searchText: "show hide all hidden folded every catalog reveal more",
@@ -716,7 +716,7 @@ export function assignmentStatusWord(row: ModelAssignmentRow): string {
         return `${row.declared.length} models`;
     }
     if (row.bound) {
-        return row.source === "assignment" ? "set" : "not shortlisted";
+        return row.source === "assignment" ? "set" : "not in your library";
     }
     return row.inherits === undefined
         ? "uses session"
@@ -757,7 +757,7 @@ export function assignmentFacts(
         ["If unset", ifUnset],
         ...(row.bound
             ? [[
-                "Shortlisted",
+                "In library",
                 row.source === "assignment" ? "yes" : "no",
             ] as const]
             : []),
@@ -779,8 +779,8 @@ export function assignmentNote(row: ModelAssignmentRow): string {
         return purpose;
     }
     const runs = `${row.inherits ?? "this session's model"} runs it instead`;
-    return `${purpose} The model it is set to is not on your shortlist, so ${runs}.`
-        + ` Add that model to your shortlist, or point ${row.label} at one that is.`;
+    return `${purpose} The model it is set to is not in your library, so ${runs}.`
+        + ` Add that model to your library, or point ${row.label} at one that is.`;
 }
 
 export const POOL_VERIFY_UNVERIFIED_VALUE = "unverified";

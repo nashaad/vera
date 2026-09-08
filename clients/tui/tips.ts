@@ -24,7 +24,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
         text: () =>
             `Press ${
                 tuiKeyChord("name_pooled")
-            } on a shortlisted model to give it a short name`,
+            } on a model in your library to give it a short name`,
         cooldownLaunches: 5,
         isRelevant: (context) =>
             context.inModelPicker && context.pooledCount > 0
@@ -42,7 +42,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
     {
         id: "pool-a-model",
         text: () =>
-            `Press ${tuiKeyChord("toggle_pooled")} to pin a model to your shortlist`,
+            `Press ${tuiKeyChord("toggle_pooled")} to pin a model to your library`,
         cooldownLaunches: 4,
         isRelevant: (context) =>
             context.inModelPicker && context.pooledCount < 2,

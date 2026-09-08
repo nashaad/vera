@@ -20,7 +20,7 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
     const verifying = operation.operation === "verify";
     if (verifying && operation.models.some((model) => !(modelSettingsForOpenPicker(rt)?.pooled ?? [])
         .some((entry) => entry.provider === model.provider && entry.model === model.model))) {
-        const message = "Only shortlisted models can be verified. Add the model to your shortlist first.";
+        const message = "Only models in your library can be verified. Add the model to your library first.";
         if (rt.settingsPicker?.kind === "model") rt.settingsPicker = { ...rt.settingsPicker, journeyFeedback: { status: "error", message } };
         showStatusNotice(rt, message);
         renderState(rt);

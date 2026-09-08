@@ -146,7 +146,7 @@ export function createTuiProviderForgetConfirmView(
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
         update(label, affected = 0): void {
-            name.content = `${label} · affects ${affected} shortlisted models`;
+            name.content = `${label} · affects ${affected} models in your library`;
             detail.content = "Forget credentials and remove this provider’s models. Affected default slots become unset; conversations using it have no model selected.";
         },
     };

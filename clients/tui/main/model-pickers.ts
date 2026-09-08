@@ -298,7 +298,7 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
 ): string | undefined {
     if (selection.model !== undefined && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined) {
         const model = focusedAgentState(rt).modelSettings?.pooled?.find((entry) => entry.provider === selection.provider && entry.model === selection.model);
-        if (model?.verified !== true) return "Only shortlisted and verified models can hold a default slot. Verify this model first.";
+        if (model?.verified !== true) return "Only verified models in your library can hold a default slot. Verify this model first.";
     }
     const subagents = selection.assignment === "subagents";
     const row = subagents

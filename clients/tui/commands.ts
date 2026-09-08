@@ -328,6 +328,7 @@ export type TuiPaletteEntry = TuiPaletteActionDefinition;
 
 export interface TuiCommandDefinition {
     readonly name: string;
+    readonly aliases?: readonly string[];
     readonly description: string;
     readonly usage: string;
     readonly prefixPriority?: "builtin" | "extension" | "skill";
@@ -508,9 +509,9 @@ const COMPACT_COMMAND = {
 } as const satisfies TuiCommandCatalogEntry;
 
 const POOL_COMMAND = {
-    name: "shortlist",
-    description: "Add the running model to your shortlist",
-    usage: "/shortlist [add]",
+    name: "library",
+    description: "Open Model Library, or add the running model",
+    usage: "/library [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PROVIDERS_COMMAND = {
@@ -606,16 +607,20 @@ export const BUILTIN_COMMANDS = [
 
 export class TuiCommandRegistry {
     private readonly commands = new Map<string, TuiCommandDefinition>();
+    private readonly aliases = new Map<string, string>();
     private readonly paletteActions = new Map<string, TuiPaletteActionDefinition>();
 
     registerCommand(command: TuiCommandDefinition): void {
-        if (this.commands.has(command.name)) {
-            throw new Error(`Duplicate TUI command: /${command.name}`);
+        const names = [command.name, ...(command.aliases ?? [])];
+        if (new Set(names).size !== names.length) throw new Error(`Duplicate TUI command alias: /${command.name}`);
+        for (const name of names) if (this.hasCommand(name)) {
+            throw new Error(`Duplicate TUI command: /${name}`);
         }
         if (command.palette !== undefined) {
             this.registerPaletteAction(command.palette);
         }
         this.commands.set(command.name, command);
+        for (const alias of command.aliases ?? []) this.aliases.set(alias, command.name);
     }
 
     registerPaletteAction(action: TuiPaletteActionDefinition): void {
@@ -634,6 +639,7 @@ export class TuiCommandRegistry {
             return;
         }
         this.commands.delete(name);
+        for (const alias of command.aliases ?? []) this.aliases.delete(alias);
         if (command.palette !== undefined) {
             this.paletteActions.delete(command.palette.name);
         }
@@ -661,7 +667,7 @@ export class TuiCommandRegistry {
     }
 
     hasCommand(name: string): boolean {
-        return this.commands.has(name);
+        return this.commands.has(name) || this.aliases.has(name);
     }
 
     commandNames(): readonly string[] {
@@ -727,7 +733,7 @@ export class TuiCommandRegistry {
         const separatorIndex = text.search(/\s/);
         const commandEnd = separatorIndex === -1 ? text.length : separatorIndex;
         const name = text.slice(1, commandEnd);
-        const exactCommand = this.commands.get(name);
+        const exactCommand = this.commands.get(this.aliases.get(name) ?? name);
         if (
             exactCommand !== undefined
             && !(exactCommand.isAvailable?.() ?? true)
@@ -1603,6 +1609,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     registry.registerCommand({
         ...POOL_COMMAND,
+        aliases: ["shortlist"],
         parse: (argumentsText) => {
             const argument = argumentsText.trim();
             if (argument.length === 0) return { type: "open_settings_destination", destination: { kind: "model_shortlist" } };
@@ -1611,13 +1618,13 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             }
             return {
                 type: "command_error",
-                message: `/shortlist takes no argument or "add", not "${argument}"`,
+                message: `/library takes no argument or "add", not "${argument}"`,
             };
         },
         palette: {
-            name: "shortlist",
-            label: "Manage shortlist",
-            description: "keep or unkeep discovered models",
+            name: "library",
+            label: "Model Library",
+            description: "add or remove models from your library",
             group: "Settings",
             action: {
                 type: "open_settings_destination",
@@ -1681,7 +1688,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     for (const [utility, label, description] of [
         ["dials", "Dial strip", "stage model, effort, access and agent together"],
-        ["verify", "Verify shortlisted models", "send real requests to check your shortlisted models"],
+        ["verify", "Verify library models", "send real requests to check the models in your library"],
     ] as const) registry.registerPaletteAction({ name: utility, label, description, group: "Settings",
         action: { type: "open_model_utility", utility } });
     return registry;

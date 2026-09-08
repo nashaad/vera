@@ -25,7 +25,7 @@ current session is using a user-owned override instead of the selected
 agent's default pair. The marker describes this session's origin; it does not
 mean that the profile file was edited.
 
-Use `vera shortlist list` to see pinned models, `vera shortlist add` to pin
+Use `vera library list` to see models in your library, `vera library add` to add
 one, and `vera models refresh` to refresh the model catalog from providers.
 If Vera is already running, that refresh updates the live host. Restart is
 not required.

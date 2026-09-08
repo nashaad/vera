@@ -21,7 +21,7 @@ test("Enter switches in either scope without toggling membership", () => {
     expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).refreshAllCatalogs).toBe(true);
 });
 
-test("shortlist Enter only keeps or unkeeps and row verbs are chords", () => {
+test("library Enter only keeps or unkeeps and row verbs are chords", () => {
     const state = { ...modelJourney(base, "shortlist"), selectedIndex: 1 };
     expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a", "b", "c"]);
     expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
@@ -40,15 +40,15 @@ test("cutoff excludes unscored models only in all scope; search selects one mode
     expect(handleModelJourneyKey(manage, { name: "enter" }).poolToggle?.model).toBe("b");
 });
 
-test("verification refuses models that have not been shortlisted", () => {
+test("verification refuses models that have not been in your library", () => {
     const state = modelJourney(base, "shortlist");
     const refused = handleModelJourneyKey(state, { name: "y", ctrl: true });
     expect(refused.poolVerify).toBeUndefined();
-    expect(refused.state?.journeyFeedback?.message).toBe("Add Alpha to your shortlist before verifying it.");
+    expect(refused.state?.journeyFeedback?.message).toBe("Add Alpha to your library before verifying it.");
     expect(handleModelJourneyKey({ ...state, selectedIndex: 1 }, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
 });
 
-test("live shortlist search accepts spaces and row actions do not appear as another screen", async () => {
+test("live library search accepts spaces and row actions do not appear as another screen", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);
     try {
@@ -64,21 +64,21 @@ test("live shortlist search accepts spaces and row actions do not appear as anot
         expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b"]);
         await setup.renderOnce();
         const frame = setup.captureCharFrame();
-        expect(frame).toContain("Manage shortlist");
+        expect(frame).toContain("Model Library");
         expect(frame).toContain("kept ✓");
         expect(frame).not.toContain("Actions");
     } finally { setup.renderer.destroy(); }
 });
 
-test("default assignment offers only verified shortlist models and both recovery routes", async () => {
+test("default assignment offers only verified library models and both recovery routes", async () => {
     const { startTuiModelAssignmentPicker } = await import("../../clients/tui/settings-picker.ts");
     const pane = startTuiModelAssignmentPicker("eco", "eco", "", [
         { provider: "p", model: "a", label: "A", available: true, verified: false, levels: [] },
         { provider: "p", model: "b", label: "B", available: true, verified: true, levels: [] },
     ]);
     expect(pane.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b"]);
-    expect(pane.options.some((row) => row.label === "Verify shortlisted models")).toBe(true);
-    expect(pane.options.some((row) => row.label === "Manage shortlist")).toBe(true);
+    expect(pane.options.some((row) => row.label === "Verify library models")).toBe(true);
+    expect(pane.options.some((row) => row.label === "Model Library")).toBe(true);
 });
 
 test("a kept current model that disappears stays removable but cannot be selected", async () => {
@@ -431,10 +431,10 @@ test("scope is prominent and highlighting across provider boundaries never moves
                 expect(frame).not.toContain("▶");
                 expect(frame).not.toContain("▼");
                 if (mode === "switch") {
-                    expect(frame).toContain("All models");
-                    expect(frame).not.toContain("[ All models ]");
-                    expect(frame).not.toContain("[ Shortlist ]");
-                    expect(frame).toContain("Shortlist");
+                    expect(frame).toContain("Catalog");
+                    expect(frame).not.toContain("[ Catalog ]");
+                    expect(frame).not.toContain("[ Library ]");
+                    expect(frame).toContain("Library");
                     expect(frame).toContain("Catalog: fewer models");
                 }
             }
@@ -500,11 +500,11 @@ test("Tab and Shift+Tab switch scopes without taking slider or search focus", ()
 test("Manage offers one model action and explains catalog visibility on its own line", () => {
     const state = modelJourney(base, "shortlist");
     expect(journeyFooter(state).split("\n")).toEqual([
-        "Enter / Ctrl+S  Add to shortlist",
+        "Enter / Ctrl+S  Add to library",
         "Ctrl+A  Show all models and variants",
         "Ctrl+R Rename · Ctrl+Y Verify · Esc Back",
     ]);
-    expect(journeyFooter({ ...state, selectedIndex: 1 })).toContain("Remove from shortlist");
+    expect(journeyFooter({ ...state, selectedIndex: 1 })).toContain("Remove from library");
     expect(journeyFooter({ ...state, revealAll: true }).split("\n")[1]).toBe("Ctrl+A  Hide extra variants and older models");
     for (const query of ["", "beta"]) for (const shift of [false, true]) {
         const filtered = updateTuiSettingsPickerSearch(state, query).state!;

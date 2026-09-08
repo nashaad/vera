@@ -691,7 +691,7 @@ export function updateVeraConfigDefaults(
         for (const model of after) {
             if (before.some((previous) => previous.provider === model.provider && previous.model === model.model)) continue;
             if (!eligibleForDefault(pool, model)) throw new VeraConfigError(path,
-                `${model.provider}/${model.model} must be shortlisted and verified before assigning ${assignment}.`);
+                `${model.provider}/${model.model} must be in your library and verified before assigning ${assignment}.`);
         }
     }
     const updated: VeraConfig = {

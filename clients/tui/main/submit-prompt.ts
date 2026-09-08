@@ -522,7 +522,7 @@ export function submitPrompt(rt: TuiRuntime,
             return;
         }
         if (isModelShortlisted(rt, targetSettings, provider, model)) {
-            showStatusNotice(rt, `${provider}/${model} is already shortlisted`);
+            showStatusNotice(rt, `${provider}/${model} is already in your library`);
             return;
         }
         requestPoolAdmission(rt, provider, model);

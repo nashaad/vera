@@ -76,14 +76,14 @@ test("only the last rung answering is yellow and names Verify all", () => {
         configured: true,
     });
     expect(ready.tone).toBe("yellow");
-    expect(ready.summary).toContain("only the last shortlist model answered");
+    expect(ready.summary).toContain("only the last library model answered");
     expect(ready.summary).toContain("ollama/qwen");
     expect(ready.details).toEqual(["openrouter/glm-flash failed"]);
     expect(ready.next).toContain("/model");
     expect(ready.next).toContain("Verify all");
 });
 
-test("a failed shortlist model with an earlier answer stays green", () => {
+test("a failed library model with an earlier answer stays green", () => {
     const ready = summarizeProviderHealth({
         results: [
             { rung: { provider: "openrouter", model: "glm-flash" }, answered: true },
@@ -140,7 +140,7 @@ test("monochrome health lines keep the tone word", () => {
     }
 });
 
-test("health rungs follow shortlist order and ignore a fake session model", () => {
+test("health rungs follow library order and ignore a fake session model", () => {
     expect(healthRungsOf({
         model: "test",
         pooled: [

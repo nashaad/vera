@@ -23,7 +23,7 @@ test("assignment recovery returns through verification scope and Manage to the s
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
-        session.sendText("manage shortlist"); await session.waitForVisiblePane("Manage shortlist");
+        session.sendText("model library"); await session.waitForVisiblePane("Model Library");
         session.sendKey("Enter"); await session.waitForVisiblePane("kept ✓");
         session.sendKey("Escape"); await session.settle();
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
@@ -31,15 +31,15 @@ test("assignment recovery returns through verification scope and Manage to the s
         session.sendKey("Enter"); await session.waitForVisiblePane("unset, inherits its intent");
         session.sendKey("Enter"); await session.waitForVisiblePane("make models eligible for a default");
         session.sendKey("Down"); session.sendKey("Enter");
-        await session.waitForVisiblePane("Entire shortlist");
+        await session.waitForVisiblePane("Entire library");
         session.sendKey("Enter"); await session.waitForVisiblePane("Verifying models");
         finish(); await session.waitForVisiblePane("Fixture rejection");
-        session.sendKey("Escape"); await session.waitForVisiblePane("Entire shortlist");
+        session.sendKey("Escape"); await session.waitForVisiblePane("Entire library");
         session.sendKey("Escape");
         const assignment = await session.waitForVisiblePane("make models eligible for a default");
-        expect(assignment).not.toContain("Entire shortlist");
+        expect(assignment).not.toContain("Entire library");
         session.sendKey("Down"); session.sendKey("Enter");
-        await session.waitForVisiblePane("Manage shortlist");
+        await session.waitForVisiblePane("Model Library");
         session.sendKey("Escape"); await session.waitForVisiblePane("make models eligible for a default");
         session.sendKey("Escape"); await session.waitForVisiblePane("Assign model defaults");
     } finally { finish(); await session.close(); }

@@ -45,8 +45,8 @@ test("the defaults tab names the auto-approval job classifier", async () => {
     }
 }, 15_000);
 
-test("the palette opens Shortlist with a visible current-model action", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-action-"));
+test("the palette opens Library with a visible current-model action", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-library-action-"));
     const configDirectory = join(home, ".vera");
     mkdirSync(configDirectory, { recursive: true });
     writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
@@ -66,9 +66,9 @@ test("the palette opens Shortlist with a visible current-model action", async ()
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
         session.sendText("shortlist");
-        await session.waitForVisiblePane("Open your shortlist");
+        await session.waitForVisiblePane("Open your library");
         session.sendKey("Enter");
-        const opened = await session.waitForVisiblePane("Shortlist (0)");
+        const opened = await session.waitForVisiblePane("Library (0)");
         // An empty shortlist is not a dead end: More is the row above it.
         expect(opened).toContain("More");
         expect(opened).not.toContain("Add current model to shortl");
@@ -78,15 +78,15 @@ test("the palette opens Shortlist with a visible current-model action", async ()
         const pane = await session.waitForVisiblePane(
             "Add current model",
         );
-        expect(pane).toContain("Shortlist (0)");
+        expect(pane).toContain("Library (0)");
         expect(pane).not.toContain("^s pin");
     } finally {
         await session.close();
     }
 }, 15_000);
 
-test("shortlist is idempotent when the current model is already kept", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-idempotent-"));
+test("library is idempotent when the current model is already kept", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-library-idempotent-"));
     const commands: Array<{ readonly type: string }> = [];
     const session = await startTuiTestSession({
         home,
@@ -106,19 +106,19 @@ test("shortlist is idempotent when the current model is already kept", async () 
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/shortlist");
+        session.sendText("/library");
         await session.waitForVisiblePaneWhere(
             (pane) => pane.split("\n").some((line) =>
-                line.includes("│ /shortlist")
+                line.includes("│ /library")
             ),
-            "the complete /shortlist command in the composer",
+            "the complete /library command in the composer",
         );
         session.sendKey("Enter");
         await session.waitForVisiblePaneWhere(
             (pane) => !pane.split("\n").some((line) =>
-                line.includes("│ /shortlist")
+                line.includes("│ /library")
             ),
-            "the idempotent /shortlist command to clear the composer",
+            "the idempotent /library command to clear the composer",
         );
         expect(commands.filter((command) => command.type === "pool_add"))
             .toHaveLength(0);
@@ -127,8 +127,8 @@ test("shortlist is idempotent when the current model is already kept", async () 
     }
 }, 15_000);
 
-test("shortlist verification runs in a console inside the model dialog", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-toast-"));
+test("library verification runs in a console inside the model dialog", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-library-toast-"));
     const session = await startTuiTestSession({
         home,
         width: 100,
@@ -143,9 +143,9 @@ test("shortlist verification runs in a console inside the model dialog", async (
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
         session.sendText("shortlist");
-        await session.waitForVisiblePane("Open your shortlist");
+        await session.waitForVisiblePane("Open your library");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Shortlist (0)");
+        await session.waitForVisiblePane("Library (0)");
         // Shift+tab climbs from the list onto More; enter opens what it holds.
         session.sendKey("BTab");
         session.sendKey("Enter");
@@ -176,9 +176,9 @@ test("shortlist verification runs in a console inside the model dialog", async (
         )).not.toMatch(/[╭─]/);
 
         const finished = await session.waitForVisiblePane(
-            "Name shortlisted model",
+            "Name model in your library",
         );
-        expect(finished).toContain("Pinned to your shortlist");
+        expect(finished).toContain("Pinned to your library");
         // The durable admission prose remains after the live console clears.
         expect(finished.split("\n").filter((line) => line.includes(subject)))
             .toHaveLength(1);
@@ -211,7 +211,7 @@ test("shortlist verification runs in a console inside the model dialog", async (
         await session.waitForVisiblePane("⏎ open");
         session.sendKey("Enter");
         const page = await session.waitForVisiblePane(
-            "Verify shortlisted models",
+            "Verify library models",
         );
         // Verifying the whole shortlist is a thing the list does, so More is
         // where it is now reached from.

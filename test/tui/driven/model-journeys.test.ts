@@ -6,7 +6,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 
-test("live shortlist keeps through the host operation and verification can be left running", async () => {
+test("live library keeps through the host operation and verification can be left running", async () => {
     const operations: ModelOperation[] = [];
     let finish!: () => void;
     const gate = new Promise<void>((resolve) => { finish = resolve; });
@@ -26,23 +26,23 @@ test("live shortlist keeps through the host operation and verification can be le
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
-        session.sendText("manage short");
-        await session.waitForVisiblePane("Manage shortlist");
+        session.sendText("model lib");
+        await session.waitForVisiblePane("Model Library");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not kept ✗");
         session.sendKey("C-s");
-        await session.waitForVisiblePane("✓ One added to shortlist");
+        await session.waitForVisiblePane("✓ One added to library");
         expect(operations[0]?.operation).toBe("keep");
         session.sendKey("C-y");
         await session.waitForVisiblePane("Verifying models");
         session.sendKey("Escape");
         await session.settle();
         expect(session.captureVisiblePane()).not.toContain("Verifying models");
-        expect(session.captureVisiblePane()).toContain("Manage shortlist");
+        expect(session.captureVisiblePane()).toContain("Model Library");
         finish();
         await session.settle(50);
         expect(operations.map((operation) => operation.operation)).toEqual(["keep", "verify"]);
-        expect(session.captureVisiblePane()).toContain("Manage shortlist");
+        expect(session.captureVisiblePane()).toContain("Model Library");
     } finally { finish(); await session.close(); }
 }, 15_000);
 
@@ -58,9 +58,9 @@ test("defaults expose six slots and empty eligibility offers recovery", async ()
         const pane = await session.waitForVisiblePane("unset, inherits its intent");
         for (const label of ["snappy", "eco", "extra", "classifier", "compaction", "subagents"]) expect(pane).toContain(label);
         session.sendKey("Enter");
-        const assign = await session.waitForVisiblePane("Only shortlisted and verified models are eligible");
-        expect(assign).toContain("Verify shortlisted models");
-        expect(assign).toContain("Manage shortlist");
+        const assign = await session.waitForVisiblePane("Only verified models in your library are eligible");
+        expect(assign).toContain("Verify library models");
+        expect(assign).toContain("Model Library");
     } finally { await session.close(); }
 }, 15_000);
 
@@ -102,7 +102,7 @@ test("Home stages empty dials without creating a session, then switching applies
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your shortlist is empty");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
         session.sendKey("Tab"); await session.waitForVisiblePane("One");
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
@@ -115,7 +115,7 @@ test("Home stages empty dials without creating a session, then switching applies
 }, 15_000);
 
 
-test("Switch model cannot mutate the shortlist through legacy Ctrl+S or Ctrl+Shift+S", async () => {
+test("Switch model cannot mutate the library through legacy Ctrl+S or Ctrl+Shift+S", async () => {
     const operations: ModelOperation[] = [];
     const available = [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }];
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-keep-")), width: 140, height: 40,
@@ -131,12 +131,12 @@ test("Switch model cannot mutate the shortlist through legacy Ctrl+S or Ctrl+Shi
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your shortlist is empty");
-        session.sendKey("Tab"); await session.waitForVisiblePane("not shortlisted");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
+        session.sendKey("Tab"); await session.waitForVisiblePane("not in your library");
         session.sendKey("C-s"); await session.settle();
         session.sendKey("C-s"); await session.settle();
-        expect(session.captureVisiblePane()).toContain("not shortlisted");
-        expect(session.captureVisiblePane()).not.toContain("Manage shortlist");
+        expect(session.captureVisiblePane()).toContain("not in your library");
+        expect(session.captureVisiblePane()).not.toContain("Model Library");
         expect(session.captureVisiblePane()).not.toContain("tab to switch");
         expect(operations).toEqual([]);
         expect(session.captureVisiblePane()).toContain("Switch model");

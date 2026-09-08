@@ -20,14 +20,14 @@ function sseReply(text: string, model: string): Response {
     });
 }
 
-test("hostless --model refuses an unshortlisted reference", async () => {
+test("hostless --model refuses an unlibraryed reference", async () => {
     const result = await runHostlessPrint({
         workspace: process.cwd(),
         prompt: "Reply with exactly QWEN_CONNECTED and nothing else.",
         model: NESTED_ID,
     });
     expect(result.outcome).toBe("error");
-    expect(result.error).toBe(`${NESTED_ID} is not a shortlisted model`);
+    expect(result.error).toBe(`${NESTED_ID} is not in your model library`);
     expect(result.text).toBe("");
 });
 
@@ -59,7 +59,7 @@ test("hostless --model omitted does not invent a provider binding", async () => 
 });
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
-    "hostless --model splits a nested shortlisted reference",
+    "hostless --model splits a nested libraryed reference",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-hostless-print-"));
         const previousHome = process.env.VERA_HOME;

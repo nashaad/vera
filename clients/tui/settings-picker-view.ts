@@ -1189,7 +1189,7 @@ export function renderListPickerRows(
         const layout = journeyListLayout(renderer, state, railInset);
         if (state.modelJourney === "switch") {
             const scope = new BoxRenderable(renderer, { width: "100%", height: 1, marginTop: 1, flexDirection: "row", gap: 2 });
-            for (const [tab, label] of [["pool", "Shortlist"], ["all", "All models"]] as const) {
+            for (const [tab, label] of [["pool", "Library"], ["all", "Catalog"]] as const) {
                 const active = state.tab === tab;
                 const chip = new TextRenderable(renderer, {
                     content: ` ${label} `, height: 1,
@@ -2303,7 +2303,7 @@ export function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
         return modelEmptyMessage(state);
     }
     if (state.kind === "model_assignment") {
-        return "No shortlisted models. Add one to the shortlist to assign it here.";
+        return "No models in your library. Add one to the library to assign it here.";
     }
     if (state.kind !== "session") {
         return "No matches found";

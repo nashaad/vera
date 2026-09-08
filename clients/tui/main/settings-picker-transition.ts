@@ -282,7 +282,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     );
                 }
                 showStatusNotice(rt, 
-                    `${toggle.provider}/${toggle.model} is already shortlisted`,
+                    `${toggle.provider}/${toggle.model} is already in your library`,
                 );
                 renderState(rt);
                 return;
@@ -378,7 +378,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 void client.send({ type: "update_session_model_settings", requestId: randomUUID(),
                     patch: { provider: selection.provider, model: selection.model, reasoningEffort: null } })
                     .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
-                showStatusNotice(rt, `${selection.model}. Applies to the next request. Not added to the shortlist.`);
+                showStatusNotice(rt, `${selection.model}. Applies to the next request. Not added to the library.`);
                 renderState(rt);
             };
             if (isHomeClient(target)) {

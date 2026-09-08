@@ -1119,7 +1119,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
         verdict: "added",
         seq: 1,
     });
-    expect(state.entries[0]?.text).toContain("Pinned to your shortlist");
+    expect(state.entries[0]?.text).toContain("Pinned to your library");
 
     state = applyAgentUpdate(state, {
         type: "model_settings",
@@ -1143,7 +1143,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
         seq: 2,
     });
     expect(state.entries[0]?.text)
-        .toContain("Pinned to your shortlist (2 levels verified)");
+        .toContain("Pinned to your library (2 levels verified)");
     // Settled rather than dropped: the dialog showing this verdict still
     // renders from the record.
     expect(state.admission?.settled).toBe(true);
@@ -2704,12 +2704,12 @@ test("the pool listing names the effort, the probe state and the provider", () =
             levels: [],
         },
     ])).toBe([
-        "Shortlist (2):",
+        "Library (2):",
         "  z-ai/glm-5.2 · medium · verified · openrouter",
         "  gpt-5.6-sol · provider default · unverified · openai-codex,"
             + " unavailable right now",
     ].join("\n"));
-    expect(tuiPoolListing([])).toContain("Your shortlist is empty");
+    expect(tuiPoolListing([])).toContain("Your library is empty");
 });
 
 test("a named pool entry lists by its name, with the model id behind it", () => {

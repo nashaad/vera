@@ -119,7 +119,7 @@ test("inspect labels recede but keep their structural weight", () => {
 test("inspect health tones keep the word and decorate it", () => {
     const styled = styledInspectHealth([
         "  green    openrouter/glm-flash answered",
-        "  yellow   only the last shortlist model answered",
+        "  yellow   only the last library model answered",
         "  red      no provider configured",
     ].join("\n"));
     const color = (text: string) =>

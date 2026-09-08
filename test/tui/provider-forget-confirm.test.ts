@@ -71,7 +71,7 @@ test("the confirmation names the provider it is about to forget", async () => {
         expect(frame).toContain("Forget this stored credential?");
         expect(frame).toContain("OpenRouter");
         expect(frame).toContain("⏎ forget");
-        expect(frame).toContain("affects 3 shortlisted models");
+        expect(frame).toContain("affects 3 models in your library");
         expect(frame).toContain("esc cancel");
     } finally {
         setup.renderer.destroy();

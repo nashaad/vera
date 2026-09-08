@@ -148,7 +148,7 @@ test("help renders general guidance and extension attribution", async () => {
         expect(frame).not.toContain("workspace list");
 
         const keys = state;
-        for (const [query, detail] of [["ctrl+end", "Transcript"], ["show all", "Switch model"], ["Keep the visible", "Manage shortlist"]]) {
+        for (const [query, detail] of [["ctrl+end", "Transcript"], ["show all", "Switch model"], ["Keep the visible", "Model Library"]]) {
             view.update(keys);
             state = view.handleEditorPaste(keys, query!);
             view.update(state);

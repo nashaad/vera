@@ -45,9 +45,9 @@ test("the model inspector stays inside a 100x40 terminal", async () => {
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
         session.sendText("shortlist");
-        await session.waitForVisiblePane("Open your shortlist");
+        await session.waitForVisiblePane("Open your library");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Shortlist (1)");
+        await session.waitForVisiblePane("Library (1)");
         session.sendKey("Right");
         await session.waitForVisiblePane("Verify this model");
         session.sendKey("Enter");

@@ -755,14 +755,14 @@ export async function runCli(
             : 1;
     }
 
-    if (args.length === 2 && args[0] === "shortlist" && args[1] === "list") {
+    if (args.length === 2 && (args[0] === "library" || args[0] === "shortlist") && args[1] === "list") {
         output.write(await (dependencies.listPool ?? listPool)(process.cwd()));
         return 0;
     }
 
     if (
         (args.length === 3 || (args.length === 4 && args[3] === "--verify"))
-        && args[0] === "shortlist"
+        && (args[0] === "library" || args[0] === "shortlist")
         && args[1] === "add"
         && typeof args[2] === "string"
         && args[2].length > 0
@@ -782,14 +782,14 @@ export async function runCli(
             return 1;
         }
         output.write(
-            `${ref} pinned to your shortlist${verify ? " (verified)" : " (unverified)"}.\n`,
+            `${ref} added to your library${verify ? " (verified)" : " (unverified)"}.\n`,
         );
         return 0;
     }
 
     if (
         args.length === 3
-        && args[0] === "shortlist"
+        && (args[0] === "library" || args[0] === "shortlist")
         && args[1] === "remove"
         && typeof args[2] === "string"
         && args[2].length > 0
@@ -799,7 +799,7 @@ export async function runCli(
             process.cwd(),
             ref,
         );
-        output.write(`${ref} removed from your shortlist.\n`);
+        output.write(`${ref} removed from your library.\n`);
         return 0;
     }
 
@@ -977,7 +977,7 @@ export async function runHostlessPrint(request: {
                 sessionPath: "",
                 text: "",
                 outcome: "error",
-                error: `${request.model} is not a shortlisted model`,
+                error: `${request.model} is not in your model library`,
                 notes: [],
             };
         }
@@ -1229,10 +1229,10 @@ async function removePoolRef(workspace: string, ref: string): Promise<void> {
     const pool = loadPoolFile({ projectRoot: workspace }).merged;
     const id = resolvePoolRef(pool, ref);
     if (id === undefined) {
-        throw new Error(`Model "${ref}" is not on your shortlist`);
+        throw new Error(`Model "${ref}" is not in your library`);
     }
     if (readUserPoolFile().models[id] === undefined) {
-        throw new Error(`Model "${ref}" is not in your own shortlist file`);
+        throw new Error(`Model "${ref}" is not in your own library file`);
     }
     removePoolModel(id);
 }

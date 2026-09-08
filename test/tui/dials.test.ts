@@ -570,7 +570,7 @@ test("arrows stage all lanes and Enter commits them together; Escape commits not
     expect(original.permissionModes[original.permissionIndex]).toBe("ask");
 });
 
-test("only arrows move; model stepping wraps through a shortlist larger than ten", () => {
+test("only arrows move; model stepping wraps through a library larger than ten", () => {
     const pool = Array.from({ length: 15 }, (_, index) => ({
         provider: "test", model: `model-${index}`, levels: [],
     }));

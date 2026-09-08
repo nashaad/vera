@@ -995,13 +995,13 @@ export function startTuiPoolVerifyScopePicker(
         },
         {
             value: POOL_VERIFY_ALL_VALUE,
-            label: `Everything on your shortlist (${total})`,
+            label: `Everything in your library (${total})`,
             description: "re-probes models that already answered",
         },
     ];
     return {
         kind: "pool_verify_scope",
-        title: "Verify shortlisted models",
+        title: "Verify library models",
         subtitle: "each model is one live call to its provider",
         allOptions: options,
         options,
@@ -1104,7 +1104,7 @@ export function startTuiModelAssignmentPicker(
             searchText: `${entry.provider} ${entry.model}`,
         });
         if (assignedRefs.has(value)) continue;
-        available.push(optionFor(value, "Available from Shortlist"));
+        available.push(optionFor(value, "Available from Library"));
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
@@ -1116,9 +1116,9 @@ export function startTuiModelAssignmentPicker(
     };
     const browseRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_BROWSE_VALUE,
-        label: "Manage shortlist",
+        label: "Model Library",
         description: `manage ${modelTabLabel("pool")}`,
-        group: "Shortlist",
+        group: "Library",
     };
     const selfRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_SELF_VALUE,
@@ -1140,7 +1140,7 @@ export function startTuiModelAssignmentPicker(
             selfRow,
             browseRow,
         ]
-        : [clearRow, ...standardRows, { value: "verify_shortlist", label: "Verify shortlisted models", description: "make models eligible for a default" }, browseRow];
+        : [clearRow, ...standardRows, { value: "verify_shortlist", label: "Verify library models", description: "make models eligible for a default" }, browseRow];
     const selectedIndex = selectedValue === undefined
         ? 0
         : Math.max(0, options.findIndex((option) => option.value === selectedValue));
@@ -1151,7 +1151,7 @@ export function startTuiModelAssignmentPicker(
             : `Assign a model to ${label}`,
         subtitle: assignment === "subagents"
             ? "Models subagents may use, in fallback order."
-            : `${pooled.length} shortlisted; ${pooled.filter((model) => model.verified).length} verified. Only shortlisted and verified models are eligible.`,
+            : `${pooled.length} in your library; ${pooled.filter((model) => model.verified).length} verified. Only verified models in your library are eligible.`,
         allOptions: options,
         options,
         selectedIndex,

@@ -1514,15 +1514,15 @@ test("an empty model list says which emptiness it is", async () => {
     const searched = typedInto(modelPickerWithPool(), "zzqq");
     expect(searched.options).toHaveLength(0);
     const searchedFrame = await pickerFrame(searched);
-    expect(searchedFrame).toContain("No shortlisted models match");
-    expect(searchedFrame).toContain("Tab switches to All models");
+    expect(searchedFrame).toContain("No models in your library match");
+    expect(searchedFrame).toContain("Tab switches to Catalog");
 
     // Nothing shortlisted and no current model leaves More with no actions to
     // hold, so the copy must not send the user to a row that is not drawn.
     const bare = switchedModelTab(modelPickerWithPool([], "", ""), "pool");
     const bareFrame = await pickerFrame(bare);
-    expect(bareFrame).toContain("Nothing shortlisted yet");
-    expect(bareFrame).toContain("Tab switches to All models");
+    expect(bareFrame).toContain("Nothing in your library yet");
+    expect(bareFrame).toContain("Tab switches to Catalog");
     expect(bareFrame).not.toMatch(/More\s+.*\u203a/);
 
     const withMore = {
@@ -1539,7 +1539,7 @@ test("an empty model list says which emptiness it is", async () => {
     const noCatalog = { ...bare, modelCatalogUnavailable: true };
     const noCatalogFrame = await pickerFrame(noCatalog);
     expect(noCatalogFrame).toContain("Models arrive with a conversation");
-    expect(noCatalogFrame).not.toContain("Nothing shortlisted yet");
+    expect(noCatalogFrame).not.toContain("Nothing in your library yet");
 });
 
 test("an empty model list stays put on Down and reaches More with one ⇧⇥", () => {
@@ -1568,7 +1568,7 @@ test("an empty model list stays put on Down and reaches More with one ⇧⇥", (
     expect(more.modelFocus).toBe("page_entry");
 });
 
-test("a search that matches no model says so on All models", async () => {
+test("a search that matches no model says so on Catalog", async () => {
     const empty = startTuiSettingsPicker(
         "model",
         "",
@@ -1586,7 +1586,7 @@ test("a search that matches no model says so on All models", async () => {
         .toContain("No models match that search");
 });
 
-test("the model pane opens on Shortlist, in the order the user's own use produced", async () => {
+test("the model pane opens on Library, in the order the user's own use produced", async () => {
     const state = modelPickerWithPool();
     const frame = await pickerFrame(state);
 
@@ -1605,17 +1605,17 @@ test("the model pane opens on Shortlist, in the order the user's own use produce
     expect(frame).not.toContain("unavailable");
     expect(frame).toContain("GLM-5.2");
     expect(frame).not.toContain("Z-AI: GLM-5.2");
-    expect(frame).toContain("Shortlist");
+    expect(frame).toContain("Library");
     expect(frame).toMatch(
-        /Shortlist \(2\).*All(?: models)? \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
+        /Library \(2\).*Catalog \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
     );
 });
 
 test("the model tab strip keeps every stop inside the card at narrow widths", async () => {
     for (const width of [70, 60, 40]) {
         const frame = await pickerFrame(modelPickerWithPool(), width, 40);
-        expect(frame).toMatch(/Short(?:list)?/);
-        expect(frame).toContain("All");
+        expect(frame).toMatch(/Library/);
+        expect(frame).toContain("Catalog");
         expect(frame).toMatch(/Def(?:s|aults)/);
         expect(frame).toContain("Help");
         expect(frame).toContain("Providers ^e");
@@ -1667,14 +1667,14 @@ test("the model pane's rows stay inside the card when it sits beside a workspace
     setup.renderer.destroy();
 });
 
-test("the pane opens on Shortlist even when the running model is not in it", () => {
+test("the pane opens on Library even when the running model is not in it", () => {
     // The pool is the list the user built for this moment, so it opens whether
     // or not the model in effect happens to be on it.
     const state = modelPickerWithPool(pooledModels, "sonnet-4.5", "anthropic");
     expect(state.tab).toBe("pool");
 });
 
-test("Shortlist offers the current model as a visible action row", async () => {
+test("Library offers the current model as a visible action row", async () => {
     const base = modelPickerWithPool(
         pooledModels,
         "moonshotai/kimi-k3",
@@ -1699,7 +1699,7 @@ test("Shortlist offers the current model as a visible action row", async () => {
     // The shortlist column holds models and nothing else. Adding the current
     // one is something the list can do, so it lives on the More page above.
     expect(shortlist.options.every((option) =>
-        option.label !== "Add current model to shortlist"
+        option.label !== "Add current model to library"
     )).toBe(true);
     const shortlistFrame = await pickerFrame(shortlist);
     expect(shortlistFrame).toMatch(/More\s+.*\u203a/);
@@ -1731,11 +1731,11 @@ test("Shortlist offers the current model as a visible action row", async () => {
         ],
     });
     expect(synced.options.some((option) =>
-        option.label === "Add current model to shortlist"
+        option.label === "Add current model to library"
     )).toBe(false);
 });
 
-test("the current shortlist model exposes an inspector and list action", async () => {
+test("the current library model exposes an inspector and list action", async () => {
     const shortlist = modelPickerWithPool(
         pooledModels,
         "z-ai/glm-5.2",
@@ -1868,7 +1868,7 @@ test("supported model inspectors expose exact request-option state and action", 
     expect(await pickerFrame(unsupported)).not.toContain("Request options");
 });
 
-test("verifying the shortlist lives on More, and every row is clickable", async () => {
+test("verifying the library lives on More, and every row is clickable", async () => {
     const shortlist = {
         ...modelPickerWithPool(),
         selectedIndex: 1,
@@ -1888,7 +1888,7 @@ test("verifying the shortlist lives on More, and every row is clickable", async 
     ).state!;
     expect(page.modelFocus).toBe("page");
     const pageFrame = await pickerFrame(page);
-    expect(pageFrame).toMatch(/Verify shortlisted models\s+\^⇧v/);
+    expect(pageFrame).toMatch(/Verify library models\s+\^⇧v/);
     // The sign follows the pane: shut it offers to open, open it offers to
     // close, whichever row the cursor is on.
     expect(await pickerFrame(shortlist)).toContain("+ More");
@@ -1926,7 +1926,7 @@ test("verifying the shortlist lives on More, and every row is clickable", async 
         });
 });
 
-test("a main shortlist refresh keeps the side agent's current model", () => {
+test("a main library refresh keeps the side agent's current model", () => {
     const side = {
         provider: "side-provider",
         model: "side/model",
@@ -1958,19 +1958,19 @@ test("a main shortlist refresh keeps the side agent's current model", () => {
     });
 });
 
-test("with an empty pool the pane opens on All models, full width", async () => {
+test("with an empty pool the pane opens on Catalog, full width", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".
     const state = modelPickerWithPool([]);
     expect(state.tab).toBe("all");
     const frame = await pickerFrame(state);
-    expect(frame).toMatch(/All(?: models)? \(\d+\)/);
+    expect(frame).toMatch(/Catalog \(\d+\)/);
     expect(frame).not.toMatch(/│ +full /);
     expect(frame).not.toContain("┌");
     expect(frame).not.toContain("└");
 });
 
-test("All models keeps a moderate modal height on a tall terminal", async () => {
+test("Catalog keeps a moderate modal height on a tall terminal", async () => {
     const models = Array.from({ length: 40 }, (_, index) => ({
         provider: "openrouter",
         model: `example/model-${index}`,
@@ -2009,7 +2009,7 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     }
 });
 
-test("⇥ moves to All models, which lists what can run", async () => {
+test("⇥ moves to Catalog, which lists what can run", async () => {
     const state = modelPickerWithPool();
     const allTab = handleTuiSettingsPickerKey(onStrip(state), {
         name: "tab",
@@ -2080,7 +2080,7 @@ function sectionRows(
         .map((option) => [option.section!, option.sectionCollapsed === true]);
 }
 
-test("All models opens on Top picks, with the providers folded", () => {
+test("Catalog opens on Top picks, with the providers folded", () => {
     const state = allTabWithRecommendations();
 
     expect(state.options.map((option) => option.label)).toEqual([
@@ -2139,7 +2139,7 @@ test("the Help tab explains the pane in the pane", async () => {
     expect(frame).toContain("the model takes image input");
     expect(frame).not.toContain("🖼");
     expect(frame).toContain("snapshot unavailable");
-    expect(frame).toContain("on WA Score: the note under Sources, not the shortlist.");
+    expect(frame).toContain("on WA Score: the note under Sources, not the library.");
     expect(frame).toContain("7:2:1");
     // A page, not a list: nothing to filter, nothing to select, and the footer
     // says only what the page can do.
@@ -2151,7 +2151,7 @@ test("the Help tab explains the pane in the pane", async () => {
         .filter((line) => line.length > 0);
     const title = lines.findIndex((line) => line.startsWith("Select model"));
     expect(lines[title + 1]).toBe("Search");
-    expect(lines[title + 2]).toStartWith("Shortlist (2)");
+    expect(lines[title + 2]).toStartWith("Library (2)");
     expect(frame).toContain("⇥ tabs · esc tabs");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
@@ -2220,7 +2220,7 @@ function listedFactsPicker() {
     );
 }
 
-test("All models shows listed facts, glyphs, and a blank unmatched score", async () => {
+test("Catalog shows listed facts, glyphs, and a blank unmatched score", async () => {
     const all = switchedModelTab(listedFactsPicker(), "all");
     const frame = await pickerFrame(all, 100, 55);
 
@@ -2266,7 +2266,7 @@ test("All models shows listed facts, glyphs, and a blank unmatched score", async
     expect(grokPick!.indexOf("1629")).toBe(steadyLine.indexOf("1400"));
 });
 
-test("All models intelligence cutoff hides rows below the WA Score floor", () => {
+test("Catalog intelligence cutoff hides rows below the WA Score floor", () => {
     const all = { ...switchedModelTab(listedFactsPicker(), "all"), selectedIndex: 0 };
     const focused = handleTuiSettingsPickerKey(all, {
         name: "tab",
@@ -2303,7 +2303,7 @@ test("All models intelligence cutoff hides rows below the WA Score floor", () =>
     expect(topNames).not.toContain("Steady");
 });
 
-test("Shortlist keeps names on the list and listed facts in the inspector", async () => {
+test("Library keeps names on the list and listed facts in the inspector", async () => {
     const frame = await pickerFrame(listedFactsPicker(), 160);
 
     expect(frame).not.toMatch(/WA Score\*/);
@@ -3117,7 +3117,7 @@ test("Configure providers is a standalone card even when opened from a model pan
     expect(frame).not.toContain("Select model");
     expect(frame).not.toContain("Providers ^e");
     expect(frame).not.toContain("⇥ tabs");
-    expect(frame).not.toContain("All models");
+    expect(frame).not.toContain("Catalog");
     expect(frame).toContain("^f refresh");
     expect(frame).toContain("OpenRouter");
     for (const shift of [false, true]) {
@@ -4042,7 +4042,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
             group: "Assigned · fallback order",
         });
     expect(pane.options.find((option) => option.value === availableRef))
-        .toMatchObject({ group: "Available from Shortlist" });
+        .toMatchObject({ group: "Available from Library" });
     expect(pane.options.find((option) =>
         option.value === MODEL_ASSIGNMENT_SELF_VALUE))
         .toMatchObject({
@@ -4055,7 +4055,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
 
     const frame = await pickerFrame(pane);
     expect(frame).toContain("Assigned · fallback order");
-    expect(frame).toContain("Available from Shortlist");
+    expect(frame).toContain("Available from Library");
     expect(frame).toContain("Parent model fallback");
     expect(frame).toContain(`currently ${parentRef}`);
     expect(frame).not.toContain("currently openrouter/google/…");
@@ -4189,10 +4189,10 @@ test("the Defaults row reports the subagent assignment instead of generic set", 
     }])[2]?.description).toBe("parent fallback");
 });
 
-test("the verify-shortlist action asks how much of the collection it covers", () => {
+test("the verify-library action asks how much of the collection it covers", () => {
     const actions = switchedModelTab(pickerWithActions(), "actions");
     const selectedIndex = actions.options.findIndex((option) =>
-        option.label === "Verify shortlisted models"
+        option.label === "Verify library models"
     );
     const transition = handleTuiSettingsPickerKey(
         { ...actions, selectedIndex },
@@ -4206,7 +4206,7 @@ test("the sweep scope pane offers the cheaper answer first", () => {
     const pane = startTuiPoolVerifyScopePicker(2, 9);
     expect(pane.options.map((option) => option.label)).toEqual([
         "Only the ones never probed (2)",
-        "Everything on your shortlist (9)",
+        "Everything in your library (9)",
     ]);
     // Nothing left unprobed makes the first row a no-op, so the cursor starts
     // on the one that would actually do something.
@@ -4229,7 +4229,7 @@ test("the Actions tab lists what the pane can do in words", () => {
 
     expect(actions.options.map((option) => option.label)).toEqual([
         "Refresh model catalog from providers",
-        "Verify shortlisted models",
+        "Verify library models",
         "Show or hide the rarely used models",
         "Connect, edit or forget a provider",
     ]);
@@ -4327,7 +4327,7 @@ test("an unsearched model list lists models only", () => {
     )).toBe(false);
 });
 
-test("All models puts its collection action under the list", async () => {
+test("Catalog puts its collection action under the list", async () => {
     const picker = startTuiSettingsPicker(
         "model",
         "z-ai/glm-5.2",
@@ -4419,7 +4419,7 @@ test("the More page stands in for the list it covers", async () => {
     expect(first - entry).toBe(4);
 });
 
-test("Shortlist opens More under its button, the way All models does", async () => {
+test("Library opens More under its button, the way Catalog does", async () => {
     const shortlist = {
         ...switchedModelTab(modelPickerWithPool(), "pool"),
         actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
@@ -4704,7 +4704,7 @@ test("the list keeps its cursor while another section is being used", () => {
     expect(back.selectedIndex).toBe(2);
 });
 
-test("Shortlist has no cutoff filter, so its ring is shorter", () => {
+test("Library has no cutoff filter, so its ring is shorter", () => {
     const pool = {
         ...modelPickerWithPool(),
         actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),

@@ -49,7 +49,7 @@ test("the model inspector saves and clears request options through the real prof
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
         session.sendText("shortlist");
-        await session.waitForVisiblePane("Open your shortlist");
+        await session.waitForVisiblePane("Open your library");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Models you keep close");
         session.sendKey("Down");

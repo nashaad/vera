@@ -329,7 +329,7 @@ test("inspect health stays idle until v and reports red with no selected model",
         expect(pane).toContain("press v");
         expect(probed).toBe(0);
         session.sendKey("v");
-        pane = await session.waitForVisiblePane("no model on the shortlist");
+        pane = await session.waitForVisiblePane("no model in the library");
         expect(pane).toContain("red");
         expect(pane).toContain("/model");
         expect(probed).toBe(0);
@@ -338,7 +338,7 @@ test("inspect health stays idle until v and reports red with no selected model",
     }
 }, 15_000);
 
-test("inspect health is green when a shortlist rung answers", async () => {
+test("inspect health is green when a library rung answers", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-health-green-"));
     mkdirSync(join(home, ".vera"), { recursive: true });
     writeFileSync(

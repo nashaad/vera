@@ -74,7 +74,7 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         modelJourney: mode,
         journeyRetainedModels: state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value),
-        title: mode === "switch" ? "Switch model" : "Manage shortlist",
+        title: mode === "switch" ? "Switch model" : "Model Library",
         tab: mode === "switch" ? "pool" : "all", modelFocus: "list", query: "", queryCursor: 0,
         selectedIndex: 0, pickerLevel: "page" };
     return rebuiltJourney({ ...next, collapsed: [] });
@@ -96,7 +96,7 @@ export function journeyHeader(state: TuiSettingsPickerState): string {
 export function journeyFooter(state: TuiSettingsPickerState): string {
     const selected = state.options[state.selectedIndex];
     const action = selected === undefined ? "Select a model"
-        : selected.pooledRank === undefined ? "Add to shortlist" : "Remove from shortlist";
+        : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show all models and variants";
     return state.modelJourney === "shortlist"
         ? `Enter / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
@@ -151,7 +151,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         if (managing && selected?.provider && selected.model) {
             if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
             if (binding === "shortlist_verify") return selected.pooledRank === undefined
-                ? { handled: true, state: { ...state, journeyFeedback: { status: "error", message: `Add ${selected.label} to your shortlist before verifying it.` } } }
+                ? { handled: true, state: { ...state, journeyFeedback: { status: "error", message: `Add ${selected.label} to your library before verifying it.` } } }
                 : { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
         }
         return same;
@@ -173,6 +173,6 @@ export function emptyModelJourney(state: TuiSettingsPickerState): string {
     if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. ^r reads it now.`;
     if (state.allOptions.length === 0) return "All provider catalogs were refreshed; none served any models. ^e opens Configure providers.";
     if (state.query) return "No models match your search. Clear the search to see models.";
-    if (state.modelJourney === "switch" && state.tab !== "all") return "Your shortlist is empty. Browse All models to choose one.";
+    if (state.modelJourney === "switch" && state.tab !== "all") return "Your library is empty. Browse Catalog to choose one.";
     return "No models pass this cutoff. ^g changes the cutoff.";
 }

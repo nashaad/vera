@@ -604,24 +604,24 @@ export const MODEL_HELP_TERM_WIDTH = 14;
 
 export const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["The two lists"],
-    ["Shortlist", "the models you keep. Ordered by you, not by provider."],
-    ["All models", "every model your connected providers offer. Cutoff: any, then 1400–1600."],
+    ["Library", "the models you keep. Ordered by you, not by provider."],
+    ["Catalog", "every model your connected providers offer. Cutoff: any, then 1400–1600."],
     ["Top picks", "models Vera is built and tested against."],
     [""],
     ["Marks"],
     ["●", "the model this conversation is running."],
-    ["✓", "on Shortlist: answered a live probe, so its abilities are known."],
-    ["★", "on All models: already on your shortlist."],
+    ["✓", "on Library: answered a live probe, so its abilities are known."],
+    ["★", "on Catalog: already in your library."],
     ["P", "on or near Vera's WA Score × listed-output front"],
     ["i", "the model takes image input."],
-    ["*", "on WA Score: the note under Sources, not the shortlist."],
+    ["*", "on WA Score: the note under Sources, not the library."],
     ["top pick", "a model Vera is built and tested against."],
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
     ["Keys"],
-    ["⏎", "run this model. On All models it does not add it."],
+    ["⏎", "run this model. On Catalog it does not add it."],
     ["→ / mouse", "focus or click model actions. ← returns to the list."],
-    ["Verify", "^v this model · ^⇧v all shortlisted models."],
+    ["Verify", "^v this model · ^⇧v all models in your library."],
     ["Refresh", "^f refresh model catalog from providers."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
@@ -703,8 +703,8 @@ export function modelDetailFacts(
     const facts: ModelDetailFact[] = [];
     if (state.kind === "model" && state.tab !== "pool") {
         facts.push(option.pooledRank === undefined
-            ? ["Shortlist", "not shortlisted"]
-            : ["Shortlist", "on your shortlist", "positive"]);
+            ? ["Library", "not in your library"]
+            : ["Library", "in your library", "positive"]);
     }
     const journey = state.kind === "model" && state.modelJourney !== undefined;
     if (journey) {
@@ -789,19 +789,15 @@ export function modelStripStop(
 }
 
 export const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
-    ["pool", "Shortlist"],
-    ["all", "All models"],
+    ["pool", "Library"],
+    ["all", "Catalog"],
     ["actions", "Actions"],
     ["defaults", "Defaults"],
     ["help", "Help"],
 ];
 
 export const MODEL_TAB_COMPACT_LABELS = MODEL_TAB_LABELS.map(([, label]) =>
-    label === "Shortlist"
-        ? "Short"
-        : label === "All models"
-        ? "All"
-        : label === "Defaults"
+    label === "Defaults"
         ? "Defs"
         : label
 );
@@ -882,7 +878,7 @@ export function modelTabLabel(tab: TuiModelPickerTab): string {
 export const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
     pool:
-        'Models you keep close. "More" holds what this list can do, or browse All models.',
+        'Models you keep close. "More" holds what this list can do, or browse Catalog.',
     all: "Everything your providers offer. Enter runs one without adding it.",
     actions: "Everything this pane can do besides choose a model.",
     help: "What the marks and the keys in this pane mean.",
@@ -924,12 +920,6 @@ export function modelTabStripNode(
             ...names.map((name) => Bun.stringWidth(name)),
         )
         + configurePad * 2;
-    const shortened = (names: readonly string[]) =>
-        names.map((name) =>
-            name.startsWith("All models")
-                ? name.replace("All models", "All")
-                : name
-        );
     const rungs: readonly (
         readonly [readonly string[], number, number, number]
     )[] = [
@@ -940,15 +930,11 @@ export function modelTabStripNode(
         [evenedTabNames(fullNames), 1, 1, 1],
         [fullNames, 2, 1, 1],
         [fullNames, 1, 1, 1],
-        [evenedTabNames(shortened(fullNames)), 1, 1, 1],
-        [shortened(fullNames), 1, 1, 1],
         [evenedTabNames(namesWithoutCounts), 1, 1, 1],
         [namesWithoutCounts, 2, 1, 1],
         [namesWithoutCounts, 1, 1, 1],
-        [evenedTabNames(shortened(namesWithoutCounts)), 1, 1, 1],
-        [shortened(namesWithoutCounts), 1, 1, 1],
-        [shortened(namesWithoutCounts), 1, 0, 1],
-        [shortened(namesWithoutCounts), 1, 0, 0],
+        [namesWithoutCounts, 1, 0, 1],
+        [namesWithoutCounts, 1, 0, 0],
         [MODEL_TAB_COMPACT_LABELS, 1, 0, 0],
     ];
     const [names, gap, pad, configurePad] = rungs.find(([
@@ -1288,7 +1274,7 @@ export function modelDetailActions(
         {
             id: "toggle_pool",
             chord: tuiKeyHint("toggle_pooled").split(" ")[0] ?? "",
-            label: pooled ? "Unpin" : "Add to shortlist",
+            label: pooled ? "Unpin" : "Add to library",
         },
         ...(pooled
             ? [{
@@ -1688,7 +1674,7 @@ export function modelEmptyMessage(state: TuiAnySettingsPickerState): string {
     if (state.kind !== "model") return "No matches found";
     if (state.query !== "") {
         return state.tab === "pool"
-            ? "No shortlisted models match. Tab switches to All models."
+            ? "No models in your library match. Tab switches to Catalog."
             : "No models match that search.";
     }
     if (state.modelCatalogUnavailable === true) {
@@ -1698,8 +1684,8 @@ export function modelEmptyMessage(state: TuiAnySettingsPickerState): string {
         return "No models yet. Ctrl+F asks your providers for their catalogs.";
     }
     return modelPageEntry(state) === undefined
-        ? "Nothing shortlisted yet. Tab switches to All models."
-        : "Nothing shortlisted yet. More above adds the current model.";
+        ? "Nothing in your library yet. Tab switches to Catalog."
+        : "Nothing in your library yet. More above adds the current model.";
 }
 
 export function modelEmptyDetailBody(

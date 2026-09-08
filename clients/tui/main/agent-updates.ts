@@ -239,7 +239,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     && update.type === "model_settings"
                 ) {
                     rt.poolChangeUndo = undefined;
-                    showStatusNotice(rt, "shortlist change undone");
+                    showStatusNotice(rt, "library change undone");
                 } else if (
                     pendingUndo !== undefined
                     && update.type === "model_settings_rejected"
@@ -253,7 +253,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     }
                     rt.state = appendTuiError(
                         rt.state,
-                        rejectionNotice("undo that shortlist change", update.reason),
+                        rejectionNotice("undo that library change", update.reason),
                     );
                 }
                 settleExtensionModelSettings(rt, update, rt.client);

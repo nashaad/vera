@@ -44,9 +44,9 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera doctor");
     expect(output).toContain("vera prune");
     expect(output).toContain("vera models refresh");
-    expect(output).toContain("vera shortlist list");
-    expect(output).toContain("vera shortlist add <provider/model>");
-    expect(output).toContain("vera shortlist remove <name|id>");
+    expect(output).toContain("vera library list");
+    expect(output).toContain("vera library add <provider/model>");
+    expect(output).toContain("vera library remove <name|id>");
     expect(output).toContain("vera login");
     expect(output).toContain("vera stdio");
     expect(output).toContain("-v, --version");
@@ -867,7 +867,7 @@ test("vera help separates stopping a turn from closing an agent", async () => {
     expect(help).toContain("the session is kept and can be resumed");
 });
 
-test("vera shortlist list renders stable model rows from the pool file", async () => {
+test.each(["library", "shortlist"])("vera %s list renders stable model rows from the pool file", async (command) => {
     const directory = mkdtempSync(join(tmpdir(), "vera-cli-pool-"));
     const previous = process.env.VERA_POOL_FILE;
     process.env.VERA_POOL_FILE = join(directory, "pool.json");
@@ -886,7 +886,7 @@ test("vera shortlist list renders stable model rows from the pool file", async (
     let output = "";
 
     try {
-        const exitCode = await runCli(["shortlist", "list"], {
+        const exitCode = await runCli([command, "list"], {
             stdout: { write: (text) => output += text },
         });
 
@@ -905,14 +905,14 @@ test("vera shortlist list renders stable model rows from the pool file", async (
     }
 });
 
-test("vera shortlist add uses pool admission and remove resolves pool refs", async () => {
+test("vera library add uses pool admission and remove resolves pool refs", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-cli-pool-"));
     const previous = process.env.VERA_POOL_FILE;
     process.env.VERA_POOL_FILE = join(directory, "pool.json");
     let output = "";
 
     try {
-        expect(await runCli(["shortlist", "add", "openrouter/fresh"], {
+        expect(await runCli(["library", "add", "openrouter/fresh"], {
             stdout: { write: (text) => output += text },
         })).toBe(0);
         expect(JSON.parse(
@@ -928,16 +928,16 @@ test("vera shortlist add uses pool admission and remove resolves pool refs", asy
                 "openrouter/fresh": { added: true, name: "fresh" },
             },
         }));
-        expect(await runCli(["shortlist", "remove", "fresh"], {
+        expect(await runCli(["library", "remove", "fresh"], {
             stdout: { write: (text) => output += text },
         })).toBe(0);
         expect(JSON.parse(
             readFileSync(process.env.VERA_POOL_FILE, "utf8"),
         ).models).toEqual({});
         expect(output).toContain(
-            "openrouter/fresh pinned to your shortlist (unverified).",
+            "openrouter/fresh added to your library (unverified).",
         );
-        expect(output).toContain("fresh removed from your shortlist.");
+        expect(output).toContain("fresh removed from your library.");
     } finally {
         if (previous === undefined) {
             delete process.env.VERA_POOL_FILE;
@@ -948,12 +948,12 @@ test("vera shortlist add uses pool admission and remove resolves pool refs", asy
     }
 });
 
-test("vera shortlist add --verify asks for verification and reports probe steps", async () => {
+test("vera library add --verify asks for verification and reports probe steps", async () => {
     let received: { verify?: boolean } | undefined;
     let output = "";
     let errors = "";
 
-    expect(await runCli(["shortlist", "add", "openrouter/fresh", "--verify"], {
+    expect(await runCli(["library", "add", "openrouter/fresh", "--verify"], {
         stdout: { write: (text) => output += text },
         stderr: { write: (text) => errors += text },
         addPoolModel: async (_workspace, _ref, options) => {
@@ -968,15 +968,15 @@ test("vera shortlist add --verify asks for verification and reports probe steps"
     })).toBe(0);
 
     expect(received?.verify).toBe(true);
-    expect(output).toContain("openrouter/fresh pinned to your shortlist (verified).");
+    expect(output).toContain("openrouter/fresh added to your library (verified).");
     expect(errors).toContain("passed");
     expect(errors).toContain("one turn");
 });
 
-test("vera shortlist add reports a refused verification as a nonzero exit", async () => {
+test("vera library add reports a refused verification as a nonzero exit", async () => {
     let errors = "";
 
-    expect(await runCli(["shortlist", "add", "openrouter/fresh", "--verify"], {
+    expect(await runCli(["library", "add", "openrouter/fresh", "--verify"], {
         stderr: { write: (text) => errors += text },
         addPoolModel: async () => ({
             verdict: "incompatible",
@@ -988,8 +988,8 @@ test("vera shortlist add reports a refused verification as a nonzero exit", asyn
     expect(errors).toContain("no tool calls");
 });
 
-test("vera shortlist add rejects an unknown flag", async () => {
-    expect(await runCli(["shortlist", "add", "openrouter/fresh", "--force"], {
+test("vera library add rejects an unknown flag", async () => {
+    expect(await runCli(["library", "add", "openrouter/fresh", "--force"], {
         stderr: { write: () => {} },
     })).toBe(1);
 });

@@ -126,7 +126,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "journey_scope", keys: ["tab", "shift+tab", "backtab"], scope: "switch_model_picker",
-        description: "Change between shortlist and all models", hint: "tab scope",
+        description: "Change between Library and Catalog", hint: "tab scope",
         overrides: ["dials.open"],
     },
     {
@@ -160,7 +160,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "verification_nudge_open", keys: ["ctrl+shift+y"], scope: "conversation",
-        description: "Open verification from the shortlist nudge", hint: "^⇧y verify",
+        description: "Open verification from the library nudge", hint: "^⇧y verify",
         remappable: true,
     },
     {
@@ -428,7 +428,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "toggle_pooled",
         keys: ["ctrl+s"],
         scope: "model_picker",
-        description: "Pin the selected model to your shortlist, or unpin it",
+        description: "Pin the selected model to your library, or unpin it",
         hint: "^s pin",
     },
     {
@@ -442,7 +442,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "undo_pool_change",
         keys: ["ctrl+z"],
         scope: "model_picker",
-        description: "Undo the last shortlist add or remove",
+        description: "Undo the last library add or remove",
         hint: "^z undo",
     },
     {
@@ -471,7 +471,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "move_pooled_up",
         keys: ["shift+up"],
         scope: "model_picker",
-        description: "Move the selected shortlisted model up the order",
+        description: "Move the selected model in your library up the order",
         hint: "⇧↑ move up",
         remappable: true,
     },
@@ -479,7 +479,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "move_pooled_down",
         keys: ["shift+down"],
         scope: "model_picker",
-        description: "Move the selected shortlisted model down the order",
+        description: "Move the selected model in your library down the order",
         hint: "⇧↓ move down",
         remappable: true,
     },
@@ -487,7 +487,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "name_pooled",
         keys: ["ctrl+n"],
         scope: "model_picker",
-        description: "Name the selected shortlisted model",
+        description: "Name the selected model in your library",
         hint: "^n name",
     },
     {
@@ -649,7 +649,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "check_provider_health",
         keys: ["v"],
         scope: "diagnostics",
-        description: "Ask the shortlist whether a provider can answer right now",
+        description: "Ask the library whether a provider can answer right now",
         hint: "v check",
     },
 ];

@@ -24,9 +24,9 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },
     { usage: "vera prune", description: "List this home's Vera processes and stop them one at a time" },
     { usage: "vera models refresh", description: "Fetch each provider's model list now; a running host adopts it without restart" },
-    { usage: "vera shortlist list", description: "List the models you keep" },
-    { usage: "vera shortlist add <provider/model> [--verify]", description: "Pin a model to your shortlist" },
-    { usage: "vera shortlist remove <name|id>", description: "Remove a model from your shortlist" },
+    { usage: "vera library list", description: "List the models you keep" },
+    { usage: "vera library add <provider/model> [--verify]", description: "Add a model to your library" },
+    { usage: "vera library remove <name|id>", description: "Remove a model from your library" },
     { usage: "vera schedule add ID --cron EXPR --to ID --text TEXT [--timezone TZ]", description: "Create a cron schedule" },
     { usage: "vera schedule list", description: "List schedules" },
     { usage: "vera schedule show ID", description: "Inspect a schedule and its runs" },
@@ -58,7 +58,7 @@ export function renderCliHelp(corpus: HelpCorpus): string {
         + "  --bare                    Skip model extensions, project guidance, memory, and scratch prompt state\n"
         + "  --prompt-only             Send only Vera's identity prompt and user message; offer no tools\n"
         + "  --permission-mode <mode>  Run under a named permission mode\n"
-        + "  --model <name|id>         Run on one shortlisted model, by name or provider/model\n"
+        + "  --model <name|id>         Run on one model in your library, by name or provider/model\n"
         + "  --session <file>          Write a durable session at this path; vera resume FILE continues it\n"
         + `\nHelp topics:\n${topics}\n\n`
         + "Use 'vera help <topic>' for one topic, or 'vera help --llms' for the compact help corpus.\n";
