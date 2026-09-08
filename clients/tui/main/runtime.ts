@@ -124,6 +124,7 @@ export interface TuiRuntime {
     agentFailedThisAttachment: boolean;
     statusNotice: string | undefined;
     statusNoticeVersion: number;
+    modelPrefixPending?: boolean;
     requestedModelChanges: Map<string, { readonly subject: string; readonly patch: ModelSettingsPatch; readonly target: TuiAgentClient; }>;
     requestedPermissionChanges: Map<string, string>;
     abortRequested: boolean;

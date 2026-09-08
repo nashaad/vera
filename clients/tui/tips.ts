@@ -66,7 +66,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
     },
     {
         id: "model-picker-shortcut",
-        text: () => `Press ${tuiKeyChord("open_model_picker")} to switch models`,
+        text: () => `Press ${tuiKeyChord("open_model_prefix")}, release Ctrl, then ${tuiKeyChord("model_prefix_open")} to switch models`,
         cooldownLaunches: 15,
         isRelevant: (context) => !context.inModelPicker,
     },

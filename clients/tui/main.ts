@@ -223,7 +223,7 @@ import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, handleTuiSetti
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
-import { tuiKeyHint } from "./keymap.ts";
+import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 
 import { DIAL_HUD_CAP, dialEffortPending, renderDialStrip, DIAL_EXIT_SEPARATOR } from "./dials.ts";
 import {
@@ -354,7 +354,7 @@ export function confirmManualReconnectUpgrade(error: Error): boolean {
     return error instanceof HostUnresponsiveError;
 }
 
-export const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
+export const MODEL_PICKER_HINT = `${tuiKeyChord("open_model_prefix")} then ${tuiKeyHint("model_prefix_open")}`;
 export const HUD_HINT = tuiKeyHint("dials.open");
 export const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
 
@@ -2503,6 +2503,10 @@ export async function startTui(
     });
 
     rt.renderer.keyInput.on("paste", (event) => {
+        if (rt.modelPrefixPending) {
+            rt.modelPrefixPending = false;
+            renderStatus(rt);
+        }
         rt.lastIdleEscapeAt = undefined;
         const uiRequest = focusedUiRequest(rt);
         const pasted = (): string =>

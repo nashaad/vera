@@ -24,6 +24,7 @@ export function renderStatus(rt: TuiRuntime): void {
         return;
     }
     const statusState = focusedAgentState(rt);
+    if (anyOverlayOpen(rt) || rt.sessionSwitchPending) rt.modelPrefixPending = false;
     if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.journeyFeedback?.status === "working") {
         rt.settingsPickerView.animateFeedback(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
     }
@@ -448,7 +449,9 @@ export function renderStatus(rt: TuiRuntime): void {
     ) {
         quietHint.push(fg(TUI_MUTED)(` · ${SIDEBAR_HINT}`));
     }
-    setTextContent(rt.statusText, quietActivity
+    setTextContent(rt.statusText, rt.modelPrefixPending
+        ? new StyledText([fg(TUI_ACCENT)(`${tuiKeyHint("model_prefix_open")} · esc cancel`)])
+        : quietActivity
         ? new StyledText(quietHint)
         : statusState.working
             && rt.statusNotice === undefined

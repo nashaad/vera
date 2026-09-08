@@ -97,6 +97,7 @@ const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "unfocused", title: "Composer unfocused" },
     { scope: "picker", title: "Settings panes" },
     { scope: "switch_model_picker", title: "Switch model" },
+    { scope: "model_prefix", title: "After Ctrl+X" },
     { scope: "shortlist_picker", title: "Model Library" },
     { scope: "verification_picker", title: "Model verification" },
     { scope: "model_picker", title: "Model picker" },

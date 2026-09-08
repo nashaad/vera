@@ -54,7 +54,7 @@ A failed save names the cause and preserves the input. Endpoints must use HTTP o
 Open Switch model, use Tab for Catalog, and press Enter to open a conversation with the chosen model.
 
 ## Models and providers [lines=17]
-Open `/model` or Switch model from Ctrl+P. It opens on Library even when empty; Tab or Shift+Tab changes to Catalog on the same screen.
+Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library even when empty; Tab or Shift+Tab changes to Catalog on the same screen.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
 Click the cutoff band to focus it, or click a number or track position to set it. Down returns to the model list.
 Older and duplicate models are hidden by default unless kept. Ctrl+A shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.

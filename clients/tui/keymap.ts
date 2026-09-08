@@ -7,6 +7,7 @@ export type TuiKeyScope =
     | "workspace"
     | "picker"
     | "switch_model_picker"
+    | "model_prefix"
     | "shortlist_picker"
     | "verification_picker"
     | "model_picker"
@@ -31,6 +32,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
     "switch_model_picker",
+    "model_prefix",
     "shortlist_picker",
     "verification_picker",
     "model_assignment_picker",
@@ -51,6 +53,7 @@ export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
 }
 
 const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
+    "model_prefix",
     "picker",
     "model_picker",
     "switch_model_picker",
@@ -327,6 +330,15 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Search every session",
         hint: "ctrl+shift+f search",
         remappable: true,
+    },
+    {
+        id: "open_model_prefix", keys: ["ctrl+x"], scope: "global",
+        description: "Show model shortcut: release Ctrl, then M to open Switch model",
+        hint: "ctrl+x models", remappable: true,
+    },
+    {
+        id: "model_prefix_open", keys: ["m"], scope: "model_prefix",
+        description: "Open Switch model after Ctrl+X", hint: "m Models", remappable: true,
     },
     {
         id: "open_model_picker",

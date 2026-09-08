@@ -80,6 +80,25 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
     const previousIdleEscapeAt = rt.lastIdleEscapeAt;
     rt.lastIdleEscapeAt = undefined;
+    if (rt.modelPrefixPending) {
+        rt.modelPrefixPending = false;
+        renderStatus(rt);
+        if (!anyOverlayOpen(rt) && !rt.sessionSwitchPending
+            && parseRawInputEvent(key)?.type !== "interrupt") {
+            key.preventDefault();
+            key.stopPropagation();
+            if (tuiBindingId("model_prefix", key) === "model_prefix_open") openModelPicker(rt);
+            return;
+        }
+    }
+    if (tuiBindingId("global", key) === "open_model_prefix"
+        && !anyOverlayOpen(rt) && !rt.sessionSwitchPending && !isJsonlViewClient(rt.client)) {
+        key.preventDefault();
+        key.stopPropagation();
+        rt.modelPrefixPending = true;
+        renderStatus(rt);
+        return;
+    }
     if (
         rt.onboardingWizard !== undefined
         && parseRawInputEvent(key)?.type !== "interrupt"
