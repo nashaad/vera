@@ -27,9 +27,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
 ): void {
     const extensionPickerWasOpen = rt.settingsPicker?.kind === "extension";
     const previousPicker = rt.settingsPicker;
-    const providerParent = previousPicker?.kind === "provider_actions"
-        ? previousPicker.parent
-        : previousPicker?.kind === "provider" ? previousPicker : undefined;
+    const providerParent = previousPicker?.kind === "provider_actions" || previousPicker?.kind === "provider"
+        ? previousPicker : undefined;
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
     rt.settingsPicker = transition.state;

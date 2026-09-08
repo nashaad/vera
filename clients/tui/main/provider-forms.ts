@@ -77,8 +77,9 @@ export function forgetProviderCredential(rt: TuiRuntime, candidate: {
     readonly pane: TuiSettingsPickerState | undefined;
 }): void {
     rt.providerForgetCandidate = undefined;
-    rt.settingsPicker = undefined;
-    closeSettingsPickerSurface(rt);
+    const caller = rt.settingsPicker;
+    renderState(rt);
+    focusActiveSurface(rt);
     const forget = rt.dependencies.forgetProvider;
     if (forget === undefined) {
         rt.state = appendTuiError(rt.state, "This host does not support forgetting providers.");
@@ -92,10 +93,10 @@ export function forgetProviderCredential(rt: TuiRuntime, candidate: {
         }
         rt.state = appendTuiNotice(rt.state, `Forgot ${candidate.label}. Its models were removed, affected defaults unset, and conversation selections cleared.`);
         requestAgentSettings(rt, focusedAgentClient(rt));
-        openProviderPicker(rt, candidate.pane);
+        if (rt.settingsPicker === caller) openProviderPicker(rt, candidate.pane);
     }).catch((error) => {
         rt.state = appendTuiError(rt.state, `Could not finish forgetting ${candidate.label}: ${error instanceof Error ? error.message : String(error)}`);
-        openProviderPicker(rt, candidate.pane);
+        if (rt.settingsPicker === caller) openProviderPicker(rt, candidate.pane);
     });
 }
 
@@ -281,7 +282,8 @@ async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, subm
         const notice = `${provider?.label ?? submitted.id} saved and its catalog read: ${catalog.models.length} models discovered. `
             + "Discovery decides nothing: none is shortlisted, verified, or bound.";
         requestAgentSettings(rt, focusedAgentClient(rt));
-        openProviderPicker(rt, form.parent?.parent, { selected: submitted.id, subtitle: notice });
+        const providerList = form.parent?.kind === "provider_actions" ? form.parent.parent : form.parent;
+        openProviderPicker(rt, providerList?.parent, { selected: submitted.id, subtitle: notice });
     } catch (error) {
         rt.providerForm = { ...form, field: "base_url",
             error: `${error instanceof Error ? error.message : String(error)}. Your input is preserved` };
@@ -322,7 +324,7 @@ export function applySecretPromptTransition(rt: TuiRuntime,
         enterWizardModelStep(rt, prompt.providerId);
         return;
     }
-    if (prompt.parent?.kind === "provider") {
+    if (transition.submitted !== undefined && prompt.parent?.kind === "provider") {
         openProviderPicker(rt, prompt.parent.parent);
         return;
     }

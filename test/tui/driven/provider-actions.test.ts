@@ -31,6 +31,8 @@ test("provider actions edit the selected connection or refresh its catalog", asy
         const form = await session.waitForVisiblePane("https://openrouter.ai/api/v1");
         expect(form).toContain("Edit openrouter");
         session.sendKey("Escape");
+        await session.waitForVisiblePane("Read this provider's model catalog");
+        session.sendKey("Escape");
         const parent = await session.waitForVisiblePane("Configure providers");
         expect(parent).toContain("openrouter");
         session.sendKey("Enter"); await session.waitForVisiblePane("Read this provider's model catalog");
