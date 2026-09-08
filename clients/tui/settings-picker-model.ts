@@ -1460,11 +1460,12 @@ export function intelligenceScaleNodes(
     return intelligenceScaleLines(width, cutoff, focused).map((chunks, row) => {
         const node = new TextRenderable(renderer, {
             id: `model-cutoff-${row}`, content: new StyledText([...chunks]),
-            bg: background, width: "100%", height: 1,
+            bg: background, width: "100%", height: 1, selectable: false,
         });
         if (onCutoff !== undefined) node.onMouseDown = (event) => {
             if (event.button !== 0) return;
             event.preventDefault(); event.stopPropagation();
+            renderer.clearSelection();
             const column = event.x - node.screenX;
             // Labels use their full printed hit area; the track snaps to its nearest tick.
             const label = row === 2 ? stops.find((stop) => column >= stop.start && column < stop.end) : undefined;
