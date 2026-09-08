@@ -114,7 +114,7 @@ test("model journey cards contain the footer and padding for empty, short, and f
                         expect(child.screenY + child.height).toBeLessThanOrEqual(bottom - 1);
                     }
                     const frame = setup.captureCharFrame().split("\n");
-                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "run it" : "keep or unkeep"));
+                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "switch model" : "keep or unkeep"));
                     expect(footer).toBeGreaterThan(view.box.screenY);
                     expect(footer).toBeLessThan(bottom - 1);
                 }
@@ -345,7 +345,7 @@ test("All keeps its price band and footer inside a short terminal with cutoff an
         view.update({ ...state, intelligenceCutoff: "1400", journeyNotice: "Catalog refreshed." });
         await setup.renderOnce();
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(23);
-        expect(setup.captureCharFrame()).toContain("run it");
+        expect(setup.captureCharFrame()).toContain("switch model");
     } finally { setup.renderer.destroy(); }
 });
 
@@ -391,17 +391,17 @@ test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggl
         expect(up.poolToggle).toBeUndefined();
         const atTop = handleTuiSettingsPickerKey({ ...start, selectedIndex: 0 }, { name: "u", ctrl: true }, 8);
         expect(atTop.state?.selectedIndex).toBe(0);
-        expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual({
+        expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual(journey === "shortlist" ? {
             action: "remove", provider: start.options[start.selectedIndex]!.provider!, model: start.options[start.selectedIndex]!.model!,
-        });
+        } : undefined);
         if (journey === "shortlist") {
             expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk?.action).toBe("remove");
         } else {
-            expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelJourney).toBe("shortlist");
+            expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelJourney).toBe("switch");
             let all = handleTuiSettingsPickerKey(start, { name: "tab" }).state!;
             all = handleTuiSettingsPickerKey(all, { name: "right" }).state!;
             all = handleTuiSettingsPickerKey(all, { name: "down" }).state!;
-            expect(handleTuiSettingsPickerKey(all, { name: "s", ctrl: true }).poolToggle?.action).toBe("remove");
+            expect(handleTuiSettingsPickerKey(all, { name: "s", ctrl: true }).poolToggle).toBeUndefined();
         }
     }
 });

@@ -97,7 +97,7 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
     const reveal = state.revealAll ? "show fewer" : "show every model";
     return state.modelJourney === "shortlist"
         ? "↵/^s keep or unkeep · ^r rename · ^y verify · ^k keep matches · ^⇧k unkeep matches · esc done\n^d/^u page · ^a " + reveal
-        : "↵ run it · ^s keep/unkeep · ^r refresh · ^⇧s manage shortlist · ^e providers · esc\n^d/^u page · ^a " + reveal + (state.tab === "all" ? " · ← slider · ↓ list · ^g cutoff" : "");
+        : "↑↓ choose · ↵ switch model · esc back";
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
@@ -111,6 +111,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
                 paging === "half_page_down" ? "down" : "up") },
     };
     if (tuiBindingId("model_picker", key) === "toggle_pooled") {
+        if (!managing) return same;
         return selected?.provider && selected.model ? { ...same,
             poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",
                 provider: selected.provider, model: selected.model } } : same;
@@ -138,8 +139,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     }
     if (binding !== undefined || key.ctrl) {
         if (binding === "journey_reveal" || binding === "shortlist_reveal") return { state: rebuiltJourney({ ...state, revealAll: state.revealAll !== true }, selected?.value), handled: true };
-        if (binding === "journey_providers" || binding === "shortlist_providers") return { ...same, openProviders: true };
-        if (binding === "journey_manage") return { state: modelJourney(state, "shortlist"), handled: true };
+        if (binding === "shortlist_providers") return { ...same, openProviders: true };
         if (binding === "journey_refresh") return { ...same, refreshAllCatalogs: true };
         if (binding === "journey_cutoff" && state.tab === "all") {
             const next = { ...state, intelligenceCutoff: state.intelligenceCutoff === "1600" && !key.shift ? "any" as const : stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.shift ? -1 : 1), selectedIndex: 0 };
@@ -173,6 +173,6 @@ export function emptyModelJourney(state: TuiSettingsPickerState): string {
     if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. ^r reads it now.`;
     if (state.allOptions.length === 0) return "All provider catalogs were refreshed; none served any models. ^e opens Configure providers.";
     if (state.query) return "No models match your search. Clear the search to see models.";
-    if (state.modelJourney === "switch" && state.tab !== "all") return "Your shortlist is empty. Tab shows all models; ^s opens Manage shortlist.";
+    if (state.modelJourney === "switch" && state.tab !== "all") return "Your shortlist is empty. Browse All models to choose one.";
     return "No models pass this cutoff. ^g changes the cutoff.";
 }

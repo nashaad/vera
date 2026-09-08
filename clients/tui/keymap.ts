@@ -139,17 +139,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         overrides: ["switch_pane"],
     },
     {
-        id: "journey_manage", keys: ["ctrl+shift+s"], scope: "switch_model_picker",
-        description: "Open Manage shortlist", hint: "^⇧s manage shortlist",
-        remappable: true,
-    },
-    {
-        id: "journey_providers", keys: ["ctrl+e"], scope: "switch_model_picker",
-        description: "Open Configure providers", hint: "^e providers",
-        remappable: true,
-        overrides: ["toggle_workspace_sidebar"],
-    },
-    {
         id: "shortlist_providers", keys: ["ctrl+e"], scope: "shortlist_picker",
         description: "Open Configure providers", hint: "^e providers",
         remappable: true,

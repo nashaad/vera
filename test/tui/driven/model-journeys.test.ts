@@ -115,7 +115,7 @@ test("Home stages empty dials without creating a session, then switching applies
 }, 15_000);
 
 
-test("Switch model Ctrl+S keeps and unkeeps without switching or verifying", async () => {
+test("Switch model cannot mutate the shortlist through legacy Ctrl+S or Ctrl+Shift+S", async () => {
     const operations: ModelOperation[] = [];
     const available = [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }];
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-keep-")), width: 140, height: 40,
@@ -133,9 +133,12 @@ test("Switch model Ctrl+S keeps and unkeeps without switching or verifying", asy
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("Your shortlist is empty");
         session.sendKey("Tab"); await session.waitForVisiblePane("not shortlisted");
-        session.sendKey("C-s"); await session.waitForVisiblePane("on your shortlist");
-        session.sendKey("C-s"); await session.waitForVisiblePane("not shortlisted");
-        expect(operations.map((operation) => operation.operation)).toEqual(["keep", "unkeep"]);
+        session.sendKey("C-s"); await session.settle();
+        session.sendKey("C-s"); await session.settle();
+        expect(session.captureVisiblePane()).toContain("not shortlisted");
+        expect(session.captureVisiblePane()).not.toContain("Manage shortlist");
+        expect(session.captureVisiblePane()).not.toContain("tab to switch");
+        expect(operations).toEqual([]);
         expect(session.captureVisiblePane()).toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);

@@ -1201,7 +1201,6 @@ export function renderListPickerRows(
                 };
                 scope.add(chip);
             }
-            scope.add(new TextRenderable(renderer, { content: "tab to switch", fg: TUI_MUTED, height: 1 }));
             add(scope);
         }
         if (layout.headerLines.length) add(new TextRenderable(renderer, {
