@@ -255,6 +255,7 @@ export interface TuiSettingsPickerState {
     readonly journeyRetainedModels?: readonly string[];
     readonly journeyFeedback?: {
         readonly status: "working" | "success" | "error";
+        readonly membership?: "added" | "removed";
         readonly message: string;
     };
     readonly verificationTargets?: readonly import("./model-verification.ts").VerificationTarget[];

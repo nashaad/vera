@@ -17,7 +17,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
-import { stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
+import { INTELLIGENCE_CUTOFFS, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import {
     isVeraProviderId,
     type VeraCustomProviderConfig,
@@ -29,7 +29,7 @@ import type {
     ReviewerModelDefault,
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
-import { TUI_ACCENT, TUI_CHROME, TUI_DANGER, TUI_ELEMENT, TUI_INPUT, TUI_MUTED, TUI_PANEL, TUI_SUCCESS, TUI_SELECTION_TEXT, TUI_TEXT } from "./state.ts";
+import { TUI_ACCENT, TUI_CHROME, TUI_DANGER, TUI_ELEMENT, TUI_INPUT, TUI_MUTED, TUI_PANEL, TUI_NOTICE, TUI_SUCCESS, TUI_SELECTION_TEXT, TUI_TEXT } from "./state.ts";
 import {
     dialogBoxHeight,
     halfPageCursor,
@@ -1125,25 +1125,38 @@ export function tuiPickerViewportRows(
 }
 
 function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
-    const text = [journeyHeader(state), state.journeyNotice].filter(Boolean).join("\n");
-    const headerLines = text ? text.split("\n").flatMap((line) => wrappedTo(line, pickerContentWidth(renderer, state, railInset))) : [];
+    const width = pickerContentWidth(renderer, state, railInset);
+    const linesFor = (candidate: TuiSettingsPickerState) => {
+        const text = [journeyHeader(candidate), candidate.journeyNotice].filter(Boolean).join("\n");
+        return text ? text.split("\n").flatMap((line) => wrappedTo(line, width)) : [];
+    };
+    const headerLines = linesFor(state);
+    if (state.modelJourney === "switch" && state.tab === "all") {
+        // Reserve wrapped cutoff counts before the slider changes them.
+        const height = Math.max(headerLines.length, ...INTELLIGENCE_CUTOFFS.map((intelligenceCutoff) =>
+            linesFor({ ...state, intelligenceCutoff }).length));
+        while (headerLines.length < height) headerLines.push("");
+    }
+    const unfiltered = { ...state, query: "", revealAll: true, intelligenceCutoff: "any" as const };
+    const geometry = state.modelJourney === "switch"
+        ? { ...unfiltered, options: journeyModels(unfiltered) } : state;
     const scope = state.modelJourney === "switch";
     const summaryMargin = scope && renderer.height < 30 ? 0 : 1;
     const headerHeight = (scope ? 2 : 0) + (headerLines.length ? headerLines.length + summaryMargin : 0);
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
-    const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
+    const split = geometry.options.length === 0 ? undefined : modelPaneSplit(renderer, geometry, railInset);
     const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
-    const feedbackHeight = state.modelJourney === "shortlist" ? 3 : 0;
+    const feedbackHeight = state.modelJourney === "shortlist" ? 3 : 1;
     const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
     const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
-    const groups = state.options.filter((row, index) => index === 0 || row.group !== state.options[index - 1]?.group).length;
-    const listHeight = Math.min(rows, Math.max(2, state.options.length + groups * 2 - 1));
-    const detailHeight = split === undefined ? 0 : Math.max(0, ...state.options.map((_, selectedIndex) =>
-        modelDetailHeight({ ...state, selectedIndex }, split.detailWidth)));
+    const groups = geometry.options.filter((row, index) => index === 0 || row.group !== geometry.options[index - 1]?.group).length;
+    const listHeight = Math.min(rows, Math.max(2, geometry.options.length + groups * 2 - 1));
+    const detailHeight = split === undefined ? 0 : Math.max(0, ...geometry.options.map((_, selectedIndex) =>
+        modelDetailHeight({ ...geometry, selectedIndex }, split.detailWidth)));
     const bodyHeight = Math.max(1, Math.min(room - (listed ? 1 : 0), Math.max(listHeight + (listed ? 1 : 0), detailHeight)));
-    return { priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
+    return { split, priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
 
 }
 
@@ -1218,7 +1231,7 @@ export function renderListPickerRows(
         }));
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
         const { priceLines, listed, rows: maxRows, bodyHeight } = layout;
-        const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
+        const split = layout.split;
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
         const rows = journeyWindow(state, maxRows);
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
@@ -1277,8 +1290,8 @@ export function renderListPickerRows(
             add(new TextRenderable(renderer, {
                 id: feedback?.status === "working" ? "model-operation-working" : "model-operation-result",
                 content: feedback === undefined ? "" : feedback.status === "working" ? "Working"
-                    : clippedToWidth(`${feedback.status === "success" ? "✓" : "✗"} ${feedback.message}`, width),
-                fg: feedback?.status === "success" ? TUI_SUCCESS : feedback?.status === "error" ? TUI_DANGER : TUI_ACCENT,
+                    : clippedToWidth(`${feedback.status === "success" ? feedback.membership === "removed" ? "−" : "✓" : "✗"} ${feedback.message}`, width),
+                fg: feedback?.status === "success" ? feedback.membership === "removed" ? TUI_NOTICE : TUI_SUCCESS : feedback?.status === "error" ? TUI_DANGER : TUI_ACCENT,
                 height: 1, marginTop: 1, width: "100%",
             }));
         }

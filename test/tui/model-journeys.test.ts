@@ -168,10 +168,10 @@ test("reduced catalogs hide old entries without hiding kept models or search res
         { ...rows[2]!, pooledRank: undefined, hiddenByDefault: "superseded" as const }];
     let state = handleModelJourneyKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
     expect(journeyMatches(state).map((row) => row.model)).toEqual(["a", "b"]);
-    expect(journeyHeader(state)).toContain("1 hidden (older, duplicate or superseded)");
+    expect(journeyFooter(state)).toContain("Show extra variants and older models");
     state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
     expect(journeyMatches(state)).toHaveLength(3);
-    expect(journeyHeader(state)).toContain("1 included");
+    expect(journeyFooter(state)).toContain("Hide extra variants and older models");
     state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
     const search = updateTuiSettingsPickerSearch(state, "gamma").state!;
     expect(search.options[search.selectedIndex]?.model).toBe("c");
@@ -312,17 +312,17 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(frame).toContain("Blended price");
         expect(frame).not.toContain("full 3/15");
         expect(frame).not.toContain("blended 4.2 at");
-        expect(frame).toContain("Catalog: fewer models");
-        expect(frame).toContain("show every model");
+        expect(frame).toContain("Models from your connected providers");
+        expect(frame).toContain("Show extra variants and older models");
         const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
         view.update(unknownState);
         await setup.renderOnce();
         expect(setup.captureCharFrame()).not.toContain("full 3/15");
         view.update(handleModelJourneyKey(unknownState, { name: "a", ctrl: true }).state!);
         await setup.renderOnce();
-        expect(setup.captureCharFrame()).toContain("Catalog: all models");
-        expect(setup.captureCharFrame()).toContain("show fewer");
-        expect(frame).toContain("* WA Score: an Elo rating");
+        expect(setup.captureCharFrame()).toContain("Models from your connected providers");
+        expect(setup.captureCharFrame()).toContain("Hide extra variants and older models");
+        expect(frame).toContain("* WA Score: rating from blind comparisons");
         expect(frame).toContain("Model ID");
         expect(frame).toContain("Smarter");
         setup.resize(60, 44);
@@ -435,7 +435,7 @@ test("scope is prominent and highlighting across provider boundaries never moves
                     expect(frame).not.toContain("[ Catalog ]");
                     expect(frame).not.toContain("[ Library ]");
                     expect(frame).toContain("Library");
-                    expect(frame).toContain("Catalog: fewer models");
+                    expect(frame).toContain("Models from your connected providers");
                 }
             }
         }
@@ -501,7 +501,7 @@ test("Manage offers one model action and explains catalog visibility on its own 
     const state = modelJourney(base, "shortlist");
     expect(journeyFooter(state).split("\n")).toEqual([
         "Enter / Ctrl+S  Add to library",
-        "Ctrl+A  Show all models and variants",
+        "Ctrl+A  Show extra variants and older models",
         "Ctrl+R Rename · Ctrl+Y Verify · Esc Back",
     ]);
     expect(journeyFooter({ ...state, selectedIndex: 1 })).toContain("Remove from library");
@@ -512,5 +512,39 @@ test("Manage offers one model action and explains catalog visibility on its own 
         expect(ignored.poolBulk).toBeUndefined();
         expect(ignored.poolToggle).toBeUndefined();
         expect(ignored.state).toBe(filtered);
+    }
+});
+
+test("cutoff counts and result filtering keep the search, slider, card, and footer still", async () => {
+    const options = Array.from({ length: 40 }, (_, index) => ({
+        ...rows[0]!, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
+        waScore: index > 35 ? 1550 : undefined,
+        pricing: index > 35 ? { input: 1, output: 3 } : undefined,
+        pooledRank: index === 0 ? 0 : undefined,
+    }));
+    for (const [width, height] of [[110, 44], [70, 30]]) {
+        const setup = await createTestRenderer({ width, height });
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            let state = handleTuiSettingsPickerKey(modelJourney({ ...base, allOptions: options }, "switch"), { name: "tab" }).state!;
+            state = handleTuiSettingsPickerKey(state, { name: "left" }).state!;
+            let expected: number[] | undefined;
+            for (let step = 0; step < 7; step++) {
+                view.update(state); await setup.renderOnce();
+                const frame = setup.captureCharFrame();
+                const lines = frame.split("\n");
+                const anchors = ["Search models", "Smarter", "Ctrl+A", "switch model"].map((text) => lines.findIndex((line) => line.includes(text)));
+                expect(anchors.every((y) => y >= 0)).toBe(true);
+                const geometry = [view.box.screenY, view.box.height, ...anchors];
+                if (expected) expect(geometry).toEqual(expected); else expected = geometry;
+                expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(height!);
+                expect(frame).not.toContain("fewer models");
+                expect(journeyHeader(state)).not.toContain("^a");
+                expect(anchors[2]).toBeGreaterThan(anchors[1]!);
+                state = handleTuiSettingsPickerKey(state, { name: "g", ctrl: true }).state!;
+            }
+        } finally { setup.renderer.destroy(); }
     }
 });

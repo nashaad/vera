@@ -582,7 +582,7 @@ export function modelHelpLines(
         ["Sources"],
         ["* WA Score", "an Elo rating. How often people picked this model's"],
         ["", "web app over another's, voted blind, side by side."],
-        ["", "Higher wins more often. Most models land 1000-1600,"],
+        ["", "Most models land 1000-1600,"],
         ["", "and a 100-point gap is about 64% of votes."],
         ["", "WebDev Arena (LMArena), CC-BY 4.0"],
         ["", "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset"],
@@ -1527,7 +1527,7 @@ export function listedFactsHeaderText(): string {
 
 /** The star on the WA Score column, answered on the screen that draws the star rather than only under Help. */
 export const LISTED_FACTS_FOOTNOTE =
-    "* WA Score: an Elo rating from blind head-to-head votes. Higher wins more often.";
+    "* WA Score: rating from blind comparisons of model responses.";
 
 export const LISTED_FACTS_FOOTNOTE_LINES = 1;
 

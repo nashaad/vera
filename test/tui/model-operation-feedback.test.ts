@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { TextRenderable, parseColor } from "@opentui/core";
+import { TUI_NOTICE, TUI_SUCCESS } from "../../clients/tui/state.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { createTuiSettingsPickerView, startTuiSettingsPicker, syncTuiModelPicker } from "../../clients/tui/settings-picker.ts";
 import { journeyModels, modelJourney } from "../../clients/tui/model-journeys.ts";
@@ -23,7 +25,8 @@ test("membership changes retain the row, provider sections, and feedback space",
     try {
         const layouts: string[] = [];
         for (const feedback of [undefined, { status: "working" as const, message: "Working" },
-            { status: "success" as const, message: "Beta removed from library" },
+            { status: "success" as const, membership: "added" as const, message: "Beta added to library" },
+            { status: "success" as const, membership: "removed" as const, message: "Beta removed from library" },
             { status: "error" as const, message: "Could not save" }]) {
             if (feedback?.status === "success") state = syncTuiModelPicker(state, { ...settings, pooled: settings.pooled.slice(1) });
             state = { ...state, journeyFeedback: feedback };
@@ -49,7 +52,12 @@ test("membership changes retain the row, provider sections, and feedback space",
                 view.animateFeedback(8, true);
                 expect(JSON.stringify((node as { content?: unknown }).content)).not.toBe(before);
             }
-            if (feedback?.status === "success") expect(lines.join("\n")).toContain("✓ Beta removed from library");
+            if (feedback?.status === "success") {
+                const node = view.box.getChildren().find((node) => node.id === "model-operation-result") as TextRenderable;
+                const removed = feedback.membership === "removed";
+                expect(node.fg).toEqual(parseColor(removed ? TUI_NOTICE : TUI_SUCCESS));
+                expect(lines.join("\n")).toContain(`${removed ? "−" : "✓"} ${feedback.message}`);
+            }
         }
         expect(new Set(layouts).size).toBe(1);
     } finally { setup.renderer.destroy(); }
@@ -64,7 +72,8 @@ test("unkeeping an otherwise hidden model does not remove its row during editing
 
 test("only confirmed saves show a success tick", () => {
     const operation = { operation: "keep" as const, models: [models[1]!] };
-    expect(shortlistOperationFeedback(operation, "Beta", [], settings)).toEqual({ status: "success", message: "Beta added to library" });
+    expect(shortlistOperationFeedback(operation, "Beta", [], settings)).toEqual({ status: "success", membership: "added", message: "Beta added to library" });
+    expect(shortlistOperationFeedback({ ...operation, operation: "unkeep" }, "Beta", [{ ...models[1]!, status: "passed" }], settings).membership).toBe("removed");
     expect(shortlistOperationFeedback(operation, "Beta", [], undefined).status).toBe("error");
     expect(shortlistOperationFeedback(operation, "Beta", [{ ...models[1]!, status: "failed", reason: "Disk full" }], settings))
         .toEqual({ status: "error", message: "Disk full" });

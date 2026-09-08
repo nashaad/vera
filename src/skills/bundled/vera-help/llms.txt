@@ -56,7 +56,7 @@ Open Switch model, use Tab for Catalog, and press Enter to open a conversation w
 ## Models and providers [lines=15]
 Open `/model` or Switch model from Ctrl+P. It opens on Library even when empty; Tab or Shift+Tab changes to Catalog on the same screen.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
-Older and duplicate models are hidden by default unless kept. Ctrl+A shows all or fewer; search finds hidden models within the intelligence cutoff.
+Older and duplicate models are hidden by default unless kept. Ctrl+A below the list shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 Open `/library` or Model Library to add or remove a model with Enter. Adding saves immediately and does not switch or verify.
 In Model Library, Ctrl+R renames the display name, Ctrl+Y verifies one model in your library. Ctrl+S adds or removes only in Model Library. Ctrl+D/Ctrl+U page down/up in Switch model and Model Library.

@@ -82,25 +82,22 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
 
 export function journeyHeader(state: TuiSettingsPickerState): string {
     if (state.modelJourney === "shortlist") return "";
-    const hiddenCount = journeyMatches(state, true).length - journeyMatches(state, false).length;
-    const reduced = `\nCatalog: ${state.revealAll ? "all models" : "fewer models"} · ^a ${state.revealAll ? "show fewer" : "show every model"}`
-        + (state.query.trim() ? " · search includes hidden models" : hiddenCount > 0
-            ? ` · ${hiddenCount} ${state.revealAll ? "included" : "hidden"} (older, duplicate or superseded)` : "");
     if (state.tab !== "all") return "";
+    const description = "Models from your connected providers";
     const floor = state.intelligenceCutoff ?? "any";
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));
     const unscored = hidden.filter((row) => row.waScore === undefined).length;
-    return reduced.trimStart() + (hidden.length ? `\n${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "");
+    return description + (hidden.length ? `\n${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "");
 }
 
 export function journeyFooter(state: TuiSettingsPickerState): string {
     const selected = state.options[state.selectedIndex];
     const action = selected === undefined ? "Select a model"
         : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
-    const reveal = state.revealAll ? "Hide extra variants and older models" : "Show all models and variants";
+    const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
     return state.modelJourney === "shortlist"
         ? `Enter / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : "↑↓ choose · ↵ switch model · esc back";
+        : `${state.tab === "all" ? `Ctrl+A  ${reveal}` : ""}\n↑↓ choose · ↵ switch model · esc back`;
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {

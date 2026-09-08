@@ -23,7 +23,7 @@ export function shortlistOperationFeedback(
     });
     if (!confirmed) return { status: "error", message: "Could not confirm the library change." };
     const subject = operation.models.length === 1 ? label : `${operation.models.length} models`;
-    return { status: "success", message: `${subject} ${operation.operation === "keep" ? "added to" : "removed from"} library` };
+    return { status: "success", membership: operation.operation === "keep" ? "added" : "removed", message: `${subject} ${operation.operation === "keep" ? "added to" : "removed from"} library` };
 }
 
 export function replaceJourneyFeedback(state: TuiSettingsPickerState, pending: Feedback, feedback: Feedback): TuiSettingsPickerState {
