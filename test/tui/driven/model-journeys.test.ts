@@ -142,3 +142,29 @@ test("Switch model cannot mutate the library through legacy Ctrl+S or Ctrl+Shift
         expect(session.captureVisiblePane()).toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);
+
+test("clicking a cutoff tick reaches the live picker without switching models", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-cutoff-mouse-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
+        session.sendKey("Tab");
+        const before = await session.waitForVisiblePane("Models from your connected providers");
+        const lines = before.split("\n");
+        const tickRow = lines.findIndex((line) => line.includes("1400") && line.includes("1600"));
+        await session.sendMouseClick(lines[tickRow]!.indexOf("1600") + 3, tickRow);
+        const filtered = await session.waitForVisiblePane("hidden below the cutoff");
+        expect(filtered).toContain("Switch model");
+        expect(filtered).toContain("No model");
+        const filteredLines = filtered.split("\n");
+        const nextRow = filteredLines.findIndex((line) => line.includes("1400") && line.includes("1600"));
+        expect(nextRow).toBe(tickRow);
+        await session.sendMouseClick(filteredLines[nextRow]!.indexOf("any"), nextRow);
+        await session.settle();
+        expect(session.captureVisiblePane()).not.toContain("hidden below the cutoff");
+        expect(session.captureVisiblePane()).toContain("Switch model");
+    } finally { await session.close(); }
+}, 15_000);

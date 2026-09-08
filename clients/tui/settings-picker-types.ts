@@ -489,6 +489,7 @@ export interface TuiSettingsPickerView {
     };
     onTab?: (tab: TuiModelPickerTab) => void;
     onConfigure?: () => void;
+    onCutoff?: (cutoff?: IntelligenceCutoff) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
     handleEditorKey(

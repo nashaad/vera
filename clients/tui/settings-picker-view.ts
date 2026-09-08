@@ -17,7 +17,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
-import { INTELLIGENCE_CUTOFFS, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
+import { INTELLIGENCE_CUTOFFS, stepIntelligenceCutoff, type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import {
     isVeraProviderId,
     type VeraCustomProviderConfig,
@@ -90,7 +90,7 @@ import {
     allModelsPriceChromeLines,
     allModelsPriceNode,
     enclosingSection,
-    intelligenceScaleLines,
+    intelligenceScaleNodes,
     isPooled,
     listedFactsFootnoteNode,
     listedFactsHeaderText,
@@ -929,6 +929,15 @@ export function updateTuiSettingsPickerSearch(
         : unchanged(state, false);
 }
 
+export function setTuiSettingsPickerCutoff(state: TuiSettingsPickerState, cutoff?: IntelligenceCutoff): TuiSettingsPickerState {
+    if (state.kind !== "model" || (state.tab ?? "all") !== "all") return state;
+    const next: TuiSettingsPickerState = { ...state, pickerLevel: "page", modelFocus: "intelligence",
+        intelligenceCutoff: cutoff ?? state.intelligenceCutoff ?? "any" };
+    const options = modelListFor(next);
+    const selectedIndex = options.findIndex((row) => row.value === state.options[state.selectedIndex]?.value);
+    return { ...next, options, selectedIndex: selectedIndex >= 0 ? selectedIndex : 0 };
+}
+
 export function createTuiSettingsPickerView(
     renderer: RenderContext,
 ): TuiSettingsPickerView {
@@ -1050,6 +1059,7 @@ export function createTuiSettingsPickerView(
                 view.onConfigure,
                 search,
                 railInset,
+                view.onCutoff,
             );
         },
     };
@@ -1194,6 +1204,7 @@ export function renderListPickerRows(
     onConfigure?: () => void,
     search?: ReturnType<typeof createDialogSearchNode>,
     railInset = 0,
+    onCutoff?: (cutoff?: IntelligenceCutoff) => void,
 ): void {
     if (state.kind === "model" && state.modelJourney !== undefined) {
         const width = pickerContentWidth(renderer, state, railInset);
@@ -1225,10 +1236,8 @@ export function renderListPickerRows(
             box.add(search);
         }
         const cutoff = state.modelJourney === "switch" && state.tab === "all";
-        const scaleLines = cutoff ? intelligenceScaleLines(width, state.intelligenceCutoff ?? "any", state.modelFocus === "intelligence") : [];
-        for (const chunks of scaleLines) add(new TextRenderable(renderer, {
-            content: new StyledText([...chunks]), width: "100%", height: 1,
-        }));
+        if (cutoff) for (const node of intelligenceScaleNodes(renderer, width,
+            state.intelligenceCutoff ?? "any", state.modelFocus === "intelligence", onCutoff)) add(node);
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
         const { priceLines, listed, rows: maxRows, bodyHeight } = layout;
         const split = layout.split;
@@ -1615,17 +1624,8 @@ export function renderListPickerRows(
             paddingBottom: 1,
             marginBottom: ALL_MODELS_SECTION_GAP_LINES,
         });
-        for (const chunks of intelligenceScaleLines(
-            Math.max(1, rowWidth - 4),
-            state.kind === "model" ? state.intelligenceCutoff ?? "any" : "any",
-            focused,
-        )) {
-            const node = new TextRenderable(renderer, {
-                content: new StyledText([...chunks]),
-                bg: TUI_INPUT,
-                width: "100%",
-                height: 1,
-            });
+        for (const node of intelligenceScaleNodes(renderer, Math.max(1, rowWidth - 4),
+            state.kind === "model" ? state.intelligenceCutoff ?? "any" : "any", focused, onCutoff, TUI_INPUT)) {
             intelligence.add(node);
         }
         listColumn.add(intelligence);

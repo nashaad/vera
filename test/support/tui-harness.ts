@@ -25,6 +25,7 @@ export interface TuiTestSession {
         key: "up" | "down" | "left" | "right" | "end" | "home",
         modifiers: { readonly ctrl?: boolean; readonly shift?: boolean },
     ): void;
+    sendMouseClick(x: number, y: number): Promise<void>;
     sendMouseWheel(
         direction: "up" | "down",
         x: number,
@@ -207,6 +208,9 @@ export async function startTuiTestSession(
                 return;
             }
             setup.mockInput.pressArrow(key, modifiers);
+        },
+        async sendMouseClick(x, y) {
+            await setup.mockMouse.click(x, y);
         },
         async sendMouseWheel(direction, x, y, times = 1) {
             for (let index = 0; index < times; index += 1) {

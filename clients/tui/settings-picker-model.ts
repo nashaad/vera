@@ -1435,20 +1435,58 @@ export function allModelsInfoOption(
         .find(isAllModelsInfoRow);
 }
 
+function intelligenceScaleLayout(width: number) {
+    const trackWidth = Math.min(52, Math.max(36, width - 2));
+    const trackLength = Math.max(1, trackWidth - 1);
+    let nextStart = 0;
+    const stops = INTELLIGENCE_CUTOFFS.map((choice, index) => {
+        const position = Math.round(index * (trackLength - 1) / (INTELLIGENCE_CUTOFFS.length - 1));
+        const start = Math.max(nextStart, 0, Math.min(trackLength - choice.length, position - Math.floor(choice.length / 2)));
+        nextStart = start + choice.length + 1;
+        return { choice, position, start, end: start + choice.length };
+    });
+    return { trackWidth, trackLength, stops };
+}
+
+export function intelligenceScaleNodes(
+    renderer: RenderContext,
+    width: number,
+    cutoff: IntelligenceCutoff,
+    focused: boolean,
+    onCutoff?: (cutoff?: IntelligenceCutoff) => void,
+    background?: string,
+): readonly TextRenderable[] {
+    const { trackLength, stops } = intelligenceScaleLayout(width);
+    return intelligenceScaleLines(width, cutoff, focused).map((chunks, row) => {
+        const node = new TextRenderable(renderer, {
+            id: `model-cutoff-${row}`, content: new StyledText([...chunks]),
+            bg: background, width: "100%", height: 1,
+        });
+        if (onCutoff !== undefined) node.onMouseDown = (event) => {
+            if (event.button !== 0) return;
+            event.preventDefault(); event.stopPropagation();
+            const column = event.x - node.screenX;
+            // Labels use their full printed hit area; the track snaps to its nearest tick.
+            const label = row === 2 ? stops.find((stop) => column >= stop.start && column < stop.end) : undefined;
+            const nearest = stops.reduce((best, stop) => Math.abs(column - stop.position) < Math.abs(column - best.position) ? stop : best);
+            onCutoff(row === 0 || column < 0 || column >= trackLength ? undefined : (label ?? nearest).choice);
+        };
+        return node;
+    });
+}
+
 export function intelligenceScaleLines(
     width: number,
     cutoff: IntelligenceCutoff,
     focused: boolean,
 ): readonly (readonly TextChunk[])[] {
-    const stops = INTELLIGENCE_CUTOFFS;
-    const trackWidth = Math.min(52, Math.max(36, width - 2));
+    const { stops, trackWidth, trackLength } = intelligenceScaleLayout(width);
     const labelGap = Math.max(
         1,
         trackWidth - "Any".length - "Smarter".length,
     );
     const axis = `Any${" ".repeat(labelGap)}Smarter`;
-    const trackLength = Math.max(1, trackWidth - 1);
-    const selectedIndex = Math.max(0, stops.indexOf(cutoff));
+    const selectedIndex = Math.max(0, stops.findIndex((stop) => stop.choice === cutoff));
     const marker = Math.round(
         selectedIndex * (trackLength - 1) / Math.max(1, stops.length - 1),
     );
@@ -1460,21 +1498,9 @@ export function intelligenceScaleLines(
             ),
     );
     const optionLine = Array.from({ length: trackLength }, () => " ");
-    let nextStart = 0;
     let selectedStart = 0;
     let selectedEnd = 0;
-    stops.forEach((choice, index) => {
-        const position = Math.round(
-            index * (trackLength - 1) / Math.max(1, stops.length - 1),
-        );
-        const start = Math.max(
-            nextStart,
-            0,
-            Math.min(
-                trackLength - choice.length,
-                position - Math.floor(choice.length / 2),
-            ),
-        );
+    stops.forEach(({ choice, start }, index) => {
         for (let offset = 0; offset < choice.length; offset += 1) {
             optionLine[start + offset] = choice[offset] ?? " ";
         }
@@ -1482,7 +1508,6 @@ export function intelligenceScaleLines(
             selectedStart = start;
             selectedEnd = start + choice.length;
         }
-        nextStart = start + choice.length + 1;
     });
     const axisTone = focused ? TUI_ACCENT : TUI_MUTED;
     const line = optionLine.join("");

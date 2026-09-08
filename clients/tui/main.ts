@@ -219,7 +219,7 @@ import {
     type TuiStatusChunk,
 } from "./status.ts";
 import { watchWorkspaceBranch } from "./workspace-branch.ts";
-import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView } from "./settings-picker.ts";
+import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, setTuiSettingsPickerCutoff, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView } from "./settings-picker.ts";
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
@@ -2067,6 +2067,11 @@ export async function startTui(
         // A click on a chip is the same act as tabbing onto it: the reader is
         // choosing tabs, so they are left on the strip with the page beneath.
         rt.settingsPicker = { ...switchedModelTab(pane, tab), pickerLevel: "strip" };
+        renderState(rt);
+    };
+    rt.settingsPickerView.onCutoff = (cutoff) => {
+        if (rt.settingsPicker?.kind !== "model") return;
+        rt.settingsPicker = setTuiSettingsPickerCutoff(rt.settingsPicker, cutoff);
         renderState(rt);
     };
     rt.settingsPickerView.onConfigure = () => {
