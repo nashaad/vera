@@ -156,6 +156,8 @@ test("a surface can explicitly override a global chord while it is open", () => 
         .toBe("dials.open");
     expect(tuiBindingId("model_picker", { name: "tab", shift: true }))
         .toBe("switch_tab");
+    expect(tuiBindingId("switch_model_picker", { name: "tab", shift: true }))
+        .toBe("journey_scope");
 });
 
 test("a scope sees its own bindings, the ones it inherits, and the globals", () => {

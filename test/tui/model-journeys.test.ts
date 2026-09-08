@@ -470,3 +470,20 @@ test("Switch scope keeps its card and footer fixed; Left enters the slider and D
         expect(all.query).toBe("alpha");
     } finally { setup.renderer.destroy(); }
 });
+
+test("Tab and Shift+Tab switch scopes without taking slider or search focus", () => {
+    for (const key of [{ name: "tab" }, { name: "tab", shift: true }, { name: "backtab" }]) {
+        let state = modelJourney(base, "switch");
+        state = updateTuiSettingsPickerSearch(state, "a").state!;
+        const all = handleTuiSettingsPickerKey(state, key).state!;
+        expect(all.tab).toBe("all");
+        expect(all.query).toBe("a");
+        const slider = handleTuiSettingsPickerKey(all, { name: "up" }).state!;
+        expect(slider.modelFocus).toBe("intelligence");
+        expect(handleTuiSettingsPickerKey(slider, { name: "down" }).state?.modelFocus).toBe("list");
+        const shortlist = handleTuiSettingsPickerKey(slider, key).state!;
+        expect(shortlist.tab).toBe("pool");
+        expect(shortlist.modelFocus).toBe("list");
+        expect(shortlist.query).toBe("a");
+    }
+});

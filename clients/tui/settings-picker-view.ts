@@ -1185,7 +1185,7 @@ export function renderListPickerRows(
             for (const [tab, label] of [["pool", "Shortlist"], ["all", "All models"]] as const) {
                 const active = state.tab === tab;
                 const chip = new TextRenderable(renderer, {
-                    content: `  ${label}  `, height: 1,
+                    content: ` ${label} `, height: 1,
                     fg: active ? TUI_SELECTION_TEXT : TUI_MUTED,
                     bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
                 });

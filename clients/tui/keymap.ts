@@ -125,8 +125,9 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
     },
     {
-        id: "journey_scope", keys: ["tab"], scope: "switch_model_picker",
+        id: "journey_scope", keys: ["tab", "shift+tab", "backtab"], scope: "switch_model_picker",
         description: "Change between shortlist and all models", hint: "tab scope",
+        overrides: ["dials.open"],
     },
     {
         id: "journey_refresh", keys: ["ctrl+r"], scope: "switch_model_picker",
