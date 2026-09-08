@@ -538,20 +538,21 @@ export function openSettingsDestination(rt: TuiRuntime,
                 : { selected: route.provider }),
         });
     } else if (route.type === "model_shortlist") {
-        openModelPicker(rt);
+        openModelPicker(rt, options.parent);
         rt.settingsPicker = modelJourney(
             rt.settingsPicker as TuiSettingsPickerState,
             "shortlist",
         );
         renderState(rt);
     } else if (route.type === "model_assignments") {
-        const options = currentModelAssignmentRows(rt).map((row) => ({
+        const rows = currentModelAssignmentRows(rt).map((row) => ({
             value: row.assignment, label: row.label,
             description: row.declared.length > 0 ? row.declared.map((model) => `${model.provider}/${model.model}`).join(" → ")
                 : ["snappy", "eco", "extra"].includes(row.assignment) ? "unset, no model bound" : "unset, inherits its intent",
         }));
         rt.settingsPicker = { kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 0,
-            allOptions: options, options, subtitle: "Only shortlisted and verified models are eligible. Assigning leaves the conversation model unchanged." };
+            allOptions: rows, options: rows, parent: options.parent,
+            subtitle: "Only shortlisted and verified models are eligible. Assigning leaves the conversation model unchanged." };
         renderState(rt);
         focusActiveSurface(rt);
     } else {

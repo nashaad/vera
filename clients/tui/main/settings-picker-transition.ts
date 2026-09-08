@@ -546,7 +546,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             startCatalogRefreshSweep(rt, selection.providers);
             return;
         } else if (selection.kind === "model_assignment_browse") {
-            openSettingsDestination(rt, { kind: "model_shortlist" });
+            openSettingsDestination(rt, { kind: "model_shortlist" }, {
+                parent: previousPicker?.kind === "extension" ? undefined : previousPicker,
+            });
             return;
         } else if (selection.kind === "model_assignment_open") {
             openSettingsDestination(rt, 

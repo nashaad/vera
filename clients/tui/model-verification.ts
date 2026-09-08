@@ -32,14 +32,14 @@ export function handleVerificationKey(state: TuiSettingsPickerState, key: TuiSet
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) }, handled: true };
     if ((key.name === "enter" || key.name === "return") && state.kind === "pool_verify_scope") {
         const row = state.options[state.selectedIndex];
-        if (row !== undefined && row.unavailable !== true) return { handled: true,
+        if (row !== undefined && row.unavailable !== true) return { state, handled: true,
             selection: { kind: "pool_verify_scope", onlyUnverified: state.onlyUnverified === true,
                 ...(row.value === "" ? {} : { provider: row.value }) } };
     }
     return { state, handled: true };
 }
 
-export function verificationResults(run: VerificationRun): TuiSettingsPickerState {
+export function verificationResults(run: VerificationRun, from?: TuiSettingsPickerState): TuiSettingsPickerState {
     const options = run.targets.map((target) => {
         const result = run.results.find((row) => row.provider === target.provider && row.model === target.model);
         return { value: `${target.provider}/${target.model}`, label: `${target.provider}/${target.model}`,
@@ -47,7 +47,10 @@ export function verificationResults(run: VerificationRun): TuiSettingsPickerStat
     });
     return { kind: "model_verification", title: run.running ? "Verifying models" : "Verification results",
         subtitle: "Leaving this screen does not stop the checks.\nA failure changes no existing assignment.",
-        allOptions: options, options, selectedIndex: 0, query: "" };
+        allOptions: options, options,
+        selectedIndex: from?.kind === "model_verification" ? Math.min(from.selectedIndex, Math.max(0, options.length - 1)) : 0,
+        parent: from?.kind === "model_verification" ? from.parent : from,
+        query: "" };
 }
 
 export function verificationNudge(models: readonly { readonly verified: boolean }[], dismissed: boolean): string | undefined {

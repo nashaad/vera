@@ -166,8 +166,10 @@ export function catalogRefreshSummary(rt: TuiRuntime,
 }
 
 export function openPoolVerifyScopePicker(rt: TuiRuntime): void {
+    const parent = rt.settingsPicker?.kind === "extension" ? undefined : rt.settingsPicker;
     rt.settingsPicker = rt.modelVerification?.running
-        ? verificationResults(rt.modelVerification) : verificationPicker(keptModels(rt));
+        ? verificationResults(rt.modelVerification, parent)
+        : withTuiPickerParent(verificationPicker(keptModels(rt)), parent);
     renderState(rt);
     focusActiveSurface(rt);
 }

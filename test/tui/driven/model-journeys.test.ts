@@ -38,9 +38,11 @@ test("live shortlist keeps through the host operation and verification can be le
         session.sendKey("Escape");
         await session.settle();
         expect(session.captureVisiblePane()).not.toContain("Verifying models");
+        expect(session.captureVisiblePane()).toContain("Manage shortlist");
         finish();
         await session.settle(50);
         expect(operations.map((operation) => operation.operation)).toEqual(["keep", "verify"]);
+        expect(session.captureVisiblePane()).toContain("Manage shortlist");
     } finally { finish(); await session.close(); }
 }, 15_000);
 

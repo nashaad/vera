@@ -28,3 +28,17 @@ test("the verification nudge is dismissible for the session", () => {
     expect(verificationNudge(models, true)).toBeUndefined();
     expect(verificationNudge([{ verified: true }], false)).toBeUndefined();
 });
+
+test("verification progress and completion preserve the caller and results cursor", () => {
+    const parent = { ...verificationPicker(models), selectedIndex: 1, onlyUnverified: false };
+    const started = handleVerificationKey(parent, { name: "enter" });
+    expect(started.state).toBe(parent);
+    const run = { running: true, targets: models, results: [] };
+    const results = { ...verificationResults(run, parent), selectedIndex: 1 };
+    const progress = verificationResults({ ...run, results: [{ ...models[0]!, status: "passed" }] }, results);
+    expect(progress.selectedIndex).toBe(1);
+    expect(handleVerificationKey(progress, { name: "escape" }).state).toBe(parent);
+    const complete = verificationResults({ ...run, running: false }, progress);
+    expect(complete.selectedIndex).toBe(1);
+    expect(handleVerificationKey(complete, { name: "escape" }).state).toBe(parent);
+});

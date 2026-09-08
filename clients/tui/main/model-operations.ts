@@ -17,18 +17,18 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
     }
     const verifying = operation.operation === "verify";
     if (verifying && rt.modelVerification?.running) {
-        rt.settingsPicker = verificationResults(rt.modelVerification);
+        rt.settingsPicker = verificationResults(rt.modelVerification, rt.settingsPicker?.kind === "extension" ? undefined : rt.settingsPicker);
         renderState(rt); focusActiveSurface(rt); return;
     }
     if (verifying) {
         rt.modelVerification = { targets: operation.models, results: [], running: true };
-        rt.settingsPicker = verificationResults(rt.modelVerification);
+        rt.settingsPicker = verificationResults(rt.modelVerification, rt.settingsPicker?.kind === "extension" ? undefined : rt.settingsPicker);
         renderState(rt); focusActiveSurface(rt);
     }
     void operate(operation, (result) => {
         if (verifying && rt.modelVerification !== undefined) {
             rt.modelVerification = { ...rt.modelVerification, results: [...rt.modelVerification.results, result] };
-            if (rt.settingsPicker?.kind === "model_verification") rt.settingsPicker = verificationResults(rt.modelVerification);
+            if (rt.settingsPicker?.kind === "model_verification") rt.settingsPicker = verificationResults(rt.modelVerification, rt.settingsPicker);
         } else if (result.status === "failed" || result.reason !== undefined) {
             showStatusNotice(rt, result.reason ?? "Model operation failed.");
             if (rt.settingsPicker?.kind === "model") rt.settingsPicker = { ...rt.settingsPicker, journeyNotice: result.reason };
@@ -56,7 +56,7 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
         .finally(() => {
             if (verifying && rt.modelVerification !== undefined) {
                 rt.modelVerification = { ...rt.modelVerification, running: false };
-                if (rt.settingsPicker?.kind === "model_verification") rt.settingsPicker = verificationResults(rt.modelVerification);
+                if (rt.settingsPicker?.kind === "model_verification") rt.settingsPicker = verificationResults(rt.modelVerification, rt.settingsPicker);
             }
             renderState(rt);
         });

@@ -1931,7 +1931,7 @@ export function pickerFooterText(
     state: TuiAnySettingsPickerState,
     width = 0,
 ): string {
-    if (state.kind === "model_verification") return "↑↓ results · esc close (checks continue)";
+    if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session") {
         const leavingSomething = state.nothingToLeave !== true;
