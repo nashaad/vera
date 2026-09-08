@@ -3,7 +3,7 @@ import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyWindow, journeyModels, journeyMatches } from "./model-journeys.ts";
-import { BoxRenderable, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
+import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
     isJobAssignmentId,
@@ -1335,6 +1335,13 @@ export function renderListPickerRows(
             }));
         }
         const footer = dialogFooterNode(renderer, journeyFooter(state));
+        if (state.modelJourney === "switch") {
+            const [more, navigation] = journeyFooter(state).split("\n");
+            footer.content = new StyledText([
+                bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(more!))),
+                fg(TUI_MUTED)(`\n${navigation}`),
+            ]);
+        }
         if (state.modelJourney === "switch" && onMore !== undefined) {
             footer.selectable = false;
             footer.onMouseDown = (event) => {
