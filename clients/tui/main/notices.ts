@@ -1,3 +1,4 @@
+import { setTextContent } from "../text-content.ts";
 import { renderTuiHeldAddress } from "../addressing.ts";
 import { COPY_NOTICE_DURATION_MS, MODE_TOAST_DURATION_MS, renderStatus } from "../main.ts";
 import { setComposerMargin } from "../main/chrome.ts";
@@ -27,7 +28,7 @@ export function showStatusNotice(rt: TuiRuntime, message: string): void {
 export function showModeToast(rt: TuiRuntime, message: string): void {
     rt.modeToastVersion += 1;
     const version = rt.modeToastVersion;
-    rt.modeToastText.content = message;
+    setTextContent(rt.modeToastText, message);
     rt.modeToast.width = message.length + 4;
     rt.modeToast.visible = true;
     setTimeout(() => {
@@ -128,30 +129,30 @@ export function renderPendingQuote(rt: TuiRuntime): void {
     rt.quoteText.visible = quote !== undefined && !anyOverlayOpen(rt);
     setComposerMargin(rt, rt.quoteText.visible ? 3 : 2);
     if (quote === undefined) {
-        rt.quoteText.content = "";
+        setTextContent(rt.quoteText, "");
         return;
     }
     const { facts, keys } = renderTuiQuote(quote);
-    rt.quoteText.content = new StyledText([
+    setTextContent(rt.quoteText, new StyledText([
         fg(TUI_ACCENT)(`${tuiQuoteMarker(Date.now())} `),
         fg(TUI_MUTED)(`${facts} · `),
         fg(TUI_ACCENT)(keys),
-    ]);
+    ]));
 }
 
 export function renderHeldAddress(rt: TuiRuntime): void {
     const { facts, keys } = renderTuiHeldAddress(rt.extensionAddressee);
     rt.heldAddressText.visible = facts.length > 0 && !anyOverlayOpen(rt);
     if (facts.length === 0) {
-        rt.heldAddressText.content = "";
+        setTextContent(rt.heldAddressText, "");
         return;
     }
-    rt.heldAddressText.content = new StyledText([
+    setTextContent(rt.heldAddressText, new StyledText([
         fg(TUI_MUTED)(
             `${" ".repeat(rt.appearance.composerMarginHorizontal)}${facts} · `,
         ),
         fg(TUI_ACCENT)(keys),
-    ]);
+    ]));
 }
 
 export function paneHeaderText(rt: TuiRuntime, 
