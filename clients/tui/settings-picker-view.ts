@@ -1125,9 +1125,9 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     const summaryMargin = scope && renderer.height < 30 ? 0 : 1;
     const headerHeight = (scope ? 2 : 0) + (headerLines.length ? headerLines.length + summaryMargin : 0);
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
-    const priceLines = cutoff ? (renderer.height < 30 ? 1 : 3) : 0;
-    const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines);
     const split = state.options.length === 0 ? undefined : modelPaneSplit(renderer, state, railInset);
+    const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
+    const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
     const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
@@ -1185,7 +1185,7 @@ export function renderListPickerRows(
             for (const [tab, label] of [["pool", "Shortlist"], ["all", "All models"]] as const) {
                 const active = state.tab === tab;
                 const chip = new TextRenderable(renderer, {
-                    content: active ? `[ ${label} ]` : `  ${label}  `, height: 1,
+                    content: `  ${label}  `, height: 1,
                     fg: active ? TUI_SELECTION_TEXT : TUI_MUTED,
                     bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
                 });

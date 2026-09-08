@@ -299,9 +299,11 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(preferred.indexOf("1629")).toBe(steady.indexOf("1400"));
         expect(header.indexOf("WA Score*") + "WA Score*".length).toBe(preferred.indexOf("1629") + 4);
         expect(unknown).not.toMatch(/\b0\b/);
-        expect(frame).toContain("full 3/15");
-        expect(frame).toContain("blended 4.2 at 7:2:1  images");
-        expect(frame.indexOf("full 3/15")).toBeGreaterThan(frame.indexOf("Steady"));
+        expect(frame).toContain("Full price");
+        expect(frame).toContain("3/15");
+        expect(frame).toContain("Blended price");
+        expect(frame).not.toContain("full 3/15");
+        expect(frame).not.toContain("blended 4.2 at");
         expect(frame).toContain("Catalog: fewer models");
         expect(frame).toContain("show every model");
         const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
@@ -315,6 +317,12 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(frame).toContain("* WA Score: an Elo rating");
         expect(frame).toContain("Model ID");
         expect(frame).toContain("Smarter");
+        setup.resize(60, 44);
+        view.update(state);
+        await setup.renderOnce();
+        const narrow = setup.captureCharFrame();
+        expect(narrow).not.toContain("Full price");
+        expect(narrow).toContain("full 3/15");
     } finally { setup.renderer.destroy(); }
 });
 
@@ -415,7 +423,9 @@ test("scope is prominent and highlighting across provider boundaries never moves
                 expect(frame).not.toContain("▶");
                 expect(frame).not.toContain("▼");
                 if (mode === "switch") {
-                    expect(frame).toContain("[ All models ]");
+                    expect(frame).toContain("All models");
+                    expect(frame).not.toContain("[ All models ]");
+                    expect(frame).not.toContain("[ Shortlist ]");
                     expect(frame).toContain("Shortlist");
                     expect(frame).toContain("Catalog: fewer models");
                 }
