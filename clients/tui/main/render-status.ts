@@ -1,4 +1,5 @@
 import { verificationNudge } from "../model-verification.ts";
+import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
 import { tuiApprovalHint } from "../approval.ts";
@@ -29,12 +30,12 @@ export function renderStatus(rt: TuiRuntime): void {
     }
     rt.transcriptWorking.visible = rt.state.working && !isWorkerFreeClient(rt.client);
     if (rt.transcriptWorking.visible) {
-        rt.transcriptWorking.content = renderTuiActivityAnimation(
+        setTextContent(rt.transcriptWorking, renderTuiActivityAnimation(
             rt.activityAnimation === "off" ? "off" : "shimmer",
             transcriptShimmerFrame(Date.now()),
             `Working (${elapsedWorkingTime(rt)} · esc to interrupt)`,
             { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT },
-        );
+        ));
     }
     const uiRequest = focusedUiRequest(rt);
     const focusedSide = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
@@ -184,7 +185,7 @@ export function renderStatus(rt: TuiRuntime): void {
         placeIdle,
         hostedControls,
     );
-    rt.hostedModeText.content = hostedModeStatus;
+    setTextContent(rt.hostedModeText, hostedModeStatus);
     rt.hostedModeText.visible = hostedModeStatus.length > 0;
     const statusLine = [
         tuiDevInstancePrefix(),
@@ -231,7 +232,7 @@ export function renderStatus(rt: TuiRuntime): void {
     const hudAccent = TUI_HUD?.accent ?? TUI_ACCENT;
     const hudNotice = TUI_HUD?.notice ?? TUI_NOTICE;
     const hudSuccess = TUI_HUD?.success ?? VERA_TUI_THEME.success;
-    rt.dialCardTitle.content = new StyledText(
+    setTextContent(rt.dialCardTitle, new StyledText(
         paintDialHud(hudRows, rt.dialStrip?.lane, {
             text: hudText,
             muted: hudMuted,
@@ -267,16 +268,16 @@ export function renderStatus(rt: TuiRuntime): void {
             ),
             ...(index === hudRows.length - 1 ? [] : [fg(hudText)("\n")]),
         ]),
-    );
+    ));
     const dialHintParts = (stripLines?.at(-1) ?? "")
         .split(DIAL_EXIT_SEPARATOR);
-    rt.dialCardHint.content = stripLines === undefined
+    setTextContent(rt.dialCardHint, stripLines === undefined
         ? ""
         : new StyledText([
             fg(hudMuted)(dialHintParts[0] ?? ""),
             fg(hudNotice)(dialHintParts[1] ?? ""),
-        ]);
-    rt.activityHintText.content = activityHint;
+        ]));
+    setTextContent(rt.activityHintText, activityHint);
     rt.activityHintText.visible = rt.statusText.visible
         && activityHint.length > 0;
     const extensionSegments = rt.clientExtensionRegistry?.renderStatusLine(
@@ -381,9 +382,9 @@ export function renderStatus(rt: TuiRuntime): void {
         fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
     const insideRow = detailsRows[0] ?? [];
     const outsideRows = detailsRows.slice(1);
-    rt.composerStatusText.content = new StyledText(
+    setTextContent(rt.composerStatusText, new StyledText(
         insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
-    );
+    ));
     rt.needsYouChipWidth = needsYouChipColumns(
         insideRow,
         rt.workIndex?.needs_you ?? 0,
@@ -394,12 +395,12 @@ export function renderStatus(rt: TuiRuntime): void {
             ? []
             : [fg(TUI_MUTED)("\n"), rule("─")]),
     ]);
-    rt.backgroundStatusText.content = new StyledText(detailChunks);
+    setTextContent(rt.backgroundStatusText, new StyledText(detailChunks));
     const noticeIndent = " ".repeat(rt.composerContentIndent);
-    rt.agentNoticeText.content = nudgeIndicator === undefined &&
+    const noticeChunks = nudgeIndicator === undefined &&
             agentSection.length === 0
-        ? new StyledText([])
-        : new StyledText([
+        ? []
+        : [
             ...(nudgeIndicator === undefined
                 ? []
                 : [
@@ -426,18 +427,16 @@ export function renderStatus(rt: TuiRuntime): void {
                             }`,
                     ),
                 ]),
-        ]);
+        ];
     rt.agentNoticeRows = agentSection.length +
         (nudgeIndicator === undefined ? 0 : 1);
     const verifyNudge = isWorkerFreeClient(rt.client) || anyOverlayOpen(rt) ? undefined : verificationNudge(
         statusState.modelSettings?.pooled ?? [], rt.verificationNudgeDismissed === true);
     if (verifyNudge !== undefined) {
-        rt.agentNoticeText.content = new StyledText([
-            ...rt.agentNoticeText.content.chunks,
-            fg(TUI_MUTED)(`${rt.agentNoticeRows > 0 ? "\n" : ""}${noticeIndent}${verifyNudge}`),
-        ]);
+        noticeChunks.push(fg(TUI_MUTED)(`${rt.agentNoticeRows > 0 ? "\n" : ""}${noticeIndent}${verifyNudge}`));
         rt.agentNoticeRows += 1;
     }
+    setTextContent(rt.agentNoticeText, new StyledText(noticeChunks));
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
     const cardRows = Math.max(1, outsideRows.length * 2 - 1);
@@ -456,7 +455,7 @@ export function renderStatus(rt: TuiRuntime): void {
     ) {
         quietHint.push(fg(TUI_MUTED)(` · ${SIDEBAR_HINT}`));
     }
-    rt.statusText.content = quietActivity
+    setTextContent(rt.statusText, quietActivity
         ? new StyledText(quietHint)
         : statusState.working
             && rt.statusNotice === undefined
@@ -478,5 +477,5 @@ export function renderStatus(rt: TuiRuntime): void {
             },
             rt.activityAnimationWidth,
         )
-        : statusLine;
+        : statusLine);
 }

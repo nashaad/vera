@@ -263,7 +263,8 @@ export async function runDevTui(
         }
     }
     const lifted = liftCloneHome(destinationHome);
-    scrubLiveIdentity(destinationHome);
+    if (lifted) scrubLiveIdentity(destinationHome);
+    else scrubForeignHostIdentity(destinationHome);
     quarantineUnknownHomeEntries(destinationHome);
     if (!existed || lifted) {
         disableOutboundConsumers(destinationHome);
@@ -317,6 +318,22 @@ export function liftCloneHome(home: string): boolean {
     if (!existsSync(join(home, "profiles"))) return false;
     migrateHome(home);
     return true;
+}
+
+function scrubForeignHostIdentity(home: string): void {
+    const runtime = join(home, "runtime");
+    let record: { socket_path?: unknown } | null;
+    try {
+        record = JSON.parse(readFileSync(join(runtime, "host.json"), "utf8"));
+    } catch {
+        return;
+    }
+    if (
+        typeof record?.socket_path === "string"
+        && record.socket_path !== join(runtime, "host.sock")
+    ) {
+        scrubLiveIdentity(home);
+    }
 }
 
 /** Move leftover root files into machine/leftover so the clone can start. */
