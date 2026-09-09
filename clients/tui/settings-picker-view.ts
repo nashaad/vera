@@ -1344,6 +1344,12 @@ export function renderListPickerRows(
                 bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(more!))),
                 fg(TUI_MUTED)(`\n${navigation}`),
             ]);
+        } else {
+            const [action, ...details] = journeyFooter(state).split("\n");
+            footer.content = new StyledText([
+                fg(TUI_TEXT)(action!),
+                fg(TUI_MUTED)(`\n${details.join("\n")}`),
+            ]);
         }
         if (state.modelJourney === "switch" && onMore !== undefined) {
             footer.selectable = false;
