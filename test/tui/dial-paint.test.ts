@@ -187,8 +187,8 @@ function colorOnAgentRow(
 test("a chosen value on an unfocused rung sits between lit and muted", () => {
     // The agent rung holds "default" either way: focused it is full text,
     // left behind it settles, and it never drops to the unchosen weight.
-    expect(colorOnAgentRow(strip("agent"), "›default")).toBe(THEME.background);
-    const away = colorOnAgentRow(strip("model"), "›default");
+    expect(colorOnAgentRow(strip("agent"), "default")).toBe(THEME.background);
+    const away = colorOnAgentRow(strip("model"), "default");
     expect(away).toBe(settled(THEME.text));
     expect(away).not.toBe(THEME.muted);
 });
@@ -287,7 +287,7 @@ test("the auto tracer survives adversarial widths and progress values", () => {
     const color = /^#[0-9a-f]{6}$/i;
     for (const width of [1, 2, 8, 20, 40, 60, 120]) {
         const rows = rowsOf(state, width);
-        const plain = rows.map((row) => row.replace(sentinels, ""));
+        const plain = rows.map((row) => row.replace(sentinels, "").replace(/(AGENT\s*)›/, "$1 "));
         for (
             const progress of [
                 -1,
@@ -391,7 +391,7 @@ test("painting covers every row and drops none of its text", () => {
             expect(painted).toHaveLength(rows.length);
             for (const [index, row] of painted.entries()) {
                 expect(row.map((span) => span.text).join("")).toBe(
-                    rows[index]!.replace(sentinels, ""),
+                    rows[index]!.replace(sentinels, "").replace(/(AGENT\s*)›/, "$1 "),
                 );
             }
         }

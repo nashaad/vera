@@ -73,6 +73,7 @@ test("HUD Tab and mouse choose controls, vertical arrows stage models, and Escap
         session.sendKey("Down"); await session.settle();
         expect(session.captureVisiblePane()).toContain("› EFFORT");
         session.sendKey("Tab"); await session.waitForVisiblePane("› ACCESS");
+        expect(session.captureVisiblePane()).not.toContain("full (off)");
         session.sendKey("Tab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Down"); await session.settle();
         expect(session.captureVisiblePane()).toMatch(/○ › 2 Two/);

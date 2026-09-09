@@ -388,7 +388,7 @@ export function renderDialStrip(
         return live === undefined || values[selected] === live ? line : appendDialNote(line, `live: ${live}`, width);
     };
     const scale = renderEffortScale(slot?.efforts ?? [], effort, width,
-        dialChoiceCell("default", effort === undefined), slot?.defaultEffort, state.lane === "effort");
+        " default", slot?.defaultEffort, state.lane === "effort");
     const reserveScale = Number.isFinite(width) && width >= 56 && state.slots.some((entry) => entry.efforts.length >= 2);
     const effortRows = scale.length > 0 ? [...scale] : [
         ...(reserveScale ? [""] : []),

@@ -208,7 +208,7 @@ export function paintDialRow(
             const highlightedChoice = picked && activeRow;
             body.push(
                 span(
-                    part,
+                    index === rows.agent && picked ? part.replace(DIAL_PICK_MARKER, " ") : part,
                     highlightedChoice
                         ? theme.background
                         : picked
