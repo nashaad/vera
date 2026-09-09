@@ -14,7 +14,7 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
         const setup = await createTestRenderer({ width, height: 44 });
         const view = createTuiSettingsPickerView(setup.renderer);
         let state: TuiSettingsPickerState = { kind: "model", tab: "all", options, allOptions: options, selectedIndex: 0, query: "a" };
-        if (journey) state = handleTuiSettingsPickerKey(modelJourney(state, "switch"), { name: "tab" }).state!;
+        if (journey) state = { ...modelJourney(state, "switch"), tab: "all", options };
         state = { ...state, query: journey ? "a" : "" };
         view.onCutoff = (cutoff) => { state = setTuiSettingsPickerCutoff(state, cutoff); view.update(state); };
         setup.renderer.root.add(view.surface);
@@ -65,7 +65,7 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
                 await setup.mockMouse.click(lines[tickRow]!.indexOf("any"), tickRow);
                 expect(setup.renderer.getSelection() === null).toBe(true);
             }
-            state = handleTuiSettingsPickerKey(state, { name: journey ? "down" : "tab" }).state!;
+            state = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
             expect(state.modelFocus).toBe("list");
         } finally { setup.renderer.destroy(); }
     }

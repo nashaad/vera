@@ -104,7 +104,7 @@ test("the HUD windows long lanes instead of wrapping them", () => {
     );
     expect(compact.join("\n")).toContain("MODEL");
     expect(compact.join("\n")).toContain("EFFORT");
-    expect(compact.at(-1)).toContain("↑/↓ lane · ←/→");
+    expect(compact.at(-1)).toContain("Tab/Shift+Tab sections");
     const wide = renderDialStrip(
         openDialStrip(composition, SOL),
         "hints",
@@ -548,7 +548,7 @@ function press(state: DialStripState, name: string): DialStripState {
     return action.state;
 }
 
-test("arrows stage all lanes and Enter commits them together; Escape commits nothing", () => {
+test("Tab changes controls, arrows stage their values, Enter applies, and Escape cancels", () => {
     const original = openDialStrip(composeDialStrip({ current: SOL, recents: [],
         pool: POOL, includePool: true }), SOL, {
         permissionModes: ["ask", "auto"], currentPermission: "ask",
@@ -556,11 +556,11 @@ test("arrows stage all lanes and Enter commits them together; Escape commits not
     });
     let state = press(original, "right");
     expect(dialStripSelection(state)?.effort).toBe("medium");
-    state = press(press(state, "down"), "right");
-    state = press(press(state, "down"), "right");
+    state = press(press(state, "tab"), "right");
+    state = press(press(state, "tab"), "down");
     expect(state.lane).toBe("model");
     expect(dialStripSelection(state)?.model).toBe("glm-5");
-    state = press(press(state, "down"), "right");
+    state = press(press(state, "tab"), "right");
     expect(handleDialStripKey(state, { name: "enter" }, undefined)).toEqual({
         kind: "commit", pair: { provider: "zai", model: "glm-5" },
         permission: "auto", agent: "reviewer",
@@ -570,18 +570,19 @@ test("arrows stage all lanes and Enter commits them together; Escape commits not
     expect(original.permissionModes[original.permissionIndex]).toBe("ask");
 });
 
-test("only arrows move; model stepping wraps through a library larger than ten", () => {
+test("vertical model arrows stay within the control and wrap through a large library", () => {
     const pool = Array.from({ length: 15 }, (_, index) => ({
         provider: "test", model: `model-${index}`, levels: [],
     }));
     let state = openDialStrip(composeDialStrip({ current: undefined, recents: [],
         pool, includePool: true, cap: Infinity }), undefined);
-    state = press(press(state, "down"), "down");
-    for (let i = 0; i < 15; i += 1) state = press(state, "right");
+    state = press(press(state, "tab"), "tab");
+    for (let i = 0; i < 15; i += 1) state = press(state, "down");
     expect(state.index).toBe(0);
-    state = press(state, "left");
+    state = press(state, "up");
     expect(state.index).toBe(14);
-    for (const name of ["tab", "h", "j", "k", "l", "1", "m"]) {
+    expect(state.lane).toBe("model");
+    for (const name of ["left", "right", "h", "j", "k", "l", "1", "m"]) {
         expect(handleDialStripKey(state, { name }, undefined)).toEqual({ kind: "ignore" });
     }
     const lines = renderDialStrip(state, "", 60);
@@ -674,5 +675,23 @@ test("HUD model choices are vertical with fixed highlight width and stable heigh
         expect(lines.slice(start, end)).toHaveLength(3);
         expect(lines.slice(start, end).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
         state = moveDialStrip(state, 1);
+    }
+});
+
+test("Tab and reverse Tab cycle HUD controls without staging values", () => {
+    const original = scaleStrip(SOL);
+    let state = original;
+    for (const lane of ["access", "model", "agent", "effort"]) {
+        state = press(state, "tab");
+        expect(state.lane).toBe(lane);
+        expect(dialStripSelection(state)).toEqual(SOL);
+        expect(state.permissionEdited).toBeUndefined();
+    }
+    for (const key of [{ name: "tab", shift: true }, { name: "backtab" }]) {
+        const action = handleDialStripKey(original, key, undefined);
+        expect(action.kind === "state" && action.state.lane).toBe("agent");
+    }
+    for (const lane of ["effort", "access", "agent"] as const) {
+        for (const name of ["up", "down"]) expect(handleDialStripKey({ ...original, lane }, { name }, undefined)).toEqual({ kind: "ignore" });
     }
 });

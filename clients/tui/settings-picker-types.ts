@@ -239,6 +239,8 @@ export function pickerPageHasKeys(
     return (state.pickerLevel ?? "page") === "page";
 }
 
+export type ModelJourneySection = "scope" | "search" | "intelligence" | "list" | "more";
+
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
     readonly allOptions: readonly TuiSettingsPickerOption[];
@@ -266,7 +268,7 @@ export interface TuiSettingsPickerState {
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
     readonly pickerLevel?: "strip" | "page";
     readonly modelFocus?:
-        | "list"
+        | ModelJourneySection
         | "list_action"
         | "detail"
         | "page_entry"
@@ -492,6 +494,8 @@ export interface TuiSettingsPickerView {
     onConfigure?: () => void;
     onCutoff?: (cutoff?: IntelligenceCutoff) => void;
     onMore?: () => void;
+    onScope?: () => void;
+    onSection?: (section: ModelJourneySection) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
     handleEditorKey(

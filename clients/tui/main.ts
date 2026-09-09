@@ -226,6 +226,7 @@ import { createTuiNamePromptView } from "./name-prompt.ts";
 import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 
 import { DIAL_HUD_CAP, dialEffortPending, renderDialStrip, DIAL_EXIT_SEPARATOR } from "./dials.ts";
+import { modelJourneyScope } from "./model-journeys.ts";
 import {
     AUTO_MODE_ANIMATION_DURATION_MS,
     paintDialHud,
@@ -2077,6 +2078,18 @@ export async function startTui(
     rt.settingsPickerView.onMore = () => {
         if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
         applySettingsPickerTransition(rt, handleTuiSettingsPickerKey(rt.settingsPicker, { name: "k", ctrl: true }));
+    };
+    rt.settingsPickerView.onScope = () => {
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        rt.settingsPicker = modelJourneyScope({ ...rt.settingsPicker, modelFocus: "scope" });
+        renderState(rt);
+        focusActiveSurface(rt);
+    };
+    rt.settingsPickerView.onSection = (modelFocus) => {
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        rt.settingsPicker = { ...rt.settingsPicker, modelFocus };
+        renderState(rt);
+        focusActiveSurface(rt);
     };
     rt.settingsPickerView.onConfigure = () => {
         if (rt.settingsPicker?.kind === "provider") return;

@@ -6,6 +6,17 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 
+async function showCatalog(session: Awaited<ReturnType<typeof startTuiTestSession>>): Promise<void> {
+    session.sendKey("Tab"); session.sendKey("Tab");
+    await session.waitForVisiblePane("⏎ choose which models to show");
+    session.sendKey("Enter"); await session.waitForVisiblePane("Show models");
+    session.sendKey("Down"); session.sendKey("Enter");
+    await session.waitForVisiblePane("Models from your connected providers");
+    session.sendKey("BTab"); session.sendKey("BTab");
+    await session.waitForVisiblePane("↑↓ choose · ⏎ switch model");
+}
+
+
 test("live library keeps through the host operation and verification can be left running", async () => {
     const operations: ModelOperation[] = [];
     let finish!: () => void;
@@ -148,21 +159,21 @@ test("Home stages empty dials without creating a session, then switching applies
         session.sendKey("Enter");
         const dials = await session.waitForVisiblePane("EFFORT");
         expect(dials).toContain("readonly");
-        session.sendKey("Down"); session.sendKey("Left");
+        session.sendKey("Tab"); session.sendKey("Left");
         await session.waitForVisiblePane("‹ readonly ›");
         session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("dial strip"); await session.waitForVisiblePane("Dial strip");
         session.sendKey("Enter"); await session.waitForVisiblePane("‹ readonly ›");
-        session.sendKey("Down"); session.sendKey("Right"); session.sendKey("Right");
+        session.sendKey("Tab"); session.sendKey("Right"); session.sendKey("Right");
         await session.waitForVisiblePane("live: readonly");
         session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        session.sendKey("Tab"); await session.waitForVisiblePane("One");
+        await showCatalog(session); await session.waitForVisiblePane("One");
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
         expect(created).toBe(1);
@@ -191,7 +202,7 @@ test("Switch model cannot mutate the library through legacy Ctrl+S or Ctrl+Shift
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        session.sendKey("Tab"); await session.waitForVisiblePane("not in your library");
+        await showCatalog(session); await session.waitForVisiblePane("not in your library");
         session.sendKey("C-s"); await session.settle();
         session.sendKey("C-s"); await session.settle();
         expect(session.captureVisiblePane()).toContain("not in your library");
@@ -210,7 +221,7 @@ test("clicking a cutoff tick reaches the live picker without switching models", 
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        session.sendKey("Tab");
+        await showCatalog(session);
         const before = await session.waitForVisiblePane("Models from your connected providers");
         const lines = before.split("\n");
         const tickRow = lines.findIndex((line) => line.includes("1400") && line.includes("1600"));
@@ -239,7 +250,7 @@ test("Ctrl+K opens the relevant menu and Escape restores the live filtered picke
         session.sendKey("C-k"); await session.waitForVisiblePane("Refresh model catalog");
         expect(session.captureVisiblePane()).not.toContain("extra variants");
         session.sendKey("Escape"); await session.waitForVisiblePane("Your library is empty");
-        session.sendKey("Tab"); await session.waitForVisiblePane("Models from your connected providers");
+        await showCatalog(session);
         session.sendText("open"); await session.settle();
         const before = session.captureVisiblePane();
         expect(before).toContain("Ctrl+K More: variants, refresh");

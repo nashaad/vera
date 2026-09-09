@@ -2,7 +2,7 @@ import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
 import { tuiApprovalHint } from "../approval.ts";
-import { AUTO_MODE_ANIMATION_DURATION_MS, paintDialHud } from "../dial-paint.ts";
+import { AUTO_MODE_ANIMATION_DURATION_MS, mapDialRows, paintDialHud } from "../dial-paint.ts";
 import { DIAL_EXIT_SEPARATOR, DIAL_HUD_CAP, dialEffortPending, renderDialStrip } from "../dials.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
@@ -224,6 +224,19 @@ export function renderStatus(rt: TuiRuntime): void {
     rt.dialCard.visible = stripLines !== undefined;
     rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
     const hudRows = stripLines?.slice(0, -1) ?? [];
+    rt.dialCardTitle.selectable = false;
+    rt.dialCardTitle.onMouseDown = (event) => {
+        if (event.button !== 0 || rt.dialStrip === undefined) return;
+        const rows = mapDialRows(hudRows);
+        const row = event.y - rt.dialCardTitle.screenY;
+        const lane = row >= rows.modelStart && row < rows.modelEnd ? "model"
+            : row === rows.access ? "access" : row === rows.agent ? "agent"
+            : row >= rows.effort && row < rows.access ? "effort" : undefined;
+        if (lane === undefined) return;
+        event.preventDefault(); event.stopPropagation(); rt.renderer.clearSelection();
+        rt.dialStrip = { ...rt.dialStrip, lane };
+        renderStatus(rt);
+    };
     rt.dialCardTitle.height = Math.max(1, hudRows.length);
     rt.dialCard.height = hudRows.length + 3;
     const hudBg = TUI_HUD?.background ?? TUI_PANEL;

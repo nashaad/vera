@@ -132,8 +132,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
     },
     {
-        id: "journey_scope", keys: ["tab", "shift+tab", "backtab"], scope: "switch_model_picker",
-        description: "Change between Library and Catalog", hint: "tab scope",
+        id: "journey_section", keys: ["tab", "shift+tab", "backtab"], scope: "switch_model_picker",
+        description: "Move between controls on this page", hint: "Tab / Shift+Tab sections",
         overrides: ["dials.open"],
     },
     {
@@ -373,31 +373,36 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         remappable: true,
     },
     {
+        id: "dials.section", keys: ["tab", "shift+tab", "backtab"], scope: "dials",
+        description: "Move between HUD controls", hint: "Tab / Shift+Tab sections",
+        overrides: ["dials.open"],
+    },
+    {
         id: "dials.pair.prev",
         keys: ["left"],
         scope: "dials",
-        description: "Move to the pair on the left",
+        description: "Previous value in the active horizontal HUD control",
         remappable: true,
     },
     {
         id: "dials.pair.next",
         keys: ["right"],
         scope: "dials",
-        description: "Move to the pair on the right",
+        description: "Next value in the active horizontal HUD control",
         remappable: true,
     },
     {
         id: "dials.effort.up",
         keys: ["up"],
         scope: "dials",
-        description: "Raise the reasoning effort on the highlighted pair",
+        description: "Previous model in the HUD model list",
         remappable: true,
     },
     {
         id: "dials.effort.down",
         keys: ["down"],
         scope: "dials",
-        description: "Lower the reasoning effort on the highlighted pair",
+        description: "Next model in the HUD model list",
         remappable: true,
     },
     {

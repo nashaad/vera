@@ -54,9 +54,9 @@ A failed save names the cause and preserves the input. Endpoints must use HTTP o
 Open Switch model, use Tab for Catalog, and press Enter to open a conversation with the chosen model.
 
 ## Models and providers [lines=17]
-Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library even when empty; Tab or Shift+Tab changes to Catalog on the same screen.
+Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library models even when empty; Show chooses Library models or Provider catalog on the same screen. Tab and Shift+Tab move between controls.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
-Click the cutoff band to focus it, or click a number or track position to set it. Down returns to the model list.
+Click the cutoff band to focus it, or click a number or track position to set it. Tab moves from the cutoff to the model list.
 Older and duplicate models are hidden by default unless kept. Ctrl+A shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
 In Switch model, Ctrl+K opens More for catalog visibility and refresh. Escape returns to the same picker.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
@@ -67,7 +67,7 @@ Only kept and verified models can be newly assigned in Assign model defaults (`/
 An assigned model cannot be removed from the library until its slots are reassigned or cleared. A failed verification leaves existing assignments unchanged.
 In Switch model, Ctrl+R refreshes connected catalogs in place. Open Configure providers from Ctrl+P. The CLI also has `vera models refresh`.
 Provider credentials and endpoint configuration belong to the Vera home. Forget credentials removes its models, unsets affected defaults, and clears conversations using it; an environment credential must be unset in the host environment.
-Dial strip from Ctrl+P has effort, access, model, and agent lanes. Up/Down crosses lanes, Left/Right stages values, Enter applies, and Escape cancels. Tab does nothing; unavailable values are skipped.
+Dial strip from Ctrl+P has effort, access, model, and agent lanes. Tab and Shift+Tab move between controls. Up/Down stages a model; Left/Right adjusts effort, access, or agent. Enter applies; Escape cancels. Unavailable values are skipped.
 The conversation header shows model, effort, and access.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 
