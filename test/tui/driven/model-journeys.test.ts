@@ -84,6 +84,27 @@ test("verification is explicit and all coverage includes only library models", a
     } finally { await session.close(); }
 }, 15_000);
 
+test("model switching and Model Library have separate slash completion prefixes", async () => {
+    const commands: string[] = [];
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-model-slash-")), width: 120, height: 36,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [], onCommand: (command) => commands.push(command.type) }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/mod"); session.sendKey("Tab");
+        await session.waitForVisiblePane("│ /model");
+        expect(session.captureVisiblePane()).not.toContain("/library-model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Escape");
+        await session.waitForVisiblePaneWhere((pane) => !pane.includes("Switch model"), "Switch model to close");
+        session.sendText("/lib"); session.sendKey("Tab");
+        await session.waitForVisiblePane("│ /library-model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Model Library (0)");
+        expect(commands).not.toContain("prompt");
+        expect(commands).not.toContain("pool_add");
+    } finally { await session.close(); }
+}, 15_000);
+
 test("defaults expose six slots and empty eligibility offers recovery", async () => {
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-defaults-journey-")), width: 120, height: 36,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }),

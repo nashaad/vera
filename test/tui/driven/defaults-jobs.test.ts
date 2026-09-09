@@ -106,19 +106,19 @@ test("library is idempotent when the current model is already kept", async () =>
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/library");
+        session.sendText("/library-model");
         await session.waitForVisiblePaneWhere(
             (pane) => pane.split("\n").some((line) =>
-                line.includes("│ /library")
+                line.includes("│ /library-model")
             ),
-            "the complete /library command in the composer",
+            "the complete /library-model command in the composer",
         );
         session.sendKey("Enter");
         await session.waitForVisiblePaneWhere(
             (pane) => !pane.split("\n").some((line) =>
-                line.includes("│ /library")
+                line.includes("│ /library-model")
             ),
-            "the idempotent /library command to clear the composer",
+            "the idempotent /library-model command to clear the composer",
         );
         expect(commands.filter((command) => command.type === "pool_add"))
             .toHaveLength(0);

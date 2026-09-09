@@ -509,9 +509,9 @@ const COMPACT_COMMAND = {
 } as const satisfies TuiCommandCatalogEntry;
 
 const POOL_COMMAND = {
-    name: "library",
+    name: "library-model",
     description: "Open Model Library, or add the running model",
-    usage: "/library [add]",
+    usage: "/library-model [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PROVIDERS_COMMAND = {
@@ -1609,7 +1609,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     registry.registerCommand({
         ...POOL_COMMAND,
-        aliases: ["shortlist"],
+        aliases: ["library", "shortlist"],
         parse: (argumentsText) => {
             const argument = argumentsText.trim();
             if (argument.length === 0) return { type: "open_settings_destination", destination: { kind: "model_shortlist" } };
@@ -1618,11 +1618,12 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             }
             return {
                 type: "command_error",
-                message: `/library takes no argument or "add", not "${argument}"`,
+                message: `/library-model takes no argument or "add", not "${argument}"`,
             };
         },
         palette: {
             name: "library",
+            slashName: "library-model",
             label: "Model Library",
             description: "add or remove models from your library",
             group: "Settings",

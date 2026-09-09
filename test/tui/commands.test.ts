@@ -217,9 +217,7 @@ test("every builtin command except the palette itself has a palette row", () => 
     );
 
     // The palette does not list itself: you are already looking at it.
-    // A row may deliberately do something broader than its slash command, as
-    // Shortlist does: the palette opens the page while `/shortlist` adds the
-    // running model. Its stable action name still represents the command.
+    // Stable palette action IDs can name their current slash spelling separately.
     expect(BUILTIN_COMMANDS.map((command) => command.name)
         .filter((name) => !representedNames.has(name))).toEqual(["palette"]);
 });
@@ -427,6 +425,10 @@ test("typing slash exposes the built-in rewind command", () => {
         0,
     ))).toContain("› /rewind");
     expect(registry.completion("/rew")).toBe("/rewind");
+    expect(registry.completion("/mod")).toBe("/model");
+    expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model"]);
+    expect(registry.completion("/lib")).toBe("/library-model");
+    expect(registry.suggestions("/library").map((command) => command.name)).toEqual(["library-model"]);
     expect(registry.completion("  /rew")).toBe("  /rewind");
     expect(registry.completion("/rewind")).toBeUndefined();
     expect(registry.completion("/wat")).toBeUndefined();
@@ -550,16 +552,17 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "open_settings_destination",
         destination: { kind: "model" },
     });
-    expect(registry.dispatch("/library")).toEqual({
+    expect(registry.dispatch("/library-model")).toEqual({
         type: "open_settings_destination", destination: { kind: "model_shortlist" },
     });
-    // Keep the formerly advertised spelling as a compatibility alias.
-    expect(registry.dispatch("/library add")).toEqual({
+    expect(registry.dispatch("/library-model add")).toEqual({
         type: "pool_current_model",
     });
-    expect(registry.dispatch("/shortlist")).toEqual(registry.dispatch("/library"));
-    expect(registry.dispatch("/shortlist add")).toEqual(registry.dispatch("/library add"));
-    expect(registry.registeredCommands().some((command) => command.name === "shortlist")).toBe(false);
+    for (const alias of ["library", "shortlist"]) {
+        expect(registry.dispatch(`/${alias}`)).toEqual(registry.dispatch("/library-model"));
+        expect(registry.dispatch(`/${alias} add`)).toEqual(registry.dispatch("/library-model add"));
+        expect(registry.registeredCommands().some((command) => command.name === alias)).toBe(false);
+    }
     expect(registry.dispatch("/effort")).toEqual({
         type: "open_settings_destination",
         destination: { kind: "reasoning" },
