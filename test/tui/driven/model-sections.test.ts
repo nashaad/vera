@@ -23,6 +23,9 @@ test("picker focus preserves search editing, nested Back, and model selection", 
         session.sendKey("Enter"); await session.waitForVisiblePane("Show models");
         session.sendKey("Down"); session.sendKey("Enter");
         await session.waitForVisiblePane("Models from your connected providers");
+        await session.waitForVisiblePane("↑↓ choose · ⏎ switch model");
+        session.sendKey("Tab"); session.sendKey("Tab");
+        await session.waitForVisiblePane("⏎ choose which models to show");
         session.sendText("oe"); await session.waitForVisiblePane("Type to search"); session.sendKey("Left"); session.sendText("n");
         await session.settle();
         expect(session.captureVisiblePane()).toContain("one");

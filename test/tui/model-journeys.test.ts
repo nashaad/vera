@@ -608,3 +608,17 @@ test("typing and paste from every Switch control focuses search at its preserved
         }
     } finally { setup.renderer.destroy(); }
 });
+
+
+test("confirming scope focuses models while cancelling restores Show", () => {
+    const parent = { ...chooseScope(modelJourney(base, "switch")), modelFocus: "scope" as const };
+    const menu = modelJourneyScope(parent);
+    expect(handleTuiSettingsPickerKey(menu, { name: "escape" }).state).toBe(parent);
+    for (const selectedIndex of [0, 1]) {
+        const selected = handleTuiSettingsPickerKey({ ...menu, selectedIndex }, { name: "enter" }).state!;
+        expect(selected.modelFocus).toBe("list");
+        expect(selected.tab).toBe(selectedIndex === 0 ? "pool" : "all");
+        expect(selected.query).toBe(parent.query);
+        expect(selected.intelligenceCutoff).toBe(parent.intelligenceCutoff);
+    }
+});

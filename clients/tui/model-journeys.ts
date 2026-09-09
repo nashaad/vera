@@ -143,7 +143,7 @@ export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: Tu
     if ((key.name === "enter" || key.name === "return") && parent?.kind === "model") {
         const value = state.options[state.selectedIndex]?.value;
         if (value === "scope:pool" || value === "scope:all") return {
-            state: rebuiltJourney({ ...parent, tab: value === "scope:all" ? "all" : "pool" }, parent.options[parent.selectedIndex]?.value), handled: true,
+            state: rebuiltJourney({ ...parent, modelFocus: "list", tab: value === "scope:all" ? "all" : "pool" }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
         if (state.options[state.selectedIndex]?.value === "variants") return {
             state: rebuiltJourney({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
