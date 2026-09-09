@@ -51,13 +51,13 @@ Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add 
 Enter the provider name, endpoint, and API key. Known API providers prefill the endpoint; custom endpoints also expose protocol and credential choices.
 Save reads the catalog immediately. It discovers models without keeping, verifying, assigning, or selecting them.
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
-Open Switch model, use Tab for Catalog, and press Enter to open a conversation with the chosen model.
+Open Switch model, use Show to choose Provider catalog, and press Enter on a model to open a conversation.
 
 ## Models and providers [lines=17]
 Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library models even when empty; Show chooses Library models or Provider catalog on the same screen. Tab and Shift+Tab move between controls.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
 Click the cutoff band to focus it, or click a number or track position to set it. Tab moves from the cutoff to the model list.
-Older and duplicate models are hidden by default unless kept. Ctrl+A shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
+Older and duplicate models are hidden by default unless kept. Ctrl+A outside focused Search shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
 In Switch model, Ctrl+K opens More for catalog visibility and refresh. Escape returns to the same picker.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 Open `/library-model` or Model Library to add or remove a model with Enter. Adding saves immediately and does not switch or verify.
