@@ -69,7 +69,9 @@ test("no TUI surface matches a chord outside the keymap", async () => {
  */
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
     // The selected model-journey contract makes these actions visible in their open screen.
-    "journey_scope", "journey_refresh", "journey_cutoff",
+    "journey_section", "journey_refresh", "journey_cutoff",
+    // Tab moves visible focus inside the open HUD without changing any value.
+    "dials.section",
     "verification_coverage", "verification_nudge_dismiss",
     "interrupt",
     "toggle_thinking",
@@ -157,7 +159,9 @@ test("a surface can explicitly override a global chord while it is open", () => 
     expect(tuiBindingId("model_picker", { name: "tab", shift: true }))
         .toBe("switch_tab");
     expect(tuiBindingId("switch_model_picker", { name: "tab", shift: true }))
-        .toBe("journey_scope");
+        .toBe("journey_section");
+    expect(tuiBindingId("dials", { name: "tab", shift: true }))
+        .toBe("dials.section");
 });
 
 test("a scope sees its own bindings, the ones it inherits, and the globals", () => {

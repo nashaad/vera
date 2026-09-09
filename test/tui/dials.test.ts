@@ -681,7 +681,7 @@ test("HUD model choices are vertical with fixed highlight width and stable heigh
 test("Tab and reverse Tab cycle HUD controls without staging values", () => {
     const original = scaleStrip(SOL);
     let state = original;
-    for (const lane of ["access", "model", "agent", "effort"]) {
+    for (const lane of ["access", "model", "agent", "effort"] as const) {
         state = press(state, "tab");
         expect(state.lane).toBe(lane);
         expect(dialStripSelection(state)).toEqual(SOL);

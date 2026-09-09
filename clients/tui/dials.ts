@@ -1,5 +1,4 @@
-
-
+import { tuiBindingId } from "./keymap.ts";
 
 export interface DialPair {
     readonly provider?: string;
@@ -720,7 +719,7 @@ export function handleDialStripKey(
         };
     }
     if (key.ctrl === true) return { kind: "ignore" };
-    if (key.name === "tab" || key.name === "backtab") {
+    if ((bindingId ?? tuiBindingId("dials", key)) === "dials.section") {
         return { kind: "state", state: moveDialLane(state, key.shift || key.name === "backtab" ? -1 : 1) };
     }
     switch (key.name) {
