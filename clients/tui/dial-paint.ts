@@ -53,7 +53,10 @@ export function mapDialRows(hudRows: readonly string[]): DialRowMap {
             line.replace(/^[› ]\s*/, "").startsWith(label)
         );
     const effort = hudRows.findIndex((line) => line.includes("EFFORT"));
-    const effortScaleRows = effort >= 0 && hudRows[effort + 1]?.includes("Faster") === true ? 3 : 0;
+    const effortScaleRows = effort >= 1
+            && hudRows[effort - 1]?.includes("Faster") === true
+        ? 2
+        : 0;
     const agent = rowIndex("AGENT");
     const modelStart = rowIndex("MODEL");
     return {
@@ -82,27 +85,154 @@ export function paintDialRow(
     state: DialPaintState = {},
 ): readonly DialSpan[] {
     const line = hudRows[index] ?? "";
-    if (rows.effortScaleRows > 0 && index > rows.effort && index <= rows.effort + rows.effortScaleRows) {
-        return line.split(/(▲)/u).filter(Boolean).map((text) => ({ text,
-            color: text === "▲" ? lane === "effort" ? theme.accent : theme.text : theme.muted }));
+    const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
+    const main = providerParts[0] ?? "";
+    const modelEnd = rows.modelEnd < 0 ? hudRows.length : rows.modelEnd;
+    const isModelRow = rows.modelStart >= 0
+        && index >= rows.modelStart
+        && index < modelEnd;
+    const isEffortRow = rows.effort >= 0
+        && index >= rows.effort - (rows.effortScaleRows > 0 ? 1 : 0)
+        && index <= rows.effort + (rows.effortScaleRows > 0 ? 1 : 0);
+    const activeRow = lane === "model" && isModelRow
+        || lane === "effort" && isEffortRow
+        || lane === "agent" && index === rows.agent
+        || lane === "access" && index === rows.access
+        ? true
+        : false;
+    const settled = (hex: string): string =>
+        activeRow ? hex : mixHex(theme.background, hex, SETTLED_MIX);
+    const accessHue = (part: string): string =>
+        part.includes("readonly")
+            ? theme.secondary
+            : part.includes("ask")
+            ? theme.accessAsk
+            : part.includes("auto")
+            ? theme.accessAuto
+            : theme.text;
+    const selectedColor = (part: string): string =>
+        index !== rows.access
+            ? settled(theme.text)
+            : settled(accessHue(part));
+    const span = (
+        text: string,
+        color: string,
+        background?: string,
+    ): DialSpan => ({
+        text,
+        color,
+        ...(background === undefined ? {} : { background }),
+    });
+
+    const isEffortScale = rows.effortScaleRows > 0
+        && index >= rows.effort - 1
+        && index <= rows.effort + 1;
+    if (isEffortScale) {
+        const parts = main.split(DIAL_DEFAULT_SEPARATOR);
+        const axis = parts.length > 1 ? parts.pop() ?? "" : main;
+        const gutter = parts.length > 1
+            ? parts.map((part, at) =>
+                span(
+                    part,
+                    at % 2 === 0
+                        ? activeRow ? theme.text : theme.muted
+                        : part === "▲"
+                        ? settled(theme.notice)
+                        : part.startsWith("(") || !activeRow
+                        ? theme.muted
+                        : theme.accent,
+                )
+            )
+            : [];
+        return [
+            ...gutter,
+            ...(index === rows.effort - 1
+                ? [span(axis, activeRow ? theme.accent : theme.muted)]
+                : axis.split(/(▲|·+)/u).filter(Boolean).map((part) =>
+                    span(
+                        part,
+                        part === "▲"
+                            ? settled(theme.notice)
+                            : part.startsWith("·") || !activeRow
+                            ? theme.muted
+                            : theme.accent,
+                    )
+                )),
+        ];
     }
-    const modelRow = rows.modelStart >= 0 && index >= rows.modelStart && index < rows.modelEnd;
-    const active = modelRow ? lane === "model" : line.startsWith("› ");
-    const prefix = line.match(/^[› ] (?:EFFORT|ACCESS|MODEL|AGENT)\s*/)?.[0] ?? "";
-    const spans: DialSpan[] = [{ text: prefix, color: active ? theme.text : theme.muted }];
-    for (const text of line.slice(prefix.length).split(/(‹ .*? ›)/u).filter(Boolean)) {
-        const picked = text.startsWith("‹ ");
-        const hue = index !== rows.access ? theme.text
-            : text.includes("readonly") ? theme.secondary
-            : text.includes("ask") ? theme.accessAsk
-            : text.includes("auto") ? theme.accessAuto : theme.text;
-        spans.push({ text,
-            color: picked ? active ? theme.background : mixHex(theme.background, hue, SETTLED_MIX)
-                : theme.muted,
-            ...(picked && active ? { background: index === rows.access ? hue : theme.accent } : {}),
-        });
+
+    const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)?.[0];
+    const pickedRow = isModelRow && main.includes(DIAL_PICK_MARKER, 2);
+    const cursorColor = activeRow ? theme.accent : settled(theme.text);
+    const body: DialSpan[] = [];
+    if (isModelRow) {
+        const selected = pickedRow && lane === "model";
+        if (selected) {
+            const pickAt = main.indexOf(DIAL_PICK_MARKER, 2);
+            const prefixLength = pickAt < 0 ? 0 : pickAt;
+            body.push(
+                span(
+                    main.slice(0, prefixLength),
+                    index === rows.modelStart ? theme.text : theme.muted,
+                ),
+                span(
+                    main.slice(prefixLength),
+                    theme.background,
+                    theme.accent,
+                ),
+            );
+        } else if (index === rows.modelStart) {
+            const prefixLength = laneLabel?.length ?? 2;
+            body.push(
+                span(
+                    main.slice(0, prefixLength),
+                    activeRow ? theme.text : theme.muted,
+                ),
+                span(
+                    main.slice(prefixLength),
+                    pickedRow ? cursorColor : theme.muted,
+                ),
+            );
+        } else {
+            body.push(span(main, pickedRow ? cursorColor : theme.muted));
+        }
+    } else {
+        const prefix = laneLabel ?? main.slice(0, 2);
+        body.push(span(prefix, activeRow ? theme.text : theme.muted));
+        for (
+            const part of main.slice(prefix.length)
+                .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)*)`, "u"))
+                .filter(Boolean)
+        ) {
+            const picked = part.startsWith(DIAL_PICK_MARKER);
+            const highlightedChoice = picked && activeRow;
+            body.push(
+                span(
+                    part,
+                    highlightedChoice
+                        ? theme.background
+                        : picked
+                        ? selectedColor(part)
+                        : theme.muted,
+                    highlightedChoice ? index === rows.access ? accessHue(part) : theme.accent : undefined,
+                ),
+            );
+        }
     }
-    return spans;
+    return [
+        ...body,
+        ...providerParts.slice(1).map((part, at) =>
+            span(
+                part,
+                at === 0
+                    ? selectedModelColor(pickedRow, lane, theme)
+                    : pickedRow
+                    ? cursorColor
+                    : theme.muted,
+                pickedRow && lane === "model" ? theme.accent : undefined,
+            )
+        ),
+    ];
 }
 
 export function autoModeEdgeIntensity(

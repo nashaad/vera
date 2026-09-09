@@ -187,8 +187,8 @@ function colorOnAgentRow(
 test("a chosen value on an unfocused rung sits between lit and muted", () => {
     // The agent rung holds "default" either way: focused it is full text,
     // left behind it settles, and it never drops to the unchosen weight.
-    expect(colorOnAgentRow(strip("agent"), "‹ default ›")).toBe(THEME.background);
-    const away = colorOnAgentRow(strip("model"), "‹ default ›");
+    expect(colorOnAgentRow(strip("agent"), "›default")).toBe(THEME.background);
+    const away = colorOnAgentRow(strip("model"), "›default");
     expect(away).toBe(settled(THEME.text));
     expect(away).not.toBe(THEME.muted);
 });
@@ -198,11 +198,11 @@ test("unchosen values stay muted even on the focused rung", () => {
 });
 
 test("access modes keep their hue when the cursor is elsewhere", () => {
-    expect(spanOf(paint(strip("access")), "‹ ask ›")).toMatchObject({
+    expect(spanOf(paint(strip("access")), "›ask")).toMatchObject({
         color: THEME.background,
         background: THEME.accessAsk,
     });
-    expect(colorOf(paint(strip("model")), "‹ ask ›")).toBe(
+    expect(colorOf(paint(strip("model")), "›ask")).toBe(
         settled(THEME.accessAsk),
     );
 });
@@ -211,7 +211,7 @@ test("each active access mode fills with its own colour", () => {
     const modeSpan = (mode: string): DialSpan | undefined => {
         let state = opened(mode);
         while (state.lane !== "access") state = moveDialLane(state, 1);
-        return spanOf(paint(state), `‹ ${mode} ›`);
+        return spanOf(paint(state), `›${mode}`);
     };
     expect(modeSpan("readonly")).toMatchObject({
         color: THEME.background,
@@ -241,7 +241,7 @@ test("each active access mode fills with its own colour", () => {
         });
     let veraState = opened("auto");
     while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);
-    expect(spanOf(veraPaint(veraState), "‹ auto ›")?.background).toBe("#40C977");
+    expect(spanOf(veraPaint(veraState), "›auto")?.background).toBe("#40C977");
 });
 
 test("entering auto draws a tracer only on the HUD's right edge", () => {
@@ -403,6 +403,6 @@ test("four lanes retain exactly one filled cursor, including when effort is pend
     const painted = paint(state);
     expect(painted).toHaveLength(rowsOf(state).length);
     expect(painted.flat().filter((span) => span.background !== undefined)).toHaveLength(1);
-    expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(3);
+    expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(2);
     expect(rowsOf(state)[0]).toContain("live: default");
 });

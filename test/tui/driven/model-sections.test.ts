@@ -23,8 +23,7 @@ test("picker focus preserves search editing, nested Back, and model selection", 
         session.sendKey("Enter"); await session.waitForVisiblePane("Show models");
         session.sendKey("Down"); session.sendKey("Enter");
         await session.waitForVisiblePane("Models from your connected providers");
-        session.sendKey("Tab"); await session.waitForVisiblePane("Type to search");
-        session.sendText("oe"); session.sendKey("Left"); session.sendText("n");
+        session.sendText("oe"); await session.waitForVisiblePane("Type to search"); session.sendKey("Left"); session.sendText("n");
         await session.settle();
         expect(session.captureVisiblePane()).toContain("one");
         expect(session.captureVisiblePane()).not.toContain("No models match");
@@ -73,14 +72,14 @@ test("HUD Tab and mouse choose controls, vertical arrows stage models, and Escap
         session.sendKey("Tab"); await session.waitForVisiblePane("› ACCESS");
         session.sendKey("Tab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Down"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/‹ Two\s+›/);
+        expect(session.captureVisiblePane()).toMatch(/○ › 2 Two/);
         expect(session.captureVisiblePane()).toContain("› MODEL");
         session.sendKey("Right"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/‹ Two\s+›/);
+        expect(session.captureVisiblePane()).toMatch(/○ › 2 Two/);
         session.sendKey("Tab"); await session.waitForVisiblePane("› AGENT");
         session.sendKey("BTab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Up"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/‹ One\s+›/);
+        expect(session.captureVisiblePane()).toMatch(/● › 1 One/);
         const lines = session.captureVisiblePane().split("\n");
         const accessY = lines.findIndex((line) => line.includes("ACCESS"));
         await session.sendMouseClick(lines[accessY]!.indexOf("ACCESS"), accessY);

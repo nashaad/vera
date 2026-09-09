@@ -979,7 +979,7 @@ export function createTuiSettingsPickerView(
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (state.modelJourney === "switch") {
                 const searching = state.modelFocus === "search";
-                const typing = state.modelFocus === "list" && !key.ctrl && !key.meta
+                const typing = !key.ctrl && !key.meta
                     && (key.sequence ?? key.name).length === 1;
                 const command = tuiBindingId("switch_model_picker", key);
                 if ((!searching && !typing) || (command !== undefined
@@ -1016,7 +1016,6 @@ export function createTuiSettingsPickerView(
         handleEditorPaste(state, text): TuiSettingsPickerTransition {
             if (
                 !pickerIsSearchable(state)
-                || (state.modelJourney === "switch" && state.modelFocus !== "search" && state.modelFocus !== "list")
                 || (state.kind === "model" && state.tab === "help")
             ) {
                 return unchanged(state, false);
@@ -1258,7 +1257,10 @@ export function renderListPickerRows(
             const active = state.modelFocus === "scope";
             const label = options[state.tab === "all" ? 1 : 0]!.label;
             const scope = new TextRenderable(renderer, {
-                id: "model-scope", content: `${active ? "›" : " "} Show  ${label} ▾`,
+                id: "model-scope", content: new StyledText([
+                    fg(active ? TUI_SELECTION_TEXT : TUI_MUTED)("›"),
+                    fg(active ? TUI_SELECTION_TEXT : TUI_TEXT)(` Show  ${label} ▾`),
+                ]),
                 width: Math.min(width, 29 + String(state.allOptions.length).length),
                 height: 1, marginTop: 1, selectable: false,
                 fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,

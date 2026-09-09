@@ -92,7 +92,7 @@ test("the HUD windows long lanes instead of wrapping them", () => {
     expect(lines.at(-1)?.replace("\u001e", "")).toEndWith("esc cancel");
     expect(lines.join("\n")).toContain("qwen3:32b");
     expect(lines.join("\n")).not.toContain("openai-codex");
-    expect(lines.join("\n")).toContain("‹ reviewer ›");
+    expect(lines.join("\n")).toContain("›reviewer");
     expect(lines.join("\n")).not.toContain("full access");
     expect(lines.join("\n")).toContain("EFFORT");
     expect(lines.join("\n")).toContain("AGENT");
@@ -110,7 +110,7 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         "hints",
         90,
     );
-    expect(wide).toHaveLength(7 + composition.slots.length);
+    expect(wide).toHaveLength(10 + composition.slots.length);
     expect(wide.join("\n")).toContain("Faster");
     expect(wide.join("\n")).toContain("Smarter");
 });
@@ -174,7 +174,7 @@ test("a pair with no effort dial takes the arrows without complaint", () => {
     expect(adjustDialEffort(state, -1)).toBe(state);
     expect(dialStripSelection(state)).toEqual(bare);
     expect(renderDialStrip(moveDialLane(state, 2), "hints")[0]).toContain(
-        "‹ default ›",
+        "›default",
     );
 });
 
@@ -586,16 +586,16 @@ test("vertical model arrows stay within the control and wrap through a large lib
         expect(handleDialStripKey(state, { name }, undefined)).toEqual({ kind: "ignore" });
     }
     const lines = renderDialStrip(state, "", 60);
-    expect(lines).toHaveLength(14);
-    expect(lines.some((line) => line.includes("‹ model-14 ›"))).toBe(true);
-    expect(lines[2]).toContain("+5");
+    expect(lines).toHaveLength(18);
+    expect(lines.some((line) => line.includes("› 15 model-14"))).toBe(true);
+    expect(lines.find((line) => line.includes("MODEL"))).toContain("+5");
     expect(lines.filter((line) => line.startsWith("› "))).toHaveLength(1);
 });
 
 test("pending values appear beside live values", () => {
     const state = openDialStrip(composeDialStrip({ current: SOL, recents: [], pool: POOL }), SOL);
     expect(renderDialStrip(press(state, "right"), "", 90)[0])
-        .toContain("‹ medium › high  live: low");
+        .toContain("live: low");
 });
 
 test("unavailable models and access values are marked and skipped", () => {
@@ -644,9 +644,9 @@ test("the HUD effort slider marker moves with staged effort and Escape preserves
     const before = renderDialStrip(state, "", 90);
     const moved = press(state, "right");
     const after = renderDialStrip(moved, "", 90);
-    expect(before[1]).toContain("Faster");
-    expect(before[1]).toContain("Smarter");
-    expect(after[2]!.indexOf("▲")).toBeGreaterThan(before[2]!.indexOf("▲"));
+    expect(before[0]).toContain("Faster");
+    expect(before[0]).toContain("Smarter");
+    expect(after[1]!.indexOf("▲")).toBeGreaterThan(before[1]!.indexOf("▲"));
     expect(after[0]).toContain("live: low");
     expect(handleDialStripKey(moved, { name: "escape" }, undefined)).toEqual({ kind: "cancel" });
     expect(dialStripSelection(state)).toEqual(SOL);
@@ -667,13 +667,13 @@ test("HUD model choices are vertical with fixed highlight width and stable heigh
         const lines = renderDialStrip(state, "", 100);
         height ??= lines.length;
         expect(lines).toHaveLength(height);
-        const selected = lines.find((line) => line.includes("‹ ") && !line.includes("EFFORT") && !line.includes("ACCESS") && !line.includes("AGENT"))!;
-        const geometry = [selected.indexOf("‹ "), selected.indexOf(" ›") + 2];
+        const selected = lines.find((line) => /[●○] › /.test(line))!;
+        const geometry = [selected.indexOf("›", 2), selected.length];
         if (highlight) expect(geometry).toEqual(highlight); else highlight = geometry;
         const start = lines.findIndex((line) => line.includes("MODEL"));
         const end = lines.findIndex((line) => line.includes("AGENT"));
-        expect(lines.slice(start, end)).toHaveLength(3);
-        expect(lines.slice(start, end).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
+        expect(lines.slice(start, end).filter(Boolean)).toHaveLength(3);
+        expect(lines.slice(start, end).filter(Boolean).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
         state = moveDialStrip(state, 1);
     }
 });
@@ -693,5 +693,22 @@ test("Tab and reverse Tab cycle HUD controls without staging values", () => {
     }
     for (const lane of ["effort", "access", "agent"] as const) {
         for (const name of ["up", "down"]) expect(handleDialStripKey({ ...original, lane }, { name }, undefined)).toEqual({ kind: "ignore" });
+    }
+});
+
+
+test("HUD separates the applied model from its candidate and aligns provider columns", () => {
+    const state = { ...scaleStrip(SOL), lane: "model" as const };
+    for (const selected of [state, moveDialStrip(state, 1)]) {
+        const text = dialText(selected, 100);
+        const models = text.filter((line) => /[●○]/.test(line));
+        expect(models[0]).toContain("●");
+        expect(models[1]).toContain("○");
+        expect(models[0]!.indexOf("openai-codex")).toBe(models[1]!.indexOf("zai"));
+        expect(text.join("\n")).not.toContain("‹");
+        const effort = text[2]!.slice(30);
+        expect(effort.match(/\blow\b/g)).toHaveLength(1);
+        expect(effort.match(/\bhigh\b/g)).toHaveLength(1);
+        expect(text[1]).not.toMatch(/\b(low|medium|high)\b/);
     }
 });

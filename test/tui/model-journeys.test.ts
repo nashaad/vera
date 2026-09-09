@@ -586,3 +586,25 @@ test("cutoff counts and result filtering keep the search, slider, card, and foot
         } finally { setup.renderer.destroy(); }
     }
 });
+
+
+test("typing and paste from every Switch control focuses search at its preserved caret", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 38 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface); view.surface.visible = true;
+    try {
+        for (const modelFocus of ["scope", "search", "intelligence", "list", "more"] as const) {
+            const state = { ...chooseScope(modelJourney(base, "switch")), modelFocus, query: "bta", queryCursor: 1 };
+            view.update(state);
+            const typed = view.handleEditorKey(state, { name: "e", sequence: "e" }).state!;
+            expect(typed.query).toBe("beta");
+            expect(typed.queryCursor).toBe(2);
+            expect(typed.modelFocus).toBe("search");
+            expect(typed.options.map((row) => row.label)).toEqual(["Beta"]);
+            view.update(state);
+            const pasted = view.handleEditorPaste(state, "e").state!;
+            expect(pasted.query).toBe("beta");
+            expect(pasted.modelFocus).toBe("search");
+        }
+    } finally { setup.renderer.destroy(); }
+});

@@ -383,46 +383,62 @@ export function renderDialStrip(
     const agent = state.agents[state.agentIndex];
     const forbidden = agent === undefined ? [] : state.agentForbiddenAccess[agent] ?? [];
     const lane = (name: DialLane, values: readonly string[], selected: number, live?: string) => {
-        const cells = values.map((value, index) =>
-            index === selected && value !== "unavailable" ? `‹ ${value} ›` : value);
-        const liveNote = live === undefined || values[selected] === live
-            ? "" : `  live: ${live}`;
-        return fitDialText(renderDialLane(state.lane === name, name.toUpperCase(), cells,
-            selected, Math.max(12, width - liveNote.length)) + liveNote, width);
+        const cells = values.map((value, index) => dialChoiceCell(value, index === selected && value !== "unavailable"));
+        const line = renderDialLane(state.lane === name, name.toUpperCase(), cells, selected, width);
+        return live === undefined || values[selected] === live ? line : appendDialNote(line, `live: ${live}`, width);
     };
-    const scale = renderEffortScale(slot?.efforts ?? [], effort, width);
+    const scale = renderEffortScale(slot?.efforts ?? [], effort, width,
+        dialChoiceCell("default", effort === undefined), slot?.defaultEffort, state.lane === "effort");
     const reserveScale = Number.isFinite(width) && width >= 56 && state.slots.some((entry) => entry.efforts.length >= 2);
+    const effortRows = scale.length > 0 ? [...scale] : [
+        ...(reserveScale ? [""] : []),
+        lane("effort", efforts, Math.max(0, efforts.indexOf(effort ?? "default"))),
+        ...(reserveScale ? [""] : []),
+    ];
+    if (effort !== state.opened?.effort) {
+        const live = `live: ${state.opened?.effort ?? "default"}`;
+        effortRows[0] = scale.length > 0
+            ? fitDialText(" ".repeat(DIAL_CHOICE_COLUMN) + live, 30).padEnd(30) + effortRows[0]!.slice(30)
+            : appendDialNote(effortRows[0]!, live, width);
+    }
+    const permissionLabel = (mode: string) => mode === "full_access" ? "full" : mode.replaceAll("_", " ");
     const permission = state.permissionModes.map((mode) =>
-        `${mode === "full_access" ? "full" : mode.replaceAll("_", " ")}${forbidden.includes(mode) || state.disabledPermissionModes?.includes(mode) ? " (off)" : ""}`);
+        `${permissionLabel(mode)}${forbidden.includes(mode) || state.disabledPermissionModes?.includes(mode) ? " (off)" : ""}`);
     return [
-        lane("effort", efforts, Math.max(0, efforts.indexOf(effort ?? "default")),
-            state.opened?.effort ?? "default"),
-        ...(reserveScale && scale.length === 0 ? ["", "", ""] : scale),
+        ...effortRows,
+        "",
         lane("access", permission.length === 0 ? ["unavailable"] : permission,
-            state.permissionIndex, state.openedPermission),
+            state.permissionIndex, state.openedPermission === undefined ? undefined : permissionLabel(state.openedPermission)),
+        "",
         ...renderModelChoices(state, width, maxModelRows),
+        "",
         lane("agent", state.agents.length === 0 ? ["unavailable"] : state.agents,
             state.agentIndex, state.openedAgent),
+        "",
         renderDialFooter(`Tab/Shift+Tab sections · ${state.lane === "model" ? "↑↓ model" : "←→ change"} · ⏎ apply`, width),
     ];
 }
 
 function renderModelChoices(state: DialStripState, width: number, maxRows: number): readonly string[] {
-    const labels = state.slots.map((entry) => `${entry.label}${entry.unavailable === undefined ? "" : " (off)"}`);
-    if (labels.length === 0) return [`${state.lane === "model" ? "›" : " "} MODEL   unavailable`];
+    const labels = state.slots.map((entry, index) => `${index + 1} ${entry.label}${entry.unavailable === undefined ? "" : " (off)"}`);
+    if (labels.length === 0) return [fitDialText(`${state.lane === "model" ? "›" : " "} MODEL`.padEnd(DIAL_CHOICE_COLUMN) + "unavailable", width)];
     const count = Math.min(labels.length, Math.max(1, maxRows));
     const start = Math.max(0, Math.min(state.index - Math.floor(count / 2), labels.length - count));
     const hidden = labels.length - count;
-    const live = state.slots.find((entry) => entry.source === "current")?.label;
-    const note = `${hidden ? ` +${hidden}` : ""}${live ? `  live: ${live}` : ""}`;
     const available = Number.isFinite(width) ? width : 120;
-    const noteWidth = Math.min(note.length, Math.max(0, available - 36));
-    const cellWidth = Math.max(4, Math.min(Math.max(...labels.map((label) => label.length)) + 4, available - DIAL_CHOICE_COLUMN - noteWidth));
+    const providerWidth = available < 60 ? 0 : Math.min(24, Math.max(0, ...state.slots.map((entry) => entry.pair?.provider?.length ?? 0)));
+    const note = hidden ? ` +${hidden}` : "";
+    const nameWidth = Math.max(1, Math.min(Math.max(...labels.map((label) => label.length)), available - DIAL_CHOICE_COLUMN - providerWidth - (providerWidth ? 2 : 0) - note.length));
     return labels.slice(start, start + count).map((label, row) => {
-        const prefix = row === 0 ? `${state.lane === "model" ? "›" : " "} MODEL`.padEnd(DIAL_CHOICE_COLUMN) : " ".repeat(DIAL_CHOICE_COLUMN);
-        const name = fitDialText(label, cellWidth - 4).padEnd(cellWidth - 4);
-        const cell = start + row === state.index ? `‹ ${name} ›` : `  ${name}  `;
-        return fitDialText(prefix + cell + (row === 0 ? fitDialText(note, noteWidth) : ""), width);
+        const index = start + row;
+        const slot = state.slots[index]!;
+        const prefix = row === 0 ? `${state.lane === "model" ? "›" : " "} MODEL`.padEnd(DIAL_CHOICE_COLUMN - 4) : " ".repeat(DIAL_CHOICE_COLUMN - 4);
+        const current = slot.source === "current" ? "●" : "○";
+        const picked = index === state.index ? DIAL_PICK_MARKER : " ";
+        const name = fitDialText(label, nameWidth).padEnd(nameWidth);
+        const provider = providerWidth === 0 ? "" : `  ${fitDialText(slot.pair?.provider ?? "", providerWidth).padEnd(providerWidth)}`;
+        const line = `${prefix}${current} ${picked} ${name}${provider}${row === 0 ? note : " ".repeat(note.length)}`;
+        return fitDialText(line, width);
     });
 }
 
@@ -526,108 +542,13 @@ function renderDialFooter(hints: string, width: number): string {
     return `${left}${" ".repeat(Math.max(gap, width - left.length - exit.length))}${DIAL_EXIT_SEPARATOR}${exit}`;
 }
 
-function renderExpandedModelLane(
-    cells: readonly string[],
-    width: number,
-    selected: number,
-    maxRows: number,
-    recent: readonly string[],
-    active: boolean,
-): readonly string[] {
-    const count = Math.max(1, Math.min(maxRows, cells.length));
-    const start = clamp(
-        selected - Math.floor(count / 2),
-        0,
-        Math.max(0, cells.length - count),
-    );
-    const end = Math.min(cells.length, start + count);
-    const layoutWidth = Number.isFinite(width) ? width : 120;
-    const showRecent = Number.isFinite(width) && width >= 72 && recent.length > 0;
-    const recentWidth = showRecent ? Math.min(26, Math.floor(width * 0.34)) : 0;
-    const leftWidth = showRecent ? layoutWidth - recentWidth - 2 : layoutWidth;
-    const showProviders = leftWidth >= 60;
-    const providerWidth = Math.max(
-        0,
-        ...cells.map((cell) =>
-            cell.split(DIAL_PROVIDER_SEPARATOR)[1]?.length ?? 0
-        ),
-    );
-    const widestChoice = Math.max(
-        0,
-        ...cells.map((cell) =>
-            Math.max(
-                0,
-                (cell.split(DIAL_PROVIDER_SEPARATOR)[0] ?? "").trim().length - 2,
-            )
-        ),
-    );
-    const row = (left: string, right = "") => showRecent
-        ? `${fitDialText(left, leftWidth).padEnd(leftWidth)}  ${fitDialText(right, recentWidth)}`
-        : fitDialText(left, width);
-    const modelRow = (cell: string, rowIndex: number, right = "") => {
-        const [choice = "", provider] = cell.split(DIAL_PROVIDER_SEPARATOR);
-        const compact = leftWidth < 42;
-        const indent = rowIndex === 0
-            ? compact
-                ? `${active ? "›" : " "} `
-                : `${active ? "›" : " "} MODEL`.padEnd(12)
-            : " ".repeat(compact ? 2 : 12);
-        const picked = start + rowIndex === selected;
-        const marker = choice.slice(0, 1);
-        const name = choice.slice(2);
-        const open = picked ? DIAL_PICK_MARKER : " ";
-        const close = " ";
-        const head = `${indent}${marker} ${open} `;
-        const providerText = showProviders ? provider ?? "" : "";
-        const nameWidth = providerText.length === 0
-            ? Math.max(
-                1,
-                Math.min(leftWidth - head.length - 2, widestChoice),
-            )
-            : Math.max(
-                1,
-                Math.min(
-                    leftWidth - head.length - providerWidth - 3,
-                    widestChoice + 2,
-                ),
-            );
-        const left = `${head}${fitDialText(name, nameWidth).padEnd(nameWidth)}`;
-        const joined = providerText.length === 0
-            ? `${left} ${close}`
-            : `${left}${DIAL_PROVIDER_SEPARATOR}${
-                providerText.padEnd(providerWidth)
-            }${DIAL_PROVIDER_SEPARATOR} ${close}`;
-        return showRecent
-            ? `${joined.padEnd(leftWidth)}  ${fitDialText(right, recentWidth)}`
-            : joined;
-    };
-    return [
-        ...(start > 0
-            ? [row(
-                leftWidth < 42 ? "  …" : "              …",
-            )]
-            : []),
-        ...cells.slice(start, end).map((cell, index) =>
-            modelRow(
-                cell,
-                index,
-                index === 0 ? "RECENTLY USED" : recent[index - 1] ?? "",
-            )
-        ),
-        ...(end < cells.length
-            ? [leftWidth < 42 ? "  …" : "              …"]
-            : []),
-    ];
-}
-
 export const DIAL_PICK_MARKER = "\u203a";
 
 function dialChoiceCell(label: string, picked: boolean): string {
     return `${picked ? DIAL_PICK_MARKER : " "}${label}`;
 }
 
-const DIAL_CHOICE_COLUMN = 10;
-const DIAL_CHOICE_COLUMN_COMPACT = 6;
+const DIAL_CHOICE_COLUMN = 16;
 
 function renderDialLane(
     active: boolean,
@@ -637,7 +558,7 @@ function renderDialLane(
     width: number,
     hiddenAfter = false,
 ): string {
-    const prefix = `${active ? "›" : " "} ${label.padEnd(7)}`;
+    const prefix = `${active ? "›" : " "} ${label.padEnd(DIAL_CHOICE_COLUMN - 3)}`;
     let start = 0;
     let end = cells.length;
     const line = () => {

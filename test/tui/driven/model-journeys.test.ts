@@ -160,12 +160,12 @@ test("Home stages empty dials without creating a session, then switching applies
         const dials = await session.waitForVisiblePane("EFFORT");
         expect(dials).toContain("readonly");
         session.sendKey("Tab"); session.sendKey("Left");
-        await session.waitForVisiblePane("‹ readonly ›");
+        await session.waitForVisiblePane("›readonly");
         session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("dial strip"); await session.waitForVisiblePane("Dial strip");
-        session.sendKey("Enter"); await session.waitForVisiblePane("‹ readonly ›");
+        session.sendKey("Enter"); await session.waitForVisiblePane("›readonly");
         session.sendKey("Tab"); session.sendKey("Right"); session.sendKey("Right");
         await session.waitForVisiblePane("live: readonly");
         session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");

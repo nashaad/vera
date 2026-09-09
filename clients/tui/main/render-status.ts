@@ -231,7 +231,7 @@ export function renderStatus(rt: TuiRuntime): void {
         const row = event.y - rt.dialCardTitle.screenY;
         const lane = row >= rows.modelStart && row < rows.modelEnd ? "model"
             : row === rows.access ? "access" : row === rows.agent ? "agent"
-            : row >= rows.effort && row < rows.access ? "effort" : undefined;
+            : row >= rows.effort - (rows.effortScaleRows > 0 ? 1 : 0) && row < rows.access ? "effort" : undefined;
         if (lane === undefined) return;
         event.preventDefault(); event.stopPropagation(); rt.renderer.clearSelection();
         rt.dialStrip = { ...rt.dialStrip, lane };

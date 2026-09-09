@@ -53,8 +53,9 @@ Save reads the catalog immediately. It discovers models without keeping, verifyi
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, use Show to choose Provider catalog, and press Enter on a model to open a conversation.
 
-## Models and providers [lines=17]
+## Models and providers [lines=18]
 Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library models even when empty; Show chooses Library models or Provider catalog on the same screen. Tab and Shift+Tab move between controls.
+Typing or pasting from any Switch model control focuses Search and preserves its caret.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
 Click the cutoff band to focus it, or click a number or track position to set it. Tab moves from the cutoff to the model list.
 Older and duplicate models are hidden by default unless kept. Ctrl+A outside focused Search shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
