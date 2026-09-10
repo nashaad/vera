@@ -5,7 +5,7 @@ import type { TuiAgentPane } from "../agent-pane.ts";
 import { createTuiDiff, repaintTuiDiff } from "../diff.ts";
 import { createTuiGutterEntry, repaintTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "../gutter.ts";
 import { assistantFollowsTools, defaultModelChangeNotice, isSettingsRetryTrigger, modelPickerActionOptions, notifyExtensionSettings, refreshWorkspaceSidebarRoster, rejectionNotice, renderSidebarJump, renderState, retryMissingAgentSettings, settleExtensionModelSettings, syncConfigurationRequiredRequest } from "../main.ts";
-import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
+import { hostOwnsPromptQueue, modelSettingsForOpenPicker, receiveDialHistory, setSidebarFocused } from "../main/agents-dials.ts";
 import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
@@ -249,6 +249,7 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
     pane: TuiAgentPane<IdentifiedTuiAgentClient>,
 ): void {
     if (pane !== rt.hostedSidebar.pane) return;
+    if (update.type === "session_model_settings_history") receiveDialHistory(rt, update, pane.client);
     if (
         update.type === "ui_request"
         && !(

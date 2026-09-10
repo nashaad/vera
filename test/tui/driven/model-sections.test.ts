@@ -76,14 +76,14 @@ test("HUD Tab and mouse choose controls, vertical arrows stage models, and Escap
         expect(session.captureVisiblePane()).not.toContain("full (off)");
         session.sendKey("Tab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Down"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/○ › 2 Two/);
+        expect(session.captureVisiblePane()).toMatch(/○ › Two/);
         expect(session.captureVisiblePane()).toContain("› MODEL");
         session.sendKey("Right"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/○ › 2 Two/);
+        expect(session.captureVisiblePane()).toMatch(/○ › Two/);
         session.sendKey("Tab"); await session.waitForVisiblePane("› AGENT");
         session.sendKey("BTab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Up"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/● › 1 One/);
+        expect(session.captureVisiblePane()).toMatch(/● › One/);
         const lines = session.captureVisiblePane().split("\n");
         const accessY = lines.findIndex((line) => line.includes("ACCESS"));
         await session.sendMouseClick(lines[accessY]!.indexOf("ACCESS"), accessY);

@@ -115,6 +115,22 @@ export function pairKey(pair: DialPair): string {
     return `${pair.provider ?? ""}/${pair.model}/${pair.effort ?? ""}`;
 }
 
+export function refreshDialStrip(state: DialStripState, composition: DialStripComposition): DialStripState {
+    const slots = [...composition.slots];
+    const selected = state.slots[state.index];
+    let index = selected?.pair === undefined ? 0
+        : slots.findIndex((slot) => slot.pair !== undefined && modelKey(slot.pair) === modelKey(selected.pair!));
+    // A history reply must not displace a model or effort the user has staged.
+    if (index < 0 && selected !== undefined) {
+        const sameGroup = slots.findLastIndex((slot) => slot.source === selected.source);
+        index = sameGroup < 0 ? Math.max(0, slots.length - 1) : sameGroup;
+        slots[index] = selected;
+    } else if (selected?.pair !== undefined && slots[index] !== undefined) {
+        slots[index] = { ...slots[index]!, pair: selected.pair };
+    }
+    return { ...state, slots, index: Math.max(0, index), recent: composition.recent, overflow: composition.overflow };
+}
+
 function findEntry(
     pair: DialPair,
     entries: readonly DialPoolEntry[],
@@ -420,26 +436,41 @@ export function renderDialStrip(
 }
 
 function renderModelChoices(state: DialStripState, width: number, maxRows: number): readonly string[] {
-    const labels = state.slots.map((entry, index) => `${index + 1} ${entry.label}${entry.unavailable === undefined ? "" : " (off)"}`);
+    const labels = state.slots.map((entry) => `${entry.label}${entry.unavailable === undefined ? "" : " (off)"}`);
     if (labels.length === 0) return [fitDialText(`${state.lane === "model" ? "›" : " "} MODEL`.padEnd(DIAL_CHOICE_COLUMN) + "unavailable", width)];
     const count = Math.min(labels.length, Math.max(1, maxRows));
     const start = Math.max(0, Math.min(state.index - Math.floor(count / 2), labels.length - count));
-    const hidden = labels.length - count;
     const available = Number.isFinite(width) ? width : 120;
     const providerWidth = available < 60 ? 0 : Math.min(24, Math.max(0, ...state.slots.map((entry) => entry.pair?.provider?.length ?? 0)));
-    const note = hidden ? ` +${hidden}` : "";
-    const nameWidth = Math.max(1, Math.min(Math.max(...labels.map((label) => label.length)), available - DIAL_CHOICE_COLUMN - providerWidth - (providerWidth ? 2 : 0) - note.length));
-    return labels.slice(start, start + count).map((label, row) => {
+    const nameWidth = Math.max(1, Math.min(Math.max(...labels.map((label) => label.length)), available - DIAL_CHOICE_COLUMN - providerWidth - (providerWidth ? 2 : 0)));
+    const lines: string[] = [];
+    let previousSource: DialSlotSource | undefined;
+    for (const [row, label] of labels.slice(start, start + count).entries()) {
         const index = start + row;
         const slot = state.slots[index]!;
-        const prefix = row === 0 ? `${state.lane === "model" ? "›" : " "} MODEL`.padEnd(DIAL_CHOICE_COLUMN - 4) : " ".repeat(DIAL_CHOICE_COLUMN - 4);
+        if (slot.source !== previousSource && slot.source !== "current") {
+            if (row > 0) lines.push("");
+            lines.push(fitDialText(" ".repeat(DIAL_CHOICE_COLUMN) + (slot.source === "recent" ? "Recent" : "From Model Library"), width));
+        }
+        previousSource = slot.source;
+        const prefix = " ".repeat(DIAL_CHOICE_COLUMN - 4);
         const current = slot.source === "current" ? "●" : "○";
         const picked = index === state.index ? DIAL_PICK_MARKER : " ";
         const name = fitDialText(label, nameWidth).padEnd(nameWidth);
         const provider = providerWidth === 0 ? "" : `  ${fitDialText(slot.pair?.provider ?? "", providerWidth).padEnd(providerWidth)}`;
-        const line = `${prefix}${current} ${picked} ${name}${provider}${row === 0 ? note : " ".repeat(note.length)}`;
-        return fitDialText(line, width);
-    });
+        lines.push(fitDialText(`${prefix}${current} ${picked} ${name}${provider}`, width));
+    }
+    const laneLabel = `${state.lane === "model" ? "›" : " "} MODEL`;
+    lines[0] = laneLabel + lines[0]!.slice(laneLabel.length);
+    const groups = new Set(state.slots.map((slot) => slot.source));
+    const groupRows = (groups.has("recent") ? 2 : 0) + (groups.has("pool") ? 2 : 0) - (groups.has("current") ? 0 : 1);
+    while (lines.length < count + Math.max(0, groupRows)) lines.push("");
+    const below = labels.length - start - count;
+    const windowHint = [start > 0 ? `↑ ${start} above` : "", below > 0 ? `↓ ${below} below` : ""].filter(Boolean).join(" · ");
+    if (windowHint || state.overflow > 0) {
+        lines.push(fitDialText(" ".repeat(DIAL_CHOICE_COLUMN) + (windowHint || "More models: /model"), width));
+    }
+    return lines;
 }
 
 export function renderEffortScale(

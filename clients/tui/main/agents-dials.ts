@@ -1,13 +1,13 @@
 import { modelSelectionCleared } from "../../../src/host/model-catalog-settings.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isApprovalMode } from "../../../src/engine/permissions.ts";
-import type { UiRequestUpdate } from "../../../src/engine/protocol.ts";
+import type { SessionModelSettingsHistoryUpdate, UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { HOST_CAPABILITY_PROMPT_QUEUE_RELEASE, HOST_CAPABILITY_SESSION_SCOPED_STATE } from "../../../src/host/capabilities.ts";
 import type { IdentifiedTuiAgentClient, TuiAgentClient } from "../agent-client.ts";
 import { visibleTuiAgentMentions } from "../agent-message-routing.ts";
 import { isCurrentTuiExtensionComposeTarget, type TuiExtensionComposeTarget } from "../client-extension-compose.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS } from "../dial-paint.ts";
-import { dialAccessAllowed, composeDialStrip, openDialStrip, type DialPair, type DialPoolEntry } from "../dials.ts";
+import { DIAL_HUD_CAP, DIAL_HUD_RECENT_CAP, dialAccessAllowed, composeDialStrip, openDialStrip, refreshDialStrip, type DialPair, type DialPoolEntry } from "../dials.ts";
 import { abortProviderHealthCheck, displayModeLabel, focusActiveSurface, notifyExtensionSettings, rejectPendingExtensionSettingsFor, rememberOpenPaneGroup, renderState, reportConnectionError, requestAgentSettings, requestExtensionPicker, requestPermissionsChange, sendCommand, showModeToast, showStatusNotice, switchToClient } from "../main.ts";
 import { clearSidebarEntryNodes } from "../main/chrome.ts";
 import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
@@ -157,6 +157,30 @@ export function committedDialPair(rt: TuiRuntime): DialPair | undefined {
     };
 }
 
+function dialComposition(rt: TuiRuntime, history = focusedAgentState(rt).modelSettingsHistory ?? []) {
+    return composeDialStrip({
+        current: committedDialPair(rt),
+        recents: history.map(({ settings }) => ({
+            provider: settings.provider,
+            model: settings.model,
+            effort: settings.reasoningEffort,
+        })),
+        pool: dialPool(rt),
+        catalog: dialCatalog(rt),
+        includePool: true,
+        cap: DIAL_HUD_CAP,
+        recentCap: DIAL_HUD_RECENT_CAP,
+    });
+}
+
+export function receiveDialHistory(rt: TuiRuntime, update: SessionModelSettingsHistoryUpdate, source: TuiAgentClient): void {
+    const pending = rt.dialHistoryRequest;
+    if (pending?.requestId !== update.requestId || pending.target !== source) return;
+    rt.dialHistoryRequest = undefined;
+    if (rt.dialStrip === undefined || focusedAgentClient(rt) !== source) return;
+    rt.dialStrip = refreshDialStrip(rt.dialStrip, dialComposition(rt, update.entries));
+}
+
 export function openDials(rt: TuiRuntime): void {
     const target = focusedAgentClient(rt);
     if (
@@ -172,19 +196,15 @@ export function openDials(rt: TuiRuntime): void {
         return;
     }
     const catalog = rt.agentCatalog;
+    const requestId = randomUUID();
+    rt.dialHistoryRequest = { requestId, target };
     void target.send({
         type: "get_session_model_settings_history",
-        requestId: randomUUID(),
+        requestId,
     }).catch(() => {
+        if (rt.dialHistoryRequest?.requestId === requestId) rt.dialHistoryRequest = undefined;
     });
-    const composition = composeDialStrip({
-        current: committedDialPair(rt),
-        recents: [],
-        pool: dialPool(rt),
-        catalog: dialCatalog(rt),
-        includePool: true,
-        cap: Number.POSITIVE_INFINITY,
-    });
+    const composition = dialComposition(rt);
     rt.dialStrip = openDialStrip(composition, committedDialPair(rt), {
         agents: catalog?.agents.map((agent) => agent.name),
         currentAgent: catalog?.selected ?? focusedAgentState(rt).agent?.name,
@@ -436,6 +456,7 @@ export function startAutoModeAnimation(rt: TuiRuntime): void {
 export function closeDials(rt: TuiRuntime): void {
     stopAutoModeAnimation(rt);
     rt.dialStrip = undefined;
+    rt.dialHistoryRequest = undefined;
     renderState(rt);
     focusActiveSurface(rt);
 }
@@ -443,6 +464,7 @@ export function closeDials(rt: TuiRuntime): void {
 export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
     stopAutoModeAnimation(rt);
     rt.dialStrip = undefined;
+    rt.dialHistoryRequest = undefined;
     rt.settingsPicker = undefined;
     rt.standingNudges = undefined;
     rt.extensionsList = undefined;

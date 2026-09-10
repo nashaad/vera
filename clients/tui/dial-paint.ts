@@ -162,6 +162,10 @@ export function paintDialRow(
     }
 
     const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)?.[0];
+    if (isModelRow && /(?:Recent|From Model Library)$/.test(main)) {
+        return [span(laneLabel ?? "", activeRow ? theme.text : theme.muted),
+            span(main.slice(laneLabel?.length ?? 0), activeRow ? theme.accent : theme.muted)];
+    }
     const pickedRow = isModelRow && main.includes(DIAL_PICK_MARKER, 2);
     const cursorColor = activeRow ? theme.accent : settled(theme.text);
     const body: DialSpan[] = [];

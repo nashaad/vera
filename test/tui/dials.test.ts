@@ -15,6 +15,7 @@ import {
     openDialStrip,
     renderEffortScale,
     renderDialStrip,
+    refreshDialStrip,
     type DialPair,
     type DialLane,
     type DialPoolEntry,
@@ -110,7 +111,8 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         "hints",
         90,
     );
-    expect(wide).toHaveLength(10 + composition.slots.length);
+    expect(wide.join("\n")).toContain("Recent");
+    expect(wide.join("\n")).toContain("From Model Library");
     expect(wide.join("\n")).toContain("Faster");
     expect(wide.join("\n")).toContain("Smarter");
 });
@@ -586,9 +588,10 @@ test("vertical model arrows stay within the control and wrap through a large lib
         expect(handleDialStripKey(state, { name }, undefined)).toEqual({ kind: "ignore" });
     }
     const lines = renderDialStrip(state, "", 60);
-    expect(lines).toHaveLength(18);
-    expect(lines.some((line) => line.includes("› 15 model-14"))).toBe(true);
-    expect(lines.find((line) => line.includes("MODEL"))).toContain("+5");
+    expect(lines).toHaveLength(20);
+    expect(lines.some((line) => line.includes("› model-14"))).toBe(true);
+    expect(lines.at(-5)).toContain("↑ 5 above");
+    expect(lines.join("\n")).not.toContain("+5");
     expect(lines.filter((line) => line.startsWith("› "))).toHaveLength(1);
 });
 
@@ -672,8 +675,8 @@ test("HUD model choices are vertical with fixed highlight width and stable heigh
         if (highlight) expect(geometry).toEqual(highlight); else highlight = geometry;
         const start = lines.findIndex((line) => line.includes("MODEL"));
         const end = lines.findIndex((line) => line.includes("AGENT"));
-        expect(lines.slice(start, end).filter(Boolean)).toHaveLength(3);
-        expect(lines.slice(start, end).filter(Boolean).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
+        expect(lines.slice(start, end).filter((line) => /[●○]/.test(line))).toHaveLength(3);
+        expect(lines.slice(start, end).filter((line) => /[●○]/.test(line)).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
         state = moveDialStrip(state, 1);
     }
 });
@@ -710,5 +713,65 @@ test("HUD separates the applied model from its candidate and aligns provider col
         expect(effort.match(/\blow\b/g)).toHaveLength(1);
         expect(effort.match(/\bhigh\b/g)).toHaveLength(1);
         expect(text[1]).not.toMatch(/\b(low|medium|high)\b/);
+    }
+});
+
+
+test("HUD groups recents and library choices once, without row numbers or repeated labels", () => {
+    const composition = composeDialStrip({ current: SOL, recents: [LUNA], pool: POOL, includePool: true });
+    const state = { ...openDialStrip(composition, SOL), lane: "model" as const };
+    const lines = renderDialStrip(state, "", 100);
+    const text = lines.join("\n");
+    expect(text.match(/Recent/g)).toHaveLength(1);
+    expect(text.match(/From Model Library/g)).toHaveLength(1);
+    const recent = lines.findIndex((line) => line.trim() === "Recent");
+    const library = lines.findIndex((line) => line.trim() === "From Model Library");
+    expect(lines[recent - 1]).toBe("");
+    expect(lines[library - 1]).toBe("");
+    expect(lines[recent + 1]).toContain("luna");
+    expect(lines[library + 1]).toContain("qwen3:32b");
+    expect(text).not.toMatch(/[●○] [› ] \d/);
+    expect(lines.filter((line) => /[●○]/.test(line))).toHaveLength(3);
+    const moved = renderDialStrip(moveDialStrip(state, 1), "", 100);
+    expect(moved).toHaveLength(lines.length);
+});
+
+test("a late recent list preserves the staged model, effort, access and control within the cap", () => {
+    const pool = Array.from({ length: 12 }, (_, index) => ({ provider: "p", model: `library-${index}`, levels: ["low", "high"] }));
+    const current = { provider: "p", model: "current" };
+    const options = { current, pool, includePool: true, cap: DIAL_HUD_CAP, recentCap: DIAL_HUD_RECENT_CAP };
+    const opened = openDialStrip(composeDialStrip({ ...options, recents: [] }), current);
+    const staged = { ...opened, index: 9, editedEffort: "high", lane: "access" as const, permissionIndex: 2, permissionEdited: true };
+    const recents = Array.from({ length: 7 }, (_, index) => ({ provider: "p", model: `recent-${index}` }));
+    const updated = refreshDialStrip(staged, composeDialStrip({ ...options, recents }));
+    expect(updated.slots).toHaveLength(10);
+    expect(updated.slots.filter((slot) => slot.source === "recent")).toHaveLength(5);
+    expect(dialStripSelection(updated)).toEqual(dialStripSelection(staged));
+    expect(updated.lane).toBe("access");
+    expect(updated.permissionEdited).toBe(true);
+    expect(updated.permissionIndex).toBe(2);
+    const sameModelRecent = refreshDialStrip(staged, composeDialStrip({ ...options, recents: [{ provider: "p", model: "library-8", effort: "low" }] }));
+    expect(dialStripSelection(sameModelRecent)).toEqual(dialStripSelection(staged));
+    const oldRecent = { ...openDialStrip(composeDialStrip({ ...options, recents: [{ provider: "p", model: "older" }] }), current), index: 1 };
+    const recentRefresh = refreshDialStrip(oldRecent, composeDialStrip({ ...options, recents }));
+    expect(recentRefresh.slots.filter((slot) => slot.source === "recent")).toHaveLength(5);
+    expect(renderDialStrip(recentRefresh, "", 100).join("\n").match(/Recent/g)).toHaveLength(1);
+});
+
+test("short HUD windows retain group headings and a stable height while navigating", () => {
+    const pool = Array.from({ length: 8 }, (_, index) => ({ provider: "p", model: `library-${index}`, levels: [] }));
+    const current = { provider: "p", model: "current" };
+    const recents = Array.from({ length: 5 }, (_, index) => ({ provider: "p", model: `recent-${index}` }));
+    let state = { ...openDialStrip(composeDialStrip({ current, recents, pool, includePool: true, cap: 10 }), current), lane: "model" as const };
+    const height = renderDialStrip(state, "", 80, 3).length;
+    for (let index = 0; index < 10; index++) {
+        const lines = renderDialStrip(state, "", 80, 3);
+        expect(lines).toHaveLength(height);
+        expect(lines.filter((line) => /[●○]/.test(line))).toHaveLength(3);
+        const selected = state.slots[state.index]!;
+        expect(lines.some((line) => line.includes(`› ${selected.label}`))).toBe(true);
+        if (selected.source === "recent") expect(lines.join("\n")).toContain("Recent");
+        if (selected.source === "pool") expect(lines.join("\n")).toContain("From Model Library");
+        state = { ...moveDialStrip(state, 1), lane: "model" };
     }
 });

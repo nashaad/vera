@@ -219,7 +219,7 @@ export function renderStatus(rt: TuiRuntime): void {
                 "/permissions for more",
             ].join(" · "),
             dialWidth,
-            Math.max(3, Math.min(DIAL_HUD_CAP, rt.renderer.height - 22)),
+            Math.max(3, Math.min(DIAL_HUD_CAP, rt.renderer.height - 27)),
         );
     rt.dialCard.visible = stripLines !== undefined;
     rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;

@@ -53,7 +53,7 @@ Save reads the catalog immediately. It discovers models without keeping, verifyi
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, use Show to choose Provider catalog, and press Enter on a model to open a conversation.
 
-## Models and providers [lines=18]
+## Models and providers [lines=19]
 Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library models even when empty; Show chooses Library models or Provider catalog on the same screen. Tab and Shift+Tab move between controls.
 Typing or pasting from any Switch model control focuses Search and preserves its caret.
 Models appear under plain provider headings with blank rows between sections. Headings are not selectable or collapsible.
@@ -69,6 +69,7 @@ An assigned model cannot be removed from the library until its slots are reassig
 In Switch model, Ctrl+R refreshes connected catalogs in place. Open Configure providers from Ctrl+P. The CLI also has `vera models refresh`.
 Provider credentials and endpoint configuration belong to the Vera home. Forget credentials removes its models, unsets affected defaults, and clears conversations using it; an environment credential must be unset in the host environment.
 Dial strip from Ctrl+P has effort, access, model, and agent lanes. Tab and Shift+Tab move between controls. Up/Down stages a model; Left/Right adjusts effort, access, or agent. Enter applies; Escape cancels. Unavailable values are skipped.
+The HUD offers at most ten models: the current model, up to five recent models from this conversation, then Model Library choices filling the remaining places. Recent and From Model Library headings separate the groups. Use `/model` for the full list.
 The conversation header shows model, effort, and access.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 

@@ -154,6 +154,7 @@ export interface TuiRuntime {
     keybindingOverlay: Readonly<Record<string, readonly string[]>>;
     announcedKeymapNotices: Set<string>;
     dialStrip: DialStripState | undefined;
+    dialHistoryRequest?: { readonly requestId: string; readonly target: TuiAgentClient };
     autoModeAnimationStartedAt: number | undefined;
     autoModeAnimationTimer: ReturnType<typeof setInterval> | undefined;
     agentCatalog: TuiAgentCatalog | undefined;

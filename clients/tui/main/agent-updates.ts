@@ -1,6 +1,6 @@
 import { isConfigurationRequiredUiRequestUpdate, isTimelineReplyUpdate } from "../../../src/engine/protocol.ts";
 import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
-import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
+import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, receiveDialHistory, setSidebarFocused } from "../main/agents-dials.ts";
 import { adoptFallbackSessionTitle, applyTerminalTitle, refreshTerminalTitle } from "../main/chrome.ts";
 import { isSettingsRetryTrigger, noticeRepeatedModelFailure, retryMissingAgentSettings } from "../main/diagnostics-ops.ts";
 import { settleWizardVerification, wizardTookCatalogRefresh, wizardTookModelSettings } from "../main/onboarding-wizard-ops.ts";
@@ -320,6 +320,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 continue;
             }
             rt.state = applyAgentUpdate(rt.state, update);
+            if (update.type === "session_model_settings_history") receiveDialHistory(rt, update, source);
             if (isSettingsRetryTrigger(rt, update)) {
                 retryMissingAgentSettings(rt, source, rt.state);
             }
