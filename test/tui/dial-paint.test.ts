@@ -198,11 +198,11 @@ test("unchosen values stay muted even on the focused rung", () => {
 });
 
 test("access modes keep their hue when the cursor is elsewhere", () => {
-    expect(spanOf(paint(strip("access")), "›ask")).toMatchObject({
+    expect(spanOf(paint(strip("access")), "ask")).toMatchObject({
         color: THEME.background,
         background: THEME.accessAsk,
     });
-    expect(colorOf(paint(strip("model")), "›ask")).toBe(
+    expect(colorOf(paint(strip("model")), "ask")).toBe(
         settled(THEME.accessAsk),
     );
 });
@@ -211,7 +211,7 @@ test("each active access mode fills with its own colour", () => {
     const modeSpan = (mode: string): DialSpan | undefined => {
         let state = opened(mode);
         while (state.lane !== "access") state = moveDialLane(state, 1);
-        return spanOf(paint(state), `›${mode}`);
+        return spanOf(paint(state), mode);
     };
     expect(modeSpan("readonly")).toMatchObject({
         color: THEME.background,
@@ -241,7 +241,7 @@ test("each active access mode fills with its own colour", () => {
         });
     let veraState = opened("auto");
     while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);
-    expect(spanOf(veraPaint(veraState), "›auto")?.background).toBe("#40C977");
+    expect(spanOf(veraPaint(veraState), "auto")?.background).toBe("#40C977");
 });
 
 test("entering auto draws a tracer only on the HUD's right edge", () => {
@@ -287,7 +287,7 @@ test("the auto tracer survives adversarial widths and progress values", () => {
     const color = /^#[0-9a-f]{6}$/i;
     for (const width of [1, 2, 8, 20, 40, 60, 120]) {
         const rows = rowsOf(state, width);
-        const plain = rows.map((row) => row.replace(sentinels, "").replace(/(AGENT\s*)›/, "$1 "));
+        const plain = rows.map((row) => row.slice(0, 2) + row.slice(2).replace(sentinels, "").replace("›", " "));
         for (
             const progress of [
                 -1,
@@ -391,7 +391,7 @@ test("painting covers every row and drops none of its text", () => {
             expect(painted).toHaveLength(rows.length);
             for (const [index, row] of painted.entries()) {
                 expect(row.map((span) => span.text).join("")).toBe(
-                    rows[index]!.replace(sentinels, "").replace(/(AGENT\s*)›/, "$1 "),
+                    rows[index]!.slice(0, 2) + rows[index]!.slice(2).replace(sentinels, "").replace("›", " "),
                 );
             }
         }
@@ -403,6 +403,15 @@ test("four lanes retain exactly one filled cursor, including when effort is pend
     const painted = paint(state);
     expect(painted).toHaveLength(rowsOf(state).length);
     expect(painted.flat().filter((span) => span.background !== undefined)).toHaveLength(1);
+    for (const lane of ["effort", "access", "model", "agent"] as const) {
+        for (const width of [100, 50]) {
+            const text = paint(strip(lane), width).map((row) => row.map((span) => span.text).join("")).join("\n");
+            expect(text.match(/›/g)).toHaveLength(1);
+            expect(text).toContain(`› ${lane.toUpperCase()}`);
+            expect(text).not.toContain("○");
+            expect(text.match(/●/g)).toHaveLength(1);
+        }
+    }
     expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(2);
     expect(rowsOf(state)[0]).toContain("live: default");
 });

@@ -41,6 +41,10 @@ const POOL: readonly DialPoolEntry[] = [
 const SOL = { provider: "openai-codex", model: "gpt-5.6-sol", effort: "low" };
 const LUNA = { provider: "zai", model: "glm-5", effort: "high" };
 
+function modelLines(state: DialStripState, lines: readonly string[]): readonly string[] {
+    return lines.filter((line) => state.slots.some((slot) => line.slice(16).trimStart().startsWith(slot.label)));
+}
+
 test("position one is always the committed pair, and nothing repeats", () => {
     const composition = composeDialStrip({
         current: SOL,
@@ -670,13 +674,13 @@ test("HUD model choices are vertical with fixed highlight width and stable heigh
         const lines = renderDialStrip(state, "", 100);
         height ??= lines.length;
         expect(lines).toHaveLength(height);
-        const selected = lines.find((line) => /[●○] › /.test(line))!;
+        const selected = lines.find((line) => /^.{14}› /.test(line))!;
         const geometry = [selected.indexOf("›", 2), selected.length];
         if (highlight) expect(geometry).toEqual(highlight); else highlight = geometry;
         const start = lines.findIndex((line) => line.includes("MODEL"));
         const end = lines.findIndex((line) => line.includes("AGENT"));
-        expect(lines.slice(start, end).filter((line) => /[●○]/.test(line))).toHaveLength(3);
-        expect(lines.slice(start, end).filter((line) => /[●○]/.test(line)).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
+        expect(modelLines(state, lines.slice(start, end))).toHaveLength(3);
+        expect(modelLines(state, lines.slice(start, end)).every((line) => pool.some((model) => line.includes(model.model)))).toBe(true);
         state = moveDialStrip(state, 1);
     }
 });
@@ -704,9 +708,9 @@ test("HUD separates the applied model from its candidate and aligns provider col
     const state = { ...scaleStrip(SOL), lane: "model" as const };
     for (const selected of [state, moveDialStrip(state, 1)]) {
         const text = dialText(selected, 100);
-        const models = text.filter((line) => /[●○]/.test(line));
+        const models = modelLines(selected, text);
         expect(models[0]).toContain("●");
-        expect(models[1]).toContain("○");
+        expect(models[1]).not.toMatch(/[●○]/);
         expect(models[0]!.indexOf("openai-codex")).toBe(models[1]!.indexOf("zai"));
         expect(text.join("\n")).not.toContain("‹");
         const effort = text[2]!.slice(30);
@@ -731,7 +735,7 @@ test("HUD groups recents and library choices once, without row numbers or repeat
     expect(lines[recent + 1]).toContain("luna");
     expect(lines[library + 1]).toContain("qwen3:32b");
     expect(text).not.toMatch(/[●○] [› ] \d/);
-    expect(lines.filter((line) => /[●○]/.test(line))).toHaveLength(3);
+    expect(modelLines(state, lines)).toHaveLength(3);
     const moved = renderDialStrip(moveDialStrip(state, 1), "", 100);
     expect(moved).toHaveLength(lines.length);
 });
@@ -767,7 +771,7 @@ test("short HUD windows retain group headings and a stable height while navigati
     for (let index = 0; index < 10; index++) {
         const lines = renderDialStrip(state, "", 80, 3);
         expect(lines).toHaveLength(height);
-        expect(lines.filter((line) => /[●○]/.test(line))).toHaveLength(3);
+        expect(modelLines(state, lines)).toHaveLength(3);
         const selected = state.slots[state.index]!;
         expect(lines.some((line) => line.includes(`› ${selected.label}`))).toBe(true);
         if (selected.source === "recent") expect(lines.join("\n")).toContain("Recent");

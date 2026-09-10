@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
+import { VERA_TUI_THEME } from "../../../clients/tui/theme.ts";
+import type { TuiTestSession } from "../../support/tui-harness.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +10,11 @@ import type { ClientCommand } from "../../../src/engine/protocol.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+
+function expectHighlighted(session: TuiTestSession, model: string): void {
+    const span = session.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes(model));
+    expect(span?.bg.toInts()).toEqual(RGBA.fromHex(VERA_TUI_THEME.hud?.accent ?? VERA_TUI_THEME.accent).toInts());
+}
 
 test("HUD loads persisted recents on first opening, bounds its groups, and preserves staging on late replies", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-hud-recents-"));
@@ -41,19 +49,21 @@ test("HUD loads persisted recents on first opening, bounds its groups, and prese
         session.sendKey("Tab"); session.sendKey("Tab");
         await session.waitForVisiblePane("› MODEL");
         for (let index = 0; index < 9; index++) session.sendKey("Down");
-        await session.waitForVisiblePane("○ › Library 8");
+        await session.settle();
+        expectHighlighted(session, "Library 8");
         expect(replies).toHaveLength(1);
         replies[0]!();
         const pane = await session.waitForVisiblePane("Recent");
-        expect(pane).toContain("○ › Library 8");
+        expectHighlighted(session, "Library 8");
         expect(pane).toContain("› MODEL");
         expect(pane).toContain("More models: /model");
-        const rows = pane.split("\n").filter((line) => /[●○]/.test(line));
+        const rows = pane.split("\n").filter((line) => /\s+(?:current|recent-[a-z]|Library \d+)\s+demo\s*$/.test(line));
         expect(rows).toHaveLength(10);
         expect(rows.filter((line) => line.includes("recent-"))).toHaveLength(5);
         expect(rows.filter((line) => line.includes("recent-e"))).toHaveLength(1);
         expect(rows.filter((line) => line.includes("Library"))).toHaveLength(4);
-        expect(rows.some((line) => /[●○] [› ] \d/.test(line))).toBe(false);
+        expect(pane).not.toContain("○");
+        expect(pane.match(/›/g)).toHaveLength(1);
         expect(pane).not.toContain("older");
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere((text) => !text.includes("EFFORT"), "HUD to close");
@@ -64,7 +74,8 @@ test("HUD loads persisted recents on first opening, bounds its groups, and prese
         replies[0]!(); await session.settle();
         replies[1]!(); await session.settle();
         session.sendKey("Tab"); session.sendKey("Tab"); session.sendKey("Down");
-        await session.waitForVisiblePane("○ › recent-e");
+        await session.settle();
+        expectHighlighted(session, "recent-e");
         session.sendKey("Enter");
         await session.waitForVisiblePaneWhere((text) => !text.includes("EFFORT"), "HUD apply to close");
         expect(commands.filter((command) => command.type === "update_session_model_settings")).toMatchObject([

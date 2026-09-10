@@ -454,7 +454,7 @@ function renderModelChoices(state: DialStripState, width: number, maxRows: numbe
         }
         previousSource = slot.source;
         const prefix = " ".repeat(DIAL_CHOICE_COLUMN - 4);
-        const current = slot.source === "current" ? "●" : "○";
+        const current = slot.source === "current" ? "●" : " ";
         const picked = index === state.index ? DIAL_PICK_MARKER : " ";
         const name = fitDialText(label, nameWidth).padEnd(nameWidth);
         const provider = providerWidth === 0 ? "" : `  ${fitDialText(slot.pair?.provider ?? "", providerWidth).padEnd(providerWidth)}`;

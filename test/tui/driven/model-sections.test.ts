@@ -1,10 +1,18 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
+import { VERA_TUI_THEME } from "../../../clients/tui/theme.ts";
+import type { TuiTestSession } from "../../support/tui-harness.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+
+function expectHighlighted(session: TuiTestSession, model: string): void {
+    const span = session.captureSpans().lines.flatMap((line) => line.spans).find((span) => span.text.includes(model));
+    expect(span?.bg.toInts()).toEqual(RGBA.fromHex(VERA_TUI_THEME.hud?.accent ?? VERA_TUI_THEME.accent).toInts());
+}
 
 test("picker focus preserves search editing, nested Back, and model selection", async () => {
     const commands: string[] = [];
@@ -76,14 +84,15 @@ test("HUD Tab and mouse choose controls, vertical arrows stage models, and Escap
         expect(session.captureVisiblePane()).not.toContain("full (off)");
         session.sendKey("Tab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Down"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/○ › Two/);
+        expectHighlighted(session, "Two");
         expect(session.captureVisiblePane()).toContain("› MODEL");
         session.sendKey("Right"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/○ › Two/);
+        expectHighlighted(session, "Two");
         session.sendKey("Tab"); await session.waitForVisiblePane("› AGENT");
         session.sendKey("BTab"); await session.waitForVisiblePane("› MODEL");
         session.sendKey("Up"); await session.settle();
-        expect(session.captureVisiblePane()).toMatch(/● › One/);
+        expectHighlighted(session, "One");
+        expect(session.captureVisiblePane()).toMatch(/●\s+One/);
         const lines = session.captureVisiblePane().split("\n");
         const accessY = lines.findIndex((line) => line.includes("ACCESS"));
         await session.sendMouseClick(lines[accessY]!.indexOf("ACCESS"), accessY);

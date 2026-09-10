@@ -180,7 +180,7 @@ export function paintDialRow(
                     index === rows.modelStart ? theme.text : theme.muted,
                 ),
                 span(
-                    main.slice(prefixLength),
+                    main.slice(prefixLength).replace(DIAL_PICK_MARKER, " "),
                     theme.background,
                     theme.accent,
                 ),
@@ -193,12 +193,12 @@ export function paintDialRow(
                     activeRow ? theme.text : theme.muted,
                 ),
                 span(
-                    main.slice(prefixLength),
+                    main.slice(prefixLength).replace(DIAL_PICK_MARKER, " "),
                     pickedRow ? cursorColor : theme.muted,
                 ),
             );
         } else {
-            body.push(span(main, pickedRow ? cursorColor : theme.muted));
+            body.push(span(main.replace(DIAL_PICK_MARKER, " "), pickedRow ? cursorColor : theme.muted));
         }
     } else {
         const prefix = laneLabel ?? main.slice(0, 2);
@@ -212,7 +212,7 @@ export function paintDialRow(
             const highlightedChoice = picked && activeRow;
             body.push(
                 span(
-                    index === rows.agent && picked ? part.replace(DIAL_PICK_MARKER, " ") : part,
+                    picked ? part.replace(DIAL_PICK_MARKER, " ") : part,
                     highlightedChoice
                         ? theme.background
                         : picked
