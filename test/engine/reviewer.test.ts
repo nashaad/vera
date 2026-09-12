@@ -661,8 +661,31 @@ test("a classifier that answers after the deadline reports a timeout, not a deni
     // Not a denial: the reviewer said nothing about the action.
     expect(decision.decision).toBe("unavailable");
     expect(decision.reason).toBe(
-        "The approval classifier timed out after 5ms. The action did not run.",
+        "The approval classifier timed out after 5ms. The action did not run. "
+            + "It runs on this session's model, so every tool call is denied "
+            + "until that model answers again: check the provider, or switch "
+            + "the session model.",
     );
+});
+
+test("a provider failure reaches the reason and names a next action", async () => {
+    const failed: AssistantMessage = {
+        ...assistantText(""),
+        stopReason: "error",
+        errorMessage: "OpenRouter credit or key allowance is insufficient.",
+    };
+    const review = createToolReviewer({
+        adapter: new ScriptedAdapter(failed),
+        model: "test",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("unavailable");
+    expect(decision.reason).toContain(
+        "OpenRouter credit or key allowance is insufficient.",
+    );
+    expect(decision.reason).toContain("switch the session model");
 });
 
 test("a decision that arrives after cancellation is not acted on", async () => {
