@@ -548,6 +548,16 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         } else if (selection.kind === "catalog_refresh_scope") {
             startCatalogRefreshSweep(rt, selection.providers);
             return;
+        } else if (selection.kind === "model_shortlist_open"
+            || selection.kind === "model_defaults_open") {
+            openSettingsDestination(rt, {
+                kind: selection.kind === "model_shortlist_open"
+                    ? "model_shortlist" : "model_assignments",
+            }, {
+                ...(rt.settingsPicker?.kind === "model"
+                    ? { parent: rt.settingsPicker } : {}),
+            });
+            return;
         } else if (selection.kind === "model_assignment_browse") {
             openSettingsDestination(rt, { kind: "model_shortlist" }, {
                 parent: previousPicker?.kind === "extension" ? undefined : previousPicker,

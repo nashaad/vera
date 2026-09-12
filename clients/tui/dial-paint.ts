@@ -205,7 +205,7 @@ export function paintDialRow(
         body.push(span(prefix, activeRow ? theme.text : theme.muted));
         for (
             const part of main.slice(prefix.length)
-                .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)*)`, "u"))
+                .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)* ?)`, "u"))
                 .filter(Boolean)
         ) {
             const picked = part.startsWith(DIAL_PICK_MARKER);

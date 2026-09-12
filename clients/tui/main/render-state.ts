@@ -5,6 +5,7 @@ import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { activityFrame, applyWorkspaceRail, dialogAdmission, liveVerificationConsole, renderCommandSuggestions, renderHeldAddress, renderPendingQuote, renderStatus } from "../main.ts";
 import { focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { markSearchLanding } from "../main/chrome.ts";
+import { modelSwitchTip } from "../model-journeys.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
 import { destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
@@ -328,11 +329,23 @@ export function renderState(rt: TuiRuntime): void {
     if (rt.timelinePicker !== undefined) {
         rt.timelinePickerView.update(rt.timelinePicker);
     }
+    const switching = rt.settingsPicker?.kind === "model"
+        && rt.settingsPicker.modelJourney === "switch";
     if (rt.settingsPicker === undefined) {
         rt.pickerTipKind = undefined;
+        rt.switchTipShown = false;
         rt.settingsPickerView.tip = undefined;
         rt.settingsPickerView.verification = undefined;
         rt.verificationConsole = undefined;
+    } else if (switching) {
+        if (!rt.switchTipShown) {
+            rt.switchTipShown = true;
+            rt.switchTipTurn += 1;
+        }
+        rt.pickerTipKind = rt.settingsPicker.kind;
+        rt.settingsPickerView.tip = rt.tipsEnabled
+            ? { tone: "tip", text: modelSwitchTip(rt.switchTipTurn) }
+            : undefined;
     } else if (rt.tipsEnabled && rt.pickerTipKind !== rt.settingsPicker.kind) {
         rt.pickerTipKind = rt.settingsPicker.kind;
         rt.settingsPickerView.tip = takeTip(rt, rt.settingsPicker.kind === "model");

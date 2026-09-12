@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
-import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyWindow, modelJourneyScope, journeySections } from "../../clients/tui/model-journeys.ts";
+import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyWindow, modelJourneyScope, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -389,7 +389,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(frame).not.toContain("full 3/15");
         expect(frame).not.toContain("blended 4.2 at");
         expect(frame).toContain("Models from your connected providers");
-        expect(frame).toContain("Ctrl+K More: library, variants, refresh");
+        expect(frame).toContain("Ctrl+K More: library, variants, refresh, defaults");
         const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
         view.update(unknownState);
         await setup.renderOnce();
@@ -397,7 +397,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         view.update(handleModelJourneyKey(unknownState, { name: "a", ctrl: true }).state!);
         await setup.renderOnce();
         expect(setup.captureCharFrame()).toContain("Models from your connected providers");
-        expect(setup.captureCharFrame()).toContain("Ctrl+K More: library, variants, refresh");
+        expect(setup.captureCharFrame()).toContain("Ctrl+K More: library, variants, refresh, defaults");
         expect(frame).toContain("* WA Score: rating from blind comparisons");
         expect(frame).toContain("Model ID");
         expect(frame).toContain("Smarter");
@@ -686,4 +686,13 @@ test("confirming scope focuses models while cancelling restores Show", () => {
         expect(selected.query).toBe(parent.query);
         expect(selected.intelligenceCutoff).toBe(parent.intelligenceCutoff);
     }
+});
+
+
+test("the switch tip cycles and every line fits one row", () => {
+    for (const tip of MODEL_SWITCH_TIPS) expect(tip.length).toBeLessThanOrEqual(64);
+    const seen = MODEL_SWITCH_TIPS.map((_, turn) => modelSwitchTip(turn));
+    expect(seen).toEqual([...MODEL_SWITCH_TIPS]);
+    expect(modelSwitchTip(MODEL_SWITCH_TIPS.length)).toBe(MODEL_SWITCH_TIPS[0]);
+    expect(modelSwitchTip(-1)).toBe(MODEL_SWITCH_TIPS[MODEL_SWITCH_TIPS.length - 1]);
 });

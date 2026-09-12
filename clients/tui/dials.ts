@@ -576,7 +576,9 @@ function renderDialFooter(hints: string, width: number): string {
 export const DIAL_PICK_MARKER = "\u203a";
 
 function dialChoiceCell(label: string, picked: boolean): string {
-    return `${picked ? DIAL_PICK_MARKER : " "}${label}`;
+    // Each cell carries its own padding on both sides so the marked one reads
+    // as an evenly padded block.
+    return `${picked ? DIAL_PICK_MARKER : " "}${label} `;
 }
 
 const DIAL_CHOICE_COLUMN = 16;
@@ -595,8 +597,8 @@ function renderDialLane(
     const line = () => {
         const before = "";
         const hidden = start + cells.length - end;
-        const after = hidden > 0 ? ` +${hidden}` : "";
-        return `${prefix}${before}${cells.slice(start, end).join(" ")}${after}`;
+        const after = hidden > 0 ? `+${hidden}` : "";
+        return `${prefix}${before}${cells.slice(start, end).join("")}${after}`;
     };
     while (end - start > 1 && line().length > width) {
         const leftDistance = selected - start;

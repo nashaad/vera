@@ -110,7 +110,21 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
             selected.pooledRank === undefined ? "add to library" : "remove from library"}`}`;
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh" : "library, refresh"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
+        : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
+}
+
+/** The switch dialog always carries one of these, one per open. */
+export const MODEL_SWITCH_TIPS: readonly string[] = [
+    "Switching keeps the thread; the next turn uses the new model.",
+    "Type from any section to search; Tab moves between sections.",
+    "^g raises the WA Score cutoff, Shift+^g lowers it.",
+    "^s adds the highlighted model to your library.",
+    "Ctrl+K edits defaults: which model each role reaches for.",
+];
+
+export function modelSwitchTip(turn: number): string {
+    const count = MODEL_SWITCH_TIPS.length;
+    return MODEL_SWITCH_TIPS[((turn % count) + count) % count]!;
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
@@ -141,6 +155,8 @@ export function modelJourneyMenu(parent: TuiSettingsPickerState): TuiSettingsPic
         ...(parent.tab === "all" ? [{ value: "variants", label: parent.revealAll
             ? "Hide extra variants and older models" : "Show extra variants and older models", description: "" }] : []),
         { value: "refresh", label: "Refresh model catalog", description: "" },
+        { value: "manage_library", label: "Manage your library", description: "" },
+        { value: "defaults", label: "Edit model defaults", description: "" },
     ];
     return { kind: "model_menu", title: "More", options, allOptions: options,
         selectedIndex: 0, query: "", parent };
@@ -162,6 +178,8 @@ export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: Tu
             state: rebuiltJourney({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
         if (state.options[state.selectedIndex]?.value === "refresh") return { state: parent, handled: true, refreshAllCatalogs: true };
+        if (value === "manage_library") return { state: parent, handled: true, selection: { kind: "model_shortlist_open" } };
+        if (value === "defaults") return { state: parent, handled: true, selection: { kind: "model_defaults_open" } };
         if (value === "library") {
             const row = parent.options[parent.selectedIndex];
             if (row?.provider === undefined || row.model === undefined) return { state: parent, handled: true };
