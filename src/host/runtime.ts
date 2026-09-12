@@ -177,6 +177,7 @@ import {
     renameStoredSession,
     type RegisteredAgentSummary,
 } from "./agent-registry.ts";
+import type { SessionArtifacts } from "./session-trash.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
 import { createCommandHook } from "../extensions/command-hook.ts";
 import type {
@@ -223,6 +224,9 @@ export interface StartResidentHostOptions {
     readonly permissionPreferencesPath?: string;
     readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
+    readonly trashSessionArtifacts?: (
+        artifacts: SessionArtifacts,
+    ) => Promise<void>;
     readonly modelFailureLedgerPath?: string;
     readonly inboxPath?: string;
     readonly inboxUserConfigPath?: string;
@@ -451,6 +455,12 @@ export async function startResidentHost(
             ? {}
             : { url: options.config.model_feed_url },
     );
+    const eventLogPathForId = eventLogEnabled(currentConfig())
+        ? (agentId: string, cwd: string) =>
+            eventLogDirectory === undefined
+                ? defaultEventLogPath(agentId, cwd)
+                : join(eventLogDirectory, `${agentId}.jsonl`)
+        : undefined;
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
@@ -840,14 +850,10 @@ export async function startResidentHost(
         modelFailureLedger: new ModelFailureLedger(
             options.modelFailureLedgerPath ?? defaultModelFailureLedgerPath(),
         ),
-        ...(eventLogEnabled(currentConfig())
-            ? {
-                eventLogPathForId: (agentId: string, cwd: string) =>
-                    eventLogDirectory === undefined
-                        ? defaultEventLogPath(agentId, cwd)
-                        : join(eventLogDirectory, `${agentId}.jsonl`),
-            }
-            : {}),
+        ...(eventLogPathForId === undefined ? {} : { eventLogPathForId }),
+        ...(options.trashSessionArtifacts === undefined
+            ? {}
+            : { trashSessionArtifacts: options.trashSessionArtifacts }),
     });
 
     let server: HostServer;
@@ -1082,7 +1088,40 @@ export async function startResidentHost(
             },
             commitBranch: (agentId) => registry.commitBranch(agentId),
             syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
-            trashSession: (targetId) => registry.trashSession(targetId),
+            trashSession: async (targetId) => {
+                const resident = await registry.trashSession(targetId);
+                if (resident === "trashed") {
+                    storedSessionIndex.delete(targetId);
+                    return resident;
+                }
+                if (resident !== "not_found") return resident;
+                const sessionPath = await storedSessionPath(
+                    targetId,
+                    sessionDirectory,
+                    await storedSessions,
+                );
+                if (sessionPath === undefined) return "not_found";
+                const workspace = storedSessionIndex.get(targetId)?.workspace;
+                try {
+                    await registry.trashArtifacts({
+                        sessionPath,
+                        attachmentsPath: `${sessionPath}.attachments`,
+                        ...(eventLogPathForId === undefined
+                                || workspace === undefined
+                            ? {}
+                            : {
+                                eventLogPath: eventLogPathForId(
+                                    targetId,
+                                    workspace,
+                                ),
+                            }),
+                    });
+                } catch {
+                    return "failed";
+                }
+                storedSessionIndex.delete(targetId);
+                return "trashed";
+            },
             closeAgent: async (targetId) => {
                 const treeIds = registry.ownedTreeIds(targetId);
                 const outcome = await registry.closeAgentTree(targetId);

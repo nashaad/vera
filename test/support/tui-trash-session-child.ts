@@ -19,6 +19,16 @@ export function createTuiTrashSessionScenario(options: {
 }): TuiTrashSessionScenario {
     let trashed = "";
     let listCalls = 0;
+    const sessions = [{
+        id: "saved-session",
+        workspace: "/work/vera",
+        session_path: "/sessions/saved.jsonl",
+        kind: "interactive" as const,
+        status: "idle" as const,
+        live: false,
+        title: "Continue the theme picker",
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }];
     const client: TuiAgentClient = {
         agentId: "current-session",
         async send(): Promise<void> {},
@@ -37,23 +47,19 @@ export function createTuiTrashSessionScenario(options: {
                 if (listCalls > 1) {
                     await Bun.sleep(300);
                 }
-                return trashed.length === 0
-                    ? [{
-                        id: "saved-session",
-                        workspace: "/work/vera",
-                        session_path: "/sessions/saved.jsonl",
-                        kind: "interactive" as const,
-                        status: "idle" as const,
-                        live: false,
-                        title: "Continue the theme picker",
-                        updated_at: "2026-07-20T20:00:00.000Z",
-                    }]
-                    : [];
+                return [...sessions];
             },
             trashSession: async (sessionId) => {
                 if (options.trashBusy === true) {
                     return { status: "rejected", reason: "busy" };
                 }
+                const index = sessions.findIndex((session) =>
+                    session.id === sessionId
+                );
+                if (index === -1) {
+                    return { status: "rejected", reason: "not_found" };
+                }
+                sessions.splice(index, 1);
                 trashed = sessionId;
                 return { status: "trashed" };
             },
