@@ -4857,3 +4857,26 @@ test("Refresh providers is a visible action that preserves the provider list", a
     expect(pickerFooter(pane)).toContain("⏎ refresh providers");
     expect(startTuiProviderPicker([]).options.map((row) => row.value)).toEqual([TUI_DECLARE_PROVIDER_VALUE]);
 });
+
+
+test("Narrow catalog keeps the fact columns and spends the badges instead", async () => {
+    const all = switchedModelTab(listedFactsPicker(), "all");
+    const frame = await pickerFrame(all, 64, 55);
+    const lines = frame.split("\n");
+    const header = lines.find((line) => line.includes("WA Score*"))!;
+    const grok = lines.find((line) =>
+        line.includes("Grok 4.6") && line.includes("1629")
+    )!;
+    const steady = lines.find((line) => line.includes("Steady"))!;
+
+    // The columns are fixed width, so they survive whole and stay aligned.
+    expect(header).toContain("7:2:1");
+    expect(grok).toMatch(/P i ★/);
+    expect(grok.indexOf("1629")).toBe(steady.indexOf("1400"));
+    // The badge column is the one that gives up room.
+    expect(grok).not.toContain("openrouter");
+    // Nothing ends on an ellipsis that hides only padding.
+    for (const line of [header, grok, steady]) {
+        expect(line.trimEnd().endsWith("…")).toBe(false);
+    }
+});

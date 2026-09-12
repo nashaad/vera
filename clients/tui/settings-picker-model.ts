@@ -39,7 +39,7 @@ import {
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
-import { DIALOG_CARD_PADDING, DIALOG_GUTTER_WIDTH, attachDialogRowPointer, type DialogRowPointer, type DialogMeta, type DialogMetaPart } from "./dialog-chrome.ts";
+import { DIALOG_CARD_PADDING, DIALOG_GUTTER_WIDTH, attachDialogRowPointer, clipDialogMetaParts, type DialogRowPointer, type DialogMeta, type DialogMetaPart } from "./dialog-chrome.ts";
 import { type TuiThemeName } from "./theme.ts";
 import {
     tuiThemeProperties,
@@ -426,10 +426,11 @@ export function modelDetailNode(
         line([fg(TUI_MUTED)(clippedTo(option.provider ?? "", width))]);
         line();
         const facts = modelDetailFacts(state, option);
-        const compact = height < 3 + facts.length * 2;
-        for (const [label, value, tone] of facts) {
+        const squeezed = height < 3 + journeyFactLines(facts, width);
+        for (const fact of facts) {
+            const [label, value, tone] = fact;
             const color = tone === "positive" ? TUI_SUCCESS : TUI_TEXT;
-            if (compact) line([fg(TUI_MUTED)(`${label}: `), fg(color)(clippedTo(value, Math.max(1, width - label.length - 2)))]);
+            if (squeezed || journeyFactFits(fact, width)) line([fg(TUI_MUTED)(`${label}: `), fg(color)(clippedTo(value, Math.max(1, width - label.length - 2)))]);
             else {
                 line([fg(TUI_MUTED)(label)]);
                 line([fg(color)(clippedTo(value, width))]);
@@ -646,7 +647,9 @@ export function modelDetailHeight(
         return 3 + option.detailFacts.length * 2
             + wrappedTo(option.note ?? "", width).length;
     }
-    if (described && state.kind === "model" && state.modelJourney !== undefined) return 3 + modelDetailFacts(state, option).length * 2;
+    if (described && state.kind === "model" && state.modelJourney !== undefined) {
+        return 3 + journeyFactLines(modelDetailFacts(state, option), width);
+    }
     const facts = described ? modelDetailFacts(state, option) : [];
     const factLines = described
         ? modelDetailFactRowCount(facts) * 2 + 1
@@ -694,6 +697,18 @@ export function factColumnChunks(
         fg(TUI_TEXT)("  "),
         paint(rightText, rightTone),
     ];
+}
+
+function journeyFactFits(fact: ModelDetailFact, width: number): boolean {
+    return fact[0].length + 2 + fact[1].length <= width;
+}
+
+/** A journey pane puts label and value on one line whenever both fit. */
+function journeyFactLines(
+    facts: readonly ModelDetailFact[],
+    width: number,
+): number {
+    return facts.reduce((total, fact) => total + (journeyFactFits(fact, width) ? 1 : 2), 0);
 }
 
 export function modelDetailFacts(
@@ -1545,10 +1560,50 @@ export function listedFactCell(text: string, width: number): string {
     return text.length >= width ? text.slice(0, width) : text.padStart(width);
 }
 
+/** Every listed row reserves this much, so the columns line up under the header. */
+export const LISTED_FACTS_WIDTH = LISTED_SCORE_WIDTH + 2 + LISTED_RATES_WIDTH
+    + LISTED_TRAILING_WIDTH;
+
 export function listedFactsHeaderText(): string {
     return `${"WA Score*".padStart(LISTED_SCORE_WIDTH)}  ${
         "7:2:1".padStart(LISTED_RATES_WIDTH)
     }${" ".repeat(LISTED_TRAILING_WIDTH)}`;
+}
+
+/** One glyph per fact, so a library row keeps its label instead of spending it on prose. */
+export function shortlistFactsText(option: TuiSettingsPickerOption): string {
+    const price = option.pricing === undefined ? "$?" : `$${formatListedRates(option.pricing)}`;
+    const kept = option.pooledRank === undefined ? "\u00b7" : "\u2605";
+    const verified = option.verificationError !== undefined ? "\u2717"
+        : option.unverified === false || option.pooledRank !== undefined && option.unverified !== true
+        ? "\u2713" : "?";
+    return `${price.padStart(SHORTLIST_PRICE_WIDTH)}  ${kept} ${verified} ${option.unavailable ? "!" : " "}`;
+}
+
+const SHORTLIST_PRICE_WIDTH = 7;
+
+const SHORTLIST_LEGENDS = [
+    "\u2605 kept   \u00b7 not kept   \u2713 verified   ? not probed   \u2717 probe failed   ! unavailable   $? no price",
+    "\u2605 kept  \u00b7 not kept  \u2713 verified  ? unprobed  \u2717 failed  ! unavailable  $? no price",
+    "\u2605/\u00b7 kept  \u2713/?/\u2717 verified  ! unavailable  $? no price",
+];
+
+export function shortlistLegendText(width: number): string {
+    return SHORTLIST_LEGENDS.find((legend) => legend.length <= width)
+        ?? SHORTLIST_LEGENDS[SHORTLIST_LEGENDS.length - 1]!;
+}
+
+export function shortlistLegendNode(
+    renderer: RenderContext,
+    width: number,
+): TextRenderable {
+    return new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(TUI_MUTED)(clippedTo(shortlistLegendText(width), width)),
+        ]),
+        width,
+        height: 1,
+    });
 }
 
 /** The star on the WA Score column, answered on the screen that draws the star rather than only under Help. */
@@ -1586,11 +1641,11 @@ export function listedFactsParts(
         : " ".repeat(IMAGE_GLYPH.length);
     const mark = option.pooledRank !== undefined ? "★" : " ";
     return [
-        { text: `${score}  ${rates}  ` },
+        { text: `${score}  ${rates}  `, atomic: true },
         option.onPareto === true
-            ? { text: "P", tone: "positive" }
-            : { text: " " },
-        { text: ` ${image} ${mark}` },
+            ? { text: "P", tone: "positive", atomic: true }
+            : { text: " ", atomic: true },
+        { text: ` ${image} ${mark}`, atomic: true },
     ];
 }
 
@@ -1675,7 +1730,12 @@ export function optionMeta(
         && option.section === undefined
         && tuiModelActionOfValue(option.value) === undefined
     ) {
-        const pad = Math.max(0, listedPrefixWidth - metaPartsLength(prefix));
+        // The badges are a column of their own: every row gives the fact
+        // columns the same starting point, so they line up under the header.
+        const fitted = clipDialogMetaParts(prefix, listedPrefixWidth);
+        parts.length = 0;
+        parts.push(...fitted);
+        const pad = Math.max(0, listedPrefixWidth - metaPartsLength(fitted));
         if (pad > 0) {
             parts.push({ text: " ".repeat(pad) });
         }

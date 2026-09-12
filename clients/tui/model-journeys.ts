@@ -1,4 +1,5 @@
 import { halfPageCursor } from "./list-window.ts";
+import { sectionHeader } from "./settings-picker-model.ts";
 import { tuiBindingId } from "./keymap.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import type { ModelJourneySection, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
@@ -31,10 +32,14 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
         group.push(row);
         groups.set(key, group);
     }
+    const collapsed = state.collapsed ?? [];
     return [...groups.values()].flatMap((rows) => {
         const first = rows[0]!;
         const provider = state.providerCatalogs?.find((provider) => provider.id === first.provider)?.label ?? first.provider;
-        return rows.map((row) => ({ ...row, group: `${provider}` }));
+        const group = `${provider}`;
+        return collapsed.includes(group)
+            ? [{ ...sectionHeader(group, rows, collapsed), group }]
+            : rows.map((row) => ({ ...row, group }));
     });
 }
 
@@ -47,7 +52,9 @@ export interface JourneyDisplayRow {
 export function journeyWindow(state: TuiSettingsPickerState, maxLines: number): readonly JourneyDisplayRow[] {
     const display: JourneyDisplayRow[] = state.options.flatMap((option, index) => [
         ...(index === 0 || option.group !== state.options[index - 1]?.group
-            ? [...(index > 0 ? [{ index: -1 }] : []), { heading: option.group, index: -1 }] : []),
+            ? [...(index > 0 ? [{ index: -1 }] : []),
+                ...(option.section === undefined ? [{ heading: option.group, index: -1 }] : [])]
+            : []),
         { option, index },
     ]);
     const cursor = display.findIndex((row) => row.index === state.selectedIndex);
@@ -57,7 +64,7 @@ export function journeyWindow(state: TuiSettingsPickerState, maxLines: number): 
     while (visible[0]?.option === undefined && visible[0]?.heading === undefined && visible.length > 0) visible.shift();
     while (visible.at(-1)?.option === undefined && visible.length > 0) visible.pop();
     const first = visible[0];
-    if (maxLines > 1 && first?.option !== undefined) {
+    if (maxLines > 1 && first?.option !== undefined && first.option.section === undefined) {
         visible.unshift({ heading: first.option.group, index: -1 });
     }
     return visible;
@@ -99,10 +106,11 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : state.modelFocus === "search" ? "Type to search · ←→ move cursor"
         : state.modelFocus === "intelligence" ? "←→ change cutoff"
         : state.modelFocus === "more" ? "⏎ open More"
-        : "↑↓ ^d^u choose · ⏎ switch model";
+        : `↑↓ ^d^u choose · ⏎ switch model${selected === undefined ? "" : ` · ^s ${
+            selected.pooledRank === undefined ? "add to library" : "remove from library"}`}`;
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : `› Ctrl+K More: ${state.tab === "all" ? "variants, refresh" : "refresh"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
+        : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh" : "library, refresh"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
@@ -124,7 +132,12 @@ export function modelJourneyScope(parent: TuiSettingsPickerState): TuiSettingsPi
 }
 
 export function modelJourneyMenu(parent: TuiSettingsPickerState): TuiSettingsPickerState {
+    const selected = parent.options[parent.selectedIndex];
     const options: TuiSettingsPickerOption[] = [
+        ...(selected?.provider !== undefined && selected.model !== undefined
+            ? [{ value: "library", label: selected.pooledRank === undefined
+                ? "Add to your library" : "Remove from your library", description: "^s" }]
+            : []),
         ...(parent.tab === "all" ? [{ value: "variants", label: parent.revealAll
             ? "Hide extra variants and older models" : "Show extra variants and older models", description: "" }] : []),
         { value: "refresh", label: "Refresh model catalog", description: "" },
@@ -149,8 +162,40 @@ export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: Tu
             state: rebuiltJourney({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
         if (state.options[state.selectedIndex]?.value === "refresh") return { state: parent, handled: true, refreshAllCatalogs: true };
+        if (value === "library") {
+            const row = parent.options[parent.selectedIndex];
+            if (row?.provider === undefined || row.model === undefined) return { state: parent, handled: true };
+            return { state: parent, handled: true,
+                poolToggle: { action: row.pooledRank === undefined ? "add" : "remove",
+                    provider: row.provider, model: row.model } };
+        }
     }
     return { state, handled: true };
+}
+
+function toggledJourneyGroup(
+    state: TuiSettingsPickerState,
+    action: "close" | "open",
+): TuiSettingsPickerTransition {
+    const selected = state.options[state.selectedIndex];
+    const group = selected?.group;
+    if (group === undefined) return { state, handled: true };
+    const collapsed = state.collapsed ?? [];
+    const closed = collapsed.includes(group);
+    if (closed === (action === "close")) return { state, handled: true };
+    const next = action === "close"
+        ? [...collapsed, group]
+        : collapsed.filter((entry) => entry !== group);
+    const options = journeyModels({ ...state, collapsed: next });
+    // Closing leaves the cursor on the heading it just folded; opening puts it
+    // on the first model under that heading.
+    const landing = options.findIndex((row) =>
+        row.group === group && (action === "close") === (row.section !== undefined));
+    return {
+        state: { ...state, collapsed: next, options,
+            selectedIndex: Math.max(0, landing) },
+        handled: true,
+    };
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
@@ -170,7 +215,6 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
                 paging === "half_page_down" ? "down" : "up") },
     };
     if (tuiBindingId("model_picker", key) === "toggle_pooled") {
-        if (!managing) return same;
         return selected?.provider && selected.model ? { ...same,
             poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",
                 provider: selected.provider, model: selected.model } } : same;
@@ -184,7 +228,10 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         }, selected?.value), handled: true };
         if (key.name === "up") return same;
     }
-    if (key.name === "left" || key.name === "right") return same;
+    if (key.name === "left" || key.name === "right") {
+        if (state.modelFocus !== "list" && !managing) return same;
+        return toggledJourneyGroup(state, key.name === "left" ? "close" : "open");
+    }
     if (binding !== undefined || key.ctrl) {
         if (binding === "journey_reveal" || binding === "shortlist_reveal") return { state: rebuiltJourney({ ...state, revealAll: state.revealAll !== true }, selected?.value), handled: true };
         if (binding === "shortlist_providers") return { ...same, openProviders: true };
@@ -210,6 +257,9 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     }
     if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) } };
+    if ((key.name === "enter" || key.name === "return") && selected?.section !== undefined) {
+        return toggledJourneyGroup(state, "open");
+    }
     if ((key.name === "enter" || key.name === "return") && selected?.provider && selected.model) {
         if (selected.unavailable && !managing) return same;
         if (managing) return { ...same, poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",

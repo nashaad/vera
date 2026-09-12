@@ -40,7 +40,7 @@ import {
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
-import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_BUTTON_LINES, dialogButtonNode, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, centeredDialogSurface } from "./dialog-chrome.ts";
+import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_BUTTON_LINES, dialogButtonNode, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogGroupHeaderRow, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogMetaRoom, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, centeredDialogSurface } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import {
     tuiThemeProperties,
@@ -96,6 +96,9 @@ import {
     intelligenceScaleNodes,
     isPooled,
     listedFactsFootnoteNode,
+    shortlistFactsText,
+    shortlistLegendNode,
+    LISTED_FACTS_WIDTH,
     listedFactsHeaderText,
     metaPartsLength,
     modelActionCursor,
@@ -1216,6 +1219,18 @@ export type PickerDisplayRow =
         readonly index: number;
     };
 
+function optionRowLabel(
+    state: TuiAnySettingsPickerState,
+    row: Extract<PickerDisplayRow, { kind: "option" }>,
+): string {
+    return digitQuickSelect(state)
+            && state.kind !== "settings"
+            && state.query === ""
+            && row.index < 9
+        ? `${row.index + 1}. ${row.option.label}`
+        : row.option.label;
+}
+
 const TIP_LABELS: Record<TuiPickerTipLine["tone"], string> = {
     tip: "Tip",
     refusal: "Not set",
@@ -1321,8 +1336,27 @@ export function renderListPickerRows(
             content: emptyModelJourney(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
-        const prefixWidth = listed ? Math.max(0, ...state.options.map((option) =>
-            metaPartsLength(optionMetaPrefixParts(state, { ...option, poolName: undefined }, true)))) : 0;
+        // The badges reserve the same width on every row so the fact columns
+        // line up, but never so much that the columns themselves stop fitting.
+        const widestRowLabel = Math.max(0, ...rows.map(({ option: row }) =>
+            row === undefined ? 0 : row.label.length));
+        const prefixWidth = listed
+            ? Math.min(
+                Math.max(
+                    0,
+                    dialogMetaRoom(rowWidth, widestRowLabel)
+                        - LISTED_FACTS_WIDTH,
+                ),
+                Math.max(0, ...state.options.flatMap((option) =>
+                    option.section !== undefined ? [] : [metaPartsLength(
+                        optionMetaPrefixParts(
+                            state,
+                            { ...option, poolName: undefined },
+                            true,
+                        ),
+                    )])),
+            )
+            : 0;
         const rowNodes = dialogOptionRows(renderer, [
             ...(listed ? [{ label: "", active: false,
                 meta: `${" ".repeat(prefixWidth)}${listedFactsHeaderText()}` }] : []),
@@ -1332,13 +1366,14 @@ export function renderListPickerRows(
                 return [{
                     label: row.label,
                     active: index === state.selectedIndex,
-                    current: row.value === state.initialModel,
+                    ...(heading ? { heading: true, marker: "▶" } : {}),
+                    current: !heading && row.value === state.initialModel,
                     dimmed: state.modelJourney === "switch" && state.modelFocus !== "list",
 
                     meta: heading ? "" : listed ? optionMeta(state, { ...row, poolName: undefined }, true, prefixWidth)
-                        : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${state.modelJourney === "shortlist"
-                            ? `${row.pooledRank === undefined ? "not kept ✗" : "kept ✓"}  ${row.verificationError ? "failed" : row.unverified === false || row.pooledRank !== undefined && row.unverified !== true ? "verified" : "unverified"}`
-                            : row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
+                        : state.modelJourney === "shortlist" ? shortlistFactsText(row)
+                        : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${
+                            row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
                     ...dialogRowPointer(pointer, index),
                 }];
             }),
@@ -1346,7 +1381,7 @@ export function renderListPickerRows(
         let at = 0;
         if (listed) addRow(rowNodes[at++]!);
         for (const row of rows) {
-            addRow(row.heading !== undefined ? dialogGroupHeaderNode(renderer, row.heading, false) : row.option === undefined
+            addRow(row.heading !== undefined ? dialogGroupHeaderRow(renderer, row.heading, "▼") : row.option === undefined
                 ? new TextRenderable(renderer, { content: "", height: 1 })
                 : rowNodes[at++]!);
         }
@@ -1363,6 +1398,7 @@ export function renderListPickerRows(
             add(prices);
         }
         if (listed) add(listedFactsFootnoteNode(renderer, width));
+        if (state.modelJourney === "shortlist") add(shortlistLegendNode(renderer, width));
         if (state.modelJourney === "shortlist") {
             const feedback = state.journeyFeedback;
             add(new TextRenderable(renderer, {
@@ -1589,15 +1625,24 @@ export function renderListPickerRows(
     const optionRowWidth = listedHeader
         ? Math.max(1, rowWidth - 4)
         : rowWidth;
+    const widestOptionLabel = Math.max(0, ...rows.flatMap((row) =>
+        row.kind === "option" ? [optionRowLabel(state, row).length] : []));
     const listedPrefixWidth = listedHeader
-        ? Math.max(
-            0,
-            ...rows.flatMap((row) =>
-                row.kind === "option"
-                    ? [metaPartsLength(
-                        optionMetaPrefixParts(state, row.option, detailed),
-                    )]
-                    : []
+        ? Math.min(
+            Math.max(
+                0,
+                dialogMetaRoom(optionRowWidth, widestOptionLabel)
+                    - LISTED_FACTS_WIDTH,
+            ),
+            Math.max(
+                0,
+                ...rows.flatMap((row) =>
+                    row.kind === "option"
+                        ? [metaPartsLength(
+                            optionMetaPrefixParts(state, row.option, detailed),
+                        )]
+                        : []
+                ),
             ),
         )
         : 0;
@@ -1616,12 +1661,7 @@ export function renderListPickerRows(
         ...rows.flatMap((row) =>
         row.kind === "option"
             ? [{
-                label: digitQuickSelect(state)
-                        && state.kind !== "settings"
-                        && state.query === ""
-                        && row.index < 9
-                    ? `${row.index + 1}. ${row.option.label}`
-                    : row.option.label,
+                label: optionRowLabel(state, row),
                 marker: state.kind === "provider"
                         && row.index === state.selectedIndex
                     ? "›"
@@ -1662,8 +1702,8 @@ export function renderListPickerRows(
                 dimmed: state.kind === "model"
                     && (!sectionHasKeys(state, "list")
                         || state.modelFocus === "list_action"),
-                current: row.option.section !== undefined
-                    || isCurrentOption(state, row.option),
+                heading: row.option.section !== undefined,
+                current: isCurrentOption(state, row.option),
                 ...dialogRowPointer(pointer, row.index),
             }]
             : []

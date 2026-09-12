@@ -247,7 +247,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        if (previousPicker?.kind === "model" && previousPicker.modelJourney !== undefined) {
+        // The More menu hands the toggle back with the journey as its next
+        // state, so the journey path is chosen on where the toggle lands.
+        const journey = (previousPicker?.kind === "model" && previousPicker.modelJourney !== undefined)
+            || (transition.state?.kind === "model" && transition.state.modelJourney !== undefined);
+        if (journey) {
             runModelOperation(rt, { operation: toggle.action === "add" ? "keep" : "unkeep",
                 models: [{ provider: toggle.provider, model: toggle.model }] });
             return;

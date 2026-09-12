@@ -14,13 +14,17 @@ import {
     dialogBottomOffset,
     dialogInsetBottomOffset,
     dialogInsetTop,
+    dialogGroupHeaderNode,
+    dialogGroupHeaderRow,
     dialogOptionRow,
     dialogOptionRows,
 } from "../../clients/tui/dialog-chrome.ts";
 import {
+    TUI_ACCENT,
     TUI_BACKGROUND,
     TUI_MUTED,
     TUI_SUCCESS,
+    TUI_TEXT,
 } from "../../clients/tui/state.ts";
 
 test("bottom-anchored overlays clear the status line only when there is room", async () => {
@@ -271,6 +275,124 @@ test("one card row does not take width from surrounding inline rows", async () =
         expect(metaChunks(rows[1]!.getChildren()[1] as BoxRenderable)
             .map((chunk) => chunk.text.toString()).join(""))
             .toBe("currently openrouter/google/gemini-3.1-pro-preview");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a meta column whose tail is only padding is not marked as cut", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        // The listed facts columns are fixed width, so a model with no badge
+        // ends on four blank cells. Clipping those away hides nothing.
+        const blank = dialogOptionRows(setup.renderer, [{
+            label: "GLM-5.2",
+            meta: [
+                { text: `${"55.6".padStart(9)}  ${"$1.23".padStart(6)}  ` },
+                { text: " " },
+                { text: "    " },
+            ],
+            active: false,
+        }], 30);
+        expect(
+            metaChunks(blank[0]!).map((chunk) => chunk.text.toString()).join(""),
+        ).not.toContain("…");
+
+        // The same cut with a badge in the tail does lose a fact, so it says so.
+        const marked = dialogOptionRows(setup.renderer, [{
+            label: "GLM-5.2",
+            meta: [
+                { text: `${"55.6".padStart(9)}  ${"$1.23".padStart(6)}  ` },
+                { text: " " },
+                { text: "   ★" },
+            ],
+            active: false,
+        }], 30);
+        expect(
+            metaChunks(marked[0]!).map((chunk) => chunk.text.toString()).join(""),
+        ).toContain("…");
+
+        // The column header is one padded string and ends the same way.
+        const header = dialogOptionRows(setup.renderer, [{
+            label: "GLM-5.2",
+            meta: `${"WA Score*".padStart(9)}  ${"7:2:1".padStart(6)}      `,
+            active: false,
+        }], 30);
+        expect(
+            metaChunks(header[0]!).map((chunk) => chunk.text.toString()).join(""),
+        ).not.toContain("…");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("the current row is not painted like the group heading above it", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        // Both used the accent in bold, so the current model read as a heading
+        // with nothing under it. The row says "current" in its own meta.
+        const row = dialogOptionRow(setup.renderer, {
+            label: "kimi-k3",
+            meta: "price unknown  current",
+            current: true,
+            active: false,
+        });
+        const label = row.getChildren()[0] as TextRenderable;
+        expect((label.content as StyledText).chunks[0]!.fg)
+            .toEqual(parseColor(TUI_TEXT));
+        // Bold still sets it apart from the plain rows.
+        expect(label.attributes).toBe(1);
+
+        const heading = dialogGroupHeaderNode(setup.renderer, "DigitalOcean", false);
+        expect(heading.fg).toEqual(parseColor(TUI_ACCENT));
+
+        // A heading rendered as a row, so it can hold the cursor when folded,
+        // keeps the accent the standalone heading has.
+        const folded = dialogOptionRow(setup.renderer, {
+            label: "DigitalOcean (129)",
+            marker: "\u25b6",
+            heading: true,
+            active: false,
+        });
+        const foldedLabel = folded.getChildren().at(-1) as TextRenderable;
+        expect((foldedLabel.content as StyledText).chunks[0]!.fg)
+            .toEqual(parseColor(TUI_ACCENT));
+        expect(foldedLabel.attributes).toBe(1);
+
+        // An open group says so with its own marker, in the column the folded
+        // one puts its marker in.
+        const foldedMarker = folded.getChildren().find((child) =>
+            (child as TextRenderable).left === -2) as TextRenderable;
+        const open = dialogGroupHeaderRow(setup.renderer, "DigitalOcean", "\u25bc");
+        const openMarker = open.getChildren().at(-1) as TextRenderable;
+        expect((openMarker.content as StyledText).chunks[0]!.text).toBe("\u25bc");
+        expect(openMarker.left).toBe(foldedMarker.left);
+        expect((open.getChildren()[0] as TextRenderable).fg).toEqual(parseColor(TUI_ACCENT));
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a fixed column goes whole or not at all", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const parts = [
+            { text: "openrouter · " },
+            { text: `${"1580".padStart(9)}  ${"0.39".padStart(6)}  `, atomic: true },
+            { text: "P", tone: "positive" as const, atomic: true },
+            { text: " i ★", atomic: true },
+        ];
+        // Room for the score block but not the badge after it: half of " i ★"
+        // says nothing, so the whole column goes.
+        const [row] = dialogOptionRows(setup.renderer, [{
+            label: "Fugu Ultra",
+            meta: parts,
+            active: false,
+        }], 48);
+        const meta = metaChunks(row!).map((chunk) => chunk.text.toString()).join("");
+        expect(meta).toContain("1580");
+        expect(meta).not.toContain(" i");
+        expect(meta.trimEnd().endsWith("…")).toBe(true);
     } finally {
         setup.renderer.destroy();
     }

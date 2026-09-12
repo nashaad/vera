@@ -222,9 +222,33 @@ export function dialogGroupHeaderNode(
     });
 }
 
+/** A group heading that can fold, so its marker sits where the folded row's marker sits. */
+export function dialogGroupHeaderRow(
+    renderer: RenderContext,
+    label: string,
+    marker: string,
+): BoxRenderable {
+    const row = new BoxRenderable(renderer, {
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+    });
+    row.add(new TextRenderable(renderer, {
+        content: `${DIALOG_GUTTER}${label}`,
+        fg: TUI_ACCENT,
+        attributes: 1,
+        width: "100%",
+        height: 1,
+    }));
+    addMarker(renderer, row, marker, TUI_ACCENT);
+    return row;
+}
+
 export interface DialogMetaPart {
     readonly text: string;
     readonly tone?: "detail" | "positive";
+    /** A fixed column: half of one says nothing, so it goes whole or not at all. */
+    readonly atomic?: boolean;
 }
 
 export type DialogMeta = string | readonly DialogMetaPart[];
@@ -253,6 +277,8 @@ export interface DialogRowContent {
     /** The cursor of a section that does not hold the keyboard. It stays visible, because what it points at is what another section is acting on, but it gives up the accent so only one fill on the card reads as focus. */
     readonly dimmed?: boolean;
     readonly current?: boolean;
+    /** A group heading rendered as a row. It keeps the accent; a current row does not. */
+    readonly heading?: boolean;
     readonly tint?: boolean;
     readonly wrap?: boolean;
     readonly card?: boolean;
@@ -398,7 +424,8 @@ export function dialogOptionRows(
         return dialogOptionRow(renderer, {
             ...content,
             label: clipped(content.label, labelWidth).padEnd(labelWidth),
-            ...(budget === undefined || content.description === undefined
+            ...(budget === undefined || budget < DESCRIPTION_MINIMUM
+                    || content.description === undefined
                 ? {}
                 : { description: clipped(content.description, budget) }),
             ...(content.meta === undefined ? {} : {
@@ -415,11 +442,9 @@ function clippedMeta(
 ): readonly DialogMetaPart[] {
     const kept: DialogMetaPart[] = [];
     let used = 0;
-    let cut = false;
     for (const part of parts) {
         const room = width - used;
         if (room <= 0) {
-            cut = true;
             break;
         }
         if (part.text.length <= room) {
@@ -427,14 +452,17 @@ function clippedMeta(
             used += part.text.length;
             continue;
         }
+        if (part.atomic === true) {
+            break;
+        }
         const text = clipped(part.text, room);
-        cut = true;
         if (text.length > 0) {
             kept.push({ ...part, text });
             used += text.length;
         }
         break;
     }
+    const cut = parts.map((part) => part.text).join("").slice(used).trim().length > 0;
     const last = kept.at(-1);
     if (cut && last !== undefined && !last.text.endsWith("…")) {
         const trimmed = last.text.trimEnd();
@@ -451,16 +479,44 @@ function clippedMeta(
 
 const DESCRIPTION_GAP = 2;
 
+/** Narrower than this and a description is only its own ellipsis. */
+const DESCRIPTION_MINIMUM = 4;
+
 const META_GAP = 2;
 
 const LABEL_SHARE = 0.4;
+
+/** Fit parts into a fixed column, keeping fixed sub-columns whole. */
+export function clipDialogMetaParts(
+    parts: readonly DialogMetaPart[],
+    width: number,
+): readonly DialogMetaPart[] {
+    return clippedMeta(parts, width, false);
+}
+
+/** How wide the meta column can get once the labels have taken their share. */
+export function dialogMetaRoom(
+    contentWidth: number,
+    widestLabel: number,
+): number {
+    return Math.max(
+        0,
+        contentWidth
+            - Math.min(widestLabel, Math.floor(contentWidth * LABEL_SHARE))
+            - META_GAP,
+    );
+}
 
 function clipped(text: string, budget: number): string {
     if (budget <= 0) {
         return "";
     }
-    return text.length <= budget
-        ? text
+    if (text.length <= budget) {
+        return text;
+    }
+    const trimmed = text.trimEnd();
+    return trimmed.length <= budget
+        ? trimmed
         : `${text.slice(0, budget - 1).trimEnd()}…`;
 }
 
@@ -474,11 +530,13 @@ export function dialogOptionRow(
         : content.active || content.tint === true
             ? TUI_ELEMENT
             : content.background ?? TUI_PANEL;
+    // Group headings own the accent. A current row carries the word "current",
+    // so tinting it too made the two read alike.
     const label = lit
         ? TUI_SELECTION_TEXT
-        : content.current
-            ? TUI_ACCENT
-            : TUI_TEXT;
+        : content.heading === true
+        ? TUI_ACCENT
+        : TUI_TEXT;
     const accent = lit ? TUI_SELECTION_TEXT : TUI_ACCENT;
     const detail = lit ? TUI_SELECTION_TEXT : TUI_MUTED;
     if (content.card === true) {
@@ -518,7 +576,7 @@ export function dialogOptionRow(
     row.add(new TextRenderable(renderer, {
         content: new StyledText(labelChunks),
         bg: background,
-        attributes: content.active || content.current === true ? 1 : 0,
+        attributes: content.active || content.current === true || content.heading === true ? 1 : 0,
         flexGrow: 1,
         flexShrink: 1,
         ...(content.wrap
@@ -562,7 +620,7 @@ function cardRow(
         ...(content.description === undefined
             ? []
             : [fg(detail)(`  ${content.description}`)]),
-    ], content.active || content.current === true ? 1 : 0));
+    ], content.active || content.current === true || content.heading === true ? 1 : 0));
     if (content.meta !== undefined) {
         const positive = content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS;
         card.add(cardLine(renderer, background, accent, "", [

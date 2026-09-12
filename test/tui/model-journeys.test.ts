@@ -126,7 +126,9 @@ test("live library search accepts spaces and row actions do not appear as anothe
         await setup.renderOnce();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Model Library");
-        expect(frame).toContain("kept ✓");
+        // A kept row carries the star, and the legend below the list says what it means.
+        expect(frame).toContain("★ ?");
+        expect(frame).toContain("★ kept");
         expect(frame).not.toContain("Actions");
     } finally { setup.renderer.destroy(); }
 });
@@ -210,13 +212,11 @@ test("providers opened from either model journey never expose the legacy tabs", 
     } finally { setup.renderer.destroy(); }
 });
 
-test("plain provider groups keep a stable order and headings never enter navigation", () => {
+test("plain provider groups keep a stable order and open headings stay out of navigation", () => {
     const state = modelJourney(base, "shortlist");
     expect(state.options.map((row) => row.group)).toEqual(["p", "p", "q"]);
     expect(state.options.every((row) => row.model !== undefined && row.section === undefined)).toBe(true);
-    for (const shift of [false, true]) for (const name of ["left", "right"]) {
-        expect(handleModelJourneyKey(state, { name, shift }).state).toBe(state);
-    }
+    expect(handleModelJourneyKey(state, { name: "right" }).state).toBe(state);
     const next = handleModelJourneyKey(state, { name: "down" }).state!;
     expect(next.options[next.selectedIndex]?.model).toBe("b");
     const searched = updateTuiSettingsPickerSearch(state, "beta").state!;
@@ -224,15 +224,29 @@ test("plain provider groups keep a stable order and headings never enter navigat
     expect(handleModelJourneyKey(searched, { name: "enter" }).poolToggle?.model).toBe("b");
 });
 
+test("a folded group collapses to one heading row that counts what it hides", () => {
+    const state = modelJourney(base, "shortlist");
+    const group = state.options[0]?.group;
+    const folded = handleModelJourneyKey({ ...state, selectedIndex: 0 }, { name: "left" }).state!;
+    const heading = folded.options[folded.selectedIndex]!;
+    expect(heading.section).toBe(group);
+    expect(heading.label).toBe(`${group} (2)`);
+    expect(heading.sectionCollapsed).toBe(true);
+    expect(folded.options.filter((row) => row.group === group)).toHaveLength(1);
+    // Enter opens it again, so a fold is never a dead end.
+    const opened = handleModelJourneyKey(folded, { name: "enter" }).state!;
+    expect(opened.options.filter((row) => row.group === group)).toHaveLength(2);
+});
+
 test("reduced catalogs hide old entries without hiding kept models or search results", () => {
     const options = [rows[0]!, { ...rows[1]!, hiddenByDefault: "old" as const },
         { ...rows[2]!, pooledRank: undefined, hiddenByDefault: "superseded" as const }];
     let state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
     expect(journeyMatches(state).map((row) => row.model)).toEqual(["a", "b"]);
-    expect(handleModelJourneyKey(state, { name: "k", ctrl: true }).state?.options[0]?.label).toBe("Show extra variants and older models");
+    expect(handleModelJourneyKey(state, { name: "k", ctrl: true }).state?.options.find((row) => row.value === "variants")?.label).toBe("Show extra variants and older models");
     state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
     expect(journeyMatches(state)).toHaveLength(3);
-    expect(handleModelJourneyKey(state, { name: "k", ctrl: true }).state?.options[0]?.label).toBe("Hide extra variants and older models");
+    expect(handleModelJourneyKey(state, { name: "k", ctrl: true }).state?.options.find((row) => row.value === "variants")?.label).toBe("Hide extra variants and older models");
     state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
     const search = updateTuiSettingsPickerSearch(state, "gamma").state!;
     expect(search.options[search.selectedIndex]?.model).toBe("c");
@@ -266,7 +280,8 @@ test("provider headings have a blank row between groups inside the card", async 
         view.update(modelJourney(base, "shortlist"));
         await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
-        const heading = lines.findIndex((line) => line.split("│")[0]?.trim() === "q");
+        // An open group carries the ▼ that says left folds it.
+        const heading = lines.findIndex((line) => line.split("│")[0]?.trim() === "▼ q");
         expect(heading).toBeGreaterThan(0);
         expect(lines[heading - 1]?.split("│")[0]?.trim()).toBe("");
         expect(lines[heading + 1]).toContain("Gamma");
@@ -374,7 +389,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(frame).not.toContain("full 3/15");
         expect(frame).not.toContain("blended 4.2 at");
         expect(frame).toContain("Models from your connected providers");
-        expect(frame).toContain("Ctrl+K More: variants, refresh");
+        expect(frame).toContain("Ctrl+K More: library, variants, refresh");
         const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
         view.update(unknownState);
         await setup.renderOnce();
@@ -382,7 +397,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         view.update(handleModelJourneyKey(unknownState, { name: "a", ctrl: true }).state!);
         await setup.renderOnce();
         expect(setup.captureCharFrame()).toContain("Models from your connected providers");
-        expect(setup.captureCharFrame()).toContain("Ctrl+K More: variants, refresh");
+        expect(setup.captureCharFrame()).toContain("Ctrl+K More: library, variants, refresh");
         expect(frame).toContain("* WA Score: rating from blind comparisons");
         expect(frame).toContain("Model ID");
         expect(frame).toContain("Smarter");
@@ -452,17 +467,21 @@ test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggl
         expect(up.poolToggle).toBeUndefined();
         const atTop = handleTuiSettingsPickerKey({ ...start, selectedIndex: 0 }, { name: "u", ctrl: true }, 8);
         expect(atTop.state?.selectedIndex).toBe(0);
-        expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual(journey === "shortlist" ? {
+        expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual({
             action: "remove", provider: start.options[start.selectedIndex]!.provider!, model: start.options[start.selectedIndex]!.model!,
-        } : undefined);
+        });
         if (journey === "shortlist") {
             expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk).toBeUndefined();
         } else {
             expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelJourney).toBe("switch");
+            // The provider catalog takes the same key, so a model found there
+            // can be kept without leaving the list.
             let all = chooseScope(start);
-            all = handleTuiSettingsPickerKey(all, { name: "right" }).state!;
             all = handleTuiSettingsPickerKey(all, { name: "down" }).state!;
-            expect(handleTuiSettingsPickerKey(all, { name: "s", ctrl: true }).poolToggle).toBeUndefined();
+            const row = all.options[all.selectedIndex]!;
+            expect(handleTuiSettingsPickerKey(all, { name: "s", ctrl: true }).poolToggle).toEqual({
+                action: row.pooledRank === undefined ? "add" : "remove", provider: row.provider!, model: row.model!,
+            });
         }
     }
 });
@@ -489,8 +508,8 @@ test("scope is prominent and highlighting across provider boundaries never moves
                 const current = [view.box.screenY, view.box.height, footerY];
                 if (geometry) expect(current).toEqual(geometry); else geometry = current;
                 expect(frame).not.toContain("fold provider");
+                // Nothing is folded here, so no group shows the folded marker.
                 expect(frame).not.toContain("▶");
-                expect(frame).not.toContain("▼");
                 if (mode === "switch") {
                     expect(frame).toContain("Provider catalog");
                     expect(frame).not.toContain("[ Catalog ]");
@@ -555,15 +574,24 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
         }
         expect(state.modelFocus).toBe("list");
         expect(sections).not.toContain("detail");
-        expect(handleTuiSettingsPickerKey(state, { name: "left" }).state).toBe(state);
+        // An open group has nothing to open, so right is inert; left folds it
+        // and leaves the cursor on the heading it just folded.
         expect(handleTuiSettingsPickerKey(state, { name: "right" }).state).toBe(state);
+        const folded = handleTuiSettingsPickerKey(state, { name: "left" }).state!;
+        const group = state.options[state.selectedIndex]?.group;
+        expect(folded.collapsed).toContain(group);
+        expect(folded.options[folded.selectedIndex]?.section).toBe(group);
+        const opened = handleTuiSettingsPickerKey(folded, { name: "right" }).state!;
+        expect(opened.collapsed).not.toContain(group);
+        expect(opened.options[opened.selectedIndex]?.group).toBe(group);
+        expect(opened.options[opened.selectedIndex]?.section).toBeUndefined();
     }
 });
 
 
 test("Switch names the half-page keys only while the list has the keys", () => {
     const state = { ...modelJourney(base, "switch"), modelFocus: "list" as const };
-    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model");
+    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model · ^s remove from library");
     for (const focus of ["scope", "search", "more"] as const) {
         expect(journeyFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
     }

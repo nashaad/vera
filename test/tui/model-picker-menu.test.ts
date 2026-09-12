@@ -13,14 +13,15 @@ const rows = [
 const base = modelJourney({ kind: "model", options: rows, allOptions: rows, query: "", selectedIndex: 0 }, "switch");
 const more = { name: "k", ctrl: true };
 
-test("More returns to the exact picker, and only its two catalog actions can run", () => {
+test("More returns to the exact picker, and only its listed actions can run", () => {
     for (const modelFocus of ["list", "intelligence"] as const) {
         const filtered = { ...base, tab: "all" as const, intelligenceCutoff: "1500" as const,
             query: "p", queryCursor: 0, selectedIndex: 1, modelFocus };
         const parent = { ...filtered, options: journeyModels(filtered) };
         let menu = handleTuiSettingsPickerKey(parent, more).state!;
         expect(menu.kind).toBe("model_menu");
-        expect(menu.options.map((row) => row.label)).toEqual(["Show extra variants and older models", "Refresh model catalog"]);
+        expect(menu.options.map((row) => row.label)).toEqual(["Add to your library", "Show extra variants and older models", "Refresh model catalog"]);
+        menu = handleTuiSettingsPickerKey(menu, { name: "down" }).state!;
         expect(handleTuiSettingsPickerKey(menu, { name: "escape" }).state).toBe(parent);
         expect(handleTuiSettingsPickerKey(menu, more).state).toBe(parent);
         for (const key of [{ name: "s", ctrl: true }, { name: "y", ctrl: true }, { name: "tab" }, { name: "a" }]) {
@@ -33,12 +34,13 @@ test("More returns to the exact picker, and only its two catalog actions can run
         expect(revealed.modelFocus).toBe(modelFocus);
         expect(revealed.intelligenceCutoff).toBe("1500");
         expect(revealed.options[revealed.selectedIndex]?.value).toBe("p/b");
-        expect(handleTuiSettingsPickerKey(revealed, more).state?.options[0]?.label).toBe("Hide extra variants and older models");
+        expect(handleTuiSettingsPickerKey(revealed, more).state?.options
+            .find((row) => row.value === "variants")?.label).toBe("Hide extra variants and older models");
         menu = handleTuiSettingsPickerKey(menu, { name: "down" }).state!;
         expect(handleTuiSettingsPickerKey(menu, { name: "enter" })).toEqual({ state: parent, handled: true, refreshAllCatalogs: true });
     }
     const libraryMenu = handleTuiSettingsPickerKey(base, more).state!;
-    expect(libraryMenu.options.map((row) => row.label)).toEqual(["Refresh model catalog"]);
+    expect(libraryMenu.options.map((row) => row.label)).toEqual(["Remove from your library", "Refresh model catalog"]);
     expect(handleTuiSettingsPickerKey(libraryMenu, { name: "escape" }).state).toBe(base);
 });
 
@@ -58,10 +60,10 @@ test.each([110, 124])("the More control keeps its shape through focus and opens 
         view.update(state); await setup.renderOnce();
         const before = setup.captureCharFrame();
         const lines = before.split("\n");
-        const y = lines.findIndex((line) => line.includes("Ctrl+K More: variants, refresh"));
+        const y = lines.findIndex((line) => line.includes("Ctrl+K More: library, variants, refresh"));
         expect(y).toBeGreaterThan(0);
         const moreSpan = () => setup.captureSpans().lines[y]!.spans.find((span) => span.text.includes("Ctrl+K More"))!;
-        expect(moreSpan().text).toBe(" › Ctrl+K More: variants, refresh ");
+        expect(moreSpan().text).toBe(" › Ctrl+K More: library, variants, refresh ");
         expect(moreSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ELEMENT).toInts());
         const rule = lines.find((line) => line.includes("────"))!;
         expect(lines[y]!.indexOf("refresh") + "refresh".length + 1).toBe(rule.lastIndexOf("─") + 1);
@@ -70,7 +72,7 @@ test.each([110, 124])("the More control keeps its shape through focus and opens 
         state = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
         view.update(state); await setup.renderOnce();
         expect(state.modelFocus).toBe("more");
-        expect(moreSpan().text).toBe(" › Ctrl+K More: variants, refresh ");
+        expect(moreSpan().text).toBe(" › Ctrl+K More: library, variants, refresh ");
         expect(moreSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
         expect(setup.captureCharFrame().split("\n")[y]).toBe(lines[y]);
         state = handleTuiSettingsPickerKey(state, { name: "tab", shift: true }).state!;
