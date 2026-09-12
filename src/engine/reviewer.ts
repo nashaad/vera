@@ -324,7 +324,8 @@ export function createToolReviewer(
                 if (message.stopReason !== "stop") {
                     return reviewFailed(
                         classifierFailedReason(
-                            `stopped with ${message.stopReason}`,
+                            message.errorMessage
+                                ?? `stopped with ${message.stopReason}`,
                         ),
                     );
                 }
@@ -622,6 +623,10 @@ function safeParseObject(text: string): Record<string, unknown> | undefined {
     }
 }
 
+const CLASSIFIER_NEXT_ACTION =
+    "It runs on this session's model, so every tool call is denied until that "
+    + "model answers again: check the provider, or switch the session model.";
+
 function reviewFailed(reason: string): ToolReviewDecision {
     return {
         decision: "unavailable",
@@ -641,11 +646,11 @@ function classifierTimedOutReason(timeoutMs: number): string {
     const duration = timeoutMs % 1_000 === 0
         ? `${timeoutMs / 1_000}s`
         : `${timeoutMs}ms`;
-    return `The approval classifier timed out after ${duration}. The action did not run.`;
+    return `The approval classifier timed out after ${duration}. The action did not run. ${CLASSIFIER_NEXT_ACTION}`;
 }
 
 function classifierFailedReason(detail: string): string {
-    return `The approval classifier failed (${detail}). The action did not run.`;
+    return `The approval classifier failed (${detail}). The action did not run. ${CLASSIFIER_NEXT_ACTION}`;
 }
 
 function errorSummary(error: unknown): string {
