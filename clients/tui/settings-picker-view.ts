@@ -1038,10 +1038,11 @@ export function createTuiSettingsPickerView(
                 node.destroyRecursively();
             }
             nodes = [];
+            // Typing reaches the field from any section, so the field keeps its
+            // cursor wherever focus sits.
             searchLive = state.kind !== "extension"
                 && pickerIsSearchable(state)
-                && (state.modelJourney !== "switch" || state.modelFocus === "search")
-                && !(state.kind === "model" && (state.tab === "help" || state.modelFocus === "intelligence"));
+                && !(state.kind === "model" && state.tab === "help");
             search.box.onMouseDown = state.kind === "model" && state.modelJourney === "switch"
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
@@ -1314,8 +1315,7 @@ export function renderListPickerRows(
             marginTop: layout.summaryMargin, width: "100%",
         }));
         if (search !== undefined) {
-            updateDialogSearchNode(search, state.query, "Search models",
-                state.modelJourney === "switch" ? state.modelFocus === "search" : true, state.queryCursor);
+            updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
             box.add(search.box);
         }
         const cutoff = state.modelJourney === "switch" && state.tab === "all";
