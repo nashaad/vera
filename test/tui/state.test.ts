@@ -911,7 +911,9 @@ test("TUI connection failure stops work and preserves unconfirmed prompts", () =
     const state = failTuiConnection(connected);
 
     expect(state.working).toBe(false);
-    expect(state.queuedPrompts).toEqual(["queued prompt"]);
+    expect(state.queuedPrompts).toEqual([
+        { content: "queued prompt", state: "held" },
+    ]);
     expect(state.queueDraining).toBe(false);
     expect(entryLine(state.entries[1]!)).toBe("Ran");
     // Disconnection is status-line state, so the transcript gains no row.
@@ -2003,7 +2005,9 @@ test("TUI follows the host-owned queue when a follow-up starts", () => {
 
     state = applyAgentUpdate(state, { type: "turn_finished", seq: 4 });
     expect(state.working).toBe(false);
-    expect(state.queuedPrompts).toEqual(["steer next"]);
+    expect(state.queuedPrompts).toEqual([
+        { content: "steer next", state: "held" },
+    ]);
 
     state = applyAgentUpdate(state, {
         type: "prompt_queue",
@@ -2037,7 +2041,9 @@ test("a started prompt does not consume an identical queued successor", () => {
         seq: 2,
     });
 
-    expect(state.queuedPrompts).toEqual(["repeat"]);
+    expect(state.queuedPrompts).toEqual([
+        { content: "repeat", state: "released" },
+    ]);
 });
 
 test("a legacy host advances its client-owned queue after a turn", () => {
@@ -2065,9 +2071,35 @@ test("TUI queue preview compacts prompts and counts the remainder", () => {
     expect(renderTuiQueuedPrompt(state))
         .toBe(`queued · explain ${"x".repeat(39)}… · +1`);
 
+    // The label follows the prompt's own state, not the queue-wide flag: a
+    // draining queue can still hold every prompt the preview is showing.
     state = { ...state, queueDraining: true };
     expect(renderTuiQueuedPrompt(state))
+        .toBe(`queued · explain ${"x".repeat(39)}… · +1`);
+
+    state = {
+        ...state,
+        queuedPrompts: [
+            { content: state.queuedPrompts[0]!.content, state: "released" },
+            ...state.queuedPrompts.slice(1),
+        ],
+    };
+    expect(renderTuiQueuedPrompt(state))
         .toBe(`sending · explain ${"x".repeat(39)}… · +1`);
+});
+
+test("a refused release is reported instead of passing silently", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "notice",
+        key: "queue_release_empty",
+        count: 1,
+        seq: 1,
+    });
+
+    expect(state.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "Nothing left to release: every queued prompt is already running",
+    });
 });
 
 test("TUI state leaves timeline replies for the future picker", () => {

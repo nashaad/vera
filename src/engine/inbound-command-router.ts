@@ -630,10 +630,12 @@ export class InboundCommandRouter {
 
     private releaseQueuedPrompts(mode: "one" | "all"): void {
         if (
-            this.release?.mode === "one"
-            || this.release?.mode === "all"
-            || this.queuedDirectFollowUp?.mode === "one"
+            this.queuedDirectFollowUp?.mode === "one"
             || this.queuedDirectFollowUp?.mode === "all"
+            || (
+                (this.release?.mode === "one" || this.release?.mode === "all")
+                && !this.releasedPromptActive()
+            )
         ) {
             return;
         }
@@ -645,7 +647,14 @@ export class InboundCommandRouter {
                 ? [index]
                 : []
         );
-        if (promptIndices.length === 0) return;
+        if (promptIndices.length === 0) {
+            this.events.emit({
+                type: "notice",
+                key: "queue_release_empty",
+                count: 1,
+            });
+            return;
+        }
         const boundaryIndex = mode === "all"
             ? this.queuedTurns.length - 1
             : (promptIndices[1] ?? this.queuedTurns.length) - 1;
@@ -761,6 +770,12 @@ export class InboundCommandRouter {
         this.release = undefined;
     }
 
+    private releasedPromptActive(): boolean {
+        return this.release !== undefined
+            && this.activeQueueTurn?.releaseId === this.release.id
+            && this.activeQueueTurn.queuedPrompt;
+    }
+
     private newRelease(
         mode: QueueReleaseMode,
         boundary: QueuedTurn,
@@ -787,9 +802,7 @@ export class InboundCommandRouter {
                 && index > directBoundaryIndex
                 && boundaryIndex >= index,
         );
-        const releasedPromptActive = this.release !== undefined
-            && this.activeQueueTurn?.releaseId === this.release.id
-            && this.activeQueueTurn.queuedPrompt;
+        const releasedPromptActive = this.releasedPromptActive();
         return {
             prompts: this.queuedTurns.flatMap((queued, index) =>
                 queued.prompt === undefined

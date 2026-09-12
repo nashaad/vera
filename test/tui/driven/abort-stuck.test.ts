@@ -181,6 +181,73 @@ test("empty Enter releases every queued prompt in one model turn", async () => {
     }
 }, 15_000);
 
+test("empty Enter steers a released prompt that is still running", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-steer-batch-"));
+    const sent: ClientCommand[] = [];
+    const requests: ModelRequest[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => slowTurnDependencies([
+            "SLOW ANSWER",
+            "FIRST OUT",
+            "BATCH OK",
+        ], sent, false, requests),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("long answer please");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("esc stop");
+
+        session.sendText("first queued");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("queued · first queued");
+        session.sendText("second queued");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("+1");
+        session.sendText("third queued");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("+2");
+
+        session.sendKey("Escape");
+        // The fence released the oldest prompt; the rest stay held and must
+        // still read as held while the queue drains.
+        const draining = await session.waitForVisiblePaneWhere(
+            (candidate) => candidate.includes("queued · second queued")
+                && candidate.includes("+1"),
+            "held prompts during a draining queue",
+        );
+        expect(draining).not.toContain("sending · second queued");
+
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePaneWhere(
+            (candidate) => candidate.includes("ready · ctrl+p commands")
+                && candidate.includes("second queued")
+                && candidate.includes("third queued"),
+            "the steered batch ran both held prompts",
+        );
+        // The released prompt's turn was stopped, not left to finish.
+        expect(pane).toContain("Interrupted");
+
+        const userTexts = requests.at(-1)?.messages.flatMap((message) =>
+            message.role !== "user"
+                ? []
+                : message.content
+                    .filter((block) => block.type === "text")
+                    .map((block) => block.text)
+        );
+        expect(userTexts?.slice(-2)).toEqual([
+            "second queued",
+            "third queued",
+        ]);
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("a typed prompt stays queued behind an idle send-one fence", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-fence-"));
     const sent: ClientCommand[] = [];

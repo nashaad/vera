@@ -140,12 +140,12 @@ test("send one fences later prompts and send all drains the claimed snapshot", a
     router.finishTurn();
 });
 
-test("a concurrent release does not interrupt an active released batch", async () => {
+test("a release with nothing left to claim is refused visibly", async () => {
     const channel = createInProcessChannel();
-    const router = new InboundCommandRouter(
-        channel.engine,
-        new EngineEventBus(),
-    );
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events);
 
     const firstTurn = router.startTurn();
     channel.client.send({ type: "prompt", content: "active" });
@@ -166,7 +166,11 @@ test("a concurrent release does not interrupt an active released batch", async (
     channel.client.send({ type: "release_queued_prompts", mode: "one" });
     channel.client.send({ type: "release_queued_prompts", mode: "all" });
     await Bun.sleep(0);
+    // Both prompts are already in this batch, so neither release claims work.
     expect(batch.signal.aborted).toBe(false);
+    expect(observed.filter((event) =>
+        event.type === "notice" && event.key === "queue_release_empty"
+    )).toHaveLength(2);
     router.finishTurn();
 
     const held = router.startTurn();
@@ -174,6 +178,78 @@ test("a concurrent release does not interrupt an active released batch", async (
         held.then(() => "started" as const),
         Bun.sleep(10).then(() => "held" as const),
     ])).toBe("held");
+});
+
+test("a release during a draining batch steers to the held prompts", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "prompt", content: "three" });
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const fenced = await router.startTurn();
+    expect(fenced.prompt.content).toBe("one");
+
+    // Two and three are still held, so a second release steers.
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        fenced.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    expect(fenced.signal.aborted).toBe(true);
+    router.finishTurn("aborted");
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("two");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "three",
+    ]);
+    router.finishTurn();
+});
+
+test("a prompt queued during a batch can steer that batch", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("one");
+
+    channel.client.send({ type: "prompt", content: "late" });
+    await Bun.sleep(0);
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    await new Promise<void>((resolve) => {
+        batch.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn("aborted");
+
+    const steered = await router.startTurn();
+    expect(steered.prompt.content).toBe("late");
+    router.finishTurn();
 });
 
 test("a failed send-all turn consumes its claimed batch once", async () => {
