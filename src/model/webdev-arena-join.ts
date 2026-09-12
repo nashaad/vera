@@ -2,6 +2,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import {
+    EFFORT_LADDER,
+    isEffortLevel,
+    type EffortLevel,
+} from "./effort-ladder.ts";
 import type { WebDevArenaRow, WebDevArenaSnapshot } from "./webdev-arena.ts";
 
 export interface WebDevArenaAliases {
@@ -78,7 +83,100 @@ function arenaNameFor(
     if (exactAlias !== undefined) {
         return exactAlias;
     }
-    return uniqueExactName(ref.model, overall);
+    return uniqueExactName(ref.model, overall)
+        ?? effortVariantName(ref, overall);
+}
+
+const HARNESS_MARKER = " (codex-harness)";
+
+interface EffortVariant {
+    readonly name: string;
+    readonly base: string;
+    readonly effort: EffortLevel;
+}
+
+/**
+ * Leaderboard rows label a model with the rung it was run at, as a trailing
+ * "-max" or a trailing " (xHigh)", and mark codex-harness runs in parentheses.
+ * Model ids carry neither, so the rung is folded off the row name. Only the row
+ * name is folded: an id may end in a ladder word of its own, as
+ * openai/gpt-5.1-codex-max does, and that word is part of its name.
+ */
+function effortVariantName(
+    ref: WebDevJoinRef,
+    overall: readonly WebDevArenaRow[],
+): string | undefined {
+    const last = lastSegment(ref.model);
+    const variants: EffortVariant[] = [];
+    for (const row of overall) {
+        const variant = asEffortVariant(row.model_name);
+        if (
+            variant !== undefined
+            && (variant.base === ref.model || variant.base === last)
+        ) {
+            variants.push(variant);
+        }
+    }
+    if (variants.length === 0) {
+        return undefined;
+    }
+    const asked = ref.recommendedLevel;
+    if (asked !== undefined) {
+        const exact = variants.filter((variant) => variant.effort === asked);
+        if (exact.length === 1) {
+            return exact[0]?.name;
+        }
+    }
+    const ceiling = variants.reduce(
+        (highest, variant) =>
+            rung(variant.effort) > rung(highest.effort) ? variant : highest,
+        variants[0]!,
+    );
+    const tied = variants.filter((variant) =>
+        variant.effort === ceiling.effort
+    );
+    return tied.length === 1 ? ceiling.name : undefined;
+}
+
+function asEffortVariant(name: string): EffortVariant | undefined {
+    const unharnessed = name.toLowerCase().endsWith(HARNESS_MARKER)
+        ? name.slice(0, name.length - HARNESS_MARKER.length)
+        : name;
+    const level = parenthesizedRung(unharnessed) ?? suffixedRung(unharnessed);
+    return level === undefined ? undefined : { name, ...level };
+}
+
+function parenthesizedRung(
+    name: string,
+): { readonly base: string; readonly effort: EffortLevel } | undefined {
+    if (!name.endsWith(")")) {
+        return undefined;
+    }
+    const open = name.lastIndexOf(" (");
+    if (open <= 0) {
+        return undefined;
+    }
+    const effort = name.slice(open + 2, name.length - 1).toLowerCase();
+    return isEffortLevel(effort)
+        ? { base: name.slice(0, open), effort }
+        : undefined;
+}
+
+function suffixedRung(
+    name: string,
+): { readonly base: string; readonly effort: EffortLevel } | undefined {
+    const dash = name.lastIndexOf("-");
+    if (dash <= 0) {
+        return undefined;
+    }
+    const effort = name.slice(dash + 1).toLowerCase();
+    return isEffortLevel(effort)
+        ? { base: name.slice(0, dash), effort }
+        : undefined;
+}
+
+function rung(effort: EffortLevel): number {
+    return EFFORT_LADDER.indexOf(effort);
 }
 
 function uniqueExactName(
