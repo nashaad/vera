@@ -117,10 +117,15 @@ export interface TuiEffortSubstitution {
     readonly effective?: string;
 }
 
+export interface TuiQueuedPrompt {
+    readonly content: string;
+    readonly state: "held" | "released";
+}
+
 export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     readonly working: boolean;
-    readonly queuedPrompts: readonly string[];
+    readonly queuedPrompts: readonly TuiQueuedPrompt[];
     readonly queueDraining: boolean;
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
@@ -239,7 +244,10 @@ export function beginTuiTurn(
 export function queueTuiPrompt(state: TuiState, prompt: string): TuiState {
     return {
         ...state,
-        queuedPrompts: [...state.queuedPrompts, prompt],
+        queuedPrompts: [
+            ...state.queuedPrompts,
+            { content: prompt, state: "held" as const },
+        ],
     };
 }
 
@@ -251,10 +259,16 @@ export function beginNextQueuedTuiTurn(state: TuiState): TuiState {
 
     return {
         ...state,
-        entries: [...state.entries, { kind: "user", text: prompt }],
+        entries: [...state.entries, { kind: "user", text: prompt.content }],
         working: true,
         queuedPrompts,
     };
+}
+
+function toTuiQueuedPrompt(
+    prompt: { readonly content: string; readonly state?: "held" | "released" },
+): TuiQueuedPrompt {
+    return { content: prompt.content, state: prompt.state ?? "held" };
 }
 
 export function renderTuiQueuedPrompt(state: TuiState): string {
@@ -263,12 +277,12 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
         return "";
     }
 
-    const summary = prompt.replace(/\s+/g, " ").trim();
+    const summary = prompt.content.replace(/\s+/g, " ").trim();
     const compact = summary.length > 48
         ? `${summary.slice(0, 47)}…`
         : summary;
     const remaining = state.queuedPrompts.length - 1;
-    const phase = state.queueDraining ? "sending" : "queued";
+    const phase = prompt.state === "released" ? "sending" : "queued";
     return `${phase} · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;
 }
 
@@ -276,7 +290,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "prompt_queue") {
         return {
             ...state,
-            queuedPrompts: update.queue.prompts.map((prompt) => prompt.content),
+            queuedPrompts: update.queue.prompts.map(toTuiQueuedPrompt),
             queueDraining: update.queue.draining,
         };
     }
@@ -440,6 +454,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             }`,
         });
     }
+    if (update.type === "notice" && update.key === "queue_release_empty") {
+        return appendEntry(state, {
+            kind: "notice",
+            text:
+                "Nothing left to release: every queued prompt is already running",
+        });
+    }
     if (update.type === "notice") {
         return state;
     }
@@ -470,7 +491,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 ? {}
                 : {
                     queuedPrompts: update.promptQueue.prompts.map(
-                        (prompt) => prompt.content,
+                        toTuiQueuedPrompt,
                     ),
                     queueDraining: update.promptQueue.draining,
                 }),

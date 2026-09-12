@@ -594,7 +594,6 @@ export function abortFocusedAgent(rt: TuiRuntime): void {
 }
 
 export function releaseFocusedQueuedPrompts(rt: TuiRuntime, mode: "one" | "all"): void {
-    if (focusedAgentState(rt).queueDraining) return;
     const target = focusedAgentClient(rt);
     if (
         target.supportsHostCapability?.(

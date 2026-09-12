@@ -10,7 +10,7 @@ test("TUI diagnostics explains a retrying model request", () => {
         state: {
             ...createTuiState(),
             working: true,
-            queuedPrompts: ["next"],
+            queuedPrompts: [{ content: "next", state: "held" as const }],
             context: { tokens: 2500, capacity: 10000, estimated: true },
             modelActivity: {
                 type: "model_activity",
