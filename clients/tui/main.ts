@@ -1584,6 +1584,10 @@ export async function startTui(
         ? beginTuiTipLaunch()
         : { launches: 0, history: {} };
     rt.workingLastRender = false;
+    // Seeded from the launch count so a session does not always open on the
+    // same tip.
+    rt.switchTipTurn = rt.tipState.launches;
+    rt.switchTipShown = false;
 
     rt.composerTipText = new TextRenderable(rt.renderer, {
         id: "composer-tip",

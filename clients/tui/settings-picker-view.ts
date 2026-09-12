@@ -1436,6 +1436,18 @@ export function renderListPickerRows(
                 width: "100%", selectable: false,
             }));
             add(footer);
+            const journeyTip = typeof tip === "string" ? { tone: "tip", text: tip } as TuiPickerTipLine : tip;
+            if (journeyTip !== undefined && journeyTip.text.length > 0) {
+                add(new TextRenderable(renderer, {
+                    content: new StyledText([
+                        fg(journeyTip.tone === "tip" ? TUI_ACCENT : TUI_DANGER)(
+                            `${TIP_LABELS[journeyTip.tone]} `,
+                        ),
+                        fg(TUI_MUTED)(clippedToWidth(journeyTip.text, width)),
+                    ]),
+                    width: "100%", height: 1, selectable: false,
+                }));
+            }
         } else {
             const footer = dialogFooterNode(renderer, journeyFooter(state));
             footer.height = layout.footerHeight;

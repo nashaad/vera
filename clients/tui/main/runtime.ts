@@ -385,6 +385,8 @@ export interface TuiRuntime {
     composerTip: string | undefined;
     workingLastRender: boolean;
     pickerTipKind: string | undefined;
+    switchTipTurn: number;
+    switchTipShown: boolean;
     composerTipText: TextRenderable;
     pendingQuote: TuiQuote | undefined;
     quoteText: TextRenderable;

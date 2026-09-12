@@ -113,6 +113,20 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
 }
 
+/** The switch dialog always carries one of these, one per open. */
+export const MODEL_SWITCH_TIPS: readonly string[] = [
+    "Switching keeps the thread; the next turn uses the new model.",
+    "Type from any section to search; Tab moves between sections.",
+    "^g raises the WA Score cutoff, Shift+^g lowers it.",
+    "^s adds the highlighted model to your library.",
+    "Ctrl+K edits defaults: which model each role reaches for.",
+];
+
+export function modelSwitchTip(turn: number): string {
+    const count = MODEL_SWITCH_TIPS.length;
+    return MODEL_SWITCH_TIPS[((turn % count) + count) % count]!;
+}
+
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
     return ["scope", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
 }
