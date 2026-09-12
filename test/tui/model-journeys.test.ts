@@ -389,7 +389,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(frame).not.toContain("full 3/15");
         expect(frame).not.toContain("blended 4.2 at");
         expect(frame).toContain("Models from your connected providers");
-        expect(frame).toContain("Ctrl+K More: library, variants, refresh");
+        expect(frame).toContain("Ctrl+K More: library, variants, refresh, defaults");
         const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
         view.update(unknownState);
         await setup.renderOnce();
@@ -397,7 +397,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         view.update(handleModelJourneyKey(unknownState, { name: "a", ctrl: true }).state!);
         await setup.renderOnce();
         expect(setup.captureCharFrame()).toContain("Models from your connected providers");
-        expect(setup.captureCharFrame()).toContain("Ctrl+K More: library, variants, refresh");
+        expect(setup.captureCharFrame()).toContain("Ctrl+K More: library, variants, refresh, defaults");
         expect(frame).toContain("* WA Score: rating from blind comparisons");
         expect(frame).toContain("Model ID");
         expect(frame).toContain("Smarter");

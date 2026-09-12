@@ -377,6 +377,8 @@ export type TuiSettingsPickerSelection =
         readonly providers: readonly string[];
     }
     | { readonly kind: "model_assignment_browse" }
+    | { readonly kind: "model_shortlist_open" }
+    | { readonly kind: "model_defaults_open" }
     | { readonly kind: "model_assignment_open"; readonly assignment: ModelAssignmentId }
     | {
         readonly kind: "model_assignment";
