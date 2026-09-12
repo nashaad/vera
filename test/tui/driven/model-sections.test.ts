@@ -31,7 +31,7 @@ test("picker focus preserves search editing, nested Back, and model selection", 
         session.sendKey("Enter"); await session.waitForVisiblePane("Show models");
         session.sendKey("Down"); session.sendKey("Enter");
         await session.waitForVisiblePane("Models from your connected providers");
-        await session.waitForVisiblePane("↑↓ choose · ⏎ switch model");
+        await session.waitForVisiblePane("↑↓ ^d^u choose · ⏎ switch model");
         session.sendKey("Tab"); session.sendKey("Tab");
         await session.waitForVisiblePane("⏎ choose which models to show");
         session.sendText("oe"); await session.waitForVisiblePane("Type to search"); session.sendKey("Left"); session.sendText("n");
@@ -50,9 +50,9 @@ test("picker focus preserves search editing, nested Back, and model selection", 
         expect(session.captureVisiblePane()).toContain("←→ change cutoff");
         session.sendKey("Right"); await session.waitForVisiblePane("No models match");
         session.sendKey("Left"); await session.settle();
-        session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ choose · ⏎ switch model");
+        session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ ^d^u choose · ⏎ switch model");
         session.sendKey("Left"); await session.settle();
-        expect(session.captureVisiblePane()).toContain("↑↓ choose · ⏎ switch model");
+        expect(session.captureVisiblePane()).toContain("↑↓ ^d^u choose · ⏎ switch model");
         session.sendKey("BTab"); await session.waitForVisiblePane("←→ change cutoff");
         session.sendKey("BTab"); await session.waitForVisiblePane("Type to search");
         session.sendKey("Enter"); await session.settle();

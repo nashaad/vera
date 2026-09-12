@@ -12,7 +12,7 @@ async function showCatalog(session: Awaited<ReturnType<typeof startTuiTestSessio
     session.sendKey("Enter"); await session.waitForVisiblePane("Show models");
     session.sendKey("Down"); session.sendKey("Enter");
     await session.waitForVisiblePane("Models from your connected providers");
-    await session.waitForVisiblePane("↑↓ choose · ⏎ switch model");
+    await session.waitForVisiblePane("↑↓ ^d^u choose · ⏎ switch model");
 }
 
 

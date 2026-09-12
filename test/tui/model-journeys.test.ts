@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
+import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyWindow, modelJourneyScope, journeySections } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
@@ -27,17 +29,41 @@ test("scope selector counts ignore search and cutoff and keep their geometry", a
         const setup = await createTestRenderer({ width, height: 44 });
         const view = createTuiSettingsPickerView(setup.renderer);
         setup.renderer.root.add(view.surface); view.surface.visible = true;
+        let opened = 0;
+        view.onScope = () => { opened++; };
         let expected: number[] | undefined;
         try {
             for (const revealAll of [false, true]) for (const tab of ["pool", "all"] as const) {
                 const state = chooseScope({ ...modelJourney({ ...base, allOptions }, "switch"), revealAll,
                     query: "missing", intelligenceCutoff: "1600" }, tab);
                 view.update(state); await setup.renderOnce();
-                const scope = view.box.getChildren().find((node) => node.id === "model-scope")!;
+                const filter = view.box.getChildren().find((node) => node.id === "model-filter")!;
+                const scope = filter.getChildren().find((node) => node.id === "model-scope")!;
                 expect(scope).toBeDefined();
                 expect(setup.captureCharFrame()).toContain(tab === "pool" ? "Library models (9)" : `Provider catalog (${revealAll ? 100 : 90})`);
                 const geometry = [scope.screenX, scope.screenY, scope.width, scope.height];
                 if (expected) expect(geometry).toEqual(expected); else expected = geometry;
+                const scopeLine = setup.captureCharFrame().split("\n")[scope.screenY]!;
+                expect(setup.captureCharFrame()).toContain("Filter Models:");
+                expect(scopeLine.slice(scope.screenX)).toStartWith(" › ");
+                expect(scopeLine).not.toContain("Show ");
+                expect(scopeLine).not.toContain("[");
+                expect(scopeLine).not.toContain("]");
+                expect(scope.screenY - filter.screenY).toBe(width === 110 ? 0 : 1);
+                const scopeSpan = () => setup.captureSpans().lines[geometry[1]!]!.spans
+                    .find((span) => span.text.includes(tab === "pool" ? "Library models" : "Provider catalog"))!;
+                expect(scopeSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ELEMENT).toInts());
+                const beforeClick = opened;
+                await setup.mockMouse.click(filter.screenX, filter.screenY);
+                expect(opened).toBe(beforeClick);
+                await setup.mockMouse.click(scope.screenX + 1, scope.screenY);
+                expect(opened).toBe(beforeClick + 1);
+                view.update({ ...state, modelFocus: "scope" }); await setup.renderOnce();
+                const focused = view.box.getChildren().find((node) => node.id === "model-filter")!
+                    .getChildren().find((node) => node.id === "model-scope")!;
+                expect([focused.screenX, focused.screenY, focused.width, focused.height]).toEqual(geometry);
+                expect(setup.captureCharFrame().split("\n")[focused.screenY]).toBe(scopeLine);
+                expect(scopeSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
                 const menu = modelJourneyScope(state);
                 expect(menu.options.map((row) => row.label)).toEqual(["Library models (9)", `Provider catalog (${revealAll ? 100 : 90})`]);
             }
@@ -534,6 +560,17 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
     }
 });
 
+
+test("Switch names the half-page keys only while the list has the keys", () => {
+    const state = { ...modelJourney(base, "switch"), modelFocus: "list" as const };
+    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model");
+    for (const focus of ["scope", "search", "more"] as const) {
+        expect(journeyFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
+    }
+    for (const [name, index] of [["d", state.options.length - 1], ["u", 0]] as const) {
+        expect(handleModelJourneyKey(state, { name, ctrl: true }).state?.selectedIndex).toBe(index);
+    }
+});
 
 test("Manage offers one model action and explains catalog visibility on its own line", () => {
     const state = modelJourney(base, "shortlist");

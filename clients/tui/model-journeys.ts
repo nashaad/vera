@@ -99,10 +99,10 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : state.modelFocus === "search" ? "Type to search · ←→ move cursor"
         : state.modelFocus === "intelligence" ? "←→ change cutoff"
         : state.modelFocus === "more" ? "⏎ open More"
-        : "↑↓ choose · ⏎ switch model";
+        : "↑↓ ^d^u choose · ⏎ switch model";
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : `${state.modelFocus === "more" ? "›" : " "} Ctrl+K More: ${state.tab === "all" ? "variants, refresh" : "refresh"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
+        : `› Ctrl+K More: ${state.tab === "all" ? "variants, refresh" : "refresh"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
