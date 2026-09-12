@@ -576,7 +576,8 @@ test("a fork loses its thread when search hides the parent", async () => {
         .toEqual(["child", "unrelated"]);
     // Without the parent on screen the fork is its own row, not something
     // hanging off whichever match search happened to leave above it.
-    expect(await pickerFrame(state)).not.toContain("└");
+    const matchingRows = (await pickerFrame(state)).split("\n").filter((line) => line.includes("cheese"));
+    expect(matchingRows.join("\n")).not.toContain("└");
 });
 
 test("a cycle in reported parentage still lists every session", () => {
@@ -1308,8 +1309,9 @@ test("an extension picker separates its subtitle from title and rows", async () 
         line.includes("Switching agents re-reads")
     );
     const firstRow = lines.findIndex((line) => line.includes("default"));
-    expect(firstSubtitle).toBe(title + 2);
-    expect(lines[title + 1]?.trim()).toBe("");
+    expect(firstSubtitle).toBe(title + 3);
+    expect(lines[title + 1]?.trim()).toMatch(/^─+$/);
+    expect(lines[title + 2]?.trim()).toBe("");
     expect(lines[firstRow - 1]?.trim()).toBe("");
 });
 
@@ -1996,7 +1998,7 @@ test("Catalog keeps a moderate modal height on a tall terminal", async () => {
     try {
         await setup.flush();
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(18);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(14);
         expect(tuiPickerViewportRows(setup.renderer, state)).toBeLessThan(40);
         expect(view.box.height).toBeLessThan(
             setup.renderer.height - 4,
@@ -2150,8 +2152,9 @@ test("the Help tab explains the pane in the pane", async () => {
     const lines = frame.split("\n").map((line) => line.trim())
         .filter((line) => line.length > 0);
     const title = lines.findIndex((line) => line.startsWith("Select model"));
-    expect(lines[title + 1]).toBe("Search");
-    expect(lines[title + 2]).toStartWith("Library (2)");
+    expect(lines[title + 1]).toMatch(/^─+$/);
+    expect(lines[title + 2]).toBe("Search");
+    expect(lines[title + 3]).toStartWith("Library (2)");
     expect(frame).toContain("⇥ tabs · esc tabs");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);

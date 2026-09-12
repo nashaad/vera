@@ -4,6 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import {
     DIALOG_CARD_Z_INDEX,
     dialogBottomOffset,
@@ -86,7 +88,7 @@ export function createTuiPermissionsConfirmView(
         paddingBottom: 1,
         visible: false,
     });
-    box.add(header);
+    box.add(dialogHeaderNode(renderer, header));
     box.add(warning);
     box.add(footer);
     return {

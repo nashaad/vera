@@ -1,8 +1,10 @@
+import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyWindow, journeyModels, journeyScopeOptions } from "./model-journeys.ts";
+import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
 import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
@@ -968,7 +970,7 @@ export function createTuiSettingsPickerView(
         box,
         surface,
         focus(): void {
-            if (searchLive) search.focus();
+            if (searchLive) search.editor.focus();
             else box.focus();
         },
         animateFeedback(frame, enabled): void {
@@ -1004,13 +1006,13 @@ export function createTuiSettingsPickerView(
             ) {
                 return unchanged(state, false);
             }
-            if (!search.handleKeyPress(tuiTextareaKey(key))) {
+            if (!search.editor.handleKeyPress(tuiTextareaKey(key))) {
                 return unchanged(state, false);
             }
             return updateTuiSettingsPickerSearch(
                 state,
-                search.plainText,
-                search.cursorOffset,
+                search.editor.plainText,
+                search.editor.cursorOffset,
             );
         },
         handleEditorPaste(state, text): TuiSettingsPickerTransition {
@@ -1020,15 +1022,15 @@ export function createTuiSettingsPickerView(
             ) {
                 return unchanged(state, false);
             }
-            insertTuiSingleLinePaste(search, text);
+            insertTuiSingleLinePaste(search.editor, text);
             return updateTuiSettingsPickerSearch(
                 state,
-                search.plainText,
-                search.cursorOffset,
+                search.editor.plainText,
+                search.editor.cursorOffset,
             );
         },
         update(state, railInset = 0): void {
-            search.parent?.remove(search.id);
+            search.box.parent?.remove(search.box.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -1037,12 +1039,15 @@ export function createTuiSettingsPickerView(
                 && pickerIsSearchable(state)
                 && (state.modelJourney !== "switch" || state.modelFocus === "search")
                 && !(state.kind === "model" && (state.tab === "help" || state.modelFocus === "intelligence"));
-            search.onMouseDown = state.kind === "model" && state.modelJourney === "switch"
-                ? () => view.onSection?.("search") : undefined;
+            search.box.onMouseDown = state.kind === "model" && state.modelJourney === "switch"
+                ? () => { view.onSection?.("search"); search.editor.focus(); }
+                : () => search.editor.focus();
             box.title = undefined;
             surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
+            box.paddingTop = state.kind === "model" && state.modelJourney !== undefined
+                && renderer.height < 30 ? 0 : 2;
             if (state.kind === "theme") {
-                box.paddingTop = 2;
+                box.paddingTop = 1;
                 box.paddingBottom = 1;
                 box.width = "60%";
                 box.height = "auto";
@@ -1059,7 +1064,7 @@ export function createTuiSettingsPickerView(
             box.width = state.kind === "session"
                 ? "100%"
                 : state.kind === "model"
-                ? "96%"
+                ? Math.max(1, Math.floor((renderer.width - railInset) * 0.96))
                 : "80%";
             renderListPickerRows(
                 renderer,
@@ -1096,15 +1101,15 @@ export function pickerMaxRows(
             dialogInsetTop(renderer),
             dialogInsetBottomOffset(renderer),
         ),
-        DIALOG_CHROME_HEIGHT + extraChrome,
+        DIALOG_CHROME_HEIGHT - DIALOG_SEARCH_HEIGHT + dialogSearchHeight(renderer) + extraChrome,
     );
     return Math.max(LIST_MIN_ROWS, Math.floor(lines / rowLines));
 }
 
-export const THEME_CARD_CHROME_LINES = 9;
+export const THEME_CARD_CHROME_LINES = 12;
 
 export function themePickerTop(renderer: RenderContext, themeRows: number): number {
-    const height = themeRows + THEME_CARD_CHROME_LINES;
+    const height = themeRows + THEME_CARD_CHROME_LINES - DIALOG_SEARCH_HEIGHT + dialogSearchHeight(renderer);
     return Math.max(
         APP_PADDING_TOP,
         Math.min(
@@ -1151,6 +1156,8 @@ export function tuiPickerViewportRows(
         : rows;
 }
 
+const MODEL_FILTER_LABEL = "Filter Models: ";
+
 function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
     const width = pickerContentWidth(renderer, state, railInset);
     const linesFor = (candidate: TuiSettingsPickerState) => {
@@ -1168,13 +1175,18 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     const geometry = state.modelJourney === "switch"
         ? { ...unfiltered, options: journeyModels(unfiltered) } : state;
     const scope = state.modelJourney === "switch";
+    const scopeWidth = Math.min(width, 25 + String(state.allOptions.length).length);
+    const scopeRows = width < MODEL_FILTER_LABEL.length + scopeWidth ? 2 : 1;
     const summaryMargin = scope && renderer.height < 30 ? 0 : 1;
-    const headerHeight = (scope ? 2 : 0) + (headerLines.length ? headerLines.length + summaryMargin : 0);
+    const headerHeight = (scope ? scopeRows + summaryMargin : 0) + (headerLines.length ? headerLines.length + summaryMargin : 0);
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
     const split = geometry.options.length === 0 ? undefined : modelPaneSplit(renderer, geometry, railInset);
     const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
     const feedbackHeight = state.modelJourney === "shortlist" ? 3 : 2;
-    const room = Math.max(1, renderer.height - 14 - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
+    const footerHeight = scope && renderer.height < 30 ? 3 : 4;
+    const titleExtraRows = renderer.height <= 10 ? 0 : DIALOG_HEADER_HEIGHT - 1;
+    const room = Math.max(1, renderer.height - 18 + DIALOG_SEARCH_HEIGHT - dialogSearchHeight(renderer) - titleExtraRows + (4 - footerHeight)
+        - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
     const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
@@ -1183,7 +1195,7 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     const detailHeight = split === undefined ? 0 : Math.max(0, ...geometry.options.map((_, selectedIndex) =>
         modelDetailHeight({ ...geometry, selectedIndex }, split.detailWidth)));
     const bodyHeight = Math.max(1, Math.min(room - (listed ? 1 : 0), Math.max(listHeight + (listed ? 1 : 0), detailHeight)));
-    return { split, priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
+    return { split, priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, scopeWidth, scopeRows, footerHeight, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
 
 }
 
@@ -1256,13 +1268,22 @@ export function renderListPickerRows(
             const options = journeyScopeOptions(state);
             const active = state.modelFocus === "scope";
             const label = options[state.tab === "all" ? 1 : 0]!.label;
+            const filter = new BoxRenderable(renderer, {
+                id: "model-filter", width: "100%", height: layout.scopeRows,
+                flexDirection: layout.scopeRows === 1 ? "row" : "column",
+                marginTop: layout.summaryMargin, flexShrink: 0,
+            });
+            filter.add(new TextRenderable(renderer, {
+                id: "model-filter-label", content: MODEL_FILTER_LABEL,
+                fg: TUI_MUTED, width: MODEL_FILTER_LABEL.length, height: 1,
+                selectable: false, flexShrink: 0,
+            }));
             const scope = new TextRenderable(renderer, {
                 id: "model-scope", content: new StyledText([
-                    fg(active ? TUI_SELECTION_TEXT : TUI_MUTED)("›"),
-                    fg(active ? TUI_SELECTION_TEXT : TUI_TEXT)(` Show  ${label} ▾`),
+                    fg(active ? TUI_SELECTION_TEXT : TUI_MUTED)(" ›"),
+                    fg(active ? TUI_SELECTION_TEXT : TUI_TEXT)(` ${label} ▾ `),
                 ]),
-                width: Math.min(width, 29 + String(state.allOptions.length).length),
-                height: 1, marginTop: 1, selectable: false,
+                width: layout.scopeWidth, height: 1, flexShrink: 0, selectable: false,
                 fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
                 bg: active ? TUI_ACCENT : TUI_ELEMENT, attributes: 1,
             });
@@ -1270,7 +1291,8 @@ export function renderListPickerRows(
                 if (event.button !== 0) return;
                 event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onScope?.();
             };
-            add(scope);
+            filter.add(scope);
+            add(filter);
         }
         if (layout.headerLines.length) add(new TextRenderable(renderer, {
             content: layout.headerLines.join("\n"), fg: TUI_MUTED, height: layout.headerLines.length,
@@ -1279,7 +1301,7 @@ export function renderListPickerRows(
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models",
                 state.modelJourney === "switch" ? state.modelFocus === "search" : true, state.queryCursor);
-            box.add(search);
+            box.add(search.box);
         }
         const cutoff = state.modelJourney === "switch" && state.tab === "all";
         if (cutoff) for (const node of intelligenceScaleNodes(renderer, width,
@@ -1351,28 +1373,43 @@ export function renderListPickerRows(
                 height: 1, marginTop: 1, width: "100%",
             }));
         }
-        const footer = dialogFooterNode(renderer, journeyFooter(state));
         if (state.modelJourney === "switch") {
             const [more, ...navigation] = journeyFooter(state).split("\n");
-            footer.content = new StyledText([
-                bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(more!))),
-                fg(TUI_MUTED)(`\n${navigation.join("\n")}`),
-            ]);
+            const focused = state.modelFocus === "more";
+            const moreLabel = ` ${more!.trim()} `;
+            const footer = new BoxRenderable(renderer, {
+                width: "100%", height: layout.footerHeight, marginTop: 1, alignItems: "flex-end",
+            });
+            const control = new BoxRenderable(renderer, {
+                width: Bun.stringWidth(moreLabel), height: 1, flexShrink: 1,
+            });
+            control.add(new TextRenderable(renderer, {
+                content: moreLabel,
+                fg: focused ? TUI_SELECTION_TEXT : TUI_TEXT,
+                bg: focused ? TUI_ACCENT : TUI_ELEMENT, attributes: 1,
+                width: "100%", height: 1, wrapMode: "none", overflow: "hidden",
+                selectable: false,
+            }));
+            if (onMore !== undefined) control.onMouseDown = (event) => {
+                if (event.button !== 0) return;
+                event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onSection?.("more"); onMore();
+            };
+            footer.add(control);
+            footer.add(new TextRenderable(renderer, {
+                content: navigation.join("\n"), fg: TUI_MUTED, height: navigation.length,
+                width: "100%", selectable: false,
+            }));
+            add(footer);
         } else {
+            const footer = dialogFooterNode(renderer, journeyFooter(state));
+            footer.height = layout.footerHeight;
             const [action, ...details] = journeyFooter(state).split("\n");
             footer.content = new StyledText([
                 fg(TUI_TEXT)(action!),
                 fg(TUI_MUTED)(`\n${details.join("\n")}`),
             ]);
+            add(footer);
         }
-        if (state.modelJourney === "switch" && onMore !== undefined) {
-            footer.selectable = false;
-            footer.onMouseDown = (event) => {
-                if (event.button !== 0 || event.y !== footer.screenY) return;
-                event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onSection?.("more"); onMore();
-            };
-        }
-        add(footer);
         box.height = "auto";
         return;
     }
@@ -1415,7 +1452,7 @@ export function renderListPickerRows(
             tab !== "help",
             "queryCursor" in state ? state.queryCursor : undefined,
         );
-        box.add(search);
+        box.add(search.box);
     }
     let tabStripHeight = 0;
     if (stop !== undefined && stripPane !== undefined) {
@@ -2413,14 +2450,20 @@ export function renderThemePickerRows(
         state.queryCursor,
     );
     box.add(header);
-    box.add(search);
+    box.add(search.box);
     nodes.push(header);
 
     const matches = new Set(state.options.map((option) => option.value));
     const selectableIndex = new Map(
         state.options.map((option, index) => [option.value, index]),
     );
-    state.allOptions.forEach((option) => {
+    const highlighted = state.options[state.selectedIndex]?.value;
+    const themeRows = listWindowSlice(
+        state.allOptions,
+        Math.max(0, state.allOptions.findIndex((option) => option.value === highlighted)),
+        Math.max(1, renderer.height - THEME_CARD_CHROME_LINES + DIALOG_SEARCH_HEIGHT - dialogSearchHeight(renderer) - 2),
+    );
+    themeRows.forEach((option) => {
         const active = option.value === state.options[state.selectedIndex]?.value;
         const current = option.value === state.initialTheme;
         const matched = matches.has(option.value);

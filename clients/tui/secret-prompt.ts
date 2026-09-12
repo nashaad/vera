@@ -4,6 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import {
     TUI_MUTED,
     TUI_PANEL,
@@ -151,7 +153,7 @@ export function createTuiSecretPromptView(
         paddingTop: 1,
         paddingBottom: 1,
     });
-    card.add(title);
+    card.add(dialogHeaderNode(renderer, title));
     card.add(hint);
     card.add(entry);
     card.add(footer);

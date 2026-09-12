@@ -464,8 +464,9 @@ test("the instruction editor sits on its own ground below a blank row", async ()
     const lines = setup.captureCharFrame().split("\n");
     const title = lines.findIndex((line) => line.includes("Edit instruction"));
     expect(title).toBeGreaterThanOrEqual(0);
-    expect(lines[title + 1]?.trim()).toBe("");
-    expect(lines[title + 2]).toContain("pirate text");
+    expect(lines[title + 1]?.trim()).toMatch(/^─+$/);
+    expect(lines[title + 2]?.trim()).toBe("");
+    expect(lines[title + 3]).toContain("pirate text");
   } finally {
     setup.renderer.destroy();
   }

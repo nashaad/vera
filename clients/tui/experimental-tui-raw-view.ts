@@ -10,6 +10,8 @@ import type {
     VeraExperimentalTuiTheme,
 } from "../../src/sdk/experimental-tui.ts";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 export interface TuiExperimentalRawView {
     readonly extensionId: string;
     readonly spec: VeraExperimentalTuiRawViewSpec;
@@ -49,6 +51,9 @@ export function createTuiExperimentalRawView(
         width: "100%",
         flexDirection: "column",
     });
+    if (options.spec.slot === "overlay") {
+        container.add(dialogHeaderNode(options.renderer, "Extension"));
+    }
     container.add(root);
     return {
         extensionId: options.extensionId,
@@ -74,7 +79,7 @@ export function disposeTuiExperimentalRawView(
         firstFailure ??= error;
     }
     try {
-        view.container.destroy();
+        view.container.destroyRecursively();
     } catch (error) {
         firstFailure ??= error;
     }

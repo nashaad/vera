@@ -1,3 +1,4 @@
+import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import {
     BoxRenderable,
     TextRenderable,
@@ -156,7 +157,7 @@ export function createTuiCommandPaletteView(
         box,
         surface,
         focus(): void {
-            search.focus();
+            search.editor.focus();
         },
         handleEditorKey(state, key): TuiCommandPaletteTransition {
             if (
@@ -166,24 +167,24 @@ export function createTuiCommandPaletteView(
             ) {
                 return { state, handled: false };
             }
-            const handled = search.handleKeyPress(tuiTextareaKey(key));
+            const handled = search.editor.handleKeyPress(tuiTextareaKey(key));
             return handled
                 ? searched(state, {
-                    value: search.plainText,
-                    cursor: search.cursorOffset,
+                    value: search.editor.plainText,
+                    cursor: search.editor.cursorOffset,
                 })
                 : { state, handled: false };
         },
         handleEditorPaste(state, text): TuiCommandPaletteState {
-            insertTuiSingleLinePaste(search, text);
+            insertTuiSingleLinePaste(search.editor, text);
             return filteredState(
                 state.allCommands,
-                search.plainText,
-                search.cursorOffset,
+                search.editor.plainText,
+                search.editor.cursorOffset,
             );
         },
         update(state): void {
-            search.parent?.remove(search.id);
+            search.box.parent?.remove(search.box.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -195,7 +196,7 @@ export function createTuiCommandPaletteView(
             );
             updateDialogSearchNode(search, state.query, "Search", true, state.queryCursor);
             box.add(header);
-            box.add(search);
+            box.add(search.box);
             nodes.push(header);
 
             const rows = state.commands.length === 0 ? [] : windowedRows(renderer, state);
@@ -334,7 +335,7 @@ function windowedRows(
 function paletteMaxRows(renderer: RenderContext): number {
     return listWindowRows(
         dialogBoxHeight(renderer, renderer.height / 4),
-        DIALOG_CHROME_HEIGHT,
+        DIALOG_CHROME_HEIGHT - DIALOG_SEARCH_HEIGHT + dialogSearchHeight(renderer),
     );
 }
 

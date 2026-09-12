@@ -8,6 +8,8 @@ import {
     TextRenderable,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import type {
     AgentUpdate,
     UiResponseCommand,
@@ -263,7 +265,7 @@ export function createTuiQuestionView(
         paddingTop: questionBottomPadding(renderer),
         paddingBottom: questionBottomPadding(renderer),
     });
-    panel.add(detailsText);
+    panel.add(dialogHeaderNode(renderer, detailsText, ""));
     panel.add(details);
     panel.add(actions);
     const box = new BoxRenderable(renderer, {

@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { modelJourney, journeyModels } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
+import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 
 const rows = [
     { value: "p/a", provider: "p", model: "a", label: "Alpha", description: "", waScore: 1550, pooledRank: 0 },
@@ -40,8 +42,8 @@ test("More returns to the exact picker, and only its two catalog actions can run
     expect(handleTuiSettingsPickerKey(libraryMenu, { name: "escape" }).state).toBe(base);
 });
 
-test("the descriptive More hint opens with the mouse and its menu has no search or sections", async () => {
-    const setup = await createTestRenderer({ width: 110, height: 44 });
+test.each([110, 124])("the More control keeps its shape through focus and opens with the mouse at width %i", async (width) => {
+    const setup = await createTestRenderer({ width, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     let state: TuiSettingsPickerState = { ...base, tab: "all", options: rows };
     const parent = state;
@@ -58,6 +60,23 @@ test("the descriptive More hint opens with the mouse and its menu has no search 
         const lines = before.split("\n");
         const y = lines.findIndex((line) => line.includes("Ctrl+K More: variants, refresh"));
         expect(y).toBeGreaterThan(0);
+        const moreSpan = () => setup.captureSpans().lines[y]!.spans.find((span) => span.text.includes("Ctrl+K More"))!;
+        expect(moreSpan().text).toBe(" › Ctrl+K More: variants, refresh ");
+        expect(moreSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ELEMENT).toInts());
+        const rule = lines.find((line) => line.includes("────"))!;
+        expect(lines[y]!.indexOf("refresh") + "refresh".length + 1).toBe(rule.lastIndexOf("─") + 1);
+        await setup.mockMouse.click(rule.indexOf("─"), y);
+        expect(state).toBe(parent);
+        state = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
+        view.update(state); await setup.renderOnce();
+        expect(state.modelFocus).toBe("more");
+        expect(moreSpan().text).toBe(" › Ctrl+K More: variants, refresh ");
+        expect(moreSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
+        expect(setup.captureCharFrame().split("\n")[y]).toBe(lines[y]);
+        state = handleTuiSettingsPickerKey(state, { name: "tab", shift: true }).state!;
+        view.update(state); await setup.renderOnce();
+        expect(setup.captureCharFrame()).toBe(before);
+        expect(moreSpan().bg.toInts()).toEqual(RGBA.fromHex(TUI_ELEMENT).toInts());
         await setup.mockMouse.click(lines[y]!.indexOf("More"), y);
         await setup.renderOnce();
         const frame = setup.captureCharFrame();

@@ -40,6 +40,8 @@ test("TUI appearance resolves JSON overrides and derives tip alignment", () => {
     });
 
     expect(appearance).toEqual({
+        dialogHeaderStyle: "underline",
+        dialogSearchStyle: "fill",
         transcriptPaddingLeft: 2,
         transcriptPaddingRight: 4,
         activityIndent: 3,
@@ -61,6 +63,19 @@ test("an explicit composer tip indent wins over derived alignment", () => {
     expect(resolveTuiAppearance({
         composer: { margin_horizontal: 4, tip_indent: 2 },
     }).composerTipIndent).toBe(2);
+});
+
+test("dialog header style defaults to underline and resolves the box override", () => {
+    expect(resolveTuiAppearance().dialogHeaderStyle).toBe("underline");
+    expect(resolveTuiAppearance({ dialogs: { header_style: "box" } }).dialogHeaderStyle).toBe("box");
+});
+
+test("dialog search defaults to fill and resolves a border independently of its title", () => {
+    expect(resolveTuiAppearance().dialogSearchStyle).toBe("fill");
+    expect(resolveTuiAppearance({ dialogs: { search_style: "plain" } }).dialogSearchStyle).toBe("plain");
+    expect(resolveTuiAppearance({ dialogs: { search_style: "border" } })).toMatchObject({
+        dialogHeaderStyle: "underline", dialogSearchStyle: "border",
+    });
 });
 
 test("composer geometry fits narrow terminals without changing configured intent", () => {

@@ -1,3 +1,4 @@
+import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import {
     listWindowRows,
     listWindowSlice,
@@ -12,6 +13,8 @@ import {
     type Renderable,
     type RenderContext,
 } from "@opentui/core";
+
+import { dialogHeaderNode } from "./dialog-header.ts";
 
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import { chordNeedsExtendedKeyboard } from "./keybindings.ts";
@@ -227,7 +230,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
-        paddingTop: 1,
+        paddingTop: 0,
         focusable: true,
         visible: false,
     });
@@ -236,7 +239,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         box,
         focus(): void {
             if (shownTab === "general") box.focus();
-            else search.focus();
+            else search.editor.focus();
         },
         handleEditorKey(state, key): TuiHelpTransition {
             if (
@@ -249,14 +252,14 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
             ) {
                 return { state, handled: false };
             }
-            if (!search.handleKeyPress(tuiTextareaKey(key))) {
+            if (!search.editor.handleKeyPress(tuiTextareaKey(key))) {
                 return { state, handled: false };
             }
             return {
                 state: {
                     ...state,
-                    query: search.plainText,
-                    queryCursor: search.cursorOffset,
+                    query: search.editor.plainText,
+                    queryCursor: search.editor.cursorOffset,
                     selectedIndex: 0,
                 },
                 handled: true,
@@ -264,17 +267,17 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         },
         handleEditorPaste(state, text): TuiHelpState {
             if (state.tab === "general") return state;
-            insertTuiSingleLinePaste(search, text);
+            insertTuiSingleLinePaste(search.editor, text);
             return {
                 ...state,
-                query: search.plainText,
-                queryCursor: search.cursorOffset,
+                query: search.editor.plainText,
+                queryCursor: search.editor.cursorOffset,
                 selectedIndex: 0,
             };
         },
         update(state): void {
             shownTab = state.tab;
-            search.parent?.remove(search.id);
+            search.box.parent?.remove(search.box.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -282,10 +285,11 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
             const tabs = new TextRenderable(renderer, {
                 content: helpTabs(state.tab),
                 width: "100%",
-                height: 3,
+                height: 1,
             });
-            box.add(tabs);
-            nodes.push(tabs);
+            const header = dialogHeaderNode(renderer, tabs);
+            box.add(header);
+            nodes.push(header);
             if (state.tab === "general") {
                 const general = new TextRenderable(renderer, {
                     content: generalHelp(),
@@ -303,7 +307,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                     true,
                     state.queryCursor,
                 );
-                box.add(search);
+                box.add(search.box);
                 const commands = windowedCommands(renderer, state);
                 if (commands.length === 0) {
                     const empty = new TextRenderable(renderer, {
@@ -393,7 +397,7 @@ function filteredRows(state: TuiHelpState): readonly TuiHelpRow[] {
     );
 }
 
-const HELP_CHROME = 8;
+const HELP_CHROME = 9;
 
 function windowedCommands(
     renderer: RenderContext,
@@ -404,7 +408,7 @@ function windowedCommands(
     return listWindowSlice(
         commands,
         state.selectedIndex,
-        listWindowRows((renderer.height - APP_PADDING_TOP) * 0.9, HELP_CHROME),
+        listWindowRows((renderer.height - APP_PADDING_TOP) * 0.9, HELP_CHROME - DIALOG_SEARCH_HEIGHT + dialogSearchHeight(renderer)),
     );
 }
 

@@ -262,7 +262,7 @@ export function createTuiRequestOptionsEditorView(
             ].join("\n");
             error.visible = state.error !== undefined;
             error.content = state.error === undefined ? "" : `▲ ${state.error}`;
-            editor.height = Math.max(4, Math.min(12, renderer.height - 14));
+            editor.height = Math.max(4, Math.min(12, renderer.height - 16));
         },
     };
 }

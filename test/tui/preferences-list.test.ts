@@ -182,9 +182,9 @@ test("a list longer than the window keeps the footer and the cursor on screen", 
         view.update(state);
         await setup.flush();
         let frame = setup.captureCharFrame();
-        // Windowed to the first ten of 25, so the eleventh is not rendered.
-        expect(frame).toContain("executable=tool9");
-        expect(frame).not.toContain("executable=tool10");
+        // The header reserves two rows; the list still pages around its cursor.
+        expect(frame).toContain("executable=tool7");
+        expect(frame).not.toContain("executable=tool8");
         expect(frame).toContain("[esc] close");
 
         // Walk to the end. The window has to follow, or delete would target a
@@ -197,9 +197,9 @@ test("a list longer than the window keeps the footer and the cursor on screen", 
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(frame).toContain("tool=bash, executable=tool24");
-        // The window slid: the last ten rows are 15 through 24, so 14 is gone.
-        expect(frame).toContain("executable=tool15");
-        expect(frame).not.toContain("executable=tool14");
+        // The window slid: the last eight rows are 17 through 24.
+        expect(frame).toContain("executable=tool17");
+        expect(frame).not.toContain("executable=tool16");
         expect(frame).toContain("[esc] close");
     } finally {
         setup.renderer.destroy();

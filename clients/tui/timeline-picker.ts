@@ -1,3 +1,4 @@
+import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import {
     BoxRenderable,
     type KeyEvent,
@@ -264,7 +265,7 @@ export function createTuiTimelinePickerView(
     const view: TuiTimelinePickerView = {
         box,
         focus(): void {
-            if (shownScreen === "select") search.focus();
+            if (shownScreen === "select") search.editor.focus();
             else box.focus();
         },
         handleEditorKey(state, key): TuiTimelinePickerTransition {
@@ -276,31 +277,32 @@ export function createTuiTimelinePickerView(
             ) {
                 return unchanged(state, false);
             }
-            if (!search.handleKeyPress(tuiTextareaKey(key))) {
+            if (!search.editor.handleKeyPress(tuiTextareaKey(key))) {
                 return unchanged(state, false);
             }
             return updateTuiTimelineSearch(
                 state,
-                search.plainText,
-                search.cursorOffset,
+                search.editor.plainText,
+                search.editor.cursorOffset,
             );
         },
         handleEditorPaste(state, text): TuiTimelinePickerTransition {
             if (state.screen !== "select") return unchanged(state, false);
-            insertTuiSingleLinePaste(search, text);
+            insertTuiSingleLinePaste(search.editor, text);
             return changed({
                 ...state,
-                query: search.plainText,
-                queryCursor: search.cursorOffset,
+                query: search.editor.plainText,
+                queryCursor: search.editor.cursorOffset,
                 selectedIndex: 0,
                 notice: undefined,
             });
         },
         update(state): void {
             shownScreen = state.screen;
-            search.parent?.remove(search.id);
+            box.paddingTop = state.screen === "select" && renderer.height < 30 ? 0 : 1;
+            search.box.parent?.remove(search.box.id);
             for (const node of nodes) {
-                if (node !== search) node.destroyRecursively();
+                if (node !== search.box) node.destroyRecursively();
             }
             nodes = timelineNodes(renderer, state, search, view.pointer);
             for (const node of nodes) {
@@ -358,18 +360,21 @@ function timelineNodes(
             true,
             state.queryCursor,
         );
-        nodes.push(search);
+        nodes.push(search.box);
         pushNotice(state.notice);
         const filtered = filteredBoundaries(state);
         if (filtered.length === 0) {
             nodes.push(bodyText(renderer, "No matching user messages."));
         } else {
             const selectedIndex = clampedIndex(state, filtered);
+            const visibleRows = Math.max(1, Math.min(6,
+                renderer.height - dialogInsetTop(renderer) - dialogInsetBottomOffset(renderer) - 16 + DIALOG_SEARCH_HEIGHT - dialogSearchHeight(renderer),
+            ));
             const visibleStart = Math.max(
                 0,
-                Math.min(selectedIndex - 2, Math.max(0, filtered.length - 6)),
+                Math.min(selectedIndex - 2, Math.max(0, filtered.length - visibleRows)),
             );
-            filtered.slice(visibleStart, visibleStart + 6).forEach(
+            filtered.slice(visibleStart, visibleStart + visibleRows).forEach(
                 (boundary, index) => {
                     nodes.push(dialogOptionRow(renderer, {
                         label: oneLine(boundary.prompt),
@@ -380,13 +385,15 @@ function timelineNodes(
                 },
             );
         }
-        nodes.push(bodyText(
+        const description = bodyText(
             renderer,
             selected === undefined
                 ? "No conversation boundary selected."
                 : `Rewind to before: “${truncate(oneLine(selected.prompt), 72)}”\n`
                     + "Workspace files and external effects will not change.",
-        ));
+        );
+        if (renderer.height < 30) description.marginTop = 0;
+        nodes.push(description);
         nodes.push(dialogFooterNode(
             renderer,
             "↑↓ move · type to search · ⏎ actions · esc close",

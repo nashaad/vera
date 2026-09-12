@@ -4,6 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import {
     TUI_MUTED,
     TUI_NOTICE,
@@ -96,7 +98,7 @@ export function createTuiSessionTrashConfirmView(
         paddingBottom: 1,
         focusable: true,
     });
-    box.add(title);
+    box.add(dialogHeaderNode(renderer, title));
     box.add(name);
     box.add(detail);
     box.add(footer);

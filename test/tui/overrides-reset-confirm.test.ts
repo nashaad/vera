@@ -83,7 +83,8 @@ test("the card repaints from its declarative bindings", async () => {
         applyTuiThemeBindings(nextTheme, view.themeBindings);
         const text = view.box.getChildren() as TextRenderable[];
 
-        expect(text[0]?.fg.toInts())
+        const title = view.box.getChildren()[0]!.getChildren()[1] as TextRenderable;
+        expect(title.fg.toInts())
             .toEqual(RGBA.fromHex(nextTheme.notice).toInts());
         expect(text[1]?.fg.toInts())
             .toEqual(RGBA.fromHex(nextTheme.text).toInts());

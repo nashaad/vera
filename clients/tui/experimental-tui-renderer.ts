@@ -7,6 +7,7 @@ import {
     type Renderable,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
 import type { TuiTheme } from "./theme.ts";
 import type {
     VeraExperimentalTuiNode,
@@ -40,18 +41,20 @@ export function renderTuiExperimentalView(
         paddingRight: 1,
         ...(options.overlay ? { flexGrow: 1 } : {}),
     });
-    if (options.title !== undefined) {
-        root.add(new TextRenderable(options.renderer, {
+    const heading = options.title ?? (options.overlay ? "Extension" : undefined);
+    if (heading !== undefined) {
+        const title = new TextRenderable(options.renderer, {
             id: `${root.id}-title`,
             selectable: true,
             content: options.notice === undefined
-                ? options.title
-                : `${options.title} · ${options.notice}`,
+                ? heading
+                : `${heading} · ${options.notice}`,
             fg: options.theme.accent,
             attributes: TextAttributes.BOLD,
             width: "100%",
             height: 1,
-        }));
+        });
+        root.add(options.overlay ? dialogHeaderNode(options.renderer, title) : title);
     }
     root.add(renderNode(options, options.node, `${root.id}-content`));
     return root;

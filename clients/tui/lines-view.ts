@@ -22,19 +22,17 @@ import {
     dialogOptionRow,
 } from "./dialog-chrome.ts";
 import { dialogBoxHeight, listWindowRows, listWindowSlice } from "./list-window.ts";
+import { createDialogSearchNode, updateDialogSearchNode, dialogSearchHeight } from "./dialog-search.ts";
 import {
     TUI_ACCENT,
     TUI_ELEMENT,
-    TUI_INPUT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 import {
-    createTuiSingleLineTextarea,
     insertTuiSingleLinePaste,
-    syncTuiSingleLineTextarea,
     tuiTextareaKey,
     type TuiTextEditorKey,
 } from "./single-line-editor.ts";
@@ -116,14 +114,12 @@ export interface LinesViewPointer {
 const CARD_WIDTH_FRACTION = 0.9;
 const CARD_TOP_MARGIN = 3;
 const COMPOSER_RESERVE = 9;
-const CARD_CHROME_HEIGHT = 7;
+const CARD_CHROME_HEIGHT = 9;
 
 const RAIL_PADDING = 1;
 const RAIL_CHROME_HEIGHT = 8;
 const RAIL_TOP_MARGIN = 1;
 
-const INPUT_BOX_ROWS = 3;
-const INPUT_BLOCK_ROWS = INPUT_BOX_ROWS + 1;
 
 function footerContentRows(state: LinesViewState): number {
     return Math.max(
@@ -174,21 +170,8 @@ export function createTuiLinesView(
         paddingBottom: 1,
         focusable: true,
     });
-    const inputEditor = createTuiSingleLineTextarea(renderer, {
-        id: `${id}-input`,
-        placeholder: "Search",
-    });
-    const inputField = new BoxRenderable(renderer, {
-        id: `${id}-input-field`,
-        border: false,
-        backgroundColor: TUI_INPUT,
-        width: "100%",
-        height: INPUT_BOX_ROWS,
-        justifyContent: "center",
-        paddingLeft: 2,
-        paddingRight: 2,
-    });
-    inputField.add(inputEditor);
+    const search = createDialogSearchNode(renderer, `${id}-input`);
+    const { box: inputField, editor: inputEditor } = search;
     const surface = centeredDialogSurface(renderer, `${id}-surface`, box, {
         registerCard: options.railDivider !== true,
     });
@@ -269,7 +252,7 @@ export function createTuiLinesView(
         },
         update(state): void {
             footerRows = footerContentRows(state);
-            inputRows = state.input === undefined ? 0 : INPUT_BLOCK_ROWS;
+            inputRows = state.input === undefined ? 0 : dialogSearchHeight(renderer) + 1;
             inputActive = state.input !== undefined;
             inputField.parent?.remove(inputField.id);
             for (const node of nodes) node.destroyRecursively();
@@ -290,9 +273,9 @@ export function createTuiLinesView(
                 box.borderStyle = state.focused === true ? "heavy" : "single";
             }
             const hint = state.hint ?? "esc";
-            const railHeader = rail !== undefined || state.dimmed === true
-                || options.panelBackground === false;
-            add(railHeader
+            const customHeader = rail !== undefined || state.dimmed === true
+                || options.panelBackground === false || state.headerActions !== undefined;
+            add(customHeader
                 ? groundHeaderNode(
                     renderer,
                     state.title,
@@ -301,10 +284,11 @@ export function createTuiLinesView(
                     state.headerActions,
                     view.pointer,
                     state.titleLeading,
+                    rail === undefined,
                 )
                 : dialogHeaderNode(renderer, state.title, hint));
             if (rail === undefined) {
-                muted("");
+                if (state.input === undefined) muted("");
             } else {
                 add(new TextRenderable(renderer, {
                     content: (state.focused === true ? "━" : "─")
@@ -313,24 +297,17 @@ export function createTuiLinesView(
                     width: "100%",
                     height: 1,
                 }));
-                muted("");
+                if (state.input === undefined) muted("");
             }
             if (state.input !== undefined) {
-                inputField.backgroundColor = TUI_INPUT;
-                inputEditor.textColor = TUI_TEXT;
-                inputEditor.focusedTextColor = TUI_TEXT;
-                inputEditor.backgroundColor = TUI_INPUT;
-                inputEditor.focusedBackgroundColor = TUI_INPUT;
-                inputEditor.cursorColor = TUI_ACCENT;
-                inputEditor.placeholderColor = TUI_MUTED;
-                inputEditor.placeholder = state.input.placeholder ?? "Search";
-                syncTuiSingleLineTextarea(
-                    inputEditor,
+                updateDialogSearchNode(
+                    search,
                     state.input.text,
+                    state.input.placeholder ?? "Search",
+                    true,
                     state.input.cursor,
                 );
                 box.add(inputField);
-                muted("");
             }
             const height = cardHeight();
             const room = listWindowRows(height, chromeRows());
@@ -524,6 +501,7 @@ function groundHeaderNode(
     actions: readonly LinesViewHeaderAction[] = [],
     pointer?: LinesViewPointer,
     leading?: LinesViewState["titleLeading"],
+    dialog = false,
 ): BoxRenderable {
     const header = new BoxRenderable(renderer, {
         width: "100%",
@@ -531,11 +509,12 @@ function groundHeaderNode(
         flexDirection: "row",
         justifyContent: "space-between",
     });
-    header.add(new TextRenderable(renderer, {
+    const titleNode = new TextRenderable(renderer, {
         content: headerTitleContent(title, dimmed, leading),
         fg: dimmed ? TUI_MUTED : TUI_TEXT,
         attributes: TextAttributes.BOLD,
-    }));
+    });
+    if (!dialog) header.add(titleNode);
     if (actions.length > 0) {
         const controls = new BoxRenderable(renderer, {
             height: 1,
@@ -559,7 +538,14 @@ function groundHeaderNode(
             }));
             controls.add(control);
         }
+        if (dialog) {
+            header.destroyRecursively();
+            return dialogHeaderNode(renderer, titleNode, "", controls);
+        }
         header.add(controls);
+    } else if (dialog) {
+        header.destroyRecursively();
+        return dialogHeaderNode(renderer, titleNode, hint);
     } else if (hint.length > 0) {
         header.add(new TextRenderable(renderer, {
             content: hint,

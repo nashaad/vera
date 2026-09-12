@@ -7,6 +7,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import type {
     AgentUpdate,
     ToolApprovalUiRequestUpdate,
@@ -161,14 +163,17 @@ export function createTuiApprovalView(
         flexGrow: 1,
         flexDirection: "column",
         gap: 0,
-        paddingTop: approvalTopPadding(renderer),
+        paddingTop: 0,
         paddingBottom: approvalBottomPadding(renderer),
         paddingLeft: 2,
         paddingRight: 2,
     });
-    content.add(headerText);
+    const header = dialogHeaderNode(renderer, headerText, "");
+    content.add(header);
     content.add(details);
     content.add(actions);
+    content.minHeight = 0;
+    content.flexShrink = 1;
 
     const box = new BoxRenderable(renderer, {
         id: "approval-box",
@@ -223,11 +228,15 @@ export function createTuiApprovalView(
 
     function renderBody(update: ToolApprovalUiRequestUpdate): void {
         const body = tuiApprovalBody(update, expanded, scopeInline);
+        const reason = specificReason(update.request.reason);
         capped = expanded || body.hidden > 0;
         detailsText.content = new StyledText(
-            body.lines.flatMap((line, index) => [
+            [
+                ...(reason === undefined ? [] : [{ text: reason, tone: "muted" as const }]),
+                ...body.lines,
+            ].flatMap((line, index, lines) => [
                 fg(toneColor(line.tone))(line.text),
-                ...(index === body.lines.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+                ...(index === lines.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
             ]),
         );
     }
@@ -236,11 +245,9 @@ export function createTuiApprovalView(
         bar.borderColor = TUI_NOTICE;
         box.backgroundColor = TUI_PANEL;
         detailsText.fg = TUI_TEXT;
-        const reason = specificReason(update.request.reason);
         headerText.content = new StyledText([
             fg(TUI_NOTICE)("Permission required"),
             fg(TUI_MUTED)(`  ${update.request.toolCall.name}`),
-            ...(reason === undefined ? [] : [fg(TUI_MUTED)(`\n${reason}`)]),
         ]);
         hints.content = new StyledText([
             fg(TUI_TEXT)("up/down"),
@@ -277,10 +284,10 @@ export function createTuiApprovalView(
                 : "90%";
             const inline = scopeFitsRow(renderer, update);
             bar.visible = approvalChromeVisible(renderer);
-            headerText.visible = approvalHeaderVisible(renderer);
-            content.paddingTop = approvalTopPadding(renderer);
+            header.visible = approvalHeaderVisible(renderer);
+            content.paddingTop = 0;
             content.paddingBottom = approvalBottomPadding(renderer);
-            details.marginTop = approvalDetailsMargin(renderer);
+            details.marginTop = 0;
             hints.visible = renderer.width >= 60;
             if (currentRequestId === update.requestId) {
                 if (inline !== scopeInline) {
@@ -346,14 +353,6 @@ export function createTuiApprovalView(
 
 function approvalBottomPadding(renderer: RenderContext): number {
     return approvalChromeVisible(renderer) ? 1 : 0;
-}
-
-function approvalTopPadding(renderer: RenderContext): number {
-    return approvalHeaderVisible(renderer) ? 1 : 0;
-}
-
-function approvalDetailsMargin(renderer: RenderContext): number {
-    return approvalHeaderVisible(renderer) ? 1 : 0;
 }
 
 function approvalHeaderVisible(renderer: RenderContext): boolean {

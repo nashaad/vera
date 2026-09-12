@@ -29,7 +29,7 @@ import {
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 
-const PREFERENCES_CHROME = 6;
+const PREFERENCES_CHROME = 8;
 
 const PREFERENCES_TOP_OFFSET = 2;
 

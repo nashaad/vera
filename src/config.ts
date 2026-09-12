@@ -182,10 +182,16 @@ export interface VeraTuiComposerConfig {
     readonly boundary_color?: string;
 }
 
+export interface VeraTuiDialogsConfig {
+    readonly header_style?: "underline" | "box";
+    readonly search_style?: "border" | "fill" | "plain";
+}
+
 /** Client-owned visual tuning. Absent values retain Vera's current layout. */
 export interface VeraTuiConfig {
     readonly transcript?: VeraTuiTranscriptConfig;
     readonly composer?: VeraTuiComposerConfig;
+    readonly dialogs?: VeraTuiDialogsConfig;
 }
 
 /**
@@ -1418,12 +1424,27 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
     const raw = value as Record<string, unknown>;
     const transcript = parseTuiTranscriptConfig(raw.transcript);
     const composer = parseTuiComposerConfig(raw.composer);
-    if (transcript === undefined || composer === undefined) {
+    const dialogs = parseTuiDialogsConfig(raw.dialogs);
+    if (transcript === undefined || composer === undefined || dialogs === undefined) {
         return undefined;
     }
     return {
         ...(raw.transcript === undefined ? {} : { transcript }),
         ...(raw.composer === undefined ? {} : { composer }),
+        ...(raw.dialogs === undefined ? {} : { dialogs }),
+    };
+}
+
+function parseTuiDialogsConfig(value: unknown): VeraTuiDialogsConfig | undefined {
+    if (value === undefined) return {};
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const header = Reflect.get(value, "header_style");
+    const search = Reflect.get(value, "search_style");
+    if (header !== undefined && header !== "underline" && header !== "box") return undefined;
+    if (search !== undefined && search !== "border" && search !== "fill" && search !== "plain") return undefined;
+    return {
+        ...(header === undefined ? {} : { header_style: header }),
+        ...(search === undefined ? {} : { search_style: search }),
     };
 }
 

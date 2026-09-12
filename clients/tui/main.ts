@@ -21,7 +21,7 @@ import {
     watchTerminalLoss,
 } from "./terminal-restore.ts";
 
-import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_BACKGROUND_Z_INDEX, DIALOG_CARD_Z_INDEX, DIALOG_SCRIM_Z_INDEX, refreshDialogChrome, registerDialogCard } from "./dialog-chrome.ts";
+import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_BACKGROUND_Z_INDEX, DIALOG_CARD_Z_INDEX, DIALOG_SCRIM_Z_INDEX, refreshDialogChrome, configureDialogHeaders, configureDialogSearch, registerDialogCard } from "./dialog-chrome.ts";
 
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
@@ -865,6 +865,8 @@ export async function startTui(
     // Request the kitty keyboard protocol so ctrl+shift chords actually arrive.
     rt.renderer.enableKittyKeyboard();
     rt.appearance = fitTuiAppearance(rt.configuredAppearance, rt.renderer.width);
+    configureDialogHeaders(rt.renderer, rt.appearance.dialogHeaderStyle);
+    configureDialogSearch(rt.renderer, rt.appearance.dialogSearchStyle);
     rt.composerContentIndent = tuiComposerContentIndent(rt.appearance);
     rt.composerHorizontalInset = rt.composerContentIndent * 2;
     rt.entrySpacing = {
@@ -2428,6 +2430,8 @@ export async function startTui(
     rt.renderer.on(CliRenderEvents.RESIZE, () => {
         rt.overlayScrim.width = rt.renderer.width;
         rt.appearance = fitTuiAppearance(rt.configuredAppearance, rt.renderer.width);
+        configureDialogHeaders(rt.renderer, rt.appearance.dialogHeaderStyle);
+        configureDialogSearch(rt.renderer, rt.appearance.dialogSearchStyle);
         rt.composerContentIndent = tuiComposerContentIndent(rt.appearance);
         rt.composerHorizontalInset = rt.composerContentIndent * 2;
         rt.composerBox.marginLeft = rt.appearance.composerMarginHorizontal;

@@ -195,6 +195,17 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
     }
 });
 
+test("Vera config preserves independent dialog header and search styles", () => {
+    for (const header_style of ["underline", "box"] as const) for (const search_style of [undefined, "border", "fill", "plain"] as const) {
+        const path = temporaryConfigPath();
+        const dialogs = { header_style, ...(search_style === undefined ? {} : { search_style }) };
+        writeFileSync(path, JSON.stringify({ schema_version: 1, model: "anthropic/example-model", tui: { dialogs } }));
+        expect(loadVeraConfig({ path }).tui?.dialogs).toEqual(dialogs);
+        updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+        expect(loadVeraConfig({ path }).tui?.dialogs).toEqual(dialogs);
+    }
+});
+
 test("the optional load tolerates absence but not damage", () => {
     const missing = join(mkdtempSync(join(tmpdir(), "vera-config-")), "none.json");
     expect(loadOptionalVeraConfig({ path: missing })).toBeUndefined();
@@ -263,6 +274,11 @@ test("Vera config carries client-owned TUI appearance settings", () => {
 
 test("Vera config rejects malformed TUI appearance settings", () => {
     const invalid = [
+        { dialogs: [] },
+        { dialogs: { header_style: "boxed" } },
+        { dialogs: { header_style: null } },
+        { dialogs: { search_style: "both" } },
+        { dialogs: { search_style: null } },
         { transcript: [] },
         { transcript: { padding_left: -1 } },
         { transcript: { activity_indent: 0 } },

@@ -4,6 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import {
     TUI_MUTED,
     TUI_NOTICE,
@@ -157,7 +159,7 @@ export function createTuiAdmissionDialogView(
         paddingBottom: 1,
         focusable: true,
     });
-    box.add(title);
+    box.add(dialogHeaderNode(renderer, title));
     box.add(body);
     box.add(footer);
     const surface = centeredDialogSurface(renderer, "admission-dialog-surface", box);

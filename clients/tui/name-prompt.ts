@@ -4,6 +4,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import {
     TUI_MUTED,
     TUI_PANEL,
@@ -148,7 +150,7 @@ export function createTuiNamePromptView(
         paddingBottom: 1,
         focusable: true,
     });
-    box.add(title);
+    box.add(dialogHeaderNode(renderer, title));
     box.add(hint);
     box.add(entry);
     box.add(footer);

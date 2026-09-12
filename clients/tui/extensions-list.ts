@@ -17,6 +17,7 @@ import {
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
+    updateDialogHeaderTitle,
     dialogInsetBottomOffset,
     dialogInsetTop,
     dialogOptionRow,
@@ -249,7 +250,6 @@ export function createTuiExtensionsListView(
     renderer: RenderContext,
 ): TuiExtensionsListView {
     const header = dialogHeaderNode(renderer, "Extensions");
-    const headerTitle = header.getChildren()[0] as TextRenderable | undefined;
     const body = new BoxRenderable(renderer, {
         width: "100%",
         height: "auto",
@@ -300,7 +300,7 @@ export function createTuiExtensionsListView(
                 dialogInsetBottomOffset(renderer),
             );
             const content = screenContent(state, visibleRowIndices(renderer, state));
-            if (headerTitle !== undefined) headerTitle.content = content.title;
+            updateDialogHeaderTitle(header, content.title);
             footer.content = content.footer;
             for (const node of current) {
                 node.destroyRecursively();

@@ -47,14 +47,15 @@ test("an empty rename uses the shared card field chrome and cursor", async () =>
             .map((line) => line.trim());
         const visibleLines = frameLines.filter((line) => line.length > 0);
 
-        expect(visibleLines).toEqual([
-            "Rename conversation",
+        expect(visibleLines[0]).toMatch(/^Rename conversation\s+esc$/);
+        expect(visibleLines[1]).toMatch(/^─+$/);
+        expect(visibleLines.slice(2)).toEqual([
             "New name",
             "←→ move · ⏎ save · empty clears · esc cancel",
         ]);
         expect(frameLines.indexOf("New name")
-            - frameLines.indexOf("Rename conversation"))
-            .toBe(2);
+            - frameLines.indexOf(visibleLines[0]!))
+            .toBe(3);
         expect(entry.placeholder).toBe("New name");
         expect(entry.backgroundColor.toInts())
             .toEqual(RGBA.fromHex(TUI_PANEL).toInts());

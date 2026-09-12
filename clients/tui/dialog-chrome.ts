@@ -1,3 +1,7 @@
+import { refreshDialogHeaders } from "./dialog-header.ts";
+export { dialogHeaderNode, updateDialogHeaderTitle, configureDialogHeaders, DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
+import { refreshDialogSearch } from "./dialog-search.ts";
+export { createDialogSearchNode, updateDialogSearchNode, configureDialogSearch } from "./dialog-search.ts";
 import {
     bold,
     BoxRenderable,
@@ -15,7 +19,6 @@ import {
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,
-    TUI_CHROME,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
@@ -33,7 +36,7 @@ export const DIALOG_GUTTER_WIDTH = 0;
 
 export const DIALOG_GUTTER = "";
 
-export const DIALOG_CHROME_HEIGHT = 9;
+export const DIALOG_CHROME_HEIGHT = 13;
 
 export const DIALOG_CARD_PADDING = 4;
 
@@ -47,13 +50,6 @@ export const APP_PADDING_TOP = 1;
 export const APP_PADDING_BOTTOM = 1;
 
 const dialogCards = new Set<BoxRenderable>();
-interface DialogHeaderRecord {
-    readonly box: BoxRenderable;
-    readonly title: TextRenderable;
-    readonly hint: TextRenderable;
-    readonly plainHint: string;
-}
-const dialogHeaders = new Set<DialogHeaderRecord>();
 export function dialogBottomOffset(renderer: RenderContext): number {
     return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT ? 1 : 2;
 }
@@ -101,67 +97,12 @@ export function registerDialogCard(card: BoxRenderable): void {
     applyDialogCardChrome(card);
 }
 
-function retroHeaderHint(hint: string): string {
-    const label = hint.replace(/\s*·\s*esc$/, "");
-    return label === "esc" ? "[Esc]" : `${label}  [Esc]`;
-}
-
-function applyDialogHeaderChrome(header: DialogHeaderRecord): void {
-    const norton = TUI_CHROME === "norton";
-    header.box.backgroundColor = TUI_PANEL;
-    header.title.fg = norton ? TUI_NOTICE : TUI_TEXT;
-    header.title.bg = TUI_PANEL;
-    header.hint.content = TUI_CHROME === "plain"
-        ? header.plainHint
-        : retroHeaderHint(header.plainHint);
-    header.hint.fg = TUI_MUTED;
-    header.hint.bg = TUI_PANEL;
-}
-
 export function refreshDialogChrome(): void {
     for (const card of dialogCards) {
         if (!card.isDestroyed) applyDialogCardChrome(card);
     }
-    for (const header of dialogHeaders) {
-        if (!header.box.isDestroyed) applyDialogHeaderChrome(header);
-    }
-}
-
-export function dialogHeaderNode(
-    renderer: RenderContext,
-    title: string,
-    hint = "esc",
-): BoxRenderable {
-    const norton = TUI_CHROME === "norton";
-    const header = new BoxRenderable(renderer, {
-        width: "100%",
-        height: 1,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        backgroundColor: TUI_PANEL,
-    });
-    const titleNode = new TextRenderable(renderer, {
-        content: title,
-        fg: norton ? TUI_NOTICE : TUI_TEXT,
-        bg: TUI_PANEL,
-        attributes: 1,
-    });
-    const hintNode = new TextRenderable(renderer, {
-        content: TUI_CHROME === "plain" ? hint : retroHeaderHint(hint),
-        fg: TUI_MUTED,
-        bg: TUI_PANEL,
-    });
-    header.add(titleNode);
-    header.add(hintNode);
-    const record = {
-        box: header,
-        title: titleNode,
-        hint: hintNode,
-        plainHint: hint,
-    };
-    dialogHeaders.add(record);
-    header.once("destroyed", () => dialogHeaders.delete(record));
-    return header;
+    refreshDialogHeaders();
+    refreshDialogSearch();
 }
 
 export const DIALOG_BUTTON_LINES = 3;
@@ -221,13 +162,6 @@ export function dialogButtonNode(
     return box;
 }
 
-export function createDialogSearchNode(
-    renderer: RenderContext,
-    id: string,
-): TextareaRenderable {
-    return createDialogTextFieldNode(renderer, id, "Search");
-}
-
 export function createDialogTextFieldNode(
     renderer: RenderContext,
     id: string,
@@ -240,16 +174,6 @@ export function createDialogTextFieldNode(
         height: 2,
         marginTop: 1,
     });
-}
-
-export function updateDialogSearchNode(
-    node: TextareaRenderable,
-    query: string,
-    placeholder = "Search",
-    live = true,
-    cursor = query.length,
-): void {
-    updateDialogTextFieldNode(node, query, placeholder, live, cursor);
 }
 
 export function updateDialogTextFieldNode(

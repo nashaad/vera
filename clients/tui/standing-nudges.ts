@@ -219,7 +219,8 @@ export function createTuiStandingNudgesView(
 ): TuiStandingNudgesView {
   const headerSlot = new BoxRenderable(renderer, {
     width: "100%",
-    height: 1,
+    height: "auto",
+    flexShrink: 0,
   });
   let header = dialogHeaderNode(renderer, "Standing nudges");
   let headerTitle = "Standing nudges";
@@ -325,6 +326,7 @@ export function createTuiStandingNudgesView(
     footer.marginTop = dense ? 0 : 1;
     footer.height = dense ? 1 : 2;
     box.paddingBottom = dense ? 0 : 1;
+    box.maxHeight = standingNudgesCardRows(renderer);
     const content = state.screen === "list"
       ? listScreenContent(state, visibleListIndices(renderer, state))
       : screenContent(state);
@@ -1268,7 +1270,9 @@ function standingNudgesCompact(renderer: RenderContext): boolean {
 function standingNudgesCardRows(renderer: RenderContext): number {
   return Math.max(
     1,
-    renderer.height - APP_PADDING_TOP - dialogInsetBottomOffset(renderer),
+    renderer.height -
+      (renderer.height <= 16 ? 0 : APP_PADDING_TOP) -
+      (renderer.height <= 18 ? 0 : dialogInsetBottomOffset(renderer)),
   );
 }
 
@@ -1428,7 +1432,7 @@ function standingNudgeBodyViewportRows(
   const maxCardRows = standingNudgesCardRows(renderer);
   const fixedRows = 1 + // top padding
     (dense ? 0 : 1) + // bottom padding
-    1 + // header
+    (renderer.height <= 10 ? 1 : 3) + // header
     hintRows +
     (dense ? 0 : 1) + // gap before body
     (dense ? 1 : 2) + // footer node

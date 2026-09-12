@@ -8,6 +8,8 @@ import {
     type RenderContext,
 } from "@opentui/core";
 
+import { dialogHeaderNode } from "./dialog-header.ts";
+
 import {
     isJobAssignmentId,
     JOB_ASSIGNMENT_INTENTS,
@@ -521,7 +523,7 @@ export function createTuiProviderFormView(
         paddingBottom: 1,
         focusable: true,
     });
-    box.add(title);
+    box.add(dialogHeaderNode(renderer, title));
     box.add(hint);
     for (const row of rows) {
         box.add(row.row);

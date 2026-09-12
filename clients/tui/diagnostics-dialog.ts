@@ -16,6 +16,7 @@ import {
 import {
     DIALOG_CARD_Z_INDEX,
     dialogHeaderNode,
+    updateDialogHeaderTitle,
 } from "./dialog-chrome.ts";
 import {
     TUI_ACCENT,
@@ -153,7 +154,6 @@ export function createTuiDiagnosticsDialogView(
         visible: false,
     });
     const header = dialogHeaderNode(renderer, defaultTitle);
-    const headerTitle = header.getChildren()[0] as TextRenderable | undefined;
     const scopeTabs = options.showScopeTabs === true
         ? new TextRenderable(renderer, {
             id: `${id}-scope-tabs`,
@@ -284,8 +284,8 @@ export function createTuiDiagnosticsDialogView(
         },
         update(state): void {
             refreshFrame();
-            if (headerTitle !== undefined && state.title !== undefined) {
-                headerTitle.content = state.title;
+            if (state.title !== undefined) {
+                updateDialogHeaderTitle(header, state.title);
             }
             if (state.footerText !== undefined) {
                 shareHint.content = state.footerText;

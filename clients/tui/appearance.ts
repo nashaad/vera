@@ -1,6 +1,10 @@
 import type { VeraTuiConfig } from "../../src/config.ts";
+import type { TuiDialogHeaderStyle } from "./dialog-header.ts";
+import type { TuiDialogSearchStyle } from "./dialog-search.ts";
 
 export interface TuiAppearance {
+    readonly dialogHeaderStyle: TuiDialogHeaderStyle;
+    readonly dialogSearchStyle: TuiDialogSearchStyle;
     readonly transcriptPaddingLeft: number;
     readonly transcriptPaddingRight: number;
     readonly activityIndent: number;
@@ -17,6 +21,8 @@ export interface TuiAppearance {
 }
 
 export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
+    dialogHeaderStyle: "underline",
+    dialogSearchStyle: "fill",
     transcriptPaddingLeft: 0,
     transcriptPaddingRight: 1,
     activityIndent: 2,
@@ -39,6 +45,8 @@ export function resolveTuiAppearance(
     const margin = config?.composer?.margin_horizontal
         ?? DEFAULT_TUI_APPEARANCE.composerMarginHorizontal;
     return {
+        dialogHeaderStyle: config?.dialogs?.header_style ?? DEFAULT_TUI_APPEARANCE.dialogHeaderStyle,
+        dialogSearchStyle: config?.dialogs?.search_style ?? DEFAULT_TUI_APPEARANCE.dialogSearchStyle,
         transcriptPaddingLeft: config?.transcript?.padding_left
             ?? DEFAULT_TUI_APPEARANCE.transcriptPaddingLeft,
         transcriptPaddingRight: config?.transcript?.padding_right

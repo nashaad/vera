@@ -30,7 +30,9 @@ test("full-access confirmation colors follow the active theme", async () => {
     try {
         view.setTheme(nextTheme);
         const critical = RGBA.fromHex(nextTheme.critical).toInts();
-        for (const child of view.box.getChildren()) {
+        const children = view.box.getChildren();
+        const title = children[0]!.getChildren()[1]!;
+        for (const child of [title, ...children.slice(1)]) {
             expect((child as TextRenderable).fg.toInts()).toEqual(critical);
         }
         expect(view.box.backgroundColor.toInts()).toEqual(

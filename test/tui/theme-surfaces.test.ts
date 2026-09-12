@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RGBA, TextRenderable } from "@opentui/core";
+import { RGBA, TextRenderable, type Renderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -38,7 +38,7 @@ test("persistent dialog surfaces repaint from declarative bindings", async () =>
             applyTuiThemeBindings(nextTheme, bindings);
         }
 
-        const admissionText = admission.box.getChildren() as TextRenderable[];
+        const admissionText = texts(admission.box);
         expect(admissionText[0]?.fg.toInts()).toEqual(
             RGBA.fromHex(nextTheme.notice).toInts(),
         );
@@ -52,7 +52,7 @@ test("persistent dialog surfaces repaint from declarative bindings", async () =>
             RGBA.fromHex(nextTheme.panel).toInts(),
         );
 
-        const providerText = provider.box.getChildren() as TextRenderable[];
+        const providerText = texts(provider.box);
         expect(providerText[0]?.fg.toInts()).toEqual(
             RGBA.fromHex(nextTheme.notice).toInts(),
         );
@@ -69,3 +69,9 @@ test("persistent dialog surfaces repaint from declarative bindings", async () =>
         setup.renderer.destroy();
     }
 });
+
+function texts(node: Renderable): TextRenderable[] {
+    return node.getChildren().flatMap((child) => child instanceof TextRenderable
+        ? (child.id.endsWith("-marker") || child.id.endsWith("-hint") ? [] : [child])
+        : texts(child));
+}
