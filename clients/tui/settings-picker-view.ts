@@ -3,7 +3,7 @@ import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
-import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyWindow, journeyModels, journeyScopeOptions } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions } from "./model-journeys.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
 import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -1165,7 +1165,7 @@ const MODEL_FILTER_LABEL = "Filter Models: ";
 function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
     const width = pickerContentWidth(renderer, state, railInset);
     const linesFor = (candidate: TuiSettingsPickerState) => {
-        const text = [journeyHeader(candidate), candidate.journeyNotice].filter(Boolean).join("\n");
+        const text = [journeyHeader(candidate, width), candidate.journeyNotice].filter(Boolean).join("\n");
         return text ? text.split("\n").flatMap((line) => wrappedTo(line, width)) : [];
     };
     const headerLines = linesFor(state);
@@ -1182,7 +1182,9 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     const scopeWidth = Math.min(width, 25 + String(state.allOptions.length).length);
     const scopeRows = width < MODEL_FILTER_LABEL.length + scopeWidth ? 2 : 1;
     const summaryMargin = scope && renderer.height < 30 ? 0 : 1;
-    const headerHeight = (scope ? scopeRows + summaryMargin : 0) + (headerLines.length ? headerLines.length + summaryMargin : 0);
+    // Switch sets the header flush under the filter and the search box flush under the header.
+    const headerHeight = (scope ? scopeRows + summaryMargin : 0)
+        + (headerLines.length ? headerLines.length + (scope ? -1 : summaryMargin) : 0);
     const cutoff = state.modelJourney === "switch" && state.tab === "all";
     const split = geometry.options.length === 0 ? undefined : modelPaneSplit(renderer, geometry, railInset);
     const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
@@ -1209,7 +1211,16 @@ function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerStat
     const other = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const };
     const alternative = journeyScopeLayout(renderer, { ...other, options: journeyModels(other) }, railInset);
     const height = Math.max(layout.chromeHeight + layout.bodyHeight, alternative.chromeHeight + alternative.bodyHeight);
-    return { ...layout, bodyHeight: height - layout.chromeHeight };
+    const bodyHeight = height - layout.chromeHeight;
+    // The card reserves the taller scope's height, so the list fills it.
+    const rows = Math.max(layout.rows, Math.min(12, bodyHeight - (layout.listed ? 1 : 0)));
+    return { ...layout, rows, bodyHeight };
+}
+
+function fittedSegments(line: string, width: number): string {
+    const parts = line.split(" · ");
+    while (parts.length > 1 && Bun.stringWidth(parts.join(" · ")) > width) parts.pop();
+    return clippedToWidth(parts.join(" · "), width);
 }
 
 export type PickerDisplayRow =
@@ -1312,10 +1323,11 @@ export function renderListPickerRows(
         }
         if (layout.headerLines.length) add(new TextRenderable(renderer, {
             content: layout.headerLines.join("\n"), fg: TUI_MUTED, height: layout.headerLines.length,
-            marginTop: layout.summaryMargin, width: "100%",
+            marginTop: state.modelJourney === "switch" ? 0 : layout.summaryMargin, width: "100%",
         }));
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
+            search.box.marginTop = state.modelJourney === "switch" && layout.headerLines.length ? 0 : 1;
             box.add(search.box);
         }
         const cutoff = state.modelJourney === "switch" && state.tab === "all";
@@ -1381,7 +1393,10 @@ export function renderListPickerRows(
         let at = 0;
         if (listed) addRow(rowNodes[at++]!);
         for (const row of rows) {
-            addRow(row.heading !== undefined ? dialogGroupHeaderRow(renderer, row.heading, "▼") : row.option === undefined
+            addRow(row.heading !== undefined ? dialogGroupHeaderRow(renderer, row.heading, "▼") : row.more !== undefined
+                ? new TextRenderable(renderer, { content: clippedToWidth(journeyMoreText(row.more, rowWidth), rowWidth),
+                    fg: TUI_MUTED, width: "100%", height: 1, selectable: false })
+                : row.option === undefined
                 ? new TextRenderable(renderer, { content: "", height: 1 })
                 : rowNodes[at++]!);
         }
@@ -1412,7 +1427,8 @@ export function renderListPickerRows(
         if (state.modelJourney === "switch") {
             const [more, ...navigation] = journeyFooter(state).split("\n");
             const focused = state.modelFocus === "more";
-            const moreLabel = ` ${more!.trim()} `;
+            const fullMore = ` ${more!.trim()} `;
+            const moreLabel = Bun.stringWidth(fullMore) <= width ? fullMore : ` ${more!.split(":")[0]!.trim()} `;
             const footer = new BoxRenderable(renderer, {
                 width: "100%", height: layout.footerHeight, marginTop: 1, alignItems: "flex-end",
             });
@@ -1432,7 +1448,7 @@ export function renderListPickerRows(
             };
             footer.add(control);
             footer.add(new TextRenderable(renderer, {
-                content: navigation.join("\n"), fg: TUI_MUTED, height: navigation.length,
+                content: navigation.map((line) => fittedSegments(line, width)).join("\n"), fg: TUI_MUTED, height: navigation.length,
                 width: "100%", selectable: false,
             }));
             add(footer);
@@ -1443,7 +1459,7 @@ export function renderListPickerRows(
                         fg(journeyTip.tone === "tip" ? TUI_ACCENT : TUI_DANGER)(
                             `${TIP_LABELS[journeyTip.tone]} `,
                         ),
-                        fg(TUI_MUTED)(clippedToWidth(journeyTip.text, width)),
+                        fg(TUI_MUTED)(clippedToWidth(journeyTip.text, width - TIP_LABELS[journeyTip.tone].length - 1)),
                     ]),
                     width: "100%", height: 1, selectable: false,
                 }));
@@ -1500,6 +1516,7 @@ export function renderListPickerRows(
             tab !== "help",
             "queryCursor" in state ? state.queryCursor : undefined,
         );
+        search.box.marginTop = 1;
         box.add(search.box);
     }
     let tabStripHeight = 0;
@@ -2502,6 +2519,7 @@ export function renderThemePickerRows(
         state.queryCursor,
     );
     box.add(header);
+    search.box.marginTop = 1;
     box.add(search.box);
     nodes.push(header);
 

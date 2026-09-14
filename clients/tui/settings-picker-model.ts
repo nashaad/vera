@@ -254,7 +254,9 @@ export function stackedListedPriceLines(
     if (full !== undefined) facts.push(`full ${full}`);
     if (blended !== undefined) facts.push(`blended ${blended} at 7:2:1`);
     if (option?.images === true) facts.push("images");
-    const right = facts.join("  ");
+    const labelRoom = Math.min(option?.label.length ?? 0, 12);
+    while (facts.length > 1 && facts.join("  ").length + 2 + labelRoom > width) facts.pop();
+    const right = clippedTo(facts.join("  "), Math.max(1, width - 2 - labelRoom));
     const label = clippedTo(
         option?.label ?? "",
         Math.max(0, width - right.length - 2),

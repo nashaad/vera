@@ -46,6 +46,7 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
 export interface JourneyDisplayRow {
     readonly option?: TuiSettingsPickerOption;
     readonly heading?: string;
+    readonly more?: { readonly above: number; readonly below: number };
     readonly index: number;
 }
 
@@ -57,17 +58,39 @@ export function journeyWindow(state: TuiSettingsPickerState, maxLines: number): 
             : []),
         { option, index },
     ]);
+    if (display.length <= maxLines) return display;
+    // The last line counts the models outside the window.
+    const lines = maxLines > 1 ? maxLines - 1 : maxLines;
     const cursor = display.findIndex((row) => row.index === state.selectedIndex);
-    const size = Math.max(1, maxLines - 1);
+    const size = Math.max(1, lines - 1);
     const start = Math.max(0, Math.min(cursor - Math.floor(size / 2), display.length - size));
     const visible = display.slice(start, start + size);
     while (visible[0]?.option === undefined && visible[0]?.heading === undefined && visible.length > 0) visible.shift();
     while (visible.at(-1)?.option === undefined && visible.length > 0) visible.pop();
     const first = visible[0];
-    if (maxLines > 1 && first?.option !== undefined && first.option.section === undefined) {
+    if (lines > 1 && first?.option !== undefined && first.option.section === undefined) {
         visible.unshift({ heading: first.option.group, index: -1 });
     }
+    const shown = visible.flatMap((row) => row.option === undefined ? [] : [row.index]);
+    if (maxLines < 2 || shown.length === 0) return visible;
+    const models = (from: number, to: number) => state.options.slice(from, to).filter((row) => row.section === undefined).length;
+    const above = models(0, Math.min(...shown));
+    const below = models(Math.max(...shown) + 1, state.options.length);
+    if (above + below > 0) visible.push({ index: -1, more: { above, below } });
     return visible;
+}
+
+export function journeyMoreText(more: { readonly above: number; readonly below: number }, width = Infinity): string {
+    const forms = [
+        (n: number) => `${n} more ${n === 1 ? "model" : "models"}`,
+        (n: number) => `${n} more`,
+        (n: number) => `${n}`,
+    ];
+    const texts = forms.map((count) => [
+        ...(more.above > 0 ? [`↑ ${count(more.above)}${count === forms[2] ? "" : " above"}`] : []),
+        ...(more.below > 0 ? [`↓ ${count(more.below)}${count === forms[2] ? "" : " below"}`] : []),
+    ].join(" · "));
+    return texts.find((text) => Bun.stringWidth(text) <= width) ?? texts.at(-1)!;
 }
 
 function rebuiltJourney(state: TuiSettingsPickerState, selectedValue?: string): TuiSettingsPickerState {
@@ -87,14 +110,16 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
     return rebuiltJourney({ ...next, collapsed: [] });
 }
 
-export function journeyHeader(state: TuiSettingsPickerState): string {
+export function journeyHeader(state: TuiSettingsPickerState, width = Infinity): string {
     if (state.modelJourney === "shortlist") return "";
     if (state.tab !== "all") return "";
     const description = "Models from your connected providers";
     const floor = state.intelligenceCutoff ?? "any";
     const hidden = state.allOptions.filter((row) => !passesIntelligenceCutoff(row.waScore, floor));
     const unscored = hidden.filter((row) => row.waScore === undefined).length;
-    return description + (hidden.length ? `\n${hidden.length} hidden below the cutoff, including ${unscored} unscored models.` : "");
+    if (!hidden.length) return description;
+    const count = `${hidden.length} hidden below the cutoff, including ${unscored} unscored models.`;
+    return `${description}\n${count.length <= width ? count : `${hidden.length} hidden below the cutoff (${unscored} unscored)`}`;
 }
 
 export function journeyFooter(state: TuiSettingsPickerState): string {

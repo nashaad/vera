@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
-import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyWindow, modelJourneyScope, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
+import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -269,6 +269,69 @@ test("large provider sections stay open and bounded windows retain provider cont
         availableModels: options.map((row) => ({ provider: row.provider, model: row.model, label: row.label, description: "", levels: [] })) });
     expect(refreshed.collapsed ?? []).toEqual(state.collapsed ?? []);
     expect(refreshed.options[refreshed.selectedIndex]?.value).toBe(state.options[state.selectedIndex]?.value);
+});
+
+test("an overflowing window ends with counts of the models above and below it", () => {
+    const options = Array.from({ length: 60 }, (_, index) => ({
+        ...rows[0]!, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
+    }));
+    const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    for (const [selectedIndex, above, below] of [[0, false, true], [30, true, true], [59, true, false]] as const) {
+        const window = journeyWindow({ ...state, selectedIndex }, 12);
+        expect(window.length).toBeLessThanOrEqual(12);
+        const more = window.at(-1)?.more;
+        expect(more).toBeDefined();
+        expect(window.filter((row) => row.option !== undefined).length + more!.above + more!.below).toBe(60);
+        expect([more!.above > 0, more!.below > 0]).toEqual([above, below]);
+    }
+    const short = chooseScope(modelJourney(base, "switch"));
+    expect(journeyWindow(short, 12).some((row) => row.more !== undefined)).toBe(false);
+    expect(journeyWindow(short, 12).filter((row) => row.option !== undefined)).toHaveLength(3);
+    expect(journeyMoreText({ above: 2, below: 1 })).toBe("↑ 2 more models above · ↓ 1 more model below");
+    expect(journeyMoreText({ above: 0, below: 122 }, 30)).toBe("↓ 122 more models below");
+    expect(journeyMoreText({ above: 2, below: 1 }, 20)).toBe("↑ 2 · ↓ 1");
+});
+
+test("narrow Switch cards draw nothing outside the card and keep one gap above search", async () => {
+    const allOptions = Array.from({ length: 128 }, (_, index) => ({
+        ...rows[0]!, value: `p/${index}`, model: `${index}`, label: `DeepSeek V4 Flash ${index}`,
+        pricing: { input: 0.22, output: 0.66 }, images: true, ...(index < 5 ? { pooledRank: index } : {}),
+    }));
+    for (const height of [24, 40]) {
+        const setup = await createTestRenderer({ width: 58, height });
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.surface); view.surface.visible = true;
+        try {
+            const library = modelJourney({ ...base, allOptions }, "switch");
+            for (const state of [library, chooseScope(library)]) {
+                let geometry: number[] | undefined;
+                for (const intelligenceCutoff of ["any", "1600"] as const) {
+                    view.update({ ...state, intelligenceCutoff, selectedIndex: 2 }); await setup.renderOnce();
+                    const lines = setup.captureCharFrame().split("\n");
+                    const { screenX, screenY, width } = view.box;
+                    for (const line of lines) {
+                        expect(line.slice(0, screenX).trim()).toBe("");
+                        expect(line.slice(screenX + width).trim()).toBe("");
+                    }
+                    const frame = lines.join("\n");
+                    expect(frame).toContain("Tab / Shift+Tab sections · Esc back");
+                    expect(frame).toContain("› Ctrl+K More");
+                    const current = [screenY, view.box.height];
+                    if (geometry) expect(current).toEqual(geometry); else geometry = current;
+                    if (state.tab === "all") {
+                        const filter = lines.findIndex((line) => line.includes("Filter Models:"));
+                        const header = lines.findIndex((line) => line.includes("Models from your connected providers"));
+                        const search = lines.findIndex((line) => line.includes("Search models"));
+                        expect(header - filter).toBe(1);
+                        expect(search - header).toBe(3);
+                        if (height === 40) expect(frame).toContain("more models below");
+                    } else {
+                        expect(lines.filter((line) => line.includes("DeepSeek V4 Flash")).length).toBe(5);
+                    }
+                }
+            }
+        } finally { setup.renderer.destroy(); }
+    }
 });
 
 test("provider headings have a blank row between groups inside the card", async () => {
