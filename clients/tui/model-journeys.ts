@@ -50,34 +50,40 @@ export interface JourneyDisplayRow {
     readonly index: number;
 }
 
-export function journeyWindow(state: TuiSettingsPickerState, maxLines: number): readonly JourneyDisplayRow[] {
+export interface JourneyWindow {
+    readonly rows: readonly JourneyDisplayRow[];
+    /** The display line at the top of the window; pass it back on the next render so the list only moves when the cursor leaves it. */
+    readonly top: number;
+}
+
+/** Every call shows the same number of lines, so one cursor step moves the list by at most one line. */
+export function journeyWindow(state: TuiSettingsPickerState, maxLines: number, previousTop = 0): JourneyWindow {
     const display: JourneyDisplayRow[] = state.options.flatMap((option, index) => [
-        ...(index === 0 || option.group !== state.options[index - 1]?.group
-            ? [...(index > 0 ? [{ index: -1 }] : []),
-                ...(option.section === undefined ? [{ heading: option.group, index: -1 }] : [])]
-            : []),
+        ...((index === 0 || option.group !== state.options[index - 1]?.group) && option.section === undefined
+            ? [{ heading: option.group, index: -1 }] : []),
         { option, index },
     ]);
-    if (display.length <= maxLines) return display;
-    // The last line counts the models outside the window.
-    const lines = maxLines > 1 ? maxLines - 1 : maxLines;
-    const cursor = display.findIndex((row) => row.index === state.selectedIndex);
-    const size = Math.max(1, lines - 1);
-    const start = Math.max(0, Math.min(cursor - Math.floor(size / 2), display.length - size));
-    const visible = display.slice(start, start + size);
-    while (visible[0]?.option === undefined && visible[0]?.heading === undefined && visible.length > 0) visible.shift();
-    while (visible.at(-1)?.option === undefined && visible.length > 0) visible.pop();
-    const first = visible[0];
-    if (lines > 1 && first?.option !== undefined && first.option.section === undefined) {
-        visible.unshift({ heading: first.option.group, index: -1 });
-    }
+    if (display.length <= maxLines) return { rows: display, top: 0 };
+    // The bottom lines are a gap and the count of models outside the window.
+    const size = Math.max(1, maxLines - (maxLines > 2 ? 2 : 1));
+    const cursor = Math.max(0, display.findIndex((row) => row.index === state.selectedIndex));
+    // A model row on the top line gives way to its group heading, unless it is the group's last row.
+    const pinned = (at: number) => size > 1 && display[at]?.option !== undefined && display[at]?.option?.section === undefined
+        && display[at + 1]?.heading === undefined;
+    let top = Math.min(previousTop, display.length - size);
+    if (cursor < top || (cursor === top && pinned(top))) top = pinned(cursor) ? cursor - 1 : cursor;
+    if (cursor > top + size - 1) top = cursor - size + 1;
+    top = Math.max(0, Math.min(top, display.length - size));
+    const visible = display.slice(top, top + size);
+    if (pinned(top)) visible[0] = { heading: visible[0]!.option!.group, index: -1 };
     const shown = visible.flatMap((row) => row.option === undefined ? [] : [row.index]);
-    if (maxLines < 2 || shown.length === 0) return visible;
+    if (maxLines < 2 || shown.length === 0) return { rows: visible, top };
     const models = (from: number, to: number) => state.options.slice(from, to).filter((row) => row.section === undefined).length;
     const above = models(0, Math.min(...shown));
     const below = models(Math.max(...shown) + 1, state.options.length);
-    if (above + below > 0) visible.push({ index: -1, more: { above, below } });
-    return visible;
+    if (maxLines > 2) visible.push({ index: -1 });
+    visible.push({ index: -1, more: { above, below } });
+    return { rows: visible, top };
 }
 
 export function journeyMoreText(more: { readonly above: number; readonly below: number }, width = Infinity): string {

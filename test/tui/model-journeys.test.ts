@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
-import { handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
+import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -261,7 +261,7 @@ test("large provider sections stay open and bounded windows retain provider cont
     let state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
     expect(state.options).toHaveLength(60);
     state = { ...state, selectedIndex: 40 };
-    const window = journeyWindow(state, 12);
+    const window = journeyWindow(state, 12).rows;
     expect(window.length).toBeLessThanOrEqual(12);
     expect(window[0]?.heading).toBe("p");
     expect(window.some((row) => row.index === state.selectedIndex)).toBe(true);
@@ -271,22 +271,81 @@ test("large provider sections stay open and bounded windows retain provider cont
     expect(refreshed.options[refreshed.selectedIndex]?.value).toBe(state.options[state.selectedIndex]?.value);
 });
 
+test("stepping through an overflowing window moves the list by one line, or two next to a group heading", () => {
+    const options = Array.from({ length: 30 }, (_, index) => ({
+        ...rows[0]!, provider: `p${Math.floor(index / 4)}`, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
+    }));
+    const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    const walk = [...state.options.keys(), ...[...state.options.keys()].reverse()];
+    let top = 0;
+    let previous = 0;
+    let lines: readonly JourneyDisplayRow[] | undefined;
+    for (const selectedIndex of walk) {
+        const window = journeyWindow({ ...state, selectedIndex }, 12, top);
+        expect(window.rows).toHaveLength(12);
+        expect(window.rows.some((row) => row.index === selectedIndex)).toBe(true);
+        expect(window.rows[0]?.heading !== undefined && window.rows[1]?.heading !== undefined).toBe(false);
+        const last = (index: number) => state.options[index + 1]?.group !== state.options[index]?.group;
+        const nearHeading = last(selectedIndex) || last(previous);
+        expect(Math.abs(window.top - top)).toBeLessThanOrEqual(nearHeading ? 2 : 1);
+        previous = selectedIndex;
+        if (lines !== undefined && window.top === top) {
+            expect(window.rows.slice(0, 10).map((row) => row.option?.value ?? row.heading))
+                .toEqual(lines.slice(0, 10).map((row) => row.option?.value ?? row.heading));
+        }
+        top = window.top;
+        lines = window.rows;
+    }
+});
+
+test("walking down to a group boundary and back up keeps the list still, matching the contract example", () => {
+    const options = [
+        ...Array.from({ length: 20 }, (_, index) => `mock-model-${String(index + 1).padStart(2, "0")}`)
+            .map((label) => ({ ...rows[0]!, provider: "mock", value: `mock/${label}`, model: label, label })),
+        ...["AionLabs: Aion-3.0", "AionLabs: Aion-3.0-Mini", ...Array.from({ length: 128 }, (_, index) => `Zeta ${String(index).padStart(3, "0")}`)]
+            .map((label) => ({ ...rows[0]!, provider: "openrouter", value: `openrouter/${label}`, model: label, label })),
+    ];
+    const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    const at = (label: string) => state.options.findIndex((row) => row.label === label);
+    const frame = (rows: readonly JourneyDisplayRow[]) => rows.map((row) =>
+        row.more !== undefined ? journeyMoreText(row.more) : row.heading !== undefined ? `▼ ${row.heading}` : row.option?.label ?? "");
+    let top = 0;
+    for (let selectedIndex = 0; selectedIndex <= at("AionLabs: Aion-3.0-Mini"); selectedIndex++) {
+        top = journeyWindow({ ...state, selectedIndex }, 15, top).top;
+    }
+    const expected = [
+        `▼ ${state.options[0]!.group}`,
+        ...Array.from({ length: 9 }, (_, index) => `mock-model-${index + 12}`),
+        `▼ ${state.options[at("AionLabs: Aion-3.0")]!.group}`,
+        "AionLabs: Aion-3.0",
+        "AionLabs: Aion-3.0-Mini",
+        "",
+        "↑ 11 more models above · ↓ 128 more models below",
+    ];
+    for (const label of ["AionLabs: Aion-3.0-Mini", "AionLabs: Aion-3.0", "mock-model-20", "mock-model-13"]) {
+        const window = journeyWindow({ ...state, selectedIndex: at(label) }, 15, top);
+        expect(window.top).toBe(top);
+        expect(frame(window.rows)).toEqual(expected);
+    }
+});
+
 test("an overflowing window ends with counts of the models above and below it", () => {
     const options = Array.from({ length: 60 }, (_, index) => ({
         ...rows[0]!, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
     }));
     const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
     for (const [selectedIndex, above, below] of [[0, false, true], [30, true, true], [59, true, false]] as const) {
-        const window = journeyWindow({ ...state, selectedIndex }, 12);
-        expect(window.length).toBeLessThanOrEqual(12);
+        const window = journeyWindow({ ...state, selectedIndex }, 12).rows;
+        expect(window.length).toBe(12);
         const more = window.at(-1)?.more;
         expect(more).toBeDefined();
+        expect(window.at(-2)).toEqual({ index: -1 });
         expect(window.filter((row) => row.option !== undefined).length + more!.above + more!.below).toBe(60);
         expect([more!.above > 0, more!.below > 0]).toEqual([above, below]);
     }
     const short = chooseScope(modelJourney(base, "switch"));
-    expect(journeyWindow(short, 12).some((row) => row.more !== undefined)).toBe(false);
-    expect(journeyWindow(short, 12).filter((row) => row.option !== undefined)).toHaveLength(3);
+    expect(journeyWindow(short, 12).rows.some((row) => row.more !== undefined)).toBe(false);
+    expect(journeyWindow(short, 12).rows.filter((row) => row.option !== undefined)).toHaveLength(3);
     expect(journeyMoreText({ above: 2, below: 1 })).toBe("↑ 2 more models above · ↓ 1 more model below");
     expect(journeyMoreText({ above: 0, below: 122 }, 30)).toBe("↓ 122 more models below");
     expect(journeyMoreText({ above: 2, below: 1 }, 20)).toBe("↑ 2 · ↓ 1");
@@ -334,7 +393,7 @@ test("narrow Switch cards draw nothing outside the card and keep one gap above s
     }
 });
 
-test("provider headings have a blank row between groups inside the card", async () => {
+test("provider headings sit directly under the previous group inside the card", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
@@ -346,7 +405,7 @@ test("provider headings have a blank row between groups inside the card", async 
         // An open group carries the ▼ that says left folds it.
         const heading = lines.findIndex((line) => line.split("│")[0]?.trim() === "▼ q");
         expect(heading).toBeGreaterThan(0);
-        expect(lines[heading - 1]?.split("│")[0]?.trim()).toBe("");
+        expect(lines[heading - 1]?.split("│")[0]).toContain("Beta");
         expect(lines[heading + 1]).toContain("Gamma");
         expect(view.box.screenY + view.box.height).toBeLessThan(setup.renderer.height);
     } finally { setup.renderer.destroy(); }

@@ -954,6 +954,7 @@ export function createTuiSettingsPickerView(
 ): TuiSettingsPickerView {
     let nodes: Renderable[] = [];
     let searchLive = false;
+    const journeyScroll = { top: 0 };
     const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
@@ -1087,6 +1088,7 @@ export function createTuiSettingsPickerView(
                 view.onMore,
                 view.onScope,
                 view.onSection,
+                journeyScroll,
             );
         },
     };
@@ -1196,9 +1198,10 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
         - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
-    const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
-    const groups = geometry.options.filter((row, index) => index === 0 || row.group !== geometry.options[index - 1]?.group).length;
-    const listHeight = Math.min(rows, Math.max(2, geometry.options.length + groups * 2 - 1));
+    const rows = Math.max(1, room - (listed ? 2 : 0));
+    const headings = geometry.options.filter((row, index) => row.section === undefined
+        && (index === 0 || row.group !== geometry.options[index - 1]?.group)).length;
+    const listHeight = Math.min(rows, Math.max(2, geometry.options.length + headings));
     const detailHeight = split === undefined ? 0 : Math.max(0, ...geometry.options.map((_, selectedIndex) =>
         modelDetailHeight({ ...geometry, selectedIndex }, split.detailWidth)));
     const bodyHeight = Math.max(1, Math.min(room - (listed ? 1 : 0), Math.max(listHeight + (listed ? 1 : 0), detailHeight)));
@@ -1214,7 +1217,7 @@ function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerStat
     const height = Math.max(layout.chromeHeight + layout.bodyHeight, alternative.chromeHeight + alternative.bodyHeight);
     const bodyHeight = height - layout.chromeHeight;
     // The card reserves the taller scope's height, so the list fills it.
-    const rows = Math.max(layout.rows, Math.min(12, bodyHeight - (layout.listed ? 1 : 0)));
+    const rows = Math.max(layout.rows, bodyHeight - (layout.listed ? 1 : 0));
     return { ...layout, rows, bodyHeight };
 }
 
@@ -1265,6 +1268,7 @@ export function renderListPickerRows(
     onMore?: () => void,
     onScope?: () => void,
     onSection?: (section: ModelJourneySection) => void,
+    journeyScroll?: { top: number },
 ): void {
     if (state.kind === "model_menu") {
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
@@ -1338,7 +1342,9 @@ export function renderListPickerRows(
         const { priceLines, listed, rows: maxRows, bodyHeight } = layout;
         const split = layout.split;
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
-        const rows = journeyWindow(state, maxRows);
+        const window = journeyWindow(state, maxRows, journeyScroll?.top);
+        if (journeyScroll !== undefined) journeyScroll.top = window.top;
+        const rows = window.rows;
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
         const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
         if (state.modelJourney === "switch") list.onMouseDown = () => onSection?.("list");
