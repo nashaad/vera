@@ -2,7 +2,8 @@ import { halfPageCursor } from "./list-window.ts";
 import { sectionHeader } from "./settings-picker-model.ts";
 import { tuiBindingId } from "./keymap.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
-import type { ModelJourneySection, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
+import { blendedRate } from "../../src/model/listed-rates.ts";
+import type { ModelJourneySection, ModelJourneySort, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
 
 export function journeyMatches(state: TuiSettingsPickerState, revealAll = state.revealAll === true): readonly TuiSettingsPickerOption[] {
     const terms = state.query.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -23,6 +24,24 @@ function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption)
     return `${bucket}:${row.provider}`;
 }
 
+/** Library order exists only in Library models; Provider catalog falls back to A to Z. */
+export function journeySort(state: TuiSettingsPickerState): ModelJourneySort {
+    const sort = state.journeySort ?? (state.tab === "all" ? "az" : "library");
+    return sort === "library" && state.tab === "all" ? "az" : sort;
+}
+
+function sortedWithinGroup(state: TuiSettingsPickerState, rows: readonly TuiSettingsPickerOption[]): readonly TuiSettingsPickerOption[] {
+    const sort = state.modelJourney === "switch" ? journeySort(state) : "library";
+    if (sort === "library") return rows;
+    return rows.toSorted((a, b) => {
+        if (sort === "price") {
+            const left = blendedRate(a.pricing), right = blendedRate(b.pricing);
+            if (left !== right) return left === undefined ? 1 : right === undefined ? -1 : left - right;
+        }
+        return a.label.localeCompare(b.label);
+    });
+}
+
 export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     const matches = journeyMatches(state);
     const groups = new Map<string, TuiSettingsPickerOption[]>();
@@ -33,7 +52,8 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
         groups.set(key, group);
     }
     const collapsed = state.collapsed ?? [];
-    return [...groups.values()].flatMap((rows) => {
+    return [...groups.values()].flatMap((members) => {
+        const rows = sortedWithinGroup(state, members);
         const first = rows[0]!;
         const provider = state.providerCatalogs?.find((provider) => provider.id === first.provider)?.label ?? first.provider;
         const group = `${provider}`;
@@ -134,6 +154,7 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
     const navigation = state.modelFocus === "scope" ? "⏎ choose which models to show"
+        : state.modelFocus === "sort" ? "⏎ choose how models are sorted"
         : state.modelFocus === "search" ? "Type to search · ←→ move cursor"
         : state.modelFocus === "intelligence" ? "←→ change cutoff"
         : state.modelFocus === "more" ? "⏎ open More"
@@ -159,7 +180,21 @@ export function modelSwitchTip(turn: number): string {
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
-    return ["scope", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
+    return ["scope", "sort", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
+}
+
+export function journeySortOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
+    return [
+        ...(state.tab === "all" ? [] : [{ value: "sort:library", label: "Library order", description: "" }]),
+        { value: "sort:az", label: "A to Z", description: "" },
+        { value: "sort:price", label: "Cheapest first", description: "" },
+    ];
+}
+
+export function modelJourneySort(parent: TuiSettingsPickerState): TuiSettingsPickerState {
+    const options = journeySortOptions(parent);
+    return { kind: "model_menu", title: "Sort models", options, allOptions: options,
+        selectedIndex: Math.max(0, options.findIndex((row) => row.value === `sort:${journeySort(parent)}`)), query: "", parent };
 }
 
 export function journeyScopeOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
@@ -204,6 +239,9 @@ export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: Tu
         const value = state.options[state.selectedIndex]?.value;
         if (value === "scope:pool" || value === "scope:all") return {
             state: rebuiltJourney({ ...parent, modelFocus: "list", tab: value === "scope:all" ? "all" : "pool" }, parent.options[parent.selectedIndex]?.value), handled: true,
+        };
+        if (value === "sort:library" || value === "sort:az" || value === "sort:price") return {
+            state: rebuiltJourney({ ...parent, modelFocus: "list", journeySort: value.slice("sort:".length) as ModelJourneySort }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
         if (state.options[state.selectedIndex]?.value === "variants") return {
             state: rebuiltJourney({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
@@ -300,6 +338,7 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     if (!managing && state.modelFocus !== "list") {
         if (key.name === "enter" || key.name === "return") {
             if (state.modelFocus === "scope") return { state: modelJourneyScope(state), handled: true };
+            if (state.modelFocus === "sort") return { state: modelJourneySort(state), handled: true };
             if (state.modelFocus === "more") return { state: modelJourneyMenu(state), handled: true };
         }
         return same;

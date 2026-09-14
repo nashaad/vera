@@ -323,6 +323,7 @@ export function syncTuiModelPicker(
                 || state.intelligenceCutoff === "any"
             ? {}
             : { intelligenceCutoff: state.intelligenceCutoff }),
+        ...(state.journeySort === undefined ? {} : { journeySort: state.journeySort }),
         // A journey folds its own groups, so it keeps its own set even when
         // empty: the sectioned picker starts some providers closed, and those
         // must not fold groups the journey shows as open.

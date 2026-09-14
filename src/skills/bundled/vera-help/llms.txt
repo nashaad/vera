@@ -53,10 +53,11 @@ Save reads the catalog immediately. It discovers models without keeping, verifyi
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, use Show to choose Provider catalog, and press Enter on a model to open a conversation.
 
-## Models and providers [lines=19]
+## Models and providers [lines=21]
 Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library models even when empty; Show chooses Library models or Provider catalog on the same screen. Tab and Shift+Tab move between controls.
 Typing or pasting from any Switch model control focuses Search and preserves its caret.
 Models appear under plain provider headings, with no blank rows between sections. Headings are not selectable or collapsible.
+The Sort chip beside Filter Models orders models inside each provider heading: A to Z, Cheapest first, or Library order (Library models only, its default). Cheapest first uses the blended price, input and output weighted 3:1; models without a price go last. The choice lasts until the dialog closes.
 Click the cutoff band to focus it, or click a number or track position to set it. Tab moves from the cutoff to the model list.
 Older and duplicate models are hidden by default unless kept. Ctrl+A outside focused Search shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
 In Switch model, Ctrl+K opens More for catalog visibility and refresh. Escape returns to the same picker.

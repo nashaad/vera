@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
-import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
+import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, modelJourneySort, journeySort, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -378,7 +378,7 @@ test("narrow Switch cards draw nothing outside the card and keep one gap above s
                     const current = [screenY, view.box.height];
                     if (geometry) expect(current).toEqual(geometry); else geometry = current;
                     if (state.tab === "all") {
-                        const filter = lines.findIndex((line) => line.includes("Filter Models:"));
+                        const filter = lines.findIndex((line) => line.includes("A to Z ▾"));
                         const header = lines.findIndex((line) => line.includes("Models from your connected providers"));
                         const search = lines.findIndex((line) => line.includes("Search models"));
                         expect(header - filter).toBe(1);
@@ -509,7 +509,7 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         expect(frame).toContain("3/15");
         expect(frame).toContain("Blended price");
         expect(frame).not.toContain("full 3/15");
-        expect(frame).not.toContain("blended 4.2 at");
+        expect(frame).not.toContain("blended 6 at");
         expect(frame).toContain("Models from your connected providers");
         expect(frame).toContain("Ctrl+K More: library, variants, refresh, defaults");
         const unknownState = { ...state, selectedIndex: state.options.findIndex((row) => row.label === "Unknown") };
@@ -714,7 +714,7 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
 test("Switch names the half-page keys only while the list has the keys", () => {
     const state = { ...modelJourney(base, "switch"), modelFocus: "list" as const };
     expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model · ^s remove from library");
-    for (const focus of ["scope", "search", "more"] as const) {
+    for (const focus of ["scope", "sort", "search", "more"] as const) {
         expect(journeyFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
     }
     for (const [name, index] of [["d", state.options.length - 1], ["u", 0]] as const) {
@@ -780,7 +780,7 @@ test("typing and paste from every Switch control focuses search at its preserved
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
-        for (const modelFocus of ["scope", "search", "intelligence", "list", "more"] as const) {
+        for (const modelFocus of ["scope", "sort", "search", "intelligence", "list", "more"] as const) {
             const state = { ...chooseScope(modelJourney(base, "switch")), modelFocus, query: "bta", queryCursor: 1 };
             view.update(state);
             const typed = view.handleEditorKey(state, { name: "e", sequence: "e" }).state!;
@@ -817,4 +817,81 @@ test("the switch tip cycles and every line fits one row", () => {
     expect(seen).toEqual([...MODEL_SWITCH_TIPS]);
     expect(modelSwitchTip(MODEL_SWITCH_TIPS.length)).toBe(MODEL_SWITCH_TIPS[0]);
     expect(modelSwitchTip(-1)).toBe(MODEL_SWITCH_TIPS[MODEL_SWITCH_TIPS.length - 1]);
+});
+
+const priced = [
+    { value: "p/z", provider: "p", model: "z", label: "Zeta", description: "", pooledRank: 0, pricing: { input: 1, output: 2 } },
+    { value: "p/m", provider: "p", model: "m", label: "Mu", description: "", pooledRank: 1 },
+    { value: "p/a", provider: "p", model: "a", label: "Alpha", description: "", pooledRank: 2, pricing: { input: 3, output: 15 } },
+    { value: "p/b", provider: "p", model: "b", label: "Beta", description: "", pooledRank: 3, pricing: { input: 0.5, output: 12 } },
+    { value: "q/c", provider: "q", model: "c", label: "Gamma", description: "", pooledRank: 4, pricing: { input: 0.1, output: 0.1 } },
+];
+
+function chooseSort(state: TuiSettingsPickerState, label: string): TuiSettingsPickerState {
+    const menu = modelJourneySort({ ...state, modelFocus: "sort" });
+    return handleTuiSettingsPickerKey({ ...menu, selectedIndex: menu.options.findIndex((row) => row.label === label) }, { name: "enter" }).state!;
+}
+
+test("sort orders models inside each provider group, unpriced last", () => {
+    const state = modelJourney({ ...base, allOptions: priced }, "switch");
+    const labels = (next: TuiSettingsPickerState) => next.options.map((row) => row.label);
+    expect(journeySort(state)).toBe("library");
+    expect(labels(state)).toEqual(["Zeta", "Mu", "Alpha", "Beta", "Gamma"]);
+    expect(labels(chooseSort(state, "A to Z"))).toEqual(["Alpha", "Beta", "Mu", "Zeta", "Gamma"]);
+    // 3:1 input:output puts Zeta (1.25) ahead of Beta (3.38) and Alpha (6); Gamma stays under its own heading.
+    expect(labels(chooseSort(state, "Cheapest first"))).toEqual(["Zeta", "Beta", "Alpha", "Mu", "Gamma"]);
+});
+
+test("Library order is offered only in Library models and Catalog falls back to A to Z", () => {
+    const state = modelJourney({ ...base, allOptions: priced }, "switch");
+    expect(modelJourneySort(state).options.map((row) => row.label)).toEqual(["Library order", "A to Z", "Cheapest first"]);
+    const catalog = chooseScope(state);
+    expect(journeySort(catalog)).toBe("az");
+    expect(modelJourneySort(catalog).options.map((row) => row.label)).toEqual(["A to Z", "Cheapest first"]);
+    const cheap = chooseScope(chooseSort(state, "Cheapest first"));
+    expect(journeySort(cheap)).toBe("price");
+});
+
+test("confirming a sort keeps the highlighted model while cancelling restores Sort", () => {
+    const state = { ...modelJourney({ ...base, allOptions: priced }, "switch"), selectedIndex: 2 };
+    const sorted = chooseSort(state, "A to Z");
+    expect(sorted.modelFocus).toBe("list");
+    expect(sorted.options[sorted.selectedIndex]?.label).toBe("Alpha");
+    const menu = handleTuiSettingsPickerKey({ ...state, modelFocus: "sort" }, { name: "enter" }).state!;
+    expect(menu.title).toBe("Sort models");
+    const back = handleTuiSettingsPickerKey(menu, { name: "escape" }).state!;
+    expect(back.modelFocus).toBe("sort");
+    expect(back.options.map((row) => row.label)).toEqual(state.options.map((row) => row.label));
+});
+
+test("sort chip sits beside the scope chip when wide and on its own line when narrow", async () => {
+    for (const width of [110, 60, 40]) {
+        const setup = await createTestRenderer({ width, height: 44 });
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.surface); view.surface.visible = true;
+        let opened = 0;
+        view.onSort = () => { opened++; };
+        try {
+            view.update(modelJourney({ ...base, allOptions: priced }, "switch")); await setup.renderOnce();
+            const filter = view.box.getChildren().find((node) => node.id === "model-filter")!;
+            const scope = filter.getChildren().find((node) => node.id === "model-scope")!;
+            const sort = filter.getChildren().find((node) => node.id === "model-sort")!;
+            const line = setup.captureCharFrame().split("\n")[sort.screenY]!;
+            expect(line.slice(sort.screenX)).toStartWith(" › Library order ▾");
+            if (width === 110) {
+                expect(sort.screenY).toBe(scope.screenY);
+                expect(sort.screenX).toBe(scope.screenX + scope.width + 2);
+            } else {
+                expect(sort.screenY).toBe(scope.screenY + 1);
+                expect(sort.screenX).toBe(filter.screenX);
+            }
+            await setup.mockMouse.click(sort.screenX + 1, sort.screenY);
+            expect(opened).toBe(1);
+        } finally { setup.renderer.destroy(); }
+    }
+});
+
+test("a host snapshot keeps the chosen sort", () => {
+    const sorted = chooseSort(modelJourney({ ...base, allOptions: priced }, "switch"), "Cheapest first");
+    expect(syncTuiModelPicker(sorted, undefined).journeySort).toBe("price");
 });
