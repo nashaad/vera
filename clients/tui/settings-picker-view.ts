@@ -3,7 +3,7 @@ import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
-import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions } from "./model-journeys.ts";
+import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions, journeySort, journeySortOptions } from "./model-journeys.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
 import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -954,6 +954,7 @@ export function createTuiSettingsPickerView(
 ): TuiSettingsPickerView {
     let nodes: Renderable[] = [];
     let searchLive = false;
+    const journeyScroll = { top: 0 };
     const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
@@ -985,7 +986,7 @@ export function createTuiSettingsPickerView(
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (state.modelJourney === "switch") {
                 const searching = state.modelFocus === "search";
-                const typing = !key.ctrl && !key.meta
+                const typing = !key.ctrl && !key.meta && key.name !== "space"
                     && (key.sequence ?? key.name).length === 1;
                 const command = tuiBindingId("switch_model_picker", key);
                 if ((!searching && !typing) || (command !== undefined
@@ -1087,6 +1088,8 @@ export function createTuiSettingsPickerView(
                 view.onMore,
                 view.onScope,
                 view.onSection,
+                journeyScroll,
+                view.onSort,
             );
         },
     };
@@ -1162,6 +1165,8 @@ export function tuiPickerViewportRows(
 }
 
 const MODEL_FILTER_LABEL = "Filter Models: ";
+/** Fits " › Cheapest first ▾ ", the longest sort label, so the chip never resizes. */
+const MODEL_SORT_WIDTH = 20;
 
 function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
     const width = pickerContentWidth(renderer, state, railInset);
@@ -1181,7 +1186,10 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
         ? { ...unfiltered, options: journeyModels(unfiltered) } : state;
     const scope = state.modelJourney === "switch";
     const scopeWidth = Math.min(width, 25 + String(state.allOptions.length).length);
-    const scopeRows = width < MODEL_FILTER_LABEL.length + scopeWidth ? 2 : 1;
+    const sortWidth = Math.min(width, MODEL_SORT_WIDTH);
+    // The sort chip shares the filter line when it fits, else it takes its own line under the scope chip.
+    const sortGap = width >= MODEL_FILTER_LABEL.length + scopeWidth + 2 + sortWidth ? 2 : 0;
+    const scopeRows = sortGap > 0 ? 1 : width < MODEL_FILTER_LABEL.length + scopeWidth ? 3 : 2;
     const summaryMargin = scope && renderer.height < 30 ? 0 : 1;
     // Switch sets the header flush under the filter and the search box flush under the header.
     const headerHeight = (scope ? scopeRows + summaryMargin : 0)
@@ -1196,13 +1204,14 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
         - headerHeight - (cutoff ? 4 : 0) - priceLines - feedbackHeight);
     const rowWidth = split === undefined ? pickerContentWidth(renderer, state, railInset) : split.listWidth - MODEL_LIST_RULE_GAP;
     const listed = cutoff && rowWidth >= 48 && room >= 4;
-    const rows = Math.max(1, Math.min(12, room - (listed ? 2 : 0)));
-    const groups = geometry.options.filter((row, index) => index === 0 || row.group !== geometry.options[index - 1]?.group).length;
-    const listHeight = Math.min(rows, Math.max(2, geometry.options.length + groups * 2 - 1));
+    const rows = Math.max(1, room - (listed ? 2 : 0));
+    const headings = geometry.options.filter((row, index) => row.section === undefined
+        && (index === 0 || row.group !== geometry.options[index - 1]?.group)).length;
+    const listHeight = Math.min(rows, Math.max(2, geometry.options.length + headings));
     const detailHeight = split === undefined ? 0 : Math.max(0, ...geometry.options.map((_, selectedIndex) =>
         modelDetailHeight({ ...geometry, selectedIndex }, split.detailWidth)));
     const bodyHeight = Math.max(1, Math.min(room - (listed ? 1 : 0), Math.max(listHeight + (listed ? 1 : 0), detailHeight)));
-    return { split, priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, scopeWidth, scopeRows, footerHeight, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
+    return { split, priceLines, listed, rows, bodyHeight, headerLines, summaryMargin, scopeWidth, scopeRows, sortWidth, sortGap, footerHeight, chromeHeight: headerHeight + (cutoff ? 4 : 0) + priceLines + (listed ? 1 : 0) };
 
 }
 
@@ -1214,7 +1223,7 @@ function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerStat
     const height = Math.max(layout.chromeHeight + layout.bodyHeight, alternative.chromeHeight + alternative.bodyHeight);
     const bodyHeight = height - layout.chromeHeight;
     // The card reserves the taller scope's height, so the list fills it.
-    const rows = Math.max(layout.rows, Math.min(12, bodyHeight - (layout.listed ? 1 : 0)));
+    const rows = Math.max(layout.rows, bodyHeight - (layout.listed ? 1 : 0));
     return { ...layout, rows, bodyHeight };
 }
 
@@ -1265,6 +1274,8 @@ export function renderListPickerRows(
     onMore?: () => void,
     onScope?: () => void,
     onSection?: (section: ModelJourneySection) => void,
+    journeyScroll?: { top: number },
+    onSort?: () => void,
 ): void {
     if (state.kind === "model_menu") {
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
@@ -1298,7 +1309,7 @@ export function renderListPickerRows(
             const label = options[state.tab === "all" ? 1 : 0]!.label;
             const filter = new BoxRenderable(renderer, {
                 id: "model-filter", width: "100%", height: layout.scopeRows,
-                flexDirection: layout.scopeRows === 1 ? "row" : "column",
+                flexDirection: "row", flexWrap: "wrap",
                 marginTop: layout.summaryMargin, flexShrink: 0,
             });
             filter.add(new TextRenderable(renderer, {
@@ -1320,6 +1331,22 @@ export function renderListPickerRows(
                 event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onScope?.();
             };
             filter.add(scope);
+            const sorting = state.modelFocus === "sort";
+            const sortLabel = journeySortOptions(state).find((row) => row.value === `sort:${journeySort(state)}`)!.label;
+            const sort = new TextRenderable(renderer, {
+                id: "model-sort", content: new StyledText([
+                    fg(sorting ? TUI_SELECTION_TEXT : TUI_MUTED)(" ›"),
+                    fg(sorting ? TUI_SELECTION_TEXT : TUI_TEXT)(` ${sortLabel} ▾ `),
+                ]),
+                width: layout.sortWidth, height: 1, flexShrink: 0, selectable: false, marginLeft: layout.sortGap,
+                fg: sorting ? TUI_SELECTION_TEXT : TUI_TEXT,
+                bg: sorting ? TUI_ACCENT : TUI_ELEMENT, attributes: 1,
+            });
+            sort.onMouseDown = (event) => {
+                if (event.button !== 0) return;
+                event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onSort?.();
+            };
+            filter.add(sort);
             add(filter);
         }
         if (layout.headerLines.length) add(new TextRenderable(renderer, {
@@ -1338,7 +1365,9 @@ export function renderListPickerRows(
         const { priceLines, listed, rows: maxRows, bodyHeight } = layout;
         const split = layout.split;
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
-        const rows = journeyWindow(state, maxRows);
+        const window = journeyWindow(state, maxRows, journeyScroll?.top);
+        if (journeyScroll !== undefined) journeyScroll.top = window.top;
+        const rows = window.rows;
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
         const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
         if (state.modelJourney === "switch") list.onMouseDown = () => onSection?.("list");

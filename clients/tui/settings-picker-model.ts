@@ -16,7 +16,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
-import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
+import { BLENDED_RATIO, formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
 import { INTELLIGENCE_CUTOFFS, passesIntelligenceCutoff, type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import {
@@ -252,7 +252,7 @@ export function stackedListedPriceLines(
     const blended = formatBlendedRate(option?.pricing);
     const facts: string[] = [];
     if (full !== undefined) facts.push(`full ${full}`);
-    if (blended !== undefined) facts.push(`blended ${blended} at 7:2:1`);
+    if (blended !== undefined) facts.push(`blended ${blended} at ${BLENDED_RATIO}`);
     if (option?.images === true) facts.push("images");
     const labelRoom = Math.min(option?.label.length ?? 0, 12);
     while (facts.length > 1 && facts.join("  ").length + 2 + labelRoom > width) facts.pop();
@@ -596,7 +596,7 @@ export function modelHelpLines(
                 : `snapshot ${snapshot}`,
         ],
         [
-            "7:2:1",
+            BLENDED_RATIO,
             "OpenRouter listed blend / 1M. Full price in details",
         ],
         ["P", "Vera front, WA Score vs listed output / 1M"],
@@ -744,7 +744,7 @@ export function modelDetailFacts(
     }
     const blended = formatBlendedRate(option.pricing);
     if (blended !== undefined) {
-        facts.push(["Blended price", `${blended}  7:2:1`]);
+        facts.push(["Blended price", `${blended}  ${BLENDED_RATIO}`]);
     }
     if (!journey) facts.push(["Model ID", option.model ?? "—"]);
     if (option.unavailable === true) {
@@ -1568,7 +1568,7 @@ export const LISTED_FACTS_WIDTH = LISTED_SCORE_WIDTH + 2 + LISTED_RATES_WIDTH
 
 export function listedFactsHeaderText(): string {
     return `${"WA Score*".padStart(LISTED_SCORE_WIDTH)}  ${
-        "7:2:1".padStart(LISTED_RATES_WIDTH)
+        BLENDED_RATIO.padStart(LISTED_RATES_WIDTH)
     }${" ".repeat(LISTED_TRAILING_WIDTH)}`;
 }
 

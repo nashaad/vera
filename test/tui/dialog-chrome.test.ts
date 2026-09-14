@@ -315,7 +315,7 @@ test("a meta column whose tail is only padding is not marked as cut", async () =
         // The column header is one padded string and ends the same way.
         const header = dialogOptionRows(setup.renderer, [{
             label: "GLM-5.2",
-            meta: `${"WA Score*".padStart(9)}  ${"7:2:1".padStart(6)}      `,
+            meta: `${"WA Score*".padStart(9)}  ${"3:1".padStart(6)}      `,
             active: false,
         }], 30);
         expect(

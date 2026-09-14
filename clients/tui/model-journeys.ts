@@ -2,7 +2,8 @@ import { halfPageCursor } from "./list-window.ts";
 import { sectionHeader } from "./settings-picker-model.ts";
 import { tuiBindingId } from "./keymap.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
-import type { ModelJourneySection, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
+import { blendedRate } from "../../src/model/listed-rates.ts";
+import type { ModelJourneySection, ModelJourneySort, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
 
 export function journeyMatches(state: TuiSettingsPickerState, revealAll = state.revealAll === true): readonly TuiSettingsPickerOption[] {
     const terms = state.query.toLowerCase().trim().split(/\s+/).filter(Boolean);
@@ -23,6 +24,24 @@ function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption)
     return `${bucket}:${row.provider}`;
 }
 
+/** Library order exists only in Library models; Provider catalog falls back to A to Z. */
+export function journeySort(state: TuiSettingsPickerState): ModelJourneySort {
+    const sort = state.journeySort ?? (state.tab === "all" ? "az" : "library");
+    return sort === "library" && state.tab === "all" ? "az" : sort;
+}
+
+function sortedWithinGroup(state: TuiSettingsPickerState, rows: readonly TuiSettingsPickerOption[]): readonly TuiSettingsPickerOption[] {
+    const sort = state.modelJourney === "switch" ? journeySort(state) : "library";
+    if (sort === "library") return rows;
+    return rows.toSorted((a, b) => {
+        if (sort === "price") {
+            const left = blendedRate(a.pricing), right = blendedRate(b.pricing);
+            if (left !== right) return left === undefined ? 1 : right === undefined ? -1 : left - right;
+        }
+        return a.label.localeCompare(b.label);
+    });
+}
+
 export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     const matches = journeyMatches(state);
     const groups = new Map<string, TuiSettingsPickerOption[]>();
@@ -33,7 +52,8 @@ export function journeyModels(state: TuiSettingsPickerState): readonly TuiSettin
         groups.set(key, group);
     }
     const collapsed = state.collapsed ?? [];
-    return [...groups.values()].flatMap((rows) => {
+    return [...groups.values()].flatMap((members) => {
+        const rows = sortedWithinGroup(state, members);
         const first = rows[0]!;
         const provider = state.providerCatalogs?.find((provider) => provider.id === first.provider)?.label ?? first.provider;
         const group = `${provider}`;
@@ -50,34 +70,40 @@ export interface JourneyDisplayRow {
     readonly index: number;
 }
 
-export function journeyWindow(state: TuiSettingsPickerState, maxLines: number): readonly JourneyDisplayRow[] {
+export interface JourneyWindow {
+    readonly rows: readonly JourneyDisplayRow[];
+    /** The display line at the top of the window; pass it back on the next render so the list only moves when the cursor leaves it. */
+    readonly top: number;
+}
+
+/** Every call shows the same number of lines, so one cursor step moves the list by at most one line. */
+export function journeyWindow(state: TuiSettingsPickerState, maxLines: number, previousTop = 0): JourneyWindow {
     const display: JourneyDisplayRow[] = state.options.flatMap((option, index) => [
-        ...(index === 0 || option.group !== state.options[index - 1]?.group
-            ? [...(index > 0 ? [{ index: -1 }] : []),
-                ...(option.section === undefined ? [{ heading: option.group, index: -1 }] : [])]
-            : []),
+        ...((index === 0 || option.group !== state.options[index - 1]?.group) && option.section === undefined
+            ? [{ heading: option.group, index: -1 }] : []),
         { option, index },
     ]);
-    if (display.length <= maxLines) return display;
-    // The last line counts the models outside the window.
-    const lines = maxLines > 1 ? maxLines - 1 : maxLines;
-    const cursor = display.findIndex((row) => row.index === state.selectedIndex);
-    const size = Math.max(1, lines - 1);
-    const start = Math.max(0, Math.min(cursor - Math.floor(size / 2), display.length - size));
-    const visible = display.slice(start, start + size);
-    while (visible[0]?.option === undefined && visible[0]?.heading === undefined && visible.length > 0) visible.shift();
-    while (visible.at(-1)?.option === undefined && visible.length > 0) visible.pop();
-    const first = visible[0];
-    if (lines > 1 && first?.option !== undefined && first.option.section === undefined) {
-        visible.unshift({ heading: first.option.group, index: -1 });
-    }
+    if (display.length <= maxLines) return { rows: display, top: 0 };
+    // The bottom lines are a gap and the count of models outside the window.
+    const size = Math.max(1, maxLines - (maxLines > 2 ? 2 : 1));
+    const cursor = Math.max(0, display.findIndex((row) => row.index === state.selectedIndex));
+    // A model row on the top line gives way to its group heading, unless it is the group's last row.
+    const pinned = (at: number) => size > 1 && display[at]?.option !== undefined && display[at]?.option?.section === undefined
+        && display[at + 1]?.heading === undefined;
+    let top = Math.min(previousTop, display.length - size);
+    if (cursor < top || (cursor === top && pinned(top))) top = pinned(cursor) ? cursor - 1 : cursor;
+    if (cursor > top + size - 1) top = cursor - size + 1;
+    top = Math.max(0, Math.min(top, display.length - size));
+    const visible = display.slice(top, top + size);
+    if (pinned(top)) visible[0] = { heading: visible[0]!.option!.group, index: -1 };
     const shown = visible.flatMap((row) => row.option === undefined ? [] : [row.index]);
-    if (maxLines < 2 || shown.length === 0) return visible;
+    if (maxLines < 2 || shown.length === 0) return { rows: visible, top };
     const models = (from: number, to: number) => state.options.slice(from, to).filter((row) => row.section === undefined).length;
     const above = models(0, Math.min(...shown));
     const below = models(Math.max(...shown) + 1, state.options.length);
-    if (above + below > 0) visible.push({ index: -1, more: { above, below } });
-    return visible;
+    if (maxLines > 2) visible.push({ index: -1 });
+    visible.push({ index: -1, more: { above, below } });
+    return { rows: visible, top };
 }
 
 export function journeyMoreText(more: { readonly above: number; readonly below: number }, width = Infinity): string {
@@ -127,12 +153,13 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
     const action = selected === undefined ? "Select a model"
         : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
-    const navigation = state.modelFocus === "scope" ? "⏎ choose which models to show"
-        : state.modelFocus === "search" ? "Type to search · ←→ move cursor"
-        : state.modelFocus === "intelligence" ? "←→ change cutoff"
-        : state.modelFocus === "more" ? "⏎ open More"
+    const navigation = state.modelFocus === "scope" ? "⏎ choose which models to show · arrows move sections"
+        : state.modelFocus === "sort" ? "⏎ choose how models are sorted · arrows move sections"
+        : state.modelFocus === "search" ? "Type to search · ←→ move cursor · ↑↓ sections"
+        : state.modelFocus === "intelligence" ? "←→ change cutoff · ↑↓ sections"
+        : state.modelFocus === "more" ? "⏎ open More · arrows move sections"
         : `↑↓ ^d^u choose · ⏎ switch model${selected === undefined ? "" : ` · ^s ${
-            selected.pooledRank === undefined ? "add to library" : "remove from library"}`}`;
+            selected.pooledRank === undefined ? "add to library" : "remove from library"}`} · space fold`;
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
         : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
@@ -153,7 +180,21 @@ export function modelSwitchTip(turn: number): string {
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
-    return ["scope", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
+    return ["scope", "sort", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
+}
+
+export function journeySortOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
+    return [
+        ...(state.tab === "all" ? [] : [{ value: "sort:library", label: "Library order", description: "" }]),
+        { value: "sort:az", label: "A to Z", description: "" },
+        { value: "sort:price", label: "Cheapest first", description: "" },
+    ];
+}
+
+export function modelJourneySort(parent: TuiSettingsPickerState): TuiSettingsPickerState {
+    const options = journeySortOptions(parent);
+    return { kind: "model_menu", title: "Sort models", options, allOptions: options,
+        selectedIndex: Math.max(0, options.findIndex((row) => row.value === `sort:${journeySort(parent)}`)), query: "", parent };
 }
 
 export function journeyScopeOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
@@ -199,6 +240,9 @@ export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: Tu
         if (value === "scope:pool" || value === "scope:all") return {
             state: rebuiltJourney({ ...parent, modelFocus: "list", tab: value === "scope:all" ? "all" : "pool" }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
+        if (value === "sort:library" || value === "sort:az" || value === "sort:price") return {
+            state: rebuiltJourney({ ...parent, modelFocus: "list", journeySort: value.slice("sort:".length) as ModelJourneySort }, parent.options[parent.selectedIndex]?.value), handled: true,
+        };
         if (state.options[state.selectedIndex]?.value === "variants") return {
             state: rebuiltJourney({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
@@ -241,6 +285,40 @@ function toggledJourneyGroup(
     };
 }
 
+function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | undefined {
+    if (state.modelFocus === "scope") return modelJourneyScope(state);
+    if (state.modelFocus === "sort") return modelJourneySort(state);
+    if (state.modelFocus === "more") return modelJourneyMenu(state);
+    return undefined;
+}
+
+/** An arrow leaves a section only when it has no job inside it, edges included. */
+function switchArrowKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition | undefined {
+    const same = { state, handled: true };
+    const focus = (state.modelFocus ?? "list") as ModelJourneySection;
+    const sections = journeySections(state);
+    const at = sections.indexOf(focus);
+    if (key.name === "space") {
+        if (focus === "list") {
+            const heading = state.options[state.selectedIndex]?.section !== undefined;
+            return toggledJourneyGroup(state, heading ? "open" : "close");
+        }
+        const menu = focusedMenu(state);
+        return menu === undefined ? same : { state: menu, handled: true };
+    }
+    const vertical = key.name === "up" || key.name === "down";
+    const horizontal = key.name === "left" || key.name === "right";
+    if (!vertical && !horizontal) return undefined;
+    if (focus === "list" && vertical) return undefined;
+    if (focus === "search" && horizontal) return same;
+    if (focus === "intelligence" && horizontal) return { state: rebuiltJourney({ ...state,
+        intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
+    }, state.options[state.selectedIndex]?.value), handled: true };
+    // Any arrow the section does not use walks the Tab order and wraps like Tab.
+    const step = key.name === "down" || key.name === "right" ? 1 : -1;
+    return { state: { ...state, modelFocus: sections[(at + step + sections.length) % sections.length]! }, handled: true };
+}
+
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
     const same = { state, handled: true };
     const selected = state.options[state.selectedIndex];
@@ -265,14 +343,11 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
     if (binding === "journey_more") return { state: modelJourneyMenu(state), handled: true };
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
-    if (!managing && state.tab === "all" && state.modelFocus === "intelligence" && !key.ctrl) {
-        if (key.name === "left" || key.name === "right") return { state: rebuiltJourney({ ...state,
-            intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
-        }, selected?.value), handled: true };
-        if (key.name === "up") return same;
+    if (!managing && !key.ctrl && !key.meta) {
+        const arrowed = switchArrowKey(state, key);
+        if (arrowed !== undefined) return arrowed;
     }
-    if (key.name === "left" || key.name === "right") {
-        if (state.modelFocus !== "list" && !managing) return same;
+    if (managing && (key.name === "left" || key.name === "right")) {
         return toggledJourneyGroup(state, key.name === "left" ? "close" : "open");
     }
     if (binding !== undefined || key.ctrl) {
@@ -292,10 +367,8 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         return same;
     }
     if (!managing && state.modelFocus !== "list") {
-        if (key.name === "enter" || key.name === "return") {
-            if (state.modelFocus === "scope") return { state: modelJourneyScope(state), handled: true };
-            if (state.modelFocus === "more") return { state: modelJourneyMenu(state), handled: true };
-        }
+        const menu = focusedMenu(state);
+        if ((key.name === "enter" || key.name === "return") && menu !== undefined) return { state: menu, handled: true };
         return same;
     }
     if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,

@@ -10,8 +10,9 @@ test("listed rates draw as in/out with no dollar sign", () => {
     expect(formatListedRates(undefined)).toBeUndefined();
 });
 
-test("blended price is 7:2:1 cache:input:output of listed rates", () => {
-    expect(formatBlendedRate({ input: 2, output: 6 })).toBe("2.4");
-    expect(formatBlendedRate({ input: 2, output: 6, cache: 0.2 })).toBe("1.14");
+test("blended price weights input 3:1 over output and ignores cache", () => {
+    expect(formatBlendedRate({ input: 2, output: 6 })).toBe("3");
+    expect(formatBlendedRate({ input: 2, output: 6, cache: 0.2 })).toBe("3");
+    expect(formatBlendedRate({ input: 3, output: 15 })).toBe("6");
     expect(formatBlendedRate(undefined)).toBeUndefined();
 });

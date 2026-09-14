@@ -239,7 +239,10 @@ export function pickerPageHasKeys(
     return (state.pickerLevel ?? "page") === "page";
 }
 
-export type ModelJourneySection = "scope" | "search" | "intelligence" | "list" | "more";
+export type ModelJourneySection = "scope" | "sort" | "search" | "intelligence" | "list" | "more";
+
+/** How Switch model orders the models inside each provider group. */
+export type ModelJourneySort = "library" | "az" | "price";
 
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
@@ -299,6 +302,7 @@ export interface TuiSettingsPickerState {
     readonly assignmentAllowsSelf?: boolean;
     readonly revealAll?: boolean;
     readonly intelligenceCutoff?: IntelligenceCutoff;
+    readonly journeySort?: ModelJourneySort;
     readonly configureFiles?: readonly TuiConfigureFile[];
     /** The provider the onboarding model step is choosing within. */
 }
@@ -497,6 +501,7 @@ export interface TuiSettingsPickerView {
     onCutoff?: (cutoff?: IntelligenceCutoff) => void;
     onMore?: () => void;
     onScope?: () => void;
+    onSort?: () => void;
     onSection?: (section: ModelJourneySection) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
