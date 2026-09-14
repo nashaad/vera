@@ -986,7 +986,7 @@ export function createTuiSettingsPickerView(
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (state.modelJourney === "switch") {
                 const searching = state.modelFocus === "search";
-                const typing = !key.ctrl && !key.meta
+                const typing = !key.ctrl && !key.meta && key.name !== "space"
                     && (key.sequence ?? key.name).length === 1;
                 const command = tuiBindingId("switch_model_picker", key);
                 if ((!searching && !typing) || (command !== undefined

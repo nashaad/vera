@@ -153,13 +153,13 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
     const action = selected === undefined ? "Select a model"
         : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
-    const navigation = state.modelFocus === "scope" ? "⏎ choose which models to show"
-        : state.modelFocus === "sort" ? "⏎ choose how models are sorted"
-        : state.modelFocus === "search" ? "Type to search · ←→ move cursor"
-        : state.modelFocus === "intelligence" ? "←→ change cutoff"
-        : state.modelFocus === "more" ? "⏎ open More"
+    const navigation = state.modelFocus === "scope" ? "⏎ choose which models to show · arrows move sections"
+        : state.modelFocus === "sort" ? "⏎ choose how models are sorted · arrows move sections"
+        : state.modelFocus === "search" ? "Type to search · ←→ move cursor · ↑↓ sections"
+        : state.modelFocus === "intelligence" ? "←→ change cutoff · ↑↓ sections"
+        : state.modelFocus === "more" ? "⏎ open More · arrows move sections"
         : `↑↓ ^d^u choose · ⏎ switch model${selected === undefined ? "" : ` · ^s ${
-            selected.pooledRank === undefined ? "add to library" : "remove from library"}`}`;
+            selected.pooledRank === undefined ? "add to library" : "remove from library"}`} · space fold`;
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
         : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
@@ -285,6 +285,40 @@ function toggledJourneyGroup(
     };
 }
 
+function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | undefined {
+    if (state.modelFocus === "scope") return modelJourneyScope(state);
+    if (state.modelFocus === "sort") return modelJourneySort(state);
+    if (state.modelFocus === "more") return modelJourneyMenu(state);
+    return undefined;
+}
+
+/** An arrow leaves a section only when it has no job inside it, edges included. */
+function switchArrowKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition | undefined {
+    const same = { state, handled: true };
+    const focus = (state.modelFocus ?? "list") as ModelJourneySection;
+    const sections = journeySections(state);
+    const at = sections.indexOf(focus);
+    if (key.name === "space") {
+        if (focus === "list") {
+            const heading = state.options[state.selectedIndex]?.section !== undefined;
+            return toggledJourneyGroup(state, heading ? "open" : "close");
+        }
+        const menu = focusedMenu(state);
+        return menu === undefined ? same : { state: menu, handled: true };
+    }
+    const vertical = key.name === "up" || key.name === "down";
+    const horizontal = key.name === "left" || key.name === "right";
+    if (!vertical && !horizontal) return undefined;
+    if (focus === "list" && vertical) return undefined;
+    if (focus === "search" && horizontal) return same;
+    if (focus === "intelligence" && horizontal) return { state: rebuiltJourney({ ...state,
+        intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
+    }, state.options[state.selectedIndex]?.value), handled: true };
+    // Any arrow the section does not use walks the Tab order and wraps like Tab.
+    const step = key.name === "down" || key.name === "right" ? 1 : -1;
+    return { state: { ...state, modelFocus: sections[(at + step + sections.length) % sections.length]! }, handled: true };
+}
+
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
     const same = { state, handled: true };
     const selected = state.options[state.selectedIndex];
@@ -309,14 +343,11 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
     if (binding === "journey_more") return { state: modelJourneyMenu(state), handled: true };
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
-    if (!managing && state.tab === "all" && state.modelFocus === "intelligence" && !key.ctrl) {
-        if (key.name === "left" || key.name === "right") return { state: rebuiltJourney({ ...state,
-            intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
-        }, selected?.value), handled: true };
-        if (key.name === "up") return same;
+    if (!managing && !key.ctrl && !key.meta) {
+        const arrowed = switchArrowKey(state, key);
+        if (arrowed !== undefined) return arrowed;
     }
-    if (key.name === "left" || key.name === "right") {
-        if (state.modelFocus !== "list" && !managing) return same;
+    if (managing && (key.name === "left" || key.name === "right")) {
         return toggledJourneyGroup(state, key.name === "left" ? "close" : "open");
     }
     if (binding !== undefined || key.ctrl) {
@@ -336,11 +367,8 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         return same;
     }
     if (!managing && state.modelFocus !== "list") {
-        if (key.name === "enter" || key.name === "return") {
-            if (state.modelFocus === "scope") return { state: modelJourneyScope(state), handled: true };
-            if (state.modelFocus === "sort") return { state: modelJourneySort(state), handled: true };
-            if (state.modelFocus === "more") return { state: modelJourneyMenu(state), handled: true };
-        }
+        const menu = focusedMenu(state);
+        if ((key.name === "enter" || key.name === "return") && menu !== undefined) return { state: menu, handled: true };
         return same;
     }
     if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,

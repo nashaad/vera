@@ -696,14 +696,13 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
         }
         expect(state.modelFocus).toBe("list");
         expect(sections).not.toContain("detail");
-        // An open group has nothing to open, so right is inert; left folds it
-        // and leaves the cursor on the heading it just folded.
-        expect(handleTuiSettingsPickerKey(state, { name: "right" }).state).toBe(state);
-        const folded = handleTuiSettingsPickerKey(state, { name: "left" }).state!;
+        // Space folds the group and leaves the cursor on the heading it just
+        // folded; Space again opens it.
+        const folded = handleTuiSettingsPickerKey(state, { name: "space", sequence: " " }).state!;
         const group = state.options[state.selectedIndex]?.group;
         expect(folded.collapsed).toContain(group);
         expect(folded.options[folded.selectedIndex]?.section).toBe(group);
-        const opened = handleTuiSettingsPickerKey(folded, { name: "right" }).state!;
+        const opened = handleTuiSettingsPickerKey(folded, { name: "space", sequence: " " }).state!;
         expect(opened.collapsed).not.toContain(group);
         expect(opened.options[opened.selectedIndex]?.group).toBe(group);
         expect(opened.options[opened.selectedIndex]?.section).toBeUndefined();
@@ -713,7 +712,7 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
 
 test("Switch names the half-page keys only while the list has the keys", () => {
     const state = { ...modelJourney(base, "switch"), modelFocus: "list" as const };
-    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model · ^s remove from library");
+    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model · ^s remove from library · space fold");
     for (const focus of ["scope", "sort", "search", "more"] as const) {
         expect(journeyFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
     }
@@ -894,4 +893,63 @@ test("sort chip sits beside the scope chip when wide and on its own line when na
 test("a host snapshot keeps the chosen sort", () => {
     const sorted = chooseSort(modelJourney({ ...base, allOptions: priced }, "switch"), "Cheapest first");
     expect(syncTuiModelPicker(sorted, undefined).journeySort).toBe("price");
+});
+
+test("an arrow leaves a Switch section only when it has no job there, edges included", () => {
+    const press = (state: TuiSettingsPickerState, name: string) =>
+        handleTuiSettingsPickerKey(state, { name, ...(name === "space" ? { sequence: " " } : {}) }).state!;
+    const at = (state: TuiSettingsPickerState, modelFocus: TuiSettingsPickerState["modelFocus"]) => ({ ...state, modelFocus });
+    for (const tab of ["pool", "all"] as const) {
+        const state = chooseScope(modelJourney(base, "switch"), tab);
+        const middle = tab === "all" ? "intelligence" : "list";
+        // Chips use no arrows, so every arrow walks the Tab order and wraps.
+        for (const name of ["right", "down"]) {
+            expect(press(at(state, "scope"), name).modelFocus).toBe("sort");
+            expect(press(at(state, "sort"), name).modelFocus).toBe("search");
+        }
+        for (const name of ["left", "up"]) {
+            expect(press(at(state, "sort"), name).modelFocus).toBe("scope");
+            expect(press(at(state, "scope"), name).modelFocus).toBe("more");
+        }
+        expect(press(at(state, "scope"), "space").title).toBe("Show models");
+        expect(press(at(state, "sort"), "space").title).toBe("Sort models");
+        // Search: up/down move sections.
+        expect(press(at(state, "search"), "up").modelFocus).toBe("sort");
+        expect(press(at(state, "search"), "down").modelFocus).toBe(middle);
+        // Models: up/down never leave, even at the edges; left/right are Tab.
+        const top = { ...at(state, "list"), selectedIndex: 0 };
+        expect(press(top, "up").modelFocus).toBe("list");
+        const bottom = { ...at(state, "list"), selectedIndex: state.options.length - 1 };
+        expect(press(bottom, "down").modelFocus).toBe("list");
+        expect(press(at(state, "list"), "right").modelFocus).toBe("more");
+        expect(press(at(state, "list"), "left").modelFocus).toBe(tab === "all" ? "intelligence" : "search");
+        // More: back to Models, forward wraps to Filter Models.
+        for (const name of ["up", "left"]) expect(press(at(state, "more"), name).modelFocus).toBe("list");
+        for (const name of ["down", "right"]) expect(press(at(state, "more"), name).modelFocus).toBe("scope");
+        // Search keeps left/right for the caret.
+        expect(press(at(state, "search"), "left").modelFocus).toBe("search");
+        expect(press(at(state, "more"), "space").title).toBe("More");
+    }
+    const all = { ...chooseScope(modelJourney(base, "switch")), modelFocus: "intelligence" as const };
+    expect(press(all, "up").modelFocus).toBe("search");
+    expect(press(all, "down").modelFocus).toBe("list");
+    expect(press(all, "right").intelligenceCutoff).toBe("1400");
+    expect(press(all, "space")).toEqual(all);
+});
+
+test("Space types only in Search; elsewhere it stays out of the query", async () => {
+    const setup = await createTestRenderer({ width: 110, height: 44 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface); view.surface.visible = true;
+    try {
+        const state = { ...modelJourney(base, "switch"), query: "a", queryCursor: 1 };
+        for (const modelFocus of ["scope", "sort", "intelligence", "list", "more"] as const) {
+            const focused = { ...state, modelFocus };
+            view.update(focused);
+            expect(view.handleEditorKey(focused, { name: "space", sequence: " " }).handled).toBe(false);
+        }
+        const searching = { ...state, modelFocus: "search" as const };
+        view.update(searching);
+        expect(view.handleEditorKey(searching, { name: "space", sequence: " " }).state?.query).toBe("a ");
+    } finally { setup.renderer.destroy(); }
 });
