@@ -1556,9 +1556,11 @@ if (import.meta.main) {
             const strays = unrecognisedHomeEntries();
             if (strays.length > 0) {
                 stderr.write(
-                    `${veraHomeDirectory()} holds entries the home does not own: ${strays.join(", ")}.\n`
-                    + "Whatever wrote them joined the home directly;"
-                    + " move them or remove them.\n",
+                    `${veraHomeDirectory()} contains ${strays.length === 1 ? "1 entry" : `${strays.length} entries`}`
+                    + ` Vera does not use: ${strays.join(", ")}\n`
+                    + "Vera reads none of them, so they are most likely left over"
+                    + " from an older version. Move or delete them and this"
+                    + " notice goes away.\n",
                 );
             }
         }
