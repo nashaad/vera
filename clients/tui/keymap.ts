@@ -137,6 +137,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         overrides: ["dials.open"],
     },
     {
+        id: "shortlist_section", keys: ["tab", "shift+tab", "backtab"], scope: "shortlist_picker",
+        description: "Move between search and the model list", hint: "Tab / Shift+Tab sections",
+        overrides: ["dials.open"],
+    },
+    {
         id: "journey_refresh", keys: ["ctrl+r"], scope: "switch_model_picker",
         description: "Refresh connected catalogs in place", hint: "^r refresh",
     },

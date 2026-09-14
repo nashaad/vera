@@ -53,7 +53,7 @@ Save reads the catalog immediately. It discovers models without keeping, verifyi
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, use Show to choose Provider catalog, and press Enter on a model to open a conversation.
 
-## Models and providers [lines=21]
+## Models and providers [lines=22]
 Press Ctrl+X, release Ctrl, then M to open Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. It opens on Library models even when empty; Show chooses Library models or Provider catalog on the same screen. Tab and Shift+Tab move between controls.
 Typing or pasting from any Switch model control focuses Search and preserves its caret.
 Models appear under plain provider headings, with no blank rows between sections. Space on the list folds or opens the highlighted model's provider group. An arrow leaves a control only when it has no job there, then moves through the Tab order and wraps: Up/Down never leave the list, Left/Right stay in Search and the cutoff. Space types only in Search.
@@ -64,6 +64,7 @@ In Switch model, Ctrl+K opens More for catalog visibility and refresh. Escape re
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
 If the model has effort levels, Enter opens an effort step first; Enter there applies model and effort together.
 Open `/library-model` or Model Library to add or remove a model with Enter. Adding saves immediately and does not switch or verify.
+Model Library has two sections, Search and the model list. Tab, ↑↓ from Search, or ←→ from the list move between them. Typing goes to Search; Space types there and folds a provider group in the list.
 In Model Library, Ctrl+R renames the display name, Ctrl+Y verifies one model in your library. Ctrl+S adds or removes only in Model Library. Ctrl+D/Ctrl+U page down/up in Switch model and Model Library.
 Verify library models combines scope and coverage in one screen. Tab toggles unverified-only/all; Enter starts real requests. Escape returns to the previous screen while checks continue. Only models in your library are checked.
 Only kept and verified models can be newly assigned in Assign model defaults (`/defaults`): snappy, eco, extra, classifier, compaction, subagents. Assigning leaves the conversation model unchanged.

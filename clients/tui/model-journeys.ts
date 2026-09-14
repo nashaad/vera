@@ -1,6 +1,7 @@
 import { halfPageCursor } from "./list-window.ts";
 import { sectionHeader } from "./settings-picker-model.ts";
 import { tuiBindingId } from "./keymap.ts";
+import { arrowMovesForward, sectionArrow, steppedSection } from "./section-keys.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import { blendedRate } from "../../src/model/listed-rates.ts";
 import type { ModelJourneySection, ModelJourneySort, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
@@ -160,8 +161,9 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : state.modelFocus === "more" ? "⏎ open More · arrows move sections"
         : `↑↓ ^d^u choose · ⏎ switch model${selected === undefined ? "" : ` · ^s ${
             selected.pooledRank === undefined ? "add to library" : "remove from library"}`} · space fold`;
+    const libraryNavigation = state.modelFocus === "search" ? "Type to search · ↑↓ sections" : "↑↓ choose · space fold";
     return state.modelJourney === "shortlist"
-        ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
+        ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\n${libraryNavigation} · Tab sections\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
         : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
 }
 
@@ -180,6 +182,7 @@ export function modelSwitchTip(turn: number): string {
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
+    if (state.modelJourney === "shortlist") return ["search", "list"];
     return ["scope", "sort", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
 }
 
@@ -293,11 +296,9 @@ function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | un
 }
 
 /** An arrow leaves a section only when it has no job inside it, edges included. */
-function switchArrowKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition | undefined {
+function journeyArrowKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition | undefined {
     const same = { state, handled: true };
     const focus = (state.modelFocus ?? "list") as ModelJourneySection;
-    const sections = journeySections(state);
-    const at = sections.indexOf(focus);
     if (key.name === "space") {
         if (focus === "list") {
             const heading = state.options[state.selectedIndex]?.section !== undefined;
@@ -306,29 +307,25 @@ function switchArrowKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey
         const menu = focusedMenu(state);
         return menu === undefined ? same : { state: menu, handled: true };
     }
-    const vertical = key.name === "up" || key.name === "down";
-    const horizontal = key.name === "left" || key.name === "right";
-    if (!vertical && !horizontal) return undefined;
+    const arrow = sectionArrow(key.name);
+    if (arrow === undefined) return undefined;
+    const vertical = arrow === "up" || arrow === "down";
     if (focus === "list" && vertical) return undefined;
-    if (focus === "search" && horizontal) return same;
-    if (focus === "intelligence" && horizontal) return { state: rebuiltJourney({ ...state,
-        intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.name === "left" ? -1 : 1),
+    if (focus === "search" && !vertical) return same;
+    if (focus === "intelligence" && !vertical) return { state: rebuiltJourney({ ...state,
+        intelligenceCutoff: stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", arrow === "left" ? -1 : 1),
     }, state.options[state.selectedIndex]?.value), handled: true };
-    // Any arrow the section does not use walks the Tab order and wraps like Tab.
-    const step = key.name === "down" || key.name === "right" ? 1 : -1;
-    return { state: { ...state, modelFocus: sections[(at + step + sections.length) % sections.length]! }, handled: true };
+    return { state: { ...state, modelFocus: steppedSection(journeySections(state), focus, arrowMovesForward(arrow)) }, handled: true };
 }
 
 export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey, viewportRows = 12): TuiSettingsPickerTransition {
     const same = { state, handled: true };
     const selected = state.options[state.selectedIndex];
     const managing = state.modelJourney === "shortlist";
-    if (!managing && tuiBindingId("switch_model_picker", key) === "journey_section") {
-        const sections = journeySections(state);
-        const at = sections.indexOf((state.modelFocus ?? "list") as ModelJourneySection);
-        const delta = key.shift || key.name === "backtab" ? -1 : 1;
-        return { state: { ...state, modelFocus: sections[(at + delta + sections.length) % sections.length]! }, handled: true };
-    }
+    const focus = (state.modelFocus ?? "list") as ModelJourneySection;
+    const sectionBinding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
+    if (sectionBinding === "journey_section" || sectionBinding === "shortlist_section") return { handled: true,
+        state: { ...state, modelFocus: steppedSection(journeySections(state), focus, !(key.shift || key.name === "backtab")) } };
     const paging = tuiBindingId("picker", key);
     if ((managing || state.modelFocus === "list") && (paging === "half_page_down" || paging === "half_page_up")) return {
         handled: true, state: { ...state, modelFocus: "list",
@@ -343,12 +340,9 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
     const binding = tuiBindingId(managing ? "shortlist_picker" : "switch_model_picker", key);
     if (binding === "journey_more") return { state: modelJourneyMenu(state), handled: true };
     if (key.name === "escape" || key.name === "esc") return { state: state.parent, handled: true };
-    if (!managing && !key.ctrl && !key.meta) {
-        const arrowed = switchArrowKey(state, key);
+    if (!key.ctrl && !key.meta) {
+        const arrowed = journeyArrowKey(state, key);
         if (arrowed !== undefined) return arrowed;
-    }
-    if (managing && (key.name === "left" || key.name === "right")) {
-        return toggledJourneyGroup(state, key.name === "left" ? "close" : "open");
     }
     if (binding !== undefined || key.ctrl) {
         if (binding === "journey_reveal" || binding === "shortlist_reveal") return { state: rebuiltJourney({ ...state, revealAll: state.revealAll !== true }, selected?.value), handled: true };
@@ -366,10 +360,12 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         }
         return same;
     }
-    if (!managing && state.modelFocus !== "list") {
+    if (focus !== "list") {
+        const enter = key.name === "enter" || key.name === "return";
         const menu = focusedMenu(state);
-        if ((key.name === "enter" || key.name === "return") && menu !== undefined) return { state: menu, handled: true };
-        return same;
+        if (enter && menu !== undefined) return { state: menu, handled: true };
+        // Enter in Search acts on the highlighted row, as it would in the list.
+        if (!(enter && focus === "search")) return same;
     }
     if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) } };

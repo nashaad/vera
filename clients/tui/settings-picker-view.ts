@@ -924,7 +924,7 @@ export function handleTuiSettingsPickerScroll(
         return unchanged(state, false);
     }
     const next = { ...state, selectedIndex,
-        ...(state.kind === "model" && state.modelJourney === "switch" ? { modelFocus: "list" as const } : {}) };
+        ...(state.kind === "model" && state.modelJourney !== undefined ? { modelFocus: "list" as const } : {}) };
     return { state: next, handled: true, ...themePreview(next) };
 }
 
@@ -935,7 +935,7 @@ export function updateTuiSettingsPickerSearch(
 ): TuiSettingsPickerTransition {
     if (!pickerIsSearchable(state)) return unchanged(state, false);
     const result = searched(state, query, cursor);
-    if (state.modelJourney !== "switch" || result.state === undefined) return result;
+    if (state.modelJourney === undefined || result.state === undefined) return result;
     const index = result.state.options.findIndex((row) => row.value === state.options[state.selectedIndex]?.value);
     return { ...result, state: { ...result.state, modelFocus: "search", selectedIndex: Math.max(0, index) } };
 }
@@ -984,11 +984,11 @@ export function createTuiSettingsPickerView(
                 { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT });
         },
         handleEditorKey(state, key): TuiSettingsPickerTransition {
-            if (state.modelJourney === "switch") {
+            if (state.modelJourney !== undefined) {
                 const searching = state.modelFocus === "search";
                 const typing = !key.ctrl && !key.meta && key.name !== "space"
                     && (key.sequence ?? key.name).length === 1;
-                const command = tuiBindingId("switch_model_picker", key);
+                const command = tuiBindingId(state.modelJourney === "switch" ? "switch_model_picker" : "shortlist_picker", key);
                 if ((!searching && !typing) || (command !== undefined
                     && !(searching && command === "journey_reveal"))) return unchanged(state, false);
             }
@@ -1004,7 +1004,7 @@ export function createTuiSettingsPickerView(
                     && tuiBindingId("model_picker", key) !== undefined)
                 || (state.kind === "session"
                     && tuiBindingId("session_picker", key) !== undefined)
-                || (state.query.length === 0 && state.modelJourney !== "switch"
+                || (state.query.length === 0 && state.modelJourney === undefined
                     && (key.name === "left" || key.name === "right"))
                 || (digitQuickSelect(state) && state.query === ""
                     && /^[1-9]$/.test(key.name))
@@ -1045,7 +1045,7 @@ export function createTuiSettingsPickerView(
             searchLive = state.kind !== "extension"
                 && pickerIsSearchable(state)
                 && !(state.kind === "model" && state.tab === "help");
-            search.box.onMouseDown = state.kind === "model" && state.modelJourney === "switch"
+            search.box.onMouseDown = state.kind === "model" && state.modelJourney !== undefined
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
             box.title = undefined;
@@ -1370,7 +1370,7 @@ export function renderListPickerRows(
         const rows = window.rows;
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
         const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
-        if (state.modelJourney === "switch") list.onMouseDown = () => onSection?.("list");
+        list.onMouseDown = () => onSection?.("list");
         body.add(list);
         add(body);
         const addRow = (node: Renderable) => list.add(node);
@@ -1410,7 +1410,7 @@ export function renderListPickerRows(
                     active: index === state.selectedIndex,
                     ...(heading ? { heading: true, marker: "▶" } : {}),
                     current: !heading && row.value === state.initialModel,
-                    dimmed: state.modelJourney === "switch" && state.modelFocus !== "list",
+                    dimmed: state.modelFocus !== "list",
 
                     meta: heading ? "" : listed ? optionMeta(state, { ...row, poolName: undefined }, true, prefixWidth)
                         : state.modelJourney === "shortlist" ? shortlistFactsText(row)

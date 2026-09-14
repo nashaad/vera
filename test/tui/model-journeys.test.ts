@@ -216,7 +216,7 @@ test("plain provider groups keep a stable order and open headings stay out of na
     const state = modelJourney(base, "shortlist");
     expect(state.options.map((row) => row.group)).toEqual(["p", "p", "q"]);
     expect(state.options.every((row) => row.model !== undefined && row.section === undefined)).toBe(true);
-    expect(handleModelJourneyKey(state, { name: "right" }).state).toBe(state);
+    expect(handleModelJourneyKey(state, { name: "right" }).state?.modelFocus).toBe("search");
     const next = handleModelJourneyKey(state, { name: "down" }).state!;
     expect(next.options[next.selectedIndex]?.model).toBe("b");
     const searched = updateTuiSettingsPickerSearch(state, "beta").state!;
@@ -227,7 +227,7 @@ test("plain provider groups keep a stable order and open headings stay out of na
 test("a folded group collapses to one heading row that counts what it hides", () => {
     const state = modelJourney(base, "shortlist");
     const group = state.options[0]?.group;
-    const folded = handleModelJourneyKey({ ...state, selectedIndex: 0 }, { name: "left" }).state!;
+    const folded = handleModelJourneyKey({ ...state, selectedIndex: 0 }, { name: "space", sequence: " " }).state!;
     const heading = folded.options[folded.selectedIndex]!;
     expect(heading.section).toBe(group);
     expect(heading.label).toBe(`${group} (2)`);
@@ -402,7 +402,7 @@ test("provider headings sit directly under the previous group inside the card", 
         view.update(modelJourney(base, "shortlist"));
         await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
-        // An open group carries the ▼ that says left folds it.
+        // An open group carries the ▼ that says Space folds it.
         const heading = lines.findIndex((line) => line.split("│")[0]?.trim() === "▼ q");
         expect(heading).toBeGreaterThan(0);
         expect(lines[heading - 1]?.split("│")[0]).toContain("Beta");
@@ -726,8 +726,10 @@ test("Manage offers one model action and explains catalog visibility on its own 
     expect(journeyFooter(state).split("\n")).toEqual([
         "⏎ / Ctrl+S  Add to library",
         "Ctrl+A  Show extra variants and older models",
+        "↑↓ choose · space fold · Tab sections",
         "Ctrl+R Rename · Ctrl+Y Verify · Esc Back",
     ]);
+    expect(journeyFooter({ ...state, modelFocus: "search" }).split("\n")[2]).toBe("Type to search · ↑↓ sections · Tab sections");
     expect(journeyFooter({ ...state, selectedIndex: 1 })).toContain("Remove from library");
     expect(journeyFooter({ ...state, revealAll: true }).split("\n")[1]).toBe("Ctrl+A  Hide extra variants and older models");
     for (const query of ["", "beta"]) for (const shift of [false, true]) {
@@ -935,6 +937,38 @@ test("an arrow leaves a Switch section only when it has no job there, edges incl
     expect(press(all, "down").modelFocus).toBe("list");
     expect(press(all, "right").intelligenceCutoff).toBe("1400");
     expect(press(all, "space")).toEqual(all);
+});
+
+test("Model Library has Search and Models sections under the same arrow rule", async () => {
+    const press = (state: TuiSettingsPickerState, name: string, shift = false) =>
+        handleTuiSettingsPickerKey(state, { name, shift, ...(name === "space" ? { sequence: " " } : {}) });
+    const library = modelJourney(base, "shortlist");
+    const search = { ...library, modelFocus: "search" as const };
+    expect(library.modelFocus).toBe("list");
+    // Two sections: every unowned arrow and Tab lands on the other one.
+    for (const name of ["left", "right"]) expect(press(library, name).state?.modelFocus).toBe("search");
+    for (const name of ["up", "down"]) expect(press(search, name).state?.modelFocus).toBe("list");
+    expect(press(library, "tab").state?.modelFocus).toBe("search");
+    expect(press(search, "tab", true).state?.modelFocus).toBe("list");
+    // Models keep up/down at the edges, and Space folds instead of left/right.
+    expect(press({ ...library, selectedIndex: 0 }, "up").state?.modelFocus).toBe("list");
+    const folded = press({ ...library, selectedIndex: 0 }, "space").state!;
+    expect(folded.options[folded.selectedIndex]?.sectionCollapsed).toBe(true);
+    expect(press(search, "left").state?.modelFocus).toBe("search");
+    // Enter in Search acts on the highlighted model.
+    expect(press(search, "enter").poolToggle?.model).toBe("a");
+    const setup = await createTestRenderer({ width: 110, height: 44 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface); view.surface.visible = true;
+    try {
+        view.update(library);
+        const typed = view.handleEditorKey(library, { name: "b", sequence: "b" }).state!;
+        expect(typed.modelFocus).toBe("search");
+        expect(typed.query).toBe("b");
+        expect(view.handleEditorKey(library, { name: "space", sequence: " " }).handled).toBe(false);
+        view.update(typed);
+        expect(view.handleEditorKey(typed, { name: "space", sequence: " " }).state?.query).toBe("b ");
+    } finally { setup.renderer.destroy(); }
 });
 
 test("Space types only in Search; elsewhere it stays out of the query", async () => {
