@@ -271,7 +271,7 @@ import { createTuiTimelinePickerView } from "./timeline-picker.ts";
 import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, createTuiState, setTuiWorkspaceRoot, type TuiState, type TuiTranscriptEntry } from "./state.ts";
 import { resolveTuiTheme, tuiRecessColor } from "./theme.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
-import { loadTuiActivityAnimationPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarDocked, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { loadTuiActivityAnimationPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
@@ -971,7 +971,6 @@ export async function startTui(
     rt.standingNudgeRules = readStandingNudgeRules(rt);
 
     rt.workspaceSidebarFocused = false;
-    rt.workspaceSidebarDocked = loadTuiWorkspaceSidebarDocked();
     rt.workspaceRailPreferred = loadTuiWorkspaceSidebarWidth();
     rt.workspaceRailDragging = false;
     rt.workspacePinnedIds = loadTuiPinnedSessionIds();
@@ -2722,8 +2721,8 @@ export async function startTui(
         requestSessionSettings(rt);
     }
     void restorePersistedAgentPane(rt);
-    if (rt.workspaceSidebarDocked) {
-        openWorkspaceSidebar(rt, { focus: false, persist: false });
+    if (rt.configuredAppearance.sidebarOpenAtLaunch) {
+        openWorkspaceSidebar(rt, { focus: false });
     }
 
     rt.authStorage = rt.dependencies.authStorage

@@ -28,7 +28,6 @@ interface TuiClientPreferences {
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly sidebar_width?: number;
-    readonly workspace_sidebar_docked?: boolean;
     readonly workspace_sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
     readonly pinned_session_ids?: readonly string[];
@@ -142,24 +141,6 @@ export function saveTuiSidebarWidth(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         sidebar_width: columns,
-    }, path);
-}
-
-export function loadTuiWorkspaceSidebarDocked(
-    path = tuiThemePreferencePath(),
-): boolean {
-    return loadTuiClientPreferences(path).workspace_sidebar_docked === true;
-}
-
-export function saveTuiWorkspaceSidebarDocked(
-    docked: boolean,
-    path = tuiThemePreferencePath(),
-): void {
-    const { workspace_sidebar_docked: _previous, ...rest } =
-        loadTuiClientPreferences(path);
-    saveTuiClientPreferences({
-        ...rest,
-        ...(docked ? { workspace_sidebar_docked: true } : {}),
     }, path);
 }
 
@@ -487,10 +468,6 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 20,
                 400,
             );
-            const workspaceSidebarDocked = Reflect.get(
-                value,
-                "workspace_sidebar_docked",
-            ) === true;
             const workspaceSidebarWidth = boundedInteger(
                 Reflect.get(value, "workspace_sidebar_width"),
                 20,
@@ -535,9 +512,6 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(sidebarWidth === undefined
                     ? {}
                     : { sidebar_width: sidebarWidth }),
-                ...(workspaceSidebarDocked
-                    ? { workspace_sidebar_docked: true }
-                    : {}),
                 ...(workspaceSidebarWidth === undefined
                     ? {}
                     : { workspace_sidebar_width: workspaceSidebarWidth }),

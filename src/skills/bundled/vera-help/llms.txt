@@ -82,7 +82,7 @@ Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it f
 `/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
 Submitting while Vera is working queues another prompt. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape sends only the oldest queued prompt and leaves the turn running.
 Ctrl+C stops the active turn without sending queued work.
-The conversation rail groups sessions by needs-you, working, idle, and recent, never by workspace. It is a browse list: opening a row paints that session's file and starts no worker.
+The conversation rail groups sessions by needs-you, working, idle, and recent, never by workspace. It is a browse list: opening a row paints that session's file and starts no worker. Vera starts with the rail closed; `ctrl+e` opens it. Set `tui.sidebar.open_at_launch` to `true` in `config.json` to start with it open.
 Resuming is a separate act. Press Enter on the file already on screen, or `ctrl+r` for the picker covering anything the rail does not list.
 Park a live conversation with `/close`, or `ctrl+w` from the composer. The rail has no close control.
 

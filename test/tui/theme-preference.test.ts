@@ -14,7 +14,6 @@ import {
     loadTuiPinnedSessionIds,
     loadTuiExtensionPreference,
     loadTuiThemePreference,
-    loadTuiWorkspaceSidebarDocked,
     loadTuiWorkspaceSidebarWidth,
     saveTuiActivityAnimationPreference,
     saveTuiQuickslots,
@@ -25,7 +24,6 @@ import {
     saveTuiExtensionPreference,
     deleteTuiExtensionPreference,
     saveTuiThemePreference,
-    saveTuiWorkspaceSidebarDocked,
     saveTuiWorkspaceSidebarWidth,
 } from "../../clients/tui/theme-preference.ts";
 
@@ -304,31 +302,24 @@ test("a malformed pin list is read as no pins", () => {
     expect(loadTuiPinnedSessionIds(path)).toEqual(["ok"]);
 });
 
-test("the workspace dock preference persists only while enabled", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vera-tui-workspace-dock-"));
-    const path = join(directory, "tui.json");
-
-    expect(loadTuiWorkspaceSidebarDocked(path)).toBe(false);
-    saveTuiThemePreference("nightowl", path);
-    saveTuiWorkspaceSidebarDocked(true, path);
-
-    expect(loadTuiWorkspaceSidebarDocked(path)).toBe(true);
-    expect(loadTuiThemePreference(path)).toBe("nightowl");
-
-    saveTuiWorkspaceSidebarDocked(false, path);
-    expect(loadTuiWorkspaceSidebarDocked(path)).toBe(false);
-    expect(JSON.parse(readFileSync(path, "utf8")))
-        .not.toHaveProperty("workspace_sidebar_docked");
-});
-
-test("the workspace dock width persists beside its open state", () => {
+test("the workspace dock width persists", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-workspace-width-"));
     const path = join(directory, "tui.json");
 
     expect(loadTuiWorkspaceSidebarWidth(path)).toBeUndefined();
-    saveTuiWorkspaceSidebarDocked(true, path);
     saveTuiWorkspaceSidebarWidth(58, path);
 
-    expect(loadTuiWorkspaceSidebarDocked(path)).toBe(true);
     expect(loadTuiWorkspaceSidebarWidth(path)).toBe(58);
+});
+
+test("a stored dock open state is dropped on the next write", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-workspace-dock-"));
+    const path = join(directory, "tui.json");
+    writeFileSync(path, JSON.stringify({ theme: "nightowl", workspace_sidebar_docked: true }));
+
+    saveTuiWorkspaceSidebarWidth(58, path);
+
+    expect(loadTuiThemePreference(path)).toBe("nightowl");
+    expect(JSON.parse(readFileSync(path, "utf8")))
+        .not.toHaveProperty("workspace_sidebar_docked");
 });
