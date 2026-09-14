@@ -2142,7 +2142,7 @@ test("the Help tab explains the pane in the pane", async () => {
     expect(frame).not.toContain("🖼");
     expect(frame).toContain("snapshot unavailable");
     expect(frame).toContain("on WA Score: the note under Sources, not the library.");
-    expect(frame).toContain("7:2:1");
+    expect(frame).toContain("3:1");
     // A page, not a list: nothing to filter, nothing to select, and the footer
     // says only what the page can do.
     expect(help.options).toHaveLength(0);
@@ -2229,7 +2229,7 @@ test("Catalog shows listed facts, glyphs, and a blank unmatched score", async ()
 
     expect(frame).toContain("WA Score");
     expect(frame).toContain("1629");
-    expect(frame).toContain("4.2");
+    expect(frame).toMatch(/1629\s+6\s/);
     expect(frame).toMatch(/\bP\b/);
     expect(frame).toContain("★");
     expect(frame).toMatch(/P i ★/);
@@ -2240,10 +2240,10 @@ test("Catalog shows listed facts, glyphs, and a blank unmatched score", async ()
     expect(frame).not.toContain("$");
     const strip = frame.split("\n").find((line) => line.includes("full 3/15"))!;
     expect(strip).toContain("Grok 4.6");
-    expect(strip).toContain("blended 4.2 at 7:2:1");
+    expect(strip).toContain("blended 6 at 3:1");
     const stripAt = frame.indexOf("full 3/15");
     expect(frame.indexOf("Unknown Blank")).toBeLessThan(stripAt);
-    expect(frame).toContain("7:2:1");
+    expect(frame).toContain("3:1");
     expect(frame).toContain("Any");
     expect(frame).toContain("Smarter");
     expect(frame).toMatch(/any\s+1400\s+1450\s+1500\s+1550\s+1600/);
@@ -2253,7 +2253,7 @@ test("Catalog shows listed facts, glyphs, and a blank unmatched score", async ()
     const headerLine = frame.split("\n").find((line) =>
         line.includes("WA Score*")
     )!;
-    expect(headerLine).toContain("7:2:1");
+    expect(headerLine).toContain("3:1");
     expect(headerLine).not.toContain("3/15");
     const grokPick = frame.split("\n").find((line) =>
         line.includes("Grok 4.6") && line.includes("top pick")
@@ -2262,9 +2262,9 @@ test("Catalog shows listed facts, glyphs, and a blank unmatched score", async ()
         line.includes("Steady") && line.includes("1400")
     )!;
     expect(grokPick).toBeDefined();
-    expect(grokPick).toContain("4.2");
+    expect(grokPick).toMatch(/1629\s+6\s/);
     expect(grokPick).not.toContain("3/15");
-    expect(steadyLine).toContain("1.3");
+    expect(steadyLine).toContain("1.75");
     expect(steadyLine).not.toContain("1/4");
     expect(grokPick!.indexOf("1629")).toBe(steadyLine.indexOf("1400"));
 });
@@ -2315,7 +2315,7 @@ test("Library keeps names on the list and listed facts in the inspector", async 
     expect(frame).toContain("Full price");
     expect(frame).toContain("3/15");
     expect(frame).toContain("Blended price");
-    expect(frame).toContain("7:2:1");
+    expect(frame).toContain("3:1");
     expect(frame).toMatch(/│  Images\b/);
     expect(frame).toMatch(/│  i\b/);
     expect(frame).toContain("✓");
@@ -4870,7 +4870,7 @@ test("Narrow catalog keeps the fact columns and spends the badges instead", asyn
     const steady = lines.find((line) => line.includes("Steady"))!;
 
     // The columns are fixed width, so they survive whole and stay aligned.
-    expect(header).toContain("7:2:1");
+    expect(header).toContain("3:1");
     expect(grok).toMatch(/P i ★/);
     expect(grok.indexOf("1629")).toBe(steady.indexOf("1400"));
     // The badge column is the one that gives up room.

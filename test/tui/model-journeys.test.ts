@@ -496,12 +496,12 @@ test("All restores aligned score and blended-price columns with top-pick, image,
         const preferred = lines.find((line) => line.includes("Preferred"))!;
         const steady = lines.find((line) => line.includes("Steady"))!;
         const unknown = lines.find((line) => line.includes("Unknown"))!;
-        expect(header).toContain("7:2:1");
+        expect(header).toContain("3:1");
         expect(preferred).toContain("top pick");
         expect(preferred).toContain("P i ★");
-        expect(preferred).toContain("4.2");
+        expect(preferred).toMatch(/1629\s+6\s/);
         expect(preferred).not.toContain("3/15");
-        expect(steady).toContain("1.3");
+        expect(steady).toContain("1.75");
         expect(preferred.indexOf("1629")).toBe(steady.indexOf("1400"));
         expect(header.indexOf("WA Score*") + "WA Score*".length).toBe(preferred.indexOf("1629") + 4);
         expect(unknown).not.toMatch(/\b0\b/);
