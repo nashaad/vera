@@ -12,6 +12,20 @@ export function formatListedRates(
     return `${formatListedRate(pricing.input)}/${formatListedRate(pricing.output)}`;
 }
 
+export function listedFree(pricing: ModelPricing | undefined): boolean {
+    return pricing !== undefined && pricing.input === 0 && pricing.output === 0;
+}
+
+/** `free` when both rates are zero, otherwise `$input/output`. */
+export function formatListedPrice(
+    pricing: ModelPricing | undefined,
+): string | undefined {
+    if (pricing === undefined) {
+        return undefined;
+    }
+    return listedFree(pricing) ? "free" : `$${formatListedRates(pricing)}`;
+}
+
 export function blendedRate(
     pricing: ModelPricing | undefined,
 ): number | undefined {

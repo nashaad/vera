@@ -16,7 +16,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
-import { BLENDED_RATIO, formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
+import { BLENDED_RATIO, formatBlendedRate, formatListedPrice, formatListedRates, listedFree } from "../../src/model/listed-rates.ts";
 import { INTELLIGENCE_CUTOFFS, passesIntelligenceCutoff, type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import {
@@ -248,11 +248,13 @@ export function stackedListedPriceLines(
     option: TuiSettingsPickerOption | undefined,
     width: number,
 ): readonly (readonly TextChunk[])[] {
+    const free = listedFree(option?.pricing);
     const full = formatListedRates(option?.pricing);
     const blended = formatBlendedRate(option?.pricing);
     const facts: string[] = [];
-    if (full !== undefined) facts.push(`full ${full}`);
-    if (blended !== undefined) facts.push(`blended ${blended} at ${BLENDED_RATIO}`);
+    if (free) facts.push("free");
+    else if (full !== undefined) facts.push(`full ${full}`);
+    if (!free && blended !== undefined) facts.push(`blended ${blended} at ${BLENDED_RATIO}`);
     if (option?.images === true) facts.push("images");
     const labelRoom = Math.min(option?.label.length ?? 0, 12);
     while (facts.length > 1 && facts.join("  ").length + 2 + labelRoom > width) facts.pop();
@@ -738,12 +740,13 @@ export function modelDetailFacts(
     if (option.waScore !== undefined) {
         facts.push(["WA Score", String(option.waScore)]);
     }
+    const free = listedFree(option.pricing);
     const full = formatListedRates(option.pricing);
     if (full !== undefined) {
-        facts.push(["Full price", full]);
+        facts.push(["Full price", free ? "free" : full]);
     }
     const blended = formatBlendedRate(option.pricing);
-    if (blended !== undefined) {
+    if (!free && blended !== undefined) {
         facts.push(["Blended price", `${blended}  ${BLENDED_RATIO}`]);
     }
     if (!journey) facts.push(["Model ID", option.model ?? "—"]);
@@ -1574,20 +1577,20 @@ export function listedFactsHeaderText(): string {
 
 /** One glyph per fact, so a library row keeps its label instead of spending it on prose. */
 export function shortlistFactsText(option: TuiSettingsPickerOption): string {
-    const price = option.pricing === undefined ? "$?" : `$${formatListedRates(option.pricing)}`;
+    const price = formatListedPrice(option.pricing) ?? "no price";
     const kept = option.pooledRank === undefined ? "\u00b7" : "\u2605";
     const verified = option.verificationError !== undefined ? "\u2717"
         : option.unverified === false || option.pooledRank !== undefined && option.unverified !== true
-        ? "\u2713" : "?";
+        ? "\u2713" : "-";
     return `${price.padStart(SHORTLIST_PRICE_WIDTH)}  ${kept} ${verified} ${option.unavailable ? "!" : " "}`;
 }
 
 const SHORTLIST_PRICE_WIDTH = 7;
 
 const SHORTLIST_LEGENDS = [
-    "\u2605 kept   \u00b7 not kept   \u2713 verified   ? not probed   \u2717 probe failed   ! unavailable   $? no price",
-    "\u2605 kept  \u00b7 not kept  \u2713 verified  ? unprobed  \u2717 failed  ! unavailable  $? no price",
-    "\u2605/\u00b7 kept  \u2713/?/\u2717 verified  ! unavailable  $? no price",
+    "\u2605 kept   \u00b7 not kept   \u2713 verified   - not probed   \u2717 probe failed   ! unavailable",
+    "\u2605 kept  \u00b7 not kept  \u2713 verified  - unprobed  \u2717 failed  ! unavailable",
+    "\u2605/\u00b7 kept  \u2713/-/\u2717 verified  ! unavailable",
 ];
 
 export function shortlistLegendText(width: number): string {

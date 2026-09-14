@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
+import { shortlistFactsText, shortlistLegendText } from "../../clients/tui/settings-picker-model.ts";
 import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, modelJourneySort, journeySort, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
@@ -127,7 +128,7 @@ test("live library search accepts spaces and row actions do not appear as anothe
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Model Library");
         // A kept row carries the star, and the legend below the list says what it means.
-        expect(frame).toContain("★ ?");
+        expect(frame).toContain("★ -");
         expect(frame).toContain("★ kept");
         expect(frame).not.toContain("Actions");
     } finally { setup.renderer.destroy(); }
@@ -937,6 +938,17 @@ test("an arrow leaves a Switch section only when it has no job there, edges incl
     expect(press(all, "down").modelFocus).toBe("list");
     expect(press(all, "right").intelligenceCutoff).toBe("1400");
     expect(press(all, "space")).toEqual(all);
+});
+
+test("a free model reads free and an unlisted price reads no price", () => {
+    expect(shortlistFactsText({ ...rows[0]!, pricing: { input: 0, output: 0 } })).toContain("free");
+    expect(shortlistFactsText({ ...rows[0]!, pricing: { input: 3, output: 6 } })).toContain("$3/6");
+    expect(shortlistFactsText(rows[0]!)).toContain("no price");
+    expect(shortlistFactsText(rows[0]!)).not.toContain("?");
+    for (const width of [200, 70, 40]) {
+        expect(shortlistLegendText(width)).not.toContain("price");
+        expect(shortlistLegendText(width)).not.toContain("?");
+    }
 });
 
 test("Model Library has Search and Models sections under the same arrow rule", async () => {

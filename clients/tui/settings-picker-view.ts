@@ -18,7 +18,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
-import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
+import { formatBlendedRate, formatListedPrice, formatListedRates } from "../../src/model/listed-rates.ts";
 import { INTELLIGENCE_CUTOFFS, stepIntelligenceCutoff, type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import {
     isVeraProviderId,
@@ -1414,7 +1414,7 @@ export function renderListPickerRows(
 
                     meta: heading ? "" : listed ? optionMeta(state, { ...row, poolName: undefined }, true, prefixWidth)
                         : state.modelJourney === "shortlist" ? shortlistFactsText(row)
-                        : `${row.pricing === undefined ? "price unknown" : "$" + formatListedRates(row.pricing)}  ${
+                        : `${formatListedPrice(row.pricing) ?? "price unknown"}  ${
                             row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
                     ...dialogRowPointer(pointer, index),
                 }];
