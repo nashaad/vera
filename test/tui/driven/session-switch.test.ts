@@ -207,6 +207,8 @@ test("resume leaves a multiply-attached source running and says why", async () =
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
+        // Stop & switch, the first row of the leave menu.
+        session.sendKey("Enter");
         await session.waitForVisiblePane(
             "The previous conversation is still running in another client",
         );
@@ -547,6 +549,8 @@ test("a stalled resume returns control to the current session", async () => {
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
+        // Stop & switch, the first row of the leave menu.
+        session.sendKey("Enter");
         const pane = await session.waitForVisiblePane(
             "Could not switch conversation: timed out",
         );
@@ -606,6 +610,8 @@ test("resuming a session from the list offers no way back", async () => {
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
+        // Stop & switch, the first row of the leave menu.
+        session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         // /resume is navigation, not a hop: the person chose the destination,
         // so there is no trip back to name.
@@ -618,7 +624,7 @@ test("resuming a session from the list offers no way back", async () => {
     }
 }, 15_000);
 
-test("tab explicitly keeps the source running while resume switches", async () => {
+test("resume asks, and switch keep running leaves the source running", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-background-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -632,11 +638,16 @@ test("tab explicitly keeps the source running while resume switches", async () =
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/resume");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane("Continue the theme picker");
-        expect(pane).toContain("⏎ stop & switch");
-        expect(pane).toContain("tab keep running");
+        const pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("⏎ switch");
+        expect(pane).not.toContain("keep running");
         session.sendKey("Down");
         session.sendKey("Tab");
+        session.sendKey("Enter");
+        const menu = await session.waitForVisiblePane("Switch, keep running");
+        expect(menu).toContain("Stop & switch");
+        session.sendKey("Down");
+        session.sendKey("Enter");
         await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
@@ -667,6 +678,8 @@ test("resume stays on the source when its tree cannot be stopped", async () => {
         session.sendKey("Enter");
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
+        session.sendKey("Enter");
+        // Stop & switch, the first row of the leave menu.
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane(
             "Could not switch conversation: the host could not stop the current conversation",
@@ -703,6 +716,8 @@ test("resume does not show the destination before source quiescence", async () =
         session.sendKey("Enter");
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
+        session.sendKey("Enter");
+        // Stop & switch, the first row of the leave menu.
         session.sendKey("Enter");
         const pending = await session.waitForVisiblePane("switching conversation");
         expect(pending).toContain("current-model");

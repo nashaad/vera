@@ -78,7 +78,7 @@ The conversation header shows model, effort, and access.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.
 
 ## Conversations and background work [lines=8]
-`/resume` opens another conversation. Enter stops the conversation being left; Tab keeps it running.
+`/resume` opens another conversation. Enter asks how to leave the one on screen: Stop & switch, or Switch, keep running.
 `/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
 Submitting while Vera is working queues another prompt. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape sends only the oldest queued prompt and leaves the turn running.
 Ctrl+C stops the active turn without sending queued work.

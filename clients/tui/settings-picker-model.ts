@@ -1871,6 +1871,7 @@ export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
         && state.kind !== "model_menu"
         && state.kind !== "configure"
         && state.kind !== "model_defaults"
+        && state.kind !== "session_leave"
         && state.kind !== "model_verification"
         && state.kind !== "pool_verify_scope"
         && state.kind !== "catalog_refresh_scope"
@@ -2471,7 +2472,7 @@ export function pickerSelection(
             }),
         };
     }
-    if (kind === "model_defaults" || kind === "model_verification" || kind === "model_menu") throw new Error("This picker handles its actions directly");
+    if (kind === "model_defaults" || kind === "session_leave" || kind === "model_verification" || kind === "model_menu") throw new Error("This picker handles its actions directly");
     if (kind === "provider_actions") throw new Error("Provider actions must use their action transition");
     return { kind, theme: value as TuiThemeName };
 }

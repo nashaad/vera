@@ -2,7 +2,7 @@ import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
-import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
+import { SESSION_LEAVE_OPTIONS, TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions, journeySort, journeySortOptions } from "./model-journeys.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
 import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
@@ -47,7 +47,7 @@ import {
     tuiThemeProperties,
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
-import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import { isTuiDialTabKey, tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
     atFirstPickerSection,
     focusedOnSection,
@@ -281,24 +281,73 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
     }
-    if (
-        state.kind === "session"
-        && tuiBindingId("session_picker", key) === "background_switch"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        return selected === undefined
-            ? unchanged(state, true)
-            : {
-                selection: {
-                    kind: "session",
-                    sessionPath: selected.value,
-                    sourceDisposition: "keep_running",
-                    ...(selected.sessionId === undefined
-                        ? {}
-                        : { sessionId: selected.sessionId }),
+    if (state.kind === "session_leave") {
+        if (key.ctrl || key.meta || key.super || key.hyper) {
+            return unchanged(state, false);
+        }
+        if (key.name === "escape") {
+            return { state: state.parent, handled: true };
+        }
+        if (key.name === "up" || key.name === "down") {
+            return {
+                state: {
+                    ...state,
+                    selectedIndex: Math.max(0, Math.min(
+                        state.options.length - 1,
+                        state.selectedIndex + (key.name === "up" ? -1 : 1),
+                    )),
                 },
                 handled: true,
             };
+        }
+        const choice = state.options[state.selectedIndex];
+        const target = state.parent?.options[state.parent.selectedIndex];
+        if (
+            (key.name === "return" || key.name === "enter")
+            && choice !== undefined
+            && target !== undefined
+        ) {
+            return {
+                selection: {
+                    kind: "session",
+                    sessionPath: target.value,
+                    sourceDisposition: choice.value === "keep_running"
+                        ? "keep_running"
+                        : "stop",
+                    ...(target.sessionId === undefined
+                        ? {}
+                        : { sessionId: target.sessionId }),
+                },
+                handled: true,
+            };
+        }
+        return unchanged(state, true);
+    }
+    if (state.kind === "session" && isTuiDialTabKey(key)) {
+        return unchanged(state, true);
+    }
+    if (
+        state.kind === "session"
+        && (key.name === "return" || key.name === "enter")
+        && !key.ctrl && !key.meta
+        && state.nothingToLeave !== true
+        && state.enterDisposition !== "keep_running"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (selected !== undefined && selected.current !== true) {
+            return {
+                state: {
+                    kind: "session_leave",
+                    title: `Switch to ${selected.label}`,
+                    allOptions: SESSION_LEAVE_OPTIONS,
+                    options: SESSION_LEAVE_OPTIONS,
+                    selectedIndex: 0,
+                    query: "",
+                    parent: state,
+                },
+                handled: true,
+            };
+        }
     }
     if (
         state.kind === "model_assignment"
@@ -2006,7 +2055,8 @@ export function renderListPickerRows(
         ? { tone: "tip", text: tip }
         : tip;
     if (tipLine !== undefined && tipLine.text.length > 0 && (state.kind === "extension" || state.verificationTargets === undefined)
-        && state.kind !== "model_verification" && state.kind !== "model_defaults") {
+        && state.kind !== "model_verification" && state.kind !== "model_defaults"
+        && state.kind !== "session_leave") {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
                 { text: DIALOG_GUTTER } as TextChunk,
@@ -2170,18 +2220,11 @@ export function pickerFooterText(
 ): string {
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
+    if (state.kind === "session_leave") return "↑↓ choose · ⏎ switch · esc back";
     if (state.kind === "session") {
-        const leavingSomething = state.nothingToLeave !== true;
         return [
             "↑↓ ^d^u move",
-            !leavingSomething
-                ? "⏎ open"
-                : state.enterDisposition === "keep_running"
-                ? "⏎ switch"
-                : "⏎ stop & switch",
-            ...(leavingSomething && state.enterDisposition !== "keep_running"
-                ? [tuiKeyHint("background_switch")]
-                : []),
+            state.nothingToLeave === true ? "⏎ open" : "⏎ switch",
             tuiKeyHint("rename_session"),
             tuiKeyHint("trash_session"),
             "esc close",

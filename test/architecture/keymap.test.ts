@@ -111,7 +111,6 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "reveal_all_models",
     "switch_tab",
     "rename_session",
-    "background_switch",
     "trash_session",
     "write_notes",
     "expand_call",
@@ -183,8 +182,6 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
     // And a pane's own chord does not leak into a pane that never claimed it.
     expect(tuiBindingId("session_picker", { name: "s", ctrl: true }))
         .toBeUndefined();
-    expect(tuiBindingId("session_picker", { name: "tab" }))
-        .toBe("background_switch");
     // Ctrl+T belongs to transcript detail on the conversation surface, and
     // ctrl+E to provider connections inside the model picker; those surfaces
     // never overlap.

@@ -76,7 +76,7 @@ test.skipIf(!tmuxAvailable)("the header list control opens all conversations", a
         const row = rail.split("\n").findIndex((line) => line.includes("≡  +"));
         tui.click(column(rail, "≡") + 1, row + 1);
         return await tui.paneWhere((value) =>
-            value.includes("Resume") && value.includes("⏎ stop & switch")
+            value.includes("Resume") && value.includes("⏎ switch")
         );
     });
 
@@ -110,7 +110,7 @@ test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", 
         return await tui.paneWhere((value) =>
             value.includes("Continue the theme picker")
             && value.includes("⏎ open")
-            && !value.includes("stop & switch")
+            && !value.includes("⏎ switch")
         );
     }, 100, 34, {}, RESUME_CHILD);
 

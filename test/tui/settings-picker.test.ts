@@ -144,7 +144,17 @@ test("session picker filters titled durable conversations and selects an agent",
     expect(frame).toContain("1h ago");
     expect(frame).toContain("alpha");
     expect(frame).not.toContain("22222222");
-    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+    // Enter asks how to leave the conversation on screen before switching.
+    const leave = handleTuiSettingsPickerKey(state, { name: "enter" }).state;
+    expect(leave?.kind).toBe("session_leave");
+    expect(leave?.options.map((option) => option.label))
+        .toEqual(["Stop & switch", "Switch, keep running"]);
+    expect(pickerFooter(leave!)).toBe("↑↓ choose · ⏎ switch · esc back");
+    expect(handleTuiSettingsPickerKey(leave!, { name: "escape" }).state)
+        .toBe(state);
+    expect(handleTuiSettingsPickerKey(leave!, { name: "up" }).state?.selectedIndex)
+        .toBe(0);
+    expect(handleTuiSettingsPickerKey(leave!, { name: "enter" }).selection)
         .toEqual({
             kind: "session",
             sessionPath: "/sessions/first.jsonl",
@@ -153,13 +163,18 @@ test("session picker filters titled durable conversations and selects an agent",
             sessionId: "11111111-first-session",
             sourceDisposition: "stop",
         });
-    expect(handleTuiSettingsPickerKey(state, { name: "tab" }).selection)
+    const keep = handleTuiSettingsPickerKey(leave!, { name: "down" }).state!;
+    expect(handleTuiSettingsPickerKey(keep, { name: "down" }).state?.selectedIndex)
+        .toBe(1);
+    expect(handleTuiSettingsPickerKey(keep, { name: "enter" }).selection)
         .toEqual({
             kind: "session",
             sessionPath: "/sessions/first.jsonl",
             sessionId: "11111111-first-session",
             sourceDisposition: "keep_running",
         });
+    expect(handleTuiSettingsPickerKey(state, { name: "tab" }))
+        .toEqual({ state, handled: true });
     expect(handleTuiSettingsPickerKey(
         state,
         { name: "delete" },
@@ -177,8 +192,8 @@ test("session picker filters titled durable conversations and selects an agent",
         value: "Fix the deployment race",
     });
     expect(frame).toContain("^r rename");
-    expect(frame).toContain("⏎ stop & switch");
-    expect(frame).toContain("tab keep running");
+    expect(frame).toContain("⏎ switch");
+    expect(frame).not.toContain("tab");
 
     const searched = updateTuiSettingsPickerSearch(
         state,
@@ -214,7 +229,8 @@ test("a child picker can include an untitled hosted agent", async () => {
     }], "parent", false, new Date(), true);
 
     expect(await pickerFrame(state)).toContain("frosty-frost:9f3a:UAT-tester");
-    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+    const leave = handleTuiSettingsPickerKey(state, { name: "enter" }).state!;
+    expect(handleTuiSettingsPickerKey(leave, { name: "enter" }).selection)
         .toEqual({
             kind: "session",
             sessionPath: "/sessions/child.jsonl",
