@@ -55,6 +55,7 @@ test("TUI appearance resolves JSON overrides and derives tip alignment", () => {
         composerPaddingHorizontal: 2,
         composerTipIndent: 5,
         composerBoundaryColor: "#303030",
+        sidebarOpenAtLaunch: false,
     });
     expect(tuiComposerContentIndent(appearance)).toBe(7);
 });
@@ -63,6 +64,12 @@ test("an explicit composer tip indent wins over derived alignment", () => {
     expect(resolveTuiAppearance({
         composer: { margin_horizontal: 4, tip_indent: 2 },
     }).composerTipIndent).toBe(2);
+});
+
+test("the sidebar stays closed at launch unless the config opens it", () => {
+    expect(resolveTuiAppearance().sidebarOpenAtLaunch).toBe(false);
+    expect(resolveTuiAppearance({ sidebar: {} }).sidebarOpenAtLaunch).toBe(false);
+    expect(resolveTuiAppearance({ sidebar: { open_at_launch: true } }).sidebarOpenAtLaunch).toBe(true);
 });
 
 test("dialog header style defaults to underline and resolves the box override", () => {

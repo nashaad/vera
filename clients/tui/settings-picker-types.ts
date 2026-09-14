@@ -74,6 +74,7 @@ export type TuiSettingsPickerKind =
     | "overrides_settings"
     | "override_value"
     | "session"
+    | "session_leave"
     | "configure"
     | "settings"
     | "permission_settings"
@@ -86,6 +87,20 @@ export type TuiSettingsPickerKind =
     | "catalog_refresh_scope";
 
 export const OVERRIDES_RESET_VALUE = "overrides_reset";
+
+/** How Resume leaves the conversation on screen; the value is the disposition. */
+export const SESSION_LEAVE_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    {
+        value: "stop",
+        label: "Stop & switch",
+        description: "stop this conversation, then open the one you picked",
+    },
+    {
+        value: "keep_running",
+        label: "Switch, keep running",
+        description: "leave this conversation working in the background",
+    },
+];
 
 export type TuiSettingsMenuTarget =
     | "model"

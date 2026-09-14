@@ -187,11 +187,16 @@ export interface VeraTuiDialogsConfig {
     readonly search_style?: "border" | "fill" | "plain";
 }
 
+export interface VeraTuiSidebarConfig {
+    readonly open_at_launch?: boolean;
+}
+
 /** Client-owned visual tuning. Absent values retain Vera's current layout. */
 export interface VeraTuiConfig {
     readonly transcript?: VeraTuiTranscriptConfig;
     readonly composer?: VeraTuiComposerConfig;
     readonly dialogs?: VeraTuiDialogsConfig;
+    readonly sidebar?: VeraTuiSidebarConfig;
 }
 
 /**
@@ -1425,14 +1430,24 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
     const transcript = parseTuiTranscriptConfig(raw.transcript);
     const composer = parseTuiComposerConfig(raw.composer);
     const dialogs = parseTuiDialogsConfig(raw.dialogs);
-    if (transcript === undefined || composer === undefined || dialogs === undefined) {
+    const sidebar = parseTuiSidebarConfig(raw.sidebar);
+    if (transcript === undefined || composer === undefined || dialogs === undefined || sidebar === undefined) {
         return undefined;
     }
     return {
         ...(raw.transcript === undefined ? {} : { transcript }),
         ...(raw.composer === undefined ? {} : { composer }),
         ...(raw.dialogs === undefined ? {} : { dialogs }),
+        ...(raw.sidebar === undefined ? {} : { sidebar }),
     };
+}
+
+function parseTuiSidebarConfig(value: unknown): VeraTuiSidebarConfig | undefined {
+    if (value === undefined) return {};
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+    const openAtLaunch = Reflect.get(value, "open_at_launch");
+    if (openAtLaunch !== undefined && typeof openAtLaunch !== "boolean") return undefined;
+    return openAtLaunch === undefined ? {} : { open_at_launch: openAtLaunch };
 }
 
 function parseTuiDialogsConfig(value: unknown): VeraTuiDialogsConfig | undefined {

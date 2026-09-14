@@ -176,7 +176,6 @@ export interface TuiRuntime {
     workTab: WorkTabState | undefined;
     workspaceSidebar: WorkspaceSidebarState | undefined;
     workspaceSidebarFocused: boolean;
-    workspaceSidebarDocked: boolean;
     workspaceRailPreferred: number | undefined;
     workspaceRail: number | undefined;
     workspaceRailDragging: boolean;

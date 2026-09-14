@@ -45,6 +45,8 @@ test("resume picker switches conversation without restarting the TUI", async () 
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
+        // Stop & switch, the first row of the leave menu.
+        session.sendKey("Enter");
         // Enter runs the row rather than previewing it: the file is resumed
         // and what lands is a conversation, not a transcript read from disk.
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");

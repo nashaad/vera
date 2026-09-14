@@ -15,7 +15,7 @@ import { startTuiNamePrompt, type TuiNamePromptTarget } from "../name-prompt.ts"
 import { applySearchFailure, applySearchResults, startSearchOverlay, type SearchScope } from "../search-overlay.ts";
 import { startTuiSessionPicker, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
-import { saveTuiPinnedSessionIds, saveTuiWorkspaceSidebarDocked } from "../theme-preference.ts";
+import { saveTuiPinnedSessionIds } from "../theme-preference.ts";
 import { startWorkTab, type WorkTabState } from "../work-tab.ts";
 import { applyWorkspaceWorkIndex, clampWorkspaceRailColumns, openWorkspaceSelection, refreshWorkspaceSidebarSessions, startWorkspaceSidebar, workspaceCycleTarget, workspaceRailColumns, workspaceSidebarSessions, type WorkspaceSidebarAction, type WorkspaceSidebarState } from "../workspace-sidebar.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -100,7 +100,7 @@ export function focusWorkspaceSidebar(rt: TuiRuntime): void {
 }
 
 export function openWorkspaceSidebar(rt: TuiRuntime, 
-    options: { readonly focus?: boolean; readonly persist?: boolean } = {},
+    options: { readonly focus?: boolean } = {},
 ): void {
     if (rt.dependencies.listAgents === undefined) {
         rt.state = appendTuiError(
@@ -113,13 +113,6 @@ export function openWorkspaceSidebar(rt: TuiRuntime,
     }
     const generation = rt.clientGeneration;
     const focus = options.focus !== false;
-    if (options.persist !== false) {
-        rt.workspaceSidebarDocked = true;
-        try {
-            saveTuiWorkspaceSidebarDocked(true);
-        } catch {
-        }
-    }
     void rt.dependencies.listAgents().then((agents) => {
         if (rt.shuttingDown || generation !== rt.clientGeneration) return;
         const sessions = workspaceSidebarSessions(agents);
@@ -275,13 +268,8 @@ export function resizeWorkspaceRailAt(rt: TuiRuntime, pointerColumn: number): vo
 export function closeWorkspaceSidebar(rt: TuiRuntime): void {
     rt.workspaceSidebar = undefined;
     rt.workspaceSidebarFocused = false;
-    rt.workspaceSidebarDocked = false;
     rt.workspaceRailDragging = false;
     rt.workspaceSidebarView.box.borderColor = rt.theme.element;
-    try {
-        saveTuiWorkspaceSidebarDocked(false);
-    } catch {
-    }
     rt.workspaceSidebarView.surface.visible = false;
     rt.composer.focus();
     renderState(rt);

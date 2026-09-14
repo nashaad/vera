@@ -206,6 +206,16 @@ test("Vera config preserves independent dialog header and search styles", () => 
     }
 });
 
+test("Vera config keeps the sidebar launch setting across a defaults update", () => {
+    for (const open_at_launch of [true, false]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({ schema_version: 1, model: "anthropic/example-model", tui: { sidebar: { open_at_launch } } }));
+        expect(loadVeraConfig({ path }).tui?.sidebar).toEqual({ open_at_launch });
+        updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+        expect(loadVeraConfig({ path }).tui?.sidebar).toEqual({ open_at_launch });
+    }
+});
+
 test("the optional load tolerates absence but not damage", () => {
     const missing = join(mkdtempSync(join(tmpdir(), "vera-config-")), "none.json");
     expect(loadOptionalVeraConfig({ path: missing })).toBeUndefined();
@@ -279,6 +289,9 @@ test("Vera config rejects malformed TUI appearance settings", () => {
         { dialogs: { header_style: null } },
         { dialogs: { search_style: "both" } },
         { dialogs: { search_style: null } },
+        { sidebar: [] },
+        { sidebar: { open_at_launch: "yes" } },
+        { sidebar: { open_at_launch: null } },
         { transcript: [] },
         { transcript: { padding_left: -1 } },
         { transcript: { activity_indent: 0 } },

@@ -18,6 +18,7 @@ export interface TuiAppearance {
     readonly composerPaddingHorizontal: number;
     readonly composerTipIndent: number;
     readonly composerBoundaryColor?: string;
+    readonly sidebarOpenAtLaunch: boolean;
 }
 
 export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
@@ -34,6 +35,7 @@ export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
     composerMarginHorizontal: 2,
     composerPaddingHorizontal: 1,
     composerTipIndent: 3,
+    sidebarOpenAtLaunch: false,
 };
 
 const TUI_COMPOSER_MIN_CONTENT_COLUMNS = 12;
@@ -76,6 +78,8 @@ export function resolveTuiAppearance(
         ...(config?.composer?.boundary_color === undefined
             ? {}
             : { composerBoundaryColor: config.composer.boundary_color }),
+        sidebarOpenAtLaunch: config?.sidebar?.open_at_launch
+            ?? DEFAULT_TUI_APPEARANCE.sidebarOpenAtLaunch,
     };
 }
 
