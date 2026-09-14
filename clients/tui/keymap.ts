@@ -656,14 +656,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+w scope",
     },
     {
-        id: "switch_diagnostics_scope",
-        keys: ["tab", "shift+tab", "backtab"],
-        scope: "diagnostics",
-        description: "Show this session's diagnostics or the whole host's",
-        hint: "tab scope",
-        overrides: ["dials.open"],
-    },
-    {
         id: "check_provider_health",
         keys: ["v"],
         scope: "diagnostics",

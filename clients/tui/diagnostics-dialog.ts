@@ -1,7 +1,5 @@
 import {
-    bg,
     BoxRenderable,
-    bold,
     fg,
     MarkdownRenderable,
     ScrollBoxRenderable,
@@ -16,6 +14,9 @@ import {
 import {
     DIALOG_CARD_Z_INDEX,
     dialogHeaderNode,
+    dialogOptionRows,
+    dialogRowPointer,
+    type DialogRowPointer,
     updateDialogHeaderTitle,
 } from "./dialog-chrome.ts";
 import {
@@ -25,12 +26,11 @@ import {
     TUI_MUTED,
     TUI_NOTICE,
     TUI_PANEL,
-    TUI_SELECTION_TEXT,
     TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 import type { TuiDiagnosticsScope } from "./diagnostics.ts";
-import { tuiBindingId } from "./keymap.ts";
+import { isTuiDialTabKey, tuiBindingId } from "./keymap.ts";
 
 export const INSPECT_COPY_HINT = "drag a section · enter copies all";
 
@@ -60,6 +60,7 @@ export interface TuiDiagnosticsDialogState {
     readonly title?: string;
     readonly footerText?: string;
     readonly scope?: TuiDiagnosticsScope;
+    readonly menu?: boolean;
     readonly copyReady?: boolean;
     readonly copyStatus?: "copied" | "failed";
 }
@@ -67,8 +68,32 @@ export interface TuiDiagnosticsDialogState {
 export type TuiDiagnosticsDialogAction =
     | "copy"
     | "dismiss"
-    | "switch_scope"
-    | "check_health";
+    | "back"
+    | "open"
+    | "previous_scope"
+    | "next_scope"
+    | "check_health"
+    | "consume";
+
+export const DIAGNOSTICS_SCOPES: readonly TuiDiagnosticsScope[] = [
+    "session",
+    "vera",
+];
+
+const DIAGNOSTICS_SCOPE_ROWS: Readonly<
+    Record<TuiDiagnosticsScope, { readonly label: string; readonly description: string }>
+> = {
+    session: {
+        label: "Session",
+        description: "This conversation: health, processes, usage, model",
+    },
+    vera: {
+        label: "Vera",
+        description: "The host: build, startup, extensions, stash",
+    },
+};
+
+export const DIAGNOSTICS_MENU_HINT = "↑↓ choose · ⏎ open · esc close";
 
 export interface TuiDiagnosticsDialogKey {
     readonly name: string;
@@ -79,6 +104,7 @@ export interface TuiDiagnosticsDialogKey {
 
 export interface TuiDiagnosticsDialogView {
     readonly box: BoxRenderable;
+    pointer?: DialogRowPointer;
     focus(): void;
     contentWidth(): number;
     update(state: TuiDiagnosticsDialogState): void;
@@ -91,23 +117,36 @@ export interface TuiDiagnosticsDialogOptions {
     readonly footerText?: string;
     readonly pendingText?: string;
     readonly skipFirstLine?: boolean;
-    readonly showScopeTabs?: boolean;
+    readonly scopeMenu?: boolean;
     readonly emphasis?: "doctor";
 }
 
 export function handleTuiDiagnosticsDialogKey(
     key: TuiDiagnosticsDialogKey,
-    canSwitchScope = false,
+    scoped = false,
     canCheckHealth = false,
+    onMenu = false,
 ): TuiDiagnosticsDialogAction | undefined {
     if (key.ctrl || key.meta) {
         return undefined;
     }
+    const enter = key.name === "return"
+        || key.name === "enter"
+        || key.name === "kpenter";
     if (
-        canSwitchScope
-        && tuiBindingId("diagnostics", key) === "switch_diagnostics_scope"
+        isTuiDialTabKey(key)
+        || key.name === "left"
+        || key.name === "right"
+        || key.name === "space"
     ) {
-        return "switch_scope";
+        return "consume";
+    }
+    if (scoped && onMenu) {
+        if (key.name === "escape") return "dismiss";
+        if (enter) return "open";
+        if (key.name === "up") return "previous_scope";
+        if (key.name === "down") return "next_scope";
+        return undefined;
     }
     if (
         canCheckHealth
@@ -117,13 +156,9 @@ export function handleTuiDiagnosticsDialogKey(
     }
     if (key.shift) return undefined;
     if (key.name === "escape") {
-        return "dismiss";
+        return scoped ? "back" : "dismiss";
     }
-    if (
-        key.name === "return"
-        || key.name === "enter"
-        || key.name === "kpenter"
-    ) {
+    if (enter) {
         return "copy";
     }
     return undefined;
@@ -154,15 +189,17 @@ export function createTuiDiagnosticsDialogView(
         visible: false,
     });
     const header = dialogHeaderNode(renderer, defaultTitle);
-    const scopeTabs = options.showScopeTabs === true
-        ? new TextRenderable(renderer, {
-            id: `${id}-scope-tabs`,
-            content: diagnosticsScopeTabs("session"),
+    const scopeMenu = options.scopeMenu === true
+        ? new BoxRenderable(renderer, {
+            id: `${id}-scope-menu`,
             width: "100%",
-            height: 1,
+            flexGrow: 1,
             marginTop: 1,
+            flexDirection: "column",
+            visible: false,
         })
         : undefined;
+    let menuRows: BoxRenderable[] = [];
     let markdownStyle = inspectMarkdownStyle();
     let occupancyBlock = 0;
     let healthBlock = 0;
@@ -252,11 +289,25 @@ export function createTuiDiagnosticsDialogView(
     footer.add(shareHint);
     footer.add(copyHint);
     box.add(header);
-    if (scopeTabs !== undefined) box.add(scopeTabs);
+    if (scopeMenu !== undefined) box.add(scopeMenu);
     box.add(body);
     box.add(footer);
     box.once("destroyed", () => markdownStyle.destroy());
     let activeScope: TuiDiagnosticsScope = "session";
+    let onMenu = false;
+
+    const paintMenu = (): void => {
+        if (scopeMenu === undefined) return;
+        for (const row of menuRows) row.destroyRecursively();
+        menuRows = dialogOptionRows(renderer, DIAGNOSTICS_SCOPES.map((scope, index) => ({
+            label: DIAGNOSTICS_SCOPE_ROWS[scope].label,
+            description: DIAGNOSTICS_SCOPE_ROWS[scope].description,
+            active: scope === activeScope,
+            current: false,
+            ...dialogRowPointer(view.pointer, index),
+        })));
+        for (const row of menuRows) scopeMenu.add(row);
+    };
 
     const refreshFrame = (): void => {
         const next = inspectDialogFrame(renderer.width);
@@ -273,10 +324,11 @@ export function createTuiDiagnosticsDialogView(
         return Math.max(20, available - 1);
     };
 
-    return {
+    const view: TuiDiagnosticsDialogView = {
         box,
         focus(): void {
-            body.focus();
+            if (onMenu) box.focus();
+            else body.focus();
         },
         contentWidth(): number {
             refreshFrame();
@@ -290,22 +342,34 @@ export function createTuiDiagnosticsDialogView(
             if (state.footerText !== undefined) {
                 shareHint.content = state.footerText;
             }
-            if (scopeTabs !== undefined) {
+            if (scopeMenu !== undefined) {
                 activeScope = state.scope ?? "session";
-                scopeTabs.content = diagnosticsScopeTabs(activeScope);
+                onMenu = state.menu === true;
+                scopeMenu.visible = onMenu;
+                body.visible = !onMenu;
+                updateDialogHeaderTitle(
+                    header,
+                    onMenu
+                        ? defaultTitle
+                        : `${defaultTitle} › ${DIAGNOSTICS_SCOPE_ROWS[activeScope].label}`,
+                );
+                paintMenu();
             }
             bodyMarkdown.content = inspectDocumentMarkdown(
                 state.text,
                 options.skipFirstLine,
             );
-            copyHint.content = state.copyStatus === "copied"
+            const back = scopeMenu === undefined ? "" : " · esc back";
+            copyHint.content = onMenu && scopeMenu !== undefined
+                ? DIAGNOSTICS_MENU_HINT
+                : state.copyStatus === "copied"
                 ? "✓ copied"
                 : state.copyStatus === "failed"
                 ? "copy failed · enter retry"
                 : state.copyReady === false
                 ? options.pendingText ?? "finding session path…"
-                : INSPECT_COPY_HINT;
-            copyHint.fg = state.copyStatus === "copied"
+                : `${INSPECT_COPY_HINT}${back}`;
+            copyHint.fg = state.copyStatus === "copied" && !onMenu
                 ? TUI_SUCCESS
                 : TUI_MUTED;
         },
@@ -317,13 +381,12 @@ export function createTuiDiagnosticsDialogView(
             bodyMarkdown.fg = TUI_TEXT;
             bodyMarkdown.refreshStyles();
             retiredStyle.destroy();
-            if (scopeTabs !== undefined) {
-                scopeTabs.content = diagnosticsScopeTabs(activeScope);
-            }
+            paintMenu();
             shareHint.fg = TUI_MUTED;
             copyHint.fg = TUI_MUTED;
         },
     };
+    return view;
 }
 
 export function inspectMarkdownStyle(): SyntaxStyle {
@@ -342,19 +405,6 @@ export function inspectMarkdownStyle(): SyntaxStyle {
         "punctuation.special": { fg: TUI_ELEMENT },
         conceal: { fg: TUI_ELEMENT },
     });
-}
-
-function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
-    const tab = (label: string, active: boolean) =>
-        active
-            ? [bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(` ${label} `)))]
-            : [fg(TUI_MUTED)(` ${label} `)];
-    return new StyledText([
-        ...tab("Session", scope === "session"),
-        fg(TUI_MUTED)("  "),
-        ...tab("Vera", scope === "vera"),
-        fg(TUI_MUTED)("    tab switch"),
-    ]);
 }
 
 export function styledInspectOccupancy(text: string): StyledText {

@@ -299,6 +299,7 @@ export function submitPrompt(rt: TuiRuntime,
         rt.composer.clearComposer();
         renderCommandSuggestions(rt);
         rt.diagnosticsScope = "session";
+        rt.diagnosticsMenu = true;
         rt.diagnosticsSessionPath = undefined;
         rt.diagnosticsSessionIdentity = undefined;
         rt.diagnosticsWorkerPid = undefined;

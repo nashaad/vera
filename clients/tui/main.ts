@@ -980,6 +980,7 @@ export async function startTui(
     rt.searchInFlight = false;
 
     rt.diagnosticsScope = "session";
+    rt.diagnosticsMenu = true;
     rt.diagnosticsProcessMemory = new Map();
     rt.diagnosticsSessionPathResolved = false;
     rt.diagnosticsGeneration = 0;
@@ -1689,7 +1690,7 @@ export async function startTui(
     });
     rt.helpView = createTuiHelpView(rt.renderer);
     rt.diagnosticsDialogView = createTuiDiagnosticsDialogView(rt.renderer, {
-        showScopeTabs: true,
+        scopeMenu: true,
     });
     rt.extensionsDialogView = createTuiDiagnosticsDialogView(rt.renderer, {
         id: "extensions-dialog",
@@ -2119,6 +2120,11 @@ export async function startTui(
     rt.helpView.pointer = rowPointer(rt, (index) => {
         if (rt.help === undefined) return;
         rt.help = pointedHelpRow(rt.help, index);
+    });
+    rt.diagnosticsDialogView.pointer = rowPointer(rt, (index) => {
+        if (rt.diagnosticsDialog === undefined || !rt.diagnosticsMenu) return;
+        rt.diagnosticsScope = index === 0 ? "session" : "vera";
+        rt.diagnosticsDialog = { ...rt.diagnosticsDialog, scope: rt.diagnosticsScope };
     });
     rt.helpView.onSection = (section) => {
         if (rt.help === undefined) return;

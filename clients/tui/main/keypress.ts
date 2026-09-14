@@ -3,7 +3,7 @@ import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
 import { tuiArgumentCompletion, tuiWithArgument } from "../commands.ts";
 import { composeSuggesterDismissalKey } from "../compose-suggester.ts";
-import { handleTuiDiagnosticsDialogKey } from "../diagnostics-dialog.ts";
+import { DIAGNOSTICS_SCOPES, handleTuiDiagnosticsDialogKey } from "../diagnostics-dialog.ts";
 import { handleDialStripKey } from "../dials.ts";
 import { handleTuiHelpKey } from "../help.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -920,6 +920,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 renderState(rt);
                 return;
             }
+            if (action !== "copy") return;
             if (rt.doctorDialog.copyReady === false) {
                 return;
             }
@@ -948,6 +949,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 renderState(rt);
                 return;
             }
+            if (action !== "copy") return;
             if (rt.extensionsDialog.copyReady === false) return;
             const text = rt.extensionsDialog.text;
             void rt.copyText(text).then(() => {
@@ -974,6 +976,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 renderState(rt);
                 return;
             }
+            if (action !== "copy") return;
             if (rt.documentDialog.copyReady === false) return;
             const text = rt.documentDialog.text;
             void rt.copyText(text).then(() => {
@@ -990,10 +993,39 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
 
     if (rt.diagnosticsDialog !== undefined) {
-        const action = handleTuiDiagnosticsDialogKey(key, true, true);
+        const action = handleTuiDiagnosticsDialogKey(
+            key,
+            true,
+            true,
+            rt.diagnosticsMenu,
+        );
         if (action !== undefined) {
             key.preventDefault();
             key.stopPropagation();
+            if (action === "consume") return;
+            if (action === "previous_scope" || action === "next_scope") {
+                const index = DIAGNOSTICS_SCOPES.indexOf(rt.diagnosticsScope);
+                const next = Math.max(
+                    0,
+                    Math.min(
+                        DIAGNOSTICS_SCOPES.length - 1,
+                        index + (action === "next_scope" ? 1 : -1),
+                    ),
+                );
+                rt.diagnosticsScope = DIAGNOSTICS_SCOPES[next] ?? "session";
+                rt.diagnosticsDialog = {
+                    ...rt.diagnosticsDialog,
+                    scope: rt.diagnosticsScope,
+                };
+                renderState(rt);
+                return;
+            }
+            if (action === "back") {
+                rt.diagnosticsMenu = true;
+                renderState(rt);
+                focusActiveSurface(rt);
+                return;
+            }
             if (action === "dismiss") {
                 abortProviderHealthCheck(rt);
                 rt.providerHealthGeneration += 1;
@@ -1006,10 +1038,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 renderState(rt);
                 return;
             }
-            if (action === "switch_scope") {
-                rt.diagnosticsScope = rt.diagnosticsScope === "session"
-                    ? "vera"
-                    : "session";
+            if (action === "open") {
+                rt.diagnosticsMenu = false;
                 rt.diagnosticsDialog = {
                     text: renderDiagnostics(rt, {
                         ...diagnosticsSnapshot(rt),
@@ -1020,6 +1050,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                         || rt.diagnosticsSessionPathResolved,
                 };
                 renderState(rt);
+                focusActiveSurface(rt);
                 return;
             }
             if (action === "check_health") {

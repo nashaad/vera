@@ -207,6 +207,7 @@ export interface TuiRuntime {
         readonly renderMarkdown?: (columns: number) => string;
     }) | undefined;
     diagnosticsScope: TuiDiagnosticsScope;
+    diagnosticsMenu: boolean;
     diagnosticsSessionPath: string | undefined;
     diagnosticsSessionIdentity: string | undefined;
     diagnosticsWorkerPid: number | undefined;
