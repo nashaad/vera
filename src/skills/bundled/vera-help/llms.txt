@@ -72,7 +72,7 @@ Only kept and verified models can be newly assigned in Assign model defaults (`/
 An assigned model cannot be removed from the library until its slots are reassigned or cleared. A failed verification leaves existing assignments unchanged.
 In Switch model, Ctrl+R refreshes connected catalogs in place. Open Configure providers from Ctrl+P. The CLI also has `vera models refresh`.
 Provider credentials and endpoint configuration belong to the Vera home. Forget credentials removes its models, unsets affected defaults, and clears conversations using it; an environment credential must be unset in the host environment.
-Dial strip from Ctrl+P has effort, access, model, and agent lanes. Tab and Shift+Tab move between controls. Up/Down stages a model; Left/Right adjusts effort, access, or agent. Enter applies; Escape cancels. Unavailable values are skipped.
+Dial strip from Ctrl+P has effort, access, model, and agent lanes. Tab and Shift+Tab move between controls. Up/Down stages a model; Left/Right adjusts effort, access, or agent. An arrow the lane does not use moves to the next or previous lane. Enter applies; Escape cancels. Unavailable values are skipped.
 The HUD offers at most ten models: the current model, up to five recent models from this conversation, then Model Library choices filling the remaining places. Recent and From Model Library headings separate the groups. Use `/model` for the full list.
 The conversation header shows model, effort, and access.
 Reasoning effort is model-dependent. `off` is explicit; Vera does not infer it for a model that lacks an off mapping.

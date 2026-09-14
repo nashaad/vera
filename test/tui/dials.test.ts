@@ -109,7 +109,7 @@ test("the HUD windows long lanes instead of wrapping them", () => {
     );
     expect(compact.join("\n")).toContain("MODEL");
     expect(compact.join("\n")).toContain("EFFORT");
-    expect(compact.at(-1)).toContain("Tab/Shift+Tab sections");
+    expect(compact.at(-1)).toContain("Tab/←→ sections");
     const wide = renderDialStrip(
         openDialStrip(composition, SOL),
         "hints",
@@ -588,7 +588,7 @@ test("vertical model arrows stay within the control and wrap through a large lib
     state = press(state, "up");
     expect(state.index).toBe(14);
     expect(state.lane).toBe("model");
-    for (const name of ["left", "right", "h", "j", "k", "l", "1", "m"]) {
+    for (const name of ["h", "j", "k", "l", "1", "m"]) {
         expect(handleDialStripKey(state, { name }, undefined)).toEqual({ kind: "ignore" });
     }
     const lines = renderDialStrip(state, "", 60);
@@ -698,9 +698,27 @@ test("Tab and reverse Tab cycle HUD controls without staging values", () => {
         const action = handleDialStripKey(original, key, undefined);
         expect(action.kind === "state" && action.state.lane).toBe("agent");
     }
-    for (const lane of ["effort", "access", "agent"] as const) {
-        for (const name of ["up", "down"]) expect(handleDialStripKey({ ...original, lane }, { name }, undefined)).toEqual({ kind: "ignore" });
+});
+
+test("an arrow a lane does not use changes lanes in Tab order and wraps", () => {
+    const original = scaleStrip(SOL);
+    const moves: readonly [DialLane, string, DialLane][] = [
+        ["effort", "down", "access"], ["effort", "up", "agent"],
+        ["access", "down", "model"], ["access", "up", "effort"],
+        ["model", "right", "agent"], ["model", "left", "access"],
+        ["agent", "down", "effort"], ["agent", "up", "model"],
+    ];
+    for (const [lane, name, next] of moves) {
+        const state = press({ ...original, lane }, name);
+        expect(state.lane).toBe(next);
+        expect(dialStripSelection(state)).toEqual(SOL);
+        expect(state.permissionEdited).toBeUndefined();
     }
+    const model = { ...original, lane: "model" as const };
+    expect(press(model, "down").lane).toBe("model");
+    expect(press({ ...original, lane: "access" }, "right").lane).toBe("access");
+    expect(renderDialStrip(model, "", 90).at(-1)).toContain("Tab/←→ sections · ↑↓ model");
+    expect(renderDialStrip(original, "", 90).at(-1)).toContain("Tab/↑↓ sections · ←→ change");
 });
 
 

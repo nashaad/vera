@@ -1,4 +1,5 @@
 import { tuiBindingId } from "./keymap.ts";
+import { arrowMovesForward, sectionArrow } from "./section-keys.ts";
 
 export interface DialPair {
     readonly provider?: string;
@@ -431,7 +432,7 @@ export function renderDialStrip(
         lane("agent", state.agents.length === 0 ? ["unavailable"] : state.agents,
             state.agentIndex, state.openedAgent),
         "",
-        renderDialFooter(`Tab/Shift+Tab sections · ${state.lane === "model" ? "↑↓ model" : "←→ change"} · ⏎ apply`, width),
+        renderDialFooter(`${state.lane === "model" ? "Tab/←→ sections · ↑↓ model" : "Tab/↑↓ sections · ←→ change"} · ⏎ apply`, width),
     ];
 }
 
@@ -676,11 +677,10 @@ export function handleDialStripKey(
     if ((bindingId ?? tuiBindingId("dials", key)) === "dials.section") {
         return { kind: "state", state: moveDialLane(state, key.shift || key.name === "backtab" ? -1 : 1) };
     }
-    switch (key.name) {
-        case "left": return state.lane === "model" ? { kind: "ignore" } : { kind: "state", state: moveChoice(state, -1) };
-        case "right": return state.lane === "model" ? { kind: "ignore" } : { kind: "state", state: moveChoice(state, 1) };
-        case "up": return state.lane === "model" ? { kind: "state", state: moveDialStrip(state, -1) } : { kind: "ignore" };
-        case "down": return state.lane === "model" ? { kind: "state", state: moveDialStrip(state, 1) } : { kind: "ignore" };
-        default: return { kind: "ignore" };
-    }
+    const arrow = sectionArrow(key.name);
+    if (arrow === undefined) return { kind: "ignore" };
+    const delta = arrowMovesForward(arrow) ? 1 : -1;
+    const vertical = arrow === "up" || arrow === "down";
+    if (vertical !== (state.lane === "model")) return { kind: "state", state: moveDialLane(state, delta) };
+    return { kind: "state", state: state.lane === "model" ? moveDialStrip(state, delta) : moveChoice(state, delta) };
 }

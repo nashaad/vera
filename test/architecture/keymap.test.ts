@@ -69,7 +69,7 @@ test("no TUI surface matches a chord outside the keymap", async () => {
  */
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
     // The selected model-journey contract makes these actions visible in their open screen.
-    "journey_section", "journey_refresh", "journey_cutoff",
+    "journey_section", "shortlist_section", "journey_refresh", "journey_cutoff",
     // Tab moves visible focus inside the open HUD without changing any value.
     "dials.section",
     "verification_coverage", "verification_nudge_dismiss",
