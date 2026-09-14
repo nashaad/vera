@@ -25,6 +25,7 @@ import {
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import type { LiteralSecretFinding } from "../../src/extensions/literal-secret.ts";
 import {
+    EXTENSION_DATA_DIRECTORY,
     veraMachineDirectory,
     veraProfileDirectory,
 } from "../../src/profile-paths.ts";
@@ -1521,8 +1522,12 @@ test("an extension gets its own directory in the tier it asks for", async () => 
         profile: string;
         machine: string;
     };
-    expect(storage.profile).toBe(join(veraProfileDirectory(), "storage.probe"));
-    expect(storage.machine).toBe(join(veraMachineDirectory(), "storage.probe"));
+    expect(storage.profile).toBe(
+        join(veraProfileDirectory(), EXTENSION_DATA_DIRECTORY, "storage.probe"),
+    );
+    expect(storage.machine).toBe(
+        join(veraMachineDirectory(), EXTENSION_DATA_DIRECTORY, "storage.probe"),
+    );
     // Reading the path is what creates it, so an extension never has to.
     expect(existsSync(storage.profile)).toBe(true);
     expect(existsSync(storage.machine)).toBe(true);

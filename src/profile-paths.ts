@@ -53,8 +53,11 @@ export function assertProfileLayout(home?: string): void {
     );
 }
 
+export const EXTENSION_DATA_DIRECTORY = "extension-data";
+
 export const HOME_OWNED_ROOT_ENTRIES = [
     "machine",
+    EXTENSION_DATA_DIRECTORY,
     "runtime",
     "config.json",
     "pool.json",

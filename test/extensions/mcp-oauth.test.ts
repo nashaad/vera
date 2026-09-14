@@ -123,7 +123,7 @@ test("registry skips a logged-out oauth server but offers /mcp-login, then loads
         await loggedOut.close();
     }
 
-    const store = new TokenStore(join(veraHome, "machine", "vera.mcp"));
+    const store = new TokenStore(join(veraHome, "machine", "extension-data", "vera.mcp"));
     await loginServer({
         serverName: "fx",
         serverUrl: fixture.url,
@@ -131,7 +131,7 @@ test("registry skips a logged-out oauth server but offers /mcp-login, then loads
         openUrl: headlessBrowser,
         timeoutMs: 5_000,
     });
-    const tokensFile = join(veraHome, "machine", "vera.mcp", "tokens.json");
+    const tokensFile = join(veraHome, "machine", "extension-data", "vera.mcp", "tokens.json");
     expect(readFileSync(tokensFile, "utf8")).toContain("accessToken");
 
     const loggedIn = await startExtensionRegistry({
