@@ -96,6 +96,31 @@ test("state written outside the known root names is named", () => {
     expect(unrecognisedHomeEntries(root)).toEqual(["chrome"]);
 });
 
+test("storage for an installed extension is owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "extensions", "chrome"), { recursive: true });
+    writeFileSync(
+        join(root, ".vera", "extensions", "chrome", "vera.extension.json"),
+        JSON.stringify({ id: "vera.chrome", version: "1.0.0" }),
+    );
+    mkdirSync(join(root, ".vera", "vera.chrome"));
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+
+    mkdirSync(join(root, ".vera", "vera.other"));
+    expect(unrecognisedHomeEntries(root)).toEqual(["vera.other"]);
+});
+
+test("storage for a managed extension is owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "extensions", ".managed"), { recursive: true });
+    writeFileSync(
+        join(root, ".vera", "extensions", ".managed", "vera.btw.json"),
+        "{}",
+    );
+    mkdirSync(join(root, ".vera", "vera.btw"));
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
 test("a home that does not exist yet has nothing to complain about", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     expect(unrecognisedHomeEntries(root)).toEqual([]);

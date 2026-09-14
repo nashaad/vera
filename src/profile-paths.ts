@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -68,14 +68,71 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "agents",
 ] as const;
 
+/**
+ * Ids of the extensions installed in this home. Extension storage at the
+ * profile tier is `<home>/<id>`, so these directories are owned too.
+ */
+export function installedExtensionIds(home?: string): readonly string[] {
+    return installedExtensionIdsIn(veraHomeDirectory(home));
+}
+
+export function installedExtensionIdsIn(veraHome: string): readonly string[] {
+    const directory = join(veraHome, "extensions");
+    let entries: string[];
+    try {
+        entries = readdirSync(directory);
+    } catch {
+        return [];
+    }
+    const ids = new Set<string>();
+    for (const entry of entries) {
+        if (entry === ".managed") {
+            for (const managed of readManagedExtensionIds(join(directory, entry))) {
+                ids.add(managed);
+            }
+            continue;
+        }
+        const id = readExtensionManifestId(join(directory, entry));
+        if (id !== undefined) ids.add(id);
+    }
+    return [...ids].sort();
+}
+
+function readManagedExtensionIds(directory: string): readonly string[] {
+    try {
+        return readdirSync(directory)
+            .filter((entry) => entry.endsWith(".json"))
+            .map((entry) => entry.slice(0, -".json".length));
+    } catch {
+        return [];
+    }
+}
+
+function readExtensionManifestId(directory: string): string | undefined {
+    let text: string;
+    try {
+        text = readFileSync(join(directory, "vera.extension.json"), "utf8");
+    } catch {
+        return undefined;
+    }
+    try {
+        const id: unknown = (JSON.parse(text) as { id?: unknown }).id;
+        return typeof id === "string" && id.length > 0 ? id : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 export function unrecognisedHomeEntries(home?: string): readonly string[] {
     const root = veraHomeDirectory(home);
     if (!existsSync(root)) return [];
+    const owned = new Set<string>([
+        ...HOME_OWNED_ROOT_ENTRIES,
+        ...installedExtensionIds(home),
+    ]);
     return readdirSync(root)
         .filter((entry) => !entry.startsWith("."))
-        .filter((entry) =>
-            !(HOME_OWNED_ROOT_ENTRIES as readonly string[]).includes(entry)
-        )
+        .filter((entry) => !owned.has(entry))
         .sort();
 }
 

@@ -28,6 +28,7 @@ import { processIsAlive } from "../src/host/process-identity.ts";
 import { migrateHome } from "../src/home-migration.ts";
 import {
     HOME_OWNED_ROOT_ENTRIES,
+    installedExtensionIdsIn,
     veraHomeDirectory,
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
@@ -340,7 +341,10 @@ function scrubForeignHostIdentity(home: string): void {
 export function quarantineUnknownHomeEntries(home: string): void {
     if (!existsSync(home)) return;
     const leftover = join(home, "machine", "leftover");
-    const owned = new Set<string>(HOME_OWNED_ROOT_ENTRIES);
+    const owned = new Set<string>([
+        ...HOME_OWNED_ROOT_ENTRIES,
+        ...installedExtensionIdsIn(home),
+    ]);
     for (const entry of readdirSync(home)) {
         if (entry.startsWith(".")) continue;
         if (owned.has(entry)) continue;
