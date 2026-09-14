@@ -148,6 +148,8 @@ export interface VeraExtensionToolRequest {
 }
 
 export interface VeraExtensionToolResult {
+    /** Image files returned by the tool, copied into the owning session. */
+    readonly imagePaths?: readonly string[];
     readonly output: string;
     readonly isError?: boolean;
     /**

@@ -855,6 +855,9 @@ function registerTool(
             if (
                 !isPlainObject(result)
                 || typeof result.output !== "string"
+                || (result.imagePaths !== undefined && (!Array.isArray(result.imagePaths)
+                    || result.imagePaths.length > 4
+                    || result.imagePaths.some((path) => typeof path !== "string" || path.trim().length === 0)))
                 || (result.isError !== undefined
                     && typeof result.isError !== "boolean")
             ) {
@@ -877,6 +880,7 @@ function registerTool(
                 kind: "output",
                 output: result.output,
                 isError: result.isError ?? false,
+                ...(result.imagePaths === undefined ? {} : { imagePaths: [...result.imagePaths] as string[] }),
                 ...(presentation === undefined
                     ? {}
                     : { presentation }),
