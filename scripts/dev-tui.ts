@@ -227,6 +227,9 @@ export async function runDevTui(
         return 0;
     }
 
+    const stale = await stopOtherBuildHost(destinationHome, candidateBuildId(worktreeRoot), stderr);
+    if (stale !== 0) return stale;
+
     if (existsSync(destinationHome) && request.fresh) {
         const confirm = dependencies.confirm ?? confirmDiscard;
         if (!request.yes && !await confirm(
@@ -404,6 +407,34 @@ function readLockPid(lockPath: string): number | undefined {
     } catch {
         return undefined;
     }
+}
+
+/** A client refuses a host from another build, so a leftover one is stopped rather than left to block the launch. */
+async function stopOtherBuildHost(
+    destinationHome: string,
+    buildId: string,
+    stderr: { write(text: string): unknown },
+): Promise<number> {
+    const lockPath = join(destinationHome, "runtime", "host.json");
+    let record: { pid?: unknown; build_id?: unknown };
+    try {
+        record = JSON.parse(readFileSync(lockPath, "utf8"));
+    } catch {
+        return 0;
+    }
+    if (
+        buildId === "unstamped"
+        || typeof record.pid !== "number"
+        || typeof record.build_id !== "string"
+        || record.build_id === buildId
+        || !processIsAlive(record.pid)
+    ) {
+        return 0;
+    }
+    stderr.write(
+        `Stopping development host PID ${record.pid} from build ${record.build_id}; this is ${buildId}.\n`,
+    );
+    return await stopCandidate(destinationHome, stderr);
 }
 
 async function stopCandidate(

@@ -95,9 +95,12 @@ export class HostBuildMismatchError extends Error {
         const host = hostBuildId === undefined
             ? "did not report a build ID"
             : `is ${hostBuildId}`;
+        const stop = process.env.VERA_DEV_INSTANCE?.trim()
+            ? "'bun run dev:tui --stop' in this worktree"
+            : "'vera host stop'";
         super(
             `This client is ${clientBuildId}; the resident host ${host}. `
-                + "They cannot attach. Stop the host with 'vera host stop' "
+                + `They cannot attach. Stop the host with ${stop} `
                 + "and start this build again.",
         );
         this.name = "HostBuildMismatchError";

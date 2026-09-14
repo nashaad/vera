@@ -1111,6 +1111,19 @@ test("vera reports a build mismatch without a runtime stack trace", async () => 
     expect(errorOutput).not.toContain("HostBuildMismatchError:");
 });
 
+test("a development instance build mismatch names the dev stop, never the daily host stop", () => {
+    const previous = process.env.VERA_DEV_INSTANCE;
+    process.env.VERA_DEV_INSTANCE = "nav vera-client-c";
+    try {
+        const message = new HostBuildMismatchError("vera-client-c", "vera-host-b").message;
+        expect(message).toContain("bun run dev:tui --stop");
+        expect(message).not.toContain("vera host stop");
+    } finally {
+        if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;
+        else process.env.VERA_DEV_INSTANCE = previous;
+    }
+});
+
 test("vera reports a missing retained release without a runtime stack trace", async () => {
     let errorOutput = "";
     const exitCode = await runCliMain([], {

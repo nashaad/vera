@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
 
 import {
+    candidateBuildId,
     candidateHomePath,
     candidateLaunchEnv,
     disableOutboundConsumers,
@@ -263,6 +264,48 @@ test("reusing a development home preserves its running host and socket", async (
         }
     } finally {
         if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("a development host from another build is stopped before launch; one from this build is kept", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-stale-");
+    const worktree = linkedWorktree("stale-host");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const leftover = Bun.spawn(["sleep", "60"]);
+    try {
+        await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        const lockPath = join(home, "runtime", "host.json");
+        const lock = (pid: number, buildId: string) => JSON.stringify({
+            schema_version: 2, pid, started_at: new Date().toISOString(),
+            socket_path: join(home, "runtime", "host.sock"), build_id: buildId,
+        });
+
+        writeFileSync(lockPath, lock(process.pid, candidateBuildId(worktree)));
+        let errors = "";
+        await runDevTui([], worktree, {
+            sourceHome, temporaryRoot, spawnTui: async () => 0,
+            stderr: { write: (text: string) => errors += text },
+        });
+        expect(errors).toBe("");
+        expect(existsSync(lockPath)).toBe(true);
+
+        writeFileSync(lockPath, lock(leftover.pid, "vera-old-build"));
+        await runDevTui([], worktree, {
+            sourceHome, temporaryRoot,
+            stderr: { write: (text: string) => errors += text },
+            spawnTui: async () => {
+                expect(existsSync(lockPath)).toBe(false);
+                return 0;
+            },
+        });
+        expect(errors).toContain(`Stopping development host PID ${leftover.pid} from build vera-old-build`);
+        expect(await leftover.exited).not.toBe(0);
+    } finally {
+        leftover.kill("SIGKILL");
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });
     }
