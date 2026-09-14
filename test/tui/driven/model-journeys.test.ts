@@ -183,6 +183,41 @@ test("Home stages empty dials without creating a session, then switching applies
     } finally { await session.close(); }
 }, 15_000);
 
+test("Switch model asks for effort when the chosen model has levels and applies both to the session", async () => {
+    const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
+    const commands: import("../../../src/engine/protocol.ts").ClientCommand[] = [];
+    const levels = [{ id: "low" as const, label: "Low effort" }, { id: "high" as const, label: "High effort" }];
+    const available = [
+        { provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] },
+        { provider: "openrouter", model: "two/model", label: "Two", description: "", levels, defaultLevel: "low" as const },
+    ];
+    const settings = { provider: "openrouter", model: "one/model", availableModels: available, pooled: [] };
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-effort-")), width: 120, height: 48,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies(),
+            client: createSettingsAnsweringClient({ agentId: "switch-effort", workspace: "/work/vera", model: "one/model", mode: "ask",
+                modelSettings: settings, onCommand: (command) => commands.push(command) }),
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
+        await showCatalog(session);
+        session.sendText("two"); await session.waitForVisiblePane("Model ID: two/model");
+        session.sendKey("Tab"); session.sendKey("Tab"); await session.waitForVisiblePane("⏎ switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
+        expect(commands.some((command) => command.type === "update_session_model_settings")).toBe(false);
+        session.sendKey("Escape"); await session.waitForVisiblePane("Models from your connected providers");
+        session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
+        session.sendKey("Down"); session.sendKey("Enter"); await session.settle();
+        const applied = commands.filter((command) => command.type === "update_session_model_settings");
+        expect(applied.map((command) => command.type === "update_session_model_settings" && command.patch))
+            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: "high" }]);
+        expect(commands.some((command) => command.type === "update_model_settings")).toBe(false);
+    } finally { await session.close(); }
+}, 15_000);
+
 
 test("Switch model cannot mutate the library through legacy Ctrl+S or Ctrl+Shift+S", async () => {
     const operations: ModelOperation[] = [];

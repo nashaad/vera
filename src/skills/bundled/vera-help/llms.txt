@@ -61,6 +61,7 @@ Click the cutoff band to focus it, or click a number or track position to set it
 Older and duplicate models are hidden by default unless kept. Ctrl+A outside focused Search shows or hides extra variants and older models; search finds hidden models within the intelligence cutoff.
 In Switch model, Ctrl+K opens More for catalog visibility and refresh. Escape returns to the same picker.
 Enter changes the current conversation's next request without keeping the model or changing the global default. From Home it opens a conversation first.
+If the model has effort levels, Enter opens an effort step first; Enter there applies model and effort together.
 Open `/library-model` or Model Library to add or remove a model with Enter. Adding saves immediately and does not switch or verify.
 In Model Library, Ctrl+R renames the display name, Ctrl+Y verifies one model in your library. Ctrl+S adds or removes only in Model Library. Ctrl+D/Ctrl+U page down/up in Switch model and Model Library.
 Verify library models combines scope and coverage in one screen. Tab toggles unverified-only/all; Enter starts real requests. Escape returns to the previous screen while checks continue. Only models in your library are checked.

@@ -375,14 +375,33 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             void openConfigureEditor(rt, selection.file);
             return;
         }
-        if (selection.kind === "model" && previousPicker?.kind === "model" && previousPicker.modelJourney === "switch") {
+        const switchPane = previousPicker?.kind === "model" && previousPicker.modelJourney === "switch"
+            ? previousPicker
+            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState.modelJourney === "switch"
+            ? previousPicker.pendingModel.modelPaneState
+            : undefined;
+        if (selection.kind === "model" && switchPane !== undefined) {
+            const levels = selection.reasoningEffort === undefined
+                ? modelLevelFacts(rt, selection.provider, selection.model)
+                : undefined;
+            if (levels !== undefined && levels.levels.length > 0) {
+                rt.settingsPicker = startTuiReasoningPicker(levels.levels, levels.defaultLevel,
+                    rt.state.modelSettings?.reasoningEffort,
+                    { provider: selection.provider, model: selection.model, modelPaneState: switchPane });
+                rt.composer.blur();
+                rt.settingsPickerView.update(rt.settingsPicker);
+                rt.settingsPickerView.focus();
+                renderState(rt);
+                return;
+            }
             const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
             const apply = () => {
                 const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
                 void client.send({ type: "update_session_model_settings", requestId: randomUUID(),
-                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: null } })
+                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: selection.reasoningEffort ?? null } })
                     .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
-                showStatusNotice(rt, `${selection.model}. Applies to the next request. Not added to the library.`);
+                const chosen = selection.reasoningEffort === undefined ? selection.model : `${selection.model} (${selection.reasoningEffort})`;
+                showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to the library.`);
                 renderState(rt);
             };
             if (isHomeClient(target)) {
