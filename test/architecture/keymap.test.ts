@@ -121,10 +121,9 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "revoke_permission",
     "collapse_all",
     "expand_all",
-    "next_help_tab",
+    "help_section",
     "cycle_search_filter",
     "toggle_search_scope",
-    "switch_diagnostics_scope",
     "check_provider_health",
 ]);
 

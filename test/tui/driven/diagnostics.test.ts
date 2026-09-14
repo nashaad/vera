@@ -30,9 +30,17 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         await session.waitForVisiblePane("test · HIGH");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("This conversation");
+        expect(pane).toContain("The host");
+        expect(pane).not.toContain("SESSION USAGE");
+        session.sendKey("Tab");
+        session.sendKey("Right");
+        await session.settle(100);
+        expect(session.captureVisiblePane()).toContain("This conversation");
+        session.sendKey("Enter");
         pane = await session.waitForVisiblePane("SESSION USAGE");
-        expect(pane).toContain("Session    Vera");
-        expect(pane).not.toContain("›");
+        expect(pane).toContain("Diagnostics › Session");
+        expect(pane).not.toContain("This conversation");
         expect(pane).toContain("SESSION USAGE");
         expect(pane).toContain("RUNTIME");
         expect(pane).toContain("enter copies all");
@@ -55,13 +63,20 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
         session.sendKey("Tab");
+        await session.settle(100);
+        expect(session.captureVisiblePane()).toContain("SESSION USAGE");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("This conversation");
+        session.sendKey("Down");
+        session.sendKey("Enter");
         pane = await session.waitForVisiblePane("BUILD");
-        expect(pane).toContain("Session    Vera");
-        expect(pane).not.toContain("›");
+        expect(pane).toContain("Diagnostics › Vera");
         expect(pane).toContain("BUILD");
         expect(pane).not.toContain("SESSION USAGE");
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("This conversation");
         session.sendKey("Escape");
         pane = await session.waitForVisiblePaneWhere(
             (visible) => visible.includes("Message Vera")
@@ -114,11 +129,21 @@ test("a stale session-path lookup cannot update a reopened dialog", async () => 
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
+        session.sendKey("Enter");
         await session.waitForVisiblePane("finding session path…");
         session.sendKey("Escape");
-        await session.waitForVisiblePane("Message Vera");
+        await session.waitForVisiblePane("This conversation");
+        session.sendKey("Escape");
+        await session.waitForVisiblePaneWhere(
+            (visible) => visible.includes("Message Vera")
+                && !visible.includes("This conversation"),
+            "diagnostics to close",
+        );
 
         session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
         session.sendKey("Enter");
         await session.waitForVisiblePane("finding session path…");
         firstLookup.resolve([{
@@ -170,6 +195,8 @@ test("diagnostics shows the host-minted session identity", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("calm-wren:0001");
         expect(pane).toContain("/sessions/identity-session.jsonl");
@@ -257,8 +284,9 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("SESSION USAGE");
-        session.sendKey("Tab");
+        await session.waitForVisiblePane("This conversation");
+        session.sendKey("Down");
+        session.sendKey("Enter");
         await session.waitForVisiblePane("BUILD");
         session.sendKey("NPage");
         pane = await session.waitForVisiblePane("Status  failed");
@@ -292,8 +320,9 @@ test("partial reload names the extensions that stayed active", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("SESSION USAGE");
-        session.sendKey("Tab");
+        await session.waitForVisiblePane("This conversation");
+        session.sendKey("Down");
+        session.sendKey("Enter");
         await session.waitForVisiblePane("BUILD");
         session.sendKey("NPage");
         pane = await session.waitForVisiblePane("Status  partial (1 loaded)");
@@ -324,6 +353,8 @@ test("inspect health stays idle until v and reports red with no selected model",
         await session.waitForVisiblePane("Start a conversation");
         await session.waitForVisiblePane("test · HIGH");
         session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane("not checked");
         expect(pane).toContain("press v");
@@ -376,6 +407,8 @@ test("inspect health is green when a library rung answers", async () => {
         await session.waitForVisiblePane("Start a conversation");
         await session.waitForVisiblePane("glm-flash");
         session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not checked");
         expect(probed).toBe(0);
@@ -430,6 +463,8 @@ test("inspect health is green when a local ollama rung answers", async () => {
         await session.waitForVisiblePane("Start a conversation");
         await session.waitForVisiblePane("qwen3:1.7b");
         session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("This conversation");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not checked");
         expect(probed).toBe(0);

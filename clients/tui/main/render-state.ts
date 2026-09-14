@@ -405,7 +405,10 @@ export function renderState(rt: TuiRuntime): void {
                 text: renderDiagnostics(rt),
             };
         }
-        rt.diagnosticsDialogView.update(rt.diagnosticsDialog);
+        rt.diagnosticsDialogView.update({
+            ...rt.diagnosticsDialog,
+            menu: rt.diagnosticsMenu,
+        });
     }
     if (rt.extensionsDialog !== undefined) {
         rt.extensionsDialogView.update(rt.extensionsDialog);

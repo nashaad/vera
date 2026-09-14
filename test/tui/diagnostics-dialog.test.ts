@@ -29,13 +29,66 @@ test("diagnostics dialog copies on Enter and dismisses on Escape", () => {
     expect(handleTuiDiagnosticsDialogKey({ name: "escape" })).toBe("dismiss");
 });
 
-test("diagnostics dialog switches scope with Tab", () => {
-    expect(handleTuiDiagnosticsDialogKey({ name: "tab" }, true))
-        .toBe("switch_scope");
-    expect(handleTuiDiagnosticsDialogKey({ name: "tab", shift: true }, true))
-        .toBe("switch_scope");
-    expect(handleTuiDiagnosticsDialogKey({ name: "tab" }))
-        .toBeUndefined();
+test("the diagnostics menu chooses with ↑↓, opens on Enter, and closes on Escape", () => {
+    const menu = (name: string) =>
+        handleTuiDiagnosticsDialogKey({ name }, true, true, true);
+    expect(menu("up")).toBe("previous_scope");
+    expect(menu("down")).toBe("next_scope");
+    expect(menu("return")).toBe("open");
+    expect(menu("escape")).toBe("dismiss");
+    expect(menu("v")).toBeUndefined();
+});
+
+test("a diagnostics report copies on Enter and goes back to the menu on Escape", () => {
+    const report = (name: string) =>
+        handleTuiDiagnosticsDialogKey({ name }, true, true, false);
+    expect(report("return")).toBe("copy");
+    expect(report("escape")).toBe("back");
+    expect(report("up")).toBeUndefined();
+    expect(report("down")).toBeUndefined();
+});
+
+test("inspect dialogs are one section, so Tab, ← → and Space are consumed", () => {
+    for (const name of ["tab", "backtab", "left", "right", "space"]) {
+        expect(handleTuiDiagnosticsDialogKey({ name })).toBe("consume");
+        expect(handleTuiDiagnosticsDialogKey({ name, shift: true }, true, true, true))
+            .toBe("consume");
+        expect(handleTuiDiagnosticsDialogKey({ name }, true, true, false))
+            .toBe("consume");
+    }
+});
+
+test("the diagnostics menu lists Session and Vera and the report names its scope", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 30 });
+    const view = createTuiDiagnosticsDialogView(setup.renderer, {
+        scopeMenu: true,
+    });
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        view.update({ text: "# Vera diagnostics\n## Build\nbody", scope: "vera", menu: true });
+        await setup.flush();
+        let frame = setup.captureCharFrame();
+        expect(frame).toContain("Session");
+        expect(frame).toContain("This conversation");
+        expect(frame).toContain("The host");
+        expect(frame).toContain("↑↓ choose · ⏎ open · esc close");
+        expect(frame).not.toContain("Build");
+        expect(frame).not.toContain("tab switch");
+
+        view.update({ text: "# Vera diagnostics\n## Build\nbody", scope: "vera", menu: false });
+        await setup.flush();
+        await Bun.sleep(50);
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("Diagnostics › Vera");
+        expect(frame).toContain("Build");
+        expect(frame).not.toContain("This conversation");
+        expect(frame).toContain("enter copies all · esc back");
+    } finally {
+        view.box.destroyRecursively();
+        setup.renderer.destroy();
+    }
 });
 
 test("diagnostics dialog runs provider health on v only when allowed", () => {
@@ -143,7 +196,7 @@ test("the inspect dialog is a capped column, not a full-bleed pane", () => {
 test("the inspect dialog renders markdown and wraps an overflowing value", async () => {
     const setup = await createTestRenderer({ width: 48, height: 30 });
     const view = createTuiDiagnosticsDialogView(setup.renderer, {
-        showScopeTabs: true,
+        scopeMenu: true,
     });
     setup.renderer.root.add(view.box);
     view.box.visible = true;
