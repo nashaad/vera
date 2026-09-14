@@ -32,6 +32,7 @@ import type {
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
 import { TUI_ACCENT, TUI_CHROME, TUI_DANGER, TUI_ELEMENT, TUI_INPUT, TUI_MUTED, TUI_PANEL, TUI_NOTICE, TUI_SUCCESS, TUI_SELECTION_TEXT, TUI_TEXT } from "./state.ts";
+import { mixHex } from "./theme.ts";
 import {
     dialogBoxHeight,
     halfPageCursor,
@@ -1430,7 +1431,7 @@ export function renderListPickerRows(
             const fullMore = ` ${more!.trim()} `;
             const moreLabel = Bun.stringWidth(fullMore) <= width ? fullMore : ` ${more!.split(":")[0]!.trim()} `;
             const footer = new BoxRenderable(renderer, {
-                width: "100%", height: layout.footerHeight, marginTop: 1, alignItems: "flex-end",
+                width: "100%", height: layout.footerHeight, alignItems: "flex-start",
             });
             const control = new BoxRenderable(renderer, {
                 width: Bun.stringWidth(moreLabel), height: 1, flexShrink: 1,
@@ -1446,6 +1447,10 @@ export function renderListPickerRows(
                 if (event.button !== 0) return;
                 event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onSection?.("more"); onMore();
             };
+            add(new TextRenderable(renderer, {
+                content: "─".repeat(Math.max(1, width)), fg: mixHex(TUI_PANEL, TUI_TEXT, 0.30),
+                width: "100%", height: 1, wrapMode: "none", overflow: "hidden", selectable: false,
+            }));
             footer.add(control);
             footer.add(new TextRenderable(renderer, {
                 content: navigation.map((line) => fittedSegments(line, width)).join("\n"), fg: TUI_MUTED, height: navigation.length,
