@@ -24,7 +24,7 @@ test("turn completion keeps focus in the open Help surface", async () => {
         session.sendText("/help");
         session.sendKey("Enter");
         await session.waitForVisiblePane(
-            "Vera keeps agent sessions resident",
+            "Every key, grouped by where it works",
         );
         // Two rows since the status split across footer lines: the model
         // shortcut above, then the persistent ready and command controls.
@@ -45,9 +45,9 @@ test("turn completion keeps focus in the open Help surface", async () => {
         // One key at a time, each waiting for the card it opened. Sending
         // both and typing straight after raced the redraw, and a key that
         // lands mid-redraw is a key the surface never sees.
-        session.sendKey("Right");
-        await session.waitForVisiblePane("Search");
-        session.sendKey("Right");
+        session.sendKey("Down");
+        session.sendKey("Down");
+        session.sendKey("Enter");
         await session.waitForVisiblePane("/rename");
         session.sendText("themes");
         pane = await session.waitForVisiblePaneWhere(

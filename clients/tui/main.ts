@@ -158,7 +158,7 @@ import {
 } from "../provider-doctor.ts";
 import { copyTuiText } from "./clipboard.ts";
 import { createTuiCommandPaletteView, handleTuiCommandPaletteScroll } from "./command-palette.ts";
-import { createTuiHelpView, handleTuiHelpScroll } from "./help.ts";
+import { createTuiHelpView, handleTuiHelpScroll, helpPageSearchable, pointedHelpRow } from "./help.ts";
 import { createConfiguredBuiltinTuiCommandRegistry, registerExtensionTuiCommands, type TuiPaletteEntry } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel, TUI_COMPOSER_MIN_TEXT_ROWS } from "./composer.ts";
 import {
@@ -2118,8 +2118,14 @@ export async function startTui(
     });
     rt.helpView.pointer = rowPointer(rt, (index) => {
         if (rt.help === undefined) return;
-        rt.help = { ...rt.help, selectedIndex: index };
+        rt.help = pointedHelpRow(rt.help, index);
     });
+    rt.helpView.onSection = (section) => {
+        if (rt.help === undefined) return;
+        rt.help = { ...rt.help, focus: section };
+        renderState(rt);
+        focusActiveSurface(rt);
+    };
     rt.approvalView.pointer = rowPointer(rt, () => {}, "digit");
     rt.questionView.pointer = rowPointer(rt, () => {}, "digit");
     rt.settingsPickerView.box.onMouseScroll = (event) => {
@@ -2618,7 +2624,7 @@ export async function startTui(
             renderState(rt);
             return;
         }
-        if (rt.help !== undefined && rt.helpView.box.visible && rt.help.tab !== "general") {
+        if (rt.help !== undefined && rt.helpView.box.visible && helpPageSearchable(rt.help)) {
             event.preventDefault();
             event.stopPropagation();
             rt.help = rt.helpView.handleEditorPaste(rt.help, pasted());

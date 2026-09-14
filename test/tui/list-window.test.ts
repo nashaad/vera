@@ -89,6 +89,7 @@ test("the wheel moves more than the one surface it was built for", () => {
         // The general tab is prose, not a list, so the wheel only means
         // something once there are commands under the cursor.
         tab: "slash_commands" as const,
+        open: true,
     };
     expect(
         handleTuiHelpScroll(help, { direction: "down", delta: 1 })
@@ -111,6 +112,7 @@ test("a tall terminal fills the palette and help with rows, not empty space", as
         help.update({
             ...startTuiHelp(helpCommands(40), []),
             tab: "slash_commands",
+            open: true,
         });
         expect(help.box.getChildren().length).toBeGreaterThan(14);
     } finally {

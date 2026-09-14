@@ -43,7 +43,7 @@ A development instance registers a pointer to its home in `~/.vera-dev/instances
 Run `vera help` for the command and flag reference followed by the list of help topics. `vera --help` and `vera -h` print the same thing.
 Read one topic with `vera help <topic>`. Aliases resolve to the canonical topic, so an inexact name still lands.
 CLI help needs no TUI, no resident host, no provider, no network request, and no model call. It is safe to run anywhere.
-In the TUI, `/commands` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes.
+In the TUI, `/commands` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes. Help opens on a menu of pages: General, Keys, Slash commands, and Extensions. ↑↓ choose, Enter opens, Esc goes back to the menu. General is text. The other pages have Search and a list; Tab moves between them. ↑↓ move through the list and enter it from Search; ←→ move the caret in Search and return to Search from the list. Typing from the list goes to Search.
 `vera help --llms` prints the whole help corpus as compact Markdown for an agent or a script. It is a projection of the same corpus, so it cannot drift from what `vera help <topic>` shows.
 
 ## First-run setup [lines=6]

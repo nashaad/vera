@@ -634,11 +634,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "⇧→ open all",
     },
     {
-        id: "next_help_tab",
-        keys: ["tab", "right"],
+        id: "help_section",
+        keys: ["tab", "shift+tab", "backtab"],
         scope: "help",
-        description: "Move to the next help tab",
-        hint: "tab next",
+        description: "Move between search and the list on a help page",
+        hint: "Tab / Shift+Tab sections",
+        overrides: ["dials.open"],
     },
     {
         id: "cycle_search_filter",

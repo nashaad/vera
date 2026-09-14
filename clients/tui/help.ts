@@ -5,7 +5,6 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
-    bg,
     BoxRenderable,
     fg,
     StyledText,
@@ -31,7 +30,6 @@ import {
 } from "./dialog-chrome.ts";
 import {
     TUI_ACCENT,
-    TUI_BACKGROUND,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
@@ -46,6 +44,7 @@ import {
     insertTuiSingleLinePaste,
     tuiTextareaKey,
 } from "./single-line-editor.ts";
+import { arrowMovesForward, sectionArrow, steppedSection } from "./section-keys.ts";
 
 export type TuiHelpTab =
     | "general"
@@ -53,8 +52,14 @@ export type TuiHelpTab =
     | "slash_commands"
     | "extensions";
 
+/** The sections of a searchable page. The menu and General are one section each. */
+export type TuiHelpSection = "search" | "list";
+
 export interface TuiHelpState {
+    /** The highlighted menu row, and the page shown while `open`. */
     readonly tab: TuiHelpTab;
+    readonly open: boolean;
+    readonly focus: TuiHelpSection;
     readonly commands: readonly TuiCommandCatalogEntry[];
     readonly extensionCommands: readonly ExtensionCommandDescriptor[];
     readonly query: string;
@@ -80,6 +85,7 @@ export interface TuiHelpTransition {
 export interface TuiHelpView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
+    onSection?: (section: TuiHelpSection) => void;
     focus(): void;
     handleEditorKey(state: TuiHelpState, key: TuiHelpKey): TuiHelpTransition;
     handleEditorPaste(state: TuiHelpState, text: string): TuiHelpState;
@@ -92,6 +98,13 @@ const HELP_TABS: readonly TuiHelpTab[] = [
     "slash_commands",
     "extensions",
 ];
+
+const HELP_PAGE_DESCRIPTIONS: Readonly<Record<TuiHelpTab, string>> = {
+    general: "How Vera works and the main keys",
+    keys: "Every key, grouped by where it works",
+    slash_commands: "Commands you type in the composer",
+    extensions: "Commands that extensions add",
+};
 
 const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "global", title: "Anywhere" },
@@ -148,6 +161,8 @@ export function startTuiHelp(
 ): TuiHelpState {
     return {
         tab: "general",
+        open: false,
+        focus: "search",
         commands,
         extensionCommands,
         query: "",
@@ -164,59 +179,94 @@ export function updateTuiHelpCommands(
     return { ...state, commands, extensionCommands, selectedIndex: 0 };
 }
 
+/** Whether the open page has a Search section. */
+export function helpPageSearchable(state: TuiHelpState): boolean {
+    return state.open && state.tab !== "general";
+}
+
+/** A pointed row is a menu row on the menu and a list row on a page. */
+export function pointedHelpRow(state: TuiHelpState, index: number): TuiHelpState {
+    if (!state.open) {
+        return { ...state, tab: HELP_TABS[index] ?? state.tab };
+    }
+    return { ...state, focus: "list", selectedIndex: index };
+}
+
 export function handleTuiHelpKey(
     state: TuiHelpState,
     key: TuiHelpKey,
 ): TuiHelpTransition {
+    const enter = key.name === "return" || key.name === "enter" || key.name === "kpenter";
     if (key.name === "escape") {
-        return { handled: true };
-    }
-    if (
-        key.name === "return"
-        || key.name === "enter"
-        || key.name === "kpenter"
-    ) {
-        return { state, handled: true };
+        return state.open
+            ? { state: { ...state, open: false, focus: "search", query: "", queryCursor: 0, selectedIndex: 0 }, handled: true }
+            : { handled: true };
     }
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return { state, handled: false };
     }
-    if (key.name === "left") {
-        return switchedTab(state, -1);
+    if (!state.open) {
+        if (enter) {
+            return { state: { ...state, open: true, focus: "search" }, handled: true };
+        }
+        if (key.name === "up" || key.name === "down") {
+            const at = HELP_TABS.indexOf(state.tab) + (key.name === "up" ? -1 : 1);
+            return {
+                state: { ...state, tab: HELP_TABS[Math.max(0, Math.min(HELP_TABS.length - 1, at))]! },
+                handled: true,
+            };
+        }
+        // One section: Left, Right, and Tab have nowhere to go.
+        return sectionArrow(key.name) !== undefined || tuiBindingId("help", key) === "help_section"
+            ? { state, handled: true }
+            : { state, handled: false };
     }
-    if (tuiBindingId("help", key) === "next_help_tab") {
-        return switchedTab(state, 1);
+    if (enter) {
+        return { state, handled: true };
     }
-    if (state.tab === "general") {
+    if (!helpPageSearchable(state)) {
+        return sectionArrow(key.name) !== undefined || tuiBindingId("help", key) === "help_section"
+            ? { state, handled: true }
+            : { state, handled: false };
+    }
+    const sections: readonly TuiHelpSection[] = ["search", "list"];
+    if (tuiBindingId("help", key) === "help_section") {
+        const forward = !(key.shift || key.name === "backtab");
+        return {
+            state: { ...state, focus: steppedSection(sections, state.focus, forward) },
+            handled: true,
+        };
+    }
+    const arrow = sectionArrow(key.name);
+    if (arrow === undefined) {
         return { state, handled: false };
     }
-    if (key.name === "up") {
-        return {
-            state: {
-                ...state,
-                selectedIndex: Math.max(0, state.selectedIndex - 1),
-            },
-            handled: true,
-        };
+    const vertical = arrow === "up" || arrow === "down";
+    // The editor moves the caret first; an arrow reaching here is at an edge.
+    if (state.focus === "search" && !vertical) {
+        return { state, handled: true };
     }
-    if (key.name === "down") {
+    if (state.focus === "list" && vertical) {
         return {
             state: {
                 ...state,
-                selectedIndex: Math.min(
+                selectedIndex: Math.max(0, Math.min(
                     filteredRows(state).length - 1,
-                    state.selectedIndex + 1,
-                ),
+                    state.selectedIndex + (arrow === "up" ? -1 : 1),
+                )),
             },
             handled: true,
         };
     }
-    return { state, handled: false };
+    return {
+        state: { ...state, focus: steppedSection(sections, state.focus, arrowMovesForward(arrow)) },
+        handled: true,
+    };
 }
 
 export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
     let nodes: Renderable[] = [];
-    let shownTab: TuiHelpTab = "general";
+    let searching = false;
     const search = createDialogSearchNode(renderer, "help-search");
     const box = new BoxRenderable(renderer, {
         id: "help",
@@ -238,17 +288,20 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
     const view: TuiHelpView = {
         box,
         focus(): void {
-            if (shownTab === "general") box.focus();
-            else search.editor.focus();
+            if (searching) search.editor.focus();
+            else box.focus();
         },
         handleEditorKey(state, key): TuiHelpTransition {
+            const typing = !key.ctrl && !key.meta && !key.super && !key.hyper
+                && key.name !== "space" && (key.sequence ?? key.name).length === 1;
             if (
-                state.tab === "general" || key.name === "escape"
+                !helpPageSearchable(state)
+                || (state.focus !== "search" && !typing)
+                || key.name === "escape"
                 || key.name === "up" || key.name === "down"
+                || tuiBindingId("help", key) === "help_section"
                 || key.name === "return" || key.name === "enter"
                 || key.name === "kpenter"
-                || (state.query.length === 0
-                    && (key.name === "left" || key.name === "right"))
             ) {
                 return { state, handled: false };
             }
@@ -258,6 +311,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
             return {
                 state: {
                     ...state,
+                    focus: "search",
                     query: search.editor.plainText,
                     queryCursor: search.editor.cursorOffset,
                     selectedIndex: 0,
@@ -266,31 +320,43 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
             };
         },
         handleEditorPaste(state, text): TuiHelpState {
-            if (state.tab === "general") return state;
+            if (!helpPageSearchable(state)) return state;
             insertTuiSingleLinePaste(search.editor, text);
             return {
                 ...state,
+                focus: "search",
                 query: search.editor.plainText,
                 queryCursor: search.editor.cursorOffset,
                 selectedIndex: 0,
             };
         },
         update(state): void {
-            shownTab = state.tab;
+            searching = helpPageSearchable(state) && state.focus === "search";
             search.box.parent?.remove(search.box.id);
+            search.box.onMouseDown = () => view.onSection?.("search");
             for (const node of nodes) {
                 node.destroyRecursively();
             }
             nodes = [];
-            const tabs = new TextRenderable(renderer, {
-                content: helpTabs(state.tab),
-                width: "100%",
-                height: 1,
-            });
-            const header = dialogHeaderNode(renderer, tabs);
+            const header = dialogHeaderNode(
+                renderer,
+                state.open ? `Help › ${tabLabel(state.tab)}` : "Help",
+            );
             box.add(header);
             nodes.push(header);
-            if (state.tab === "general") {
+            if (!state.open) {
+                const rows = dialogOptionRows(renderer, HELP_TABS.map((tab, index) => ({
+                    label: tabLabel(tab),
+                    description: HELP_PAGE_DESCRIPTIONS[tab],
+                    active: tab === state.tab,
+                    current: false,
+                    ...dialogRowPointer(view.pointer, index),
+                })));
+                rows.forEach((row) => {
+                    box.add(row);
+                    nodes.push(row);
+                });
+            } else if (state.tab === "general") {
                 const general = new TextRenderable(renderer, {
                     content: generalHelp(),
                     width: "100%",
@@ -329,6 +395,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                             description: command.description,
                             meta: command.meta,
                             active: index === state.selectedIndex,
+                            dimmed: state.focus !== "list",
                             current: false,
                             ...dialogRowPointer(view.pointer, index),
                     })));
@@ -340,35 +407,19 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
             }
             const footer = dialogFooterNode(
                 renderer,
-                state.tab === "general"
-                    ? "←→ tabs · esc close"
-                    : "←→ tabs · ↑↓ browse · type search · esc close",
+                !state.open
+                    ? "↑↓ choose · ⏎ open · esc close"
+                    : state.tab === "general"
+                    ? "esc back"
+                    : state.focus === "search"
+                    ? "type search · Tab/↑↓ sections · esc back"
+                    : "↑↓ browse · Tab/←→ sections · type search · esc back",
             );
             box.add(footer);
             nodes.push(footer);
         },
     };
     return view;
-}
-
-function switchedTab(
-    state: TuiHelpState,
-    direction: -1 | 1,
-): TuiHelpTransition {
-    const current = HELP_TABS.indexOf(state.tab);
-    const tab = HELP_TABS[
-        (current + direction + HELP_TABS.length) % HELP_TABS.length
-    ]!;
-    return {
-        state: {
-            ...state,
-            tab,
-            query: "",
-            queryCursor: 0,
-            selectedIndex: 0,
-        },
-        handled: true,
-    };
 }
 
 interface TuiHelpRow {
@@ -419,7 +470,13 @@ export function handleTuiHelpScroll(
         readonly delta: number;
     },
 ): TuiHelpTransition {
-    if (state.tab === "general") {
+    if (!state.open) {
+        const at = wheelCursor(HELP_TABS.indexOf(state.tab), HELP_TABS.length, scroll);
+        return at === undefined
+            ? { state, handled: false }
+            : { state: { ...state, tab: HELP_TABS[at]! }, handled: true };
+    }
+    if (!helpPageSearchable(state)) {
         return { state, handled: false };
     }
     const selectedIndex = wheelCursor(
@@ -429,19 +486,7 @@ export function handleTuiHelpScroll(
     );
     return selectedIndex === undefined
         ? { state, handled: false }
-        : { state: { ...state, selectedIndex }, handled: true };
-}
-
-function helpTabs(active: TuiHelpTab): StyledText {
-    return new StyledText([
-        fg(TUI_TEXT)("Help  "),
-        ...HELP_TABS.flatMap((tab) => [
-            tab === active
-                ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(` ${tabLabel(tab)} `))
-                : fg(TUI_ACCENT)(` ${tabLabel(tab)} `),
-            fg(TUI_PANEL)("  "),
-        ]),
-    ]);
+        : { state: { ...state, focus: "list", selectedIndex }, handled: true };
 }
 
 function tabLabel(tab: TuiHelpTab): string {
@@ -456,7 +501,7 @@ function generalHelp(): StyledText {
         fg(TUI_ACCENT)("Vera keeps agent sessions resident so clients can attach, leave, and return.\n\n"),
         fg(TUI_TEXT)("Keys\n"),
         fg(TUI_MUTED)(
-            "The Keys tab lists every chord, grouped by where it applies.\n\n",
+            "The Keys page lists every chord, grouped by where it applies.\n\n",
         ),
         fg(TUI_TEXT)("Composer\n"),
         fg(TUI_MUTED)(
