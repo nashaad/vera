@@ -24,7 +24,7 @@ import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
 import { startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "../request-options-editor.ts";
 import type { TuiSecretPromptState } from "../secret-prompt.ts";
 import { resolveTuiSettingsDestination } from "../settings-destination.ts";
-import { startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, switchedModelTab, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -598,22 +598,7 @@ export function activateConfigurationRequiredRequest(rt: TuiRuntime,
         "soft",
     );
 
-    let parent: TuiSettingsPickerState | undefined;
-    if (
-        request.request.destination.kind === "model_assignment"
-        && request.request.destination.assignment === "subagents"
-    ) {
-        openModelPicker(rt);
-        parent = switchedModelTab(
-            { ...rt.settingsPicker as TuiSettingsPickerState, modelJourney: undefined, title: "Assign model defaults" },
-            "defaults",
-        );
-        rt.settingsPicker = undefined;
-    }
-    const opened = openSettingsDestination(rt, 
-        request.request.destination,
-        { ...(parent === undefined ? {} : { parent }) },
-    );
+    const opened = openSettingsDestination(rt, request.request.destination, {});
     if (opened === "unavailable") {
         respondToConfigurationRequired(rt, "unavailable");
     }
