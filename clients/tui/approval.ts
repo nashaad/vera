@@ -3,6 +3,7 @@ import {
     fg,
     ScrollBoxRenderable,
     StyledText,
+    TextAttributes,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -204,6 +205,7 @@ export function createTuiApprovalView(
         const available = selectableApprovalKeys(update);
         for (const action of visibleApprovalRows(update)) {
             const active = action.key === selectedKey;
+            const selectable = available.includes(action.key);
             const node = new TextRenderable(renderer, {
                 content: new StyledText([
                     fg(active ? TUI_BACKGROUND : TUI_MUTED)(
@@ -211,14 +213,16 @@ export function createTuiApprovalView(
                     ),
                 ]),
                 bg: active ? TUI_NOTICE : TUI_PANEL,
-                attributes: active ? 1 : 0,
+                attributes: active
+                    ? TextAttributes.BOLD
+                    : selectable ? TextAttributes.NONE : TextAttributes.DIM,
                 width: "100%",
                 height: 1,
                 flexShrink: 0,
                 wrapMode: "none",
                 overflow: "hidden",
             });
-            if (available.includes(action.key)) {
+            if (selectable) {
                 attachDialogRowPointer(node, view.pointer, Number(action.key));
             }
             buttons.add(node);
