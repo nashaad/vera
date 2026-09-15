@@ -490,6 +490,9 @@ function handleSelectKey(
         );
         return changed({ ...state, selectedIndex, notice: undefined });
     }
+    if (key.name === "tab") {
+        return unchanged(state);
+    }
     if (key.name === "return" || key.name === "kpenter") {
         if (filtered.length === 0) {
             return unchanged(state);

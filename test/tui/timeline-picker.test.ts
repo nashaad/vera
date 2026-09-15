@@ -227,6 +227,14 @@ test("timeline arrows stay at the edges and moving the caret keeps the highlight
     expect(actions).toMatchObject({ selectedAction: "cancel" });
 });
 
+test("timeline select consumes Tab and Shift+Tab without moving", () => {
+    const state = requiredState(handleTuiTimelineKey(selectState(), key("down"), values("unused")).state);
+    const shiftTab = { ...key("tab"), shift: true };
+    for (const tab of [key("tab"), shiftTab]) {
+        expect(handleTuiTimelineKey(state, tab, values("unused"))).toEqual({ state, handled: true });
+    }
+});
+
 test("timeline search edits at the native caret", async () => {
     const setup = await createTestRenderer({ width: 80, height: 18 });
     const view = createTuiTimelinePickerView(setup.renderer);
