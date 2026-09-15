@@ -92,6 +92,7 @@ export interface VeraExtensionAgentSpec {
     readonly name: string;
     readonly description?: string;
     readonly instructions: string;
+    readonly subagentAssignment?: string;
     /** Omitted means every tool. Present is a restriction to exactly these. */
     readonly tools?: readonly string[];
     readonly skills?: readonly string[];

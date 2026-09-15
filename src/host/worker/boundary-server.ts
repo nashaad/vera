@@ -73,6 +73,12 @@ export function createWorkerBoundaryServer(
                     );
                     return selected === undefined ? {} : { selected };
                 }
+                case "agents.load": {
+                    if (services.loadAgents === undefined) {
+                        throw new Error("The host offers no agent catalog");
+                    }
+                    return { agents: await services.loadAgents() };
+                }
                 case "skills.list": {
                     if (services.router?.listSkills === undefined) {
                         throw new Error("The host offers no skill catalog");

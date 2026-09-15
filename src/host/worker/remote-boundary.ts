@@ -5,7 +5,7 @@ import type {
     HostBoundary,
     HostBoundaryOffers,
 } from "../../engine/host-boundary.ts";
-import type { LoopState } from "../../engine/host-protocol.ts";
+import type { LoadAgentsReply, LoopState } from "../../engine/host-protocol.ts";
 import type { InstructionRoot } from "../../engine/memory.ts";
 import type { ApprovalMode } from "../../engine/permissions.ts";
 import type {
@@ -155,6 +155,14 @@ export function createRemoteHostBoundary(
     const boundary: HostBoundary = {
         offers: options.offers,
         readState: () => state,
+        ...(capabilities.loadAgents === true ? {
+            loadAgents: async () => {
+                const reply = await pipe.request({
+                    method: "agents.load",
+                }) as LoadAgentsReply;
+                return reply.agents;
+            },
+        } : {}),
         ...(capabilities.updateApprovalMode
             ? {
                 updateApprovalMode: async (

@@ -1,4 +1,6 @@
 import { IMAGE_ATTACHMENT_LIMITS } from "../attachments/image.ts";
+import type { AgentDefinition } from "../agents/definition.ts";
+import { withSubagentCatalog } from "../tools/subagent-catalog.ts";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -281,6 +283,7 @@ export interface RunTurnState {
     readonly waitForModelRetry?: WaitForModelRetry;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readSelectedAgent?: () => AgentSnapshot | undefined;
+    readonly loadAgents?: () => Promise<readonly AgentDefinition[]>;
     readonly clampPermissionMode?: ApprovalMode;
     readonly firedNudges?: Set<string>;
     readonly injectedContextRoutePaths?: Set<string>;
@@ -673,6 +676,10 @@ export async function runHeadlessLoop(
         ?? { path: store.header.cwd, source: "workspace" };
     const applySubagentEffect = createSubagentEffectApplier({
             adapter,
+            ...(boundary.loadAgents === undefined ? {} : {
+                loadAgent: async (name) => (await boundary.loadAgents!())
+                    .find((definition) => definition.name === name),
+            }),
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir,
@@ -1083,6 +1090,9 @@ export async function runHeadlessLoop(
             : { effortPool: owned.effortPool }),
         ...(readModelSettings === undefined ? {} : { readModelSettings }),
         ...(readSelectedAgent === undefined ? {} : { readSelectedAgent }),
+        ...(boundary.loadAgents === undefined ? {} : {
+            loadAgents: boundary.loadAgents,
+        }),
         firedNudges: new Set<string>(),
         injectedContextRoutePaths,
         readApprovalMode,
@@ -1244,6 +1254,10 @@ export async function runTurn(
         let scopedTools = selected?.tools === undefined
             ? offered
             : offered.filter((tool) => turnAllowsTool(selected, tool.name));
+        if (state.loadAgents !== undefined
+            && scopedTools.some((tool) => tool.name === "subagent")) {
+            scopedTools = withSubagentCatalog(scopedTools, await state.loadAgents());
+        }
         const turnPrompts = turn.triggeredByDelivery
             ? []
             : [turn.prompt, ...(turn.additionalPrompts ?? [])];

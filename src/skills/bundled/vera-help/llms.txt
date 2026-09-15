@@ -86,16 +86,19 @@ The conversation rail groups sessions by needs-you, working, idle, and recent, n
 Resuming is a separate act. Press Enter on the file already on screen, or `ctrl+r` for the picker covering anything the rail does not list.
 Park a live conversation with `/close`, or `ctrl+w` from the composer. The rail has no close control.
 
-## Tools, permissions, and agents [lines=10]
+## Tools, permissions, and agents [lines=13]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
-Which models a subagent may use is a list you set under Defaults then Subagents, tried in the order you put them in.
+Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in.
 A model named on a spawn call runs only if it is in that list, or if it is the parent session's model and the separate `Spawning session model` row is on. That row is off unless you turn it on.
 When an assigned model cannot run, Vera walks the rest of your list and stops there. It never reaches for an unassigned model, a same-family sibling, or a pool failsafe.
 If nothing is assigned and that row is off, no child starts. An interactive client opens the Subagents assignment so you can fix it.
 A substitution is reported in one sentence naming what was asked for, what ran, and why. A first choice that works says nothing.
+The bundled explorer investigates questions using read, search, and listing tools, then returns concise findings with precise references. The subagent result also identifies the actual agent, model, and reasoning effort. It cannot edit material, run shell commands, or invoke skills.
+Explorer uses Defaults then eco when called through the subagent tool. Its eco model does not also need to be assigned under Subagents. If eco is unset or unavailable, the launch fails with the assignment named; it does not use the parent or the Subagents list. Selecting explorer directly with `/agent` leaves the conversation model unchanged.
+The subagent tool lists available agent names and descriptions so the parent can choose a definition. You can ask for explorer by name. Custom definitions can bind delegated launches to a named assignment with `subagent_assignment`; definitions without this field keep the ordinary Subagents rules.
 
 ## Skills and standing instructions [lines=6]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.

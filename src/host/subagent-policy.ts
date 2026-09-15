@@ -3,7 +3,10 @@ import type { SubagentPoolPolicy } from "../engine/subagent.ts";
 import {
     loadOptionalVeraConfig,
 } from "../config.ts";
-import { resolveModelAssignment } from "../config/model-assignments.ts";
+import {
+    MODEL_ASSIGNMENT_IDS,
+    resolveModelAssignment,
+} from "../config/model-assignments.ts";
 import { effectiveCatalog, type EffectiveCatalogOptions } from "../model/catalog.ts";
 import type { CatalogModel } from "../model/catalog-shape.ts";
 import { isRelativeEffort } from "../model/effort-ladder.ts";
@@ -51,31 +54,32 @@ export function subagentPoolPolicy(
             ? loadOptionalVeraConfig()
             : undefined
         : loadOptionalVeraConfig({ path: options.configPath });
-    const assignment = config === undefined
+    const assignments = config === undefined
         ? undefined
-        : resolveModelAssignment(
-            {
-                models: config.models ?? [],
-                model_routes: config.model_routes ?? {},
-                reviewer_profiles: config.reviewer_profiles ?? {},
-            },
-            config.model_assignments ?? {},
-            "subagents",
-        );
-    const assigned = assignment?.models
-        .filter((entry) => {
-            const id = `${entry.provider}/${entry.model}`;
-            return file.models[id] !== undefined
-                && isSelectable(id, file);
-        })
-        .map((entry) => ({
-            provider: entry.provider,
-            model: entry.model,
-            ...(entry.reasoning_effort === undefined
-                ? {}
-                : { reasoningEffort: entry.reasoning_effort }),
-        })) ?? [];
+        : Object.fromEntries(MODEL_ASSIGNMENT_IDS.map((id) => {
+            const models = resolveModelAssignment(
+                {
+                    models: config.models ?? [],
+                    model_routes: config.model_routes ?? {},
+                    reviewer_profiles: config.reviewer_profiles ?? {},
+                },
+                config.model_assignments ?? {},
+                id,
+            )?.models ?? [];
+            return [id, models.filter((entry) => {
+                const ref = `${entry.provider}/${entry.model}`;
+                return file.models[ref] !== undefined && isSelectable(ref, file);
+            }).map((entry) => ({
+                provider: entry.provider,
+                model: entry.model,
+                ...(entry.reasoning_effort === undefined ? {} : {
+                    reasoningEffort: entry.reasoning_effort,
+                }),
+            }))];
+        }));
+    const assigned = assignments?.subagents ?? [];
     return {
+        ...(assignments === undefined ? {} : { assignments }),
         ...(assigned.length === 0 ? {} : { assigned }),
         ...(config?.model_assignments?.subagents?.allow_self === true
             ? { allowSelf: true }

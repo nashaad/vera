@@ -822,6 +822,7 @@ export interface AgentCatalogUpdate {
         readonly skills?: readonly string[];
         readonly posture?: string;
         readonly forbiddenAccess?: readonly string[];
+        readonly subagentAssignment?: string;
         readonly defaultPair?: {
             readonly name: string;
             readonly effort?: string;

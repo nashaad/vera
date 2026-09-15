@@ -1311,6 +1311,9 @@ function parseExtensionAgent(spec: VeraExtensionAgentSpec): AgentDefinition {
         ...(spec.defaultPair === undefined
             ? {}
             : { default_pair: spec.defaultPair }),
+        ...(spec.subagentAssignment === undefined ? {} : {
+            subagent_assignment: spec.subagentAssignment,
+        }),
         ...(spec.nudges === undefined ? {} : { nudges: spec.nudges }),
     };
     return parseAgentDefinition(

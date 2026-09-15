@@ -3,19 +3,21 @@ import { fileURLToPath } from "node:url";
 import type { VeraExtensionConfig } from "../config.ts";
 
 export const SESSION_IDENTITY_EXTENSION_ID = "vera.session-identity";
+export const EXPLORER_EXTENSION_ID = "vera.explorer";
 
 export function defaultHostExtensionConfigs(
     disabledIds: readonly string[],
 ): readonly VeraExtensionConfig[] {
-    if (disabledIds.includes(SESSION_IDENTITY_EXTENSION_ID)) {
-        return [];
-    }
-    return [{
-        path: fileURLToPath(new URL(
-            "../../extensions/session-identity",
-            import.meta.url,
-        )),
-        enabled: true,
-        config: {},
-    }];
+    return [
+        { id: SESSION_IDENTITY_EXTENSION_ID, directory: "session-identity" },
+        { id: EXPLORER_EXTENSION_ID, directory: "explorer" },
+    ].filter((entry) => !disabledIds.includes(entry.id))
+        .map((entry) => ({
+            path: fileURLToPath(new URL(
+                `../../extensions/${entry.directory}`,
+                import.meta.url,
+            )),
+            enabled: true,
+            config: {},
+        }));
 }

@@ -355,6 +355,7 @@ export class AgentRegistry {
             readonly skills?: readonly string[];
             readonly posture?: string;
             readonly forbiddenAccess?: readonly string[];
+            readonly subagentAssignment?: string;
             readonly defaultPair?: {
                 readonly name: string;
                 readonly effort?: string;
@@ -744,22 +745,23 @@ export class AgentRegistry {
         if (adapter === undefined) {
             throw new Error("Active resident agent has no model adapter");
         }
+        const loadAgents = async (): Promise<readonly AgentDefinition[]> => {
+            const catalog = await loadAgentCatalog({
+                projectRoot: store.header.cwd,
+                permissionModes: [
+                    ...BUILT_IN_PERMISSION_MODE_NAMES,
+                    ...Object.keys(this.options.permissionModes ?? {}),
+                ],
+                interactive: false,
+                registered: this.options.registeredAgents,
+            });
+            return catalog.agents.map((item) => item.definition)
+                .filter((definition) => definition.nudges === undefined);
+        };
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
-            loadAgent: async (name) => {
-                const catalog = await loadAgentCatalog({
-                    projectRoot: store.header.cwd,
-                    permissionModes: [
-                        ...BUILT_IN_PERMISSION_MODE_NAMES,
-                        ...Object.keys(this.options.permissionModes ?? {}),
-                    ],
-                    interactive: false,
-                    ...(this.options.registeredAgents === undefined
-                        ? {}
-                        : { registered: this.options.registeredAgents }),
-                });
-                return findCatalogAgent(catalog, name)?.definition;
-            },
+            loadAgent: async (name) => (await loadAgents())
+                .find((definition) => definition.name === name),
             workspace: store.header.cwd,
             parentSessionId: store.header.id,
             instructionRoot,
@@ -1016,6 +1018,7 @@ export class AgentRegistry {
                     this.options.providerCatalogs?.(),
                 ),
                 readSelectedAgent: () => entry.selectedAgent,
+                loadAgents,
                 readApprovalMode: () => entry.approvalMode,
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),

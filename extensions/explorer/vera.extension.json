@@ -1,0 +1,7 @@
+{
+    "id": "vera.explorer",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": ["agents.register"]
+}

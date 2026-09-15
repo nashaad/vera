@@ -1,5 +1,6 @@
 
 import type { AgentSnapshot } from "../agents/snapshot.ts";
+import type { AgentDefinition } from "../agents/definition.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { SessionStore } from "../store/session-store.ts";
@@ -53,6 +54,7 @@ export interface HostOwnedObjects {
 export interface HostBoundary {
     readonly offers: HostBoundaryOffers;
     readState(): LoopState;
+    readonly loadAgents?: () => Promise<readonly AgentDefinition[]>;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
@@ -104,6 +106,9 @@ export function createLocalHostBoundary(
             selectedAgent: services.readSelectedAgent !== undefined,
         },
         readState: () => state,
+        ...(services.loadAgents === undefined ? {} : {
+            loadAgents: services.loadAgents,
+        }),
         ...(services.updateApprovalMode === undefined
             ? {}
             : { updateApprovalMode: services.updateApprovalMode }),

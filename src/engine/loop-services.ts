@@ -1,5 +1,6 @@
 
 import type { AgentSnapshot } from "../agents/snapshot.ts";
+import type { AgentDefinition } from "../agents/definition.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type {
@@ -155,6 +156,7 @@ export interface RunHeadlessLoopServices {
     readonly readPolicy?: () => LoopPolicy;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly readSelectedAgent?: () => AgentSnapshot | undefined;
+    readonly loadAgents?: () => Promise<readonly AgentDefinition[]>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,

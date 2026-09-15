@@ -119,8 +119,8 @@ test("two real subagent effects overlap and create separate sessions", async () 
 
         expect(maximumActiveChildren).toBe(2);
         expect(results.map((result) => result.output)).toEqual([
-            "slow child result",
-            "fast child result",
+            "Agent: none\nModel: test\nReasoning effort: provider default\n\nslow child result",
+            "Agent: none\nModel: test\nReasoning effort: provider default\n\nfast child result",
         ]);
         expect(sessionPaths).toHaveLength(2);
         const childPrompts: string[] = [];
@@ -221,6 +221,7 @@ test("a child's boundary crossing goes to the auto reviewer, not the relay", asy
         expect(result.isError).toBe(false);
         // The review happened on the configured reviewer model, and the
         // action never fell back to the parent-relayed approval prompt.
+        expect(result.execution?.model).toBe("child-model");
         expect(relayed).toBe(0);
         const review = requests.find((next) => next.model === "reviewer-model");
         expect(review?.systemPrompt).toContain(
@@ -783,7 +784,7 @@ test("parent receives the real child final text as its tool result", async () =>
             (message) => message.role === "tool_result",
         );
         expect(toolResult?.content[0]?.text).toBe(
-            "The socket reaches the registry.",
+            "Agent: none\nModel: test\nReasoning effort: provider default\n\nThe socket reaches the registry.",
         );
         expect(childSessionPath).toBeString();
         const childMessages = (await SessionStore.open(childSessionPath!))
@@ -819,7 +820,7 @@ test("a failed child model request returns an error tool result", async () => {
 
         expect(result).toEqual({
             kind: "output",
-            output: "Faux adapter has no scripted response left",
+            output: "Agent: none\nModel: test\nReasoning effort: provider default\n\nFaux adapter has no scripted response left",
             isError: true,
         });
     } finally {
@@ -915,6 +916,7 @@ test("subagent uses fresh context, ordinary tools, and a durable session", async
 
         expect(result).toEqual({
             text: "The request enters through the socket.",
+            execution: { model: "test" },
             isError: false,
             sessionId: "child-1",
             sessionPath,

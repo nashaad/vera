@@ -287,6 +287,7 @@ export interface InboundCommandRouterOptions {
             readonly tools?: readonly string[];
             readonly skills?: readonly string[];
             readonly posture?: string;
+            readonly subagentAssignment?: string;
             readonly defaultPair?: {
                 readonly name: string;
                 readonly effort?: string;

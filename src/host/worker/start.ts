@@ -24,6 +24,7 @@ export interface WorkerSessionSeed {
 import type { VeraExtensionConfig } from "../../config.ts";
 
 export interface WorkerHostCapabilities {
+    readonly loadAgents?: boolean;
     readonly updateApprovalMode: boolean;
     readonly reviewToolCall: boolean;
     readonly applyHostToolEffect: boolean;

@@ -104,6 +104,7 @@ export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
             readonly skills?: readonly string[];
             readonly posture?: string;
             readonly forbiddenAccess?: readonly string[];
+            readonly subagentAssignment?: string;
             readonly defaultPair?: {
                 readonly name: string;
                 readonly effort?: string;
@@ -137,6 +138,9 @@ export async function listAgentsFor(reg: AgentRegistry, id: string): Promise<{
                 ...(agent.definition.forbiddenAccess === undefined
                     ? {}
                     : { forbiddenAccess: agent.definition.forbiddenAccess }),
+                ...(agent.definition.subagentAssignment === undefined ? {} : {
+                    subagentAssignment: agent.definition.subagentAssignment,
+                }),
                 ...(agent.definition.defaultPair === undefined
                     ? {}
                     : { defaultPair: agent.definition.defaultPair }),

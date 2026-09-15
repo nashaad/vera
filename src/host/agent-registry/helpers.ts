@@ -502,6 +502,15 @@ export function delegatedSubagentPolicy(
         ...current,
         assigned: (current.assigned ?? []).filter((entry) =>
             boundary.has(`${entry.provider ?? ""}/${entry.model}`)),
+        ...(current.assignments === undefined ? {} : {
+            assignments: Object.fromEntries(
+                Object.entries(current.assignments).map(([name, models]) => [
+                    name,
+                    models.filter((entry) =>
+                        boundary.has(`${entry.provider ?? ""}/${entry.model}`)),
+                ]),
+            ),
+        }),
         allowSelf: false,
     };
 }

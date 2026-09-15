@@ -19,6 +19,7 @@ export interface AgentDefinition {
     readonly posture?: string;
     readonly forbiddenAccess?: readonly string[];
     readonly context?: "full";
+    readonly subagentAssignment?: string;
     readonly defaultPair?: {
         readonly name: string;
         readonly effort?: string;
@@ -41,6 +42,7 @@ const KNOWN_KEYS = new Set([
     "forbidden_access",
     "context",
     "default_pair",
+    "subagent_assignment",
     "nudges",
 ]);
 
@@ -53,6 +55,7 @@ const DEFINITION_KEYS = new Set([
     "forbiddenAccess",
     "context",
     "defaultPair",
+    "subagentAssignment",
     "nudges",
     "instructions",
 ]);
@@ -78,6 +81,7 @@ export function defineAgent(definition: AgentDefinition): AgentDefinition {
         forbiddenAccess: value.forbiddenAccess,
         context: value.context,
         defaultPair: value.defaultPair,
+        subagentAssignment: value.subagentAssignment,
         nudges: value.nudges,
         instructions: value.instructions,
     }, {}, true);
@@ -111,6 +115,7 @@ export function parseAgentDefinition(
         forbiddenAccess: frontmatter.forbidden_access,
         context: frontmatter.context,
         defaultPair: frontmatter.default_pair,
+        subagentAssignment: frontmatter.subagent_assignment,
         nudges: frontmatter.nudges,
         instructions,
     }, options, false);
@@ -125,6 +130,7 @@ interface AgentDefinitionFields {
     readonly forbiddenAccess: unknown;
     readonly context: unknown;
     readonly defaultPair: unknown;
+    readonly subagentAssignment: unknown;
     readonly nudges: unknown;
     readonly instructions: unknown;
 }
@@ -177,6 +183,9 @@ function validateAgentDefinition(
         }
     }
     const defaultPair = parseDefaultPair(name, fields.defaultPair);
+    const subagentAssignment = optionalText(
+        name, "subagent_assignment", fields.subagentAssignment, 128,
+    );
     const nudges = parseNudges(name, fields.nudges);
     if (nudges !== undefined && options.interactive === false) {
         throw new Error(
@@ -193,6 +202,7 @@ function validateAgentDefinition(
         ...(forbiddenAccess === undefined ? {} : { forbiddenAccess }),
         ...(context === undefined ? {} : { context: "full" as const }),
         ...(defaultPair === undefined ? {} : { defaultPair }),
+        ...(subagentAssignment === undefined ? {} : { subagentAssignment }),
         ...(nudges === undefined ? {} : { nudges }),
         instructions,
     };

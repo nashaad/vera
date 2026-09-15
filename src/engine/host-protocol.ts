@@ -28,6 +28,7 @@
  */
 
 import type { AgentSnapshot } from "../agents/snapshot.ts";
+import type { AgentDefinition } from "../agents/definition.ts";
 import type { LearnedFact } from "../model/pool-file.ts";
 import type { ModelRef, ResolvedEffort } from "../model/effort-pool.ts";
 import type { ReviewLogEntry } from "./review-log.ts";
@@ -380,7 +381,16 @@ export interface SelectAgentRequest {
     readonly name: string;
 }
 
+export interface LoadAgentsRequest {
+    readonly method: "agents.load";
+}
+
+export interface LoadAgentsReply {
+    readonly agents: readonly AgentDefinition[];
+}
+
 export type WorkerRequest =
+    | LoadAgentsRequest
     | SelectAgentRequest
     | UpdateApprovalModeRequest
     | ReviewToolCallRequest
@@ -446,6 +456,7 @@ export interface CompactionCompleteReply {
 }
 
 export type WorkerReply =
+    | LoadAgentsReply
     | EmptyReply
     | SelectAgentReply
     | ApprovalModeReply
@@ -529,6 +540,7 @@ export const HOST_PROTOCOL_METHODS = [
     "loop.detachTimelineOwner",
     "loop.timelineBlocked",
     "agent.select",
+    "agents.load",
     "approval.update",
     "review.toolCall",
     "effect.apply",

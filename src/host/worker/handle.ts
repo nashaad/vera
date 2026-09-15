@@ -229,6 +229,7 @@ function capabilitiesOf(
     extensionTools?: readonly RegisteredTool[],
 ): WorkerHostCapabilities {
     return {
+        loadAgents: services.loadAgents !== undefined,
         selectAgent: services.router?.selectAgent !== undefined,
         listSkills: services.router?.listSkills !== undefined,
         invokeSkill: services.router?.invokeSkill !== undefined,

@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 import {
     defaultHostExtensionConfigs,
+    EXPLORER_EXTENSION_ID,
     SESSION_IDENTITY_EXTENSION_ID,
 } from "../../src/extensions/bundled-host.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
@@ -31,7 +32,9 @@ test("session identity is a default bundled host extension", () => {
     expect(config?.enabled).toBe(true);
     expect(loadExtensionManifest(config!.path).manifest.id)
         .toBe(SESSION_IDENTITY_EXTENSION_ID);
-    expect(defaultHostExtensionConfigs([SESSION_IDENTITY_EXTENSION_ID]))
+    expect(defaultHostExtensionConfigs([
+        SESSION_IDENTITY_EXTENSION_ID, EXPLORER_EXTENSION_ID,
+    ]))
         .toEqual([]);
 });
 

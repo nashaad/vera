@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { subagentAssignmentPolicy } from "./subagent-assignment.ts";
+import { formatSubagentResult, type SubagentExecution } from "../tools/subagent-result.ts";
 
 import type {
     AssistantMessage,
@@ -144,6 +146,7 @@ export type SpawnModelResolution =
 
 export interface SubagentPoolPolicy {
     readonly assigned?: readonly SpawnModelDefault[];
+    readonly assignments?: Readonly<Record<string, readonly SpawnModelDefault[]>>;
     readonly allowSelf?: boolean;
     readonly allow?: readonly string[];
     readonly deny?: readonly string[];
@@ -400,6 +403,7 @@ export type ChildToolApprovalRelay = (
 
 export interface SubagentResult {
     readonly text: string;
+    readonly execution?: SubagentExecution;
     readonly isError: boolean;
     readonly sessionId: string;
     readonly sessionPath: string;
@@ -477,7 +481,8 @@ export function createSubagentEffectApplier(
                 }
             }
         }
-        let policy = options.readPolicy?.();
+        const assignment = selected?.subagentAssignment;
+        let policy = subagentAssignmentPolicy(options.readPolicy?.(), assignment);
         let resolved = resolveSpawnModelChoice(
             effect,
             context,
@@ -489,6 +494,7 @@ export function createSubagentEffectApplier(
         if (
             !resolved.ok
             && resolved.reason === "configuration_required"
+            && assignment === undefined
             && options.requestMissingConfiguration !== undefined
         ) {
             resolved = await options.requestMissingConfiguration({
@@ -502,7 +508,17 @@ export function createSubagentEffectApplier(
             policy = options.readPolicy?.();
         }
         if (!resolved.ok) {
-            return { kind: "output", output: resolved.error, isError: true };
+            return {
+                kind: "output",
+                output: assignment === undefined
+                    ? resolved.error
+                    : `Cannot start ${selected!.name} on Defaults -> ${assignment}: ${
+                        resolved.reason === "configuration_required"
+                            ? "no selectable models are assigned. Configure this assignment in /defaults."
+                            : resolved.error
+                    }`,
+                isError: true,
+            };
         }
         if (activeChildren >= maxConcurrentChildren) {
             return {
@@ -587,11 +603,12 @@ export function createSubagentEffectApplier(
                 ...(selected === undefined ? {} : { selectedAgent: selected }),
                 clampPermissionMode: context.approvalMode,
             });
+            const output = formatSubagentResult(result.text, result.execution);
             return {
                 kind: "output",
                 output: notice === undefined
-                    ? result.text
-                    : `${notice}\n\n${result.text}`,
+                    ? output
+                    : `${notice}\n\n${output}`,
                 isError: result.isError,
                 ...(substitutions.length === 0 ? {} : { substitutions }),
             };
@@ -634,6 +651,12 @@ export async function runSubagent(
                 ? {}
                 : { reasoningEffort: options.reasoningEffort }),
         });
+        if (options.selectedAgent !== undefined) {
+            await store.appendSelectedAgent(
+                options.selectedAgent.name,
+                options.selectedAgent,
+            );
+        }
         options.signal?.throwIfAborted();
         const events = new EngineEventBus();
         const protocol = createProtocolEncoder(
@@ -729,8 +752,31 @@ export async function runSubagent(
             childSignal,
             options.relayToolApproval,
         );
+        let execution: SubagentExecution | undefined;
+        const adapter: ModelAdapter = {
+            get supportsImageInput() { return options.adapter.supportsImageInput; },
+            ...(options.adapter.imageInputSupport === undefined ? {} : {
+                imageInputSupport: options.adapter.imageInputSupport.bind(options.adapter),
+            }),
+            ...(options.adapter.supportsImageInputFor === undefined ? {} : {
+                supportsImageInputFor: options.adapter.supportsImageInputFor.bind(options.adapter),
+            }),
+            stream(request) {
+                execution = {
+                    ...(options.selectedAgent === undefined ? {} : {
+                        agent: options.selectedAgent.name,
+                    }),
+                    ...(request.provider === undefined ? {} : { provider: request.provider }),
+                    model: request.model,
+                    ...(request.reasoningEffort === undefined ? {} : {
+                        reasoningEffort: request.reasoningEffort,
+                    }),
+                };
+                return options.adapter.stream(request);
+            },
+        };
         const finalMessage = await runTurn(
-            options.adapter,
+            adapter,
             options.model,
             {
                 ...state,
@@ -748,6 +794,7 @@ export async function runSubagent(
         options.signal?.throwIfAborted();
         return {
             text: finalText(finalMessage),
+            ...(execution === undefined ? {} : { execution }),
             isError: finalMessage.stopReason !== "stop",
             sessionId,
             sessionPath: store.path,

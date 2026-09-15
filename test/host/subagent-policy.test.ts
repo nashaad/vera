@@ -202,3 +202,32 @@ test("an inline subagents assignment works in a fresh config", () => {
             model: "worker",
         }]);
 });
+
+test("named assignments resolve routes and exclude denied or missing library models", () => {
+    const userPath = poolPath({
+        defaults: { deny: ["ollama/denied"] },
+        models: {
+            "ollama/small": { added: true },
+            "ollama/denied": { added: true },
+            "ollama/ordinary": { added: true },
+        },
+    });
+    const models = ["small", "denied", "missing", "ordinary"].map((name) => ({
+        name, provider: "ollama", model: name, reasoning_effort: "low",
+    }));
+    const config = configPath({
+        schema_version: 1, provider: "ollama", model: "parent", approval_mode: "ask",
+        models,
+        model_routes: { research: ["small", "denied", "missing"] },
+        reviewer_profiles: {},
+        model_assignments: {
+            eco: { model_route: "research" },
+            subagents: { models: [models[3]] },
+        },
+    });
+    const policy = subagentPoolPolicy({ userPath, configPath: config });
+    expect(policy.assignments?.eco).toEqual([{
+        provider: "ollama", model: "small", reasoningEffort: "low",
+    }]);
+    expect(policy.assigned?.map((entry) => entry.model)).toEqual(["ordinary"]);
+});

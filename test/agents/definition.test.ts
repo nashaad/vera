@@ -88,6 +88,19 @@ test("an effort-less default pair is legal", () => {
     expect(agent.defaultPair).toEqual({ name: "qwen" });
 });
 
+test("a subagent assignment survives parsing, snapshots and drift checks", () => {
+    const definition = parseAgentDefinition(
+        "research", "---\nsubagent_assignment: eco\n---\nFind the evidence.",
+    );
+    const snapshot = resolveAgentSnapshot(definition);
+    expect(snapshot.subagentAssignment).toBe("eco");
+    expect(agentSnapshotDrift(snapshot, { ...snapshot, subagentAssignment: "extra" }))
+        .toEqual(["subagent assignment"]);
+    expect(() => parseAgentDefinition(
+        "research", "---\nsubagent_assignment: []\n---\nFind the evidence.",
+    )).toThrow("subagent_assignment must be a non-empty string");
+});
+
 test("context accepts only full in v1", () => {
     expect(parseAgentDefinition("x", "---\ncontext: full\n---\nb").context)
         .toBe("full");

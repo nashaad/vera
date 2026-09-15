@@ -14,7 +14,7 @@ export const subagentTool: RegisteredTool = {
                 description: { type: "string" },
                 model: {
                     type: "string",
-                    description: "A pooled model id (provider/model) to run the subagent on. Defaults to this agent's model.",
+                    description: "Optional model within the allowed subagent models. If omitted, the selected agent definition and configured assignments determine the model.",
                 },
                 reasoning_effort: {
                     type: "string",
