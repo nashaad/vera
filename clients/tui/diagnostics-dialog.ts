@@ -34,20 +34,13 @@ import { isTuiDialTabKey, tuiBindingId } from "./keymap.ts";
 
 export const INSPECT_COPY_HINT = "drag a section · enter copies all";
 
-export const INSPECT_DIALOG_MAX_WIDTH = 72;
 const INSPECT_DIALOG_GUTTER = 2;
 
 export function inspectDialogFrame(terminalWidth: number): {
     readonly left: number;
     readonly width: number;
 } {
-    const width = Math.max(
-        24,
-        Math.min(
-            INSPECT_DIALOG_MAX_WIDTH,
-            terminalWidth - INSPECT_DIALOG_GUTTER * 2,
-        ),
-    );
+    const width = Math.max(1, terminalWidth - INSPECT_DIALOG_GUTTER * 2);
     const left = Math.max(
         0,
         Math.floor((Math.max(terminalWidth, width) - width) / 2),

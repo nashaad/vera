@@ -255,6 +255,11 @@ export interface SelectAgentCommand {
     readonly name: string;
 }
 
+export interface ListCustomizationSourcesCommand {
+    readonly type: "list_customization_sources";
+    readonly requestId: string;
+}
+
 export interface ListAgentsCommand {
     readonly type: "list_agents";
     readonly requestId: string;
@@ -478,6 +483,7 @@ export type ClientCommand =
     | GetSessionModelSettingsHistoryCommand
     | UpdateSessionPermissionModeCommand
     | SelectAgentCommand
+    | ListCustomizationSourcesCommand
     | ListAgentsCommand
     | ListSkillsCommand
     | InvokeSkillCommand
@@ -809,6 +815,13 @@ export interface AgentSelectedUpdate {
     readonly seq: number;
 }
 
+export interface CustomizationSourcesUpdate {
+    readonly type: "customization_sources";
+    readonly requestId: string;
+    readonly catalog: import("../customize/types.ts").CustomizationCatalog;
+    readonly seq: number;
+}
+
 export interface AgentCatalogUpdate {
     readonly type: "agent_catalog";
     readonly requestId: string;
@@ -1077,6 +1090,7 @@ export type AgentUpdate =
     | ModelSettingsUpdate
     | SessionModelSettingsHistoryUpdate
     | AgentSelectedUpdate
+    | CustomizationSourcesUpdate
     | AgentCatalogUpdate
     | AgentRejectedUpdate
     | SkillCatalogUpdate
@@ -1288,6 +1302,9 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             requestId: command.requestId,
             name: command.name,
         };
+    }
+    if (command.type === "list_customization_sources" && isRequestId(command.requestId)) {
+        return { type: "list_customization_sources", requestId: command.requestId };
     }
     if (command.type === "list_agents" && isRequestId(command.requestId)) {
         return { type: "list_agents", requestId: command.requestId };
@@ -1851,6 +1868,12 @@ export function createProtocolEncoder(
         if (event.type === "agent_selected") {
             seq += 1;
             sender.send({ type: "agent_selected", ...event.update, seq });
+            return;
+        }
+
+        if (event.type === "customization_sources") {
+            seq += 1;
+            sender.send({ ...event, seq });
             return;
         }
 

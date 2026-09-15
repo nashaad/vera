@@ -206,6 +206,7 @@ export interface VeraClientExtensionApi {
 }
 
 export interface VeraClientExtensionContext {
+    sources(signal?: AbortSignal): Promise<import("../customize/types.ts").CustomizationCatalog>;
     /** Reads the latest local snapshot without waiting for the host. */
     current(): VeraClientContextSnapshot;
 }
@@ -496,6 +497,7 @@ export interface VeraClientPickerAction {
 }
 
 export interface VeraClientPickerRequest {
+    readonly searchable?: boolean;
     readonly title: string;
     readonly subtitle?: string;
     readonly rows: readonly VeraClientPickerRow[];

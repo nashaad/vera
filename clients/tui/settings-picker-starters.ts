@@ -1291,6 +1291,7 @@ export function startTuiExtensionPicker(
     selectedId: string | undefined = undefined,
     actions: readonly TuiExtensionPickerAction[] = [],
     subtitle: string | undefined = undefined,
+    searchable = false,
 ): TuiExtensionPickerState {
     const options = rows.map((row) => ({
         value: row.id,
@@ -1310,6 +1311,7 @@ export function startTuiExtensionPicker(
         title,
         ...(subtitle === undefined ? {} : { subtitle }),
         ...(selectedId === undefined ? {} : { selectedId }),
+        searchable, searchFocused: false,
         extensionRows: rows,
         extensionActions: actions,
     };

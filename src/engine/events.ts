@@ -277,6 +277,12 @@ export interface AgentSelectedEvent {
     };
 }
 
+export interface CustomizationSourcesEvent {
+    readonly type: "customization_sources";
+    readonly requestId: string;
+    readonly catalog: import("../customize/types.ts").CustomizationCatalog;
+}
+
 export interface AgentCatalogEvent {
     readonly type: "agent_catalog";
     readonly update: {
@@ -537,6 +543,7 @@ export type EngineEvent =
     | ToolDeniedEvent
     | ToolBreakerTrippedEvent
     | AgentSelectedEvent
+    | CustomizationSourcesEvent
     | AgentCatalogEvent
     | AgentRejectedEvent
     | SkillCatalogEvent
@@ -636,6 +643,7 @@ const LEVEL_RANK: Record<EventLogLevel, number> = {
 const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     abort_requested: "info",
     agent_catalog: "debug",
+    customization_sources: "debug",
     agent_rejected: "error",
     agent_selected: "info",
     compaction_finished: "info",

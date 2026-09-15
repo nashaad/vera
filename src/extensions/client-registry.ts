@@ -207,6 +207,7 @@ export interface ClientExtensionTranscriptAdapter {
 }
 
 export interface ClientExtensionContextAdapter {
+    sources?(signal: AbortSignal): Promise<import("../customize/types.ts").CustomizationCatalog>;
     current(): VeraClientContextSnapshot;
 }
 
@@ -1582,6 +1583,12 @@ async function activateClientExtension(
             },
         }),
         context: Object.freeze({
+            async sources(signal?: AbortSignal) {
+                requireAvailable();
+                requireCapability(CLIENT_CONTEXT_CAPABILITY);
+                if (options.context?.sources === undefined) throw new Error("This client cannot browse sources");
+                return structuredClone(await options.context.sources(signal ?? invocationSignal.getStore() ?? new AbortController().signal));
+            },
             current(): VeraClientContextSnapshot {
                 return structuredClone(readContext());
             },
@@ -1997,6 +2004,10 @@ function validateExperimentalTuiDocument(
             && typeof document.markdown !== "function")
         || (typeof document.markdown === "string"
             && document.markdown.length === 0)
+        || (document.action !== undefined && (typeof document.action.label !== "string" || typeof document.action.run !== "function"))
+        || (document.editorPath !== undefined && (typeof document.editorPath !== "string" || document.editorPath.trim().length === 0 || document.action !== undefined))
+        || (document.onEditorClosed !== undefined && typeof document.onEditorClosed !== "function")
+        || (document.onClose !== undefined && typeof document.onClose !== "function")
         || (document.footerText !== undefined
             && typeof document.footerText !== "string")
     ) {
@@ -2040,6 +2051,7 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
         || (request.subtitle !== undefined
             && (typeof request.subtitle !== "string"
                 || request.subtitle.trim().length === 0))
+        || (request.searchable !== undefined && typeof request.searchable !== "boolean")
         || !Array.isArray(request.rows)
         || request.rows.length === 0
         || !Array.isArray(request.actions)

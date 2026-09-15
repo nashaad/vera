@@ -232,6 +232,13 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "customization_sources") {
+        const catalog = asRecord(update.catalog);
+        return typeof update.requestId === "string"
+            && Array.isArray(catalog?.sources)
+            && Array.isArray(catalog?.warnings)
+            ? value as AgentUpdate : undefined;
+    }
     if (update.type === "agent_catalog") {
         return typeof update.requestId === "string"
                 && typeof update.selected === "string"

@@ -615,6 +615,9 @@ export async function runHeadlessLoop(
         ...(router.selectAgent === undefined
             ? {}
             : { selectAgent: router.selectAgent }),
+        ...(router.listCustomizationSources === undefined
+            ? {}
+            : { listCustomizationSources: router.listCustomizationSources }),
         ...(router.listAgents === undefined
             ? {}
             : { listAgents: router.listAgents }),

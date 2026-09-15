@@ -1,3 +1,4 @@
+import { receiveCustomizationSources } from "./customization-sources.ts";
 import { isConfigurationRequiredUiRequestUpdate, isTimelineReplyUpdate } from "../../../src/engine/protocol.ts";
 import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
 import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, receiveDialHistory, setSidebarFocused } from "../main/agents-dials.ts";
@@ -21,6 +22,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
     try {
         while (!rt.shuttingDown && generation === rt.clientGeneration) {
             const update = await source.receive();
+            if (receiveCustomizationSources(source, update)) continue;
             if (rt.shuttingDown || generation !== rt.clientGeneration) {
                 return;
             }

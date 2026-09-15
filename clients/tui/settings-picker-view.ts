@@ -151,6 +151,12 @@ export function handleTuiExtensionPickerKey(
     state: TuiExtensionPickerState,
     key: TuiSettingsPickerKey,
 ): TuiExtensionPickerTransition {
+    if (state.searchable && !key.ctrl && !key.meta) {
+        if (key.name === "tab" || ((key.name === "left" || key.name === "right") && !state.searchFocused)
+            || ((key.name === "up" || key.name === "down") && state.searchFocused)) {
+            return unchanged({ ...state, searchFocused: !state.searchFocused }, true);
+        }
+    }
     if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
         return unchanged(state, true);
     }
@@ -1004,6 +1010,12 @@ export function setTuiSettingsPickerCutoff(state: TuiSettingsPickerState, cutoff
     return { ...next, options, selectedIndex: selectedIndex >= 0 ? selectedIndex : 0 };
 }
 
+function extensionSearch(state: TuiExtensionPickerState, query: string, queryCursor: number): TuiExtensionPickerTransition {
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const options = state.allOptions.filter((row) => terms.every((term) => `${row.label} ${row.description}`.toLowerCase().includes(term)));
+    return { handled: true, state: { ...state, query, queryCursor, options, selectedIndex: 0, searchFocused: true } };
+}
+
 export function createTuiSettingsPickerView(
     renderer: RenderContext,
 ): TuiSettingsPickerView {
@@ -1037,6 +1049,19 @@ export function createTuiSettingsPickerView(
             const node = nodes.find((node) => node.id === "model-operation-working");
             if (node instanceof TextRenderable) node.content = renderTuiActivityAnimation(enabled ? "shimmer" : "off", frame, "Working",
                 { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT });
+        },
+        handleExtensionEditorKey(state, key): TuiExtensionPickerTransition {
+            const typing = !key.ctrl && !key.meta && key.name !== "space" && (key.sequence ?? key.name).length === 1;
+            if (!state.searchable || (!state.searchFocused && !typing)
+                || ["escape", "tab", "up", "down", "return", "enter"].includes(key.name)
+                || key.ctrl || key.meta) return unchanged(state, false);
+            if (!search.editor.handleKeyPress(tuiTextareaKey({ ...key, sequence: key.sequence ?? (key.name === "space" ? " " : key.name.length === 1 ? key.name : "") }))) return unchanged(state, false);
+            return extensionSearch(state, search.editor.plainText, search.editor.cursorOffset);
+        },
+        handleExtensionEditorPaste(state, text): TuiExtensionPickerTransition {
+            if (!state.searchable) return unchanged(state, false);
+            insertTuiSingleLinePaste(search.editor, text);
+            return extensionSearch(state, search.editor.plainText, search.editor.cursorOffset);
         },
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (state.modelJourney !== undefined) {
@@ -1097,7 +1122,7 @@ export function createTuiSettingsPickerView(
             nodes = [];
             // Typing reaches the field from any section, so the field keeps its
             // cursor wherever focus sits.
-            searchLive = state.kind !== "extension"
+            searchLive = (state.kind !== "extension" || state.searchFocused === true)
                 && pickerIsSearchable(state)
                 && !(state.kind === "model" && state.tab === "help");
             search.box.onMouseDown = state.kind === "model" && state.modelJourney !== undefined
@@ -2240,7 +2265,7 @@ export function pickerFooterText(
         const actions = (state.extensionActions ?? []).map((action) =>
             `${extensionPickerKeyLabel(action.key)} ${action.label}`
         );
-        return ["↑↓ move", ...actions, "esc close"].join(" · ");
+        return ["↑↓ move", ...(state.searchable ? [state.searchFocused ? "[Search] · tab list" : "[List] · tab search"] : []), ...actions, "esc back"].join(" · ");
     }
     if (state.kind === "settings") {
         return "↑↓ move · ⏎ open · esc close";

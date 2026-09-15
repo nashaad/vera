@@ -9,7 +9,6 @@ import {
     inspectDocumentMarkdown,
     inspectDocumentLines,
     INSPECT_COPY_HINT,
-    INSPECT_DIALOG_MAX_WIDTH,
     styledInspectHealth,
     styledInspectOccupancy,
 } from "../../clients/tui/diagnostics-dialog.ts";
@@ -183,14 +182,11 @@ test("inspect health tones keep the word and decorate it", () => {
     expect(color("red")).toEqual(parseColor(TUI_DANGER));
 });
 
-test("the inspect dialog is a capped column, not a full-bleed pane", () => {
+test("inspect reports use the terminal width with outer gutters", () => {
     expect(inspectDialogFrame(48)).toEqual({ left: 2, width: 44 });
-    expect(inspectDialogFrame(80)).toEqual({
-        left: Math.floor((80 - INSPECT_DIALOG_MAX_WIDTH) / 2),
-        width: INSPECT_DIALOG_MAX_WIDTH,
-    });
-    expect(inspectDialogFrame(120).width).toBe(INSPECT_DIALOG_MAX_WIDTH);
-    expect(inspectDialogFrame(120).left).toBeGreaterThan(inspectDialogFrame(80).left);
+    expect(inspectDialogFrame(80)).toEqual({ left: 2, width: 76 });
+    expect(inspectDialogFrame(160)).toEqual({ left: 2, width: 156 });
+    expect(inspectDialogFrame(20)).toEqual({ left: 2, width: 16 });
 });
 
 test("the inspect dialog renders markdown and wraps an overflowing value", async () => {
@@ -232,12 +228,9 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
         const first = lines[firstIndex];
         const second = lines[firstIndex + 1];
         const third = lines[firstIndex + 2];
-        expect(first).toContain("/Users/nash/.vera/profil");
-        expect(second).toContain("default/runtime/sessions/");
-        expect(third).toContain("session.jsonl");
-        expect(second!.indexOf("default/runtime"))
-            .toBe(first!.indexOf("/Users/nash"));
-        expect(third!.indexOf("session.jsonl"))
+        expect(first).toContain("/Users/nash/.vera/runtime/");
+        expect(second).toContain("sessions/session.jsonl");
+        expect(second!.indexOf("sessions/session.jsonl"))
             .toBe(first!.indexOf("/Users/nash"));
     } finally {
         view.box.destroyRecursively();
@@ -251,14 +244,15 @@ test("an open inspect dialog recenters after the terminal resizes", async () => 
     setup.renderer.root.add(view.box);
     view.box.visible = true;
     view.update({ text: "# Report\nbody" });
-    expect(view.box.left).toBe(24);
-    expect(view.box.width).toBe(INSPECT_DIALOG_MAX_WIDTH);
+    expect(view.box.left).toBe(2);
+    expect(view.box.width).toBe(116);
 
     try {
         setup.resize(80, 30);
         view.update({ text: "# Report\nbody" });
-        expect(view.box.left).toBe(4);
-        expect(view.box.width).toBe(INSPECT_DIALOG_MAX_WIDTH);
+        await setup.flush();
+        expect(view.box.left).toBe(2);
+        expect(view.box.width).toBe(76);
     } finally {
         view.box.destroyRecursively();
         setup.renderer.destroy();

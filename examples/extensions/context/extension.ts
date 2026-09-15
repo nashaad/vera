@@ -1,19 +1,26 @@
+import { registerSourceBrowser } from "../../../extensions/customize/view.ts";
 import type { VeraClientExtensionApi } from "../../../src/sdk/extensions.ts";
 import { contextReportMarkdown } from "./context-report.ts";
 import { registerDashboard } from "./dashboard.ts";
 
 export function activateClient(vera: VeraClientExtensionApi): void {
     registerDashboard(vera);
+    const browser = registerSourceBrowser(vera);
     vera.commands.register({
         name: "context",
+        interactive: true,
         description: "Show context usage",
-        usage: "/context [all]",
-        run({ argumentsText }) {
+        usage: "/context [all|sources]",
+        async run({ argumentsText, signal }) {
             const argument = argumentsText.trim();
+            if (argument === "sources") {
+                await browser.open(signal, true);
+                return { kind: "handled" };
+            }
             if (argument !== "" && argument !== "all") {
                 return {
                     kind: "text",
-                    text: "Usage: /context [all]",
+                    text: "Usage: /context [all|sources]",
                 };
             }
             const detail = argument === "all";
@@ -21,6 +28,7 @@ export function activateClient(vera: VeraClientExtensionApi): void {
             vera.experimentalTui.openDocument({
                 title: "Context",
                 footerText: "Last measured request.",
+                action: { label: "loaded sources", run: () => browser.open(new AbortController().signal, true) },
                 markdown: (columns) =>
                     contextReportMarkdown(snapshot, detail, columns),
             });

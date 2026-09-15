@@ -554,6 +554,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             "soft",
         );
     }
+    if (update.type === "customization_sources") return state;
     if (update.type === "agent_catalog") {
         return state;
     }

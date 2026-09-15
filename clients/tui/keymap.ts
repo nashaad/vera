@@ -20,6 +20,7 @@ export type TuiKeyScope =
     | "question"
     | "help"
     | "dials"
+    | "inspect_document"
     | "diagnostics"
     | "search";
 
@@ -43,6 +44,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "approval",
     "question",
     "help",
+    "inspect_document",
     "diagnostics",
     "search",
 ];
@@ -68,6 +70,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "question",
     "help",
     "dials",
+    "inspect_document",
     "diagnostics",
     "search",
 ];
@@ -639,6 +642,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "search",
         description: "Cycle the search scope",
         hint: "ctrl+w scope",
+    },
+    {
+        id: "inspect_document_action",
+        remappable: true,
+        keys: ["ctrl+o"],
+        scope: "inspect_document",
+        description: "Open the report action",
+        overrides: ["toggle_thinking"],
     },
     {
         id: "check_provider_health",

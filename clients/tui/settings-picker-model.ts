@@ -1867,7 +1867,8 @@ export function searched(
 }
 
 export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
-    return state.kind !== "extension"
+    if (state.kind === "extension") return state.searchable === true;
+    return true
         && state.kind !== "model_menu"
         && state.kind !== "configure"
         && state.kind !== "model_defaults"

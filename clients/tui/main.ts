@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readStampedRelease } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
+import { requestCustomizationSources } from "./main/customization-sources.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
 import { jumpMenuLines } from "./jump.ts";
@@ -1091,6 +1092,7 @@ export async function startTui(
         createTuiClientExtensionHostStarter({
             extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
+            readSources: (signal) => requestCustomizationSources(rt, signal),
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState(rt).context,
                 focusedAgentState(rt).modelSettings,
@@ -1768,7 +1770,11 @@ export async function startTui(
             text: renderMarkdown === undefined
                 ? document.markdown as string
                 : renderMarkdown(columns),
-            footerText: document.footerText ?? "",
+            footerText: [document.footerText, document.editorPath === undefined ? undefined : "ctrl+o Open in editor", document.action === undefined ? undefined : `ctrl+o ${document.action.label}`].filter(Boolean).join(" · "),
+            action: document.action,
+            editorPath: document.editorPath,
+            onEditorClosed: document.onEditorClosed,
+            onClose: document.onClose,
             copyReady: true,
             ...(renderMarkdown === undefined ? {} : { renderMarkdown }),
         };
@@ -2585,6 +2591,15 @@ export async function startTui(
                 renderState(rt);
                 return;
             }
+        }
+        if (rt.settingsPicker?.kind === "extension" && rt.settingsPicker.searchable) {
+            event.preventDefault();
+            event.stopPropagation();
+            const transition = rt.settingsPickerView.handleExtensionEditorPaste(rt.settingsPicker, pasted());
+            if (transition.state !== undefined) rt.settingsPicker = transition.state;
+            renderState(rt);
+            focusActiveSurface(rt);
+            return;
         }
         if (
             rt.settingsPicker !== undefined

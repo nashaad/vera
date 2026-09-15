@@ -86,6 +86,7 @@ export interface InboundRouterHostHooks {
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
     readonly selectAgent?: InboundCommandRouterOptions["selectAgent"];
+    readonly listCustomizationSources?: InboundCommandRouterOptions["listCustomizationSources"];
     readonly listAgents?: InboundCommandRouterOptions["listAgents"];
     readonly listSkills?: InboundCommandRouterOptions["listSkills"];
     readonly invokeSkill?: InboundCommandRouterOptions["invokeSkill"];

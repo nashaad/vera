@@ -530,6 +530,7 @@ export const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "get_model_settings",
     "get_session_model_settings_history",
     "list_agents",
+    "list_customization_sources",
     "update_agent_default_pair",
     "pool_add",
     "pool_remove",

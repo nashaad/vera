@@ -203,6 +203,10 @@ export interface TuiRuntime {
     help: TuiHelpState | undefined;
     diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     documentDialog: (TuiDiagnosticsDialogState & {
+        readonly editorPath?: string;
+        readonly onEditorClosed?: () => void | Promise<void>;
+        readonly onClose?: () => void;
+        readonly action?: import("../../../src/sdk/experimental-tui.ts").VeraExperimentalTuiDocumentAction;
         readonly renderMarkdown?: (columns: number) => string;
     }) | undefined;
     diagnosticsScope: TuiDiagnosticsScope;

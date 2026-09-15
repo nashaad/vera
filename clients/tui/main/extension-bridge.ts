@@ -218,6 +218,7 @@ export function requestExtensionPicker(rt: TuiRuntime,
         request.selectedId,
         actions,
         request.subtitle,
+        request.searchable,
     );
     rt.composer.blur();
     renderState(rt);

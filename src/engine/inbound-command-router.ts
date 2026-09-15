@@ -277,6 +277,7 @@ export interface InboundCommandRouterOptions {
         readonly posture?: string;
         readonly notice?: string;
     } | undefined>;
+    readonly listCustomizationSources?: () => Promise<import("../customize/types.ts").CustomizationCatalog>;
     readonly listAgents?: () => Promise<{
         readonly selected: string;
         readonly agents: readonly {
@@ -1153,6 +1154,18 @@ export class InboundCommandRouter {
                             name: command.name,
                         },
                     });
+                    continue;
+                }
+
+                if (command.type === "list_customization_sources") {
+                    let catalog: import("../customize/types.ts").CustomizationCatalog;
+                    try {
+                        catalog = await this.options.listCustomizationSources?.()
+                            ?? { sources: [], warnings: ["This host cannot list customization sources."] };
+                    } catch (error) {
+                        catalog = { sources: [], warnings: [String(error)] };
+                    }
+                    this.events.emit({ type: "customization_sources", requestId: command.requestId, catalog });
                     continue;
                 }
 

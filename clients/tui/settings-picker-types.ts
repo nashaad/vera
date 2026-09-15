@@ -339,7 +339,10 @@ export interface TuiExtensionPickerState {
     readonly allOptions: readonly TuiSettingsPickerOption[];
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
-    readonly query: "";
+    readonly query: string;
+    readonly queryCursor?: number;
+    readonly searchable?: boolean;
+    readonly searchFocused?: boolean;
     readonly title: string;
     readonly subtitle?: string;
     readonly selectedId?: string;
@@ -520,6 +523,8 @@ export interface TuiSettingsPickerView {
     onSection?: (section: ModelJourneySection) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
+    handleExtensionEditorKey(state: TuiExtensionPickerState, key: TuiSettingsPickerKey): TuiExtensionPickerTransition;
+    handleExtensionEditorPaste(state: TuiExtensionPickerState, text: string): TuiExtensionPickerTransition;
     handleEditorKey(
         state: TuiSettingsPickerState,
         key: TuiSettingsPickerKey,

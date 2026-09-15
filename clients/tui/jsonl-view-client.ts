@@ -73,6 +73,7 @@ function commandNeedsRunningLoop(command: ClientCommand): boolean {
         case "get_model_settings":
         case "get_permissions":
         case "get_session_model_settings_history":
+        case "list_customization_sources":
         case "list_agents":
         case "list_timeline":
         case "preview_timeline_action":

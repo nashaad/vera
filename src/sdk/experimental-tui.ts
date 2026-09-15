@@ -170,7 +170,16 @@ export interface VeraExperimentalTuiTranscriptRenderableSpec {
  * A markdown inspect report. The TUI shows this in the same dialog as
  * `/diagnostics` and `/doctor`; the extension supplies the document, not chrome.
  */
+export interface VeraExperimentalTuiDocumentAction {
+    readonly label: string;
+    run(): void | Promise<void>;
+}
+
 export interface VeraExperimentalTuiDocument {
+    readonly editorPath?: string;
+    readonly onEditorClosed?: () => void | Promise<void>;
+    readonly onClose?: () => void;
+    readonly action?: VeraExperimentalTuiDocumentAction;
     readonly title: string;
     readonly markdown: string | ((columns: number) => string);
     readonly footerText?: string;

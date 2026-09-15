@@ -100,12 +100,14 @@ The bundled explorer investigates questions using read, search, and listing tool
 Explorer uses Defaults then eco when called through the subagent tool. Its eco model does not also need to be assigned under Subagents. If eco is unset or unavailable, the launch fails with the assignment named; it does not use the parent or the Subagents list. Selecting explorer directly with `/agent` leaves the conversation model unchanged.
 The subagent tool lists available agent names and descriptions so the parent can choose a definition. You can ask for explorer by name. Custom definitions can bind delegated launches to a named assignment with `subagent_assignment`; definitions without this field keep the ordinary Subagents rules.
 
-## Skills and standing instructions [lines=6]
+## Skills and standing instructions [lines=8]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
+The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
 Project instruction files, selected-agent instructions, memory, imports, and standing nudges may all contribute context.
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
-Use `/context` to see which instruction sources are loaded and how much of the model window they consume.
+`/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled sources have no edit action.
+When the Context extension is enabled, `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.
 
 ## Extensions [lines=7]
 Open `/extensions` for the picker of installed extensions. `/extension list` opens the same one, and the palette action is `Manage extensions`.

@@ -1,3 +1,4 @@
+import { openInspectEditor } from "./inspect-editor.ts";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
@@ -746,10 +747,9 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             | TuiSettingsPickerTransition
             | TuiExtensionPickerTransition;
         if (rt.settingsPicker.kind === "extension") {
-            transition = handleTuiSettingsPickerKey(
-                rt.settingsPicker,
-                key,
-                viewportRows,
+            const edited = rt.settingsPickerView.handleExtensionEditorKey(rt.settingsPicker, key);
+            transition = edited.handled ? edited : handleTuiSettingsPickerKey(
+                rt.settingsPicker, key, viewportRows,
             );
         } else {
             const edited = rt.settingsPickerView.handleEditorKey(
@@ -965,13 +965,35 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
+    if (rt.documentDialog?.editorPath !== undefined
+        && tuiBindingId("inspect_document", key) === "inspect_document_action") {
+        key.preventDefault();
+        key.stopPropagation();
+        void openInspectEditor(rt);
+        return;
+    }
+    if (rt.documentDialog?.action !== undefined
+        && tuiBindingId("inspect_document", key) === "inspect_document_action") {
+        key.preventDefault();
+        key.stopPropagation();
+        const action = rt.documentDialog.action;
+        rt.documentDialog = undefined;
+        renderState(rt);
+        focusActiveSurface(rt);
+        void Promise.resolve().then(() => action.run()).catch((error) => {
+            showStatusNotice(rt, String(error));
+        });
+        return;
+    }
     if (rt.documentDialog !== undefined) {
         const action = handleTuiDiagnosticsDialogKey(key);
         if (action !== undefined) {
             key.preventDefault();
             key.stopPropagation();
             if (action === "dismiss") {
+                const onClose = rt.documentDialog.onClose;
                 rt.documentDialog = undefined;
+                onClose?.();
                 focusActiveSurface(rt);
                 renderState(rt);
                 return;

@@ -38,6 +38,7 @@ import { copySessionMessageAttachments, createSessionBranch } from "../store/ses
 import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
+import { loadCustomizationCatalog } from "../customize/catalog.ts";
 import { discoverProjectExtensionConfigs } from "../extensions/discovery.ts";
 import { startExtensionRegistry } from "../extensions/registry.ts";
 import type { SessionIdentity, SessionIdentityProvider } from "../sdk/extensions.ts";
@@ -1048,6 +1049,11 @@ export class AgentRegistry {
                         this.updateSessionPermissionMode(agent.id, mode),
                     selectAgent: (name) => this.selectAgentFor(agent.id, name),
                     listAgents: () => this.listAgentsFor(agent.id),
+                    listCustomizationSources: async () => loadCustomizationCatalog({
+                        workspace: store.header.cwd,
+                        instructionRoot,
+                        agents: await this.agentCatalogFor(this.agents.get(agent.id)!),
+                    }),
                     listSkills: () => this.listSkillsFor(agent.id),
                     invokeSkill: (name) =>
                         this.decideSkillInvocationFor(agent.id, name),

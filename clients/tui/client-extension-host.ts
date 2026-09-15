@@ -45,6 +45,7 @@ export interface StartTuiClientExtensionHostOptions {
     readonly extensions: readonly VeraExtensionConfig[];
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
     readonly currentContext?: ClientExtensionContextAdapter["current"];
+    readonly readSources?: ClientExtensionContextAdapter["sources"];
     readonly compose: ClientExtensionComposeAdapter;
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
@@ -79,6 +80,7 @@ export interface TuiClientExtensionHostBindings {
     readonly extensions: () => readonly VeraExtensionConfig[];
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
     readonly currentContext?: ClientExtensionContextAdapter["current"];
+    readonly readSources?: ClientExtensionContextAdapter["sources"];
     readonly compose: ClientExtensionComposeAdapter;
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
@@ -136,6 +138,7 @@ export function createTuiClientExtensionHostStarter(
             extensions,
             currentModelSettings: options.currentModelSettings,
             currentContext: options.currentContext,
+            readSources: options.readSources,
             compose: options.compose,
             updateModelSettings: options.updateModelSettings,
             subscribeModelSettings: options.subscribeModelSettings,
@@ -280,6 +283,7 @@ export async function startTuiClientExtensionHost(
             ? {}
             : { sessions: { list: options.listSessions } }),
         context: {
+            sources: options.readSources,
             current: options.currentContext
                 ?? (() => ({ availability: "unavailable" } satisfies VeraClientContextSnapshot)),
         },

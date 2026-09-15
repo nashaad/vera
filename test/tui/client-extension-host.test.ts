@@ -13,6 +13,7 @@ import type { ClientExtensionRegistry } from
 const DISABLED_BUILTINS = [
     "vera.model-presets",
     "vera.reasoning-cycle",
+    "vera.customize",
 ] as const;
 
 function fakeRegistry(
