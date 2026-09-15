@@ -1,5 +1,5 @@
-import type { LinesViewState } from "./lines-view.ts";
-import { tuiBindingId } from "./keymap.ts";
+import type { LinesViewLine, LinesViewState } from "./lines-view.ts";
+import { isTuiDialTabKey, tuiBindingId } from "./keymap.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 import type {
     SessionSearchFilter,
@@ -29,6 +29,15 @@ const SEARCH_SCOPES: readonly SearchScope[] = [
     "everywhere",
 ];
 
+/** Tab order. */
+export type SearchSection = "search" | "filter" | "results";
+
+const SEARCH_SECTIONS: readonly SearchSection[] = [
+    "search",
+    "filter",
+    "results",
+];
+
 export interface SearchOverlayState {
     readonly query: string;
     readonly queryCursor: number;
@@ -40,6 +49,9 @@ export interface SearchOverlayState {
     readonly notice?: string;
     readonly searching: boolean;
     readonly selected?: SearchSelection;
+    readonly focus: SearchSection;
+    /** Highlighted index into SEARCH_FILTERS while the filter menu is open. */
+    readonly filterMenu?: number;
 }
 
 export interface SearchSelection {
@@ -67,6 +79,7 @@ export function startSearchOverlay(
         workspace,
         ...(start.sessionId === undefined ? {} : { sessionId: start.sessionId }),
         searching: false,
+        focus: "search",
     };
 }
 
@@ -115,14 +128,16 @@ export interface SearchOverlayKey {
     readonly sequence?: string;
 }
 
+/**
+ * An unhandled transition means the Search input takes the key. Its state,
+ * when present, already has Search focused.
+ */
 export function handleSearchOverlayKey(
     state: SearchOverlayState,
     key: SearchOverlayKey,
 ): SearchOverlayTransition {
+    if (state.filterMenu !== undefined) return handleFilterMenuKey(state, key);
     const binding = tuiBindingId("search", key);
-    if (binding === "cycle_search_filter") {
-        return requery({ ...state, filter: nextFilter(state.filter) });
-    }
     if (binding === "toggle_search_scope") {
         return requery({ ...state, scope: widerScope(state) });
     }
@@ -140,23 +155,103 @@ export function handleSearchOverlayKey(
     if (key.name === "escape") {
         return { action: { kind: "close" }, handled: true };
     }
-    if (key.name === "return" || key.name === "enter") {
-        const opened = openSelected(state);
-        return opened === undefined
-            ? { state, handled: true }
-            : { action: opened, handled: true };
+    if (isTuiDialTabKey(key)) {
+        const back = key.name === "backtab" || key.shift === true;
+        return { state: steppedSection(state, back ? -1 : 1), handled: true };
+    }
+    const enter = key.name === "return" || key.name === "enter";
+    if (state.focus === "search") {
+        if (enter) return openedTransition(state);
+        if (key.name === "up" || key.name === "down") {
+            return {
+                state: steppedSection(state, key.name === "up" ? -1 : 1),
+                handled: true,
+            };
+        }
+        return { state, handled: false };
+    }
+    if (state.focus === "filter") {
+        if (enter || key.name === "space") {
+            const at = SEARCH_FILTERS.indexOf(state.filter);
+            return { state: { ...state, filterMenu: Math.max(0, at) }, handled: true };
+        }
+    } else {
+        if (enter) return openedTransition(state);
+        if (key.name === "up" || key.name === "down") {
+            const selected = moveSearchSelection(
+                state,
+                key.name === "up" ? -1 : 1,
+            );
+            return {
+                state: selected === undefined ? state : { ...state, selected },
+                handled: true,
+            };
+        }
+    }
+    const arrow = sectionArrowStep(key.name);
+    if (arrow !== undefined) {
+        return { state: steppedSection(state, arrow), handled: true };
+    }
+    if (typedCharacter(key)) {
+        return { state: { ...state, focus: "search" }, handled: false };
+    }
+    return { state, handled: true };
+}
+
+function handleFilterMenuKey(
+    state: SearchOverlayState,
+    key: SearchOverlayKey,
+): SearchOverlayTransition {
+    if (key.ctrl || key.meta) return { state, handled: false };
+    const at = state.filterMenu ?? 0;
+    if (key.name === "escape") {
+        return { state: withoutFilterMenu(state), handled: true };
     }
     if (key.name === "up" || key.name === "down") {
-        const selected = moveSearchSelection(
-            state,
-            key.name === "up" ? -1 : 1,
-        );
-        return {
-            state: selected === undefined ? state : { ...state, selected },
-            handled: true,
-        };
+        const step = key.name === "up" ? -1 : 1;
+        const next = Math.min(SEARCH_FILTERS.length - 1, Math.max(0, at + step));
+        return { state: { ...state, filterMenu: next }, handled: true };
     }
-    return { state, handled: false };
+    if (key.name === "return" || key.name === "enter") {
+        const filter = SEARCH_FILTERS[at];
+        const { filter: _previous, ...rest } = withoutFilterMenu(state);
+        return requery(filter === undefined ? rest : { ...rest, filter });
+    }
+    return { state, handled: true };
+}
+
+function withoutFilterMenu(state: SearchOverlayState): SearchOverlayState {
+    const { filterMenu: _closed, ...rest } = state;
+    return rest;
+}
+
+function openedTransition(state: SearchOverlayState): SearchOverlayTransition {
+    const opened = openSelected(state);
+    return opened === undefined
+        ? { state, handled: true }
+        : { action: opened, handled: true };
+}
+
+function steppedSection(
+    state: SearchOverlayState,
+    step: 1 | -1,
+): SearchOverlayState {
+    const at = SEARCH_SECTIONS.indexOf(state.focus);
+    const next = (at + step + SEARCH_SECTIONS.length) % SEARCH_SECTIONS.length;
+    return { ...state, focus: SEARCH_SECTIONS[next]! };
+}
+
+function sectionArrowStep(name: string): 1 | -1 | undefined {
+    if (name === "down" || name === "right") return 1;
+    if (name === "up" || name === "left") return -1;
+    return undefined;
+}
+
+function typedCharacter(key: SearchOverlayKey): boolean {
+    const text = key.sequence ?? (key.name.length === 1 ? key.name : "");
+    return text.length > 0
+        && text !== " "
+        && !/[\u0000-\u001f\u007f]/u.test(text);
 }
 
 export function updateSearchOverlayText(
@@ -179,6 +274,7 @@ function typed(
         scope: state.scope,
         workspace: state.workspace,
         searching,
+        focus: "search",
         ...(state.sessionId === undefined
             ? {}
             : { sessionId: state.sessionId }),
@@ -202,13 +298,6 @@ function requery(state: SearchOverlayState): SearchOverlayTransition {
     return query === undefined
         ? { state: next, handled: true }
         : { state: next, action: { kind: "search", query }, handled: true };
-}
-
-function nextFilter(
-    filter: SessionSearchFilter | undefined,
-): SessionSearchFilter | undefined {
-    const at = SEARCH_FILTERS.indexOf(filter);
-    return SEARCH_FILTERS[(at + 1) % SEARCH_FILTERS.length];
 }
 
 export function applySearchResults(
@@ -309,13 +398,13 @@ export interface SearchOverlayLine {
 }
 
 export function searchRowId(selection: SearchSelection): string {
-    return `${selection.sessionId}\u0000${selection.hitIndex}`;
+    return `${selection.sessionId} ${selection.hitIndex}`;
 }
 
 export function searchSelectionOf(
     rowId: string,
 ): SearchSelection | undefined {
-    const split = rowId.lastIndexOf("\u0000");
+    const split = rowId.lastIndexOf(" ");
     if (split === -1) return undefined;
     const hitIndex = Number(rowId.slice(split + 1));
     return Number.isSafeInteger(hitIndex) && hitIndex >= 0
@@ -344,15 +433,37 @@ const SCOPE_WORDS: Readonly<Record<SearchScope, string>> = {
 
 export function searchOverlayHeader(state: SearchOverlayState): string {
     const scope = SCOPE_WORDS[state.scope];
-    const filter = state.filter ?? "all";
-    return `Search · ${filter} · ${scope}`;
+    return `Search · ${scope}`;
 }
 
-export function searchOverlayFooter(width: number): string {
-    return width < SEARCH_NARROW_WIDTH
-        ? "↑↓ ^u^d enter tab ^w esc"
-        : "↑↓ ^u ^d move   enter open at match"
-            + "   tab filter   ctrl+w scope   esc back";
+export function searchFilterChip(state: SearchOverlayState): string {
+    return `Filter: ${state.filter ?? "all"} ▾`;
+}
+
+export function searchOverlayFooter(
+    width: number,
+    focus: SearchSection = "search",
+    menu = false,
+): string {
+    const narrow = width < SEARCH_NARROW_WIDTH;
+    if (menu) {
+        return narrow ? "↑↓ enter esc" : "↑↓ choose   enter pick   esc back";
+    }
+    if (focus === "filter") {
+        return narrow
+            ? "space tab ^w esc"
+            : "space filter   tab section   ctrl+w scope   esc back";
+    }
+    if (focus === "results") {
+        return narrow
+            ? "↑↓ ^u^d enter tab ^w esc"
+            : "↑↓ ^u ^d move   enter open at match"
+                + "   tab section   ctrl+w scope   esc back";
+    }
+    return narrow
+        ? "enter ^u^d tab ^w esc"
+        : "enter open at match   ^u ^d move"
+            + "   tab section   ctrl+w scope   esc back";
 }
 
 export function searchOverlayLines(
@@ -451,23 +562,54 @@ function clip(value: string, columns: number): string {
         : `${value.slice(0, Math.max(1, columns - 1))}…`;
 }
 
+function filterMenuLines(state: SearchOverlayState): readonly LinesViewLine[] {
+    return [
+        { text: "Show results from", tone: "muted" },
+        ...SEARCH_FILTERS.map((filter, index) => ({
+            text: `${filter ?? "all"}${filter === state.filter ? "  (current)" : ""}`,
+            rowId: `filter${index}`,
+            ...(index === state.filterMenu ? { selected: true } : {}),
+        })),
+    ];
+}
+
 export function searchOverlayViewState(
     state: SearchOverlayState,
     width: number,
     now?: Date,
 ): LinesViewState {
+    const base = {
+        title: searchOverlayHeader(state),
+        input: {
+            text: state.query,
+            cursor: state.queryCursor,
+            placeholder: "Search",
+            focused: state.focus === "search" && state.filterMenu === undefined,
+        },
+        chip: {
+            text: searchFilterChip(state),
+            focused: state.focus === "filter",
+        },
+        footer: searchOverlayFooter(
+            width,
+            state.focus,
+            state.filterMenu !== undefined,
+        ),
+    };
+    if (state.filterMenu !== undefined) {
+        return {
+            ...base,
+            lines: filterMenuLines(state),
+            cursorLine: state.filterMenu + 1,
+        };
+    }
     const lines = searchOverlayLines(state, {
         width,
         ...(now === undefined ? {} : { now }),
     });
     const cursorLine = lines.findIndex((line) => line.selected === true);
     return {
-        title: searchOverlayHeader(state),
-        input: {
-            text: state.query,
-            cursor: state.queryCursor,
-            placeholder: "Search",
-        },
+        ...base,
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.map((line) => ({
             text: line.text,
@@ -480,6 +622,5 @@ export function searchOverlayViewState(
                     ? "text" as const
                     : "muted" as const,
         })),
-        footer: searchOverlayFooter(width),
     };
 }

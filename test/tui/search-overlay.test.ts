@@ -72,7 +72,7 @@ test("typing builds a query scoped to this workspace by default", () => {
     expect(state.query).toBe("provider fallback");
     expect(searchOverlayQuery(state))
         .toEqual({ query: "provider fallback", workspace: "/work/one" });
-    expect(searchOverlayHeader(state)).toBe("Search · all · this workspace");
+    expect(searchOverlayHeader(state)).toBe("Search · this workspace");
 });
 
 test("search edits and re-queries at the caret", () => {
@@ -136,25 +136,105 @@ test("clearing the query back to empty drops the stale results", () => {
         .toContain("Type to search past work.");
 });
 
-test("tab cycles the filter and asks again", () => {
+test("tab walks search, the filter chip and results, and wraps", () => {
     let state = typing("fallback");
-    const seen: (string | undefined)[] = [state.filter];
-    for (let press = 0; press < 4; press += 1) {
+    const seen: string[] = [state.focus];
+    for (let press = 0; press < 3; press += 1) {
         const transition = handleSearchOverlayKey(state, { name: "tab" });
+        expect(transition.handled).toBe(true);
+        expect(transition.action).toBeUndefined();
         state = transition.state ?? state;
-        seen.push(state.filter);
-        expect(transition.action?.kind).toBe("search");
+        seen.push(state.focus);
     }
+    expect(seen).toEqual(["search", "filter", "results", "search"]);
 
-    expect(seen).toEqual([
-        undefined,
-        "messages",
-        "tools",
-        "files",
-        undefined,
-    ]);
-    expect(searchOverlayHeader({ ...state, filter: "tools" }))
-        .toBe("Search · tools · this workspace");
+    const back = handleSearchOverlayKey(state, { name: "tab", shift: true });
+    expect(back.state?.focus).toBe("results");
+});
+
+test("the search box keeps left and right for its caret", () => {
+    const state = typing("fallback");
+    for (const name of ["left", "right", "space"]) {
+        expect(handleSearchOverlayKey(state, { name }).handled).toBe(false);
+    }
+    expect(handleSearchOverlayKey(state, { name: "down" }).state?.focus)
+        .toBe("filter");
+    expect(handleSearchOverlayKey(state, { name: "up" }).state?.focus)
+        .toBe("results");
+});
+
+test("the chip owns no arrows and opens its menu on space or enter", () => {
+    const chip: SearchOverlayState = { ...typing("fallback"), focus: "filter" };
+    expect(handleSearchOverlayKey(chip, { name: "down" }).state?.focus)
+        .toBe("results");
+    expect(handleSearchOverlayKey(chip, { name: "right" }).state?.focus)
+        .toBe("results");
+    expect(handleSearchOverlayKey(chip, { name: "left" }).state?.focus)
+        .toBe("search");
+
+    for (const name of ["space", "return"]) {
+        const opened = handleSearchOverlayKey(chip, { name });
+        expect(opened.state?.filterMenu).toBe(0);
+        expect(opened.action).toBeUndefined();
+    }
+});
+
+test("picking from the filter menu asks again and closes the menu", () => {
+    let state: SearchOverlayState = {
+        ...typing("fallback"),
+        focus: "filter",
+        filterMenu: 0,
+    };
+    state = handleSearchOverlayKey(state, { name: "down" }).state ?? state;
+    state = handleSearchOverlayKey(state, { name: "down" }).state ?? state;
+    expect(searchOverlayViewState(state, 78, NOW).footer).toContain("enter pick");
+
+    const picked = handleSearchOverlayKey(state, { name: "return" });
+    expect(picked.state?.filter).toBe("tools");
+    expect(picked.state?.filterMenu).toBeUndefined();
+    expect(picked.state?.focus).toBe("filter");
+    expect(picked.action).toEqual({
+        kind: "search",
+        query: { query: "fallback", kind: "tools", workspace: "/work/one" },
+    });
+
+    const view = searchOverlayViewState(picked.state ?? state, 78, NOW);
+    expect(view.chip).toEqual({ text: "Filter: tools ▾", focused: true });
+
+    const closed = handleSearchOverlayKey(
+        { ...(picked.state ?? state), filterMenu: 3 },
+        { name: "escape" },
+    );
+    expect(closed.action).toBeUndefined();
+    expect(closed.state?.filterMenu).toBeUndefined();
+    expect(closed.state?.filter).toBe("tools");
+});
+
+test("typing from the chip or the results goes to the search box", () => {
+    for (const focus of ["filter", "results"] as const) {
+        const state: SearchOverlayState = { ...typing("fall"), focus };
+        const transition = handleSearchOverlayKey(state, {
+            name: "b",
+            sequence: "b",
+        });
+        expect(transition.handled).toBe(false);
+        expect(transition.state?.focus).toBe("search");
+    }
+});
+
+test("only the focused section shows as focused", () => {
+    const search = searchOverlayViewState(typing("fallback"), 78, NOW);
+    expect(search.input?.focused).toBe(true);
+    expect(search.chip?.focused).toBe(false);
+
+    const chip = searchOverlayViewState(
+        { ...typing("fallback"), focus: "filter" },
+        78,
+        NOW,
+    );
+    expect(chip.input?.focused).toBe(false);
+    expect(chip.chip?.focused).toBe(true);
+    expect(chip.footer).toContain("space filter");
 });
 
 test("the scope toggle widens past this workspace and says so", () => {
@@ -165,7 +245,7 @@ test("the scope toggle widens past this workspace and says so", () => {
     expect(searchOverlayQuery(widened.state ?? state))
         .toEqual({ query: "fallback" });
     expect(searchOverlayHeader(widened.state ?? state))
-        .toBe("Search · all · everywhere");
+        .toBe("Search · everywhere");
 
     const narrowed = handleSearchOverlayKey(widened.state ?? state, {
         name: "w",
@@ -229,11 +309,14 @@ test("no line is wider than the terminal", () => {
 });
 
 test("enter opens the selected session at its match, not its tail", () => {
-    const state = applySearchResults(
-        typing("fallback"),
-        { query: "fallback", workspace: "/work/one" },
-        results(),
-    );
+    const state: SearchOverlayState = {
+        ...applySearchResults(
+            typing("fallback"),
+            { query: "fallback", workspace: "/work/one" },
+            results(),
+        ),
+        focus: "results",
+    };
     expect(state.selected).toEqual({ sessionId: "relay-gui", hitIndex: 0 });
 
     expect(handleSearchOverlayKey(state, { name: "return" }).action).toEqual({
@@ -253,11 +336,14 @@ test("enter opens the selected session at its match, not its tail", () => {
 });
 
 test("every hit is reachable, not only the first in each session", () => {
-    const state = applySearchResults(
-        typing("fallback"),
-        { query: "fallback", workspace: "/work/one" },
-        results(),
-    );
+    const state: SearchOverlayState = {
+        ...applySearchResults(
+            typing("fallback"),
+            { query: "fallback", workspace: "/work/one" },
+            results(),
+        ),
+        focus: "results",
+    };
 
     // The fixture holds one hit in the first session and two in the second.
     // The second session's second hit is somewhere else in that transcript,
@@ -397,7 +483,7 @@ test("a truncated result set says it was truncated", () => {
 
 test("the footer shortens with the terminal", () => {
     expect(searchOverlayFooter(78)).toContain("enter open at match");
-    expect(searchOverlayFooter(42)).toBe("↑↓ ^u^d enter tab ^w esc");
+    expect(searchOverlayFooter(42, "results")).toBe("↑↓ ^u^d enter tab ^w esc");
 });
 
 test("the hit marks where the query sits in the line", () => {
@@ -495,7 +581,7 @@ test("a search opened inside a conversation asks about that conversation", () =>
         query: "fallback",
         session_id: "relay-gui",
     });
-    expect(searchOverlayHeader(state)).toBe("Search · all · this conversation");
+    expect(searchOverlayHeader(state)).toBe("Search · this conversation");
 });
 
 test("widening from a conversation reaches the workspace, then everywhere", () => {

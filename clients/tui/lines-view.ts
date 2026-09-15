@@ -73,6 +73,13 @@ export interface LinesViewState {
         readonly text: string;
         readonly cursor?: number;
         readonly placeholder?: string;
+        /** False shows the box without a caret while another section has focus. */
+        readonly focused?: boolean;
+    };
+    /** One chip row under the input; "›" marks it focused. */
+    readonly chip?: {
+        readonly text: string;
+        readonly focused: boolean;
     };
     readonly lines: readonly LinesViewLine[];
     readonly cursorLine?: number;
@@ -141,6 +148,7 @@ export function createTuiLinesView(
 ): LinesView {
     let nodes: Renderable[] = [];
     let inputActive = false;
+    let inputFocused = false;
     let bottomInset = COMPOSER_RESERVE;
     let rail: number | undefined;
     let footerRows = 1;
@@ -184,7 +192,7 @@ export function createTuiLinesView(
         box,
         surface,
         focus(): void {
-            if (inputActive) inputEditor.focus();
+            if (inputFocused) inputEditor.focus();
             else box.focus();
         },
         handleInputKey(key): boolean {
@@ -252,8 +260,10 @@ export function createTuiLinesView(
         },
         update(state): void {
             footerRows = footerContentRows(state);
-            inputRows = state.input === undefined ? 0 : dialogSearchHeight(renderer) + 1;
+            inputRows = (state.input === undefined ? 0 : dialogSearchHeight(renderer) + 1)
+                + (state.chip === undefined ? 0 : 1);
             inputActive = state.input !== undefined;
+            inputFocused = inputActive && state.input?.focused !== false;
             inputField.parent?.remove(inputField.id);
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
@@ -304,10 +314,19 @@ export function createTuiLinesView(
                     search,
                     state.input.text,
                     state.input.placeholder ?? "Search",
-                    true,
+                    inputFocused,
                     state.input.cursor,
                 );
                 box.add(inputField);
+            }
+            if (state.chip !== undefined) {
+                add(new TextRenderable(renderer, {
+                    content: `${state.chip.focused ? "› " : "  "}${state.chip.text}`,
+                    fg: state.chip.focused ? TUI_TEXT : TUI_MUTED,
+                    ...(state.chip.focused ? { attributes: TextAttributes.BOLD } : {}),
+                    width: "100%",
+                    height: 1,
+                }));
             }
             const height = cardHeight();
             const room = listWindowRows(height, chromeRows());

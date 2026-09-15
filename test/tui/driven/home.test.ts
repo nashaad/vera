@@ -449,7 +449,7 @@ test("ctrl+f searches the transcripts without opening a session", async () => {
     try {
         await session.waitForVisiblePane("Search past work");
         session.sendKey("C-f");
-        await session.waitForVisiblePane("Search · all · this workspace");
+        await session.waitForVisiblePane("Search · this workspace");
         session.sendText("transcript");
         // The hit comes from the seeded session file, so the scan is the real
         // one over real transcripts rather than a stubbed answer.

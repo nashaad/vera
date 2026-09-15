@@ -985,7 +985,7 @@ async function withTui<T>(
             openWorkTab: () =>
                 runCommand("/work", (value) => value.includes("Needs you")),
             openSearch: () =>
-                runCommand("/search", (value) => value.includes("Search · all")),
+                runCommand("/search", (value) => value.includes("Filter: all")),
         });
     } finally {
         killServer(socket);
