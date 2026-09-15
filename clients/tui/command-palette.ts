@@ -97,6 +97,9 @@ export function handleTuiCommandPaletteKey(
     state: TuiCommandPaletteState,
     key: TuiCommandPaletteKey,
 ): TuiCommandPaletteTransition {
+    if (key.name === "tab" && !key.ctrl && !key.meta) {
+        return { state, handled: true };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return { state, handled: false };
     }

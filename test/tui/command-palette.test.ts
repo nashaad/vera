@@ -117,6 +117,13 @@ test("command palette keeps the highlight when left or right only moves the care
     }
 });
 
+test("command palette consumes Tab and Shift+Tab without moving", () => {
+    const state = handleTuiCommandPaletteKey(startTuiCommandPalette(commands), { name: "down" }).state!;
+    for (const key of [{ name: "tab" }, { name: "tab", shift: true }]) {
+        expect(handleTuiCommandPaletteKey(state, key)).toEqual({ state, handled: true });
+    }
+});
+
 test("command palette paste inserts at the caret", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     const view = createTuiCommandPaletteView(setup.renderer);
