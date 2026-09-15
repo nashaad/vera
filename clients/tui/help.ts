@@ -216,8 +216,8 @@ export function handleTuiHelpKey(
                 handled: true,
             };
         }
-        // One section: Left, Right, and Tab have nowhere to go.
-        return sectionArrow(key.name) !== undefined || tuiBindingId("help", key) === "help_section"
+        // One section: Left, Right, Tab, and Space have nowhere to go.
+        return sectionArrow(key.name) !== undefined || tuiBindingId("help", key) === "help_section" || key.name === "space"
             ? { state, handled: true }
             : { state, handled: false };
     }
@@ -225,7 +225,7 @@ export function handleTuiHelpKey(
         return { state, handled: true };
     }
     if (!helpPageSearchable(state)) {
-        return sectionArrow(key.name) !== undefined || tuiBindingId("help", key) === "help_section"
+        return sectionArrow(key.name) !== undefined || tuiBindingId("help", key) === "help_section" || key.name === "space"
             ? { state, handled: true }
             : { state, handled: false };
     }
