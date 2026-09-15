@@ -174,11 +174,39 @@ test("arrow selection moves only across available answers", async () => {
         expect(view.handleKey(request, { name: "a" }))
             .toEqual({ handled: false });
 
-        // Left/right are not a second way to answer: the answers stack.
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("left and right move the approval highlight like up and down and stay at the edges", async () => {
+    const setup = await createTestRenderer({
+        width: 80,
+        height: 18,
+        kittyKeyboard: true,
+    });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(request);
+    const decision = (name: string) =>
+        view.handleKey(request, { name }).response?.response;
+
+    try {
         expect(view.handleKey(request, { name: "left" }))
-            .toEqual({ handled: false });
+            .toEqual({ handled: true });
+        expect(decision("return"))
+            .toEqual({ type: "tool_approval", decision: "allow_once" });
         expect(view.handleKey(request, { name: "right" }))
-            .toEqual({ handled: false });
+            .toEqual({ handled: true });
+        expect(decision("return"))
+            .toEqual({ type: "tool_approval", decision: "allow_similar" });
+        for (const _ of [1, 2, 3]) view.handleKey(request, { name: "right" });
+        expect(decision("return"))
+            .toEqual({ type: "tool_approval", decision: "allow_always" });
+        view.handleKey(request, { name: "left" });
+        expect(decision("return"))
+            .toEqual({ type: "tool_approval", decision: "deny" });
     } finally {
         setup.renderer.destroy();
     }
