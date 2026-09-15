@@ -151,6 +151,9 @@ export function handleTuiExtensionPickerKey(
     state: TuiExtensionPickerState,
     key: TuiSettingsPickerKey,
 ): TuiExtensionPickerTransition {
+    if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
+        return unchanged(state, true);
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
@@ -179,7 +182,7 @@ export function handleTuiExtensionPickerKey(
         );
     const row = state.options[state.selectedIndex];
     if (action === undefined) {
-        return unchanged(state, false);
+        return unchanged(state, key.name === "left" || key.name === "right" || key.name === "space");
     }
     if (row === undefined) {
         return unchanged(state, true);
