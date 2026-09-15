@@ -1132,6 +1132,24 @@ test("one-section lists without groups consume left and right", () => {
     }
 });
 
+test("searchable pickers consume Tab and Shift+Tab without moving", () => {
+    const screens: TuiSettingsPickerState[] = [
+        startTuiSettingsPicker("theme", undefined, undefined, undefined),
+        startTuiSettingsPicker("permissions", undefined, undefined, "auto"),
+        startTuiReasoningPicker(REASONING_LEVELS, undefined, "high"),
+        startTuiProviderPicker([]),
+        startTuiSessionPicker([], undefined, false),
+        startTuiConfigurePicker([]),
+    ];
+    for (const screen of screens) {
+        for (const key of [{ name: "tab" }, { name: "tab", shift: true }, { name: "backtab" }]) {
+            const transition = handleTuiSettingsPickerKey(screen, key);
+            expect([screen.kind, key, transition.handled]).toEqual([screen.kind, key, true]);
+            expect(transition.state).toBe(screen);
+        }
+    }
+});
+
 test("escape inside a chained level pane steps back to the model pane instead of closing", () => {
     const modelPane = startTuiSettingsPicker(
         "model",
@@ -3181,7 +3199,7 @@ test("legacy model tabs can open providers without making providers a tab", () =
         onto.state as TuiSettingsPickerState,
     );
     const off = handleTuiSettingsPickerKey(providers, { name: "tab" });
-    expect(off.handled).toBe(false);
+    expect(off.handled).toBe(true);
     expect(off.state).toBe(providers);
 });
 
@@ -3208,7 +3226,7 @@ test("legacy model tabs wrap left but providers ignores shift+tab", () => {
         name: "tab",
         shift: true,
     });
-    expect(help.handled).toBe(false);
+    expect(help.handled).toBe(true);
     expect(help.state).toBe(providers);
 });
 

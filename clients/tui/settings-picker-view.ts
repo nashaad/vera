@@ -771,6 +771,9 @@ export function handleTuiSettingsPickerKey(
         };
         return { state: next, handled: true, ...themePreview(next) };
     }
+    if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
+        return unchanged(state, true);
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
