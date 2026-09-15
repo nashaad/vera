@@ -324,7 +324,7 @@ export function updateTuiTimelineSearch(
             ...state,
             query,
             queryCursor: cursor,
-            selectedIndex: 0,
+            selectedIndex: query === state.query ? state.selectedIndex : 0,
             notice: undefined,
         });
 }
@@ -484,10 +484,10 @@ function handleSelectKey(
     const filtered = filteredBoundaries(state);
     if (key.name === "up" || key.name === "down") {
         const delta = key.name === "up" ? -1 : 1;
-        const selectedIndex = filtered.length === 0
-            ? 0
-            : (clampedIndex(state, filtered) + delta + filtered.length)
-                % filtered.length;
+        const selectedIndex = Math.min(
+            Math.max(0, filtered.length - 1),
+            Math.max(0, clampedIndex(state, filtered) + delta),
+        );
         return changed({ ...state, selectedIndex, notice: undefined });
     }
     if (key.name === "return" || key.name === "kpenter") {
@@ -520,9 +520,7 @@ function handleActionsKey(
     if (key.name === "up" || key.name === "down") {
         return changed({
             ...state,
-            selectedAction: state.selectedAction === "rewind"
-                ? "cancel"
-                : "rewind",
+            selectedAction: key.name === "up" ? "rewind" : "cancel",
             notice: undefined,
         });
     }

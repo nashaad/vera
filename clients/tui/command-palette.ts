@@ -248,6 +248,9 @@ function searched(
     state: TuiCommandPaletteState,
     editor: { readonly value: string; readonly cursor: number },
 ): TuiCommandPaletteTransition {
+    if (editor.value === state.query) {
+        return { state: { ...state, queryCursor: editor.cursor }, handled: true };
+    }
     return {
         state: filteredState(state.allCommands, editor.value, editor.cursor),
         handled: true,
