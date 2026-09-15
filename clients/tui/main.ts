@@ -2514,6 +2514,7 @@ export async function startTui(
             isTranscriptSelection(selection, [
                 rt.composer,
                 ...copyableNodes,
+                ...rt.sidebar.headers(),
                 ...rt.sidebar.blocks().map((block) => block.node),
                 rt.experimentalTuiHost.overlay,
                 rt.experimentalTuiHost.transcriptTop,

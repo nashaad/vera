@@ -50,6 +50,7 @@ export interface TuiSidebarBlock {
 export interface TuiSidebar {
     readonly body: BoxRenderable;
     blocks(): readonly TuiSidebarBlock[];
+    headers(): readonly TextRenderable[];
     isOpen(): boolean;
     isShown(): boolean;
     layout(): "main" | "split" | "sidebar";
@@ -186,6 +187,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         height: 1,
         marginBottom: PANE_HEADER_GAP,
         onMouseUp: (event: MouseEvent) => {
+            if (renderer.getSelection()?.getSelectedText()) return;
             event.preventDefault();
             event.stopPropagation();
             options.onHeaderClick?.();
@@ -220,6 +222,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         height: 1,
         marginBottom: PANE_HEADER_GAP,
         onMouseUp: (event: MouseEvent) => {
+            if (renderer.getSelection()?.getSelectedText()) return;
             event.preventDefault();
             event.stopPropagation();
             options.onMainHeaderClick?.();
@@ -354,6 +357,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
 
     return {
         body,
+        headers: () => [mainHeader, header],
         isFollowing: () =>
             content.scrollTop >= content.scrollHeight - content.viewport.height,
         scrollToBottom: () => content.scrollTo(content.scrollHeight),
