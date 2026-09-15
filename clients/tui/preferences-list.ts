@@ -120,6 +120,9 @@ export function handleTuiPreferencesListKey(
             handled: true,
         };
     }
+    if (key.name === "left" || key.name === "right") {
+        return { state, handled: true };
+    }
     if (tuiBindingId("preferences_list", key) === "revoke_permission") {
         const selected = state.entries[state.selectedIndex];
         return selected === undefined
