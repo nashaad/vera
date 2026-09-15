@@ -32,6 +32,7 @@ import {
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
+import { isTuiDialTabKey } from "./keymap.ts";
 import {
     TUI_ACCENT,
     TUI_DANGER,
@@ -226,6 +227,9 @@ export function handleTuiExtensionsListKey(
     state: TuiExtensionsListState,
     key: TuiExtensionsListKey,
 ): TuiExtensionsListTransition {
+    if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
+        return { state, handled: true };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return { state, handled: false };
     }
