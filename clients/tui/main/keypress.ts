@@ -849,7 +849,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             ? structural
             : rt.searchOverlayView.handleInputKey(key)
             ? updateSearchOverlayText(
-                rt.searchOverlay,
+                structural.state ?? rt.searchOverlay,
                 rt.searchOverlayView.inputText(),
                 rt.searchOverlayView.inputCursor(),
             )

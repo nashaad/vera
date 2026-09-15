@@ -32,6 +32,7 @@ import {
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
+import { isTuiDialTabKey } from "./keymap.ts";
 import {
     TUI_ACCENT,
     TUI_DANGER,
@@ -226,6 +227,9 @@ export function handleTuiExtensionsListKey(
     state: TuiExtensionsListState,
     key: TuiExtensionsListKey,
 ): TuiExtensionsListTransition {
+    if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
+        return { state, handled: true };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return { state, handled: false };
     }
@@ -341,6 +345,7 @@ function handleListKey(
 ): TuiExtensionsListTransition {
     if (key.name === "escape") return { handled: true };
     if (state.rows.length === 0) return { state, handled: true };
+    if (key.name === "left" || key.name === "right") return { state, handled: true };
     if (key.name === "up" || key.name === "down") {
         const step = key.name === "up" ? -1 : 1;
         return {
@@ -379,6 +384,9 @@ function handleDetailKey(
     }
     const selected = state.rows[state.selectedIndex];
     const actions = detailActions(selected);
+    if (key.name === "left" || key.name === "right") {
+        return { state, handled: true };
+    }
     if (key.name === "up" || key.name === "down") {
         if (actions.length === 0) return { state, handled: true };
         const step = key.name === "up" ? -1 : 1;

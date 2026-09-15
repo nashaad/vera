@@ -98,23 +98,28 @@ test.skipIf(!tmuxAvailable)("search groups hits by session and names each kind",
         tui.text("fallback");
         const found = await tui.paneWhere((pane) => pane.includes("relay-gui"));
         tui.key("Tab");
+        tui.key("Space");
+        tui.key("Down");
+        tui.key("Enter");
         const filtered = await tui.paneWhere((pane) =>
-            pane.includes("Search · messages"));
+            pane.includes("Filter: messages"));
         tui.key("C-w");
         const widened = await tui.paneWhere((pane) =>
             pane.includes("everywhere"));
         return { found, filtered, widened };
-    });
+    }, 100, 44);
 
-    expect(found).toContain("Search · all · this workspace");
+    expect(found).toContain("Search · this workspace");
+    expect(found).toContain("Filter: all ▾");
     expect(found).toContain("relay-gui");
     expect(found).toContain("you: if the provider fallback kicks in");
     expect(found).toContain("provider-fallback");
     expect(found).toContain("agent: the fallback ladder degrades in place");
     expect(found).toContain("ran: bun test tests/unit/fallback");
-    expect(found).toContain("tab filter");
-    expect(filtered).toContain("Search · messages · this workspace");
-    expect(widened).toContain("Search · messages · everywhere");
+    expect(found).toContain("tab section");
+    expect(filtered).toContain("› Filter: messages ▾");
+    expect(widened).toContain("Search · everywhere");
+    expect(widened).toContain("Filter: messages");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a filter with no hits says so rather than showing the old ones", async () => {
@@ -124,9 +129,12 @@ test.skipIf(!tmuxAvailable)("a filter with no hits says so rather than showing t
         await tui.paneWhere((candidate) => candidate.includes("relay-gui"));
         // The child answers the files filter with nothing.
         tui.key("Tab");
-        tui.key("Tab");
-        tui.key("Tab");
-        return tui.paneWhere((candidate) => candidate.includes("Search · files"));
+        tui.key("Enter");
+        tui.key("Down");
+        tui.key("Down");
+        tui.key("Down");
+        tui.key("Enter");
+        return tui.paneWhere((candidate) => candidate.includes("Filter: files"));
     });
 
     expect(pane).toContain("No matches.");
@@ -246,6 +254,9 @@ test.skipIf(!tmuxAvailable)("the cursor walks every hit, not one per session", a
         tui.text("fallback");
         const first = await tui.coloredWhere((value) =>
             cursorRow(value).includes("you: if the provider fallback"));
+        // Search, then the filter chip, then the results.
+        tui.key("Tab");
+        tui.key("Tab");
         tui.key("Down");
         tui.key("Down");
         const third = await tui.coloredWhere((value) =>
@@ -430,7 +441,7 @@ async function withTui<T>(
             openWorkTab: () =>
                 runCommand("/work", (value) => value.includes("Needs you")),
             openSearch: () =>
-                runCommand("/search", (value) => value.includes("Search · all")),
+                runCommand("/search", (value) => value.includes("Filter: all")),
         });
     } finally {
         killServer(socket);

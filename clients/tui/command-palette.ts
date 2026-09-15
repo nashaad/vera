@@ -26,6 +26,7 @@ import {
     centeredDialogSurface,
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
+import { isTuiDialTabKey } from "./keymap.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import {
     insertTuiSingleLinePaste,
@@ -97,6 +98,9 @@ export function handleTuiCommandPaletteKey(
     state: TuiCommandPaletteState,
     key: TuiCommandPaletteKey,
 ): TuiCommandPaletteTransition {
+    if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
+        return { state, handled: true };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return { state, handled: false };
     }
@@ -248,6 +252,9 @@ function searched(
     state: TuiCommandPaletteState,
     editor: { readonly value: string; readonly cursor: number },
 ): TuiCommandPaletteTransition {
+    if (editor.value === state.query) {
+        return { state: { ...state, queryCursor: editor.cursor }, handled: true };
+    }
     return {
         state: filteredState(state.allCommands, editor.value, editor.cursor),
         handled: true,

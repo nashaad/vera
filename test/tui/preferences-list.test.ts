@@ -82,6 +82,18 @@ test("an empty list says how to create one", () => {
     );
 });
 
+test("left and right are consumed and keep the highlight", () => {
+    let state = startTuiPreferencesList(
+        inspection([grant("g1", "curl")], [preference("p1", "git")]),
+    );
+    state = handleTuiPreferencesListKey(state, { name: "down" }).state!;
+    for (const name of ["left", "right"]) {
+        const transition = handleTuiPreferencesListKey(state, { name });
+        expect(transition.handled).toBe(true);
+        expect(transition.state?.selectedIndex).toBe(1);
+    }
+});
+
 test("a missing inspection is an empty list rather than a crash", () => {
     expect(startTuiPreferencesList(undefined).entries).toEqual([]);
 });

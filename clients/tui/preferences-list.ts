@@ -23,7 +23,7 @@ import {
     centeredDialogSurface,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
-import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import { isTuiDialTabKey, tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,
@@ -93,6 +93,9 @@ export function handleTuiPreferencesListKey(
     state: TuiPreferencesListState,
     key: TuiPreferencesListKey,
 ): TuiPreferencesListTransition {
+    if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
+        return { state, handled: true };
+    }
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return { state, handled: false };
     }
@@ -119,6 +122,9 @@ export function handleTuiPreferencesListKey(
             },
             handled: true,
         };
+    }
+    if (key.name === "left" || key.name === "right" || key.name === "space") {
+        return { state, handled: true };
     }
     if (tuiBindingId("preferences_list", key) === "revoke_permission") {
         const selected = state.entries[state.selectedIndex];

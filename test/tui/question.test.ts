@@ -186,6 +186,11 @@ test("TUI question arrow keys select without touching the engine early", async (
         // Clamped at the top; still no response.
         expect(view.handleKey(request, { name: "up" }))
             .toEqual({ handled: true });
+        // The choice list does not use left or right, and neither leaks.
+        expect(view.handleKey(request, { name: "left" }))
+            .toEqual({ handled: true });
+        expect(view.handleKey(request, { name: "right" }))
+            .toEqual({ handled: true });
         // A digit still selects immediately regardless of the highlight.
         expect(view.handleKey(request, { name: "1", sequence: "1" }).response)
             .toEqual({

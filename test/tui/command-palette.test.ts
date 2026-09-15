@@ -99,6 +99,31 @@ test("command palette search edits at the caret", async () => {
     ]);
 });
 
+test("command palette keeps the highlight when left or right only moves the caret", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiCommandPaletteView(setup.renderer);
+    let state = startTuiCommandPalette(commands);
+    view.update(state);
+    try {
+        state = handleTuiCommandPaletteKey(state, { name: "down" }).state ?? state;
+        expect(state.selectedIndex).toBe(1);
+        for (const name of ["left", "right"]) {
+            const transition = view.handleEditorKey(state, { name });
+            state = transition.state ?? state;
+            expect(state.selectedIndex).toBe(1);
+        }
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("command palette consumes Tab and Shift+Tab without moving", () => {
+    const state = handleTuiCommandPaletteKey(startTuiCommandPalette(commands), { name: "down" }).state!;
+    for (const key of [{ name: "tab" }, { name: "tab", shift: true }]) {
+        expect(handleTuiCommandPaletteKey(state, key)).toEqual({ state, handled: true });
+    }
+});
+
 test("command palette paste inserts at the caret", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     const view = createTuiCommandPaletteView(setup.renderer);

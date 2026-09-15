@@ -5,7 +5,6 @@ import {
   italic,
   type RenderContext,
   StyledText,
-  TextareaRenderable,
   type TextChunk,
   TextRenderable,
 } from "@opentui/core";
@@ -48,6 +47,10 @@ import {
   TUI_SELECTION_TEXT,
   TUI_TEXT,
 } from "./state.ts";
+import {
+  createTuiSingleLineTextarea,
+  tuiTextareaKey,
+} from "./single-line-editor.ts";
 import { type TuiThemeBinding, tuiThemeProperties } from "./theme-bindings.ts";
 
 export interface TuiStandingNudgesKey {
@@ -95,7 +98,6 @@ export interface TuiStandingNudgesFormState extends TuiStandingNudgesBase {
   readonly selectedIndex: number;
   readonly draft: TuiStandingNudgeDraft;
   readonly field: TuiStandingNudgeFormField;
-  readonly editing: boolean;
   readonly error?: string;
 }
 
@@ -203,7 +205,7 @@ export function handleTuiStandingNudgesPaste(
   text: string,
 ): TuiStandingNudgesState {
   if (state.screen !== "create" && state.screen !== "edit") return state;
-  if (!state.editing || !formTextField(state.field)) return state;
+  if (!formTextField(state.field)) return state;
   const pasted = sanitizeFormPaste(state.field, text);
   if (pasted.length === 0) return state;
   return editDraft(state, fieldValue(state, state.field) + pasted);
@@ -233,28 +235,33 @@ export function createTuiStandingNudgesView(
     wrapMode: "word",
     visible: false,
   });
-  const editor = new TextareaRenderable(renderer, {
+  const editor = createTuiSingleLineTextarea(renderer, {
     id: "standing-nudge-editor",
-    width: "100%",
-    height: 1,
-    wrapMode: "word",
-    textColor: TUI_TEXT,
-    focusedTextColor: TUI_TEXT,
-    backgroundColor: TUI_INPUT,
-    focusedBackgroundColor: TUI_INPUT,
-    cursorColor: TUI_ACCENT,
-    placeholderColor: TUI_MUTED,
+    placeholder: "lowercase-name",
   });
   const editorBox = new BoxRenderable(renderer, {
-    width: "100%",
+    width: "auto",
     height: "auto",
+    flexGrow: 1,
+    flexShrink: 1,
     backgroundColor: TUI_INPUT,
-    paddingLeft: 1,
-    paddingRight: 1,
-    marginTop: 1,
-    visible: false,
   });
   editorBox.add(editor);
+  const fieldLabel = new TextRenderable(renderer, {
+    content: "",
+    width: FORM_PREFIX_WIDTH,
+    height: 1,
+    flexShrink: 0,
+  });
+  const fieldRow = new BoxRenderable(renderer, {
+    id: "standing-nudge-field",
+    width: "100%",
+    height: "auto",
+    flexDirection: "row",
+    visible: false,
+  });
+  fieldRow.add(fieldLabel);
+  fieldRow.add(editorBox);
   const body = new TextRenderable(renderer, {
     content: "",
     fg: TUI_TEXT,
@@ -262,6 +269,14 @@ export function createTuiStandingNudgesView(
     height: "auto",
     wrapMode: "word",
     marginTop: 1,
+  });
+  const bodyAfter = new TextRenderable(renderer, {
+    content: "",
+    fg: TUI_TEXT,
+    width: "100%",
+    height: "auto",
+    wrapMode: "char",
+    visible: false,
   });
   const empty = new TextRenderable(renderer, {
     content: "No standing nudges",
@@ -289,8 +304,9 @@ export function createTuiStandingNudgesView(
   });
   box.add(headerSlot);
   box.add(hint);
-  box.add(editorBox);
   box.add(body);
+  box.add(fieldRow);
+  box.add(bodyAfter);
   box.add(empty);
   box.add(footer);
   const surface = centeredDialogSurface(
@@ -300,8 +316,7 @@ export function createTuiStandingNudgesView(
   );
   let shownState: TuiStandingNudgesState | undefined;
   let shownField: TuiStandingNudgeFormField | undefined;
-  let shownEquals: string | undefined;
-  let shownEditing = false;
+  let shownLive = false;
   let equalsScrollTop = 0;
   let equalsScrollMaximum = 0;
   let equalsPageRows = 1;
@@ -319,10 +334,9 @@ export function createTuiStandingNudgesView(
     );
     const dense = compact || formNeedsDenseChrome(state, formWidth);
     const form = state.screen === "create" || state.screen === "edit";
-    const editing = form && state.editing && formTextField(state.field);
+    const live = form && formTextField(state.field);
     body.marginTop = dense ? 0 : 1;
     empty.marginTop = dense ? 0 : 1;
-    editorBox.marginTop = dense ? 0 : 1;
     footer.marginTop = dense ? 0 : 1;
     footer.height = dense ? 1 : 2;
     box.paddingBottom = dense ? 0 : 1;
@@ -330,24 +344,21 @@ export function createTuiStandingNudgesView(
     const content = state.screen === "list"
       ? listScreenContent(state, visibleListIndices(renderer, state))
       : screenContent(state);
-    const title = editing ? editorTitle(state) : content.title;
-    if (title !== headerTitle) {
+    if (content.title !== headerTitle) {
       header.destroyRecursively();
-      header = dialogHeaderNode(renderer, title);
-      headerTitle = title;
+      header = dialogHeaderNode(renderer, content.title);
+      headerTitle = content.title;
       headerSlot.add(header);
     }
     const emptyList = state.screen === "list" &&
       state.nudges.length === 0;
-    hint.visible = form && !dense && !editing;
+    hint.visible = form && !dense;
     const hintContent = state.screen === "create"
       ? "A profile preference applied to matching turns."
       : state.screen === "edit"
       ? "Change the instruction, status, or where it applies."
       : "";
     hint.content = hintContent;
-    editorBox.visible = editing;
-    body.visible = !emptyList && !editing;
     empty.visible = emptyList;
     body.wrapMode = form ? "char" : "word";
     const maxBodyRows = standingNudgeBodyViewportRows(
@@ -355,30 +366,11 @@ export function createTuiStandingNudgesView(
       dense,
       hint.visible ? wrapFormValue(hintContent, formWidth).length : 0,
     );
-    if (editing) {
-      const editorChanged = !shownEditing ||
-        shownState?.screen !== state.screen ||
-        shownField !== state.field;
-      if (editorChanged) {
-        editor.setText(fieldValue(state, state.field));
-        editor.cursorOffset = editor.plainText.length;
-      }
-      editor.wrapMode = state.field === "id" ? "none" : "word";
-      const editorRows = Math.max(1, maxBodyRows - (dense ? 0 : 1));
-      editor.height = state.field === "id"
-        ? 1
-        : state.field === "text"
-        ? Math.max(
-          2,
-          Math.min(MAX_STANDING_NUDGE_TEXT_LINES, editorRows),
-        )
-        : Math.max(3, Math.min(8, editorRows));
-      editor.placeholder = formPlaceholder(state, state.field);
-    }
     let equalsWindow: FormValueWindow | undefined;
+    let equalsEditorRows = 1;
     equalsOverflow = false;
     if (
-      form && !editing && !compact &&
+      form && !compact &&
       state.draft.trigger !== "always"
     ) {
       const fixedFormRows = formFields(state)
@@ -399,58 +391,109 @@ export function createTuiStandingNudgesView(
         false,
       );
       const equalsRows = Math.max(1, maxBodyRows - fixedFormRows);
-      equalsOverflow = allEqualsLines.length > equalsRows;
-      equalsPageRows = Math.max(1, equalsRows - 2);
-      const finalPageValueRows = equalsRows <= 2 ? equalsRows : equalsRows - 1;
-      equalsScrollMaximum = Math.max(
-        0,
-        allEqualsLines.length - Math.max(1, finalPageValueRows),
-      );
-      const fieldChanged = shownState?.screen !== state.screen ||
-        shownField !== state.field;
-      const equalsChanged = shownEquals !== state.draft.equals;
-      if (!viewportOnly) {
-        if (
-          state.field === "equals" &&
-          (fieldChanged || equalsChanged)
-        ) {
-          equalsScrollTop = equalsScrollMaximum;
-        } else if (shownState?.screen !== state.screen) {
+      if (state.field === "equals") {
+        equalsEditorRows = Math.min(allEqualsLines.length, equalsRows);
+        equalsScrollTop = 0;
+        equalsScrollMaximum = 0;
+        equalsPageRows = 1;
+      } else {
+        equalsOverflow = allEqualsLines.length > equalsRows;
+        equalsPageRows = Math.max(1, equalsRows - 2);
+        const finalPageValueRows = equalsRows <= 2
+          ? equalsRows
+          : equalsRows - 1;
+        equalsScrollMaximum = Math.max(
+          0,
+          allEqualsLines.length - Math.max(1, finalPageValueRows),
+        );
+        if (!viewportOnly && shownState?.screen !== state.screen) {
           equalsScrollTop = 0;
         }
-      }
-      equalsScrollTop = Math.max(
-        0,
-        Math.min(equalsScrollTop, equalsScrollMaximum),
-      );
-      if (equalsOverflow) {
-        equalsWindow = {
-          first: equalsScrollTop,
-          rows: equalsRows,
-        };
+        equalsScrollTop = Math.max(
+          0,
+          Math.min(equalsScrollTop, equalsScrollMaximum),
+        );
+        if (equalsOverflow) {
+          equalsWindow = {
+            first: equalsScrollTop,
+            rows: equalsRows,
+          };
+        }
       }
     } else {
       equalsScrollTop = 0;
       equalsScrollMaximum = 0;
       equalsPageRows = 1;
     }
-    const bodyContent = form
-      ? tuiStandingNudgeFormContent(
+    if (live) {
+      const hasBefore = formFields(state).indexOf(state.field) > 0;
+      body.visible = hasBefore;
+      if (hasBefore) {
+        body.content = tuiStandingNudgeFormContent(
+          state,
+          formWidth,
+          compact,
+          equalsWindow,
+          "before",
+        );
+      }
+      fieldRow.visible = true;
+      fieldRow.marginTop = hasBefore || dense ? 0 : 1;
+      fieldLabel.content = new StyledText([
+        fg(TUI_ACCENT)("› "),
+        fg(TUI_MUTED)(
+          `${formLabel(state, state.field).padEnd(FORM_LABEL_WIDTH)} `,
+        ),
+      ]);
+      bodyAfter.visible = true;
+      bodyAfter.content = tuiStandingNudgeFormContent(
         state,
         formWidth,
         compact,
         equalsWindow,
-      )
-      : content.body;
-    body.content = bodyContent;
+        "after",
+      );
+      const value = fieldValue(state, state.field);
+      editor.wrapMode = state.field === "id" ? "none" : "word";
+      editor.height = compact || state.field === "id"
+        ? 1
+        : state.field === "text"
+        ? Math.max(
+          1,
+          Math.min(
+            MAX_FORM_VALUE_LINES,
+            wrapFormValue(value, formWidth - FORM_PREFIX_WIDTH).length,
+          ),
+        )
+        : Math.max(1, equalsEditorRows);
+      editor.placeholder = formPlaceholder(state, state.field);
+      const fieldChanged = !shownLive ||
+        shownState?.screen !== state.screen ||
+        shownField !== state.field;
+      if (fieldChanged || editor.plainText !== value) {
+        editor.setText(value);
+        editor.gotoBufferEnd();
+      }
+    } else {
+      fieldRow.visible = false;
+      bodyAfter.visible = false;
+      body.visible = !emptyList;
+      body.content = form
+        ? tuiStandingNudgeFormContent(
+          state,
+          formWidth,
+          compact,
+          equalsWindow,
+        )
+        : content.body;
+    }
     const overflowChoiceHint = form ? formNavigationActionHint(state) : "";
     footer.content = equalsOverflow
       ? `${overflowChoiceHint}pgup/pgdn match · ↑↓/tab field · esc back`
       : content.footer;
     shownState = state;
     shownField = form ? state.field : undefined;
-    shownEquals = form ? state.draft.equals : undefined;
-    shownEditing = editing;
+    shownLive = live;
   };
 
   const scrollEquals = (step: number): boolean => {
@@ -465,11 +508,34 @@ export function createTuiStandingNudgesView(
     return true;
   };
 
+  /** The instruction editor keeps ↑↓ inside its text and lets them leave at its first and last rows. */
+  const editorOwnsKey = (
+    state: TuiStandingNudgesFormState,
+    key: TuiStandingNudgesKey,
+  ): boolean => {
+    if (
+      key.name === "escape" || key.name === "pageup" ||
+      key.name === "pagedown" || formTabStep(key) !== undefined
+    ) {
+      return false;
+    }
+    if (key.name === "up" || key.name === "down") {
+      if (state.field !== "text") return false;
+      const row = editor.visualCursor.visualRow;
+      return key.name === "up" ? row > 0 : row < editor.virtualLineCount - 1;
+    }
+    if (key.name === "return" || key.name === "enter") {
+      return state.field === "text";
+    }
+    return true;
+  };
+
   return {
     box,
     surface,
     themeBindings: [
       tuiThemeProperties(body, { fg: "text" }),
+      tuiThemeProperties(bodyAfter, { fg: "text" }),
       tuiThemeProperties(editor, {
         textColor: "text",
         focusedTextColor: "text",
@@ -485,49 +551,21 @@ export function createTuiStandingNudgesView(
       tuiThemeProperties(box, { backgroundColor: "panel" }),
     ],
     focus(): void {
-      if (shownEditing) editor.focus();
+      if (shownLive) editor.focus();
       else box.focus();
     },
     handleEditorKey(state, key): TuiStandingNudgesTransition {
-      if (!formStateEditingText(state)) {
+      if (!formStateOnTextField(state) || !editorOwnsKey(state, key)) {
         return { state, handled: false };
       }
-      if (key.name === "escape") {
-        return {
-          state: {
-            ...editDraft(state, editor.plainText),
-            editing: false,
-          },
-          handled: true,
-        };
-      }
-      if (
-        (key.name === "return" || key.name === "enter") &&
-        state.field !== "text"
-      ) {
-        return {
-          state: {
-            ...editDraft(state, editor.plainText),
-            editing: false,
-          },
-          handled: true,
-        };
-      }
-      const tabStep = formTabStep(key);
-      if (tabStep !== undefined) {
-        return {
-          state: moveField(editDraft(state, editor.plainText), tabStep),
-          handled: true,
-        };
-      }
-      editor.handleKeyPress(textareaKey(key));
+      editor.handleKeyPress(tuiTextareaKey(key));
       return {
         state: editDraft(state, editor.plainText),
         handled: true,
       };
     },
     handleEditorPaste(state, text): TuiStandingNudgesTransition {
-      if (!formStateEditingText(state)) {
+      if (!formStateOnTextField(state)) {
         return { state, handled: false };
       }
       const pasted = sanitizeFormPaste(state.field, text);
@@ -600,7 +638,6 @@ function handleListKey(
         screen: "create",
         draft: EMPTY_STANDING_NUDGE_DRAFT,
         field: "id",
-        editing: false,
       },
       handled: true,
     };
@@ -632,7 +669,6 @@ function handleListKey(
           turnsApart: selected.turnsApart,
         },
         field: "text",
-        editing: false,
       },
       handled: true,
     };
@@ -650,7 +686,6 @@ function handleFormKey(
   state: TuiStandingNudgesFormState,
   key: TuiStandingNudgesKey,
 ): TuiStandingNudgesTransition {
-  if (state.editing) return handleFallbackEditorKey(state, key);
   if (key.name === "escape") {
     return { state: parentList(state), handled: true };
   }
@@ -665,6 +700,7 @@ function handleFormKey(
   if (tabStep !== undefined) {
     return { state: moveField(state, tabStep), handled: true };
   }
+  if (formTextField(state.field)) return handleTextFieldKey(state, key);
   if (
     (state.field === "enabled" || state.field === "trigger" ||
       state.field === "turnsApart") &&
@@ -679,41 +715,20 @@ function handleFormKey(
       handled: true,
     };
   }
-  if (key.name === "return" || key.name === "enter") {
-    if (formTextField(state.field)) {
-      return { state: { ...state, editing: true }, handled: true };
-    }
-    if (state.field === "save") return submitForm(state);
-    return { state, handled: true };
-  }
   if (
-    state.field === "enabled" || state.field === "trigger" ||
-    state.field === "turnsApart"
+    (key.name === "return" || key.name === "enter") &&
+    state.field === "save"
   ) {
-    return { state, handled: true };
+    return submitForm(state);
   }
   return { state, handled: true };
 }
 
 /** Keep the state reducer usable without a renderer. The OpenTUI view replaces this append-only seam with its real cursor editor in the running client. */
-function handleFallbackEditorKey(
+function handleTextFieldKey(
   state: TuiStandingNudgesFormState,
   key: TuiStandingNudgesKey,
 ): TuiStandingNudgesTransition {
-  if (key.name === "escape") {
-    return { state: { ...state, editing: false }, handled: true };
-  }
-  const tabStep = formTabStep(key);
-  if (tabStep !== undefined) {
-    return { state: moveField(state, tabStep), handled: true };
-  }
-  if (
-    (key.name === "return" || key.name === "enter") &&
-    state.field !== "text"
-  ) {
-    return { state: { ...state, editing: false }, handled: true };
-  }
-  if (commandModified(key)) return { state, handled: true };
   if (key.name === "backspace") {
     return {
       state: editDraft(
@@ -725,16 +740,20 @@ function handleFallbackEditorKey(
   }
   if (key.name === "return" || key.name === "enter") {
     return {
-      state: editDraft(state, `${fieldValue(state, state.field)}\n`),
+      state: state.field === "text"
+        ? editDraft(state, `${fieldValue(state, state.field)}\n`)
+        : moveField(state, 1),
       handled: true,
     };
   }
   const typed = key.sequence !== undefined && key.sequence.length > 0
     ? key.sequence
+    : key.name === "space"
+    ? " "
     : key.name.length === 1
     ? key.name
     : undefined;
-  if (typed === undefined || /[\u0000-\u001f\u007f]/.test(typed)) {
+  if (typed === undefined || /\p{Cc}/u.test(typed)) {
     return { state, handled: true };
   }
   return {
@@ -1071,7 +1090,6 @@ function moveField(
   return {
     ...state,
     field: fields[(at + step + fields.length) % fields.length]!,
-    editing: false,
   };
 }
 
@@ -1182,18 +1200,16 @@ function screenContent(
           ...plainFormRows(state),
           ...(state.error === undefined ? [] : ["", state.error]),
         ].join("\n"),
-        footer: state.editing && state.field === "text"
-          ? "4 lines max · ↑↓ move · ⏎ newline · tab next · esc done"
-          : state.editing
-          ? "←→ move · ⏎ done · tab next · esc done"
+        footer: state.field === "text"
+          ? "⏎ newline · ↑↓/tab field · esc back"
+          : formTextField(state.field)
+          ? "←→ move · ↑↓/tab field · esc back"
           : state.field === "enabled"
           ? "Space toggle · ↑↓/tab field · esc back"
           : state.field === "trigger" ||
               state.field === "turnsApart"
           ? "Space change · ↑↓/tab field · esc back"
-          : state.field === "save"
-          ? "⏎ save · ↑↓/tab field · esc back"
-          : "⏎ edit · ↑↓/tab field · esc back",
+          : "⏎ save · ↑↓/tab field · esc back",
       };
     case "delete_confirm":
       return {
@@ -1277,6 +1293,7 @@ function standingNudgesCardRows(renderer: RenderContext): number {
 }
 
 const FORM_LABEL_WIDTH = 12;
+const FORM_PREFIX_WIDTH = 2 + FORM_LABEL_WIDTH + 1;
 const MAX_FORM_VALUE_LINES = 4;
 
 interface FormValueLine {
@@ -1309,10 +1326,18 @@ export function tuiStandingNudgeFormContent(
   lineWidth: number,
   compact: boolean,
   equalsWindow?: FormValueWindow,
+  part: "all" | "before" | "after" = "all",
 ): StyledText {
   const chunks: TextChunk[] = [];
-  const prefixWidth = 2 + FORM_LABEL_WIDTH + 1;
-  formFields(state).forEach((field, index) => {
+  const prefixWidth = FORM_PREFIX_WIDTH;
+  const fields = formFields(state);
+  const at = fields.indexOf(state.field);
+  const shown = part === "before"
+    ? fields.slice(0, at)
+    : part === "after"
+    ? fields.slice(at + 1)
+    : fields;
+  shown.forEach((field, index) => {
     if (index > 0) chunks.push(fg(TUI_TEXT)("\n"));
     const focused = field === state.field;
     if (field === "save") {
@@ -1347,7 +1372,7 @@ export function tuiStandingNudgeFormContent(
       appendFormValue(chunks, line);
     }
   });
-  if (state.error !== undefined) {
+  if (state.error !== undefined && part !== "before") {
     chunks.push(
       fg(TUI_TEXT)(compact ? "\n" : "\n\n"),
       fg(TUI_ACCENT)(
@@ -1566,15 +1591,11 @@ function formTextField(field: TuiStandingNudgeFormField): boolean {
   return field === "id" || field === "text" || field === "equals";
 }
 
-function formStateEditingText(
+function formStateOnTextField(
   state: TuiStandingNudgesState,
 ): state is TuiStandingNudgesFormState {
   return (state.screen === "create" || state.screen === "edit") &&
-    state.editing && formTextField(state.field);
-}
-
-function editorTitle(state: TuiStandingNudgesFormState): string {
-  return `Edit ${formLabel(state, state.field).toLowerCase()}`;
+    formTextField(state.field);
 }
 
 function formNavigationActionHint(
@@ -1585,7 +1606,7 @@ function formNavigationActionHint(
     state.field === "trigger" || state.field === "turnsApart"
   ) return "Space change · ";
   if (state.field === "save") return "⏎ save · ";
-  return "⏎ edit · ";
+  return "";
 }
 
 function sanitizeFormPaste(
@@ -1596,24 +1617,6 @@ function sanitizeFormPaste(
     ? text.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
       .replaceAll(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     : text.replaceAll(/[\u0000-\u001f\u007f]/g, "");
-}
-
-function textareaKey(
-  key: TuiStandingNudgesKey,
-): Parameters<TextareaRenderable["handleKeyPress"]>[0] {
-  return {
-    ...key,
-    name: key.name === "enter" ? "return" : key.name,
-    sequence: key.sequence ?? "",
-    ctrl: key.ctrl ?? false,
-    meta: key.meta ?? false,
-    shift: key.shift ?? false,
-    option: false,
-    number: false,
-    raw: key.sequence ?? "",
-    eventType: "press",
-    source: "raw",
-  } as Parameters<TextareaRenderable["handleKeyPress"]>[0];
 }
 
 function formNeedsDenseChrome(

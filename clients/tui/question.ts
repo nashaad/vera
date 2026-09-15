@@ -450,6 +450,9 @@ export function createTuiQuestionView(
                 }
                 return { handled: true };
             }
+            if (key.name === "left" || key.name === "right") {
+                return { handled: true };
+            }
             if (key.name === "return" || key.name === "enter") {
                 const choice = choices[selectedIndex];
                 if (choice === undefined && selectedIndex === count - 1) {

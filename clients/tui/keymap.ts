@@ -634,13 +634,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         overrides: ["dials.open"],
     },
     {
-        id: "cycle_search_filter",
-        keys: ["tab"],
-        scope: "search",
-        description: "Cycle search between messages, tools and files",
-        hint: "tab filter",
-    },
-    {
         id: "toggle_search_scope",
         keys: ["ctrl+w"],
         scope: "search",

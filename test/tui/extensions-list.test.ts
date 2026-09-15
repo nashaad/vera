@@ -178,6 +178,19 @@ test("Enter opens details, Space from the list asks to disable, Escape closes", 
     )).toEqual({ handled: true });
 });
 
+test("left and right are consumed on the list and the detail screen", () => {
+    let state = openTuiExtensionsList([
+        entry({ id: "example.context" }),
+        entry({ id: "example.tools" }),
+    ]);
+    state = key(state, "down");
+    expect(key(key(state, "left"), "right")).toEqual(state);
+
+    const detail = key(state, "enter");
+    expect(detail.screen).toBe("detail");
+    expect(key(key(detail, "left"), "right")).toEqual(detail);
+});
+
 test("disabled managed rows offer enable, and Remove uses a second screen", () => {
     let state = openTuiExtensionsList([
         entry({ id: "example.context", enabled: false }),

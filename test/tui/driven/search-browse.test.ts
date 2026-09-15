@@ -61,7 +61,7 @@ test("the search pane types into a box and pages through its results", async () 
             (frame) => frame.includes("define"),
             "the query still in its box",
         );
-        expect(paged).toContain("Search · all ·");
+        expect(paged).toContain("Filter: all ▾");
 
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
