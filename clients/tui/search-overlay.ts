@@ -612,7 +612,7 @@ export function searchOverlayViewState(
         ...base,
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.map((line) => ({
-            text: line.text,
+            text: line.kind === "notice" ? `  ${line.text}` : line.text,
             ...(line.row_id === undefined ? {} : { rowId: line.row_id }),
             ...(line.selected === true ? { selected: true } : {}),
             ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),

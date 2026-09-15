@@ -470,6 +470,18 @@ test("empty, searching, and no-match all read as themselves", () => {
         .toContain("No matches.");
 });
 
+test("notices line up with the filter chip and result titles", () => {
+    const none = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        { results: [], truncated: false },
+    );
+    const view = searchOverlayViewState(none, 78, NOW);
+    expect(view.lines[0]?.text).toBe("  No matches.");
+    expect(searchOverlayViewState(startSearchOverlay("/work/one"), 78, NOW)
+        .lines[0]?.text).toBe("  Type to search past work.");
+});
+
 test("a truncated result set says it was truncated", () => {
     const state = applySearchResults(
         typing("fallback"),
