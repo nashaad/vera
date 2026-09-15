@@ -704,7 +704,7 @@ test("skill commands list and run through a worker", async () => {
         )).toMatchObject({
             type: "skill_catalog",
             requestId: "skills-1",
-            skills: [{ name: "deploy" }],
+            skills: expect.arrayContaining([expect.objectContaining({ name: "deploy" })]),
             warnings: [],
         });
 

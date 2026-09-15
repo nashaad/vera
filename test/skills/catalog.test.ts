@@ -92,7 +92,7 @@ description: ${description}
 `);
 }
 
-test("the only skill Vera ships is the guide to itself", async () => {
+test("bundled skills include guidance and explicit authoring", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
     const catalog = await loadSkillCatalog({
         projectRoot: join(root, "project"),
@@ -100,6 +100,7 @@ test("the only skill Vera ships is the guide to itself", async () => {
     });
 
     expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
+        "create-agent",
         "vera-help",
     ]);
 });
@@ -116,6 +117,7 @@ test("copyable example skills are valid opt-in packages", async () => {
     expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
         "browser-research",
         "consult",
+        "wireframe",
     ]);
 });
 

@@ -116,7 +116,7 @@ export function createRemoteHostBoundary(
                 : { invocation: registered.invocation }),
             async execute(
                 input: Readonly<Record<string, unknown>>,
-                _context: ToolRuntime,
+                context: ToolRuntime,
                 signal: AbortSignal,
             ): Promise<ToolExecutionResult> {
                 const callId = newCallId();
@@ -129,6 +129,8 @@ export function createRemoteHostBoundary(
                         callId,
                         name: registered.definition.name,
                         input,
+                        userInvokedSkill: context.userInvokedSkill,
+                        allowedSkills: context.allowedSkills,
                     }) as { readonly result: ToolExecutionResult };
                     return reply.result;
                 } finally {

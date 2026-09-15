@@ -8,7 +8,8 @@ import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ReviewLogEntry } from "../../engine/review-log.ts";
 import type { SessionStore } from "../../store/session-store.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
-import type { ToolRuntime } from "../../tools/runtime.ts";
+import { ToolRuntime } from "../../tools/runtime.ts";
+import { skillScriptTool } from "../../skills/script.ts";
 import type { JsonPipe } from "./pipe.ts";
 import { CompletionUnavailableError } from "../../engine/completion-service.ts";
 
@@ -200,6 +201,8 @@ export function createWorkerBoundaryServer(
                         readonly callId: string;
                         readonly name: string;
                         readonly input: Readonly<Record<string, unknown>>;
+                        readonly userInvokedSkill?: string;
+                        readonly allowedSkills?: readonly string[];
                     };
                     const tool = toolsByName.get(request.name);
                     if (tool === undefined || options.toolRuntime === undefined) {
@@ -210,9 +213,23 @@ export function createWorkerBoundaryServer(
                     const controller = new AbortController();
                     cancellers.set(request.callId, controller);
                     try {
+                        let runtime = options.toolRuntime;
+                        if (request.name === skillScriptTool.definition.name) {
+                            runtime = new ToolRuntime(
+                                runtime.workspace,
+                                undefined,
+                                runtime.stashDirectory,
+                                runtime.env,
+                                runtime.instructionRoot,
+                                runtime.processes,
+                                runtime.isSubagent,
+                            );
+                            runtime.userInvokedSkill = request.userInvokedSkill;
+                            runtime.allowedSkills = request.allowedSkills;
+                        }
                         const result = await tool.execute(
                             request.input,
-                            options.toolRuntime,
+                            runtime,
                             controller.signal,
                         );
                         return { result };
