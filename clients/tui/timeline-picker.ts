@@ -13,6 +13,7 @@ import type {
     TimelineBoundary,
     TimelineReplyUpdate,
 } from "../../src/engine/protocol.ts";
+import { isTuiDialTabKey } from "./keymap.ts";
 import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import {
     DIALOG_CARD_Z_INDEX,
@@ -490,7 +491,7 @@ function handleSelectKey(
         );
         return changed({ ...state, selectedIndex, notice: undefined });
     }
-    if (key.name === "tab") {
+    if (isTuiDialTabKey(key)) {
         return unchanged(state);
     }
     if (key.name === "return" || key.name === "kpenter") {
