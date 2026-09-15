@@ -71,19 +71,6 @@ function key(
   return transition.state;
 }
 
-function beginEdit(state: TuiStandingNudgesState): TuiStandingNudgesState {
-  const editing = key(state, "enter");
-  expect(
-    (editing.screen === "create" || editing.screen === "edit") &&
-      editing.editing,
-  ).toBe(true);
-  return editing;
-}
-
-function finishEdit(state: TuiStandingNudgesState): TuiStandingNudgesState {
-  return key(state, "escape");
-}
-
 function saveForm(state: TuiStandingNudgesState): TuiStandingNudgesState {
   for (let remaining = 0; remaining < 8; remaining += 1) {
     if (
@@ -192,16 +179,12 @@ test("create collects each field and a workspace trigger defaults to the full pa
   const directory = profile();
   const workspace = "/Users/nash/Projects/vera";
   let state = key(openTuiStandingNudges(directory, workspace), "n");
-  state = beginEdit(state);
   for (const character of "teach-go") state = key(state, character);
   state = key(state, "enter");
-  state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(
     state,
     "Explain Go idioms.\nKeep it brief.",
   );
-  state = finishEdit(state);
   state = key(state, "down");
   expect(renderTuiStandingNudges(state)).toContain("Status       Active");
   state = key(state, "down");
@@ -259,13 +242,11 @@ test("tab and shift+tab move through a form", () => {
   expect(back.state.field).toBe("id");
 });
 
-test("tab leaves an open editor and lands on the next field", () => {
+test("tab leaves a text field for the next one and keeps what was typed", () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
-  state = beginEdit(state);
   for (const character of "quiet") state = key(state, character);
   state = key(state, "tab");
   if (state.screen !== "create") throw new Error("expected create state");
-  expect(state.editing).toBe(false);
   expect(state.field).toBe("text");
   expect(state.draft.id).toBe("quiet");
 });
@@ -273,13 +254,9 @@ test("tab leaves an open editor and lands on the next field", () => {
 test("the form exposes Active and Inactive status on create and edit", () => {
   const directory = profile();
   let state = key(openTuiStandingNudges(directory, "/workspace"), "n");
-  state = beginEdit(state);
   for (const character of "quiet") state = key(state, character);
   state = key(state, "enter");
-  state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(state, "Keep the response quiet.");
-  state = finishEdit(state);
   state = key(state, "down");
   expect(renderTuiStandingNudges(state)).toContain("Status       Active");
   state = key(state, "space");
@@ -349,23 +326,30 @@ test("frequency cycles from every turn through two to ten turns", () => {
   expect(renderTuiStandingNudges(state)).toContain("every 10 turns");
 });
 
-test("typing in navigation mode does not change a text field", () => {
+test("a focused text field takes typing without Enter first", () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
   state = key(state, "p", "p");
-  expect(state.screen === "create" ? state.draft.id : undefined).toBe("");
+  expect(state.screen === "create" ? state.draft.id : undefined).toBe("p");
   expect(renderTuiStandingNudges(state)).toContain(
-    "⏎ edit · ↑↓/tab field · esc back",
+    "←→ move · ↑↓/tab field · esc back",
+  );
+  state = key(state, "enter");
+  expect(state.screen === "create" ? state.field : undefined).toBe("text");
+  state = key(state, "space");
+  state = key(state, "enter");
+  expect(state.screen === "create" ? state.draft.text : undefined).toBe(" \n");
+  expect(renderTuiStandingNudges(state)).toContain(
+    "⏎ newline · ↑↓/tab field · esc back",
   );
 });
 
 test("empty examples are styled placeholders and never become hidden input", () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
   expect(renderTuiStandingNudges(state)).not.toContain("concise");
-  state = beginEdit(state);
   state = key(state, "backspace");
   for (const character of "pirate") state = key(state, character);
   expect(renderTuiStandingNudges(state)).toContain("Name         pirate");
-  expect(renderTuiStandingNudges(state)).toContain("←→ move · ⏎ done");
+  expect(renderTuiStandingNudges(state)).toContain("←→ move · ↑↓/tab field");
   expect(renderTuiStandingNudges(state)).not.toContain("concise");
 
   if (state.screen !== "create") throw new Error("expected create state");
@@ -385,7 +369,6 @@ test("empty examples are styled placeholders and never become hidden input", () 
 test("shifted characters type into text fields", () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
   state = key(state, "down");
-  state = beginEdit(state);
   const transition = handleTuiStandingNudgesKey(state, {
     name: "S",
     sequence: "S",
@@ -412,9 +395,7 @@ test("editing never offers or changes the id and shows a full workspace path", (
   expect(rendered).toContain("Edit teach-go");
   expect(rendered).toContain(workspace);
   expect(rendered).not.toContain("  Name");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(state, " plus Python comparisons");
-  state = finishEdit(state);
   state = saveForm(state);
   expect(loadStandingNudges(directory)[0]).toMatchObject({
     id: "teach-go",
@@ -440,20 +421,16 @@ test("the save row is a button and names unsaved changes only after an edit", ()
 test("a new nudge counts as unsaved as soon as the draft carries anything", () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
   expect(renderTuiStandingNudges(state)).not.toContain("Unsaved changes");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(state, "pirate");
-  state = finishEdit(state);
   expect(renderTuiStandingNudges(state)).toContain(
     "Save changes  Unsaved changes",
   );
 });
 
-test("the instruction editor sits on its own ground below a blank row", async () => {
+test("the focused instruction is an input box in its own row", async () => {
   const directory = profile();
   saveStandingNudges(directory, [nudge("pirate")]);
-  const state = beginEdit(
-    key(openTuiStandingNudges(directory, "/workspace"), "enter"),
-  );
+  const state = key(openTuiStandingNudges(directory, "/workspace"), "enter");
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
   setup.renderer.root.add(view.surface);
@@ -461,12 +438,11 @@ test("the instruction editor sits on its own ground below a blank row", async ()
   try {
     view.update(state);
     await setup.flush();
-    const lines = setup.captureCharFrame().split("\n");
-    const title = lines.findIndex((line) => line.includes("Edit instruction"));
-    expect(title).toBeGreaterThanOrEqual(0);
-    expect(lines[title + 1]?.trim()).toMatch(/^─+$/);
-    expect(lines[title + 2]?.trim()).toBe("");
-    expect(lines[title + 3]).toContain("pirate text");
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("Edit pirate");
+    expect(frame).toMatch(/› Instruction\s+pirate text/);
+    expect(frame).toContain("Status       Active");
+    expect(frame).toContain("Save changes");
   } finally {
     setup.renderer.destroy();
   }
@@ -576,13 +552,9 @@ test("a refused create remains editable with a local actionable error", () => {
   );
 
   state = key(state, "down");
-  state = beginEdit(state);
   for (const character of "concise") state = key(state, character);
   state = key(state, "enter");
-  state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(state, "Answer concisely.");
-  state = finishEdit(state);
   state = saveForm(state);
   expect(listState(state).nudges[0]?.id).toBe("concise");
 });
@@ -594,9 +566,7 @@ test("blank and five-line instructions get short form errors", () => {
     openTuiStandingNudges(directory, "/workspace"),
     "enter",
   );
-  state = beginEdit(state);
   for (const _character of "concise text") state = key(state, "backspace");
-  state = finishEdit(state);
   state = saveForm(state);
   const blank = renderTuiStandingNudges(state);
   expect(blank).toContain("Add an instruction before saving.");
@@ -604,12 +574,10 @@ test("blank and five-line instructions get short form errors", () => {
   expect(blank).not.toContain("nudges[0]");
 
   state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(
     state,
     "one\ntwo\nthree\nfour\nfive",
   );
-  state = finishEdit(state);
   state = saveForm(state);
   expect(renderTuiStandingNudges(state)).toContain(
     "Keep the instruction to 4 lines or fewer.",
@@ -664,7 +632,7 @@ test("the OpenTUI card is centred on its own full-screen surface", async () => {
   }
 });
 
-test("Enter opens a real cursor editor and Save changes commits it", async () => {
+test("the instruction is a real cursor editor and Save changes commits it", async () => {
   const directory = profile();
   saveStandingNudges(directory, [{
     id: "cursor-edit",
@@ -673,9 +641,7 @@ test("Enter opens a real cursor editor and Save changes commits it", async () =>
     trigger: { type: "always" },
     turnsApart: 0,
   }]);
-  let state = beginEdit(
-    key(openTuiStandingNudges(directory, "/workspace"), "enter"),
-  );
+  let state = key(openTuiStandingNudges(directory, "/workspace"), "enter");
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
   setup.renderer.root.add(view.surface);
@@ -685,8 +651,8 @@ test("Enter opens a real cursor editor and Save changes commits it", async () =>
     view.focus();
     await setup.flush();
     const editingFrame = setup.captureCharFrame();
-    expect(editingFrame).toContain("Edit instruction");
-    expect(editingFrame).toContain("4 lines max");
+    expect(editingFrame).toMatch(/› Instruction\s+abcdef/);
+    expect(editingFrame).toContain("⏎ newline · ↑↓/tab field");
 
     for (
       const editorKey of [
@@ -708,13 +674,7 @@ test("Enter opens a real cursor editor and Save changes commits it", async () =>
       state.screen === "edit" ? state.draft.text : undefined,
     ).toBe("abcXef");
 
-    const done = view.handleEditorKey(state, { name: "escape" });
-    expect(done.state?.screen).toBe("edit");
-    if (done.state === undefined) {
-      throw new Error("form unexpectedly closed");
-    }
-    state = done.state;
-    expect(state.screen === "edit" && state.editing).toBe(false);
+    expect(view.handleEditorKey(state, { name: "escape" }).handled).toBe(false);
     state = saveForm(state);
     expect(loadStandingNudges(directory)[0]?.text).toBe("abcXef");
   } finally {
@@ -722,18 +682,43 @@ test("Enter opens a real cursor editor and Save changes commits it", async () =>
   }
 });
 
+test("up and down move inside the instruction and leave it at its edges", async () => {
+  let state = key(key(openTuiStandingNudges(profile(), "/workspace"), "n"), "down");
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const view = createTuiStandingNudgesView(setup.renderer);
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
+  try {
+    view.update(state);
+    await setup.flush();
+    const pasted = view.handleEditorPaste(state, "one\ntwo");
+    if (pasted.state === undefined) throw new Error("form closed");
+    state = pasted.state;
+    view.update(state);
+    await setup.flush();
+    expect(view.handleEditorKey(state, { name: "down" }).handled).toBe(false);
+    expect(view.handleEditorKey(state, { name: "up" }).handled).toBe(true);
+    expect(view.handleEditorKey(state, { name: "up" }).handled).toBe(false);
+    expect(view.handleEditorKey(state, { name: "down" }).handled).toBe(true);
+    expect(view.handleEditorKey(state, { name: "tab" }).handled).toBe(false);
+    const moved = key(state, "up");
+    expect(moved.screen === "create" ? moved.field : undefined).toBe("id");
+    expect(moved.screen === "create" ? moved.draft.text : undefined).toBe(
+      "one\ntwo",
+    );
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("a short-terminal form keeps every field and its footer visible", async () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
-  state = beginEdit(state);
   for (const character of "compact") state = key(state, character);
   state = key(state, "enter");
-  state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(
     state,
     "first line\nsecond line\nthird line\nfourth line",
   );
-  state = finishEdit(state);
   const setup = await createTestRenderer({ width: 60, height: 12 });
   const view = createTuiStandingNudgesView(setup.renderer);
   setup.renderer.root.add(view.surface);
@@ -744,13 +729,12 @@ test("a short-terminal form keeps every field and its footer visible", async () 
     const frame = setup.captureCharFrame();
     expect(frame).toContain("Name");
     expect(frame).toContain("Instruction");
-    expect(frame).toContain("↵");
+    expect(frame).toMatch(/› Instruction\s+fourth line/);
     expect(frame).toContain("Status");
     expect(frame).toContain("Apply when");
     expect(frame).toContain("Frequency");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓/tab field");
-    expect(frame).toContain("back");
+    expect(frame).toContain("⏎ newline · ↑↓/tab field · esc back");
   } finally {
     setup.renderer.destroy();
   }
@@ -758,17 +742,13 @@ test("a short-terminal form keeps every field and its footer visible", async () 
 
 test("a long instruction stays bounded while Status and Apply when remain visible", async () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
-  state = beginEdit(state);
   for (const character of "long-form") state = key(state, character);
   state = key(state, "enter");
-  state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(
     state,
     Array.from({ length: 20 }, (_unused, index) => `line ${index + 1}`)
       .join("\n"),
   );
-  state = finishEdit(state);
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
   setup.renderer.root.add(view.surface);
@@ -777,12 +757,12 @@ test("a long instruction stays bounded while Status and Apply when remain visibl
     view.update(state);
     await setup.flush();
     let frame = setup.captureCharFrame();
-    expect(frame).toContain("earlier lines");
+    expect(frame).toMatch(/› Instruction\s+line 17/);
     expect(frame).toContain("line 20");
     expect(frame).toContain("Status       Active");
     expect(frame).toContain("Apply when   Always");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓/tab field · esc back");
+    expect(frame).toContain("⏎ newline · ↑↓/tab field · esc back");
 
     state = key(state, "down");
     view.update(state);
@@ -798,17 +778,13 @@ test("a long instruction stays bounded while Status and Apply when remain visibl
 
 test("a 17-row form keeps Apply when below a long instruction", async () => {
   let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
-  state = beginEdit(state);
   for (const character of "long-form") state = key(state, character);
   state = key(state, "enter");
-  state = key(state, "down");
-  state = beginEdit(state);
   state = handleTuiStandingNudgesPaste(
     state,
     Array.from({ length: 20 }, (_unused, index) => `line ${index + 1}`)
       .join("\n"),
   );
-  state = finishEdit(state);
   const setup = await createTestRenderer({ width: 80, height: 17 });
   const view = createTuiStandingNudgesView(setup.renderer);
   setup.renderer.root.add(view.surface);
@@ -817,11 +793,11 @@ test("a 17-row form keeps Apply when below a long instruction", async () => {
     view.update(state);
     await setup.flush();
     const frame = setup.captureCharFrame();
-    expect(frame).toContain("earlier lines");
+    expect(frame).toContain("line 20");
     expect(frame).toContain("Status       Active");
     expect(frame).toContain("Apply when   Always");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓/tab field · esc back");
+    expect(frame).toContain("⏎ newline · ↑↓/tab field · esc back");
   } finally {
     setup.renderer.destroy();
   }
@@ -878,7 +854,7 @@ test("a workspace path longer than four wrapped lines remains complete", async (
     expect(frame).toContain("Status       Inactive");
     expect(frame).toContain("Apply when   Workspace");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓/tab field · esc back");
+    expect(frame).toContain("⏎ newline · ↑↓/tab field · esc back");
     expect(frame).not.toContain("earlier lines");
     expect(frame).not.toContain("more lines");
   } finally {
@@ -914,7 +890,7 @@ test("an exceptionally deep workspace match scrolls without hiding controls", as
     expect(frame).toContain("Apply when   Workspace");
     expect(frame).toContain("pgup/pgdn match");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · pgup/pgdn match");
+    expect(frame).toContain("pgup/pgdn match · ↑↓/tab field");
 
     state = key(state, "down");
     view.update(state);
@@ -976,7 +952,7 @@ test("intermediate terminal heights page deep matches in whole rows", async () =
       expect(frame).toContain("Apply when   Workspace");
       expect(frame).toContain("pgup/pgdn match");
       expect(frame).toContain("Save changes");
-      expect(frame).toContain("⏎ edit · pgup/pgdn match");
+      expect(frame).toContain("pgup/pgdn match · ↑↓/tab field");
 
       for (let page = 0; page < 100; page += 1) {
         expect(view.handleViewportKey("pagedown")).toBe(true);
@@ -990,7 +966,7 @@ test("intermediate terminal heights page deep matches in whole rows", async () =
       expect(frame).toContain("Apply when   Workspace");
       expect(frame).toContain("pgup/pgdn match");
       expect(frame).toContain("Save changes");
-      expect(frame).toContain("⏎ edit · pgup/pgdn match");
+      expect(frame).toContain("pgup/pgdn match · ↑↓/tab field");
     } finally {
       setup.renderer.destroy();
     }
@@ -1030,7 +1006,7 @@ test("a two-row match viewport always shows editable match text", async () => {
     expect(frame).toContain("Status       Inactive");
     expect(frame).toContain("Apply when   Workspace");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · pgup/pgdn match");
+    expect(frame).toContain("pgup/pgdn match · ↑↓/tab field");
 
     state = key(state, "down");
     state = key(state, "down");
@@ -1043,7 +1019,7 @@ test("a two-row match viewport always shows editable match text", async () => {
     expect(frame).toContain("Status       Inactive");
     expect(frame).toContain("Apply when   Workspace");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · pgup/pgdn match");
+    expect(frame).toContain("←→ move · ↑↓/tab field · esc back");
   } finally {
     setup.renderer.destroy();
   }
