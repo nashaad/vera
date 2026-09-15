@@ -1113,6 +1113,25 @@ test("configure picker lists concrete files by scope without search", async () =
     });
 });
 
+test("one-section lists without groups consume left and right", () => {
+    const rows = [
+        { value: "one", label: "One", description: "" },
+        { value: "two", label: "Two", description: "" },
+    ];
+    const screens: TuiSettingsPickerState[] = [
+        { kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 1, allOptions: rows, options: rows },
+        { kind: "model_menu", title: "More", query: "", selectedIndex: 1, allOptions: rows, options: rows },
+        { kind: "pool_verify_scope", title: "Verify library models", query: "", selectedIndex: 1, allOptions: rows, options: rows, verificationTargets: [] },
+    ];
+    for (const screen of screens) {
+        for (const name of ["left", "right"]) {
+            const transition = handleTuiSettingsPickerKey(screen, { name });
+            expect([screen.title, name, transition.handled]).toEqual([screen.title, name, true]);
+            expect([screen.title, transition.state?.selectedIndex]).toEqual([screen.title, 1]);
+        }
+    }
+});
+
 test("escape inside a chained level pane steps back to the model pane instead of closing", () => {
     const modelPane = startTuiSettingsPicker(
         "model",

@@ -838,7 +838,7 @@ export function handleTuiSettingsPickerKey(
         }
         const heading = enclosingSection(state);
         if (heading === undefined) {
-            return unchanged(state, false);
+            return unchanged(state, true);
         }
         const closed = heading.sectionCollapsed === true;
         if (closed === (key.name === "left")) {
