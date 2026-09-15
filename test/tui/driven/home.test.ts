@@ -189,6 +189,31 @@ test("a machine with no connection leads to the provider list", async () => {
     }
 }, 15_000);
 
+test("provider form text fields keep a caret that the arrows move", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-provider-caret-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => homeDependencies(home, true, 0, false),
+    });
+
+    try {
+        await session.waitForVisiblePane("Connect a provider");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Configure providers");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Save connects");
+        session.sendText("abc");
+        await session.waitForVisiblePane("abc");
+        session.sendKey("Left");
+        await session.settle();
+        session.sendText("X");
+        const pane = await session.waitForVisiblePane("abXc");
+        expect(pane).toContain("←→ move");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("new conversation with no provider opens provider configuration", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-cold-new-"));
     const session = await startTuiTestSession({
