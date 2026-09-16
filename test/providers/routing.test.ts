@@ -161,7 +161,7 @@ test("request preparation finishes before the provider sees the request", async 
                     message: {
                         role: "assistant",
                         content: [{ type: "text", text: "ok" }],
-                        source: { provider: "vera-strata", api: "test", model: request.model },
+                        source: { provider: "vera-sample", api: "test", model: request.model },
                         usage: {
                             inputTokens: 0,
                             outputTokens: 0,
@@ -175,24 +175,24 @@ test("request preparation finishes before the provider sees the request", async 
                 return stream;
             },
         }),
-        "vera-strata",
+        "vera-sample",
         undefined,
         async (request, provider) => {
             preparedPair = `${provider}/${request.model}`;
             return {
                 ...request,
-                bodyExtensions: { strata: { corpus_id: "corpus-1" } },
+                bodyExtensions: { sample: { corpus_id: "corpus-1" } },
             };
         },
     );
 
     const result = await routing.stream({
-        model: "strata",
+        model: "sample",
         messages: [],
     }).result();
     expect(result.stopReason).toBe("stop");
-    expect(preparedPair).toBe("vera-strata/strata");
-    expect(received).toEqual({ strata: { corpus_id: "corpus-1" } });
+    expect(preparedPair).toBe("vera-sample/sample");
+    expect(received).toEqual({ sample: { corpus_id: "corpus-1" } });
 });
 
 test("a retry reuses the request's originally prepared options", async () => {
@@ -337,12 +337,12 @@ test("a prepared stream that ends early becomes a terminal error", async () => {
                 result: () => new Promise(() => {}),
             }),
         }),
-        "vera-strata",
+        "vera-sample",
         undefined,
         async (request) => request,
     );
 
-    const result = await routing.stream({ model: "strata", messages: [] }).result();
+    const result = await routing.stream({ model: "sample", messages: [] }).result();
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain("without a terminal event");
 });
@@ -351,7 +351,7 @@ test("an exception after a prepared stream's terminal event is ignored", async (
     const terminal = {
         role: "assistant" as const,
         content: [{ type: "text" as const, text: "ok" }],
-        source: { provider: "vera-strata", api: "test", model: "strata" },
+        source: { provider: "vera-sample", api: "test", model: "sample" },
         usage: {
             inputTokens: 0,
             outputTokens: 0,
@@ -371,12 +371,12 @@ test("an exception after a prepared stream's terminal event is ignored", async (
                 result: () => Promise.resolve(terminal),
             }),
         }),
-        "vera-strata",
+        "vera-sample",
         undefined,
         async (request) => request,
     );
 
-    await expect(routing.stream({ model: "strata", messages: [] }).result())
+    await expect(routing.stream({ model: "sample", messages: [] }).result())
         .resolves.toEqual(terminal);
 });
 
@@ -384,7 +384,7 @@ test("preparation cancellation keeps the aborted stop reason", async () => {
     const controller = new AbortController();
     const routing = new ProviderRoutingAdapter(
         () => stubAdapter(),
-        "vera-strata",
+        "vera-sample",
         undefined,
         async () => {
             controller.abort();
@@ -393,7 +393,7 @@ test("preparation cancellation keeps the aborted stop reason", async () => {
     );
 
     const result = await routing.stream({
-        model: "strata",
+        model: "sample",
         messages: [],
         signal: controller.signal,
     }).result();

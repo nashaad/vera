@@ -64,14 +64,14 @@ test("Vera config loads named provider instances", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
-        provider: "vera-strata",
-        model: "strata",
+        provider: "vera-sample",
+        model: "sample",
         providers: {
-            "vera-strata": {
+            "vera-sample": {
                 protocol: "openai-chat",
-                base_url: "https://strata.example.com/v1/",
+                base_url: "https://sample.example.com/v1/",
                 credential: "api_key",
-                api_key_env: "VERA_STRATA_API_KEY",
+                api_key_env: "VERA_SAMPLE_API_KEY",
             },
             "lab-anthropic": {
                 protocol: "anthropic-messages",
@@ -83,22 +83,22 @@ test("Vera config loads named provider instances", () => {
             },
         },
         models: [{
-            name: "strata",
-            provider: "vera-strata",
-            model: "strata",
+            name: "sample",
+            provider: "vera-sample",
+            model: "sample",
         }],
         model_routes: {},
         reviewer_profiles: {},
     }));
 
     expect(loadVeraConfig({ path })).toMatchObject({
-        provider: "vera-strata",
+        provider: "vera-sample",
         providers: {
-            "vera-strata": {
+            "vera-sample": {
                 protocol: "openai-chat",
-                base_url: "https://strata.example.com/v1",
+                base_url: "https://sample.example.com/v1",
                 credential: "api_key",
-                api_key_env: "VERA_STRATA_API_KEY",
+                api_key_env: "VERA_SAMPLE_API_KEY",
             },
             "lab-anthropic": {
                 protocol: "anthropic-messages",
@@ -110,9 +110,9 @@ test("Vera config loads named provider instances", () => {
             },
         },
         models: [{
-            name: "strata",
-            provider: "vera-strata",
-            model: "strata",
+            name: "sample",
+            provider: "vera-sample",
+            model: "sample",
         }],
     });
 });
@@ -121,9 +121,9 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
     const invalid = [
         { provider: "missing", providers: {} },
         {
-            provider: "vera-strata",
+            provider: "vera-sample",
             providers: {
-                "vera-strata": {
+                "vera-sample": {
                     protocol: "openai-chat",
                     base_url: "http://remote.example.com/v1",
                     credential: "none",
@@ -166,9 +166,9 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
             provider: "openrouter",
             providers: {},
             models: [{
-                name: "strata",
-                provider: "vera-strata",
-                model: "strata",
+                name: "sample",
+                provider: "vera-sample",
+                model: "sample",
             }],
             model_routes: {},
             reviewer_profiles: {},
@@ -188,7 +188,7 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
         const path = temporaryConfigPath();
         writeFileSync(path, JSON.stringify({
             schema_version: 1,
-            model: "strata",
+            model: "sample",
             ...entry,
         }));
         expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");

@@ -356,9 +356,9 @@ test("a throwing extension pre-turn hook does not break the engine chain", async
 });
 
 test("a model request hook contributes one namespaced plain value", async () => {
-    const extension = createExtension("strata.extension", `
+    const extension = createExtension("sample.extension", `
         export function activate(vera) {
-            vera.hooks.registerModelRequest("strata", (payload) => ({
+            vera.hooks.registerModelRequest("sample", (payload) => ({
                 corpus: {
                     path: payload.workspace,
                     session: payload.sessionId,
@@ -371,11 +371,11 @@ test("a model request hook contributes one namespaced plain value", async () => 
     });
 
     const [hook] = registry.modelRequestHooks();
-    expect(hook?.namespace).toBe("strata");
+    expect(hook?.namespace).toBe("sample");
     expect(await hook?.run({
         type: "model_request",
-        provider: "vera-strata",
-        model: "strata",
+        provider: "vera-sample",
+        model: "sample",
         sessionId: "session-1",
         workspace: "/work",
         signal: new AbortController().signal,
@@ -387,14 +387,14 @@ test("a model request hook contributes one namespaced plain value", async () => 
 
 test("duplicate model request namespaces disable the later extension at activation", async () => {
     const failures: ExtensionRegistryFailure[] = [];
-    const first = createExtension("first-strata.extension", `
+    const first = createExtension("first-sample.extension", `
         export function activate(vera) {
-            vera.hooks.registerModelRequest("strata", () => ({ source: "first" }));
+            vera.hooks.registerModelRequest("sample", () => ({ source: "first" }));
         }
     `, ["hooks.model_request"]);
-    const second = createExtension("second-strata.extension", `
+    const second = createExtension("second-sample.extension", `
         export function activate(vera) {
-            vera.hooks.registerModelRequest("strata", () => ({ source: "second" }));
+            vera.hooks.registerModelRequest("sample", () => ({ source: "second" }));
         }
     `, ["hooks.model_request"]);
     const registry = await startExtensionRegistry({
@@ -405,14 +405,14 @@ test("duplicate model request namespaces disable the later extension at activati
     expect(registry.modelRequestHooks()).toHaveLength(1);
     expect(await registry.modelRequestHooks()[0]?.run({
         type: "model_request",
-        provider: "vera-strata",
-        model: "strata",
+        provider: "vera-sample",
+        model: "sample",
         sessionId: "session-1",
         workspace: "/work",
     })).toEqual({ source: "first" });
     expect(failures).toHaveLength(1);
     expect(failures[0]?.message).toContain(
-        "Duplicate model request namespace: strata",
+        "Duplicate model request namespace: sample",
     );
     await registry.close();
 });

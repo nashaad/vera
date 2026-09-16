@@ -186,7 +186,7 @@ describe("OpenRouter adapter", () => {
         const result = await adapter.stream({
             model: "test/model",
             messages: [],
-            bodyExtensions: { strata: { corpus_id: "corpus-1" } },
+            bodyExtensions: { sample: { corpus_id: "corpus-1" } },
         }).result();
 
         expect(sent).toBe(false);

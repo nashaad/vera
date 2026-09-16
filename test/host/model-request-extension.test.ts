@@ -21,7 +21,7 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
         const configPath = join(root, "config.json");
         await mkdir(extension);
         await writeFile(join(extension, "vera.extension.json"), JSON.stringify({
-            id: "strata.test",
+            id: "sample.test",
             version: "1.0.0",
             sdk: "1",
             entrypoint: "./extension.ts",
@@ -29,20 +29,20 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
         }));
         await writeFile(join(extension, "extension.ts"), `
             export function activate(vera) {
-                vera.hooks.registerModelRequest("strata", ({ workspace }) => ({
+                vera.hooks.registerModelRequest("sample", ({ workspace }) => ({
                     corpus: { path: workspace },
                 }));
             }
         `);
         await writeFile(configPath, JSON.stringify({
             schema_version: 1,
-            provider: "vera-strata",
-            model: "strata",
+            provider: "vera-sample",
+            model: "sample",
             approval_mode: "ask",
             providers: {
-                "vera-strata": {
+                "vera-sample": {
                     protocol: "openai-chat",
-                    base_url: "https://strata.example.com/v1",
+                    base_url: "https://sample.example.com/v1",
                     credential: "none",
                 },
             },
@@ -61,7 +61,7 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
                         role: "assistant",
                         content: [{ type: "text", text: "done" }],
                         source: {
-                            provider: "vera-strata",
+                            provider: "vera-sample",
                             api: "openai-chat-completions",
                             model: request.model,
                         },
@@ -82,13 +82,13 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
         });
         try {
             await runHostedPrompt(host.registry, {
-                id: "strata-run",
+                id: "sample-run",
                 workspace,
-                sessionPath: join(root, "sessions", "strata-run.jsonl"),
+                sessionPath: join(root, "sessions", "sample-run.jsonl"),
                 prompt: "audit this",
             });
             expect(received).toEqual({
-                strata: { corpus: { path: workspace } },
+                sample: { corpus: { path: workspace } },
             });
         } finally {
             await host.close();
@@ -114,7 +114,7 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
         }));
         await writeFile(join(extension, "extension.ts"), `
             export function activate(vera) {
-                vera.hooks.registerModelRequest("strata", () => ({
+                vera.hooks.registerModelRequest("sample", () => ({
                     corpus: { id: "public" },
                 }));
             }
@@ -187,11 +187,11 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
 
             expect(received).toEqual([
                 {
-                    strata: { corpus: { id: "public" } },
+                    sample: { corpus: { id: "public" } },
                     provider: { only: ["first"] },
                 },
                 {
-                    strata: { corpus: { id: "public" } },
+                    sample: { corpus: { id: "public" } },
                     provider: { only: ["second-longer"] },
                 },
             ]);

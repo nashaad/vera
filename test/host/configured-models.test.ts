@@ -10,23 +10,23 @@ test("declared custom-provider models join the runnable catalog", () => {
         model: "gpt-5.6-luna",
         approval_mode: "ask",
         providers: {
-            "vera-strata": {
+            "vera-sample": {
                 protocol: "openai-chat",
                 base_url: "http://127.0.0.1:8790/v1",
                 credential: "none",
             },
         },
         models: [{
-            name: "vera_strata",
-            provider: "vera-strata",
-            model: "strata",
+            name: "vera_sample",
+            provider: "vera-sample",
+            model: "sample",
         }],
     };
 
     expect(configuredCatalog(config)).toContainEqual({
-        provider: "vera-strata",
-        model: "strata",
-        label: "vera_strata",
+        provider: "vera-sample",
+        model: "sample",
+        label: "vera_sample",
         description: "configured model",
     });
 });

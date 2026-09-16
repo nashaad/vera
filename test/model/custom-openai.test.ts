@@ -27,25 +27,25 @@ test("a named OpenAI endpoint streams reasoning and text", async () => {
     let request: Request | undefined;
     const adapter = createConfiguredModelAdapter({
         schema_version: 1,
-        provider: "vera-strata",
-        model: "strata",
+        provider: "vera-sample",
+        model: "sample",
         approval_mode: "ask",
         providers: {
-            "vera-strata": {
+            "vera-sample": {
                 protocol: "openai-chat",
-                base_url: "https://strata.example.com/v1",
+                base_url: "https://sample.example.com/v1",
                 credential: "api_key",
-                api_key_env: "VERA_STRATA_API_KEY",
+                api_key_env: "VERA_SAMPLE_API_KEY",
             },
         },
     }, {
-        env: { VERA_STRATA_API_KEY: "strata-secret" },
+        env: { VERA_SAMPLE_API_KEY: "sample-secret" },
         fetch: async (input, init) => {
             request = new Request(String(input), init);
             return new Response([
-                'data: {"model":"strata","choices":[{"index":0,"delta":{"reasoning_content":"[graph] complete\\n"},"finish_reason":null}]}',
+                'data: {"model":"sample","choices":[{"index":0,"delta":{"reasoning_content":"[graph] complete\\n"},"finish_reason":null}]}',
                 "",
-                'data: {"model":"strata","choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}',
+                'data: {"model":"sample","choices":[{"index":0,"delta":{"content":"Answer"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}',
                 "",
                 "data: [DONE]",
                 "",
@@ -54,7 +54,7 @@ test("a named OpenAI endpoint streams reasoning and text", async () => {
     });
 
     const result = await adapter.stream({
-        model: "strata",
+        model: "sample",
         reasoningEffort: "high",
         messages: [{
             role: "user",
@@ -62,11 +62,11 @@ test("a named OpenAI endpoint streams reasoning and text", async () => {
         }],
     }).result();
 
-    expect(request?.url).toBe("https://strata.example.com/v1/chat/completions");
-    expect(request?.headers.get("authorization")).toBe("Bearer strata-secret");
+    expect(request?.url).toBe("https://sample.example.com/v1/chat/completions");
+    expect(request?.headers.get("authorization")).toBe("Bearer sample-secret");
     const body = await request!.json() as Record<string, unknown>;
     expect(body).toMatchObject({
-        model: "strata",
+        model: "sample",
         stream: true,
     });
     expect(body).not.toHaveProperty("reasoning_effort");
@@ -77,9 +77,9 @@ test("a named OpenAI endpoint streams reasoning and text", async () => {
             { type: "text", text: "Answer" },
         ],
         source: {
-            provider: "vera-strata",
+            provider: "vera-sample",
             api: "openai-chat-completions",
-            model: "strata",
+            model: "sample",
         },
         stopReason: "stop",
     });

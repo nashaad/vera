@@ -363,7 +363,7 @@ describe("failed request capture", () => {
             },
             undefined,
             {
-                provider: "vera-strata",
+                provider: "vera-sample",
                 api: "openai-chat-completions",
                 supportsBodyExtensions: true,
             },
@@ -372,10 +372,10 @@ describe("failed request capture", () => {
         );
 
         await adapter.stream({
-            model: "strata",
+            model: "sample",
             messages: [],
             bodyExtensions: {
-                strata: { customer_id: "customer-private-123" },
+                sample: { customer_id: "customer-private-123" },
             },
         }).result();
 
@@ -383,7 +383,7 @@ describe("failed request capture", () => {
             join(directory, "session-contribution-1.json"),
             "utf8",
         );
-        expect(source).toContain('"strata": "[redacted]"');
+        expect(source).toContain('"sample": "[redacted]"');
         expect(source).not.toContain("customer-private-123");
     });
 
