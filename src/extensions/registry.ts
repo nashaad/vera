@@ -1,4 +1,6 @@
+import { isExtensionSessionState, type ExtensionSessionState, type ExtensionSessionStates } from "./session-state.ts";
 import { pathToFileURL } from "node:url";
+import type { ModelMiddleware } from "../sdk/model-middleware.ts";
 
 import type { VeraExtensionConfig } from "../config.ts";
 import type {
@@ -102,6 +104,8 @@ export interface ExtensionRegistryFailure {
 }
 
 export interface ExtensionRegistry {
+    sessionState(sessionId: string): ExtensionSessionStates;
+    modelMiddleware(): readonly ModelMiddleware[];
     commands(): readonly ExtensionCommandDescriptor[];
     tools(): readonly RegisteredTool[];
     agents(): readonly AgentDefinition[];
@@ -116,6 +120,8 @@ export interface ExtensionRegistry {
         argumentsText: string,
         workspace: string,
         signal?: AbortSignal,
+        sessionId?: string,
+        sessionPath?: string,
     ): Promise<ExtensionCommandResult>;
     close(): Promise<void>;
 }
@@ -132,6 +138,8 @@ interface RegisteredExtensionTool {
 }
 
 interface LoadedRegistryExtension {
+    readonly sessionState: ((sessionId: string) => ExtensionSessionState)[];
+    readonly modelMiddleware: readonly ModelMiddleware[];
     readonly id: string;
     readonly path: string;
     readonly commands: readonly RegisteredExtensionCommand[];
@@ -280,6 +288,7 @@ export async function startExtensionRegistry(
                     : { extensionId }),
                 message,
             });
+
         } finally {
             options.onActivationTiming?.({
                 extensionId: extensionId ?? configured.path,
@@ -320,6 +329,24 @@ export async function startExtensionRegistry(
         modelRequestHooks(): readonly RegisteredModelRequestHook[] {
             return loaded.flatMap((extension) => extension.modelRequestHooks);
         },
+        sessionState(sessionId): ExtensionSessionStates {
+            const states: Record<string, ExtensionSessionState> = {};
+            for (const extension of loaded) {
+                if (extension.disposing) continue;
+                for (const read of extension.sessionState) {
+                    try {
+                        const state = read(sessionId);
+                        if (isExtensionSessionState(state) && JSON.stringify(state).length <= 4096) {
+                            states[extension.id] = structuredClone(state);
+                        }
+                    } catch {}
+                }
+            }
+            return states;
+        },
+        modelMiddleware(): readonly ModelMiddleware[] {
+            return loaded.flatMap((extension) => extension.modelMiddleware);
+        },
         sessionIdentity(): SessionIdentityProvider | undefined {
             return loaded.find(
                 (extension) =>
@@ -332,6 +359,8 @@ export async function startExtensionRegistry(
             argumentsText: string,
             workspace: string,
             signal?: AbortSignal,
+            sessionId?: string,
+            sessionPath?: string,
         ): Promise<ExtensionCommandResult> {
             if (closing !== undefined) {
                 throw new Error("Extension registry is closing");
@@ -356,6 +385,8 @@ export async function startExtensionRegistry(
                         argumentsText,
                         workspace,
                         signal: operationSignal,
+                        ...(sessionId === undefined ? {} : { sessionId }),
+                        ...(sessionPath === undefined ? {} : { sessionPath }),
                     }),
                     {
                         timeoutMs: owner.command.timeoutMs,
@@ -441,6 +472,8 @@ async function activateExtension(
     const postToolUseHooks: PostToolUseHook[] = [];
     const preTurnHooks: PreTurnHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
+    const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
+    const modelMiddleware: ModelMiddleware[] = [];
     let identityProvider: SessionIdentityProvider | undefined;
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
@@ -507,6 +540,16 @@ async function activateExtension(
             },
         }),
         sessions: Object.freeze({
+            registerState(read: (sessionId: string) => ExtensionSessionState): VeraExtensionDisposer {
+                if (phase !== "activating" || !loaded.manifest.capabilities.includes("sessions.state")) {
+                    throw new Error("Session state requires sessions.state during activation");
+                }
+                if (typeof read !== "function" || sessionState.length > 0) {
+                    throw new Error("Invalid or duplicate session state reader");
+                }
+                sessionState.push(read);
+                return () => removeHook(sessionState, read);
+            },
             registerIdentity(provider: SessionIdentityProvider): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
@@ -541,6 +584,17 @@ async function activateExtension(
             },
         }),
         hooks: Object.freeze({
+            registerModelMiddleware(middleware: ModelMiddleware): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Model middleware must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes("hooks.model_middleware")) {
+                    throw new Error("Extension did not declare hooks.model_middleware");
+                }
+                if (typeof middleware !== "function") throw new Error("Invalid model middleware");
+                modelMiddleware.push(middleware);
+                return () => removeHook(modelMiddleware, middleware);
+            },
             registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
@@ -698,6 +752,8 @@ async function activateExtension(
             postToolUseHooks,
             preTurnHooks,
             modelRequestHooks,
+            sessionState,
+            modelMiddleware,
             ...(identityProvider === undefined
                 ? {}
                 : { identityProvider }),

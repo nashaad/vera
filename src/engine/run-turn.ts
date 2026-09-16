@@ -535,6 +535,7 @@ export async function runHeadlessLoop(
                 : contextWindowForModel(provider, replayModel);
             return budgetContextWindow(declared, settings?.contextLimit);
         },
+        () => store.usageMessages(),
     );
     if (owned.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({

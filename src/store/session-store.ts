@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { AgentSnapshot } from "../agents/snapshot.ts";
-import type { ModelMessage, ModelUsage } from "../model/types.ts";
+import type { AssistantMessage, ModelMessage, ModelUsage } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import {
     assembleAgedToolResults,
@@ -421,6 +421,18 @@ export class SessionStore {
 
     messages(): readonly ModelMessage[] {
         return this.activeEntries().map((entry) => entry.message);
+    }
+
+    usageMessages(): readonly AssistantMessage[] {
+        const replies = this.projection.messageEntries.map((entry) => entry.message)
+            .filter((message): message is AssistantMessage => message.role === "assistant" && message.source.api !== "none");
+        const compactions = this.projection.compactionEntries.flatMap((entry): AssistantMessage[] =>
+            entry.billed === undefined ? [] : [{
+                role: "assistant", content: [], stopReason: "stop",
+                source: { provider: entry.billed.provider, model: entry.billed.model, api: "compaction" },
+                usage: entry.billed.usage,
+            }]);
+        return [...replies, ...compactions];
     }
 
     activeMessageIds(): ReadonlyMap<ModelMessage, string> {

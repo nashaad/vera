@@ -663,6 +663,9 @@ export async function runSubagent(
         const protocol = createProtocolEncoder(
             channel.engine,
             sessionAttachmentName(store),
+            undefined,
+            undefined,
+            () => store.usageMessages(),
         );
         events.subscribe(protocol);
         const instructionRoot: InstructionRoot = options.instructionRoot

@@ -763,6 +763,7 @@ afterEach(() => {
             socketPath,
             lockPath: join(directory, "host.json"),
             findAgent: (agentId) => agentId === agent.id ? agent : undefined,
+            readExtensionState: (id) => ({ "test.extension": { session: id, amount: 3 } }),
             listExtensionCommands: () => [{
                 name: "hello",
                 description: "Say hello",
@@ -817,6 +818,7 @@ afterEach(() => {
                     version: 1,
                     source: "test.extension/hello",
                     body: { kind: "text", text: "Hello Nash" },
+                    extensionState: { "test.extension": { session: "agent-1", amount: 3 } },
                 },
             });
             expect(calls).toHaveLength(1);
@@ -844,6 +846,7 @@ afterEach(() => {
             socketPath,
             lockPath: join(directory, "host.json"),
             findAgent: () => agent,
+            readExtensionState: (id) => ({ "test.extension": { session: id, amount: 3 } }),
             listExtensionCommands: () => [{
                 name: "hello",
                 description: "Say hello",

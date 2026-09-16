@@ -879,3 +879,21 @@ test("a history entry without an ID still decodes", () => {
 
     expect(parseAgentUpdate(update)).toEqual(update);
 });
+
+test("fixed question policy survives the wire and rejects invalid policy values", () => {
+    const update = { type: "ui_request", requestId: "fixed", seq: 1,
+        request: { type: "user_question", question: "Continue?", allowCustom: false,
+            choices: [{ id: "no", label: "No" }, { id: "yes", label: "Yes" }] } } as const;
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, request: { ...update.request, allowCustom: "false" } })).toBeUndefined();
+});
+
+
+test("custom question labels survive decoding and reject invalid values", () => {
+    const update = { type: "ui_request", requestId: "question", seq: 1,
+        request: { type: "user_question", question: "Continue?", customLabel: "Enter amount", allowNotes: false,
+            choices: [{ id: "stop", label: "Stop" }, { id: "ignore", label: "Ignore" }] } } as const;
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, request: { ...update.request, customLabel: 3 } })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, request: { ...update.request, allowNotes: "false" } })).toBeUndefined();
+});

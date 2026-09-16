@@ -606,6 +606,10 @@ export function submitPrompt(rt: TuiRuntime,
             if (rt.shuttingDown || result === undefined) {
                 return;
             }
+            if (commandAction.origin === "host" && extensionTarget.agentId === rt.client.agentId
+                && "extensionState" in result && result.extensionState !== undefined) {
+                rt.state = { ...rt.state, extensionState: result.extensionState };
+            }
             if (result.body.kind === "client_action") {
                 if (result.body.action === "show_help") {
                     rt.help = startTuiHelp(

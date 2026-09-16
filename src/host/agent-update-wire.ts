@@ -1,3 +1,4 @@
+import { isExtensionSessionStates } from "../extensions/session-state.ts";
 import { isTurnTiming } from "../model/types.ts";
 import type {
     AgentStatus,
@@ -54,6 +55,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.context === undefined
                 || isContextMeasurement(update.context))
             && (update.usage === undefined || isSessionModelUsage(update.usage))
+            && (update.extensionState === undefined || isExtensionSessionStates(update.extensionState))
             && (update.promptQueue === undefined
                 || isPromptQueueState(update.promptQueue))
             && (update.status === undefined || isAgentStatus(update.status))
@@ -167,6 +169,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.turnTiming === undefined || isTurnTiming(update.turnTiming))
             && (update.empty === undefined || update.empty === true)
             && (update.usage === undefined || isSessionModelUsage(update.usage))
+            && (update.extensionState === undefined || isExtensionSessionStates(update.extensionState))
             ? value as AgentUpdate
             : undefined;
     }
@@ -200,6 +203,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     }
     if (update.type === "notice") {
         return typeof update.key === "string"
+                && (update.text === undefined || (typeof update.text === "string" && update.text.length > 0))
                 && update.key.length > 0
                 && typeof update.count === "number"
                 && Number.isSafeInteger(update.count)
@@ -626,7 +630,11 @@ function isPermissionOutcome(value: unknown): value is "allow" | "review" | "ask
 
 function isUserQuestionRequest(request: Record<string, unknown>): boolean {
     if (
-        !hasExactKeys(request, ["type", "question", "choices"])
+        !hasKeys(request, ["type", "question", "choices"], ["allowCustom", "allowNotes", "customLabel", "outOfBand"])
+        || (request.allowCustom !== undefined && typeof request.allowCustom !== "boolean")
+        || (request.allowNotes !== undefined && typeof request.allowNotes !== "boolean")
+        || (request.customLabel !== undefined && (typeof request.customLabel !== "string" || request.customLabel.trim().length === 0))
+        || (request.outOfBand !== undefined && request.outOfBand !== true)
         || typeof request.question !== "string"
         || request.question.trim().length === 0
         || !Array.isArray(request.choices)

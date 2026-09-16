@@ -138,6 +138,7 @@ export interface TuiState {
     readonly context?: ContextMeasurement;
     readonly modelActivity?: ModelActivityUpdate;
     readonly sessionUsage?: SessionModelUsage;
+    readonly extensionState?: import("../../src/extensions/session-state.ts").ExtensionSessionStates;
     readonly pendingThinking?: string;
     readonly effortSubstitution?: TuiEffortSubstitution;
     readonly turnSubstituted?: boolean;
@@ -386,6 +387,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
+            extensionState: update.extensionState ?? {},
         });
         if (update.empty === true) {
             finished = appendEntry(finished, emptyTurnEntry());
@@ -476,7 +478,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         });
     }
     if (update.type === "notice") {
-        return state;
+        return update.text === undefined ? state : appendEntry(state, { kind: "notice", text: update.text });
     }
     if (update.type === "history") {
         const reopenedTurnFinishedAt = state.transcriptStarted === true
@@ -508,6 +510,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
+            extensionState: update.extensionState ?? {},
             ...(update.promptQueue === undefined
                 ? {}
                 : {

@@ -614,6 +614,10 @@ export class AgentRegistry {
             : await startExtensionRegistry({
                 extensions: projectExtensionConfigs,
             });
+        if ((projectExtensions?.modelMiddleware().length ?? 0) > 0) {
+            await projectExtensions?.close();
+            throw new Error("Model middleware must be installed in the Vera home, not the project");
+        }
         const extensionTools = startupProfile === "default"
             ? [
                 ...(this.options.extensionTools ?? []),
@@ -633,12 +637,32 @@ export class AgentRegistry {
         )(store.header.id);
         const adapter = storedFailure === undefined
             ? new ProviderRoutingAdapter(
-                (provider) =>
-                    this.options.createAdapter(
+                (provider) => {
+                    let created = this.options.createAdapter(
                         provider,
                         store.header.cwd,
                         captureFailedRequest,
-                    ),
+                    );
+                    for (const middleware of this.options.modelMiddleware ?? []) {
+                        created = middleware(created, {
+                            sessionId: store.header.id,
+                            sessionPath: store.path,
+                            ...(store.header.parentId === undefined ? {} : {
+                                parentSessionId: store.header.parentId,
+                            }),
+                            workspace: store.header.cwd,
+                            provider,
+                            notice: (text) => events.emit({ type: "notice", key: "extension", count: 1, text }),
+                            ask: async (request, signal) => {
+                                const current = this.agents.get(store.header.id);
+                                if (current?.inbound === undefined || current.agent.closed) return { outcome: "cancelled" };
+                                return current.inbound.requestUserQuestion(request,
+                                    { ...(signal === undefined ? {} : { signal }) });
+                            },
+                        });
+                    }
+                    return created;
+                },
                 this.defaultProvider,
                 this.options.credentialFingerprint,
                 this.options.prepareModelRequest?.({

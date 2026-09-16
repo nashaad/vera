@@ -272,6 +272,7 @@ export interface RegisteredAgentSummary {
 }
 
 export interface AgentRegistryOptions {
+    readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").ModelMiddleware[];
     readonly createAdapter: (
         provider?: string,
         projectRoot?: string,

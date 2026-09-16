@@ -2499,3 +2499,24 @@ test("the inbound router carries a preview out and notes back", async () => {
         notes: "but only for a week",
     });
 });
+
+test("fixed questions reject custom answers and accept only a listed choice", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+    let settled = false;
+    const answer = router.requestUserQuestion({ question: "Continue?", allowCustom: false,
+        choices: [{ id: "no", label: "No" }, { id: "yes", label: "Yes" }] });
+    void answer.then(() => { settled = true; });
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") throw new Error("Missing question");
+    expect(request.request).toMatchObject({ allowCustom: false });
+    channel.client.send({ type: "ui_response", requestId: request.requestId,
+        response: { type: "user_question", outcome: "custom", text: "yes" } });
+    await Bun.sleep(5);
+    expect(settled).toBe(false);
+    channel.client.send({ type: "ui_response", requestId: request.requestId,
+        response: { type: "user_question", outcome: "selected", choiceId: "no" } });
+    expect(await answer).toMatchObject({ outcome: "selected", choice: { id: "no" } });
+});

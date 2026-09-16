@@ -305,16 +305,18 @@ export function createTuiQuestionView(
             choicesColumn.add(row);
             choiceRows.push(row);
         });
-        const otherIndex = choices.length;
-        const other = questionChoiceRow(renderer, {
-            number: otherIndex + 1,
-            label: "Other",
-            ...(enteringCustom ? { answerEditor: customEditorBox } : {}),
-            active: otherIndex === selectedIndex,
-            pointer: view.pointer,
-        });
-        choicesColumn.add(other);
-        choiceRows.push(other);
+        if (update.request.allowCustom !== false) {
+            const otherIndex = choices.length;
+            const other = questionChoiceRow(renderer, {
+                number: otherIndex + 1,
+                label: update.request.customLabel ?? "Other",
+                ...(enteringCustom ? { answerEditor: customEditorBox } : {}),
+                active: otherIndex === selectedIndex,
+                pointer: view.pointer,
+            });
+            choicesColumn.add(other);
+            choiceRows.push(other);
+        }
         renderPreview(update);
         renderNotes();
     }
@@ -335,7 +337,7 @@ export function createTuiQuestionView(
     function applyLayout(): void {
         const stacked = renderer.width < QUESTION_TWO_COLUMN_WIDTH;
         choicesRow.flexDirection = stacked ? "column" : "row";
-        choicesColumn.width = stacked ? "100%" : "50%";
+        choicesColumn.width = stacked || lastUpdate?.request.customLabel !== undefined ? "100%" : "50%";
         preview.marginLeft = stacked ? 0 : 2;
         preview.marginTop = stacked ? 1 : 0;
         preview.alignItems = stacked ? "flex-start" : "center";
@@ -372,21 +374,28 @@ export function createTuiQuestionView(
             selectedIndex = 0;
             enteringCustom = false;
             customEditor.setText("");
+            const namedInput = update.request.customLabel !== undefined;
+            customEditor.placeholder = namedInput ? "" : "Type another answer";
+            customEditorBox.width = namedInput ? 8 : "auto";
+            customEditorBox.flexGrow = namedInput ? 0 : 1;
+            customEditorBox.flexShrink = namedInput ? 0 : 1;
             enteringNotes = false;
             notesEditor.setText("");
             detailsText.content = update.request.question;
-            choiceAction.content = questionChoiceHint();
+            choiceAction.content = questionChoiceHint(update.request.allowNotes !== false);
             renderChoices(update);
             details.scrollTo(0);
         },
         handleKey(update, key): TuiQuestionKeyResult {
+            if (update.request.allowNotes === false && notesBinding(key)) return { handled: true };
             const choices = displayedQuestionChoices(update);
-            const count = choices.length + 1;
+            const allowCustom = update.request.allowCustom !== false;
+            const count = choices.length + (allowCustom ? 1 : 0);
             if (enteringNotes) {
                 if (key.name === "escape" || notesBinding(key)) {
                     enteringNotes = false;
                     details.focus();
-                    choiceAction.content = questionChoiceHint();
+                    choiceAction.content = questionChoiceHint(update.request.allowNotes !== false);
                     renderNotes();
                     return { handled: true };
                 }
@@ -422,7 +431,7 @@ export function createTuiQuestionView(
                     customEditor.setText("");
                     details.focus();
                     renderChoices(update);
-                    choiceAction.content = questionChoiceHint();
+                    choiceAction.content = questionChoiceHint(update.request.allowNotes !== false);
                     return { handled: true };
                 }
                 if (key.name === "return" || key.name === "enter") {
@@ -455,7 +464,7 @@ export function createTuiQuestionView(
             }
             if (key.name === "return" || key.name === "enter") {
                 const choice = choices[selectedIndex];
-                if (choice === undefined && selectedIndex === count - 1) {
+                if (allowCustom && choice === undefined && selectedIndex === count - 1) {
                     enteringCustom = true;
                     customEditor.focus();
                     choiceAction.content = "type answer · ⏎ submit · esc back ";
@@ -469,7 +478,7 @@ export function createTuiQuestionView(
             const directValue = key.sequence?.length === 1
                 ? key.sequence
                 : key.name;
-            if (Number(directValue) - 1 === count - 1) {
+            if (allowCustom && Number(directValue) - 1 === count - 1) {
                 selectedIndex = count - 1;
                 enteringCustom = true;
                 customEditor.focus();
@@ -596,8 +605,8 @@ function customResponse(
     };
 }
 
-function questionChoiceHint(): string {
-    return "↑↓ select · enter submit · tab notes ";
+function questionChoiceHint(allowNotes: boolean): string {
+    return `↑↓ select · enter submit${allowNotes ? " · tab notes" : ""} `;
 }
 
 interface QuestionChoiceRow {

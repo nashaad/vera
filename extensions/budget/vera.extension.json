@@ -1,0 +1,12 @@
+{
+    "id": "vera.budget",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": [
+        "commands.register",
+        "hooks.model_middleware",
+        "client.ui.sidebar_summary",
+        "sessions.state"
+    ]
+}

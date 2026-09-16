@@ -517,6 +517,7 @@ export function workspaceSidebarViewState(
     railColumns = workspaceRailColumns(columns),
     focused = false,
     animationFrame = 0,
+    summary: readonly LinesViewFooterRow[] = [],
 ): LinesViewState {
     const railContentColumns = railColumns === undefined
         ? undefined
@@ -589,9 +590,10 @@ export function workspaceSidebarViewState(
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId
     );
-    const footerTable = focused
+    const navigation = focused
         ? workspaceSidebarFooterTable()
         : workspaceQuietFooterTable();
+    const footerTable = summary.length === 0 ? navigation : [...summary, { label: "", value: "" }, ...navigation];
     return {
         title: workspaceSidebarHeader(state),
         titleLeading: {

@@ -510,6 +510,7 @@ export type ClientCommand =
     | TimelineCommand;
 
 export interface HistoryUpdate {
+    readonly extensionState?: import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly type: "history";
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
@@ -701,6 +702,7 @@ export interface ToolPresentationUpdate {
 }
 
 export interface TurnFinishedUpdate {
+    readonly extensionState?: import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly type: "turn_finished";
     readonly turnTiming?: TurnTiming;
     readonly outcome?: "error" | "aborted";
@@ -734,6 +736,7 @@ export interface TaskNotificationUpdate {
 }
 
 export interface NoticeUpdate {
+    readonly text?: string;
     readonly type: "notice";
     readonly key: string;
     readonly count: number;
@@ -1667,6 +1670,7 @@ export function createProtocolEncoder(
         provider: string,
         model: string,
     ) => number | undefined = () => undefined,
+    usageMessages?: () => readonly ModelMessage[],
 ): ProtocolEncoder {
     let seq = 0;
     let sessionUsage: SessionModelUsage = { rows: [] };
@@ -1724,6 +1728,7 @@ export function createProtocolEncoder(
                 type: "notice",
                 key: event.key,
                 count: event.count,
+                ...(event.text === undefined ? {} : { text: event.text }),
                 seq,
             });
             return;
@@ -2131,7 +2136,9 @@ export function createProtocolEncoder(
         }
 
         if (event.type === "turn_finished") {
-            sessionUsage = addSessionModelUsage(sessionUsage, event.message);
+            sessionUsage = usageMessages === undefined
+                ? addSessionModelUsage(sessionUsage, event.message)
+                : summarizeSessionModelUsage(usageMessages());
             // The provider counted the request the engine had only estimated,
             // so the turn ends on the authoritative number rather than leaving
             // the estimate standing as the last word. The window is the one
@@ -2239,7 +2246,7 @@ export function createProtocolEncoder(
             if (recipe !== undefined) {
                 measuredContext = context;
             }
-            sessionUsage = summarizeSessionModelUsage(messages);
+            sessionUsage = summarizeSessionModelUsage(usageMessages?.() ?? messages);
             sender.send({
                 type: "history",
                 entries: projectTranscript(

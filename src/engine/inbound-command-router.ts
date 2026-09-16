@@ -967,6 +967,9 @@ export class InboundCommandRouter {
             type: "user_question",
             question: request.question,
             choices: request.choices.map((choice) => ({ ...choice })),
+            ...(request.allowCustom === undefined ? {} : { allowCustom: request.allowCustom }),
+            ...(request.allowNotes === undefined ? {} : { allowNotes: request.allowNotes }),
+            ...(request.customLabel === undefined ? {} : { customLabel: request.customLabel }),
             ...(options.outOfBand === true ? { outOfBand: true } : {}),
         };
         const requestId = randomUUID();
@@ -2303,6 +2306,7 @@ function questionResult(
         return { outcome: "cancelled" };
     }
     if (response.outcome === "custom") {
+        if (request.allowCustom === false) return undefined;
         const text = response.text.trim();
         return text.length === 0 ? undefined : { outcome: "custom", text };
     }

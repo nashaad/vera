@@ -789,7 +789,10 @@ process.stdout.write(JSON.stringify({
             });
             expect(await connection.receive()).toMatchObject({
                 type: "extension_command_list",
-                commands: [{ name: "where", source: "test.extension" }],
+                commands: expect.arrayContaining([
+                    { name: "where", source: "test.extension", description: "Show workspace", usage: "/where" },
+                    expect.objectContaining({ name: "budget", source: "vera.budget" }),
+                ]),
             });
             await connection.send({
                 type: "run_extension_command",
@@ -803,6 +806,7 @@ process.stdout.write(JSON.stringify({
                 result: {
                     version: 1,
                     source: "test.extension/where",
+                    extensionState: { "vera.budget": { dollars: -1 } },
                     body: { kind: "text", text: workspace },
                 },
             });

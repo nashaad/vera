@@ -1,3 +1,5 @@
+import { isExtensionSessionStates, type ExtensionSessionStates } from "./session-state.ts";
+
 export const EXTENSION_COMMAND_RESULT_VERSION = 1;
 export const RESERVED_EXTENSION_COMMAND_NAMES = [
     "help",
@@ -26,6 +28,7 @@ export type ExtensionCommandBody =
     | ExtensionCommandHandledBody;
 
 export interface ExtensionCommandResult {
+    readonly extensionState?: ExtensionSessionStates;
     readonly version: typeof EXTENSION_COMMAND_RESULT_VERSION;
     readonly source: string;
     readonly body: ExtensionCommandBody;
@@ -93,7 +96,8 @@ export function parseExtensionCommandResult(
 ): ExtensionCommandResult | undefined {
     if (
         !isPlainObject(value)
-        || !hasExactKeys(value, ["version", "source", "body"])
+        || !hasExactKeys(value, value.extensionState === undefined ? ["version", "source", "body"] : ["version", "source", "body", "extensionState"])
+        || (value.extensionState !== undefined && !isExtensionSessionStates(value.extensionState))
         || value.version !== EXTENSION_COMMAND_RESULT_VERSION
         || typeof value.source !== "string"
         || value.source.length === 0
@@ -108,6 +112,7 @@ export function parseExtensionCommandResult(
         version: EXTENSION_COMMAND_RESULT_VERSION,
         source: value.source,
         body,
+        ...(value.extensionState === undefined ? {} : { extensionState: value.extensionState as ExtensionSessionStates }),
     };
 }
 

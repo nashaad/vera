@@ -265,6 +265,8 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
                     promptTokens: usage.prompt_tokens,
                     completionTokens: usage.completion_tokens,
                     totalTokens: usage.total_tokens,
+                    ...(typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0
+                        ? { cost: usage.cost } : {}),
                 },
             }),
     } as unknown as ChatStreamChunk;

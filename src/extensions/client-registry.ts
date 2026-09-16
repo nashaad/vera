@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import { inferReasoningSelection } from "../model/reasoning-effort.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import type {
+    VeraClientSidebarSummaryRenderer,
+    VeraClientSidebarSummarySnapshot,
+    VeraClientSidebarSummaryRow,
     VeraClientAvailableModel,
     VeraClientExtensionApi,
     VeraClientExtensionCommandHandler,
@@ -360,6 +363,7 @@ export interface ClientExtensionRegistry {
     ): Promise<VeraClientMessageDecision>;
     conversationChanged(): void;
     statusLineOwner(): string | undefined;
+    renderSidebarSummary(snapshot: VeraClientSidebarSummarySnapshot): readonly VeraClientSidebarSummaryRow[];
     renderStatusLine(
         snapshot: StatusLineSnapshot,
     ): readonly StatusLineSegment[] | undefined;
@@ -401,6 +405,7 @@ interface ComposeInvocation {
 }
 
 interface LoadedClientExtension {
+    readonly sidebarSummaries: readonly VeraClientSidebarSummaryRenderer[];
     readonly id: string;
     readonly path: string;
     readonly commands: readonly RegisteredCommand[];
@@ -762,6 +767,22 @@ export async function startClientExtensionRegistry(
         statusLineOwner(): string | undefined {
             return statusLine?.extension.id;
         },
+        renderSidebarSummary(snapshot): readonly VeraClientSidebarSummaryRow[] {
+            if (closing !== undefined) return [];
+            return loaded.filter((extension) => !extension.disposing).flatMap((extension) =>
+                extension.sidebarSummaries.flatMap((render) => {
+                    try {
+                        const rows = render(structuredClone(snapshot));
+                        if (!Array.isArray(rows) || rows.length > 4 || rows.some((row) =>
+                            typeof row.label !== "string" || typeof row.value !== "string"
+                            || row.label.length > 40 || row.value.length > 80
+                            || /[\r\n\x1b]/.test(row.label + row.value))) return [];
+                        return rows;
+                    } catch {
+                        return [];
+                    }
+                }));
+        },
         renderStatusLine(
             snapshot: StatusLineSnapshot,
         ): readonly StatusLineSegment[] | undefined {
@@ -898,6 +919,7 @@ async function activateClientExtension(
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
     const composeInvocation = new AsyncLocalStorage<ComposeInvocation>();
     let statusLine: VeraClientStatusLineRenderer | undefined;
+    const sidebarSummaries: VeraClientSidebarSummaryRenderer[] = [];
     let messageInterceptor: VeraClientMessageInterceptor | undefined;
     let hostedAgentAddressing:
         | VeraClientExperimentalHostedAgentAddressing
@@ -1166,6 +1188,12 @@ async function activateClientExtension(
                 options.transcript.append(options.id, validated);
             },
             sidebar: Object.freeze({
+                registerSummary(render: VeraClientSidebarSummaryRenderer): void {
+                    requireRegistrationPhase(phase, "sidebar summary");
+                    requireCapability("client.ui.sidebar_summary");
+                    if (typeof render !== "function") throw new Error("Sidebar summary needs a renderer");
+                    sidebarSummaries.push(render);
+                },
                 open(): void {
                     requireSidebar().open(options.id);
                 },
@@ -1676,6 +1704,7 @@ async function activateClientExtension(
         tips,
         composeSuggesters,
         statusLine,
+        sidebarSummaries,
         messageInterceptor,
         hostedAgentAddressing: () => hostedAgentAddressing,
         disposers,

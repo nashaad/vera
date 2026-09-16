@@ -98,6 +98,7 @@ export interface CloseAgentOutcome {
 }
 
 export interface StartHostServerOptions {
+    readonly readExtensionState?: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly socketPath?: string;
     readonly lockPath?: string;
     readonly pid?: number;
@@ -191,6 +192,7 @@ export interface StartHostServerOptions {
         argumentsText: string,
         workspace: string,
         signal: AbortSignal,
+        sessionId?: string,
     ) => Promise<unknown>;
     readonly canShutdown?: () => boolean;
     readonly canReplace?: () => boolean;
@@ -391,6 +393,7 @@ export async function startHostServer(
                 ?? (() => Promise.resolve({ status: "not_found" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
+            options.readExtensionState ?? (() => ({})),
             options.listExtensionCommands ?? (() => []),
             options.runExtensionCommand ?? (() => Promise.reject(
                 new Error("Extension commands are unavailable"),
@@ -510,12 +513,14 @@ function receiveConnection(
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>,
+    readExtensionState: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates,
     listExtensionCommands: () => readonly ExtensionCommandDescriptor[],
     runExtensionCommand: (
         name: string,
         argumentsText: string,
         workspace: string,
         signal: AbortSignal,
+        sessionId?: string,
     ) => Promise<unknown>,
     isShutdownFenced: () => boolean,
     requestShutdown: (
@@ -900,6 +905,7 @@ function receiveConnection(
             }
             extensionRequestIds.add(message.request_id);
             const workspace = attachedWorkspace;
+            const commandSessionId = attachedAgentId;
             if (workspace === undefined) {
                 socket.destroy();
                 return;
@@ -939,6 +945,7 @@ function receiveConnection(
                 message.arguments_text,
                 workspace,
                 controller.signal,
+                commandSessionId,
             )).then(
                 (value) => {
                     if (!finished) {
@@ -964,7 +971,7 @@ function receiveConnection(
                         return send({
                             type: "extension_command_result",
                             request_id: message.request_id,
-                            result,
+                            result: { ...result, ...(commandSessionId === undefined ? {} : sessionStateFields(commandSessionId)) },
                         }, () =>
                             !finished
                             && extensionRequestIds.has(message.request_id)
@@ -1709,6 +1716,11 @@ function receiveConnection(
         };
     }
 
+    function sessionStateFields(sessionId: string) {
+        const state = readExtensionState(sessionId);
+        return Object.keys(state).length === 0 ? {} : { extensionState: state };
+    }
+
     async function forwardAgentUpdates(
         agent: ResidentAgent,
         attached: AgentAttachment,
@@ -1716,7 +1728,9 @@ function receiveConnection(
         try {
             while (attachment === attached) {
                 const update = await attached.receive();
-                await send(update);
+                await send(update.type === "history" || update.type === "turn_finished"
+                    ? { ...update, ...sessionStateFields(agent.id) }
+                    : update);
             }
         } catch {
             if (attachment === attached && !agent.failed) {

@@ -323,12 +323,12 @@ export async function startResidentHost(
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
-            extensions: [
-                ...defaultHostExtensionConfigs(
+            extensions: mergeExtensionScopes(
+                defaultHostExtensionConfigs(
                     options.config.disabled_builtin_extensions ?? [],
                 ),
-                ...(options.config.extensions ?? []),
-            ],
+                options.config.extensions ?? [],
+            ),
             onFailure: (failure) => {
                 startupLog({
                     type: "host_startup_extension_failed",
@@ -468,7 +468,9 @@ export async function startResidentHost(
             provider,
         ),
         createAdapter,
+        modelMiddleware: extensions.modelMiddleware(),
         ...(options.createAdapter !== undefined || hasModelRequestHooks
+                || extensions.modelMiddleware().length > 0
             ? {}
             : {
                 workerAdapterSpec: (context: {
@@ -1165,17 +1167,21 @@ export async function startResidentHost(
                 }
                 return renamed;
             },
+            readExtensionState: (sessionId) => extensions.sessionState(sessionId),
             listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
                 name,
                 argumentsText,
                 workspace,
                 signal,
+                sessionId,
             ) => extensions.invokeCommand(
                 name,
                 argumentsText,
                 workspace,
                 signal,
+                sessionId,
+                sessionId === undefined ? undefined : join(sessionDirectory, `${sessionId}.jsonl`),
             ),
             checkpointStores: async (destination) => checkpointOpenStores({
                 destination,

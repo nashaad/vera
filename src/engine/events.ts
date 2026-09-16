@@ -79,6 +79,7 @@ export interface TaskNotificationEvent {
 }
 
 export interface NoticeEvent {
+    readonly text?: string;
     readonly type: "notice";
     readonly key: string;
     readonly count: number;
@@ -112,6 +113,9 @@ export interface UserQuestionChoice {
 }
 
 export interface UserQuestionUiRequest {
+    readonly allowCustom?: boolean;
+    readonly allowNotes?: boolean;
+    readonly customLabel?: string;
     readonly type: "user_question";
     readonly question: string;
     readonly choices: readonly UserQuestionChoice[];

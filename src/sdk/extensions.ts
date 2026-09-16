@@ -15,6 +15,7 @@ import type { ToolPresentation } from "../model/types.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 import type { VeraClientExperimentalTui } from "./experimental-tui.ts";
 import type { VeraClientContextSnapshot } from "./context.ts";
+import type { ModelMiddleware } from "./model-middleware.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
@@ -49,6 +50,7 @@ export interface SessionIdentityProvider {
 }
 
 export interface VeraExtensionSessions {
+    registerState(read: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionState): VeraExtensionDisposer;
     registerIdentity(provider: SessionIdentityProvider): VeraExtensionDisposer;
 }
 
@@ -109,6 +111,7 @@ export interface VeraExtensionAgentSpec {
 }
 
 export interface VeraExtensionHooks {
+    registerModelMiddleware(middleware: ModelMiddleware): VeraExtensionDisposer;
     registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
     registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer;
@@ -174,6 +177,8 @@ export interface VeraExtensionCommandSpec {
 }
 
 export interface VeraExtensionCommandRequest {
+    readonly sessionId?: string;
+    readonly sessionPath?: string;
     readonly argumentsText: string;
     readonly workspace: string;
     readonly signal: AbortSignal;
@@ -592,6 +597,7 @@ export interface VeraClientExtensionMentions {
 }
 
 export interface VeraClientExtensionSidebar {
+    registerSummary(render: VeraClientSidebarSummaryRenderer): void;
     /** Claims the sidebar. It is a column of blocks, with no chrome of its own. */
     open(): void;
     /** Adds a block to the bottom. Empty label or text is refused. */
@@ -599,6 +605,20 @@ export interface VeraClientExtensionSidebar {
     clear(): void;
     close(): void;
 }
+
+export interface VeraClientSidebarSummaryRow {
+    readonly label: string;
+    readonly value: string;
+}
+
+export interface VeraClientSidebarSummarySnapshot {
+    readonly extensionState?: import("../extensions/session-state.ts").ExtensionSessionStates;
+    readonly usage?: VeraClientSessionUsage;
+}
+
+export type VeraClientSidebarSummaryRenderer = (
+    snapshot: VeraClientSidebarSummarySnapshot,
+) => readonly VeraClientSidebarSummaryRow[];
 
 /** Narrow, invocation-bound access to the client-owned composer. */
 export interface VeraClientExtensionCompose {

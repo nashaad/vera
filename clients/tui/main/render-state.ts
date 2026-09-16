@@ -487,6 +487,7 @@ export function drawWorkspaceSidebar(rt: TuiRuntime): void {
         rt.workspaceRail,
         rt.workspaceSidebarFocused,
         activityFrame(rt),
+        rt.clientExtensionRegistry?.renderSidebarSummary({ usage: rt.state.sessionUsage, extensionState: rt.state.extensionState }),
     );
     const drawn = JSON.stringify(next);
     if (drawn === rt.workspaceSidebarDrawn) return;

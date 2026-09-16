@@ -866,3 +866,70 @@ test("entering a custom answer labels the row as the response", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("fixed choices have no Other answer and cannot select one by number or arrows", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    const fixed: UserQuestionUiRequestUpdate = {
+        ...request, request: { ...request.request, allowCustom: false,
+            question: "Continue?", choices: [{ id: "no", label: "No, stop" }, { id: "yes", label: "Yes, once" }] },
+    };
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(fixed);
+    try {
+        await setup.renderOnce();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("No, stop");
+        expect(frame).toContain("Yes, once");
+        expect(frame).not.toContain("Other");
+        expect(view.handleKey(fixed, { name: "3" }).response).toBeUndefined();
+        expect(view.handleKey(fixed, { name: "return" }).response?.response).toMatchObject({ outcome: "selected", choiceId: "no" });
+        view.handleKey(fixed, { name: "down" });
+        view.handleKey(fixed, { name: "down" });
+        expect(view.handleKey(fixed, { name: "return" }).response?.response).toMatchObject({ outcome: "selected", choiceId: "yes" });
+        expect(view.handleKey(fixed, { name: "escape" }).response?.response).toMatchObject({ outcome: "cancelled" });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+
+test("a named custom action has a blank four-character input beside its label", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    const named: UserQuestionUiRequestUpdate = {
+        ...request, request: { ...request.request, customLabel: "Increase budget and continue", allowNotes: false,
+            question: "Continue?", choices: [{ id: "stop", label: "Stop" }, { id: "ignore", label: "Ignore budget and continue" }] },
+    };
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(named);
+    try {
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).toContain("3. Increase budget and continue");
+        expect(setup.captureCharFrame()).not.toContain("Other");
+        view.handleKey(named, { name: "down" });
+        view.handleKey(named, { name: "down" });
+        expect(view.handleKey(named, { name: "tab" }).handled).toBe(true);
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).not.toContain("Notes:");
+        expect(setup.captureCharFrame()).not.toContain("tab notes");
+        expect(setup.captureCharFrame()).not.toContain("Optional context");
+        view.handleKey(named, { name: "return" });
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).not.toContain("Type");
+        for (const character of "2.50") view.handleKey(named, { name: character, sequence: character });
+        await setup.renderOnce();
+        const lines = setup.captureCharFrame().split("\n");
+        const label = lines.findIndex((line) => line.includes("Increase budget and continue"));
+        const amount = lines.findIndex((line) => line.includes("2.50"));
+        expect(amount).toBe(label);
+        expect(lines[label]).toContain("Increase budget and continue: 2.50");
+        expect(view.handleKey(named, { name: "return" }).response?.response).toEqual({
+            type: "user_question", outcome: "custom", text: "2.50",
+        });
+    } finally {
+        setup.renderer.destroy();
+    }
+});

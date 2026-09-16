@@ -26,6 +26,9 @@ export function bundledClientExtensionConfigs(
     if (!disabledIds.includes("vera.customize")) {
         configs.push({ path: fileURLToPath(new URL("../../extensions/customize", import.meta.url)), enabled: true, config: {} });
     }
+    if (!disabledIds.includes("vera.budget")) {
+        configs.push({ path: fileURLToPath(new URL("../../extensions/budget", import.meta.url)), enabled: true, config: {} });
+    }
     return configs;
 }
 

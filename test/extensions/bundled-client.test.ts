@@ -59,8 +59,6 @@ test("reasoning cycle is a default bundled extension with no private tier", () =
     );
 
     expect(configured?.enabled).toBe(true);
-    // Disabling it leaves nothing bundled: quickslots retired with the dial
-    // strip, so reasoning cycle is the last bundled client extension.
     expect(bundledClientExtensionConfigs(["vera.reasoning-cycle"]))
-        .toEqual([]);
+        .not.toContainEqual(configured);
 });
