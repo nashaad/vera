@@ -82,6 +82,7 @@ test("included client extensions expose BTW and Pair without a planning suggesti
     try {
         expect(failures).toEqual([]);
         expect(registry.loadedExtensionIds()).toContain("vera.btw");
+        expect(registry.commands().find((entry) => entry.name === "diff")).toBeDefined();
         expect(registry.loadedExtensionIds()).toContain("example.plan");
         expect(registry.commands().filter((entry) => ["btw", "pair"].includes(entry.name)))
             .toHaveLength(2);
@@ -92,7 +93,7 @@ test("included client extensions expose BTW and Pair without a planning suggesti
 });
 
 test("each included battery can be disabled on both applicable sides", () => {
-    const disabled = ["example.command-hooks", "example.plan", "vera.btw"];
+    const disabled = ["example.command-hooks", "example.plan", "vera.btw", "vera.diff"];
     for (const id of disabled) {
         expect(ids(defaultHostExtensionConfigs(disabled))).not.toContain(id);
         expect(ids(bundledClientExtensionConfigs(disabled))).not.toContain(id);

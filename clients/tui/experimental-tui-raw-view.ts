@@ -10,6 +10,7 @@ import type {
     VeraExperimentalTuiTheme,
 } from "../../src/sdk/experimental-tui.ts";
 
+import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 import { dialogHeaderNode } from "./dialog-header.ts";
 
 export interface TuiExperimentalRawView {
@@ -32,6 +33,9 @@ export interface TuiExperimentalRawViewCreateOptions {
 export function createTuiExperimentalRawView(
     options: TuiExperimentalRawViewCreateOptions,
 ): TuiExperimentalRawView {
+    if (options.spec.fullscreen === true && options.spec.slot !== "overlay") {
+        throw new Error("Full-screen views must use the overlay slot");
+    }
     const root = options.spec.create({
         renderer: options.renderer,
         workspace: options.workspace,
@@ -49,9 +53,10 @@ export function createTuiExperimentalRawView(
     const container = new BoxRenderable(options.renderer, {
         id: `experimental-tui-raw-${options.extensionId}-${options.spec.id}`,
         width: "100%",
+        ...(options.spec.fullscreen === true ? { position: "absolute" as const, left: 0, top: 0, height: "100%" as const, zIndex: DIALOG_CARD_Z_INDEX } : {}),
         flexDirection: "column",
     });
-    if (options.spec.slot === "overlay") {
+    if (options.spec.slot === "overlay" && options.spec.fullscreen !== true) {
         container.add(dialogHeaderNode(options.renderer, "Extension"));
     }
     container.add(root);

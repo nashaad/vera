@@ -149,6 +149,7 @@ export interface VeraExperimentalTuiRawContext {
 }
 
 export interface VeraExperimentalTuiRawViewSpec {
+    readonly fullscreen?: boolean;
     readonly id: string;
     readonly slot: VeraExperimentalTuiSlot;
     readonly modal?: boolean;

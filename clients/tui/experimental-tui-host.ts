@@ -172,7 +172,7 @@ export function createTuiExperimentalHost(
                 requestRender: options.onRenderRequested,
             });
             rawViews.set(key, view);
-            slotRegistry.slotFor(spec.slot).add(view.container);
+            (spec.fullscreen === true ? options.renderer.root : slotRegistry.slotFor(spec.slot)).add(view.container);
             options.onRenderRequested();
             let active = true;
             return async () => {
@@ -181,7 +181,7 @@ export function createTuiExperimentalHost(
                 try {
                     disposeTuiExperimentalRawView(
                         view,
-                        (containerId) => slotRegistry.slotFor(spec.slot).remove(containerId),
+                        (containerId) => (spec.fullscreen === true ? options.renderer.root : slotRegistry.slotFor(spec.slot)).remove(containerId),
                     );
                 } finally {
                     rawViews.delete(key);
@@ -554,7 +554,7 @@ export function createTuiExperimentalHost(
                 try {
                     disposeTuiExperimentalRawView(
                         view,
-                        (containerId) => slotRegistry.slotFor(view.spec.slot).remove(containerId),
+                        (containerId) => (view.spec.fullscreen === true ? options.renderer.root : slotRegistry.slotFor(view.spec.slot)).remove(containerId),
                     );
                 } catch (error) {
                     options.onFailure(

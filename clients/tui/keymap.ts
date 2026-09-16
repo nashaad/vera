@@ -20,6 +20,7 @@ export type TuiKeyScope =
     | "question"
     | "help"
     | "dials"
+    | "diff"
     | "inspect_document"
     | "diagnostics"
     | "search";
@@ -44,6 +45,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "approval",
     "question",
     "help",
+    "diff",
     "inspect_document",
     "diagnostics",
     "search",
@@ -70,6 +72,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "question",
     "help",
     "dials",
+    "diff",
     "inspect_document",
     "diagnostics",
     "search",
@@ -643,6 +646,19 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "search",
         description: "Cycle the search scope",
         hint: "ctrl+w scope",
+    },
+    {
+        id: "diff_page_down",
+        keys: ["ctrl+f"],
+        scope: "diff",
+        description: "Scroll the diff a page down",
+        overrides: ["search_conversation"],
+    },
+    {
+        id: "diff_page_up",
+        keys: ["ctrl+b"],
+        scope: "diff",
+        description: "Scroll the diff a page up",
     },
     {
         id: "inspect_document_action",

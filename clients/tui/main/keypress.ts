@@ -500,10 +500,10 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
-    if (uiRequest === undefined && rt.experimentalTuiHost.hasModal()) {
+    if (uiRequest === undefined && rt.experimentalTuiHost.hasModal()
+        && rt.experimentalTuiHost.handleKey(key)) {
         key.preventDefault();
         key.stopPropagation();
-        rt.experimentalTuiHost.handleKey(key);
         return;
     }
     if (uiRequest === undefined
