@@ -1,10 +1,4 @@
-// Plan mode, shipped the way Codex ships it: as an agent you can select, plus a
-// compose-time offer to switch to it. No mode, no toggle, no core intent-guessing.
-//
-// Core never reads what you are typing. This extension does, and it only does
-// so because you installed it — installing it is the consent. Accepting the
-// offer goes through the ordinary select path, which is loud, queued, and
-// recorded like any other agent selection.
+import type { VeraClientExtensionApi, VeraExtensionApi } from "../../src/sdk/extensions.ts";
 
 const PLAN_INSTRUCTIONS = `You are planning, not building.
 
@@ -14,7 +8,6 @@ files each one touches, and what would tell you a step went wrong.
 
 When the plan is ready, say so and stop. The user decides whether to run it.`;
 
-/** The words people actually type when they want a plan before the work. */
 const ASKS_FOR_A_PLAN =
     /\b(plan|approach|strategy|how (would|should) (we|i)|before (we|you) start)\b/i;
 
@@ -25,7 +18,7 @@ interface PlanExtensionConfig {
     readonly skills?: readonly string[];
 }
 
-export function activate(vera: any): void {
+export function activate(vera: VeraExtensionApi): void {
     const config = planExtensionConfig(vera.config);
     vera.agents.register({
         name: "plan",
@@ -34,8 +27,7 @@ export function activate(vera: any): void {
         tools: [
             "read",
             "grep",
-            "ls",
-            "glob",
+            "list",
             ...(config.allowSkillScripts ? ["skill_script"] : []),
         ],
         ...(config.skills === undefined ? {} : { skills: config.skills }),
@@ -52,7 +44,7 @@ export function activate(vera: any): void {
 
 export function planExtensionConfig(value: unknown): PlanExtensionConfig {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { allowSkillScripts: true, composeSuggestion: true };
+        return { allowSkillScripts: false, composeSuggestion: false };
     }
     const raw = value as Record<string, unknown>;
     const skills = Array.isArray(raw.skills)
@@ -62,13 +54,13 @@ export function planExtensionConfig(value: unknown): PlanExtensionConfig {
         ? raw.skills.map((skill) => (skill as string).trim())
         : undefined;
     return {
-        allowSkillScripts: raw.allow_skill_scripts !== false,
-        composeSuggestion: raw.compose_suggestion !== false,
+        allowSkillScripts: raw.allow_skill_scripts === true,
+        composeSuggestion: raw.compose_suggestion === true,
         ...(skills === undefined ? {} : { skills }),
     };
 }
 
-export function activateClient(vera: any): void {
+export function activateClient(vera: VeraClientExtensionApi): void {
     if (!planExtensionConfig(vera.config).composeSuggestion) return;
     vera.compose.registerSuggester({
         agent: "plan",

@@ -2520,3 +2520,42 @@ test("fixed questions reject custom answers and accept only a listed choice", as
         response: { type: "user_question", outcome: "selected", choiceId: "no" } });
     expect(await answer).toMatchObject({ outcome: "selected", choice: { id: "no" } });
 });
+
+test("selecting a definition publishes an applied permission change", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    let mode: ApprovalMode = "auto";
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => mode,
+        readApprovalModeOrigin: () => "agent-default",
+        selectAgent: async (name) => {
+            mode = "readonly";
+            return { name, posture: mode };
+        },
+    });
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "select_agent", requestId: "select-reader", name: "reader" });
+    await Bun.sleep(0);
+    channel.client.send({ type: "prompt", content: "inspect" });
+    await firstTurn;
+    expect(observed.filter((event) => event.type === "permissions_changed"))
+        .toEqual([{
+            type: "permissions_changed",
+            requestId: "select-reader",
+            mode: "readonly",
+            origin: "agent-default",
+            pending: true,
+        }]);
+    router.finishTurn();
+
+    observed.length = 0;
+    const nextTurn = router.startTurn();
+    channel.client.send({ type: "select_agent", requestId: "select-again", name: "reader" });
+    await Bun.sleep(0);
+    channel.client.send({ type: "prompt", content: "inspect again" });
+    await nextTurn;
+    expect(observed.filter((event) => event.type === "permissions_changed")).toEqual([]);
+    router.finishTurn();
+});

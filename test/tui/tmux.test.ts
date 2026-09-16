@@ -1147,7 +1147,7 @@ test.skipIf(!tmuxAvailable)(
             provider: "openrouter",
             model: "faux/test",
             extensions: [{
-                path: join(process.cwd(), "examples/extensions/btw"),
+                path: join(process.cwd(), "extensions/btw"),
                 enabled: true,
             }],
         }));
@@ -1264,7 +1264,7 @@ test.skipIf(!tmuxAvailable)(
             provider: "openrouter",
             model: "faux/test",
             extensions: [{
-                path: join(process.cwd(), "examples/extensions/btw"),
+                path: join(process.cwd(), "extensions/btw"),
                 enabled: true,
             }],
         }));

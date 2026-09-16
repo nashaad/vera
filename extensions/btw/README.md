@@ -1,6 +1,6 @@
 # btw and pair
 
-Readonly sidekicks and tool-capable peers beside the main conversation.
+Included extension for read-only sidekicks and tool-capable peers beside the main conversation. No side conversation starts until requested.
 
 ```
 /btw                         # open the sidekick
@@ -63,17 +63,13 @@ The extension owns the boundary wording and decides that BTW branches while
 Pair starts fresh. The runtime only understands generic branch, message,
 permission, attachment, and compaction semantics.
 
-## Install
+## Configuration
 
-Add it to your Vera config:
-
-```json
-{
-  "extensions": [
-    { "path": "/path/to/vera/examples/extensions/btw", "enabled": true }
-  ]
-}
-```
+This extension ships with Vera. No separate installation is needed.
+To disable the included copy, add `vera.btw` to `disabled_builtin_extensions`
+in the home's `config.json`, then restart the client.
+An explicitly configured or installed copy with the same ID replaces the
+included copy, including when that explicit copy is disabled.
 
 ## Capabilities it uses
 

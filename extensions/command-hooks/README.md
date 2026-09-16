@@ -1,13 +1,18 @@
 # Command hooks
 
-This example runs executable pre-tool and post-tool hooks through Vera's public
-extension API. Add it to `~/.vera/config.json` with an absolute executable path:
+This included extension runs executable pre-tool and post-tool hooks through
+Vera's public extension API. It runs nothing until hooks are configured.
+An omitted `hooks` array is empty; an invalid supplied value fails activation.
+
+Add an entry to the home's `config.json`. Use the absolute extension path shown
+in `/customize` under Extensions for `example.command-hooks`, and an absolute
+executable path:
 
 ```json
 {
   "extensions": [
     {
-      "path": "/path/to/vera/examples/extensions/command-hooks",
+      "path": "/absolute/path/to/extensions/command-hooks",
       "enabled": true,
       "config": {
         "hooks": [
@@ -53,3 +58,8 @@ The adapter bounds argv, stdin, stdout, and runtime, but it is not a sandbox.
 A timeout, non-zero exit, malformed response, or unsupported response is isolated
 as a failed extension hook. Vera continues the hook chain and tool call, so do not
 use a command hook as the only enforcement layer for a security boundary.
+
+To disable the included extension, add `example.command-hooks` to
+`disabled_builtin_extensions`. An explicit copy with the same ID replaces it,
+including when disabled. Restart the host after configuration changes.
+The ID is retained for existing configurations.

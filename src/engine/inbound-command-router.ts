@@ -1475,6 +1475,7 @@ export class InboundCommandRouter {
             });
             return;
         }
+        const previousMode = this.options.readApprovalMode?.();
         const selected = await this.options.selectAgent(select.name);
         if (selected === undefined) {
             this.events.emit({
@@ -1488,6 +1489,10 @@ export class InboundCommandRouter {
             type: "agent_selected",
             update: { requestId: select.requestId, ...selected },
         });
+        const mode = this.options.readApprovalMode?.();
+        if (mode !== undefined && mode !== previousMode) {
+            this.emitPermissionsChanged(select.requestId, mode);
+        }
     }
 
     private async listAgents(requestId: string): Promise<void> {

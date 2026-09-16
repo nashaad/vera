@@ -24,7 +24,7 @@ import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 installTestProcessGuard();
 
-const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
+const EXTENSION = join(import.meta.dir, "../../extensions/btw");
 const sessions = new Map<string, TuiAgentClient>();
 const sessionNames = new Map<string, string | undefined>();
 let nextSession = 1;

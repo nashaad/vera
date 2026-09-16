@@ -95,24 +95,32 @@ export async function loadCustomizationCatalog(options: {
     }));
     const paths = new Set(entries.map((row) => row.path));
     for (const row of [
+        ...(config?.extensions ?? []).map((value) => ({ ...value, scope: "user" })),
         ...defaultHostExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
         ...bundledClientExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
-        ...(config?.extensions ?? []).map((value) => ({ ...value, scope: "user" })),
     ]) {
         if (paths.has(row.path)) continue;
         paths.add(row.path);
         try {
             const { manifest } = loadExtensionManifest(row.path);
-            entries.push({ path: row.path, enabled: row.enabled && !disabled.includes(manifest.id), scope: row.scope, id: manifest.id });
+            entries.push({
+                path: row.path,
+                enabled: row.enabled && (row.scope !== "bundled" || !disabled.includes(manifest.id)),
+                scope: row.scope,
+                id: manifest.id,
+            });
         } catch (error) { warnings.push(String(error)); }
     }
+    const explicitIds = new Set(entries.filter((row) => row.scope !== "bundled").map((row) => row.id));
     for (const row of entries) {
         await add({
             id: `extensions:${row.scope}:${row.id}`, category: "extensions",
             name: row.id, description: "Extension manifest", scope: row.scope,
             path: join(row.path, "vera.extension.json"), content: "",
             editable: String(row.scope) !== "bundled", contextIds: [],
-            status: row.enabled ? "enabled" : "disabled",
+            status: row.scope === "bundled" && explicitIds.has(row.id)
+                ? "shadowed"
+                : row.enabled ? "enabled" : "disabled",
         });
     }
     return { sources, warnings };

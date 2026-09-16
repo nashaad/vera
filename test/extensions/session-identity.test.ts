@@ -34,6 +34,7 @@ test("session identity is a default bundled host extension", () => {
         .toBe(SESSION_IDENTITY_EXTENSION_ID);
     expect(defaultHostExtensionConfigs([
         SESSION_IDENTITY_EXTENSION_ID, EXPLORER_EXTENSION_ID, "vera.budget",
+        "example.command-hooks", "example.plan",
     ]))
         .toEqual([]);
 });

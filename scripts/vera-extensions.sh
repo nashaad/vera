@@ -2,7 +2,7 @@
 # Runs this checkout's Vera with only the named extension directories, after
 # stopping any resident host so the host picks up the same list.
 #
-#   scripts/vera-extensions.sh examples/extensions/btw -- --continue
+#   scripts/vera-extensions.sh extensions/btw -- --continue
 set -e
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)

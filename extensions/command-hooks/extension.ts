@@ -1,8 +1,8 @@
 import type {
     VeraExtensionApi,
     VeraExtensionCommandHookSpec,
-} from "../../../src/sdk/extensions.ts";
-import type { JsonValue } from "../../../src/sdk/hooks.ts";
+} from "../../src/sdk/extensions.ts";
+import type { JsonValue } from "../../src/sdk/hooks.ts";
 
 interface CommandHookConfig {
     readonly phase: "pre_tool_use" | "post_tool_use";
@@ -29,6 +29,7 @@ export function activate(vera: VeraExtensionApi): void {
 }
 
 function configuredHooks(config: JsonValue): readonly CommandHookConfig[] {
+    if (isPlainObject(config) && config.hooks === undefined) return [];
     if (!isPlainObject(config) || !Array.isArray(config.hooks)) {
         throw new Error("Command-hook config requires a hooks array");
     }

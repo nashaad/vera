@@ -1,3 +1,4 @@
+import { mergeExtensionScopes } from "../../src/extensions/discovery.ts";
 import type { VeraExtensionConfig } from "../../src/config.ts";
 import { bundledClientExtensionConfigs } from
     "../../src/extensions/bundled-client.ts";
@@ -239,10 +240,10 @@ export function configuredTuiClientExtensions(
     disabledBuiltinExtensions: readonly string[],
     extensions: readonly VeraExtensionConfig[] = [],
 ): readonly VeraExtensionConfig[] {
-    return [
-        ...bundledClientExtensionConfigs(disabledBuiltinExtensions),
-        ...extensions,
-    ];
+    return mergeExtensionScopes(
+        bundledClientExtensionConfigs(disabledBuiltinExtensions),
+        extensions,
+    );
 }
 
 export async function startTuiClientExtensionHost(

@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { startClientExtensionRegistry } from "../../src/extensions/client-registry.ts";
 
-const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
+const EXTENSION = join(import.meta.dir, "../../extensions/btw");
 
 async function start(visible: readonly {
     agentId: string;

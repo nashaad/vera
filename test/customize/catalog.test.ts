@@ -36,3 +36,33 @@ test("catalog uses winning definitions, keeps source bodies, and reports invalid
     expect(catalog.sources.find((source) => source.name === "AGENTS.md")?.editable).toBe(true);
     expect(catalog.sources.find((source) => source.name === "vera-help")?.editable).toBe(false);
 });
+
+test("included extension status respects explicit copies and disabled IDs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-batteries-")); roots.push(root);
+    const home = join(root, "home");
+    const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(home, { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    await writeFile(join(home, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "faux/test",
+        disabled_builtin_extensions: ["vera.btw", "example.command-hooks"],
+        extensions: [
+            { path: join(import.meta.dir, "../../extensions/plan"), enabled: false },
+            { path: join(import.meta.dir, "../../examples/extensions/btw"), enabled: true },
+        ],
+    }));
+    const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+    const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+    const extensions = catalog.sources.filter((source) => source.category === "extensions");
+    expect(extensions.filter((source) => source.name === "example.plan"))
+        .toMatchObject([{ scope: "user", status: "disabled" }]);
+    expect(extensions.find((source) => source.name === "example.command-hooks"))
+        .toMatchObject({ scope: "bundled", status: "disabled" });
+    expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "user"))
+        .toMatchObject({ status: "enabled" });
+    expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "bundled"))
+        .toMatchObject({ status: "shadowed" });
+});

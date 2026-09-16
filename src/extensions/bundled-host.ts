@@ -12,6 +12,8 @@ export function defaultHostExtensionConfigs(
         { id: SESSION_IDENTITY_EXTENSION_ID, directory: "session-identity" },
         { id: EXPLORER_EXTENSION_ID, directory: "explorer" },
         { id: "vera.budget", directory: "budget" },
+        { id: "example.command-hooks", directory: "command-hooks" },
+        { id: "example.plan", directory: "plan" },
     ].filter((entry) => !disabledIds.includes(entry.id))
         .map((entry) => ({
             path: fileURLToPath(new URL(

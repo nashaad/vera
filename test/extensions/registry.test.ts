@@ -586,7 +586,7 @@ test("the command hook adapter runs the repository checkout guard", async () => 
     );
     const registry = await startExtensionRegistry({
         extensions: [{
-            path: join(process.cwd(), "examples/extensions/command-hooks"),
+            path: join(process.cwd(), "extensions/command-hooks"),
             enabled: true,
             config: {
                 hooks: [{

@@ -29,6 +29,20 @@ export function bundledClientExtensionConfigs(
     if (!disabledIds.includes("vera.budget")) {
         configs.push({ path: fileURLToPath(new URL("../../extensions/budget", import.meta.url)), enabled: true, config: {} });
     }
+    for (const entry of [
+        { id: "example.plan", directory: "plan" },
+        { id: "vera.btw", directory: "btw" },
+    ]) {
+        if (disabledIds.includes(entry.id)) continue;
+        configs.push({
+            path: fileURLToPath(new URL(
+                `../../extensions/${entry.directory}`,
+                import.meta.url,
+            )),
+            enabled: true,
+            config: {},
+        });
+    }
     return configs;
 }
 
