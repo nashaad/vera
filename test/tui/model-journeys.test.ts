@@ -113,13 +113,15 @@ test.each(["standard", "detailed"] as const)("%s picker aligns labels and reserv
         const blurred = setup.captureCharFrame().split("\n");
         expect(blurred.find((line) => line.includes("Filter and sort"))).toBe(lines.find((line) => line.includes("Filter and sort")));
         const heading = lines.find((line) => line.includes("▼ p"))!;
-        expect(heading.indexOf("▼")).toBe(columns[0]! - 5);
-        expect(heading.indexOf("p")).toBe(columns[0]! - 3);
+        const bodyColumn = lines.find((line) => line.includes("Switch model"))!.indexOf("Switch model");
+        expect(heading.indexOf("▼")).toBe(bodyColumn);
+        expect(lines.find((line) => line.includes("* Beta"))!.indexOf("*")).toBe(bodyColumn);
+        expect(heading.indexOf("p")).toBe(bodyColumn + 2);
         const folded = handleTuiSettingsPickerKey({ ...state, modelFocus: "list" }, { name: "space" }).state!;
         view.update(folded);
         await setup.renderOnce();
         const collapsed = setup.captureCharFrame().split("\n").find((line) => line.includes("▶"))!;
-        expect(collapsed.indexOf("▶")).toBe(columns[0]! - 5);
+        expect(collapsed.indexOf("▶")).toBe(bodyColumn);
     } finally { setup.renderer.destroy(); }
 });
 

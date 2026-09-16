@@ -1,5 +1,5 @@
 import { BoxRenderable, TextRenderable, StyledText, fg, type Renderable, type RenderContext } from "@opentui/core";
-import { dialogChipNode, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderRow, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
+import { dialogChipNode, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderNode, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
 import { dialogSearchHeight } from "./dialog-search.ts";
 import { modelDetailHeight, modelDetailNode, modelPaneSplit, pickerContentWidth } from "./settings-picker-model.ts";
 import { journeyWindow, journeyMoreText, emptyModelJourney } from "./model-journeys.ts";
@@ -107,19 +107,19 @@ export function renderModelSwitch(
     if (scroll !== undefined) scroll.top = window.top;
     if (window.rows.length === 0) list.add(text(emptyModelJourney(state), 2));
     for (const row of window.rows) {
-        if (row.heading !== undefined) { list.add(dialogGroupHeaderRow(renderer, row.heading, "▼")); continue; }
+        if (row.heading !== undefined) { list.add(dialogGroupHeaderNode(renderer, `▼ ${row.heading}`, false)); continue; }
         if (row.more !== undefined) { list.add(text(journeyMoreText(row.more, listWidth))); continue; }
         if (row.option === undefined) { list.add(text("")); continue; }
         const option = row.option;
         const status = option.unavailable ? "unavailable" : option.value === state.initialModel ? "current" : option.hiddenByDefault ? "hidden" : "";
-        const label = `${option.pooledRank === undefined ? "" : "* "}${option.label}`;
+        const label = `${option.section === undefined ? "" : "▶ "}${option.pooledRank === undefined ? "" : "* "}${option.label}`;
         const meta = option.section !== undefined ? "" : columns ? priceMeta(option, status) : status;
         const content = {
             label: columns && option.section === undefined ? columnLabel(label, listWidth - Bun.stringWidth(meta)) : label,
             active: row.index === state.selectedIndex,
             current: option.value === state.initialModel,
             dimmed: state.modelFocus !== "list",
-            ...(option.section === undefined ? {} : { heading: true, marker: "▶" }),
+            ...(option.section === undefined ? {} : { heading: true }),
             meta,
             ...dialogRowPointer(pointer, row.index),
         };
