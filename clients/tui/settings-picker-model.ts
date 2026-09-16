@@ -80,6 +80,11 @@ export function moveTuiSettingsPickerPointer(
     state: TuiAnySettingsPickerState,
     index: number,
 ): TuiAnySettingsPickerState {
+    if (state.kind === "extension") {
+        if (index === -1) return { ...state, searchFocused: true, focusedButton: undefined };
+        if (index < -1) return { ...state, searchFocused: false, focusedButton: -index - 2 };
+        return { ...state, selectedIndex: index, searchFocused: false, focusedButton: undefined };
+    }
     if (state.kind !== "model") {
         return { ...state, selectedIndex: index };
     }
@@ -193,7 +198,7 @@ export function pickerCardWidth(
     const usableWidth = Math.max(0, renderer.width - railInset);
     const cardWidth = state.kind === "session"
         ? usableWidth
-        : state.kind === "model"
+        : state.kind === "model" || (state.kind === "extension" && state.layout === "list-detail")
         ? Math.floor(usableWidth * 0.96)
         : Math.floor(usableWidth * 0.8);
     return Math.max(0, cardWidth - DIALOG_CARD_PADDING * 2);

@@ -163,6 +163,7 @@ export interface TuiRuntime {
     pendingSkillInvocations: Map<string, string>;
     messageInterceptPending: boolean;
     secretPrompt: TuiSecretPromptState | undefined;
+    extensionSecretPrompt?: (value?: string) => void;
     namePrompt: TuiNamePromptState | undefined;
     providerForm: TuiProviderFormState | undefined;
     requestOptionsEditor: TuiRequestOptionsEditorState | undefined;

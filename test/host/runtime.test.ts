@@ -837,7 +837,7 @@ process.stdout.write(JSON.stringify({
         await writeFile(join(extensionPath, "extension.ts"), `
             export function activate(vera) {
                 vera.tools.register({
-                    name: "web_search",
+                    name: "fixture_search",
                     description: "Search",
                     inputSchema: {
                         type: "object",
@@ -845,7 +845,7 @@ process.stdout.write(JSON.stringify({
                         required: ["query"],
                         additionalProperties: false,
                     },
-                    permissionOperation: "web.search",
+                    permissionOperation: "fixture.search",
                     run({ input }) {
                         return { output: "result:" + input.query };
                     },
@@ -866,7 +866,7 @@ process.stdout.write(JSON.stringify({
                 }],
             },
             createAdapter: () => new FauxAdapter([
-                toolResponse("web_search", { query: "dag" }),
+                toolResponse("fixture_search", { query: "dag" }),
                 textResponse("done"),
             ]),
             socketPath: join(root, "host.sock"),
@@ -890,7 +890,7 @@ process.stdout.write(JSON.stringify({
             const stored = await SessionStore.open(sessionPath);
             expect(stored.messages()).toContainEqual(expect.objectContaining({
                 role: "tool_result",
-                toolName: "web_search",
+                toolName: "fixture_search",
                 isError: false,
                 content: [{ type: "text", text: "result:dag" }],
             }));

@@ -218,3 +218,31 @@ test("reopening the card starts empty rather than showing the last key", async (
     }
 });
 
+
+test("masked extension keys never enter the rendered field and preserve editing", async () => {
+    const { view, setup, state, frame } = await openCard();
+    try {
+        let masked: TuiSecretPromptState = { ...state, masked: true, title: "Exa API key" };
+        view.update(masked);
+        masked = type(view, masked, "private-value");
+        view.update(masked);
+        expect(await frame()).not.toContain("private-value");
+        expect(await frame()).toContain("•••••••••••••");
+        masked = view.handleKey(masked, { name: "left" }).state!;
+        masked = view.handleKey(masked, { name: "backspace" }).state!;
+        view.update(masked);
+        expect(view.handleKey(masked, { name: "return" }).submitted).toBe("private-vale");
+        masked = view.handlePaste(masked, "-pasted");
+        view.update(masked);
+        expect(await frame()).not.toContain("pasted");
+        expect(view.handleKey(masked, { name: "return" }).submitted).toContain("pasted");
+        masked = view.handleKey(masked, { name: "u", ctrl: true }).state!;
+        view.update(masked);
+        expect(await frame()).not.toContain("•••");
+        masked = type(view, masked, "replacement");
+        view.update(masked);
+        expect(view.handleKey(masked, { name: "return" }).submitted).toBe("replacement");
+        view.clear();
+        expect(await frame()).not.toContain("•••");
+    } finally { setup.renderer.destroy(); }
+});

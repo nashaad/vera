@@ -22,7 +22,7 @@ import { renderState } from "../main/render-state.ts";
 import type { TuiNamePromptState, TuiNamePromptTransition } from "../name-prompt.ts";
 import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
 import { startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "../request-options-editor.ts";
-import type { TuiSecretPromptState } from "../secret-prompt.ts";
+import { startTuiSecretPrompt, type TuiSecretPromptState } from "../secret-prompt.ts";
 import { resolveTuiSettingsDestination } from "../settings-destination.ts";
 import { startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
@@ -299,6 +299,10 @@ export function applySecretPromptTransition(rt: TuiRuntime,
     rt.secretPrompt = transition.state;
     if (rt.secretPrompt !== undefined) {
         renderState(rt);
+        return;
+    }
+    if (rt.extensionSecretPrompt) {
+        rt.extensionSecretPrompt(transition.submitted);
         return;
     }
     if (transition.submitted !== undefined) {
@@ -666,4 +670,32 @@ export function syncConfigurationRequiredRequest(rt: TuiRuntime,
             rt.queuedConfigurationRequests.splice(index, 1);
         }
     }
+}
+
+
+export function requestExtensionSecret(
+    rt: TuiRuntime,
+    request: { readonly title: string; readonly hint?: string },
+    signal: AbortSignal,
+): Promise<string | undefined> {
+    if (signal.aborted) return Promise.reject(signal.reason);
+    if (rt.secretPrompt) return Promise.reject(new Error("Another secret entry is already open."));
+    return new Promise((resolve) => {
+        const finish = (value?: string): void => {
+            signal.removeEventListener("abort", abort);
+            rt.extensionSecretPrompt = undefined;
+            rt.secretPrompt = undefined;
+            rt.secretPromptView.clear();
+            renderState(rt);
+            focusActiveSurface(rt);
+            resolve(value);
+        };
+        const abort = (): void => finish();
+        rt.extensionSecretPrompt = finish;
+        signal.addEventListener("abort", abort, { once: true });
+        rt.secretPrompt = { ...startTuiSecretPrompt({ id: "extension", label: request.title, hint: request.hint }), masked: true, title: request.title };
+        rt.composer.blur();
+        renderState(rt);
+        focusActiveSurface(rt);
+    });
 }

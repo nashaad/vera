@@ -51,6 +51,27 @@ export function dialogChipNode(renderer: RenderContext, label: string, active: b
 
 export const DIALOG_CHROME_HEIGHT = 13;
 
+export function dialogActionRow(
+    renderer: RenderContext, label: string, active: boolean, dropdown = false,
+    onSelect?: () => void, onHover?: () => void,
+): BoxRenderable {
+    const node = dialogChipNode(renderer, label, active, dropdown);
+    node.width = "100%";
+    const control = new BoxRenderable(renderer, {
+        width: "100%", height: 1, backgroundColor: active ? TUI_ACCENT : TUI_ELEMENT,
+    });
+    control.add(node);
+    node.onMouseDown = (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        renderer.clearSelection();
+        onSelect?.();
+    };
+    node.onMouseMove = () => onHover?.();
+    return control;
+}
+
 export const DIALOG_CARD_PADDING = 4;
 
 export const DIALOG_BACKGROUND_Z_INDEX = 4;

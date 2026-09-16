@@ -1,5 +1,5 @@
 import { BoxRenderable, TextRenderable, StyledText, fg, type Renderable, type RenderContext } from "@opentui/core";
-import { dialogChipNode, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderNode, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
+import { dialogActionRow, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderNode, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
 import { dialogSearchHeight } from "./dialog-search.ts";
 import { modelDetailHeight, modelDetailNode, modelPaneSplit, pickerContentWidth } from "./settings-picker-model.ts";
 import { journeyWindow, journeyMoreText, emptyModelJourney } from "./model-journeys.ts";
@@ -72,17 +72,7 @@ export function renderModelSwitch(
     });
     const action = (section: ModelJourneySection, label: string) => {
         const active = state.modelFocus === section;
-        const node = dialogChipNode(renderer, label, active, section === "view");
-        node.width = "100%";
-        const control = new BoxRenderable(renderer, {
-            width: "100%", height: 1, backgroundColor: active ? TUI_ACCENT : TUI_ELEMENT,
-        });
-        control.add(node);
-        node.onMouseDown = (event) => {
-            if (event.button !== 0) return;
-            event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onAction?.(section);
-        };
-        add(control);
+        add(dialogActionRow(renderer, label, active, section === "view", () => onAction?.(section)));
     };
     const scope = state.query.trim() ? "Search all connected models" : state.tab === "all" ? "All connected models" : "Favorites";
     add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`));

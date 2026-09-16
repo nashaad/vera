@@ -44,6 +44,9 @@ export function bundledClientExtensionConfigs(
             config: {},
         });
     }
+    if (!disabledIds.includes("vera.web-search")) {
+        configs.push({ path: fileURLToPath(new URL("../../extensions/web-search", import.meta.url)), enabled: true, config: {} });
+    }
     return configs;
 }
 

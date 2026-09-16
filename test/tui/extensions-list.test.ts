@@ -270,10 +270,40 @@ test("the OpenTUI card paints the selected row", async () => {
         await harness.flush();
         const frame = harness.captureCharFrame();
         expect(frame).toContain("Extensions");
-        expect(frame).toContain("example.context");
+        expect(frame).toContain("› example.context");
         expect(frame).toContain("enabled");
         expect(frame).toContain("commands");
     } finally {
         harness.renderer.destroy();
     }
+});
+
+test("bundled extension details expose their settings command without install mutations", () => {
+    const opened = openTuiExtensionsList([entry({ id: "vera.web-search", managed: false, bundled: true })], new Set(["vera.web-search"]));
+    const state: TuiExtensionsListState = { ...opened, screen: "detail", rows: opened.rows.map((row) => ({ ...row,
+        settingsCommands: [{ name: "search-providers", label: "Search providers" }],
+    })) };
+    expect(renderTuiExtensionsList(state)).toContain("Search providers");
+    expect(renderTuiExtensionsList(state)).toContain("enabled");
+    expect(renderTuiExtensionsList(state)).not.toContain("Remove");
+    expect(handleTuiExtensionsListKey(state, { name: "return" })).toMatchObject({ command: "search-providers", handled: true });
+    expect(handleTuiExtensionsListKey(state, { name: "escape" }).state?.screen).toBe("list");
+});
+
+test("the rendered bundled settings action uses its command label", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiExtensionsListView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    const opened = openTuiExtensionsList([entry({ id: "vera.web-search", bundled: true, managed: false })]);
+    const state: TuiExtensionsListState = { ...opened, screen: "detail", rows: opened.rows.map((row) => ({ ...row,
+        settingsCommands: [{ name: "search-providers", label: "Search providers" }],
+    })) };
+    try {
+        view.update(state);
+        await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Search providers");
+        expect(setup.captureCharFrame()).not.toContain("Disable");
+        expect(setup.captureCharFrame()).toContain("› Search providers");
+    } finally { setup.renderer.destroy(); }
 });

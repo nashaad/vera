@@ -64,6 +64,9 @@ test("npm package contains only the curated runtime and release metadata", () =>
         expect(entries).toContain("package/bin/vera");
         expect(entries).toContain("package/clients/cli/main.ts");
         expect(entries).toContain("package/extensions/mcp/extension.ts");
+        expect(entries).toContain("package/extensions/web-search/extension.ts");
+        expect(entries).toContain("package/extensions/web-search/search.ts");
+        expect(entries).toContain("package/extensions/web-search/vera.extension.json");
         expect(entries).toContain("package/config/tui-themes.json");
         expect(entries).toContain("package/npm-shrinkwrap.json");
         expect(entries.some((entry) => entry.startsWith("package/test/"))).toBe(false);

@@ -28,6 +28,8 @@ import {
 } from "./single-line-editor.ts";
 
 export interface TuiSecretPromptState {
+    readonly masked?: boolean;
+    readonly title?: string;
     /** Bumped for each prompt, so reopening the card starts the field empty rather than showing the last key. */
     readonly editorSession: number;
     readonly providerId: string;
@@ -61,6 +63,7 @@ export interface TuiSecretPromptView {
     readonly card: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
     focus(): void;
+    clear(): void;
     handleKey(
         state: TuiSecretPromptState,
         key: TuiSecretPromptKey,
@@ -133,6 +136,8 @@ export function createTuiSecretPromptView(
         "secret-prompt-entry",
         "API key",
     );
+    const secret = createDialogTextFieldNode(renderer, "secret-buffer", "");
+    secret.visible = false;
     const footer = new TextRenderable(renderer, {
         content: `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`,
         fg: TUI_MUTED,
@@ -172,6 +177,7 @@ export function createTuiSecretPromptView(
         visible: false,
     });
     box.add(card);
+    box.add(secret);
     let shownEditorSession: number | undefined;
     return {
         box,
@@ -193,31 +199,39 @@ export function createTuiSecretPromptView(
         focus(): void {
             entry.focus();
         },
+        clear(): void {
+            entry.setText("");
+            secret.setText("");
+        },
         handleKey(state, key): TuiSecretPromptTransition {
-            const current = { ...state, value: entry.plainText };
+            const editor = state.masked ? secret : entry;
+            const current = { ...state, value: editor.plainText };
             const transition = handleTuiSecretPromptKey(current, key);
             if (transition.handled) return transition;
-            entry.handleKeyPress(tuiTextareaKey(key));
+            editor.handleKeyPress(tuiTextareaKey(key));
             return {
-                state: { ...current, value: entry.plainText },
+                state: { ...current, value: editor.plainText },
                 handled: true,
             };
         },
         handlePaste(state, text): TuiSecretPromptState {
-            insertTuiSingleLinePaste(entry, text);
-            return { ...state, value: entry.plainText };
+            const editor = state.masked ? secret : entry;
+            insertTuiSingleLinePaste(editor, text);
+            return { ...state, value: editor.plainText };
         },
         update(state): void {
+            const editor = state.masked ? secret : entry;
             if (shownEditorSession !== state.editorSession) {
-                if (entry.plainText !== state.value) {
-                    entry.setText(state.value);
+                if (editor.plainText !== state.value) {
+                    editor.setText(state.value);
                 }
-                entry.gotoBufferEnd();
+                editor.gotoBufferEnd();
                 shownEditorSession = state.editorSession;
             }
-            title.content = `${state.label} API key`;
+            title.content = state.title ?? `${state.label} API key`;
             hint.content = state.hint ?? "";
-            updateDialogTextFieldNode(entry, state.value, "API key");
+            updateDialogTextFieldNode(entry, state.masked ? "•".repeat([...state.value].length) : state.value, "API key");
+            if (state.masked) entry.cursorOffset = secret.cursorOffset;
             footer.content =
                 `⏎ save · ${tuiKeyHint("clear_secret")} · esc cancel`;
         },

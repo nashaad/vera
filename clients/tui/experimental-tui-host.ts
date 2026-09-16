@@ -1,3 +1,4 @@
+import type { VeraExperimentalTuiSecretRequest } from "../../src/sdk/experimental-tui.ts";
 import {
     BoxRenderable,
     type CliRenderer,
@@ -56,6 +57,7 @@ import type {
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
 
 export interface TuiExperimentalHostOptions {
+    readonly requestSecret?: (request: VeraExperimentalTuiSecretRequest, signal: AbortSignal) => Promise<string | undefined>;
     readonly renderer: CliRenderer;
     readonly theme: TuiTheme;
     readonly workspace: () => string;
@@ -249,6 +251,10 @@ export function createTuiExperimentalHost(
                     options.onRenderRequested();
                 }
             };
+        },
+        requestSecret(_extensionId, request, signal) {
+            if (closed || !options.requestSecret) throw new Error("Secret entry is unavailable.");
+            return options.requestSecret(request, signal);
         },
         openDocument(_extensionId, document): void {
             if (closed) throw new Error("Experimental TUI host is closed");

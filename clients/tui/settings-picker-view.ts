@@ -2,6 +2,7 @@ import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import { dialogChipNode } from "./dialog-chrome.ts";
 import { setModelFilterCutoff } from "./model-journeys.ts";
 import { renderModelSwitch, modelSwitchRows } from "./model-switch-view.ts";
+import { extensionPickerButtons, renderExtensionPicker } from "./extension-picker-view.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
@@ -154,7 +155,26 @@ export function handleTuiExtensionPickerKey(
     state: TuiExtensionPickerState,
     key: TuiSettingsPickerKey,
 ): TuiExtensionPickerTransition {
-    if (state.searchable && !key.ctrl && !key.meta) {
+    const buttons = extensionPickerButtons(state);
+    if (state.layout && !key.ctrl && !key.meta && !key.super && !key.hyper) {
+        const sections = [...(state.searchable ? [-1] : []), 0, ...buttons.map((_, index) => index + 1)];
+        const focused = state.searchFocused ? -1 : state.focusedButton === undefined ? 0 : state.focusedButton + 1;
+        const arrow = ["up", "down", "left", "right"].includes(key.name);
+        const unowned = arrow && (state.focusedButton !== undefined
+            || (state.searchFocused ? key.name === "up" || key.name === "down" : key.name === "left" || key.name === "right"));
+        if (key.name === "tab" || key.name === "backtab" || unowned) {
+            const backward = key.name === "backtab" || key.name === "tab" && key.shift || key.name === "up" || key.name === "left";
+            const next = sections[(sections.indexOf(focused) + (backward ? -1 : 1) + sections.length) % sections.length]!;
+            return unchanged({ ...state, searchFocused: next === -1, focusedButton: next > 0 ? next - 1 : undefined }, true);
+        }
+        if (state.focusedButton !== undefined && ["return", "enter", "space"].includes(key.name)) {
+            const button = buttons[state.focusedButton];
+            if (!button) return unchanged(state, true);
+            return { handled: true, selection: { kind: "extension", actionId: button.id,
+                rowId: state.options[state.selectedIndex]?.value ?? state.selectedId ?? state.allOptions[0]!.value } };
+        }
+    }
+    if (!state.layout && state.searchable && !key.ctrl && !key.meta) {
         if (key.name === "tab" || ((key.name === "left" || key.name === "right") && !state.searchFocused)
             || ((key.name === "up" || key.name === "down") && state.searchFocused)) {
             return unchanged({ ...state, searchFocused: !state.searchFocused }, true);
@@ -187,7 +207,7 @@ export function handleTuiExtensionPickerKey(
     const action = actionKey === undefined
         ? undefined
         : state.extensionActions?.find((candidate) =>
-            candidate.key === actionKey
+            candidate.key === actionKey && !candidate.button
         );
     const row = state.options[state.selectedIndex];
     if (action === undefined) {
@@ -1018,7 +1038,7 @@ export function setTuiSettingsPickerCutoff(state: TuiSettingsPickerState, cutoff
 function extensionSearch(state: TuiExtensionPickerState, query: string, queryCursor: number): TuiExtensionPickerTransition {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     const options = state.allOptions.filter((row) => terms.every((term) => `${row.label} ${row.description}`.toLowerCase().includes(term)));
-    return { handled: true, state: { ...state, query, queryCursor, options, selectedIndex: 0, searchFocused: true } };
+    return { handled: true, state: { ...state, query, queryCursor, options, selectedIndex: 0, searchFocused: true, focusedButton: undefined } };
 }
 
 export function createTuiSettingsPickerView(
@@ -1156,7 +1176,7 @@ export function createTuiSettingsPickerView(
             }
             box.width = state.kind === "session"
                 ? "100%"
-                : state.kind === "model"
+                : state.kind === "model" || state.kind === "extension" && state.layout === "list-detail"
                 ? Math.max(1, Math.floor((renderer.width - railInset) * 0.96))
                 : "80%";
             renderListPickerRows(
@@ -1367,6 +1387,10 @@ export function renderListPickerRows(
     onSort?: () => void,
     onJourneyAction?: (section: ModelJourneySection) => void,
 ): void {
+    if (state.kind === "extension" && state.layout !== undefined) {
+        renderExtensionPicker(renderer, box, state, nodes, search, pointer, railInset);
+        return;
+    }
     if (state.kind === "model" && state.modelJourney === "switch") {
         renderModelSwitch(renderer, box, state, nodes, search, pointer, railInset, journeyScroll, onSection, onJourneyAction, tip);
         return;
@@ -1849,7 +1873,7 @@ export function renderListPickerRows(
         row.kind === "option"
             ? [{
                 label: optionRowLabel(state, row),
-                marker: state.kind === "provider"
+                marker: (state.kind === "provider" || state.kind === "extension")
                         && row.index === state.selectedIndex
                     ? "›"
                     : optionMarker(state, row.option),

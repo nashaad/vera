@@ -189,6 +189,7 @@ export type VeraExtensionCommandHandler = (
 ) => ExtensionCommandBody | Promise<ExtensionCommandBody>;
 
 export interface VeraClientExtensionApi {
+    readonly storage: VeraExtensionStorage;
     readonly config: JsonValue;
     readonly commands: VeraClientExtensionCommands;
     readonly compose: VeraClientExtensionCompose;
@@ -493,15 +494,20 @@ export interface VeraClientPickerRow {
     readonly description?: string;
     readonly meta?: string;
     readonly current?: boolean;
+    readonly group?: string;
+    readonly details?: readonly string[];
 }
 
 export interface VeraClientPickerAction {
     readonly id: string;
     readonly label: string;
     readonly keys: readonly string[];
+    readonly button?: boolean;
 }
 
 export interface VeraClientPickerRequest {
+    readonly layout?: "list-detail" | "menu";
+    readonly searchPlaceholder?: string;
     readonly searchable?: boolean;
     readonly title: string;
     readonly subtitle?: string;

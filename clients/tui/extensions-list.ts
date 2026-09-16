@@ -87,7 +87,13 @@ export type TuiExtensionStatus =
 
 export type TuiExtensionsListScreen = "list" | "detail" | "remove_confirm" | "error";
 
+export interface TuiExtensionSettingsCommand {
+    readonly name: string;
+    readonly label: string;
+}
+
 export interface TuiExtensionListRow {
+    readonly settingsCommands?: readonly TuiExtensionSettingsCommand[];
     readonly scope: "profile" | "project";
     readonly id: string;
     readonly version: string;
@@ -128,6 +134,7 @@ export interface TuiExtensionsListTransition {
     readonly state?: TuiExtensionsListState;
     readonly handled: boolean;
     readonly mutate?: TuiExtensionsListMutation;
+    readonly command?: string;
 }
 
 export interface TuiExtensionsListView {
@@ -409,6 +416,9 @@ function handleDetailKey(
         if (action === undefined || selected === undefined) {
             return { state, handled: true };
         }
+        if (action.startsWith("command:")) {
+            return { state, handled: true, command: action.slice("command:".length) };
+        }
         if (action === "remove") {
             return {
                 state: { ...state, screen: "remove_confirm" },
@@ -481,6 +491,7 @@ function rowStatus(
     shadowed: boolean,
 ): TuiExtensionStatus {
     if (entry.error !== undefined) return "failed";
+    if (entry.bundled) return entry.enabled ? "enabled" : "disabled";
     if (!entry.managed) return "unmanaged";
     if (shadowed) return "shadowed";
     return entry.enabled ? "enabled" : "disabled";
@@ -515,9 +526,9 @@ function toggleMutation(
 
 function detailActions(
     entry: TuiExtensionListRow | undefined,
-): readonly ("toggle" | "remove")[] {
-    if (entry === undefined || !entry.managed) return [];
-    return ["toggle", "remove"];
+): readonly string[] {
+    if (!entry) return [];
+    return [...(entry.settingsCommands ?? []).map((command) => `command:${command.name}`), ...(entry.managed ? ["toggle", "remove"] : [])];
 }
 
 function lastCapabilitySegment(capability: string): string {
@@ -624,7 +635,8 @@ function detailContent(
     const actions = detailActions(row);
     const actionLines = actions.map((action, index) => {
         const marker = index === state.actionIndex ? "›" : " ";
-        return `${marker} ${action === "remove" ? "Remove" : toggleLabel(row)}`;
+        const label = detailActionLabel(row, action);
+        return `${marker} ${label}`;
     });
     const facts = [
         `${row.version} · ${row.status} · ${row.scope}`,
@@ -646,14 +658,21 @@ function detailContent(
 
 function detailFooter(
     row: TuiExtensionListRow,
-    action: "toggle" | "remove" | undefined,
+    action: string | undefined,
 ): string {
+    if (action?.startsWith("command:")) return "↑↓ move · ⏎ open · esc back";
     if (action === "remove") return "↑↓ move · ⏎ remove · esc back";
     if (action === "toggle") {
         const verb = row.status === "disabled" ? "enable" : "disable";
         return `↑↓ move · ⏎ ${verb} · esc back`;
     }
     return "esc back";
+}
+
+function detailActionLabel(row: TuiExtensionListRow, action: string): string {
+    return action.startsWith("command:")
+        ? row.settingsCommands?.find((command) => command.name === action.slice(8))?.label ?? "Configure"
+        : action === "remove" ? "Remove" : toggleLabel(row);
 }
 
 function toggleLabel(row: TuiExtensionListRow): string {
@@ -794,7 +813,8 @@ function paintDetail(
         });
         for (const [index, action] of actions.entries()) {
             const option = dialogOptionRow(renderer, {
-                label: action === "remove" ? "Remove" : toggleLabel(row),
+                label: detailActionLabel(row, action),
+                marker: index === state.actionIndex ? "›" : undefined,
                 active: index === state.actionIndex,
                 ...dialogRowPointer(pointer, index),
             });
@@ -857,7 +877,7 @@ function extensionRowNode(
     }
     item.add(new TextRenderable(renderer, {
         content: new StyledText([
-            fg(label)(row.id),
+            fg(label)(`${active ? "›" : " "} ${row.id}`),
             fg(detail)(`  ${row.version}  `),
             fg(statusColor)(row.status),
         ]),

@@ -1296,6 +1296,7 @@ export function startTuiExtensionPicker(
     actions: readonly TuiExtensionPickerAction[] = [],
     subtitle: string | undefined = undefined,
     searchable = false,
+    presentation: { readonly layout?: "list-detail" | "menu"; readonly searchPlaceholder?: string } = {},
 ): TuiExtensionPickerState {
     const options = rows.map((row) => ({
         value: row.id,
@@ -1305,6 +1306,7 @@ export function startTuiExtensionPicker(
     }));
     return {
         kind: "extension",
+        ...presentation,
         allOptions: options,
         options,
         selectedIndex: Math.max(

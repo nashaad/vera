@@ -1,3 +1,4 @@
+import { extensionStorage } from "./storage.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { fileURLToPath } from "node:url";
 
@@ -54,6 +55,7 @@ import type {
     VeraExperimentalTuiRawViewSpec,
     VeraExperimentalTuiTranscriptRenderableSpec,
     VeraExperimentalTuiDocument,
+    VeraExperimentalTuiSecretRequest,
 } from "../sdk/experimental-tui.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
@@ -278,6 +280,7 @@ export interface ClientExtensionAgentsAdapter {
 }
 
 export interface ClientExtensionExperimentalTuiAdapter {
+    requestSecret?(extensionId: string, request: VeraExperimentalTuiSecretRequest, signal: AbortSignal): Promise<string | undefined>;
     mount(
         extensionId: string,
         spec: VeraExperimentalTuiViewSpec,
@@ -1016,6 +1019,7 @@ async function activateClientExtension(
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
+        storage: extensionStorage(options.id),
         config: structuredClone(options.config),
         commands: Object.freeze({
             register(spec: VeraClientExtensionCommandSpec): void {
@@ -1297,6 +1301,11 @@ async function activateClientExtension(
             },
         }),
         experimentalTui: Object.freeze({
+            requestSecret(request: VeraExperimentalTuiSecretRequest, signal?: AbortSignal): Promise<string | undefined> {
+                const host = requireExperimentalTui();
+                if (!host.requestSecret) throw new Error("Secret entry is unavailable on this client.");
+                return host.requestSecret(options.id, structuredClone(request), signal ?? invocationSignal.getStore() ?? new AbortController().signal);
+            },
             mount(spec: VeraExperimentalTuiViewSpec): VeraExtensionDisposer {
                 validateExperimentalTuiViewSpec(spec);
                 if (experimentalTuiViewIds.has(spec.id)) {
@@ -2081,6 +2090,8 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
             && (typeof request.subtitle !== "string"
                 || request.subtitle.trim().length === 0))
         || (request.searchable !== undefined && typeof request.searchable !== "boolean")
+        || (request.layout !== undefined && !["list-detail", "menu"].includes(request.layout))
+        || (request.searchPlaceholder !== undefined && typeof request.searchPlaceholder !== "string")
         || !Array.isArray(request.rows)
         || request.rows.length === 0
         || !Array.isArray(request.actions)
@@ -2095,6 +2106,8 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
             || rowIds.has(row.id)
             || typeof row.label !== "string"
             || row.label.trim().length === 0
+            || (row.group !== undefined && typeof row.group !== "string")
+            || (row.details !== undefined && (!Array.isArray(row.details) || row.details.some((line: unknown) => typeof line !== "string")))
         ) {
             throw new Error("Invalid client extension picker row");
         }
@@ -2109,6 +2122,7 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
             || action.label.trim().length === 0
             || !Array.isArray(action.keys)
             || action.keys.length === 0
+            || (action.button !== undefined && typeof action.button !== "boolean")
         ) {
             throw new Error("Invalid client extension picker action");
         }

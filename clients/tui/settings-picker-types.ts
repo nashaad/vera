@@ -232,6 +232,9 @@ export interface TuiExtensionPickerRow {
     readonly label: string;
     readonly description?: string;
     readonly current?: boolean;
+    readonly meta?: string;
+    readonly group?: string;
+    readonly details?: readonly string[];
 }
 
 export type TuiExtensionPickerActionKey =
@@ -245,6 +248,7 @@ export interface TuiExtensionPickerAction {
     readonly id: string;
     readonly key: TuiExtensionPickerActionKey;
     readonly label: string;
+    readonly button?: boolean;
 }
 
 /** Whether the page under the tab strip holds the keyboard. Nothing in the page is lit while the reader is up on the strip, even though each section still remembers where its cursor was. */
@@ -340,6 +344,9 @@ export interface TuiPendingModelChoice {
 }
 
 export interface TuiExtensionPickerState {
+    readonly layout?: "list-detail" | "menu";
+    readonly searchPlaceholder?: string;
+    readonly focusedButton?: number;
     readonly kind: "extension";
     readonly allOptions: readonly TuiSettingsPickerOption[];
     readonly options: readonly TuiSettingsPickerOption[];

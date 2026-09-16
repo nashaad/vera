@@ -104,18 +104,19 @@ Standing nudges are short home-level preferences. They can match an agent or wor
 `/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled sources have no edit action.
 When the Context extension is enabled, `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.
 
-## Extensions [lines=13]
+## Extensions [lines=14]
 Plan, command hooks, BTW, and Diff ship as included extensions. Their behavior remains in extensions, and no side conversation or hook executable starts on launch.
 `/agent plan` selects read-only planning with read, grep, and list tools. Composer suggestions and skill scripts are off by default; its extension configuration can enable either. `/agent default` returns to the default definition.
 `/btw` opens a read-only side conversation with the primary conversation as reference context. `/pair` opens a fresh peer using ask permissions. Ctrl+G changes pane focus; Ctrl+\ cycles pane layouts.
 `/diff` opens workspace changes with a right file tree and scrollable patches. Git supplies tracked changes against HEAD; untracked files appear as additions. It stays within the active worktree. Tab switches panes, Enter opens a file, and Escape closes. Disable the client extension with `"vera.diff"` in `disabled_builtin_extensions`.
 Command hooks runs configured executables before or after tool calls. With no hooks configured it does nothing. Invalid supplied configuration fails activation.
-Included copies appear under Extensions in `/customize`. Their IDs are `example.plan`, `example.command-hooks`, `vera.btw`, and `vera.diff`; `disabled_builtin_extensions` suppresses included copies. An explicit copy with the same ID replaces the included one, including when disabled. The installed-extension picker does not list bundled-only copies.
-Open `/extensions` for the picker of installed extensions. `/extension list` opens the same one, and the palette action is `Manage extensions`.
+Included copies appear under Extensions in `/customize`. Their IDs are `example.plan`, `example.command-hooks`, `vera.btw`, and `vera.diff`; `disabled_builtin_extensions` suppresses included copies. An explicit copy with the same ID replaces the included one, including when disabled. Bundled copies also appear in `/extensions`; loaded settings commands appear in their details.
+Open `/extensions` for the picker of installed and bundled extensions. `/extension list` opens the same one, and the palette action is `Manage extensions`.
 Each row is one installed copy: id, version, and a status word, one of `enabled`, `disabled`, `failed`, `unmanaged`, or `shadowed`. A home-scope copy whose id also exists in the project reads `shadowed`.
 Space enables or disables a managed copy immediately. Escape closes the picker.
 Enter opens details, which offer Enable or Disable and Remove. Remove deletes the managed copy and leaves the source untouched.
 Install with `/extension install <path>` from the composer. The picker has no file chooser.
+Bundled `web_search(query, max_results?)` tries enabled search providers in order: Brave, Exa, then DuckDuckGo by default, skipping APIs without keys. `/search-providers`, also under `/extensions` then `vera.web-search`, manages provider order, masked API-key entry, verification, and enabling or disabling. Saved changes apply to the next search. Results contain up to 10 titles, URLs, and snippets (5 by default).
 Client extensions reload as soon as a change lands. Host-side capabilities need the resident host restarted, and the note left in the transcript says so.
 
 ## Context and bounded research [lines=8]

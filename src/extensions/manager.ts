@@ -68,6 +68,7 @@ export interface ExtensionInstallResult {
 }
 
 export interface ExtensionListEntry {
+    readonly bundled?: boolean;
     readonly scope: ExtensionManagerScope;
     readonly id: string;
     readonly version?: string;

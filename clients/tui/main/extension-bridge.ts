@@ -209,6 +209,7 @@ export function requestExtensionPicker(rt: TuiRuntime,
                 id: action.id,
                 key: key as TuiExtensionPickerAction["key"],
                 label: action.label,
+                button: action.button,
             };
         }),
     );
@@ -219,6 +220,7 @@ export function requestExtensionPicker(rt: TuiRuntime,
         actions,
         request.subtitle,
         request.searchable,
+        { layout: request.layout, searchPlaceholder: request.searchPlaceholder },
     );
     rt.composer.blur();
     renderState(rt);

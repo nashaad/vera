@@ -11,6 +11,7 @@ import {
     defaultHostExtensionConfigs,
     EXPLORER_EXTENSION_ID,
     SESSION_IDENTITY_EXTENSION_ID,
+    WEB_SEARCH_EXTENSION_ID,
 } from "../../src/extensions/bundled-host.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import {
@@ -35,6 +36,7 @@ test("session identity is a default bundled host extension", () => {
     expect(defaultHostExtensionConfigs([
         SESSION_IDENTITY_EXTENSION_ID, EXPLORER_EXTENSION_ID, "vera.budget",
         "example.command-hooks", "example.plan",
+        WEB_SEARCH_EXTENSION_ID,
     ]))
         .toEqual([]);
 });

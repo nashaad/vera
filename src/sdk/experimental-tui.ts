@@ -224,11 +224,17 @@ export interface VeraExperimentalTuiAgentSurface {
     toggleFocus(): boolean;
 }
 
+export interface VeraExperimentalTuiSecretRequest {
+    readonly title: string;
+    readonly hint?: string;
+}
+
 /**
  * Deliberately experimental and TUI-only. The semantic mounts are bounded;
  * mountRenderable is the trusted in-process escape hatch for client UI.
  */
 export interface VeraClientExperimentalTui {
+    requestSecret(request: VeraExperimentalTuiSecretRequest, signal?: AbortSignal): Promise<string | undefined>;
     mount(spec: VeraExperimentalTuiViewSpec): VeraExtensionDisposer;
     mountRenderable(
         spec: VeraExperimentalTuiRawViewSpec,

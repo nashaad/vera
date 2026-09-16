@@ -1,3 +1,6 @@
+import { defaultHostExtensionConfigs } from "../../../src/extensions/bundled-host.ts";
+import { bundledClientExtensionConfigs } from "../../../src/extensions/bundled-client.ts";
+import { loadExtensionManifest } from "../../../src/extensions/manifest.ts";
 import {
     listExtensions,
     removeExtension,
@@ -50,6 +53,10 @@ export function applyExtensionsListKey(
     if (rt.extensionsList === undefined) return false;
     const transition = handleTuiExtensionsListKey(rt.extensionsList, key);
     if (!transition.handled) return false;
+    if (transition.command !== undefined) {
+        runExtensionSettings(rt, transition.command);
+        return true;
+    }
     if (transition.mutate !== undefined) {
         applyExtensionsListMutation(rt, transition.mutate.operation, transition.mutate.entry);
         return true;
@@ -69,9 +76,10 @@ export function refreshOpenExtensionsList(rt: TuiRuntime): void {
     const selected = rt.extensionsList.rows[rt.extensionsList.selectedIndex];
     rt.extensionsList = syncTuiExtensionsList(
         rt.extensionsList,
-        readExtensionEntries(),
+        readExtensionEntries(rt),
         loadedExtensionIds(rt),
     );
+    rt.extensionsList = withSettingsCommands(rt, rt.extensionsList);
     if (
         selected !== undefined
         && rt.extensionsList.rows[rt.extensionsList.selectedIndex]?.id !== selected.id
@@ -88,11 +96,11 @@ function loadExtensionsList(
     selected?: { readonly scope: "profile" | "project"; readonly id: string },
 ): TuiExtensionsListState {
     try {
-        return openTuiExtensionsList(
-            readExtensionEntries(),
+        return withSettingsCommands(rt, openTuiExtensionsList(
+            readExtensionEntries(rt),
             loadedExtensionIds(rt),
             selected,
-        );
+        ));
     } catch (error) {
         return openTuiExtensionsListError(
             error instanceof Error ? error.message : String(error),
@@ -202,8 +210,45 @@ function reloadClientExtensionsForList(rt: TuiRuntime): void {
     });
 }
 
-function readExtensionEntries(): readonly ExtensionListEntry[] {
-    return listExtensions({ projectRoot: process.cwd() });
+function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
+    const entries = [...listExtensions({ projectRoot: process.cwd() })];
+    const paths = [...defaultHostExtensionConfigs([]), ...bundledClientExtensionConfigs([])];
+    for (const config of paths) {
+        const { manifest } = loadExtensionManifest(config.path);
+        if (entries.some((entry) => entry.id === manifest.id)) continue;
+        entries.push({ id: manifest.id, version: manifest.version, scope: "profile", bundled: true,
+            enabled: !rt.disabledBuiltinExtensions.includes(manifest.id), managed: false,
+            path: config.path, source: "Bundled", capabilities: manifest.capabilities });
+    }
+    return entries;
+}
+
+function withSettingsCommands(rt: TuiRuntime, state: TuiExtensionsListState): TuiExtensionsListState {
+    const commands = rt.clientExtensionRegistry?.commands() ?? [];
+    return { ...state, rows: state.rows.map((row) => ({ ...row,
+        settingsCommands: row.loaded && row.status !== "shadowed" ? commands
+            .filter((command) => command.source === row.id && command.palette?.group === "Settings" && (command.isAvailable?.() ?? true))
+            .map((command) => ({ name: command.name, label: command.palette!.label })) : [],
+    })) };
+}
+
+function runExtensionSettings(rt: TuiRuntime, command: string): void {
+    const previous = rt.extensionsList;
+    if (!previous || rt.extensionCommandPending || !rt.clientExtensionRegistry) return;
+    rt.extensionsList = undefined;
+    rt.extensionCommandPending = true;
+    renderState(rt);
+    void rt.clientExtensionRegistry.invokeCommand(command, "", rt.client.workspace ?? process.cwd())
+        .catch((error) => {
+            if (!rt.shuttingDown) rt.state = appendTuiError(rt.state, error instanceof Error ? error.message : "Extension settings failed.");
+        }).finally(() => {
+            rt.extensionCommandPending = false;
+            if (rt.shuttingDown) return;
+            const selected = previous.rows[previous.selectedIndex];
+            rt.extensionsList = { ...loadExtensionsList(rt, selected), screen: "detail" };
+            renderState(rt);
+            focusActiveSurface(rt);
+        });
 }
 
 function loadedExtensionIds(rt: TuiRuntime): ReadonlySet<string> {
