@@ -1389,8 +1389,12 @@ export function renderListPickerRows(
         const rowHeight = renderer.width < 64 ? 2 : 1;
         const hasSlider = state.options.some((option) => option.value === "cutoff");
         const hasClear = state.options.some((option) => option.value === "clear_filters");
+        const scoreHelp = hasSlider ? wrappedTo(
+            "WA Score: WebDev Arena (LMArena) Elo rating from blind votes on generated web apps. Higher is better. A cutoff hides lower and unscored models.",
+            contentWidth,
+        ) : [];
         const menuRows = Math.max(1, Math.floor((renderer.height - 13 - (hasSlider ? 3 : 0) - (hasClear ? 1 : 0)
-            - (subtitleRows ? subtitleRows + 1 : 0) - helperRows) / rowHeight));
+            - (subtitleRows ? subtitleRows + 1 : 0) - helperRows - scoreHelp.length - (hasSlider ? 1 : 0)) / rowHeight));
         const visible = listWindowSlice(state.options.map((option, index) => ({ option, index })), state.selectedIndex, menuRows);
         visible.forEach(({ option, index }, position) => {
             const active = state.selectedIndex === index;
@@ -1412,6 +1416,10 @@ export function renderListPickerRows(
             if (option.value === "cutoff") {
                 for (const node of intelligenceScaleNodes(renderer, Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2),
                     state.parent?.intelligenceCutoff ?? "any", active, onCutoff)) add(node);
+                add(new TextRenderable(renderer, {
+                    content: scoreHelp.join("\n"), width: "100%", height: scoreHelp.length,
+                    selectable: true, fg: TUI_MUTED, marginTop: 1,
+                }));
             }
         });
         if (helper) add(new TextRenderable(renderer, {

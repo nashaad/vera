@@ -1068,3 +1068,23 @@ test("Space types only in Search; elsewhere it stays out of the query", async ()
         expect(view.handleEditorKey(searching, { name: "space", sequence: " " }).state?.query).toBe("a ");
     } finally { setup.renderer.destroy(); }
 });
+
+
+test.each([24, 36])("filter dialog explains the score beside its slider at %s rows", async (height) => {
+    const setup = await createTestRenderer({ width: 80, height });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface); view.surface.visible = true;
+    const state = modelJourney(base, "switch");
+    const menu = handleTuiSettingsPickerKey({ ...state, modelFocus: "filters" }, { name: "enter" }).state!;
+    try {
+        view.update({ ...menu, selectedIndex: menu.options.findIndex((row) => row.value === "cutoff") });
+        await setup.renderOnce();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("WA Score: WebDev Arena (LMArena)");
+        expect(frame).toContain("Elo rating");
+        expect(frame).toContain("Higher is better");
+        expect(frame).toContain("unscored models");
+        expect(frame).toContain("esc back");
+        expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(height);
+    } finally { setup.renderer.destroy(); }
+});
