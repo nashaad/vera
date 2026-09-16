@@ -1,3 +1,4 @@
+import { isTurnTiming } from "../model/types.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -163,6 +164,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.error === undefined
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
+            && (update.turnTiming === undefined || isTurnTiming(update.turnTiming))
             && (update.empty === undefined || update.empty === true)
             && (update.usage === undefined || isSessionModelUsage(update.usage))
             ? value as AgentUpdate
@@ -845,6 +847,7 @@ function isTimelinePlan(value: unknown): boolean {
 
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     const entry = asRecord(value);
+    if (entry?.turnTiming !== undefined && !isTurnTiming(entry.turnTiming)) return false;
     if (entry?.kind === "user") {
         return typeof entry.text === "string"
             && isOptionalAttachments(entry.attachments);

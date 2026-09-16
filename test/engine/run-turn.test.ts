@@ -122,7 +122,10 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         type: "turn_finished",
         seq: 6,
     });
-    expect(withoutCallDuration(await turn)).toEqual(response);
+    const completed = await turn;
+    expect(completed.turnTiming?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(completed.turnTiming?.finishedAt).toBeLessThanOrEqual(Date.now());
+    expect(withoutCallDuration(completed)).toEqual(response);
     expect(capturedRequest?.reasoningEffort).toBe("high");
     expect(capturedRequest?.systemPrompt).toContain("## Identity\n");
     expect(capturedRequest?.systemPrompt).toContain("## Tools\n");
@@ -851,7 +854,9 @@ test("an unsupported image prompt remains durable for a model switch", async () 
         },
     ]);
     // What a resumed session projects: the refusal must still be visible.
-    expect(projectTranscript(state.messages)).toContainEqual({
+    expect(projectTranscript(state.messages).map(
+        ({ turnTiming: _timing, ...entry }) => entry,
+    )).toContainEqual({
         kind: "error",
         outcome: "error",
         detail: "Image attachment unavailable: the selected model provider does not support image input",
@@ -3976,7 +3981,9 @@ test("a refused reasoning effort coarsens the turn and is written down", async (
     expect(learned).toEqual(["efforts.high"]);
     // Durable, not only live: the projection is what a reconnecting client
     // and an export both read.
-    expect(projectTranscript(state.messages)).toContainEqual({
+    expect(projectTranscript(state.messages).map(
+        ({ turnTiming: _timing, ...entry }) => entry,
+    )).toContainEqual({
         kind: "model_substitution",
         substitution: {
             model: "thinker",
@@ -4056,7 +4063,9 @@ test("a level the pool already forbids never reaches the provider", async () => 
     // One request, and never on the forbidden level: the pool answered before
     // anything went out.
     expect(efforts).toEqual(["medium"]);
-    expect(projectTranscript(state.messages)).toContainEqual({
+    expect(projectTranscript(state.messages).map(
+        ({ turnTiming: _timing, ...entry }) => entry,
+    )).toContainEqual({
         kind: "model_substitution",
         substitution: {
             model: "thinker",

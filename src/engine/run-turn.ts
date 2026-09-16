@@ -1217,6 +1217,14 @@ export async function runTurn(
     // The permission classifier is synchronous but the bash parser it uses loads a wasm grammar asynchronously.
     await initBashParser();
     const turn = await state.inbound.startTurn();
+    const turnStartedAt = performance.now();
+    const withTurnTiming = (message: AssistantMessage): AssistantMessage => ({
+        ...message,
+        turnTiming: {
+            durationMs: Math.max(0, performance.now() - turnStartedAt),
+            finishedAt: Date.now(),
+        },
+    });
     let assistantMessage!: AssistantMessage;
     let turnThrew = false;
 
@@ -1294,6 +1302,7 @@ export async function runTurn(
                 activeModel,
                 "the selected model provider does not support image input",
             );
+            assistantMessage = withTurnTiming(assistantMessage);
             await commitMessage(state, assistantMessage);
             state.events.emit({ type: "turn_finished", message: assistantMessage });
             return assistantMessage;
@@ -1311,6 +1320,7 @@ export async function runTurn(
                 activeModel,
                 errorMessage(error),
             );
+            assistantMessage = withTurnTiming(assistantMessage);
             state.events.emit({ type: "turn_finished", message: assistantMessage });
             return assistantMessage;
         }
@@ -1350,6 +1360,7 @@ export async function runTurn(
                         applied.activeModel,
                         applied.blocked,
                     );
+                    assistantMessage = withTurnTiming(assistantMessage);
                     await commitMessage(state, assistantMessage);
                     state.events.emit({
                         type: "turn_finished",
@@ -1601,6 +1612,7 @@ export async function runTurn(
                     activeModel,
                     errorMessage(error),
                 );
+                assistantMessage = withTurnTiming(assistantMessage);
                 await commitMessage(state, assistantMessage);
                 state.events.emit({ type: "turn_finished", message: assistantMessage });
                 return assistantMessage;
@@ -1783,6 +1795,11 @@ export async function runTurn(
                 assistantMessage = prepared.message;
                 preparedToolCalls = prepared.toolCalls;
             }
+            if (assistantMessage.stopReason !== "tool_use"
+                && (assistantMessage.stopReason !== "length"
+                    || nextLengthContinuation(maxTokens, lengthContinuations) === undefined)) {
+                assistantMessage = withTurnTiming(assistantMessage);
+            }
             calibrateContextWatch(state, measurement, assistantMessage);
             await commitMessage(state, assistantMessage);
 
@@ -1897,6 +1914,7 @@ export async function runTurn(
                     activeModel,
                     interrupt,
                 );
+                assistantMessage = withTurnTiming(assistantMessage);
                 await commitMessage(state, assistantMessage);
                 break;
             }

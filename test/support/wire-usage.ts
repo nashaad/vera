@@ -6,6 +6,13 @@ export function withoutSessionUsage(update: AgentUpdate): AgentUpdate {
         return update;
     }
     const { usage: _usage, ...rest } = update;
+    if (rest.type === "turn_finished") {
+        const { turnTiming: _turnTiming, ...stable } = rest;
+        return stable;
+    }
+    if (rest.type === "history") {
+        return { ...rest, entries: rest.entries.map(({ turnTiming: _timing, ...entry }) => entry) };
+    }
     return rest as AgentUpdate;
 }
 
@@ -19,8 +26,8 @@ export function withoutCallDuration<T extends { readonly role: string }>(
     if (message === undefined || message.role !== "assistant") {
         return message;
     }
-    const { durationMs: _durationMs, ...rest } = message as
+    const { durationMs: _durationMs, turnTiming: _turnTiming, ...rest } = message as
         & T
-        & { durationMs?: number };
+        & { durationMs?: number; turnTiming?: unknown };
     return rest as unknown as T;
 }

@@ -1,3 +1,5 @@
+import { workedDividerText } from "./worked-divider.ts";
+import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
 
 import { bg, bold, fg, italic, StyledText } from "@opentui/core";
@@ -61,6 +63,7 @@ export type TuiTranscriptEntryKind =
     | "tool"
     | "tool_header"
     | "thinking"
+    | "worked"
     | "thought"
     | "review"
     | "notice"
@@ -125,6 +128,8 @@ export interface TuiQueuedPrompt {
 export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     readonly working: boolean;
+    readonly transcriptStarted?: boolean;
+    readonly reopenedTurnFinishedAt?: number;
     readonly queuedPrompts: readonly TuiQueuedPrompt[];
     readonly queueDraining: boolean;
     readonly modelSettings?: ModelTurnSettings;
@@ -238,6 +243,7 @@ export function beginTuiTurn(
         ...state,
         entries: [...state.entries, userEntry(prompt, attachments, dimmedPrefix)],
         working: true,
+        transcriptStarted: true,
     };
 }
 
@@ -261,6 +267,7 @@ export function beginNextQueuedTuiTurn(state: TuiState): TuiState {
         ...state,
         entries: [...state.entries, { kind: "user", text: prompt.content }],
         working: true,
+        transcriptStarted: true,
         queuedPrompts,
     };
 }
@@ -363,13 +370,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return appendPresentation(state, update.presentation);
     }
     if (update.type === "turn_finished") {
-        const finished = clearedSubstitution({
+        let finished = clearedSubstitution({
             ...state,
             entries: settleTrailingThoughts(applyToolDetailPreference(
                 settleToolEntries(state.entries),
                 state.toolDetailsExpanded,
             )),
             working: false,
+            transcriptStarted: true,
             modelActivity: undefined,
             compactingSince: undefined,
             compactionStrategy: undefined,
@@ -380,26 +388,32 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 : { sessionUsage: update.usage }),
         });
         if (update.empty === true) {
-            return appendEntry(finished, emptyTurnEntry());
-        }
-        if (update.outcome === "aborted") {
-            return appendTuiDiagnostic(
+            finished = appendEntry(finished, emptyTurnEntry());
+        } else if (update.outcome === "aborted") {
+            finished = appendTuiDiagnostic(
                 finished,
                 "turn_interrupted",
                 INTERRUPTED_TURN_TEXT,
             );
+        } else {
+            const error = update.error
+                ?? (update.outcome === "error" ? "Model request failed" : undefined);
+            if (error !== undefined) {
+                const attachment = error.startsWith("Image attachment unavailable:");
+                finished = appendTuiDiagnostic(
+                    finished,
+                    attachment ? "attachment_failed" : "model_request_failed",
+                    attachment
+                        ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
+                        : `Model error: ${error}`,
+                );
+            }
         }
-        const error = update.error
-            ?? (update.outcome === "error" ? "Model request failed" : undefined);
-        if (error === undefined) return finished;
-        const attachment = error.startsWith("Image attachment unavailable:");
-        return appendTuiDiagnostic(
-            finished,
-            attachment ? "attachment_failed" : "model_request_failed",
-            attachment
-                ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
-                : `Model error: ${error}`,
-        );
+        return update.turnTiming !== undefined
+            && (update.turnTiming.durationMs >= WORKED_DIVIDER_THRESHOLD_MS
+                || update.outcome !== undefined || update.error !== undefined)
+            ? appendWorkedDivider(finished, update.turnTiming)
+            : finished;
     }
     if (update.type === "agent_failed") {
         return appendTuiDiagnostic({
@@ -465,12 +479,19 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "history") {
+        const reopenedTurnFinishedAt = state.transcriptStarted === true
+            || state.working || (update.status !== undefined && update.status !== "idle")
+            ? state.reopenedTurnFinishedAt
+            : update.entries.findLast((entry) => entry.kind !== "harness")
+                ?.turnTiming?.finishedAt;
         const canonicalEntries = applyToolDetailPreference(
-            toTuiTranscriptEntries(update.entries),
+            toTuiTranscriptEntries(update.entries, reopenedTurnFinishedAt),
             state.toolDetailsExpanded,
         );
         return withLiveThinking({
             ...state,
+            transcriptStarted: state.transcriptStarted === true || update.entries.length > 0,
+            reopenedTurnFinishedAt,
             entries: settleTrailingThoughts(foldAdjacentThoughts(
                 hoistStrandedThoughts(
                     preserveLiveReviewEntries(state.entries, canonicalEntries),
@@ -506,6 +527,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "user_prompt") {
         const nextState = {
             ...state,
+            transcriptStarted: true,
             working: true,
             modelActivity: undefined,
         };
@@ -2164,8 +2186,11 @@ function settleToolEntries(
     }
 }
 
+const WORKED_DIVIDER_THRESHOLD_MS = 3 * 60 * 1_000;
+
 function toTuiTranscriptEntries(
     entries: readonly TranscriptEntry[],
+    reopenedTurnFinishedAt?: number,
 ): TuiTranscriptEntry[] {
     let converted: TuiTranscriptEntry[] = [];
     for (const entry of entries) {
@@ -2177,6 +2202,12 @@ function toTuiTranscriptEntries(
                 toSingleTuiTranscriptEntry(entry),
                 entry,
             )];
+        if (entry.turnTiming !== undefined
+            && (entry.turnTiming.durationMs >= WORKED_DIVIDER_THRESHOLD_MS
+                || entry.kind === "error"
+                || entry.turnTiming.finishedAt === reopenedTurnFinishedAt)) {
+            converted.push(workedDividerEntry(entry.turnTiming));
+        }
     }
     return converted;
 }
@@ -2261,6 +2292,18 @@ function withHistoricalToolResult(
         text: toolResultText(output, tool),
     });
     return next;
+}
+
+function workedDividerEntry(timing: TurnTiming): TuiTextTranscriptEntry {
+    return { kind: "worked", text: workedDividerText(timing) };
+}
+
+function appendWorkedDivider(state: TuiState, timing: TurnTiming): TuiState {
+    const entry = workedDividerEntry(timing);
+    const last = state.entries.at(-1);
+    return last?.kind === "worked" && last.text === entry.text
+        ? state
+        : appendEntry(state, entry);
 }
 
 function emptyTurnEntry(): TuiTranscriptEntry {

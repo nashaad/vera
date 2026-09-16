@@ -1,3 +1,4 @@
+import { isTurnTiming } from "../model/types.ts";
 import { randomUUID } from "node:crypto";
 import {
     chmod,
@@ -2709,6 +2710,7 @@ function isModelMessage(value: unknown): value is ModelMessage {
             || (typeof message.durationMs === "number"
                 && Number.isFinite(message.durationMs)
                 && message.durationMs >= 0))
+        && (message.turnTiming === undefined || isTurnTiming(message.turnTiming))
         && isModelStopReason(message.stopReason)
         && (message.errorMessage === undefined
             || typeof message.errorMessage === "string")

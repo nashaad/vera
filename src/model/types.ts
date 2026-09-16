@@ -107,6 +107,22 @@ export function formatModelSubstitution(
             + ` "${using}" instead, because ${reason}.`;
 }
 
+export interface TurnTiming {
+    readonly durationMs: number;
+    readonly finishedAt: number;
+}
+
+export function isTurnTiming(value: unknown): value is TurnTiming {
+    if (typeof value !== "object" || value === null) return false;
+    const timing = value as Record<string, unknown>;
+    return typeof timing.durationMs === "number"
+        && Number.isFinite(timing.durationMs)
+        && timing.durationMs >= 0
+        && typeof timing.finishedAt === "number"
+        && Number.isFinite(timing.finishedAt)
+        && Math.abs(timing.finishedAt) <= 8.64e15;
+}
+
 export interface AssistantMessage {
     readonly role: "assistant";
     /** Model-visible context that clients must not render as local transcript. */
@@ -116,6 +132,8 @@ export interface AssistantMessage {
     readonly usage: ModelUsage;
     /** Wall time spent obtaining this response, including its recovery path. */
     readonly durationMs?: number;
+    // Present only on the final response of a whole turn.
+    readonly turnTiming?: TurnTiming;
     readonly stopReason: ModelStopReason;
     readonly errorMessage?: string;
     /**

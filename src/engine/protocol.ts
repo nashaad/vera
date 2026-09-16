@@ -1,3 +1,4 @@
+import type { TurnTiming } from "../model/types.ts";
 import type {
     ConfigurationRequiredUiRequest,
     EngineEventSubscriber,
@@ -128,6 +129,10 @@ export interface HarnessTranscriptEntry {
     readonly tone: "primary" | "soft" | "error";
 }
 
+export interface TranscriptTurnTiming {
+    readonly turnTiming?: TurnTiming;
+}
+
 /**
  * Every entry carries the ID of the stored message it was projected from,
  * suffixed with its position among the entries that message produced, because
@@ -135,7 +140,7 @@ export interface HarnessTranscriptEntry {
  * source has no stored identity, such as a live checkpoint taken from an
  * in-memory array in a test.
  */
-export type TranscriptEntry =
+export type TranscriptEntry = (
     | UserTranscriptEntry
     | AssistantTranscriptEntry
     | ToolTranscriptEntry
@@ -144,7 +149,8 @@ export type TranscriptEntry =
     | ModelSubstitutionTranscriptEntry
     | ErrorTranscriptEntry
     | EmptyTranscriptEntry
-    | HarnessTranscriptEntry;
+    | HarnessTranscriptEntry
+) & TranscriptTurnTiming;
 
 export interface PromptCommand {
     readonly type: "prompt";
@@ -696,6 +702,7 @@ export interface ToolPresentationUpdate {
 
 export interface TurnFinishedUpdate {
     readonly type: "turn_finished";
+    readonly turnTiming?: TurnTiming;
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
     /** The turn ended with no text, no tool call, and no reasoning. */
@@ -2175,6 +2182,8 @@ export function createProtocolEncoder(
             const error = terminalDetail(event.message);
             sender.send({
                 type: "turn_finished",
+                ...(event.message.turnTiming === undefined
+                    ? {} : { turnTiming: event.message.turnTiming }),
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
                 ...(isEmptyAssistantMessage(event.message)
@@ -2484,6 +2493,7 @@ export function projectTranscript(
     for (let index = 0; index < messages.length; index += 1) {
         const message = messages[index]!;
         const messageId = messageIds?.get(message);
+        const entryStart = entries.length;
         let subIndex = 0;
         const push = (entry: TranscriptEntry): void => {
             entries.push(
@@ -2533,7 +2543,11 @@ export function projectTranscript(
             });
         }
         if (isEmptyAssistantMessage(message)) {
-            push({ kind: "empty" });
+            push({
+                kind: "empty",
+                ...(message.turnTiming === undefined
+                    ? {} : { turnTiming: message.turnTiming }),
+            });
             appendHarnessMessages(index + 1);
             continue;
         }
@@ -2559,6 +2573,11 @@ export function projectTranscript(
                 outcome,
                 ...(detail === undefined ? {} : { detail }),
             });
+        }
+        if (message.turnTiming !== undefined) {
+            if (entries.length === entryStart) push({ kind: "assistant", text: "" });
+            const last = entries.length - 1;
+            entries[last] = { ...entries[last]!, turnTiming: message.turnTiming };
         }
         appendHarnessMessages(index + 1);
     }

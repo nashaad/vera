@@ -1,3 +1,4 @@
+import { createTuiWorkedDivider, updateTuiWorkedDivider } from "../worked-divider.ts";
 import { isConfigurationRequiredUiRequestUpdate, type AgentUpdate } from "../../../src/engine/protocol.ts";
 import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import { resolveTuiHostedAgentAddressing, type TuiHostedAgentAddressing } from "../agent-message-routing.ts";
@@ -85,7 +86,9 @@ export function createTuiEntryNode(rt: TuiRuntime,
             inner,
             streaming,
         );
-    const node = entry.kind === "tool"
+    const node = entry.kind === "worked"
+        ? createTuiWorkedDivider(rt.renderer, id, entry.text)
+        : entry.kind === "tool"
         ? createTuiToolRow(rt.renderer, id, entry, inner)
         : entry.kind === "tool_header"
         ? createTuiToolHeader(rt.renderer, id, entry, inner)
@@ -204,6 +207,8 @@ export function renderSidebarAgent(rt: TuiRuntime,
                 && existing instanceof BoxRenderable
             ) {
                 updateTuiThinkingWindow(existing, entry);
+            } else if (entry.kind === "worked" && existing instanceof BoxRenderable) {
+                updateTuiWorkedDivider(existing, entry.text);
             } else if (existing instanceof TextRenderable) {
                 existing.content = renderTuiEntry(entry);
             }
