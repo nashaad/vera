@@ -2186,7 +2186,7 @@ function settleToolEntries(
     }
 }
 
-const WORKED_DIVIDER_THRESHOLD_MS = 3 * 60 * 1_000;
+const WORKED_DIVIDER_THRESHOLD_MS = 5 * 60 * 1_000;
 
 function toTuiTranscriptEntries(
     entries: readonly TranscriptEntry[],

@@ -15,8 +15,11 @@ const turnTiming = {
     finishedAt: new Date(2026, 8, 15, 20, 12).getTime(),
 };
 
-test("worked divider includes elapsed time and the local finish time", () => {
-    expect(workedDividerText(turnTiming)).toBe(
+test("worked divider dates turns only after twenty-four hours", () => {
+    const nextDay = turnTiming.finishedAt + 24 * 60 * 60 * 1_000;
+    expect(workedDividerText(turnTiming, turnTiming.finishedAt)).toBe("Worked for 2m 05s");
+    expect(workedDividerText(turnTiming, nextDay)).toBe("Worked for 2m 05s");
+    expect(workedDividerText(turnTiming, nextDay + 1)).toBe(
         "Worked for 2m 05s · Sep 15, 8:12 PM",
     );
     expect(workedDividerText({ ...turnTiming, durationMs: 900 })).toContain("Worked for 0s");
@@ -81,14 +84,14 @@ test("legacy turns do not acquire an invented date and malformed timing is rejec
 });
 
 
-test("three-minute threshold applies to live completion and subsequent history", () => {
-    for (const durationMs of [179_999, 180_000]) {
+test("five-minute threshold applies to live completion and subsequent history", () => {
+    for (const durationMs of [299_999, 300_000]) {
         const timing = { ...turnTiming, durationMs };
         let state = applyAgentUpdate(createTuiState(), {
             type: "assistant_delta", text: "Done", seq: 1,
         });
         state = applyAgentUpdate(state, { type: "turn_finished", turnTiming: timing, seq: 2 });
-        const expected = durationMs >= 180_000 ? 1 : 0;
+        const expected = durationMs >= 300_000 ? 1 : 0;
         expect(state.entries.filter((entry) => entry.kind === "worked")).toHaveLength(expected);
         state = applyAgentUpdate(state, {
             type: "history", entries: [{ kind: "assistant", text: "Done", turnTiming: timing }], seq: 3,

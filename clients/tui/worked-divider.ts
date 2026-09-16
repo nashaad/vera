@@ -9,15 +9,17 @@ const finishedTime = new Intl.DateTimeFormat("en-US", {
     minute: "2-digit",
 });
 
-export function workedDividerText(timing: TurnTiming): string {
+export function workedDividerText(timing: TurnTiming, now = Date.now()): string {
     const totalSeconds = Math.floor(timing.durationMs / 1_000);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     const elapsed = minutes === 0
         ? `${seconds}s`
         : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+    const label = `Worked for ${elapsed}`;
+    if (now - timing.finishedAt <= 24 * 60 * 60 * 1_000) return label;
     const ended = finishedTime.format(timing.finishedAt).replace(" at ", ", ");
-    return `Worked for ${elapsed} · ${ended}`;
+    return `${label} · ${ended}`;
 }
 
 export function createTuiWorkedDivider(
