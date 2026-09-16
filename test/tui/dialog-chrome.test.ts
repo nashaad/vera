@@ -18,7 +18,26 @@ import {
     dialogGroupHeaderRow,
     dialogOptionRow,
     dialogOptionRows,
+    dialogChipNode,
 } from "../../clients/tui/dialog-chrome.ts";
+
+test("compact selector chips preserve text and geometry through focus", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 20 });
+    try {
+        const quiet = dialogChipNode(setup.renderer, "View: Standard", false, true);
+        setup.renderer.root.add(quiet);
+        await setup.renderOnce();
+        const frame = setup.captureCharFrame();
+        const width = quiet.width;
+        quiet.destroy();
+        const focused = dialogChipNode(setup.renderer, "View: Standard", true, true);
+        setup.renderer.root.add(focused);
+        await setup.renderOnce();
+        expect(setup.captureCharFrame()).toBe(frame);
+        expect(focused.width).toBe(width);
+        expect(frame).toContain(" › View: Standard ▾ ");
+    } finally { setup.renderer.destroy(); }
+});
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,

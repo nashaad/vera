@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+    loadModelPickerPreferences,
+    saveModelPickerPreferences,
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
@@ -26,6 +28,18 @@ import {
     saveTuiThemePreference,
     saveTuiWorkspaceSidebarWidth,
 } from "../../clients/tui/theme-preference.ts";
+
+test("picker preferences survive other writes and retain configurable HUD limits", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-picker-prefs-")), "tui.json");
+    expect(loadModelPickerPreferences(path).view).toBe("standard");
+    saveModelPickerPreferences({ view: "detailed", scope: "all", sort: "price", hudModels: 7, hudRecents: 2 }, path);
+    saveTuiThemePreference("nightowl", path);
+    expect(loadModelPickerPreferences(path)).toEqual({ view: "detailed", scope: "all", sort: "price", hudModels: 7, hudRecents: 2 });
+    saveModelPickerPreferences({ view: "standard", scope: "pool", sort: "library" }, path);
+    expect(loadModelPickerPreferences(path).hudModels).toBe(7);
+    writeFileSync(path, JSON.stringify({ model_picker: { view: "bad", scope: "bad", sort: "bad", hudModels: -2, hudRecents: 100 } }));
+    expect(loadModelPickerPreferences(path)).toEqual({ view: "standard", scope: "pool", sort: "library", hudModels: 1, hudRecents: 20 });
+});
 
 test("a durable agent pane persists with its owner and mention", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-pane-"));

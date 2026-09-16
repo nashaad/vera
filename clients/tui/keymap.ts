@@ -124,7 +124,7 @@ export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
 export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "journey_more", keys: ["ctrl+k"], scope: "switch_model_picker",
-        description: "Open model catalog visibility and refresh actions", hint: "Ctrl+K More",
+        description: "Open Manage models", hint: "Ctrl+K Manage models",
     },
     {
         id: "journey_reveal", keys: ["ctrl+a"], scope: "switch_model_picker",
@@ -149,8 +149,9 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Refresh connected catalogs in place", hint: "^r refresh",
     },
     {
-        id: "journey_cutoff", keys: ["ctrl+g", "ctrl+shift+g"], scope: "switch_model_picker",
-        description: "Step the visible intelligence cutoff", hint: "^g cutoff",
+        id: "journey_scope", keys: ["ctrl+g", "ctrl+shift+g"], scope: "switch_model_picker",
+        description: "Toggle Favorites and All connected models", hint: "^g favorites/all",
+        remappable: true,
         overrides: ["switch_pane"],
     },
     {

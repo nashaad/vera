@@ -25,8 +25,8 @@ test("membership changes retain the row, provider sections, and feedback space",
     try {
         const layouts: string[] = [];
         for (const feedback of [undefined, { status: "working" as const, message: "Working" },
-            { status: "success" as const, membership: "added" as const, message: "Beta added to library" },
-            { status: "success" as const, membership: "removed" as const, message: "Beta removed from library" },
+            { status: "success" as const, membership: "added" as const, message: "Beta added to favorites" },
+            { status: "success" as const, membership: "removed" as const, message: "Beta removed from favorites" },
             { status: "error" as const, message: "Could not save" }]) {
             if (feedback?.status === "success") state = syncTuiModelPicker(state, { ...settings, pooled: settings.pooled.slice(1) });
             state = { ...state, journeyFeedback: feedback };
@@ -34,7 +34,7 @@ test("membership changes retain the row, provider sections, and feedback space",
             view.animateFeedback(0, true);
             await setup.renderOnce();
             const lines = setup.captureCharFrame().split("\n");
-            expect(lines.join("\n")).toContain(`Model Library (${feedback === undefined || feedback.status === "working" ? 2 : 1})`);
+            expect(lines.join("\n")).toContain(`Favorites (${feedback === undefined || feedback.status === "working" ? 2 : 1})`);
             const beta = lines.findIndex((line) => line.includes("Beta") && line.includes("price unknown"));
             const footer = lines.findIndex((line) => line.includes("⏎ / Ctrl+S"));
             layouts.push(JSON.stringify([view.box.screenY, view.box.height, beta, footer]));
@@ -63,7 +63,7 @@ test("membership changes retain the row, provider sections, and feedback space",
         expect(new Set(layouts).size).toBe(1);
         view.update(updateTuiSettingsPickerSearch(state, "Alpha").state!);
         await setup.renderOnce();
-        expect(setup.captureCharFrame()).toContain("Model Library (1)");
+        expect(setup.captureCharFrame()).toContain("Favorites (1)");
     } finally { setup.renderer.destroy(); }
 });
 
@@ -76,7 +76,7 @@ test("unkeeping an otherwise hidden model does not remove its row during editing
 
 test("only confirmed saves show a success tick", () => {
     const operation = { operation: "keep" as const, models: [models[1]!] };
-    expect(shortlistOperationFeedback(operation, "Beta", [], settings)).toEqual({ status: "success", membership: "added", message: "Beta added to library" });
+    expect(shortlistOperationFeedback(operation, "Beta", [], settings)).toEqual({ status: "success", membership: "added", message: "Beta added to favorites" });
     expect(shortlistOperationFeedback({ ...operation, operation: "unkeep" }, "Beta", [{ ...models[1]!, status: "passed" }], settings).membership).toBe("removed");
     expect(shortlistOperationFeedback(operation, "Beta", [], undefined).status).toBe("error");
     expect(shortlistOperationFeedback(operation, "Beta", [{ ...models[1]!, status: "failed", reason: "Disk full" }], settings))

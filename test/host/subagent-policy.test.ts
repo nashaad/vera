@@ -171,7 +171,7 @@ test("the subagents assignment is narrowed to selectable shortlist entries", () 
             provider: "openrouter",
             model: "worker",
             reasoningEffort: "low",
-        }],
+        }, { provider: "openrouter", model: "outside" }],
         allowSelf: true,
     });
 });
@@ -228,6 +228,6 @@ test("named assignments resolve routes and exclude denied or missing library mod
     const policy = subagentPoolPolicy({ userPath, configPath: config });
     expect(policy.assignments?.eco).toEqual([{
         provider: "ollama", model: "small", reasoningEffort: "low",
-    }]);
+    }, { provider: "ollama", model: "missing", reasoningEffort: "low" }]);
     expect(policy.assigned?.map((entry) => entry.model)).toEqual(["ordinary"]);
 });

@@ -431,6 +431,9 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             renderState(rt);
         } else if (action.kind === "cancel") {
             closeDials(rt);
+        } else if (action.kind === "browse") {
+            closeDials(rt);
+            openModelPicker(rt);
         } else if (action.kind === "commit") {
             commitDials(rt, action.pair, action.agent, action.permission);
         }

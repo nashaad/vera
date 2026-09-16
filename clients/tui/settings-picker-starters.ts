@@ -143,7 +143,6 @@ import {
     modelOptions,
     modelPickerOptions,
     modelSyncedFocus,
-    modelTabLabel,
     modelTabRows,
     providerModelKey,
     searched,
@@ -304,6 +303,11 @@ export function syncTuiModelPicker(
         allOptions: settings?.providerCatalogs === undefined ? rebuilt.allOptions : rebuilt.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         providerCatalogs: settings?.providerCatalogs ?? state.providerCatalogs,
         modelJourney: state.modelJourney,
+        journeyView: state.journeyView,
+        journeyProvider: state.journeyProvider,
+        journeyAvailableOnly: state.journeyAvailableOnly,
+        journeyPricedOnly: state.journeyPricedOnly,
+        journeyImagesOnly: state.journeyImagesOnly,
         journeyNotice: state.journeyNotice,
         journeyFeedback: state.journeyFeedback,
         journeyRetainedModels: [...new Set([...(state.journeyRetainedModels ?? []),
@@ -1001,7 +1005,7 @@ export function startTuiPoolVerifyScopePicker(
         },
         {
             value: POOL_VERIFY_ALL_VALUE,
-            label: `Everything in your library (${total})`,
+            label: `Everything in your favorites (${total})`,
             description: "re-probes models that already answered",
         },
     ];
@@ -1089,7 +1093,7 @@ export function startTuiModelAssignmentPicker(
     const available: TuiSettingsPickerOption[] = [];
     const standardRows: TuiSettingsPickerOption[] = [];
     for (const entry of pooled) {
-        if (!entry.verified) continue;
+        if (!entry.available) continue;
         const value = `${entry.provider}/${entry.model}`;
         if (seen.has(value)) continue;
         seen.add(value);
@@ -1110,7 +1114,7 @@ export function startTuiModelAssignmentPicker(
             searchText: `${entry.provider} ${entry.model}`,
         });
         if (assignedRefs.has(value)) continue;
-        available.push(optionFor(value, "Available from Library"));
+        available.push(optionFor(value, "Connected models"));
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
@@ -1122,9 +1126,9 @@ export function startTuiModelAssignmentPicker(
     };
     const browseRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_BROWSE_VALUE,
-        label: "Model Library",
-        description: `manage ${modelTabLabel("pool")}`,
-        group: "Library",
+        label: "Favorites",
+        description: "manage saved favorites",
+        group: "Favorites",
     };
     const selfRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_SELF_VALUE,
@@ -1146,7 +1150,7 @@ export function startTuiModelAssignmentPicker(
             selfRow,
             browseRow,
         ]
-        : [clearRow, ...standardRows, { value: "verify_shortlist", label: "Verify library models", description: "make models eligible for a default" }, browseRow];
+        : [clearRow, ...standardRows, browseRow];
     const selectedIndex = selectedValue === undefined
         ? 0
         : Math.max(0, options.findIndex((option) => option.value === selectedValue));
@@ -1156,8 +1160,8 @@ export function startTuiModelAssignmentPicker(
             ? "Subagent models"
             : `Assign a model to ${label}`,
         subtitle: assignment === "subagents"
-            ? "Models subagents may use, in fallback order."
-            : `${pooled.length} in your library; ${pooled.filter((model) => model.verified).length} verified. Only verified models in your library are eligible.`,
+            ? "Models subagents may use, in fallback order. New assignments make a verification request, which may cost money."
+            : "Choose any connected model. Assigning makes a verification request, which may cost money.",
         allOptions: options,
         options,
         selectedIndex,

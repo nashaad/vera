@@ -75,17 +75,21 @@ test("null unbinds only the named assignment", () => {
     });
 });
 
-test("new assignments require independent membership and successful verification", () => {
+test("new assignments require verification but not favorite membership", () => {
     withConfigFile((path) => {
         writeFileSync(join(path, "..", "pool.json"), JSON.stringify({ models: {
             "openrouter/not-kept": { added: false, learned: { probe: { ok: true, seen: "2026-09-06" } } },
             "openrouter/not-verified": { added: true },
         } }));
-        for (const model of ["not-kept", "not-verified"]) {
+        updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
+            models: [{ name: "not-kept", provider: "openrouter", model: "not-kept" }],
+        } } }, { path });
+        const before = loadVeraConfig({ path });
+        for (const model of ["not-verified"]) {
             expect(() => updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
                 models: [{ name: model, provider: "openrouter", model }],
-            } } }, { path })).toThrow("in your library and verified");
+            } } }, { path })).toThrow("verified and permitted");
         }
-        expect(loadVeraConfig({ path }).model_assignments?.eco).toBeUndefined();
+        expect(loadVeraConfig({ path })).toEqual(before);
     });
 });

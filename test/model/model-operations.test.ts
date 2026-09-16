@@ -29,7 +29,7 @@ test("keep, rename, unkeep preserve independent evidence through real store relo
     expect(isCuratedPoolEntry(entry(opts))).toBe(false);
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
     expect(entry(opts).displayName).toBe("My Daily Model");
-    expect(eligibleForDefault(readUserPoolFile(opts), model)).toBe(false);
+    expect(eligibleForDefault(readUserPoolFile(opts), model)).toBe(true);
     await applyModelOperation({ operation: "keep", models: [model] }, opts);
     expect(entry(opts).displayName).toBe("My Daily Model");
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
@@ -46,16 +46,16 @@ test("rename of a discovered model does not keep or verify it", async () => {
     expect(isVerifiedPoolEntry(entry(opts))).toBe(false);
 });
 
-test("bulk unkeep refuses the entire operation when one model is assigned", async () => {
+test("bulk unkeep leaves assigned models eligible", async () => {
     const opts = options();
     await applyModelOperation({ operation: "keep", models: opts.discovered }, opts);
-    const before = readUserPoolFile(opts);
+    recordModelVerification("test/one", { probe: { ok: true, seen: "2026-09-16" } }, opts);
     const result = await applyModelOperation({ operation: "unkeep", models: opts.discovered }, {
         ...opts, assignments: [{ label: "compaction", models: [model] }],
     });
-    expect(result.every((row) => row.status === "failed")).toBe(true);
-    expect(result[0]?.reason).toContain("compaction");
-    expect(readUserPoolFile(opts)).toEqual(before);
+    expect(result.every((row) => row.status !== "failed")).toBe(true);
+    expect(isCuratedPoolEntry(entry(opts))).toBe(false);
+    expect(eligibleForDefault(readUserPoolFile(opts), model)).toBe(true);
 });
 
 test("verification makes real adapter requests and does not keep a model", async () => {

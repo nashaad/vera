@@ -9,8 +9,12 @@ import type { ModelJourneySection, ModelJourneySort, TuiSettingsPickerKey, TuiSe
 export function journeyMatches(state: TuiSettingsPickerState, revealAll = state.revealAll === true): readonly TuiSettingsPickerOption[] {
     const terms = state.query.toLowerCase().trim().split(/\s+/).filter(Boolean);
     return state.allOptions.filter((row) => (state.providerCatalogs === undefined || row.description !== "current model" || row.pooledRank !== undefined) && row.model !== undefined && row.provider !== undefined
-        && (state.modelJourney === "shortlist" || state.tab === "all" || row.pooledRank !== undefined)
-        && (state.modelJourney === "shortlist" || state.tab !== "all"
+        && (state.modelJourney === "shortlist" || terms.length > 0 || state.tab === "all" || row.pooledRank !== undefined)
+        && (state.journeyProvider === undefined || row.provider === state.journeyProvider)
+        && (!state.journeyAvailableOnly || !row.unavailable)
+        && (!state.journeyPricedOnly || row.pricing !== undefined)
+        && (!state.journeyImagesOnly || row.images === true)
+        && (state.modelJourney === "shortlist"
             || passesIntelligenceCutoff(row.waScore, state.intelligenceCutoff ?? "any"))
         && (revealAll || terms.length > 0 || row.hiddenByDefault === undefined || row.pooledRank !== undefined
             || state.modelJourney === "shortlist" && state.journeyRetainedModels?.includes(row.value))
@@ -131,10 +135,11 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         modelJourney: mode,
         journeyRetainedModels: state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value),
-        title: mode === "switch" ? "Switch model" : "Model Library",
-        tab: mode === "switch" ? "pool" : "all", modelFocus: "list", query: "", queryCursor: 0,
+        title: mode === "switch" ? "Switch model" : "Favorites",
+        journeyView: state.journeyView ?? "standard",
+        tab: mode === "switch" ? state.tab ?? "pool" : "all", modelFocus: mode === "switch" ? "search" : "list", query: "", queryCursor: 0,
         selectedIndex: 0, pickerLevel: "page" };
-    return rebuiltJourney({ ...next, collapsed: [] });
+    return rebuiltJourney({ ...next, collapsed: [] }, state.initialModel);
 }
 
 export function journeyHeader(state: TuiSettingsPickerState, width = Infinity): string {
@@ -152,7 +157,7 @@ export function journeyHeader(state: TuiSettingsPickerState, width = Infinity): 
 export function journeyFooter(state: TuiSettingsPickerState): string {
     const selected = state.options[state.selectedIndex];
     const action = selected === undefined ? "Select a model"
-        : selected.pooledRank === undefined ? "Add to library" : "Remove from library";
+        : selected.pooledRank === undefined ? "Add to favorites" : "Remove from favorites";
     const reveal = state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models";
     const navigation = state.modelFocus === "scope" ? "⏎ choose which models to show · arrows move sections"
         : state.modelFocus === "sort" ? "⏎ choose how models are sorted · arrows move sections"
@@ -160,8 +165,8 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : state.modelFocus === "intelligence" ? "←→ change cutoff · ↑↓ sections"
         : state.modelFocus === "more" ? "⏎ open More · arrows move sections"
         : `↑↓ ^d^u choose · ⏎ switch model${selected === undefined ? "" : ` · ^s ${
-            selected.pooledRank === undefined ? "add to library" : "remove from library"}`} · space fold`;
-    const libraryNavigation = state.modelFocus === "search" ? "Type to search · ↑↓ sections" : "↑↓ choose · space fold";
+            selected.pooledRank === undefined ? "add to favorites" : "remove from favorites"}`} · Space fold/unfold`;
+    const libraryNavigation = state.modelFocus === "search" ? "Type to search · ↑↓ sections" : "↑↓ choose · Space fold/unfold";
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\n${libraryNavigation} · Tab sections\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
         : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
@@ -171,9 +176,9 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
 export const MODEL_SWITCH_TIPS: readonly string[] = [
     "Switching keeps the thread; the next turn uses the new model.",
     "Type from any section to search; Tab moves between sections.",
-    "^g raises the WA Score cutoff, Shift+^g lowers it.",
-    "^s adds the highlighted model to your library.",
-    "Ctrl+K edits defaults: which model each role reaches for.",
+    "Ctrl+G toggles Favorites and All connected models.",
+    "^s adds the highlighted model to your favorites.",
+    "Highlight a model: Ctrl+K manages it; Enter switches to it.",
 ];
 
 export function modelSwitchTip(turn: number): string {
@@ -183,12 +188,12 @@ export function modelSwitchTip(turn: number): string {
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
     if (state.modelJourney === "shortlist") return ["search", "list"];
-    return ["scope", "sort", "search", ...(state.tab === "all" ? ["intelligence" as const] : []), "list", "more"];
+    return ["search", "list", "filters", "providers", "more"];
 }
 
 export function journeySortOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     return [
-        ...(state.tab === "all" ? [] : [{ value: "sort:library", label: "Library order", description: "" }]),
+        ...(state.tab === "all" ? [] : [{ value: "sort:library", label: "Favorite order", description: "" }]),
         { value: "sort:az", label: "A to Z", description: "" },
         { value: "sort:price", label: "Cheapest first", description: "" },
     ];
@@ -203,8 +208,8 @@ export function modelJourneySort(parent: TuiSettingsPickerState): TuiSettingsPic
 export function journeyScopeOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     const counts = { ...state, query: "", intelligenceCutoff: "any" as const };
     return [
-        { value: "scope:pool", label: `Library models (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`, description: "" },
-        { value: "scope:all", label: `Provider catalog (${journeyMatches({ ...counts, tab: "all" }).filter((row) => !row.unavailable).length})`, description: "" },
+        { value: "scope:pool", label: `Favorites (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`, description: "" },
+        { value: "scope:all", label: `All connected (${journeyMatches({ ...counts, tab: "all" }).filter((row) => !row.unavailable).length})`, description: "" },
     ];
 }
 
@@ -219,27 +224,56 @@ export function modelJourneyMenu(parent: TuiSettingsPickerState): TuiSettingsPic
     const options: TuiSettingsPickerOption[] = [
         ...(selected?.provider !== undefined && selected.model !== undefined
             ? [{ value: "library", label: selected.pooledRank === undefined
-                ? "Add to your library" : "Remove from your library", description: "^s" }]
+                ? "Add to favorites" : "Remove from favorites", description: selected.pooledRank === undefined ? "Save for quick access" : "Remove saved shortcut" }]
             : []),
         ...(parent.tab === "all" ? [{ value: "variants", label: parent.revealAll
-            ? "Hide extra variants and older models" : "Show extra variants and older models", description: "" }] : []),
-        { value: "refresh", label: "Refresh model catalog", description: "" },
-        { value: "manage_library", label: "Manage your library", description: "" },
-        { value: "defaults", label: "Edit model defaults", description: "" },
+            ? "Hide extra variants and older models" : "Show extra variants and older models", description: "Change catalog visibility" }] : []),
+        { value: "refresh", label: "Refresh model catalog", description: "Reload connected catalogs" },
+        { value: "manage_library", label: "Add/remove favorites", description: "Choose your saved models" },
+        { value: "defaults", label: "Edit model defaults", description: "Choose models for roles" },
+        { value: "providers", label: "Configure providers", description: "Manage provider connections" },
     ];
-    return { kind: "model_menu", title: "More", options, allOptions: options,
+    const provider = parent.providerCatalogs?.find((row) => row.id === selected?.provider)?.label ?? selected?.provider;
+    return { kind: "model_menu", title: "Manage models", options, allOptions: options,
+        ...(selected?.model !== undefined && provider !== undefined ? { subtitle: `Selected: ${selected.label} · ${provider}` } : {}),
         selectedIndex: 0, query: "", parent };
 }
 
 export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition {
     const parent = state.parent;
-    if (key.name === "escape" || key.name === "esc" || (state.title === "More" && tuiBindingId("switch_model_picker", key) === "journey_more")) {
+    if (key.name === "escape" || key.name === "esc" || (state.title === "Manage models" && tuiBindingId("switch_model_picker", key) === "journey_more")) {
         return { state: parent, handled: true };
+    }
+    if (state.options[state.selectedIndex]?.value === "cutoff" && (key.name === "left" || key.name === "right")) {
+        return { state: setModelFilterCutoff(state, stepIntelligenceCutoff(parent?.intelligenceCutoff ?? "any", key.name === "right" ? 1 : -1)), handled: true };
     }
     if (key.name === "up" || key.name === "down") return { handled: true, state: { ...state,
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) } };
     if ((key.name === "enter" || key.name === "return") && parent?.kind === "model") {
         const value = state.options[state.selectedIndex]?.value;
+        if (value === "view_toggle") {
+            const journeyView = parent.journeyView === "detailed" ? "standard" : "detailed";
+            const options = state.options.map((row) => row.value === "view_toggle"
+                ? { ...row, label: `View: ${journeyView === "detailed" ? "Detailed" : "Standard"}` } : row);
+            return { state: { ...state, options, allOptions: options, parent: { ...parent, journeyView } }, handled: true };
+        }
+        if (value === "view:standard" || value === "view:detailed") return {
+            state: { ...parent, journeyView: value === "view:standard" ? "standard" : "detailed" }, handled: true,
+        };
+        if (value === "show") return { state: modelJourneyScope(parent), handled: true };
+        if (value === "sort") return { state: modelJourneySort(parent), handled: true };
+        if (value === "cutoff") return { state, handled: true };
+        if (value?.startsWith("cutoff:")) return { state: rebuiltJourney({ ...parent, intelligenceCutoff: value.slice(7) as TuiSettingsPickerState["intelligenceCutoff"] }), handled: true };
+        if (value === "provider_filter") return { state: journeyChoiceMenu(parent, "Filter provider", [
+            { value: "provider:", label: "Any provider", description: "" },
+            ...[...new Set(parent.allOptions.flatMap((row) => row.provider === undefined ? [] : [row.provider]))].sort().map((provider) => ({ value: `provider:${provider}`, label: provider, description: "" })),
+        ]), handled: true };
+        if (value?.startsWith("provider:")) return { state: rebuiltJourney({ ...parent, journeyProvider: value.slice(9) || undefined }), handled: true };
+        if (value === "available_filter") return { state: rebuiltJourney({ ...parent, journeyAvailableOnly: !parent.journeyAvailableOnly }), handled: true };
+        if (value === "priced_filter") return { state: rebuiltJourney({ ...parent, journeyPricedOnly: !parent.journeyPricedOnly }), handled: true };
+        if (value === "images_filter") return { state: rebuiltJourney({ ...parent, journeyImagesOnly: !parent.journeyImagesOnly }), handled: true };
+        if (value === "clear_filters") return { state: rebuiltJourney({ ...parent, intelligenceCutoff: "any", revealAll: false, journeyProvider: undefined, journeyAvailableOnly: false, journeyPricedOnly: false, journeyImagesOnly: false }), handled: true };
+        if (value === "providers") return { state: parent, handled: true, openProviders: true };
         if (value === "scope:pool" || value === "scope:all") return {
             state: rebuiltJourney({ ...parent, modelFocus: "list", tab: value === "scope:all" ? "all" : "pool" }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
@@ -261,6 +295,14 @@ export function handleModelJourneyMenuKey(state: TuiSettingsPickerState, key: Tu
         }
     }
     return { state, handled: true };
+}
+
+export function setModelFilterCutoff(state: TuiSettingsPickerState, cutoff: TuiSettingsPickerState["intelligenceCutoff"]): TuiSettingsPickerState {
+    if (state.kind !== "model_menu" || state.parent?.kind !== "model" || !state.options.some((row) => row.value === "cutoff")) return state;
+    const options = state.options.map((row) => row.value === "cutoff" ? { ...row, label: `Intelligence cutoff: ${cutoff ?? "any"}` } : row);
+    return { ...state, options, allOptions: options,
+        selectedIndex: options.findIndex((row) => row.value === "cutoff"),
+        parent: rebuiltJourney({ ...state.parent, intelligenceCutoff: cutoff ?? "any" }) };
 }
 
 function toggledJourneyGroup(
@@ -289,16 +331,37 @@ function toggledJourneyGroup(
 }
 
 function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | undefined {
+    if (state.modelFocus === "view") return journeyChoiceMenu(state, "Model view", [
+        { value: "view:standard", label: "Standard", description: "" },
+        { value: "view:detailed", label: "Detailed", description: "" },
+    ]);
+    if (state.modelFocus === "filters") return journeyChoiceMenu(state, "Filter and sort", [
+        { value: "show", label: `Show: ${state.tab === "all" ? "All connected" : "Favorites"}`, description: "" },
+        { value: "view_toggle", label: `View: ${state.journeyView === "detailed" ? "Detailed" : "Standard"}`, description: "" },
+        { value: "sort", label: `Sort: ${journeySortOptions(state).find((option) => option.value === `sort:${journeySort(state)}`)!.label}`, description: "" },
+        { value: "provider_filter", label: `Provider: ${state.journeyProvider ?? "Any"}`, description: "" },
+        { value: "available_filter", label: `Available only: ${state.journeyAvailableOnly ? "On" : "Off"}`, description: "" },
+        { value: "priced_filter", label: `Known price only: ${state.journeyPricedOnly ? "On" : "Off"}`, description: "" },
+        { value: "images_filter", label: `Image support only: ${state.journeyImagesOnly ? "On" : "Off"}`, description: "" },
+        { value: "cutoff", label: `Intelligence cutoff: ${state.intelligenceCutoff ?? "any"}`, description: "" },
+        { value: "variants", label: state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models", description: "" },
+        { value: "clear_filters", label: "Clear filters", description: "" },
+    ]);
     if (state.modelFocus === "scope") return modelJourneyScope(state);
     if (state.modelFocus === "sort") return modelJourneySort(state);
     if (state.modelFocus === "more") return modelJourneyMenu(state);
     return undefined;
 }
 
+function journeyChoiceMenu(parent: TuiSettingsPickerState, title: string, options: readonly TuiSettingsPickerOption[]): TuiSettingsPickerState {
+    return { kind: "model_menu", title, options, allOptions: options, selectedIndex: 0, query: "", parent };
+}
+
 /** An arrow leaves a section only when it has no job inside it, edges included. */
 function journeyArrowKey(state: TuiSettingsPickerState, key: TuiSettingsPickerKey): TuiSettingsPickerTransition | undefined {
     const same = { state, handled: true };
     const focus = (state.modelFocus ?? "list") as ModelJourneySection;
+    if (focus === "providers" && ["enter", "return", "space"].includes(key.name)) return { ...same, openProviders: true };
     if (key.name === "space") {
         if (focus === "list") {
             const heading = state.options[state.selectedIndex]?.section !== undefined;
@@ -348,15 +411,12 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         if (binding === "journey_reveal" || binding === "shortlist_reveal") return { state: rebuiltJourney({ ...state, revealAll: state.revealAll !== true }, selected?.value), handled: true };
         if (binding === "shortlist_providers") return { ...same, openProviders: true };
         if (binding === "journey_refresh") return { ...same, refreshAllCatalogs: true };
-        if (binding === "journey_cutoff" && state.tab === "all") {
-            const next = { ...state, intelligenceCutoff: state.intelligenceCutoff === "1600" && !key.shift ? "any" as const : stepIntelligenceCutoff(state.intelligenceCutoff ?? "any", key.shift ? -1 : 1) };
-            return { state: rebuiltJourney(next, selected?.value), handled: true };
+        if (binding === "journey_scope") {
+            return { state: rebuiltJourney({ ...state, tab: state.tab === "all" ? "pool" : "all" }, selected?.value), handled: true };
         }
         if (managing && selected?.provider && selected.model) {
             if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
-            if (binding === "shortlist_verify") return selected.pooledRank === undefined
-                ? { handled: true, state: { ...state, journeyFeedback: { status: "error", message: `Add ${selected.label} to your library before verifying it.` } } }
-                : { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
+            if (binding === "shortlist_verify") return { ...same, poolVerify: { provider: selected.provider, model: selected.model } };
         }
         return same;
     }
@@ -382,11 +442,13 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
 }
 
 export function emptyModelJourney(state: TuiSettingsPickerState): string {
-    if (state.providerCatalogs?.length === 0) return "No provider connected. ^e opens Configure providers.";
+    if (state.providerCatalogs?.length === 0) return "No provider connected. Open Connect provider below.";
     const never = state.providerCatalogs?.filter((provider) => provider.refreshedAt === undefined) ?? [];
     if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. ^r reads it now.`;
-    if (state.allOptions.length === 0) return "All provider catalogs were refreshed; none served any models. ^e opens Configure providers.";
+    if (state.allOptions.length === 0) return "No models in the connected catalogs. Open Connect provider below.";
     if (state.query) return "No models match your search. Clear the search to see models.";
-    if (state.modelJourney === "switch" && state.tab !== "all") return "Your library is empty. Browse Catalog to choose one.";
-    return "No models pass this cutoff. ^g changes the cutoff.";
+    if (state.journeyProvider || state.journeyAvailableOnly || state.journeyPricedOnly || state.journeyImagesOnly
+        || state.intelligenceCutoff && state.intelligenceCutoff !== "any") return "No models match these filters. Open Filter and sort to clear them.";
+    if (state.modelJourney === "switch" && state.tab !== "all") return "No favorites yet. Search connected models, or choose All connected in Filter and sort.";
+    return "No models pass this cutoff. Open Filter and sort to change it.";
 }

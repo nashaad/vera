@@ -6,6 +6,6 @@ import { isSelectable } from "./pool-policy.ts";
 export function poolReachability(file: PoolFile): ReachabilityCheck {
     return (entry) => {
         const id = `${entry.provider}/${entry.model}`;
-        return file.models[id] !== undefined && isSelectable(id, file);
+        return isSelectable(id, file);
     };
 }

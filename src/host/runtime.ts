@@ -95,7 +95,7 @@ import {
     movePoolModel,
     namePoolModel,
     readUserPoolFile,
-    removePoolModel,
+    setPoolMembership,
     PoolFileWriteRefusedError,
 } from "../model/pool-file-store.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
@@ -603,7 +603,8 @@ export async function startResidentHost(
                 onWriteRefused: (error) =>
                     hostLog({ type: "pool_write_refused", message: error.message }),
             }),
-        readPolicy: (projectRoot) => subagentPoolPolicy(scoped(projectRoot)),
+        readPolicy: (projectRoot) => ({ ...subagentPoolPolicy(scoped(projectRoot)),
+            candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }) }),
         admitToPool: (entry, onStep, admissionOptions) => {
             const config = currentConfig();
             return admitToPool(entry, onStep, {
@@ -620,7 +621,7 @@ export async function startResidentHost(
         },
         removeFromPool: (entry) => {
             refusedPoolWrite(() => {
-                removePoolModel(`${entry.provider}/${entry.model}`);
+                setPoolMembership([`${entry.provider}/${entry.model}`], false);
             });
         },
         namePoolEntry: (entry, name, projectRoot) => {

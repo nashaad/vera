@@ -1594,7 +1594,7 @@ test("an empty model list says which emptiness it is", async () => {
     const noCatalog = { ...bare, modelCatalogUnavailable: true };
     const noCatalogFrame = await pickerFrame(noCatalog);
     expect(noCatalogFrame).toContain("Models arrive with a conversation");
-    expect(noCatalogFrame).not.toContain("Nothing in your library yet");
+    expect(noCatalogFrame).not.toContain("Nothing in your favorites yet");
 });
 
 test("an empty model list stays put on Down and reaches More with one ⇧⇥", () => {
@@ -3174,7 +3174,8 @@ test("Configure providers is a standalone card even when opened from a model pan
     expect(frame).not.toContain("Providers ^e");
     expect(frame).not.toContain("⇥ tabs");
     expect(frame).not.toContain("Catalog");
-    expect(frame).toContain("^f refresh");
+    expect(frame).toContain("esc back");
+    expect(frame).not.toContain("^f…");
     expect(frame).toContain("OpenRouter");
     for (const shift of [false, true]) {
         const transition = handleTuiSettingsPickerKey(providers, { name: "tab", shift });
@@ -4084,7 +4085,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
         "subagents",
         "subagents",
         "delegated work",
-        pooledModels,
+        pooledModels.map((row) => ({ ...row, available: true })),
         [assignedRef],
         false,
         { provider: "openrouter", model: "google/gemini-3.1-pro-preview" },
@@ -4098,7 +4099,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
             group: "Assigned · fallback order",
         });
     expect(pane.options.find((option) => option.value === availableRef))
-        .toMatchObject({ group: "Available from Library" });
+        .toMatchObject({ group: "Connected models" });
     expect(pane.options.find((option) =>
         option.value === MODEL_ASSIGNMENT_SELF_VALUE))
         .toMatchObject({
@@ -4111,7 +4112,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
 
     const frame = await pickerFrame(pane);
     expect(frame).toContain("Assigned · fallback order");
-    expect(frame).toContain("Available from Library");
+    expect(frame).toContain("Connected models");
     expect(frame).toContain("Parent model fallback");
     expect(frame).toContain(`currently ${parentRef}`);
     expect(frame).not.toContain("currently openrouter/google/…");
@@ -4124,7 +4125,7 @@ test("p toggles subagent assignment without turning into search text", () => {
         "subagents",
         "subagents",
         "delegated work",
-        pooledModels,
+        pooledModels.map((row) => ({ ...row, available: true })),
         [assignedRef],
         false,
         { provider: "openrouter", model: "z-ai/glm-5.2" },
@@ -4262,7 +4263,7 @@ test("the sweep scope pane offers the cheaper answer first", () => {
     const pane = startTuiPoolVerifyScopePicker(2, 9);
     expect(pane.options.map((option) => option.label)).toEqual([
         "Only the ones never probed (2)",
-        "Everything in your library (9)",
+        "Everything in your favorites (9)",
     ]);
     // Nothing left unprobed makes the first row a no-op, so the cursor starts
     // on the one that would actually do something.

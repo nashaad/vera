@@ -28,6 +28,7 @@ async function run(options: {
     readonly available?: boolean;
     readonly agent?: string;
     readonly model?: string;
+    readonly emptyFavorites?: boolean;
 }) {
     const root = await mkdtemp(join(tmpdir(), "vera-assignment-"));
     directories.push(root);
@@ -51,7 +52,7 @@ async function run(options: {
             paths.push(path);
             return path;
         },
-        readPool: () => ["small", "ordinary"].map((model) => ({
+        readPool: () => (options.emptyFavorites ? [] : ["small", "ordinary"]).map((model) => ({
             provider: "faux", model, label: model,
             available: model === "small" ? options.available !== false : true,
             verified: true, levels: [{ id: "low", label: "Low" }],
@@ -78,6 +79,15 @@ const policy: SubagentPoolPolicy = {
     allowSelf: true,
     assignments: { eco: [{ provider: "faux", model: "small", reasoningEffort: "low" }] },
 };
+
+test("an assigned candidate runs with no favorites", async () => {
+    const result = await run({ emptyFavorites: true, policy: {
+        ...policy, candidates: [{ provider: "faux", model: "ordinary", label: "ordinary", available: true, verified: true, levels: [] }],
+    } });
+    expect(result.result.isError).toBe(false);
+    expect(result.requests[0]?.model).toBe("ordinary");
+    expect(result.configurationRequests).toBe(0);
+});
 
 test("a named assignment supplies the child model and preserves parent tool limits", async () => {
     const result = await run({ policy, agent: "research" });

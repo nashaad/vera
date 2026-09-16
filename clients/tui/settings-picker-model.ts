@@ -722,8 +722,8 @@ export function modelDetailFacts(
     const facts: ModelDetailFact[] = [];
     if (state.kind === "model" && state.tab !== "pool") {
         facts.push(option.pooledRank === undefined
-            ? ["Library", "not in your library"]
-            : ["Library", "in your library", "positive"]);
+            ? ["Favorites", "not saved"]
+            : ["Favorites", "saved", "positive"]);
     }
     const journey = state.kind === "model" && state.modelJourney !== undefined;
     if (journey) {
@@ -741,7 +741,8 @@ export function modelDetailFacts(
         facts.push(["WA Score", String(option.waScore)]);
     }
     const free = listedFree(option.pricing);
-    const full = formatListedRates(option.pricing);
+    const full = state.kind === "model" && state.modelJourney === "switch" && option.pricing !== undefined
+        ? `${option.pricing.input}/${option.pricing.output}` : formatListedRates(option.pricing);
     if (full !== undefined) {
         facts.push(["Full price", free ? "free" : full]);
     }
@@ -1456,12 +1457,15 @@ export function allModelsInfoOption(
 }
 
 function intelligenceScaleLayout(width: number) {
-    const trackWidth = Math.min(52, Math.max(36, width - 2));
+    const trackWidth = width < 36 ? width + 1 : Math.min(52, Math.max(36, width - 2));
     const trackLength = Math.max(1, trackWidth - 1);
     let nextStart = 0;
     const stops = INTELLIGENCE_CUTOFFS.map((choice, index) => {
         const position = Math.round(index * (trackLength - 1) / (INTELLIGENCE_CUTOFFS.length - 1));
-        const start = Math.max(nextStart, 0, Math.min(trackLength - choice.length, position - Math.floor(choice.length / 2)));
+        const remainingWidth = INTELLIGENCE_CUTOFFS.slice(index).reduce((total, stop) => total + stop.length, 0)
+            + INTELLIGENCE_CUTOFFS.length - index - 1;
+        const endLimit = width < 36 ? trackLength - remainingWidth : trackLength - choice.length;
+        const start = Math.max(nextStart, 0, Math.min(endLimit, position - Math.floor(choice.length / 2)));
         nextStart = start + choice.length + 1;
         return { choice, position, start, end: start + choice.length };
     });
@@ -1504,7 +1508,7 @@ export function intelligenceScaleLines(
     const { stops, trackWidth, trackLength } = intelligenceScaleLayout(width);
     const labelGap = Math.max(
         1,
-        trackWidth - "Any".length - "Smarter".length,
+        Math.min(width, trackWidth) - "Any".length - "Smarter".length,
     );
     const axis = `Any${" ".repeat(labelGap)}Smarter`;
     const selectedIndex = Math.max(0, stops.findIndex((stop) => stop.choice === cutoff));

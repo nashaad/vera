@@ -1,4 +1,7 @@
 import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
+import { dialogChipNode } from "./dialog-chrome.ts";
+import { setModelFilterCutoff } from "./model-journeys.ts";
+import { renderModelSwitch, modelSwitchRows } from "./model-switch-view.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
@@ -235,6 +238,7 @@ export function handleTuiSettingsPickerKey(
         return handleTuiExtensionPickerKey(state, key);
     }
     if (state.kind === "model_menu") return handleModelJourneyMenuKey(state, key);
+    if (state.loading) return { state: key.name === "escape" || key.name === "esc" ? state.parent : state, handled: true };
     if (state.kind === "model_assignment" && state.options[state.selectedIndex]?.value === "verify_shortlist"
         && (key.name === "enter" || key.name === "return")) return { state, handled: true, poolVerifySweep: true };
     if (state.kind === "model_defaults") {
@@ -1002,6 +1006,7 @@ export function updateTuiSettingsPickerSearch(
 }
 
 export function setTuiSettingsPickerCutoff(state: TuiSettingsPickerState, cutoff?: IntelligenceCutoff): TuiSettingsPickerState {
+    if (state.kind === "model_menu") return setModelFilterCutoff(state, cutoff ?? state.parent?.intelligenceCutoff);
     if (state.kind !== "model" || (state.tab ?? "all") !== "all") return state;
     const next: TuiSettingsPickerState = { ...state, pickerLevel: "page", modelFocus: "intelligence",
         intelligenceCutoff: cutoff ?? state.intelligenceCutoff ?? "any" };
@@ -1064,6 +1069,7 @@ export function createTuiSettingsPickerView(
             return extensionSearch(state, search.editor.plainText, search.editor.cursorOffset);
         },
         handleEditorKey(state, key): TuiSettingsPickerTransition {
+            if (state.loading) return unchanged(state, false);
             if (state.modelJourney !== undefined) {
                 const searching = state.modelFocus === "search";
                 const typing = !key.ctrl && !key.meta && key.name !== "space"
@@ -1101,6 +1107,7 @@ export function createTuiSettingsPickerView(
             );
         },
         handleEditorPaste(state, text): TuiSettingsPickerTransition {
+            if (state.loading) return unchanged(state, true);
             if (
                 !pickerIsSearchable(state)
                 || (state.kind === "model" && state.tab === "help")
@@ -1170,6 +1177,7 @@ export function createTuiSettingsPickerView(
                 view.onSection,
                 journeyScroll,
                 view.onSort,
+                view.onJourneyAction,
             );
         },
     };
@@ -1212,6 +1220,7 @@ export function tuiPickerViewportRows(
     state: TuiAnySettingsPickerState,
     extraChrome = 0,
 ): number {
+    if (state.kind === "model" && state.modelJourney === "switch") return modelSwitchRows(renderer);
     if (state.kind === "model" && state.modelJourney !== undefined) return journeyListLayout(renderer, state).rows;
     const stripHeight = modelStripStop(state) === undefined
         ? 0
@@ -1356,30 +1365,68 @@ export function renderListPickerRows(
     onSection?: (section: ModelJourneySection) => void,
     journeyScroll?: { top: number },
     onSort?: () => void,
+    onJourneyAction?: (section: ModelJourneySection) => void,
 ): void {
+    if (state.kind === "model" && state.modelJourney === "switch") {
+        renderModelSwitch(renderer, box, state, nodes, search, pointer, railInset, journeyScroll, onSection, onJourneyAction, tip);
+        return;
+    }
     if (state.kind === "model_menu") {
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
-        box.width = Math.min(64, Math.max(1, renderer.width - 4));
+        const menuWidth = Math.min(64, Math.max(1, renderer.width - 4));
+        box.width = menuWidth;
         box.height = "auto";
         add(dialogHeaderNode(renderer, state.title ?? "More"));
-        state.options.forEach((option, index) => {
+        const contentWidth = Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2);
+        const subtitle = state.subtitle ? clippedToWidth(state.subtitle, contentWidth * 3) : "";
+        const subtitleRows = Math.ceil(Bun.stringWidth(subtitle) / contentWidth);
+        if (subtitle) add(new TextRenderable(renderer, {
+            content: subtitle, width: "100%", height: subtitleRows, wrapMode: "char",
+            selectable: false, fg: TUI_TEXT, marginTop: 1,
+        }));
+        const helper = state.title === "Manage models" ? state.options[state.selectedIndex]?.description : undefined;
+        const helperRows = helper ? 2 : 0;
+        const rowHeight = renderer.width < 64 ? 2 : 1;
+        const hasSlider = state.options.some((option) => option.value === "cutoff");
+        const hasClear = state.options.some((option) => option.value === "clear_filters");
+        const menuRows = Math.max(1, Math.floor((renderer.height - 13 - (hasSlider ? 3 : 0) - (hasClear ? 1 : 0)
+            - (subtitleRows ? subtitleRows + 1 : 0) - helperRows) / rowHeight));
+        const visible = listWindowSlice(state.options.map((option, index) => ({ option, index })), state.selectedIndex, menuRows);
+        visible.forEach(({ option, index }, position) => {
             const active = state.selectedIndex === index;
+            const separator = state.title === "Filter and sort" ? option.label.indexOf(": ") : -1;
+            const content = !active && separator >= 0 ? new StyledText([
+                fg(TUI_MUTED)(option.label.slice(0, separator + 2)),
+                fg(TUI_TEXT)(option.label.slice(separator + 2)),
+            ]) : option.label;
+            const targetAction = state.title === "Manage models" && option.value === "library" && subtitleRows > 0;
+            const afterTarget = state.title === "Manage models" && visible[position - 1]?.option.value === "library";
+            const marginTop = targetAction ? 0 : position === 0 || option.value === "clear_filters" || afterTarget ? 1 : 0;
             const row = new TextRenderable(renderer, {
-                content: option.label, width: "100%", height: "auto", marginTop: index === 0 ? 1 : 0,
+                content, width: "100%", height: rowHeight, overflow: "hidden", marginTop,
                 selectable: false, fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
                 bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
             });
             attachDialogRowPointer(row, pointer, index);
             add(row);
+            if (option.value === "cutoff") {
+                for (const node of intelligenceScaleNodes(renderer, Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2),
+                    state.parent?.intelligenceCutoff ?? "any", active, onCutoff)) add(node);
+            }
         });
-        add(dialogFooterNode(renderer, "↑↓ choose · ⏎ select · esc back"));
+        if (helper) add(new TextRenderable(renderer, {
+            content: clippedToWidth(helper, contentWidth), width: "100%", height: 1,
+            selectable: false, fg: TUI_MUTED, marginTop: 1,
+        }));
+        add(dialogFooterNode(renderer, state.options[state.selectedIndex]?.value === "cutoff"
+            ? "←→ cutoff · ↑↓ choose · esc back" : "↑↓ choose · ⏎ select · esc back"));
         return;
     }
     if (state.kind === "model" && state.modelJourney !== undefined) {
         const width = pickerContentWidth(renderer, state, railInset);
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
         const title = state.modelJourney === "shortlist"
-            ? `Model Library (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`
+            ? `Favorites (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`
             : state.title ?? "Switch model";
         add(dialogHeaderNode(renderer, title));
         const layout = journeyListLayout(renderer, state, railInset);
@@ -1397,15 +1444,9 @@ export function renderListPickerRows(
                 fg: TUI_MUTED, width: MODEL_FILTER_LABEL.length, height: 1,
                 selectable: false, flexShrink: 0,
             }));
-            const scope = new TextRenderable(renderer, {
-                id: "model-scope", content: new StyledText([
-                    fg(active ? TUI_SELECTION_TEXT : TUI_MUTED)(" ›"),
-                    fg(active ? TUI_SELECTION_TEXT : TUI_TEXT)(` ${label} ▾ `),
-                ]),
-                width: layout.scopeWidth, height: 1, flexShrink: 0, selectable: false,
-                fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
-                bg: active ? TUI_ACCENT : TUI_ELEMENT, attributes: 1,
-            });
+            const scope = dialogChipNode(renderer, label, active, true);
+            scope.id = "model-scope";
+            scope.width = layout.scopeWidth;
             scope.onMouseDown = (event) => {
                 if (event.button !== 0) return;
                 event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onScope?.();
@@ -1413,15 +1454,10 @@ export function renderListPickerRows(
             filter.add(scope);
             const sorting = state.modelFocus === "sort";
             const sortLabel = journeySortOptions(state).find((row) => row.value === `sort:${journeySort(state)}`)!.label;
-            const sort = new TextRenderable(renderer, {
-                id: "model-sort", content: new StyledText([
-                    fg(sorting ? TUI_SELECTION_TEXT : TUI_MUTED)(" ›"),
-                    fg(sorting ? TUI_SELECTION_TEXT : TUI_TEXT)(` ${sortLabel} ▾ `),
-                ]),
-                width: layout.sortWidth, height: 1, flexShrink: 0, selectable: false, marginLeft: layout.sortGap,
-                fg: sorting ? TUI_SELECTION_TEXT : TUI_TEXT,
-                bg: sorting ? TUI_ACCENT : TUI_ELEMENT, attributes: 1,
-            });
+            const sort = dialogChipNode(renderer, sortLabel, sorting, true);
+            sort.id = "model-sort";
+            sort.width = layout.sortWidth;
+            sort.marginLeft = layout.sortGap;
             sort.onMouseDown = (event) => {
                 if (event.button !== 0) return;
                 event.preventDefault(); event.stopPropagation(); renderer.clearSelection(); onSort?.();
@@ -2284,7 +2320,7 @@ export function pickerFooterText(
     }
     if (state.kind === "provider") {
         const selected = state.options[state.selectedIndex];
-        return [
+        const hints = [
             "↑↓ move",
             selected?.value === TUI_REFRESH_PROVIDERS_VALUE
                 ? "⏎ refresh providers"
@@ -2305,7 +2341,11 @@ export function pickerFooterText(
                 ? [tuiKeyHint("refresh_catalog")]
                 : []),
             state.parent === undefined ? "esc close" : "esc back",
-        ].join(" · ");
+        ];
+        return fittedHints(hints.map((text, index) => ({
+            text,
+            drop: index < 2 || index === hints.length - 1 ? 0 : index,
+        })), width);
     }
     if (
         state.kind === "model_assignment"
@@ -2598,7 +2638,7 @@ export function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
         return modelEmptyMessage(state);
     }
     if (state.kind === "model_assignment") {
-        return "No models in your library. Add one to the library to assign it here.";
+        return "No models in your favorites. Add one to the library to assign it here.";
     }
     if (state.kind !== "session") {
         return "No matches found";

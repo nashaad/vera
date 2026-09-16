@@ -510,7 +510,7 @@ const COMPACT_COMMAND = {
 
 const POOL_COMMAND = {
     name: "library-model",
-    description: "Open Model Library, or add the running model",
+    description: "Open Favorites, or add the running model",
     usage: "/library-model [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1624,8 +1624,8 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         palette: {
             name: "library",
             slashName: "library-model",
-            label: "Model Library",
-            description: "add or remove models from your library",
+            label: "Favorites",
+            description: "add or remove models from your favorites",
             group: "Settings",
             action: {
                 type: "open_settings_destination",
@@ -1689,7 +1689,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     for (const [utility, label, description] of [
         ["dials", "Dial strip", "stage model, effort, access and agent together"],
-        ["verify", "Verify library models", "send real requests to check the models in your library"],
+        ["verify", "Verify library models", "send real requests to check the models in your favorites"],
     ] as const) registry.registerPaletteAction({ name: utility, label, description, group: "Settings",
         action: { type: "open_model_utility", utility } });
     return registry;

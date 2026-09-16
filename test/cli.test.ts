@@ -933,7 +933,7 @@ test("vera library add uses pool admission and remove resolves pool refs", async
         })).toBe(0);
         expect(JSON.parse(
             readFileSync(process.env.VERA_POOL_FILE, "utf8"),
-        ).models).toEqual({});
+        ).models).toEqual({ "openrouter/fresh": { name: "fresh", added: false } });
         expect(output).toContain(
             "openrouter/fresh added to your library (unverified).",
         );

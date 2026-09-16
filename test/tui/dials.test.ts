@@ -38,6 +38,19 @@ const POOL: readonly DialPoolEntry[] = [
     { provider: "ollama", model: "qwen3:32b", levels: [] },
 ];
 
+test("HUD browse is separate from its capped models and never commits staged values", () => {
+    const composition = composeDialStrip({ current: undefined, recents: [], pool: POOL, includePool: true, cap: 1, includeBrowse: true });
+    expect(composition.slots).toHaveLength(2);
+    expect(composition.slots[1]?.label).toBe("All models");
+    const state = { ...openDialStrip(composition, undefined), lane: "model" as const, index: 1 };
+    expect(handleDialStripKey(state, { name: "enter" }, undefined)).toEqual({ kind: "browse" });
+    expect(refreshDialStrip(state, composition).index).toBe(1);
+    const frame = renderDialStrip(state, "", 100).join("\n");
+    expect(frame).toContain("All models · add/remove favorites");
+    expect(frame).not.toContain("All models...");
+    expect(frame).toContain("⏎ open picker");
+});
+
 const SOL = { provider: "openai-codex", model: "gpt-5.6-sol", effort: "low" };
 const LUNA = { provider: "zai", model: "glm-5", effort: "high" };
 
@@ -116,7 +129,7 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         90,
     );
     expect(wide.join("\n")).toContain("Recent");
-    expect(wide.join("\n")).toContain("From Model Library");
+    expect(wide.join("\n")).toContain("Favorites");
     expect(wide.join("\n")).toContain("Faster");
     expect(wide.join("\n")).toContain("Smarter");
 });
@@ -745,9 +758,9 @@ test("HUD groups recents and library choices once, without row numbers or repeat
     const lines = renderDialStrip(state, "", 100);
     const text = lines.join("\n");
     expect(text.match(/Recent/g)).toHaveLength(1);
-    expect(text.match(/From Model Library/g)).toHaveLength(1);
+    expect(text.match(/Favorites/g)).toHaveLength(1);
     const recent = lines.findIndex((line) => line.trim() === "Recent");
-    const library = lines.findIndex((line) => line.trim() === "From Model Library");
+    const library = lines.findIndex((line) => line.trim() === "Favorites");
     expect(lines[recent - 1]).toBe("");
     expect(lines[library - 1]).toBe("");
     expect(lines[recent + 1]).toContain("luna");
@@ -793,7 +806,7 @@ test("short HUD windows retain group headings and a stable height while navigati
         const selected = state.slots[state.index]!;
         expect(lines.some((line) => line.includes(`› ${selected.label}`))).toBe(true);
         if (selected.source === "recent") expect(lines.join("\n")).toContain("Recent");
-        if (selected.source === "pool") expect(lines.join("\n")).toContain("From Model Library");
+        if (selected.source === "pool") expect(lines.join("\n")).toContain("Favorites");
         state = { ...moveDialStrip(state, 1), lane: "model" };
     }
 });

@@ -68,7 +68,7 @@ export function subagentPoolPolicy(
             )?.models ?? [];
             return [id, models.filter((entry) => {
                 const ref = `${entry.provider}/${entry.model}`;
-                return file.models[ref] !== undefined && isSelectable(ref, file);
+                return isSelectable(ref, file);
             }).map((entry) => ({
                 provider: entry.provider,
                 model: entry.model,

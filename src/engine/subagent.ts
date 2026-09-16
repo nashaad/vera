@@ -145,6 +145,7 @@ export type SpawnModelResolution =
     };
 
 export interface SubagentPoolPolicy {
+    readonly candidates?: readonly PooledModel[];
     readonly assigned?: readonly SpawnModelDefault[];
     readonly assignments?: Readonly<Record<string, readonly SpawnModelDefault[]>>;
     readonly allowSelf?: boolean;
@@ -259,7 +260,7 @@ export function resolveSpawnModelChoice(
                 ? {}
                 : { selfEffort: policy.selfEffort }),
         },
-        ladderPool(context, pool, policy),
+        ladderPool(context, policy?.candidates ?? pool, policy),
     );
     if (!outcome.ok) {
         return {

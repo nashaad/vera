@@ -3,7 +3,7 @@ import type { ModelOperation, ModelOperationResult } from "../../../src/model/mo
 import { replaceJourneyFeedback, shortlistOperationFeedback } from "../model-operation-feedback.ts";
 import { verificationResults } from "../model-verification.ts";
 import { mergeTuiModelPickerSettings, syncTuiModelPicker } from "../settings-picker.ts";
-import { focusedAgentClient, modelSettingsForOpenPicker } from "./agents-dials.ts";
+import { focusedAgentClient } from "./agents-dials.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { showStatusNotice } from "./notices.ts";
 import { renderState } from "./render-state.ts";
@@ -18,14 +18,6 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
         renderState(rt); return;
     }
     const verifying = operation.operation === "verify";
-    if (verifying && operation.models.some((model) => !(modelSettingsForOpenPicker(rt)?.pooled ?? [])
-        .some((entry) => entry.provider === model.provider && entry.model === model.model))) {
-        const message = "Only models in your library can be verified. Add the model to your library first.";
-        if (rt.settingsPicker?.kind === "model") rt.settingsPicker = { ...rt.settingsPicker, journeyFeedback: { status: "error", message } };
-        showStatusNotice(rt, message);
-        renderState(rt);
-        return;
-    }
     const membership = operation.operation === "keep" || operation.operation === "unkeep";
     const picker = rt.settingsPicker;
     const pending = { status: "working" as const, message: "Working" };

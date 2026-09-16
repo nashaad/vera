@@ -2083,13 +2083,17 @@ export async function startTui(
         renderState(rt);
     };
     rt.settingsPickerView.onCutoff = (cutoff) => {
-        if (rt.settingsPicker?.kind !== "model") return;
+        if (rt.settingsPicker?.kind !== "model" && rt.settingsPicker?.kind !== "model_menu") return;
         rt.settingsPicker = setTuiSettingsPickerCutoff(rt.settingsPicker, cutoff);
         renderState(rt);
     };
     rt.settingsPickerView.onMore = () => {
         if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
         applySettingsPickerTransition(rt, handleTuiSettingsPickerKey(rt.settingsPicker, { name: "k", ctrl: true }));
+    };
+    rt.settingsPickerView.onJourneyAction = (modelFocus) => {
+        if (rt.settingsPicker?.kind !== "model") return;
+        applySettingsPickerTransition(rt, handleTuiSettingsPickerKey({ ...rt.settingsPicker, modelFocus }, { name: "enter" }));
     };
     rt.settingsPickerView.onScope = () => {
         if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;

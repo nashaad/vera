@@ -22,7 +22,7 @@ export const DIAL_PROVIDER_SEPARATOR = "\u001f";
 export const DIAL_DEFAULT_SEPARATOR = "\u001d";
 export const DIAL_EXIT_SEPARATOR = "\u001e";
 
-export type DialSlotSource = "current" | "recent" | "pool";
+export type DialSlotSource = "current" | "recent" | "pool" | "browse";
 
 export interface DialSlot {
     readonly label: string;
@@ -60,6 +60,7 @@ export function composeDialStrip(options: {
     readonly cap?: number;
     readonly recentCap?: number;
     readonly includePool?: boolean;
+    readonly includeBrowse?: boolean;
 }): DialStripComposition {
     const cap = options.cap ?? DIAL_STRIP_CAP;
     const recentCap = options.recentCap ?? Number.POSITIVE_INFINITY;
@@ -102,7 +103,7 @@ export function composeDialStrip(options: {
         if (recent.length === 3) break;
     }
     return {
-        slots: visible,
+        slots: options.includeBrowse ? [...visible, { label: "All models", source: "browse", efforts: [] }] : visible,
         recent,
         overflow: slots.length - visible.length,
     };
@@ -119,7 +120,7 @@ export function pairKey(pair: DialPair): string {
 export function refreshDialStrip(state: DialStripState, composition: DialStripComposition): DialStripState {
     const slots = [...composition.slots];
     const selected = state.slots[state.index];
-    let index = selected?.pair === undefined ? 0
+    let index = selected?.source === "browse" ? slots.findIndex((slot) => slot.source === "browse") : selected?.pair === undefined ? 0
         : slots.findIndex((slot) => slot.pair !== undefined && modelKey(slot.pair) === modelKey(selected.pair!));
     // A history reply must not displace a model or effort the user has staged.
     if (index < 0 && selected !== undefined) {
@@ -432,7 +433,7 @@ export function renderDialStrip(
         lane("agent", state.agents.length === 0 ? ["unavailable"] : state.agents,
             state.agentIndex, state.openedAgent),
         "",
-        renderDialFooter(`${state.lane === "model" ? "Tab/←→ sections · ↑↓ model" : "Tab/↑↓ sections · ←→ change"} · ⏎ apply`, width),
+        renderDialFooter(`${state.lane === "model" ? "Tab/←→ sections · ↑↓ model" : "Tab/↑↓ sections · ←→ change"} · ⏎ ${state.slots[state.index]?.source === "browse" ? "open picker" : "apply"}`, width),
     ];
 }
 
@@ -449,14 +450,18 @@ function renderModelChoices(state: DialStripState, width: number, maxRows: numbe
     for (const [row, label] of labels.slice(start, start + count).entries()) {
         const index = start + row;
         const slot = state.slots[index]!;
-        if (slot.source !== previousSource && slot.source !== "current") {
+        if (slot.source !== previousSource && slot.source !== "current" && slot.source !== "browse") {
             if (row > 0) lines.push("");
-            lines.push(fitDialText(" ".repeat(DIAL_CHOICE_COLUMN) + (slot.source === "recent" ? "Recent" : "From Model Library"), width));
+            lines.push(fitDialText(" ".repeat(DIAL_CHOICE_COLUMN) + (slot.source === "recent" ? "Recent" : "Favorites"), width));
         }
         previousSource = slot.source;
         const prefix = " ".repeat(DIAL_CHOICE_COLUMN - 4);
         const current = slot.source === "current" ? "●" : " ";
         const picked = index === state.index ? DIAL_PICK_MARKER : " ";
+        if (slot.source === "browse") {
+            lines.push(fitDialText(`${prefix}${current} ${picked} ${label} · add/remove favorites`, width));
+            continue;
+        }
         const name = fitDialText(label, nameWidth).padEnd(nameWidth);
         const provider = providerWidth === 0 ? "" : `  ${fitDialText(slot.pair?.provider ?? "", providerWidth).padEnd(providerWidth)}`;
         lines.push(fitDialText(`${prefix}${current} ${picked} ${name}${provider}`, width));
@@ -640,6 +645,7 @@ export type DialStripAction =
         readonly permission?: string;
     }
     | { readonly kind: "cancel" }
+    | { readonly kind: "browse" }
     | { readonly kind: "ignore" };
 
 export interface DialStripKey {
@@ -658,6 +664,7 @@ export function handleDialStripKey(
         return { kind: "cancel" };
     }
     if (key.name === "return" || key.name === "enter") {
+        if (state.slots[state.index]?.source === "browse") return { kind: "browse" };
         if ((state.permissionEdited === true || state.agents[state.agentIndex] !== state.openedAgent)
             && !dialAccessAllowed(state, state.permissionModes[state.permissionIndex])) return { kind: "ignore" };
         const pair = dialStripSelection(state);

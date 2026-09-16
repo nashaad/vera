@@ -72,7 +72,7 @@ import {
 import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
-import { readUserPoolFile, removePoolModel } from "../../src/model/pool-file-store.ts";
+import { readUserPoolFile, setPoolMembership } from "../../src/model/pool-file-store.ts";
 import { resolveBoundModelRef, resolvePoolRef } from "../../src/model/pool-names.ts";
 import {
     admitToPool,
@@ -1234,7 +1234,7 @@ async function removePoolRef(workspace: string, ref: string): Promise<void> {
     if (readUserPoolFile().models[id] === undefined) {
         throw new Error(`Model "${ref}" is not in your own library file`);
     }
-    removePoolModel(id);
+    setPoolMembership([id], false);
 }
 
 function parsePoolModelId(

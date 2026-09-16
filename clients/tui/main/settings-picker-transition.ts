@@ -14,11 +14,13 @@ import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, op
 import { renderState } from "../main/render-state.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
-import { saveTuiThemePreference } from "../theme-preference.ts";
+import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { randomUUID } from "node:crypto";
+import { eligibleForDefault } from "../../../src/model/model-operations.ts";
+import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
     transition:
@@ -32,6 +34,16 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
     rt.settingsPicker = transition.state;
+    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney === "switch"
+        && (previousPicker?.kind === "model_menu"
+            || previousPicker?.kind === "model" && previousPicker.tab !== rt.settingsPicker.tab)) {
+        try {
+            saveModelPickerPreferences({ view: rt.settingsPicker.journeyView ?? "standard",
+                scope: rt.settingsPicker.tab === "all" ? "all" : "pool", sort: rt.settingsPicker.journeySort ?? "library" });
+        } catch (error) {
+            showStatusNotice(rt, `Could not save model picker preferences: ${String(error)}`);
+        }
+    }
     if (
         extensionPickerWasOpen
         && transition.selection?.kind === "extension"
@@ -596,6 +608,39 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             );
             return;
         } else if (selection.kind === "model_assignment") {
+            if (selection.model !== undefined && selection.provider !== undefined
+                && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined
+                && !eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider, model: selection.model })) {
+                const operate = rt.dependencies.operateModels;
+                if (operate === undefined || previousPicker === undefined || previousPicker.kind === "extension") {
+                    rt.settingsPicker = previousPicker;
+                    showStatusNotice(rt, "Verification is unavailable. The default was not changed.");
+                    renderState(rt); return;
+                }
+                const pending = { ...previousPicker, loading: true, subtitle: "Verifying model before assignment. Esc cancels assignment." };
+                rt.settingsPicker = pending;
+                renderState(rt); focusActiveSurface(rt);
+                let passed = false;
+                let reason = "Verification failed. The default was not changed.";
+                void operate({ operation: "verify", models: [{ provider: selection.provider, model: selection.model }] }, (result) => {
+                    passed = result.status === "passed";
+                    reason = result.reason?.trim() || reason;
+                }, focusedAgentClient(rt).workspace).then(() => {
+                    if (rt.settingsPicker !== pending) return;
+                    rt.settingsPicker = previousPicker;
+                    if (passed && eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider!, model: selection.model! })) applySettingsPickerTransition(rt, transition);
+                    else {
+                        if (passed) reason = "Verification could not be confirmed or the model is not permitted. The default was not changed.";
+                        rt.settingsPicker = { ...previousPicker, subtitle: reason };
+                        showStatusNotice(rt, reason); renderState(rt); focusActiveSurface(rt);
+                    }
+                }).catch((error) => {
+                    if (rt.settingsPicker !== pending) return;
+                    rt.settingsPicker = { ...previousPicker, subtitle: `Verification failed: ${String(error)}` };
+                    renderState(rt); focusActiveSurface(rt);
+                });
+                return;
+            }
             const bindingError = bindModelAssignmentFromPicker(rt, selection);
             if (bindingError !== undefined) {
                 rt.settingsPicker = previousPicker?.kind === "model_assignment"

@@ -21,8 +21,8 @@ test("a pooled model is reachable", () => {
         .toBe(true);
 });
 
-test("a model absent from the pool is not reachable", () => {
-    expect(poolReachability(pool(["openrouter/other"]))(ENTRY)).toBe(false);
+test("an explicit assignment does not require favorite membership", () => {
+    expect(poolReachability(pool(["openrouter/other"]))(ENTRY)).toBe(true);
 });
 
 test("a pooled model the pool denies is not reachable", () => {

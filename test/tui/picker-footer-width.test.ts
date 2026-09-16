@@ -25,6 +25,17 @@ const KINDS: readonly TuiSettingsPickerKind[] = [
 
 const TABS: readonly TuiModelPickerTab[] = ["pool", "all", "defaults", "help"];
 
+test("provider footer drops whole optional hints and preserves Escape", () => {
+    const option = { value: "provider", label: "Provider", description: "", hasCredential: true, endpointEditable: true, refreshable: true };
+    for (const width of [40, 60, 80, 100]) {
+        const footer = pickerFooter({ kind: "provider", options: [option], allOptions: [option], query: "", selectedIndex: 0 }, width);
+        expect(footer).toContain("⏎ actions");
+        expect(footer).toContain("esc close");
+        expect(footer).not.toContain("…");
+        expect(Bun.stringWidth(footer)).toBeLessThanOrEqual(width);
+    }
+});
+
 const OPTION: TuiSettingsPickerOption = {
     value: "openrouter/big-1",
     label: "a model with a long enough name to crowd a narrow card",

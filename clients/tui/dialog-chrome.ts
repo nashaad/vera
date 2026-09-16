@@ -36,6 +36,19 @@ export const DIALOG_GUTTER_WIDTH = 0;
 
 export const DIALOG_GUTTER = "";
 
+export function dialogChipNode(renderer: RenderContext, label: string, active: boolean, dropdown = false): TextRenderable {
+    const content = ` › ${label}${dropdown ? " ▾" : ""} `;
+    return new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(active ? TUI_SELECTION_TEXT : TUI_MUTED)(" ›"),
+            fg(active ? TUI_SELECTION_TEXT : TUI_TEXT)(content.slice(2)),
+        ]),
+        width: Bun.stringWidth(content), height: 1, flexShrink: 0, selectable: false,
+        fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
+        bg: active ? TUI_ACCENT : TUI_ELEMENT, attributes: 1,
+    });
+}
+
 export const DIALOG_CHROME_HEIGHT = 13;
 
 export const DIALOG_CARD_PADDING = 4;

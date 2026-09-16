@@ -45,6 +45,12 @@ const BASE: readonly TuiBinding[] = [
     },
 ];
 
+test("Ctrl+G belongs to scope switching only while Switch model is open", () => {
+    expect(tuiBindingId("switch_model_picker", { name: "g", ctrl: true })).toBe("journey_scope");
+    expect(tuiBindingId("global", { name: "g", ctrl: true })).toBe("switch_pane");
+    expect(TUI_KEYMAP.find((binding) => binding.id === "journey_scope")?.remappable).toBe(true);
+});
+
 test("a chord is canonicalized, whatever order it was written in", () => {
     expect(parseTuiChord("Shift+Ctrl+Tab")).toEqual({ chord: "ctrl+shift+tab" });
     expect(parseTuiChord(" CTRL+D ")).toEqual({ chord: "ctrl+d" });

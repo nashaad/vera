@@ -78,7 +78,9 @@ function recommendation(
 }
 
 export interface CatalogViewOptions
-    extends LoadPoolFileOptions, EffectiveCatalogOptions {}
+    extends LoadPoolFileOptions, EffectiveCatalogOptions {
+    readonly includeUncurated?: boolean;
+}
 
 /** Adds each model's levels to the host's runnable list. Label and description stay as the host supplied them: discovery knows names for models the shipped catalog has never. */
 export function availableModelsWithLevels(
@@ -143,7 +145,7 @@ export function pooledModels(
         const provider = providerOf(id);
         if (
             provider === undefined || !isSelectable(id, file)
-            || !isCuratedPoolEntry(entry)
+            || (!options.includeUncurated && !isCuratedPoolEntry(entry))
         ) {
             return [];
         }

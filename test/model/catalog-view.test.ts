@@ -387,6 +387,8 @@ test("an entry holding only learned facts is not in the pool", () => {
 
     expect(pooledModels([suggested("test", "no-levels")], options))
         .toEqual([]);
+    expect(pooledModels([suggested("test", "no-levels")], { ...options, includeUncurated: true }))
+        .toMatchObject([{ model: "no-levels", verified: true, available: true }]);
 
     addPoolModel("test/no-levels", { added: true }, {
         path: options.userPath,

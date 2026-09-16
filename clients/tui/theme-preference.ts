@@ -22,6 +22,7 @@ export interface FavoritePair {
 }
 
 interface TuiClientPreferences {
+    readonly model_picker?: ModelPickerPreferences;
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
     readonly recent_session_id?: string;
@@ -39,6 +40,39 @@ interface TuiClientPreferences {
     readonly extensions?: Readonly<
         Record<string, Readonly<Record<string, JsonValue>>>
     >;
+}
+
+export interface ModelPickerPreferences {
+    readonly view: "standard" | "detailed";
+    readonly scope: "pool" | "all";
+    readonly sort: "library" | "az" | "price";
+    readonly hudModels?: number;
+    readonly hudRecents?: number;
+}
+
+function parseModelPickerPreferences(value: unknown): ModelPickerPreferences {
+    const row = typeof value === "object" && value !== null ? value : {};
+    const sort = Reflect.get(row, "sort");
+    const count = (key: string, fallback: number, minimum: number) => {
+        const value = Reflect.get(row, key);
+        return typeof value === "number" && Number.isInteger(value) ? Math.max(minimum, Math.min(20, value)) : fallback;
+    };
+    return {
+        view: Reflect.get(row, "view") === "detailed" ? "detailed" : "standard",
+        scope: Reflect.get(row, "scope") === "all" ? "all" : "pool",
+        sort: sort === "az" || sort === "price" ? sort : "library",
+        hudModels: count("hudModels", 10, 1),
+        hudRecents: count("hudRecents", 5, 0),
+    };
+}
+
+export function loadModelPickerPreferences(path = tuiThemePreferencePath()): ModelPickerPreferences {
+    return parseModelPickerPreferences(loadTuiClientPreferences(path).model_picker);
+}
+
+export function saveModelPickerPreferences(value: ModelPickerPreferences, path = tuiThemePreferencePath()): void {
+    const existing = loadTuiClientPreferences(path);
+    saveTuiClientPreferences({ ...existing, model_picker: { ...existing.model_picker, ...value } }, path);
 }
 
 interface DiskFavoritePair {
@@ -497,6 +531,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 Reflect.get(value, "pinned_session_ids"),
             );
             return {
+                ...(Reflect.get(value, "model_picker") === undefined ? {} : { model_picker: parseModelPickerPreferences(Reflect.get(value, "model_picker")) }),
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
                     ? animation

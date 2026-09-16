@@ -14,6 +14,7 @@ import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
 import { appendTuiNotice, type TuiState } from "../state.ts";
 import type { TuiAgentCatalog, TuiAgentCatalogRow, TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
+import { loadModelPickerPreferences } from "../theme-preference.ts";
 import { beginCreateSession, currentDraft } from "./session-ops.ts";
 
 export async function openExtensionAgent(rt: TuiRuntime, 
@@ -158,6 +159,7 @@ export function committedDialPair(rt: TuiRuntime): DialPair | undefined {
 }
 
 function dialComposition(rt: TuiRuntime, history = focusedAgentState(rt).modelSettingsHistory ?? []) {
+    const preferences = loadModelPickerPreferences();
     return composeDialStrip({
         current: committedDialPair(rt),
         recents: history.map(({ settings }) => ({
@@ -168,8 +170,9 @@ function dialComposition(rt: TuiRuntime, history = focusedAgentState(rt).modelSe
         pool: dialPool(rt),
         catalog: dialCatalog(rt),
         includePool: true,
-        cap: DIAL_HUD_CAP,
-        recentCap: DIAL_HUD_RECENT_CAP,
+        cap: preferences.hudModels ?? DIAL_HUD_CAP,
+        recentCap: preferences.hudRecents ?? DIAL_HUD_RECENT_CAP,
+        includeBrowse: true,
     });
 }
 

@@ -1,6 +1,7 @@
 import { admitModel } from "./admission.ts";
 import type { CatalogModel } from "./catalog-shape.ts";
-import { isCuratedPoolEntry, isVerifiedPoolEntry, type PoolFile } from "./pool-file.ts";
+import { isVerifiedPoolEntry, type PoolFile } from "./pool-file.ts";
+import { isSelectable } from "./pool-policy.ts";
 import { recordModelVerification, renameModelDisplay, setPoolMembership, type PoolStoreOptions } from "./pool-file-store.ts";
 import type { ModelAdapter } from "./types.ts";
 
@@ -28,7 +29,7 @@ const ref = (model: ModelReference): string => `${model.provider}/${model.model}
 
 export function eligibleForDefault(file: PoolFile, model: ModelReference): boolean {
     const entry = file.models[ref(model)];
-    return entry !== undefined && isCuratedPoolEntry(entry) && isVerifiedPoolEntry(entry);
+    return entry !== undefined && isVerifiedPoolEntry(entry) && isSelectable(ref(model), file);
 }
 
 export async function applyModelOperation(operation: ModelOperation, options: ModelOperationOptions): Promise<readonly ModelOperationResult[]> {
@@ -45,15 +46,6 @@ export async function applyModelOperation(operation: ModelOperation, options: Mo
         const reason = `Not discovered: ${missing.map(ref).join(", ")}. Refresh the provider catalog.`;
         for (const model of models) result(model, "failed", reason);
         return results;
-    }
-    if (operation.operation === "unkeep") {
-        const affected = new Set(models.map(ref));
-        const bound = options.assignments.filter((slot) => slot.models.some((model) => affected.has(ref(model))));
-        if (bound.length > 0) {
-            const reason = `Bound to ${bound.map((slot) => slot.label).join(", ")}. Reassign those slots or cancel.`;
-            for (const model of models) result(model, "failed", reason);
-            return results;
-        }
     }
     if (operation.operation === "keep" || operation.operation === "unkeep") {
         setPoolMembership(models.map(ref), operation.operation === "keep", options);

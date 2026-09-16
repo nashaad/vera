@@ -13,7 +13,7 @@ export function shortlistOperationFeedback(
 ): Feedback {
     const failed = results.find((result) => result.status === "failed");
     if (error !== undefined || failed !== undefined) return {
-        status: "error", message: error ?? failed?.reason ?? "Could not update library.",
+        status: "error", message: error ?? failed?.reason ?? "Could not update favorites.",
     };
     const confirmed = operation.models.every((model) => {
         if (results.some((result) => result.provider === model.provider && result.model === model.model && result.status === "passed")) return true;
@@ -21,9 +21,9 @@ export function shortlistOperationFeedback(
         const kept = settings.pooled.some((entry) => entry.provider === model.provider && entry.model === model.model);
         return operation.operation === "keep" ? kept : !kept;
     });
-    if (!confirmed) return { status: "error", message: "Could not confirm the library change." };
+    if (!confirmed) return { status: "error", message: "Could not confirm the favorites change." };
     const subject = operation.models.length === 1 ? label : `${operation.models.length} models`;
-    return { status: "success", membership: operation.operation === "keep" ? "added" : "removed", message: `${subject} ${operation.operation === "keep" ? "added to" : "removed from"} library` };
+    return { status: "success", membership: operation.operation === "keep" ? "added" : "removed", message: `${subject} ${operation.operation === "keep" ? "added to" : "removed from"} favorites` };
 }
 
 export function replaceJourneyFeedback(state: TuiSettingsPickerState, pending: Feedback, feedback: Feedback): TuiSettingsPickerState {

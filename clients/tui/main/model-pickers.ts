@@ -10,6 +10,7 @@ import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/
 import { derivedModelName } from "../../../src/config/model-catalog.ts";
 import type { ModelSettingsPatch } from "../../../src/engine/model-settings.ts";
 import { poolReachability } from "../../../src/model/assignment-reachability.ts";
+import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
@@ -32,7 +33,7 @@ import { startTuiSecretPrompt } from "../secret-prompt.ts";
 import { startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { openTuiStandingNudges } from "../standing-nudges.ts";
 import { appendTuiError, appendTuiNotice, type TuiState } from "../state.ts";
-import { tuiThemePreferencePath } from "../theme-preference.ts";
+import { tuiThemePreferencePath, loadModelPickerPreferences } from "../theme-preference.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -149,7 +150,9 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
             selectedIndex: 0,
         };
     }
-    rt.settingsPicker = modelJourney(rt.settingsPicker, "switch");
+    const preferences = loadModelPickerPreferences();
+    rt.settingsPicker = modelJourney({ ...rt.settingsPicker, tab: preferences.scope,
+        journeyView: preferences.view, journeySort: preferences.sort }, "switch");
     requestAgentSettings(rt, focusedAgentClient(rt));
     renderState(rt);
     focusActiveSurface(rt);
@@ -271,7 +274,7 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
             assignment,
             row?.label ?? assignment,
             row?.intent ?? "",
-            targetState.modelSettings?.pooled,
+            targetState.modelSettings?.availableModels?.map((entry) => ({ ...entry, available: true, verified: entry.verified === true })),
             row?.declared.map((entry) =>
                 `${entry.provider}/${entry.model}`) ?? [],
             row?.allowSelf === true,
@@ -297,8 +300,7 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     },
 ): string | undefined {
     if (selection.model !== undefined && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined) {
-        const model = focusedAgentState(rt).modelSettings?.pooled?.find((entry) => entry.provider === selection.provider && entry.model === selection.model);
-        if (model?.verified !== true) return "Only verified models in your library can hold a default slot. Verify this model first.";
+        if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider ?? "", model: selection.model })) return "Verify this model before assigning it as a default.";
     }
     const subagents = selection.assignment === "subagents";
     const row = subagents
