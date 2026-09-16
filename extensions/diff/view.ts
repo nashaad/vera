@@ -49,7 +49,7 @@ export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, c
     }
     function updateFooter(): void {
         footer.content = help
-            ? " n/p file · [/] hunk · b sidebar · s single/all · v split/unified · m reviewed · E expand all · ? back · esc close"
+            ? " n/p file · [ previous hunk · ] next hunk · b sidebar · s single/all · v split/unified · m reviewed · E expand all · ? back · esc close"
             : ` [${focus === "files" ? "Files" : "Patches"}] ↑↓ scroll · tab focus · enter open · n/p file · ? help · esc close`;
     }
     function drawTree(): void {
