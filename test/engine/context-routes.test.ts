@@ -55,6 +55,7 @@ test("loadContextRoutes ignores about_to_run rows and keeps read rows", async ()
         writeFileSync(
             join(workspace, ".vera", "context-routes.yaml"),
             [
+                "version: 1",
                 "routes:",
                 "  - trigger:",
                 "      read: src/api/**",
@@ -86,6 +87,7 @@ test("an escaped inject path is skipped without disabling sibling routes", async
         writeFileSync(
             join(workspace, ".vera", "context-routes.yaml"),
             [
+                "version: 1",
                 "routes:",
                 "  - trigger:",
                 "      read: src/api/**",
@@ -121,6 +123,7 @@ test("payloadsForSuccessfulReads collects matching files once in router order", 
         writeFileSync(
             join(workspace, ".vera", "context-routes.yaml"),
             [
+                "version: 1",
                 "routes:",
                 "  - trigger:",
                 "      read: src/api/**",
@@ -176,6 +179,7 @@ test("payloadsForSuccessfulReads collects matching files once in router order", 
         writeFileSync(
             join(workspace, ".vera", "context-routes.yaml"),
             [
+                "version: 1",
                 "routes:",
                 "  - trigger:",
                 "      read: src/api/**",
@@ -208,3 +212,55 @@ test("a missing yaml is empty routes and a corrupt yaml is fail closed", async (
         rmSync(workspace, { recursive: true, force: true });
     }
 });
+
+test.each(["version: 1\n", ""])("supported or omitted version loads routes (%j)", async (version) => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-routes-"));
+    try {
+        mkdirSync(join(workspace, ".vera"), { recursive: true });
+        writeFileSync(
+            join(workspace, ".vera", "context-routes.yaml"),
+            version + [
+                "routes:",
+                "  - trigger:",
+                "      read: src/api/**",
+                "    consequence:",
+                "      inject: context-routes/api.md",
+                "",
+            ].join("\n"),
+        );
+        expect(await loadContextRoutes(workspace)).toEqual([
+            { readGlob: "src/api/**", injectRelative: "context-routes/api.md" },
+        ]);
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test.each(["2", "0", "-1", "1.5", '"1"', "null", "true", "[]", "{}"])(
+    "unsupported or invalid version %s disables the router",
+    async (version) => {
+        const workspace = mkdtempSync(join(tmpdir(), "vera-routes-"));
+        try {
+            mkdirSync(join(workspace, ".vera", "context-routes"), { recursive: true });
+            writeFileSync(join(workspace, ".vera", "context-routes", "api.md"), "Use shared helpers.");
+            const yamlPath = join(workspace, ".vera", "context-routes.yaml");
+            writeFileSync(yamlPath, [
+                `version: ${version}`,
+                "routes:",
+                "  - trigger:",
+                "      read: src/api/**",
+                "    consequence:",
+                "      inject: context-routes/api.md",
+                "",
+            ].join("\n"));
+            expect(await loadContextRoutes(workspace)).toBeUndefined();
+            expect(await payloadsForSuccessfulReads(
+                workspace, ["src/api/handler.ts"], new Set(),
+            )).toBeUndefined();
+            writeFileSync(yamlPath, `version: ${version}\n`);
+            expect(await loadContextRoutes(workspace)).toBeUndefined();
+        } finally {
+            rmSync(workspace, { recursive: true, force: true });
+        }
+    },
+);

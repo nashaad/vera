@@ -117,6 +117,9 @@ function parseRoutes(value: unknown): readonly ContextRoute[] | undefined {
     if (typeof value !== "object" || Array.isArray(value)) {
         return undefined;
     }
+    if ("version" in value && value.version !== 1) {
+        return undefined;
+    }
     const routes = (value as { readonly routes?: unknown }).routes;
     if (routes === undefined) {
         return [];

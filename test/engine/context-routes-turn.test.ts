@@ -199,6 +199,19 @@ test("about_to_run, a missing payload, and corrupt yaml do not inject", async ()
     ]);
 });
 
+test("an unsupported router version does not inject after a matching read", async () => {
+    const workspace = seedWorkspace();
+    writePayload(workspace, "api.md", "Use the shared error helper.\n");
+    writeFileSync(
+        join(workspace, ".vera", "context-routes.yaml"),
+        `version: 2\nroutes:\n${readRoute("src/api/**", "context-routes/api.md")}\n`,
+    );
+    await expectNoReminder(workspace, [
+        toolCall("call_read", "read", { path: "src/api/handler.ts" }),
+        assistantText("done"),
+    ]);
+});
+
 test("a hand-built turn without the inject set does not inject", async () => {
     const workspace = seedWorkspace();
     writeRoutes(workspace, [
@@ -261,7 +274,7 @@ function seedWorkspace(): string {
 function writeRoutes(workspace: string, routes: readonly string[]): void {
     writeFileSync(
         join(workspace, ".vera", "context-routes.yaml"),
-        `routes:\n${routes.join("\n")}\n`,
+        `version: 1\nroutes:\n${routes.join("\n")}\n`,
     );
 }
 
