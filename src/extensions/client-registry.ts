@@ -2142,15 +2142,31 @@ function parseClientExtensionModule(
 async function importFreshClientExtension(
     entrypointPath: string,
 ): Promise<unknown> {
+    const tuiModule = import.meta.resolve("@opentui/core");
     const build = await Bun.build({
         entrypoints: [entrypointPath],
         target: "bun",
         format: "esm",
         sourcemap: "inline",
-        external: ["@opentui/core"],
+        external: [tuiModule],
         plugins: [{
             name: "vera-client-sdk",
             setup(builder) {
+                builder.onResolve(
+                    { filter: /^@opentui\/core$/ },
+                    () => ({ path: "core", namespace: "client-tui-runtime" }),
+                );
+                builder.onLoad(
+                    { filter: /.*/, namespace: "client-tui-runtime" },
+                    async () => {
+                        const runtime = await import("@opentui/core");
+                        const exports = Object.keys(runtime).join(", ");
+                        return {
+                            contents: `export { ${exports} } from ${JSON.stringify(tuiModule)};`,
+                            loader: "js",
+                        };
+                    },
+                );
                 builder.onResolve(
                     { filter: /^vera\/sdk\/inspect-report$/ },
                     () => ({ path: INSPECT_REPORT_SDK_PATH }),
