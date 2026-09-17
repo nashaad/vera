@@ -18,6 +18,8 @@ A conversation holds your messages, responses, and tool results. The selected
 agent definition supplies instructions and a list of available tools. Your
 permission setting limits what those tools may do.
 
+<div data-diagram="conversation-loop">
+
 ```text
 Your message
      |
@@ -29,6 +31,8 @@ Model reads context <--- Tool results
      v
 Response
 ```
+
+</div>
 
 Tool use can repeat while Vera works on the task. You can review workspace
 changes with `/diff` and stop the active turn with Ctrl+C. Messages you submit

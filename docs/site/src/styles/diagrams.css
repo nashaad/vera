@@ -1,0 +1,17 @@
+.conversation-diagram {
+    margin: 1.75rem 0;
+    overflow: hidden;
+    border: 1px solid var(--color-fd-border);
+    border-radius: 12px;
+    background: var(--color-fd-card);
+}
+.conversation-diagram-scroll { overflow-x: auto; padding: 12px; }
+.conversation-diagram-scroll:focus-visible { outline: 2px solid var(--color-fd-ring); outline-offset: -2px; }
+.conversation-diagram svg { display: block; width: 100%; min-width: 560px; font-family: inherit; font-size: 14px; }
+.flow-node rect { fill: var(--color-fd-background); stroke: var(--color-fd-border); }
+.flow-node text { fill: var(--color-fd-foreground); }
+.flow-node-primary rect { fill: var(--color-fd-accent); stroke: var(--color-fd-muted-foreground); }
+.flow-node-primary text { font-weight: 600; }
+.flow-lines { fill: none; stroke: var(--color-fd-muted-foreground); color: var(--color-fd-muted-foreground); stroke-width: 1.5; }
+.flow-note { fill: var(--color-fd-muted-foreground); font-size: 13px; }
+.conversation-diagram figcaption { padding: 14px 20px; border-top: 1px solid var(--color-fd-border); color: var(--color-fd-muted-foreground); font-size: 13px; line-height: 1.6; }
