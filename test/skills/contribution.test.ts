@@ -35,7 +35,7 @@ test("a large catalog is bounded and reports omitted skills", () => {
 });
 
 function catalog(skills: SkillCatalog["skills"]): SkillCatalog {
-    return { skills, warnings: [] };
+    return { skills, disabledSkills: [], warnings: [] };
 }
 
 function skill(

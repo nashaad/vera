@@ -1882,3 +1882,31 @@ test("a compaction block with no numbers overrides nothing", () => {
     expect(configuredCompactionOverrides(loadVeraConfig({ path: bare })))
         .toBeUndefined();
 });
+
+test("Vera config loads disabled skill patterns", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        disabled_skills: ["review", "data-*", "*"],
+    }));
+
+    expect(loadVeraConfig({ path }).disabled_skills).toEqual([
+        "review",
+        "data-*",
+        "*",
+    ]);
+});
+
+test("Vera config rejects a star anywhere but the end of a skill pattern", () => {
+    for (const disabled_skills of ["review", ["*-data"], ["da*ta"], [""]]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            disabled_skills,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
+    }
+});

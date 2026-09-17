@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentCatalog } from "../agents/catalog.ts";
-import { loadSkillCatalog } from "../skills/catalog.ts";
+import { loadSkillCatalog, type CatalogSkill } from "../skills/catalog.ts";
 import { loadProjectInstructions } from "../engine/project-instructions.ts";
 import { loadMemory, MEMORY_ENABLED, type InstructionRoot } from "../engine/memory.ts";
 import { listExtensions } from "../extensions/manager.ts";
@@ -12,6 +12,10 @@ import { loadExtensionManifest } from "../extensions/manifest.ts";
 import type { CustomizationCatalog, CustomizationSource } from "./types.ts";
 
 const MAX_PREVIEW_BYTES = 256 * 1024;
+
+function skillScopeLabel(skill: CatalogSkill): string {
+    return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
+}
 
 export async function loadCustomizationCatalog(options: {
     readonly workspace: string;
@@ -55,9 +59,18 @@ export async function loadCustomizationCatalog(options: {
         await add({
             id: `skills:${row.metadata.name}`, category: "skills",
             name: row.metadata.name, description: row.metadata.description,
-            scope: row.scope, path: row.skillPath, editable: row.scope !== "system",
+            scope: skillScopeLabel(row), path: row.skillPath, editable: row.scope === "user" || row.scope === "project",
             content: row.instructions, contextIds: [row.skillPath],
             status: row.metadata.disableModelInvocation ? "explicit invocation only" : "available",
+        });
+    }
+    for (const row of skills.disabledSkills) {
+        await add({
+            id: `skills:${row.metadata.name}`, category: "skills",
+            name: row.metadata.name, description: row.metadata.description,
+            scope: skillScopeLabel(row), path: row.skillPath, editable: row.scope === "user" || row.scope === "project",
+            content: row.instructions, contextIds: [],
+            status: "disabled",
         });
     }
     const instructions = await loadProjectInstructions(options.workspace);

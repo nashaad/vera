@@ -12,15 +12,23 @@ import {
     type LoadedSkillPackage,
 } from "./package.ts";
 import { veraProfileDirectory } from "../profile-paths.ts";
+import {
+    isSkillDisabled,
+    resolveSkillSources,
+    type ExtensionSkillRoot,
+} from "./sources.ts";
 
-export type SkillScope = "system" | "user" | "project";
+export type SkillScope = "system" | "extension" | "user" | "project";
 
 export interface CatalogSkill extends LoadedSkillPackage {
     readonly scope: SkillScope;
+    readonly extensionId?: string;
 }
 
 export interface SkillCatalog {
     readonly skills: readonly CatalogSkill[];
+    // Matched by `disabled_skills`; absent from every other use of the catalog.
+    readonly disabledSkills: readonly CatalogSkill[];
     readonly warnings: readonly string[];
 }
 
@@ -28,6 +36,9 @@ export interface LoadSkillCatalogOptions {
     readonly projectRoot: string;
     readonly systemDirectory?: string;
     readonly userDirectory?: string;
+    // Both default to the home config and enabled extensions.
+    readonly disabledSkills?: readonly string[];
+    readonly extensionRoots?: readonly ExtensionSkillRoot[];
 }
 
 export function bundledSkillDirectory(): string {
@@ -45,14 +56,29 @@ export function projectSkillDirectory(projectRoot: string): string {
 export async function loadSkillCatalog(
     options: LoadSkillCatalogOptions,
 ): Promise<SkillCatalog> {
+    const warnings: string[] = [];
+    let disabledPatterns = options.disabledSkills;
+    let extensionRoots = options.extensionRoots;
+    if (disabledPatterns === undefined || extensionRoots === undefined) {
+        const sources = resolveSkillSources(options.projectRoot);
+        disabledPatterns ??= sources.disabledSkills;
+        extensionRoots ??= sources.extensionRoots;
+        warnings.push(...sources.warnings);
+    }
     const roots: readonly {
         readonly scope: SkillScope;
         readonly path: string;
+        readonly extensionId?: string;
     }[] = [
         {
             scope: "system",
             path: options.systemDirectory ?? bundledSkillDirectory(),
         },
+        ...extensionRoots.map((root) => ({
+            scope: "extension" as const,
+            path: root.path,
+            extensionId: root.extensionId,
+        })),
         {
             scope: "user",
             path: options.userDirectory ?? defaultUserSkillDirectory(),
@@ -63,11 +89,13 @@ export async function loadSkillCatalog(
         },
     ];
     const byName = new Map<string, CatalogSkill>();
-    const warnings: string[] = [];
 
     for (const root of roots) {
         const packages = await loadRoot(root.path, root.scope, warnings);
-        for (const skill of packages) {
+        for (const loaded of packages) {
+            const skill: CatalogSkill = root.extensionId === undefined
+                ? loaded
+                : { ...loaded, extensionId: root.extensionId };
             const previous = byName.get(skill.metadata.name);
             if (previous !== undefined) {
                 warnings.push(
@@ -78,9 +106,15 @@ export async function loadSkillCatalog(
         }
     }
 
+    const sorted = [...byName.values()].sort((left, right) =>
+        left.metadata.name.localeCompare(right.metadata.name)
+    );
     return {
-        skills: [...byName.values()].sort((left, right) =>
-            left.metadata.name.localeCompare(right.metadata.name)
+        skills: sorted.filter((skill) =>
+            !isSkillDisabled(skill.metadata.name, disabledPatterns)
+        ),
+        disabledSkills: sorted.filter((skill) =>
+            isSkillDisabled(skill.metadata.name, disabledPatterns)
         ),
         warnings,
     };

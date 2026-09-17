@@ -34,7 +34,7 @@ test("an extension manifest declares one runtime entrypoint", () => {
             "commands.register",
             "models.complete",
         ],
-        contributes: { watches: [], sidecars: [] },
+        contributes: { watches: [], sidecars: [], skills: [] },
     });
 });
 

@@ -69,7 +69,7 @@ test("flood policy defaults to shedding and config defaults to empty", () => {
 
 test("a missing contributes key yields no contributions", () => {
     expect(parseExtensionContributions(undefined, "acme.arc-bridge"))
-        .toEqual({ watches: [], sidecars: [] });
+        .toEqual({ watches: [], sidecars: [], skills: [] });
 });
 
 test("watch ids are local and canonicalize under the owning extension", () => {
@@ -313,4 +313,28 @@ test("the reserved key is stripped before an extension sees its own config", () 
     expect(stripWatchConfigOverrides({ provider: "auto" }))
         .toEqual({ provider: "auto" });
     expect(stripWatchConfigOverrides(undefined)).toBeUndefined();
+});
+
+test("a skills contribution lists directories inside the extension", () => {
+    const contributions = parseExtensionContributions(
+        { skills: ["skills", "extra/skills"] },
+        "acme.tools",
+    );
+
+    expect(contributions.skills).toEqual(["skills", "extra/skills"]);
+});
+
+test("a skills contribution refuses paths that leave the extension", () => {
+    for (const skills of [
+        "skills",
+        [""],
+        [42],
+        ["/abs/skills"],
+        ["../skills"],
+        ["skills/../../other"],
+        ["skills", "skills"],
+    ]) {
+        expect(() => parseExtensionContributions({ skills }, "acme.tools"))
+            .toThrow(ExtensionContributionError);
+    }
 });
