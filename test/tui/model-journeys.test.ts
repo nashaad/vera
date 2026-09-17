@@ -599,21 +599,21 @@ test("Detailed separates long names from compact prices and retains exact detail
         const state = { ...chooseScope(modelJourney({ ...base, allOptions: [option] }, "switch")), journeyView: "detailed" as const };
         view.update(state); await setup.renderOnce();
         const row = setup.captureCharFrame().split("\n").find((line) => line.includes("$0.09"))!;
-        expect(row).toMatch(/DeepSeek.*…\s{2,}\$0\.09\s+\$0\.18/);
+        expect(row).toMatch(/DeepSeek.*…\s+1550\s+\$0\.09\s+\$0\.18/);
         expect(modelDetailFacts(state, option)).toContainEqual(["Full price", "0.088606/0.177212"]);
         expect(modelPriceColumns({ ...option, pricing: { input: 0.00000001234, output: 0 } })).toContain("$1.2e-8");
         expect(modelPriceColumns({ ...option, pricing: undefined })).toMatch(/\?\s+\?/);
     } finally { setup.renderer.destroy(); }
 });
 
-test("Detailed aligns input and output prices independently of status", async () => {
-    const setup = await createTestRenderer({ width: 170, height: 44 });
+test.each([90, 100, 120, 170])("Detailed aligns WA scores and prices at %s columns", async (width) => {
+    const setup = await createTestRenderer({ width, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
         const options = [
             { ...rows[0]!, label: "Preferred", pricing: { input: 0.07, output: 0.13 } },
-            { ...rows[1]!, label: "Steady", pricing: { input: 2, output: 6 }, unavailable: true },
+            { ...rows[1]!, label: "Steady", waScore: 980, pricing: { input: 2, output: 6 }, unavailable: true },
             { ...rows[2]!, label: "Unknown" },
         ];
         const state = { ...chooseScope(modelJourney({ ...base, allOptions: options }, "switch")), journeyView: "detailed" as const, initialModel: "p/a" };
@@ -623,6 +623,13 @@ test("Detailed aligns input and output prices independently of status", async ()
         const steady = lines.find((line) => line.includes("$2") && line.includes("Steady"))!;
         expect(preferred).toContain("current");
         expect(steady).toContain("unavailable");
+        const header = lines.find((line) => line.includes("Input") && line.includes("Output"))!;
+        const scoreEnd = header.indexOf("WA Score") + "WA Score".length;
+        expect(header).toContain("WA Score");
+        expect(preferred.indexOf("1550") + 4).toBe(scoreEnd);
+        expect(steady.indexOf("980") + 3).toBe(scoreEnd);
+        const unknown = lines.find((line) => line.includes("Unknown"))!;
+        expect(unknown.slice(scoreEnd - 8, scoreEnd).trim()).toBe("?");
         expect(preferred.indexOf("$0.07") + 5).toBe(steady.indexOf("$2") + 2);
         expect(preferred.indexOf("$0.13") + 5).toBe(steady.indexOf("$6") + 2);
         expect(lines.some((line) => line.includes("Input") && line.includes("Output"))).toBe(true);

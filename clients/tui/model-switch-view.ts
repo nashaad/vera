@@ -51,9 +51,11 @@ export function renderModelSwitch(
     const tipRows = tipLine?.text ? 2 : 0;
     const width = pickerContentWidth(renderer, state, railInset);
     const detailed = state.journeyView === "detailed";
-    const split = detailed ? modelPaneSplit(renderer, state, railInset) : undefined;
+    const candidateSplit = detailed ? modelPaneSplit(renderer, state, railInset) : undefined;
+    const split = candidateSplit !== undefined && candidateSplit.listWidth >= 59
+        ? candidateSplit : undefined;
     const listWidth = split?.listWidth ?? width;
-    const columns = detailed && listWidth >= 50 && modelSwitchRows(renderer) >= 3;
+    const columns = detailed && listWidth >= 59 && modelSwitchRows(renderer) >= 3;
     const maximumRows = Math.max(1, modelSwitchRows(renderer) + (columns ? 2 : 0)
         - (columns && state.journeyNotice !== undefined ? 1 : 0) - tipRows);
     const window = journeyWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
@@ -92,7 +94,10 @@ export function renderModelSwitch(
     body.add(list);
     add(body);
     const statusWidth = 15;
-    const priceMeta = (option?: TuiSettingsPickerOption, status = "Status") => `  ${modelPriceColumns(option)} ${status.padEnd(statusWidth)}`;
+    const priceMeta = (option?: TuiSettingsPickerOption, status = "Status") => {
+        const score = option === undefined ? "WA Score" : String(option.waScore ?? "?");
+        return `  ${score.padStart(8)} ${modelPriceColumns(option)} ${status.padEnd(statusWidth)}`;
+    };
     if (columns) list.add(dialogOptionRow(renderer, { label: "", active: false, meta: priceMeta() }));
     if (scroll !== undefined) scroll.top = window.top;
     if (window.rows.length === 0) list.add(text(emptyModelJourney(state), 2));
