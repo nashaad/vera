@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import { defaultHostExtensionConfigs } from "../../src/extensions/bundled-host.ts";
@@ -17,7 +16,7 @@ const ids = (entries: readonly VeraExtensionConfig[]): string[] =>
     entries.map((entry) => loadExtensionManifest(entry.path).manifest.id);
 
 function copy(name: string, config = {}, enabled = true): VeraExtensionConfig {
-    return { path: join(root, "examples/extensions", name), enabled, config };
+    return { path: join(root, "extensions", name), enabled, config };
 }
 
 test("Plan options require explicit opt-in and preserve the skill allow-list", () => {
@@ -183,15 +182,10 @@ test("malformed supplied hook configuration still fails activation", async () =>
     }
 });
 
-test("the legacy Context path resolves to the canonical package", () => {
-    expect(realpathSync(join(root, "examples/extensions/context")))
-        .toBe(realpathSync(join(root, "extensions/context")));
-});
-
 for (const mode of ["override", "disabled-copy", "disabled-builtin"] as const) {
     test(`Context ${mode} retains ID-based command ownership`, async () => {
         const explicit = mode === "disabled-builtin" ? [] : [{
-            path: join(root, "examples/extensions/context"),
+            path: join(root, "extensions/context"),
             enabled: mode === "override",
             config: { retained: true },
         }];

@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadAgentCatalog } from "../../src/agents/catalog.ts";
@@ -44,6 +44,7 @@ test("included extension status respects explicit copies and disabled IDs", asyn
     process.env.VERA_HOME = home;
     await mkdir(home, { recursive: true });
     await mkdir(workspace, { recursive: true });
+    await cp(join(import.meta.dir, "../../extensions/btw"), join(home, "btw"), { recursive: true });
     await writeFile(join(home, "config.json"), JSON.stringify({
         schema_version: 1,
         provider: "openrouter",
@@ -51,7 +52,7 @@ test("included extension status respects explicit copies and disabled IDs", asyn
         disabled_builtin_extensions: ["vera.btw", "example.command-hooks"],
         extensions: [
             { path: join(import.meta.dir, "../../extensions/plan"), enabled: false },
-            { path: join(import.meta.dir, "../../examples/extensions/btw"), enabled: true },
+            { path: join(home, "btw"), enabled: true },
         ],
     }));
     const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
@@ -76,6 +77,7 @@ for (const mode of ["included", "disabled-builtin", "override", "disabled-copy"]
         process.env.VERA_HOME = home;
         await mkdir(home, { recursive: true });
         await mkdir(workspace, { recursive: true });
+        await cp(join(import.meta.dir, "../../extensions/context"), join(home, "context"), { recursive: true });
         const explicit = mode === "override" || mode === "disabled-copy";
         await writeFile(join(home, "config.json"), JSON.stringify({
             schema_version: 1,
@@ -83,7 +85,7 @@ for (const mode of ["included", "disabled-builtin", "override", "disabled-copy"]
             model: "faux/test",
             disabled_builtin_extensions: mode === "disabled-builtin" ? ["example.context"] : [],
             extensions: explicit ? [{
-                path: join(import.meta.dir, "../../examples/extensions/context"),
+                path: join(home, "context"),
                 enabled: mode === "override",
             }] : [],
         }));
