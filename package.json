@@ -12,6 +12,7 @@
     "start": "bun run clients/stdio/main.ts",
     "pack:web": "bun run scripts/pack-web.ts dist/release/annex",
     "pack:release": "bun run scripts/pack-release.ts dist/release",
+    "pack:python": "bun run scripts/build-python-child.ts",
     "install:local": "bun run scripts/install-local.ts",
     "host": "bun run pack:release && bun run clients/host/main.ts",
     "tui": "bun run pack:release && bun run clients/tui/main.ts",

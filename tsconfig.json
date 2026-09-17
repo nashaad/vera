@@ -39,5 +39,6 @@
     "test/**/*.ts",
     "scripts/**/*.ts",
     "dev/model/**/*.ts"
-  ]
+  ],
+  "exclude": ["python/vera/_bun"]
 }

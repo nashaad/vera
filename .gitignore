@@ -154,3 +154,6 @@ vera-one-archived/
 !.env.test
 __pycache__/
 *.py[cod]
+
+# Built bun child for the Python wheel
+python/vera/_bun/

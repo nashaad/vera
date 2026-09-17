@@ -21,6 +21,15 @@ _CLOSE_GRACE_SECONDS = 5.0
 _STDERR_LINES = 200
 
 
+def child_script() -> Path:
+    """The bun child: the bundle a wheel ships, else the source in a checkout."""
+    here = Path(__file__).parent
+    bundled = here / "_bun" / "src" / "child" / "child.js"
+    if bundled.is_file():
+        return bundled
+    return here / "_child.ts"
+
+
 class _ChildExited(Exception):
     pass
 
@@ -277,7 +286,7 @@ class Vera:
                 return self._child
             self._child.stop()
             self._child = None
-        child_path = Path(__file__).with_name("_child.ts")
+        child_path = child_script()
         # The child reads the caller's Vera home; scratch files go under TMPDIR.
         child_env = os.environ | {
             "TMPDIR": str(self._runtime_dir),
