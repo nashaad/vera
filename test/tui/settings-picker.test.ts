@@ -27,6 +27,7 @@ import {
     TUI_REFRESH_PROVIDERS_VALUE,
     startTuiReasoningPicker,
     startTuiSessionPicker,
+    startTuiCreateLeavePicker,
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
     updateTuiSettingsPickerSearch,
@@ -200,6 +201,39 @@ test("session picker filters titled durable conversations and selects an agent",
         "11111111-first-session",
     ).state!;
     expect(searched.options).toHaveLength(1);
+});
+
+test("new conversation asks close or keep running", () => {
+    const state = startTuiCreateLeavePicker();
+    expect(state.title).toBe("New conversation");
+    expect(state.options.map((option) => option.label))
+        .toEqual(["Close this conversation", "Keep running"]);
+    expect(pickerFooter(state)).toBe("↑↓ choose · ⏎ start · esc back");
+    expect(handleTuiSettingsPickerKey(state, { name: "escape" }).handled)
+        .toBe(true);
+    expect(handleTuiSettingsPickerKey(state, { name: "escape" }).state)
+        .toBeUndefined();
+    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+        .toEqual({
+            kind: "session_create_leave",
+            sourceDisposition: "stop",
+        });
+    const keep = handleTuiSettingsPickerKey(state, { name: "down" }).state!;
+    expect(handleTuiSettingsPickerKey(keep, { name: "enter" }).selection)
+        .toEqual({
+            kind: "session_create_leave",
+            sourceDisposition: "keep_running",
+        });
+    const armed = startTuiCreateLeavePicker(true);
+    expect(handleTuiSettingsPickerKey(armed, { name: "enter" }).selection)
+        .toBeUndefined();
+    expect(handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(armed, { name: "enter" }).state!,
+        { name: "enter" },
+    ).selection).toEqual({
+        kind: "session_create_leave",
+        sourceDisposition: "stop",
+    });
 });
 
 test("session search accepts spaces between words", () => {

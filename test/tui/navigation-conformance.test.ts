@@ -85,6 +85,7 @@ const PICKERS: Record<TuiSettingsPickerKind, PickerCase> = {
     override_value: {},
     session: {},
     session_leave: {},
+    session_create_leave: {},
     configure: {},
     settings: {},
     permission_settings: {},

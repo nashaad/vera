@@ -212,6 +212,7 @@ describe("status markers", () => {
                 updatedAt: ELEVEN_MINUTES_AGO,
             }),
         ]);
+        expect(sessionRows(result)[0]?.group).toBe(IDLE_GROUP);
         expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_IDLE_MARKER);
         expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });

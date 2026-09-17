@@ -75,6 +75,7 @@ export type TuiSettingsPickerKind =
     | "override_value"
     | "session"
     | "session_leave"
+    | "session_create_leave"
     | "configure"
     | "settings"
     | "permission_settings"
@@ -99,6 +100,20 @@ export const SESSION_LEAVE_OPTIONS: readonly TuiSettingsPickerOption[] = [
         value: "keep_running",
         label: "Switch, keep running",
         description: "leave this conversation working in the background",
+    },
+];
+
+/** How New conversation / `/clear` leaves the conversation on screen. */
+export const SESSION_CREATE_LEAVE_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    {
+        value: "stop",
+        label: "Close this conversation",
+        description: "stop it, then start a new one",
+    },
+    {
+        value: "keep_running",
+        label: "Keep running",
+        description: "stay idle for 10 minutes, then close",
     },
 ];
 
@@ -309,6 +324,7 @@ export interface TuiSettingsPickerState {
     readonly webdevArenaSnapshot?: string;
     readonly canUndoPoolChange?: boolean;
     readonly enterDisposition?: TuiSessionLeaveDisposition;
+    readonly ignoreEnter?: boolean;
     readonly nothingToLeave?: boolean;
     readonly collapsed?: readonly string[];
     readonly parent?: TuiSettingsPickerState;
@@ -395,6 +411,10 @@ export type TuiSettingsPickerSelection =
         readonly kind: "session";
         readonly sessionPath: string;
         readonly sessionId?: string;
+        readonly sourceDisposition: TuiSessionLeaveDisposition;
+    }
+    | {
+        readonly kind: "session_create_leave";
         readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
     | { readonly kind: "configure"; readonly file: TuiConfigureFile }

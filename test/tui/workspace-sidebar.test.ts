@@ -38,6 +38,7 @@ import {
     RECENT_GROUP,
     WORKING_GROUP,
     WORKSPACE_PINS_ENABLED,
+    WORKSPACE_COMPLETED_WINDOW_MS,
 } from "../../clients/tui/workspace-panel.ts";
 import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
 import {
@@ -56,6 +57,10 @@ import type {
 
 const NOW = new Date("2026-08-22T12:00:00.000Z");
 const COLUMNS = 120;
+const RECENT_IDLE = "2026-08-22T11:55:00.000Z";
+const ELEVEN_MINUTES_AGO = new Date(
+    NOW.getTime() - WORKSPACE_COMPLETED_WINDOW_MS - 60_000,
+).toISOString();
 
 function session(
     id: string,
@@ -360,7 +365,7 @@ describe("cycling live sessions", () => {
                 session("b", {
                     live: true,
                     status: "idle",
-                    updatedAt: "2026-08-22T11:01:00.000Z",
+                    updatedAt: RECENT_IDLE,
                 }),
             ],
             [],
@@ -374,6 +379,101 @@ describe("cycling live sessions", () => {
             NOW,
             COLUMNS,
         )?.id).toBe("a");
+    });
+
+    test("idle conversations left running stay in the cycle", () => {
+        const state = open(
+            [
+                session("fresh", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: RECENT_IDLE,
+                }),
+                session("previous", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: RECENT_IDLE,
+                }),
+            ],
+            [],
+            "fresh",
+        );
+        expect(workspaceCycleTarget(state, 1, NOW, COLUMNS)?.id).toBe("previous");
+        const layout = workspaceSidebarLayout(state, {
+            columns: COLUMNS,
+            now: NOW,
+        });
+        expect(layout.rows
+            .filter((row) => row.kind === "group")
+            .map((row) => (row as { group: string }).group)).toEqual([IDLE_GROUP]);
+        expect(openWorkspaceSelection(state, "previous")).toEqual({
+            kind: "open_session",
+            session_id: "previous",
+            session_path: "/sessions/previous.jsonl",
+            active: true,
+        });
+    });
+
+    test("a leftover stays in the cycle until the host parks it", () => {
+        const state = open(
+            [
+                session("fresh", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: RECENT_IDLE,
+                }),
+                session("stale", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: ELEVEN_MINUTES_AGO,
+                }),
+            ],
+            [],
+            "fresh",
+        );
+        expect(workspaceCycleTarget(state, 1, NOW, COLUMNS)?.id).toBe("stale");
+        const layout = workspaceSidebarLayout(state, {
+            columns: COLUMNS,
+            now: NOW,
+        });
+        expect(layout.rows
+            .filter((row) => row.kind === "group")
+            .map((row) => (row as { group: string }).group))
+            .toEqual([IDLE_GROUP]);
+        expect(openWorkspaceSelection(state, "stale")).toEqual({
+            kind: "open_session",
+            session_id: "stale",
+            session_path: "/sessions/stale.jsonl",
+            active: true,
+        });
+    });
+
+    test("the conversation on screen stays idle after ten minutes", () => {
+        const state = open(
+            [
+                session("on-screen", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: ELEVEN_MINUTES_AGO,
+                }),
+                session("previous", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: RECENT_IDLE,
+                }),
+            ],
+            [],
+            "on-screen",
+        );
+        expect(workspaceCycleTarget(state, 1, NOW, COLUMNS)?.id).toBe("previous");
+        const layout = workspaceSidebarLayout(state, {
+            columns: COLUMNS,
+            now: NOW,
+        });
+        const idle = layout.rows
+            .filter((row) => row.kind === "session" && row.group === IDLE_GROUP)
+            .map((row) => (row as { id: string }).id);
+        expect(idle).toEqual(["previous", "on-screen"]);
     });
 
     test("looking at a parked file still lands on a live neighbour", () => {
@@ -610,7 +710,7 @@ describe("the cursor", () => {
 
     test("the file on screen is listed as recent, not as active", () => {
         const state = open(
-            [session("a"), session("b", { live: true })],
+            [session("a"), session("b", { live: true, updatedAt: RECENT_IDLE })],
             [],
             "a",
         );

@@ -900,11 +900,16 @@ export async function startResidentHost(
     const resumeSession = (sessionPath: string) =>
         resumeOrFind(registry, sessionPath, restoringSessions);
     let closing: Promise<void> | undefined;
+    let parkIdleTimer: ReturnType<typeof setInterval> | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
     });
     const closeHost = (): Promise<void> => {
+        if (parkIdleTimer !== undefined) {
+            clearInterval(parkIdleTimer);
+            parkIdleTimer = undefined;
+        }
         if (closing === undefined) {
             announceShutdown();
             closing = (async () => {
@@ -1267,6 +1272,9 @@ export async function startResidentHost(
     }
 
     const buildId = readStampedRelease().build_id;
+    parkIdleTimer = setInterval(() => {
+        void registry.parkExpiredIdle().catch(() => {});
+    }, 30_000);
     startupLog({
         type: "host_startup_complete",
         duration_ms: performance.now() - startupStarted,

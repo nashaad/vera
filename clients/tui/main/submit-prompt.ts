@@ -9,7 +9,7 @@ import { clientExtensionReloadFailed, clientExtensionReloadStarted, clientExtens
 import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
-import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
+import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
@@ -973,7 +973,7 @@ export function submitPrompt(rt: TuiRuntime,
         return;
     }
     if (commandAction?.type === "create_session") {
-        beginCreateSession(rt, commandAction.sourceDisposition ?? "stop");
+        requestCreateSession(rt, { ignoreEnter: true });
         return;
     }
     if (commandAction?.type === "close_session") {

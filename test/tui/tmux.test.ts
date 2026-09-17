@@ -1050,6 +1050,8 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Close this conversation");
+            sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "Message peer");
             sendText(socket, session, "fresh peer");
             sendKey(socket, session, "Enter");
@@ -1373,6 +1375,8 @@ test.skip(
 
             sendText(socket, session, "/clear");
             await Bun.sleep(300);
+            sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "Close this conversation");
             sendKey(socket, session, "Enter");
             // The column belonged to the conversation being left, and so did
             // the seat: an alias that answers nowhere is worse than no alias.

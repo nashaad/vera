@@ -269,7 +269,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "workspace_new_session",
         keys: ["ctrl+n"],
         scope: "workspace",
-        description: "Start a new chat without stopping the current one",
+        description: "Start a new conversation",
         hint: "^n new",
     },
     {

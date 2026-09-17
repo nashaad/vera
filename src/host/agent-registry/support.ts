@@ -486,15 +486,13 @@ export function entryStatus(entry: RegisteredAgentEntry): RegisteredAgentStatus 
                 : entry.agent.status;
 }
 
+/** Unattached idle leftovers stay live this long, then the host parks them. */
+export const LIVE_IDLE_WINDOW_MS = 10 * 60 * 1_000;
+
 export function entryIsLive(entry: RegisteredAgentEntry): boolean {
     return !entry.agent.closed
         && !entry.agent.failed
-        && entry.failure === undefined
-        && (
-            entry.agent.attached
-            || entry.agent.status === "working"
-            || entry.agent.status === "waiting"
-        );
+        && entry.failure === undefined;
 }
 
 export function entryUpdatedAt(entry: RegisteredAgentEntry): string {

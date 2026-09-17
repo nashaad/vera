@@ -675,7 +675,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 );
                 return;
             }
-        } else {
+        } else if (selection.kind === "session") {
             beginSessionResume(rt, 
                 selection.sessionPath,
                 selection.sessionId,
@@ -684,6 +684,10 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 selection.sourceDisposition,
                 "attach",
             );
+            return;
+        } else if (selection.kind === "session_create_leave") {
+            closeSettingsPickerSurface(rt);
+            beginCreateSession(rt, selection.sourceDisposition);
             return;
         }
         rt.settingsPicker = rt.confirmingFullAccess

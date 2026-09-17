@@ -114,6 +114,7 @@ import {
     POOL_VERIFY_ALL_VALUE,
     POOL_VERIFY_UNVERIFIED_VALUE,
     REVIEWER_CLEAR_VALUE,
+    SESSION_CREATE_LEAVE_OPTIONS,
     TUI_DECLARE_PROVIDER_VALUE,
     TUI_REFRESH_PROVIDERS_VALUE,
     TUI_PROVIDER_GROUP_RANK,
@@ -1260,6 +1261,20 @@ export function startTuiSessionPicker(
             ? { enterDisposition }
             : {}),
         ...(nothingToLeave ? { nothingToLeave } : {}),
+    };
+}
+
+export function startTuiCreateLeavePicker(
+    ignoreEnter = false,
+): TuiSettingsPickerState {
+    return {
+        kind: "session_create_leave",
+        title: "New conversation",
+        allOptions: SESSION_CREATE_LEAVE_OPTIONS,
+        options: SESSION_CREATE_LEAVE_OPTIONS,
+        selectedIndex: 0,
+        query: "",
+        ...(ignoreEnter ? { ignoreEnter: true } : {}),
     };
 }
 

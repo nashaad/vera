@@ -249,18 +249,17 @@ test("the palette exposes the keyboard shortcut guide", () => {
     });
 });
 
-test("the palette exposes the fresh conversation action", () => {
+test("the palette exposes the new conversation action", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
     expect(registry.registeredPaletteActions()).toContainEqual({
-        name: "fresh",
-        label: "Start fresh conversation",
-        description: "start blank while keeping this conversation running",
+        name: "clear",
+        label: "New conversation",
+        description: "start a new conversation; choose close or keep running",
         group: "Session",
-        slashName: "fresh",
+        slashName: "clear",
         action: {
             type: "create_session",
-            sourceDisposition: "keep_running",
         },
     });
 });
@@ -589,17 +588,14 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",
     });
-    expect(registry.dispatch("/fresh")).toEqual({
-        type: "create_session",
-        sourceDisposition: "keep_running",
-    });
+    expect(registry.dispatch("/fresh")).toBeUndefined();
     expect(registry.dispatch("/clear --background")).toEqual({
-        type: "create_session",
-        sourceDisposition: "keep_running",
+        type: "command_error",
+        message: "Usage: /clear",
     });
     expect(registry.dispatch("/clear later")).toEqual({
         type: "command_error",
-        message: "Usage: /clear [--background]",
+        message: "Usage: /clear",
     });
     expect(registry.dispatch("/c")).toBeUndefined();
     expect(registry.dispatch("/cle")).toEqual({ type: "create_session" });

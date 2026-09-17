@@ -23,6 +23,23 @@ import {
     saveTuiPersistedAgentPane,
 } from "../../../clients/tui/theme-preference.ts";
 
+async function chooseCreateLeave(
+    session: Awaited<ReturnType<typeof startTuiTestSession>>,
+    disposition: "stop" | "keep_running" = "stop",
+): Promise<void> {
+    await session.waitForVisiblePane("Close this conversation");
+    // Composer Enter can also land on this menu. ignoreEnter swallows that
+    // leftover on the same tick, then a 0-timer disarms it. Waiting for the
+    // menu can return in that same tick, so yield before confirming.
+    await session.settle(50);
+    if (disposition === "keep_running") {
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        return;
+    }
+    session.sendKey("Enter");
+}
+
 test("idle TUI exit stops the current conversation", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-exit-close-"));
     const scenario = createTuiResumeScenario({ home });
@@ -85,12 +102,14 @@ test("clear command leaves the current conversation for a fresh one", async () =
         expect(pane).not.toContain("FULL ACCESS");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         pane = await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
         expect(pane).toContain("ready");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane("starting new session");
         pane = session.captureVisiblePane();
         expect(pane).toContain("Start a conversation");
@@ -121,7 +140,7 @@ test("clear command leaves the current conversation for a fresh one", async () =
     }
 }, 15_000);
 
-test("fresh explicitly keeps the source running", async () => {
+test("keep running leaves the source idle", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-new-background-"));
     const scenario = createTuiNewSessionScenario({ home });
     const session = await startTuiTestSession({
@@ -135,11 +154,13 @@ test("fresh explicitly keeps the source running", async () => {
         // destination never applies the leave disposition early.
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
-        session.sendText("/fresh");
+        session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session, "keep_running");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
@@ -168,11 +189,13 @@ test("clear keeps a multiply-attached source running and says why", async () => 
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         const pane = await session.waitForVisiblePane(
             "The previous conversation is still running in another client",
         );
@@ -240,11 +263,13 @@ test("clear keeps the source and cleans up its target when close fails", async (
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         const pane = await session.waitForVisiblePane(
             "Could not start a new session: the host could not stop the current conversation",
         );
@@ -297,6 +322,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
         // the next /clear onto the successful replacement path.
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
@@ -304,6 +330,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
         session.sendKey("C-l");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane("fresh-model");
         for (let attempt = 0; attempt < 100; attempt += 1) {
             if (existsSync(delayedResultPath)) break;
@@ -520,6 +547,9 @@ for (const stalled of stalledSwitches) {
             await session.waitForVisiblePane("Start a conversation");
             session.sendText(stalled.command);
             session.sendKey("Enter");
+            if (stalled.command === "/clear") {
+                await chooseCreateLeave(session);
+            }
             const pane = await session.waitForVisiblePane(stalled.notice);
             expect(pane).toContain("ready");
             // The session that was on screen is still the attached one.
@@ -1104,6 +1134,7 @@ test("ctrl+n in the agent sidebar starts a new chat and keeps the source running
         session.sendKey("C-e");
         await session.waitForVisiblePane("VERA ·");
         session.sendKey("C-n");
+        await chooseCreateLeave(session, "keep_running");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();

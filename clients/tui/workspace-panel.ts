@@ -58,14 +58,14 @@ export function workspaceStatusMarker(
     if (
         live
         && (status === "completed" || status === "idle")
-        && recentlyFinished(updatedAt, now)
+        && withinCompletedWindow(updatedAt, now)
     ) {
         return WORKSPACE_COMPLETED_MARKER;
     }
     return live ? WORKSPACE_IDLE_MARKER : WORKSPACE_RECENT_MARKER;
 }
 
-function recentlyFinished(
+export function withinCompletedWindow(
     updatedAt: string | undefined,
     now: Date | undefined,
 ): boolean {
@@ -122,11 +122,6 @@ export interface WorkspacePanelInput {
 
 export function isSwitchableSession(session: WorkspaceSession): boolean {
     return session.ephemeral !== true;
-}
-
-function namedWorker(session: WorkspaceSession): boolean {
-    return "workerPid" in session
-        && typeof (session as { workerPid?: number }).workerPid === "number";
 }
 
 export function layoutWorkspacePanel(
@@ -192,6 +187,11 @@ export function moveWorkspaceSelection(
 interface SessionGroup {
     readonly group: string;
     readonly sessions: readonly WorkspaceSession[];
+}
+
+function namedWorker(session: WorkspaceSession): boolean {
+    return "workerPid" in session
+        && typeof (session as { workerPid?: number }).workerPid === "number";
 }
 
 function defaultActive(session: WorkspaceSession): boolean {
