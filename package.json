@@ -1,5 +1,6 @@
 {
   "name": "vera",
+  "license": "MIT",
   "module": "index.ts",
   "bin": {
     "vera": "./clients/cli/main.ts"

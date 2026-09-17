@@ -3,6 +3,7 @@ name = "vera"
 version = "0.0.0"
 description = "Vera Python SDK with the Halcyon durable workflow framework"
 requires-python = ">=3.11"
+license = { text = "MIT" }
 
 [build-system]
 requires = ["setuptools>=68"]
