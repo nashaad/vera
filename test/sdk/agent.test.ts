@@ -778,6 +778,27 @@ interface FindingOutput {
     readonly findings: readonly { readonly summary: string }[];
 }
 
+test("agent tools resolve relative paths against the workspace", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-relative-");
+    const requests: ModelRequest[] = [];
+    writeFileSync(join(workspace, "note.txt"), "inside the workspace\n");
+    const vera = await scriptedVera([
+        toolCall("read", { path: "note.txt" }),
+        answer("done"),
+    ], requests, { workspace });
+    try {
+        await vera.agent(defineAgent({
+            name: "review-relative",
+            instructions: "Read the note.",
+            tools: ["read"],
+        })).run("read it");
+
+        expect(JSON.stringify(requests[1]?.messages)).toContain("inside the workspace");
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
 function findingsSchema(): AgentOutputSchema<FindingOutput> {
     return {
         parse(value) {

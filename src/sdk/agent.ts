@@ -32,6 +32,7 @@ import {
     type UiRequestUpdate,
 } from "../engine/protocol.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
+import { SessionStore } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import type { PreTurnHook } from "./hooks.ts";
 import {
@@ -309,6 +310,11 @@ export class Agent {
         if (durableSessionPath !== undefined) {
             await mkdir(dirname(durableSessionPath), { recursive: true, mode: 0o700 });
         }
+        // Tools resolve relative paths against the session header's cwd.
+        const sessionStore = await SessionStore.create(sessionPath, {
+            sessionId: id,
+            cwd: resolved.workspace,
+        });
         const resident = new ResidentAgent(id, resolved.workspace);
         const attachment = resident.attach();
         let text = "";
@@ -352,7 +358,6 @@ export class Agent {
                 resolved.model,
                 resolved.reasoningEffort,
                 {
-                    sessionPath,
                     approvalMode: resolved.posture,
                     offerTools: resolved.definition.tools?.length !== 0,
                     loadOptionalContext: false,
@@ -380,6 +385,7 @@ export class Agent {
                     }),
                     readSelectedAgent: () => selected,
                     ...(options.prepareTurn === undefined ? {} : { hooks }),
+                    sessionStore,
                 },
             ).catch((caught: unknown) => {
                 loopFailure = caught;
