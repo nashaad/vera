@@ -32,6 +32,16 @@ class StepTimeout(Exception):
         self.timeout = timeout
 
 
+class Cancelled(BaseException):
+    """Ends a run between steps once its cancel token is set."""
+
+    reason: str
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
 class Suspend(BaseException):
     reason: str
 

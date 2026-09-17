@@ -14,7 +14,7 @@ from ._errors import WorkflowError
 
 _RUN_ID = re.compile(r"wf_[0-9a-f]{16}\Z")
 _BLOB_REF = re.compile(r"[0-9a-f]{64}\Z")
-_STATUSES = {"ok", "failed", "suspended", "running"}
+_STATUSES = {"ok", "failed", "suspended", "cancelled", "running"}
 _INLINE_VALUE_MAX_BYTES = 8192
 
 
@@ -131,8 +131,8 @@ def validate_header(
             raise _journal_error("failed workflow header must include error")
         if type(error.get("kind")) is not str or type(error.get("message")) is not str:
             raise _journal_error("workflow header error must include kind and message")
-    if status == "suspended" and type(header.get("reason")) is not str:
-        raise _journal_error("suspended workflow header must include reason")
+    if status in ("suspended", "cancelled") and type(header.get("reason")) is not str:
+        raise _journal_error(f"{status} workflow header must include reason")
     args = header.get("args")
     kwargs = header.get("kwargs")
     if type(args) is not list or type(kwargs) is not dict:
@@ -357,6 +357,7 @@ class Journal:
 
     def mark_running(self) -> None:
         self.header["status"] = "running"
+        self.header.pop("cancel_requested", None)
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
         self.header.pop("reason", None)
@@ -383,17 +384,39 @@ class Journal:
         self.header.pop("error", None)
         self.write_header()
 
+    def mark_cancelled(self, reason: str) -> None:
+        self.header["status"] = "cancelled"
+        self.header["reason"] = reason
+        self.header.pop("finished_at", None)
+        self.header.pop("error", None)
+        self.write_header()
+
     def reload_inbox(self) -> None:
+        stored = self._stored_header()
+        if stored is None:
+            return
+        inbox = stored.get("inbox")
+        if type(inbox) is dict:
+            self.header["inbox"] = inbox
+
+    def request_cancel(self, reason: str) -> None:
+        self.header["cancel_requested"] = reason
+        self.write_header()
+
+    def cancel_requested(self) -> str | None:
+        stored = self._stored_header()
+        if stored is None:
+            return None
+        reason = stored.get("cancel_requested")
+        return reason if type(reason) is str else None
+
+    def _stored_header(self) -> dict[str, object] | None:
         header_path = self.run_dir / "header.json"
         try:
             raw = json.loads(header_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
-            return
-        if type(raw) is not dict:
-            return
-        inbox = raw.get("inbox")
-        if type(inbox) is dict:
-            self.header["inbox"] = inbox
+            return None
+        return raw if type(raw) is dict else None
 
     def write_header(self) -> None:
         header_path = self.run_dir / "header.json"

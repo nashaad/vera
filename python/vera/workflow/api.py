@@ -12,13 +12,13 @@ from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from functools import update_wrapper
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 import time
 from types import MappingProxyType
 from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, cast
 
 from ._canonical import digest, dumps
-from ._errors import Run, RunError, StepTimeout, Suspend, WorkflowError
+from ._errors import Cancelled, Run, RunError, StepTimeout, Suspend, WorkflowError
 from ._hooks import (
     CommandHook,
     PrepareStepHook,
@@ -44,6 +44,7 @@ WorkflowArgs = TypeVarTuple("WorkflowArgs")
 __all__ = [
     "workflow",
     "step",
+    "Cancelled",
     "StepTimeout",
     "Suspend",
     "WorkflowError",
@@ -74,7 +75,16 @@ class _Current:
 
     @property
     def cancelled(self) -> bool:
-        return False
+        """True once the run was cancelled, or this step's deadline passed.
+
+        A step that can run long reads this and returns early. The runtime
+        ends the run before the next step starts.
+        """
+        cancel = _cancel.get()
+        if cancel is not None and cancel.is_set():
+            return True
+        step_cancel = _step_cancel.get()
+        return step_cancel is not None and step_cancel.is_set()
 
     @property
     def deadline(self) -> float | None:
@@ -142,8 +152,10 @@ class _Runtime:
         workflow_name: str,
         prepare_step: list[PrepareStepHook],
         inbox: dict[str, object],
+        cancel: Event | None,
     ) -> None:
         self.journal = journal
+        self.cancel = cancel
         self.workflow_name = workflow_name
         self._prepare_step = prepare_step
         self._inbox = inbox
@@ -178,6 +190,12 @@ class _Runtime:
             raise _RuntimeFault(error) from error
         if key in self.journal.records:
             return cast(R, self.journal.records[key])
+        if self.cancel is not None and self.cancel.is_set():
+            raise Cancelled(f"cancelled before {name}")
+        # Re-reads the store, so a cancel from another process is seen here.
+        requested = self.journal.cancel_requested()
+        if requested is not None:
+            raise Cancelled(requested)
         call_args: tuple[object, ...] = positional_args
         call_kwargs: dict[str, object] = keyword_args
         if self._prepare_step:
@@ -227,6 +245,8 @@ class _Runtime:
 
 _runtime: ContextVar[_Runtime | None] = ContextVar("vera_workflow_runtime", default=None)
 _deadline: ContextVar[float | None] = ContextVar("vera_step_deadline", default=None)
+_cancel: ContextVar[Event | None] = ContextVar("vera_run_cancel", default=None)
+_step_cancel: ContextVar[Event | None] = ContextVar("vera_step_cancel", default=None)
 current = _Current()
 
 
@@ -250,10 +270,13 @@ def _invoke(
     """
     if timeout is None:
         return _call_user_code(lambda: function(*args, **kwargs))
+    expired = Event()
     token = _deadline.set(time.monotonic() + timeout)
+    step_token = _step_cancel.set(expired)
     try:
         context = copy_context()
     finally:
+        _step_cancel.reset(step_token)
         _deadline.reset(token)
     outcome: list[tuple[bool, object]] = []
 
@@ -271,6 +294,7 @@ def _invoke(
     worker.start()
     worker.join(timeout)
     if worker.is_alive():
+        expired.set()
         raise _UserFailure(StepTimeout(step_name, timeout))
     succeeded, value = outcome[0]
     if succeeded:
@@ -321,6 +345,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         journal_dir: Path | str | None = None,
         journal: JournalStore | None = None,
         prepare_step: PrepareStepHook | Sequence[PrepareStepHook] | None = None,
+        cancel: Event | None = None,
     ) -> Run:
         store = resolve_store(journal_dir=journal_dir, journal=journal)
         positional_args = tuple(args)
@@ -336,6 +361,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             handle,
             positional_args,
             normalize_prepare_step(prepare_step),
+            cancel,
             mark_running=False,
         )
 
@@ -346,6 +372,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         journal_dir: Path | str | None = None,
         journal: JournalStore | None = None,
         prepare_step: PrepareStepHook | Sequence[PrepareStepHook] | None = None,
+        cancel: Event | None = None,
     ) -> Run:
         store = resolve_store(journal_dir=journal_dir, journal=journal)
         handle = store.load(run_id, self.name)
@@ -359,6 +386,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             handle,
             args,
             normalize_prepare_step(prepare_step),
+            cancel,
             mark_running=True,
         )
 
@@ -367,6 +395,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         journal: RunJournal,
         args: tuple[object, ...],
         prepare_step: list[PrepareStepHook],
+        cancel: Event | None,
         *,
         mark_running: bool,
     ) -> Run:
@@ -375,11 +404,21 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         inbox = clone_json(journal.inbox)
         if type(inbox) is not dict:
             raise WorkflowError("journal", "header field inbox must be an object")
-        runtime = _Runtime(journal, self.name, prepare_step, inbox)
+        runtime = _Runtime(journal, self.name, prepare_step, inbox, cancel)
         token = _runtime.set(runtime)
+        cancel_token = _cancel.set(cancel)
         typed_args = cast(tuple[Unpack[WorkflowArgs]], args)
         try:
             result = _call_user_code(lambda: self._function(*typed_args))
+        except Cancelled as cancelled:
+            journal.reload_inbox()
+            journal.mark_cancelled(cancelled.reason)
+            return Run(
+                journal.run_id,
+                "cancelled",
+                None,
+                RunError("cancelled", cancelled.reason),
+            )
         except Suspend as suspended:
             journal.reload_inbox()
             journal.mark_suspended(suspended.reason)
@@ -414,6 +453,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
                 RunError(error.kind, message),
             )
         finally:
+            _cancel.reset(cancel_token)
             _runtime.reset(token)
         journal.reload_inbox()
         journal.mark_ok()

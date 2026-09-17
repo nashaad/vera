@@ -48,7 +48,8 @@ class SqlDialect:
                 reason TEXT,
                 entry_file TEXT,
                 entry_workflow TEXT,
-                entry_cwd TEXT
+                entry_cwd TEXT,
+                cancel_requested TEXT
             )
             """,
             """
@@ -119,6 +120,17 @@ class SqlDialect:
 
     def select_inbox(self) -> str:
         return f"SELECT inbox FROM runs WHERE run_id = {self.placeholder}"
+
+    def select_cancel_requested(self) -> str:
+        return (
+            "SELECT cancel_requested FROM runs "
+            f"WHERE run_id = {self.placeholder}"
+        )
+
+    def update_cancel_requested(self) -> str:
+        return (
+            "UPDATE runs SET cancel_requested = {p} WHERE run_id = {p}"
+        ).format(p=self.placeholder)
 
 
 class SqliteDialect(SqlDialect):
@@ -209,6 +221,7 @@ class SqlRunJournal:
         self._next_seq += 1
 
     def mark_running(self) -> None:
+        self._set_cancel_requested(None)
         self.header["status"] = "running"
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -231,6 +244,13 @@ class SqlRunJournal:
 
     def mark_suspended(self, reason: str) -> None:
         self.header["status"] = "suspended"
+        self.header["reason"] = reason
+        self.header.pop("finished_at", None)
+        self.header.pop("error", None)
+        self.write_header()
+
+    def mark_cancelled(self, reason: str) -> None:
+        self.header["status"] = "cancelled"
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -274,6 +294,26 @@ class SqlRunJournal:
                 entry_cwd,
                 self.run_id,
             ),
+        )
+        self._store._commit()
+
+    def request_cancel(self, reason: str) -> None:
+        self._set_cancel_requested(reason)
+
+    def cancel_requested(self) -> str | None:
+        rows = self._store._query(
+            self._store.dialect.select_cancel_requested(),
+            (self.run_id,),
+        )
+        if not rows:
+            return None
+        reason = rows[0][0]
+        return reason if type(reason) is str else None
+
+    def _set_cancel_requested(self, reason: str | None) -> None:
+        self._store._execute(
+            self._store.dialect.update_cancel_requested(),
+            (reason, self.run_id),
         )
         self._store._commit()
 

@@ -13,8 +13,11 @@ from .api import _Workflow
 USAGE = (
     "usage: python -m vera.workflow list [--journal-dir DIR]\n"
     "       python -m vera.workflow show <run_id> [--journal-dir DIR]\n"
-    "       python -m vera.workflow resume <run_id> [--journal-dir DIR]"
+    "       python -m vera.workflow resume <run_id> [--journal-dir DIR]\n"
+    "       python -m vera.workflow cancel <run_id> [--journal-dir DIR]"
 )
+
+CANCEL_REASON = "cancelled from the command line"
 
 
 def _list(journal_dir: Path) -> None:
@@ -42,6 +45,21 @@ def _show(journal_dir: Path, run_id: str) -> None:
     print("steps")
     for key in journal.records:
         print(f"  {key}")
+
+
+def _cancel(journal_dir: Path, run_id: str) -> int:
+    journal = store_from_path(journal_dir).load(run_id, None)
+    status = journal.header["status"]
+    if status == "running":
+        journal.request_cancel(CANCEL_REASON)
+        print(f"{run_id} cancel requested; it stops before its next step")
+        return 0
+    if status == "suspended":
+        journal.mark_cancelled(CANCEL_REASON)
+        print(f"{run_id} cancelled")
+        return 0
+    print(f"{run_id} is already {status}", file=sys.stderr)
+    return 2
 
 
 def _resume(journal_dir: Path, run_id: str) -> int:
@@ -103,7 +121,7 @@ def _load_entry_module(source: Path, run_id: str) -> object:
 
 
 def _parse(arguments: list[str]) -> tuple[str, str, Path] | None:
-    if not arguments or arguments[0] not in {"list", "show", "resume"}:
+    if not arguments or arguments[0] not in {"list", "show", "resume", "cancel"}:
         return None
     command = arguments[0]
     rest = arguments[1:]
@@ -132,6 +150,8 @@ def _main(argv: list[str] | None = None) -> int:
         if command == "show":
             _show(path, run_id)
             return 0
+        if command == "cancel":
+            return _cancel(path, run_id)
         return _resume(path, run_id)
     except WorkflowError as error:
         print(error, file=sys.stderr)
