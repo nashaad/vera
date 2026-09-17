@@ -62,8 +62,8 @@ class TestVeraCreate(unittest.TestCase):
 
         self.assertEqual(agent.name, "reviewer")
         self.assertEqual(agent.tools, ["read", "grep"])
-        self.assertFalse(hasattr(vera, "Agent"))
-        self.assertFalse(hasattr(vera, "Vera"))
+        self.assertIs(vera.Agent, Agent)
+        self.assertIs(vera.Vera, Vera)
         with self.assertRaises(ImportError):
             exec("from vera.agent import defineAgent", {})
 

@@ -14,17 +14,14 @@ import atexit
 from pathlib import Path
 import sys
 
-from vera.agent import Agent
-from vera.instance import Vera
-from vera.workflow.api import step, workflow
+from vera import Agent, Vera, step, workflow
 
 
 reviewer = Agent(
     name="file-summary",
     instructions=(
         "You summarise one file. Read the file you are given and answer with a "
-        "single sentence saying what it is for. Never narrate what you are "
-        "about to do; the sentence is the whole answer."
+        "single sentence saying what it is for."
     ),
     tools=["read"],
 )
