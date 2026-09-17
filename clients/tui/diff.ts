@@ -13,7 +13,7 @@ import {
     TUI_DIFF_REMOVED,
     TUI_MUTED,
     TUI_TEXT,
-} from "./state.ts";
+} from "./palette.ts";
 import { tuiDiffBackgroundColors } from "./theme.ts";
 
 export function createTuiDiff(

@@ -2,7 +2,7 @@ import { BoxRenderable, DiffRenderable, ScrollBoxRenderable, SyntaxStyle, TextRe
 import type { VeraExperimentalTuiKey } from "../../src/sdk/experimental-tui.ts";
 import { tuiBindingId } from "../../clients/tui/keymap.ts";
 import { createTuiDiff } from "../../clients/tui/diff.ts";
-import { TUI_ACCENT, TUI_BACKGROUND, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "../../clients/tui/state.ts";
+import { TUI_ACCENT, TUI_BACKGROUND, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "../../clients/tui/palette.ts";
 import { fileCounts, type WorkspaceDiff } from "./model.ts";
 import { fileRows, fileTree, type FileRow } from "./tree.ts";
 
