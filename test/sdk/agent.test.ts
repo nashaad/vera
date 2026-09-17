@@ -569,6 +569,85 @@ test("Vera.run completes a bounded turn without a host socket", async () => {
     }
 });
 
+test("Vera.create without a home runs the agent's own provider and model", async () => {
+    const root = temporaryWorkspace("vera-no-home-");
+    const home = join(root, "missing");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const selected: VeraConfig[] = [];
+    try {
+        const vera = await Vera.create({
+            workspace: root,
+            createAdapter: (config) => {
+                selected.push(config);
+                return new FauxAdapter([answer("homeless")], { chunkSize: 3 });
+            },
+        });
+        const result = await vera.agent(basicDefinition(), {
+            provider: "faux",
+            model: "reviewer",
+        }).run("Review this patch");
+        expect(result.outcome).toBe("completed");
+        expect(result.text).toBe("homeless");
+        expect(selected.map((config) => [config.provider, config.model]))
+            .toEqual([["faux", "reviewer"]]);
+        expect(existsSync(home)).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("Vera.create without a home refuses an agent with no model", async () => {
+    const root = temporaryWorkspace("vera-no-home-");
+    const home = join(root, "missing");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    try {
+        const vera = await Vera.create({
+            workspace: root,
+            createAdapter: () => new FauxAdapter([answer("unused")]),
+        });
+        await expect(vera.agent(basicDefinition()).run("Review this patch"))
+            .rejects.toThrow("pass provider and model to the agent");
+        expect(existsSync(home)).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("Vera.run without a home runs the named provider and model", async () => {
+    const root = temporaryWorkspace("vera-run-no-home-");
+    const home = join(root, "missing");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const selected: VeraConfig[] = [];
+    try {
+        const result = await Vera.run({
+            prompt: "Review this patch",
+            workspace: root,
+            agent: basicDefinition(),
+            provider: "faux",
+            model: "reviewer",
+            createAdapter: (config) => {
+                selected.push(config);
+                return new FauxAdapter([answer("hostless")], { chunkSize: 3 });
+            },
+        });
+        expect(result.text).toBe("hostless");
+        expect(selected.map((config) => [config.provider, config.approval_mode]))
+            .toEqual([["faux", "readonly"]]);
+        expect(existsSync(home)).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("Vera.run leaves auth.json untouched when the credential is unusable", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-run-auth-"));
     const previousHome = process.env.VERA_HOME;

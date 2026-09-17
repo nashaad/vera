@@ -121,6 +121,49 @@ class TestVeraRun(unittest.TestCase):
                 finally:
                     vera.close()
 
+    def test_live_run_without_a_home_uses_the_agent_route(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            home = root / "missing"
+            agent = Agent(
+                name="reader",
+                instructions="Answer.",
+                tools=[],
+                provider="openrouter",
+                model="upstage/solar-pro4",
+            )
+            with mock.patch.dict(
+                os.environ,
+                {"VERA_HOME": str(home), "OPENROUTER_API_KEY": ""},
+            ):
+                vera = Vera.create(workspace=str(root))
+                try:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "No credentials for provider openrouter",
+                    ):
+                        vera.run(agent, "hello")
+                finally:
+                    vera.close()
+            self.assertFalse(home.exists())
+
+    def test_live_run_without_a_home_needs_a_model(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            home = root / "missing"
+            agent = Agent(name="reader", instructions="Answer.", tools=[])
+            with mock.patch.dict(os.environ, {"VERA_HOME": str(home)}):
+                vera = Vera.create(workspace=str(root))
+                try:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "pass provider and model to the agent",
+                    ):
+                        vera.run(agent, "hello")
+                finally:
+                    vera.close()
+            self.assertFalse(home.exists())
+
 
 def _home_with_config(root: Path, *, provider: str) -> Path:
     home = root / "home"

@@ -16,7 +16,8 @@ import { resolveAgentSnapshot } from "../agents/snapshot.ts";
 import {
     configuredModelFallback,
     createLiveVeraConfigReader,
-    loadVeraConfig,
+    loadOptionalVeraConfig,
+    VERA_CONFIG_SCHEMA_VERSION,
     type VeraConfig,
 } from "../config.ts";
 import {
@@ -192,10 +193,8 @@ export class Vera {
     static async create(options: VeraCreateOptions = {}): Promise<Vera> {
         const workspace = options.workspace ?? process.cwd();
         const profileDirectory = veraProfileDirectory();
-        const config = options.config ?? loadVeraConfig({
-            path: join(profileDirectory, "config.json"),
-            projectRoot: workspace,
-        });
+        const config = options.config
+            ?? homeConfig(profileDirectory, workspace);
         const readRequestOptionsConfig = options.config === undefined
             ? createLiveVeraConfigReader(config, {
                 path: join(profileDirectory, "config.json"),
@@ -226,10 +225,8 @@ export class Vera {
         }
         const workspace = options.workspace ?? process.cwd();
         const profileDirectory = veraProfileDirectory();
-        const config = options.config ?? loadVeraConfig({
-            path: join(profileDirectory, "config.json"),
-            projectRoot: workspace,
-        });
+        const config = options.config
+            ?? homeConfig(profileDirectory, workspace);
         const runtimePosture = options.posture ?? config.approval_mode;
         requirePermissionMode(runtimePosture, config);
         const vera = new Vera(
@@ -518,6 +515,11 @@ async function resolveAgentOptions(
     const model = options.binding.model
         ?? pair?.model
         ?? options.config.model;
+    if (provider.length === 0 || model.length === 0) {
+        throw new Error(
+            `No model route: pass provider and model to the agent, or add config.json to ${options.profileDirectory}`,
+        );
+    }
     const selectedConfig: VeraConfig = {
         ...options.config,
         provider,
@@ -626,6 +628,19 @@ function effectivePosture(
 function builtInPostureRank(name: string): number | undefined {
     const rank = BUILT_IN_PERMISSION_MODE_NAMES.indexOf(name);
     return rank < 0 ? undefined : rank;
+}
+
+// Without config.json the agent names its own route, and posture stays readonly.
+function homeConfig(profileDirectory: string, workspace: string): VeraConfig {
+    return loadOptionalVeraConfig({
+        path: join(profileDirectory, "config.json"),
+        projectRoot: workspace,
+    }) ?? {
+        schema_version: VERA_CONFIG_SCHEMA_VERSION,
+        provider: "",
+        model: "",
+        approval_mode: "readonly",
+    };
 }
 
 function requirePermissionMode(name: string, config: VeraConfig): void {
