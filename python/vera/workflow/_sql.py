@@ -18,6 +18,7 @@ from ._journal import (
     _parse_json_text,
     validate_header,
 )
+from ._store import RunSummary
 
 
 class SqlDialect:
@@ -109,6 +110,12 @@ class SqlDialect:
 
     def select_blob(self) -> str:
         return f"SELECT body FROM blobs WHERE digest = {self.placeholder}"
+
+    def select_runs(self) -> str:
+        return (
+            "SELECT run_id, workflow, status, started_at, finished_at FROM runs "
+            "ORDER BY started_at DESC"
+        )
 
     def select_inbox(self) -> str:
         return f"SELECT inbox FROM runs WHERE run_id = {self.placeholder}"
@@ -377,6 +384,19 @@ class SqlJournalStore:
         header = validate_header(header, run_id, workflow_name)
         records, next_seq = self._load_records(run_id)
         return SqlRunJournal(self, header, records, next_seq)
+
+    def runs(self) -> list[RunSummary]:
+        summaries: list[RunSummary] = []
+        for row in self._query(self.dialect.select_runs()):
+            run_id, workflow_name, status, started_at, finished_at = row
+            summaries.append(RunSummary(
+                run_id=str(run_id),
+                workflow=str(workflow_name),
+                status=str(status),
+                started_at=str(started_at),
+                finished_at=None if finished_at is None else str(finished_at),
+            ))
+        return summaries
 
     def _load_records(self, run_id: str) -> tuple[dict[str, object], int]:
         rows = self._query(self.dialect.select_records(), (run_id,))

@@ -6,8 +6,28 @@ import os
 import sys
 
 from ._errors import WorkflowError
-from ._store import store_from_path
+from ._store import default_journal_dir, store_from_path
 from .api import _Workflow
+
+
+USAGE = (
+    "usage: python -m vera.workflow list [--journal-dir DIR]\n"
+    "       python -m vera.workflow show <run_id> [--journal-dir DIR]\n"
+    "       python -m vera.workflow resume <run_id> [--journal-dir DIR]"
+)
+
+
+def _list(journal_dir: Path) -> None:
+    summaries = store_from_path(journal_dir).runs()
+    if not summaries:
+        print(f"no workflow runs in {journal_dir}")
+        return
+    width = max(len(summary.workflow) for summary in summaries)
+    for summary in summaries:
+        print(
+            f"{summary.run_id}  {summary.status:<9}  "
+            f"{summary.workflow:<{width}}  {summary.started_at}"
+        )
 
 
 def _show(journal_dir: Path, run_id: str) -> None:
@@ -82,17 +102,33 @@ def _load_entry_module(source: Path, run_id: str) -> object:
     return module
 
 
+def _parse(arguments: list[str]) -> tuple[str, str, Path] | None:
+    if not arguments or arguments[0] not in {"list", "show", "resume"}:
+        return None
+    command = arguments[0]
+    rest = arguments[1:]
+    directory: Path | None = None
+    if len(rest) >= 2 and rest[-2] == "--journal-dir":
+        directory = Path(rest[-1])
+        rest = rest[:-2]
+    wanted = 0 if command == "list" else 1
+    if len(rest) != wanted:
+        return None
+    run_id = rest[0] if wanted else ""
+    return command, run_id, directory if directory is not None else default_journal_dir()
+
+
 def _main(argv: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else argv
-    if len(arguments) != 3 or arguments[0] not in {"show", "resume"}:
-        print(
-            "usage: python -m vera.workflow show|resume <journal_dir> <run_id>",
-            file=sys.stderr,
-        )
+    parsed = _parse(arguments)
+    if parsed is None:
+        print(USAGE, file=sys.stderr)
         return 2
-    command, raw_dir, run_id = arguments
-    path = Path(raw_dir)
+    command, run_id, path = parsed
     try:
+        if command == "list":
+            _list(path)
+            return 0
         if command == "show":
             _show(path, run_id)
             return 0

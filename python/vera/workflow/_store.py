@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import inspect
+import json
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from .._home import workflows_directory
 from ._errors import WorkflowError
 from ._journal import Journal, _journal_error
 
@@ -38,6 +41,15 @@ class RunJournal(Protocol):
     def reload_inbox(self) -> None: ...
 
 
+@dataclass(frozen=True)
+class RunSummary:
+    run_id: str
+    workflow: str
+    status: str
+    started_at: str
+    finished_at: str | None
+
+
 @runtime_checkable
 class JournalStore(Protocol):
     def create(
@@ -50,6 +62,8 @@ class JournalStore(Protocol):
     ) -> RunJournal: ...
 
     def load(self, run_id: str, workflow_name: str | None) -> RunJournal: ...
+
+    def runs(self) -> list[RunSummary]: ...
 
 
 class FileJournalStore:
@@ -75,6 +89,40 @@ class FileJournalStore:
 
     def load(self, run_id: str, workflow_name: str | None) -> Journal:
         return Journal.load(self.journal_dir, run_id, workflow_name)
+
+    def runs(self) -> list[RunSummary]:
+        """Newest first. A run whose header cannot be read is left out."""
+        summaries: list[RunSummary] = []
+        try:
+            entries = sorted(self.journal_dir.iterdir())
+        except OSError:
+            return summaries
+        for entry in entries:
+            header = _read_header(entry / "header.json")
+            if header is not None:
+                summaries.append(header)
+        summaries.sort(key=lambda summary: summary.started_at, reverse=True)
+        return summaries
+
+
+def _read_header(path: Path) -> RunSummary | None:
+    try:
+        header = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if type(header) is not dict:
+        return None
+    fields = [header.get(name) for name in ("run_id", "workflow", "status", "started_at")]
+    if any(type(field) is not str for field in fields):
+        return None
+    finished = header.get("finished_at")
+    return RunSummary(
+        run_id=str(fields[0]),
+        workflow=str(fields[1]),
+        status=str(fields[2]),
+        started_at=str(fields[3]),
+        finished_at=finished if type(finished) is str else None,
+    )
 
 
 def capture_entry(
@@ -103,8 +151,15 @@ def resolve_store(
     if journal is not None:
         return journal
     if journal_dir is None:
-        raise WorkflowError("journal", "journal_dir is required")
+        return FileJournalStore(default_journal_dir())
     return FileJournalStore(journal_dir)
+
+
+def default_journal_dir() -> Path:
+    """Journals land in the Vera home unless a run names its own directory."""
+    directory = workflows_directory()
+    directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+    return directory
 
 
 def store_from_path(path: Path) -> JournalStore:
