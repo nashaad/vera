@@ -2,7 +2,7 @@ import type {
     VeraClientContextComponent,
     VeraClientContextPart,
     VeraClientContextSnapshot,
-} from "../../../src/sdk/context.ts";
+} from "../../src/sdk/context.ts";
 import { inspectReportSection } from "vera/sdk/inspect-report";
 
 export type ContextResponsiveMode = "wide" | "narrow";

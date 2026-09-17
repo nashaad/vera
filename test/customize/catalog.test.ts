@@ -66,3 +66,33 @@ test("included extension status respects explicit copies and disabled IDs", asyn
     expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "bundled"))
         .toMatchObject({ status: "shadowed" });
 });
+
+
+for (const mode of ["included", "disabled-builtin", "override", "disabled-copy"] as const) {
+    test(`Context catalog reports ${mode}`, async () => {
+        const root = await mkdtemp(join(tmpdir(), "customize-context-")); roots.push(root);
+        const home = join(root, "home");
+        const workspace = join(root, "project");
+        process.env.VERA_HOME = home;
+        await mkdir(home, { recursive: true });
+        await mkdir(workspace, { recursive: true });
+        const explicit = mode === "override" || mode === "disabled-copy";
+        await writeFile(join(home, "config.json"), JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            disabled_builtin_extensions: mode === "disabled-builtin" ? ["example.context"] : [],
+            extensions: explicit ? [{
+                path: join(import.meta.dir, "../../examples/extensions/context"),
+                enabled: mode === "override",
+            }] : [],
+        }));
+        const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+        const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+        const entries = catalog.sources.filter((source) => source.name === "example.context");
+        expect(entries.find((source) => source.scope === "bundled"))
+            .toMatchObject({ status: explicit ? "shadowed" : mode === "included" ? "enabled" : "disabled" });
+        if (explicit) expect(entries.find((source) => source.scope === "user"))
+            .toMatchObject({ status: mode === "override" ? "enabled" : "disabled" });
+    });
+}

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
+import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_SELECTION_TEXT } from "../../clients/tui/state.ts";
 
 import type { ExtensionListEntry } from "../../src/extensions/manager.ts";
 import {
@@ -305,5 +307,78 @@ test("the rendered bundled settings action uses its command label", async () => 
         expect(setup.captureCharFrame()).toContain("Search providers");
         expect(setup.captureCharFrame()).not.toContain("Disable");
         expect(setup.captureCharFrame()).toContain("› Search providers");
+    } finally { setup.renderer.destroy(); }
+});
+
+for (const [width, height] of [[120, 36], [80, 24], [60, 20]] as const) {
+    test(`extension rows preserve columns, spacing, and footer at ${width}x${height}`, async () => {
+        const setup = await createTestRenderer({ width, height });
+        try {
+            const view = createTuiExtensionsListView(setup.renderer);
+            setup.renderer.root.add(view.box);
+            view.box.visible = true;
+            const entries = Array.from({ length: 14 }, (_, index) => entry({
+                id: `extension.${String(index).padStart(2, "0")}`,
+                version: index % 2 === 0 ? "0.1.0" : "12.34.56",
+                scope: index < 2 ? "project" : "profile",
+                capabilities: ["client.commands.register", "client.context.read", "client.sessions.read"],
+            }));
+            const initial = openTuiExtensionsList(entries);
+            for (const selectedIndex of [0, 6, 13]) {
+                view.update({ ...initial, selectedIndex });
+                await setup.flush();
+                const lines = setup.captureCharFrame().split("\n");
+                const rows = lines.map((text, y) => ({ text, y })).filter((row) => row.text.includes("extension."));
+                expect(rows.some((row) => row.text.includes(`› extension.${String(selectedIndex).padStart(2, "0")}`))).toBe(true);
+                expect(new Set(rows.map((row) => row.text.indexOf("enabled"))).size).toBe(1);
+                expect(new Set(rows.map((row) => row.text.indexOf("v"))).size).toBe(1);
+                const footerY = lines.findIndex((line) => line.includes("⏎ details"));
+                expect(footerY).toBeGreaterThan(rows.at(-1)!.y + 2);
+                expect(lines[footerY]).not.toContain("commands");
+                expect(lines[footerY]).toContain("esc");
+                expect(lines[footerY]).toContain("Space disable");
+                const active = rows.find((row) => row.text.includes("›"))!;
+                const caretX = active.text.indexOf("›");
+                const cells = (y: number) => setup.captureSpans().lines[y]!.spans.flatMap((span) =>
+                    Array.from({ length: span.width }, () => ({ fg: span.fg.toInts(), bg: span.bg.toInts() })));
+                const selected = cells(active.y);
+                const statusEnd = active.text.indexOf("enabled") + "enabled".length;
+                expect(selected.slice(caretX, statusEnd).every((cell) =>
+                    cell.bg.every((value, index) => value === RGBA.fromHex(TUI_ACCENT).toInts()[index]))).toBe(true);
+                expect(selected[caretX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
+                expect(cells(active.y + 1)[caretX + 2]!.fg).toEqual(RGBA.fromHex(TUI_MUTED).toInts());
+                expect(cells(active.y + 1)[caretX + 2]!.bg).toEqual(RGBA.fromHex(TUI_PANEL).toInts());
+                for (const row of rows) {
+                    expect(lines[row.y + 1]!.indexOf("commands")).toBe(row.text.indexOf("extension."));
+                    expect(lines[row.y + 2]!.trim()).toBe("");
+                }
+                expect(view.box.height).toBeLessThanOrEqual(height - view.box.screenY - 2);
+            }
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+}
+
+test("narrow extension rows clip long names and contributions while keeping status", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    try {
+        const view = createTuiExtensionsListView(setup.renderer);
+        setup.renderer.root.add(view.box);
+        view.box.visible = true;
+        const state = openTuiExtensionsList([entry({
+            id: "example.extension-with-a-long-name",
+            enabled: false,
+            capabilities: ["client.commands.register", "client.context.read", "client.sessions.read", "client.experimental_tui", "client.picker", "client.agents"],
+        })]);
+        view.update(state);
+        await setup.flush();
+        const rows = setup.captureCharFrame().split("\n");
+        const name = rows.find((line) => line.includes("›"))!;
+        expect(name).toContain("…");
+        expect(name).toContain("v0.1.0  disabled");
+        expect(rows.find((line) => line.includes("commands"))).toContain("…");
+        expect(key(state, "return").screen).toBe("detail");
+        expect(renderTuiExtensionsList(key(state, "return"))).toContain("example.extension-with-a-long-name");
     } finally { setup.renderer.destroy(); }
 });

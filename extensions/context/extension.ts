@@ -1,5 +1,5 @@
-import { registerSourceBrowser } from "../../../extensions/customize/view.ts";
-import type { VeraClientExtensionApi } from "../../../src/sdk/extensions.ts";
+import { registerSourceBrowser } from "../customize/view.ts";
+import type { VeraClientExtensionApi } from "../../src/sdk/extensions.ts";
 import { contextReportMarkdown } from "./context-report.ts";
 import { registerDashboard } from "./dashboard.ts";
 

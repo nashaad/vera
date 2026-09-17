@@ -236,10 +236,17 @@ provider-specific wire payload.
 
 ## Included extensions
 
-Plan, command hooks, and BTW ship as extensions. `/agent plan` selects read-only
+Plan, command hooks, BTW, and Context ship as extensions. `/agent plan` selects read-only
 planning. `/btw` opens a read-only side conversation; `/pair` opens a peer with
 ask permissions. Command hooks runs nothing until scripts are configured.
 Plan's composer suggestions and skill scripts are off by default.
+
+`/context` shows context usage, `/context all` expands its breakdown, and
+`/context sources` browses loaded sources. `/dashboard` shows session activity.
+These commands are available without configuring an extension. Add
+`example.context` to `disabled_builtin_extensions` to disable both Context and
+Dashboard. An explicit extension entry with the same ID replaces the included
+copy, even when that entry is disabled. Restart the client after changing it.
 
 ## Run one checkout's extensions
 

@@ -33,6 +33,7 @@ export function bundledClientExtensionConfigs(
         { id: "example.plan", directory: "plan" },
         { id: "vera.btw", directory: "btw" },
         { id: "vera.diff", directory: "diff" },
+        { id: "example.context", directory: "context" },
     ]) {
         if (disabledIds.includes(entry.id)) continue;
         configs.push({

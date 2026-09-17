@@ -504,6 +504,9 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         && rt.experimentalTuiHost.handleKey(key)) {
         key.preventDefault();
         key.stopPropagation();
+        if (!rt.experimentalTuiHost.hasModal() && !rt.experimentalTuiHost.hasFocus()) {
+            focusActiveSurface(rt);
+        }
         return;
     }
     if (uiRequest === undefined
@@ -511,6 +514,9 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         && rt.experimentalTuiHost.handleKey(key)) {
         key.preventDefault();
         key.stopPropagation();
+        if (!rt.experimentalTuiHost.hasModal() && !rt.experimentalTuiHost.hasFocus()) {
+            focusActiveSurface(rt);
+        }
         return;
     }
 

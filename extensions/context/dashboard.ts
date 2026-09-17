@@ -1,8 +1,8 @@
 import type {
     VeraClientExtensionApi,
     VeraClientSession,
-} from "../../../src/sdk/extensions.ts";
-import type { VeraExtensionDisposer } from "../../../src/sdk/extensions.ts";
+} from "../../src/sdk/extensions.ts";
+import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
 import {
     buildDashboardReport,
     type DashboardSort,

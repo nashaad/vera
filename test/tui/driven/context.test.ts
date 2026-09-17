@@ -8,11 +8,6 @@ import { SessionStore } from "../../../src/store/session-store.ts";
 import { createTuiChildDependencies } from "../../support/tui-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-const CONTEXT_EXTENSION = join(
-    import.meta.dir,
-    "../../../examples/extensions/context",
-);
-
 test("/context after resume still names the stored request recipe", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-context-resume-"));
     const sessionPath = join(home, "sessions", "resume.jsonl");
@@ -79,11 +74,6 @@ test("/context after resume still names the stored request recipe", async () => 
         height: 40,
         dependencies: () => createTuiChildDependencies({
             resumeSessionPath: sessionPath,
-            clientExtensions: [{
-                path: CONTEXT_EXTENSION,
-                enabled: true,
-                config: null,
-            }],
         }),
     });
 
@@ -101,19 +91,13 @@ test("/context after resume still names the stored request recipe", async () => 
     }
 }, 15_000);
 
-test("slash context lists the name and ghosts [all] after a space", async () => {
+test("slash context lists the name and ghosts [all|sources] after a space", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-context-slash-"));
     const session = await startTuiTestSession({
         home,
         width: 100,
         height: 24,
-        dependencies: () => createTuiChildDependencies({
-            clientExtensions: [{
-                path: CONTEXT_EXTENSION,
-                enabled: true,
-                config: null,
-            }],
-        }),
+        dependencies: () => createTuiChildDependencies(),
     });
 
     try {
@@ -126,10 +110,74 @@ test("slash context lists the name and ghosts [all] after a space", async () => 
         expect(pane).not.toMatch(/\/context \[all\]/);
         session.sendText(" ");
         pane = await session.waitForVisiblePaneWhere(
-            (current) => current.includes("/context [all]"),
+            (current) => current.includes("/context [all|sources]"),
             "context argument ghost",
         );
         expect(pane).not.toMatch(/Show context usage/);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+for (const enabled of [false, true]) {
+    test(`/extensions reports an explicit Context copy as ${enabled ? "enabled" : "disabled"}`, async () => {
+        const home = mkdtempSync(join(tmpdir(), "vera-tui-context-status-"));
+        const session = await startTuiTestSession({
+            home,
+            width: 100,
+            height: 40,
+            dependencies: () => ({
+                ...createTuiChildDependencies({
+                    clientExtensions: [{
+                        path: join(import.meta.dir, "../../../extensions/context"),
+                        enabled,
+                        config: {},
+                    }],
+                }),
+                disabledBuiltinExtensions: enabled ? ["example.context"] : [],
+            }),
+        });
+        try {
+            await session.waitForVisiblePane("Start a conversation");
+            session.sendText("/extensions");
+            session.sendKey("Enter");
+            await session.waitForVisiblePaneWhere(
+                (pane) => pane.split("\n").some((line) =>
+                    line.includes("example.context")
+                    && line.includes(enabled ? "enabled" : "disabled")),
+                "effective Context enabled state",
+            );
+            session.sendKey("Escape");
+            await session.waitForVisiblePane("Start a conversation");
+        } finally {
+            await session.close();
+        }
+    }, 15_000);
+}
+
+test("closing Dashboard returns every following character to the composer", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-dashboard-focus-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 40,
+        dependencies: () => createTuiChildDependencies(),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/dashboard");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Vera dashboard");
+        session.sendKey("Escape");
+        await session.waitForVisiblePaneWhere(
+            (pane) => !pane.includes("Vera dashboard") && pane.includes("Message Vera"),
+            "Dashboard closed",
+        );
+        session.sendText("/extensions");
+        const pane = await session.waitForVisiblePane("│ /extensions");
+        expect(pane).not.toContain("│ ons");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("example.context");
     } finally {
         await session.close();
     }

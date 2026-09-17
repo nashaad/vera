@@ -102,15 +102,15 @@ Skill invocation does not add tools, widen permissions, or replace the selected 
 Project instruction files, selected-agent instructions, memory, imports, and standing nudges may all contribute context.
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 `/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled sources have no edit action.
-When the Context extension is enabled, `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.
+Context is included by default. `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.
 
 ## Extensions [lines=14]
-Plan, command hooks, BTW, and Diff ship as included extensions. Their behavior remains in extensions. No side conversation starts on launch, and hook executables run only when configured.
+Plan, command hooks, BTW, Diff, and Context ship as included extensions. Their behavior remains in extensions. No side conversation starts on launch, and hook executables run only when configured. Context also provides `/dashboard`; disabling `example.context` removes both commands.
 `/agent plan` selects read-only planning with read, grep, and list tools. Composer suggestions and skill scripts are off by default; its extension configuration can enable either. `/agent default` returns to the default definition.
 `/btw` opens a read-only side conversation with the primary conversation as reference context. `/pair` opens a fresh peer using ask permissions. Ctrl+G changes pane focus; Ctrl+\ cycles pane layouts.
 `/diff` opens workspace changes with a right file tree and scrollable patches. Git supplies tracked changes against HEAD; untracked files appear as additions. It stays within the active worktree. Tab switches panes, Enter opens a file, and Escape closes. Disable the client extension with `"vera.diff"` in `disabled_builtin_extensions`.
 Command hooks runs configured executables before or after tool calls, or at session start, resume, and after compaction with phase `session_start`. Session-start hooks add up to 128 KiB of context each, shown in the transcript. Failures log and continue. User-config executables stay in the home’s `hooks/` directory. With no hooks configured it does nothing. Invalid supplied configuration fails activation.
-Included copies appear under Extensions in `/customize`. Their IDs are `example.plan`, `example.command-hooks`, `vera.btw`, and `vera.diff`; `disabled_builtin_extensions` suppresses included copies. An explicit copy with the same ID replaces the included one, including when disabled. Bundled copies also appear in `/extensions`; loaded settings commands appear in their details.
+Included copies appear under Extensions in `/customize`. Their IDs are `example.plan`, `example.command-hooks`, `vera.btw`, `vera.diff`, and `example.context`; `disabled_builtin_extensions` suppresses included copies. An explicit copy with the same ID replaces the included one, including when disabled. Bundled copies also appear in `/extensions`; loaded settings commands appear in their details.
 Open `/extensions` for the picker of installed and bundled extensions. `/extension list` opens the same one, and the palette action is `Manage extensions`.
 Each row is one installed copy: id, version, and a status word, one of `enabled`, `disabled`, `failed`, `unmanaged`, or `shadowed`. A home-scope copy whose id also exists in the project reads `shadowed`.
 Space enables or disables a managed copy immediately. Escape closes the picker.
@@ -128,7 +128,7 @@ Smaller models should run with shorter fresh context and earlier compaction. Pre
 Tool results should be visibly bounded, truncated, or paginated. Oversized output must not silently consume the session.
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, and asks before clearing every lever at once.
 
-## Diagnostics and recovery [lines=10]
+## Diagnostics and recovery [lines=12]
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, use `/reconnect`. This attaches to or replaces the host process while preserving the same installed build.
 `/reconnect` does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
