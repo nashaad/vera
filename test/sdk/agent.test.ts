@@ -3,6 +3,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -569,6 +570,103 @@ test("Vera.run completes a bounded turn without a host socket", async () => {
     }
 });
 
+test("Vera.create without a home runs the agent's own provider and model", async () => {
+    const root = temporaryWorkspace("vera-no-home-");
+    const home = join(root, "missing");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const selected: VeraConfig[] = [];
+    try {
+        const vera = await Vera.create({
+            workspace: root,
+            createAdapter: (config) => {
+                selected.push(config);
+                return new FauxAdapter([answer("homeless")], { chunkSize: 3 });
+            },
+        });
+        const result = await vera.agent(basicDefinition(), {
+            provider: "faux",
+            model: "reviewer",
+        }).run("Review this patch");
+        expect(result.outcome).toBe("completed");
+        expect(result.text).toBe("homeless");
+        expect(selected.map((config) => [config.provider, config.model]))
+            .toEqual([["faux", "reviewer"]]);
+        expect(existsSync(home)).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("Vera.create without a home refuses an agent with no model", async () => {
+    const root = temporaryWorkspace("vera-no-home-");
+    const home = join(root, "missing");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    try {
+        const vera = await Vera.create({
+            workspace: root,
+            createAdapter: () => new FauxAdapter([answer("unused")]),
+        });
+        await expect(vera.agent(basicDefinition()).run("Review this patch"))
+            .rejects.toThrow("pass provider and model to the agent");
+        expect(existsSync(home)).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("Vera.run without a home runs the named provider and model", async () => {
+    const root = temporaryWorkspace("vera-run-no-home-");
+    const home = join(root, "missing");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const selected: VeraConfig[] = [];
+    try {
+        const result = await Vera.run({
+            prompt: "Review this patch",
+            workspace: root,
+            agent: basicDefinition(),
+            provider: "faux",
+            model: "reviewer",
+            createAdapter: (config) => {
+                selected.push(config);
+                return new FauxAdapter([answer("hostless")], { chunkSize: 3 });
+            },
+        });
+        expect(result.text).toBe("hostless");
+        expect(selected.map((config) => [config.provider, config.approval_mode]))
+            .toEqual([["faux", "readonly"]]);
+        expect(existsSync(home)).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("Vera.run names the provider the run used when its credential is unusable", async () => {
+    const result = await Vera.run({
+        prompt: "Review this patch",
+        agent: basicDefinition(),
+        config: baseConfig(),
+        provider: "other",
+        model: "reviewer",
+        createAdapter: () => ({
+            stream() {
+                throw new Error("401 unauthorized");
+            },
+        }),
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.error?.message).toContain("other credential is not usable");
+    expect(result.error?.message).toContain("API key");
+});
+
 test("Vera.run leaves auth.json untouched when the credential is unusable", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-run-auth-"));
     const previousHome = process.env.VERA_HOME;
@@ -679,6 +777,167 @@ test("Vera.run does not start a child when subagent configuration is missing", a
 
 interface FindingOutput {
     readonly findings: readonly { readonly summary: string }[];
+}
+
+test("a named session carries the conversation into the next run", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera(
+        [answer("first"), answer("second")],
+        requests,
+    );
+    const before = instanceDirectories();
+    try {
+        const agent = vera.agent(basicDefinition());
+        await agent.run("Remember the word teal", { session: "sales" });
+        const second = await agent.run("What word?", { session: "sales" });
+
+        expect(second.text).toBe("second");
+        expect(JSON.stringify(requests[1]?.messages)).toContain("Remember the word teal");
+        expect(instanceDirectories().length).toBe(before.length + 1);
+    } finally {
+        await vera.close();
+    }
+    expect(instanceDirectories()).toEqual(before);
+    await expect(
+        vera.agent(basicDefinition()).run("again", { session: "sales" }),
+    ).rejects.toThrow("closed");
+});
+
+test("runs without a session name do not share a conversation", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("one"), answer("two")], requests);
+    const agent = vera.agent(basicDefinition());
+    await agent.run("Remember the word teal");
+    await agent.run("What word?");
+
+    expect(JSON.stringify(requests[1]?.messages)).not.toContain("teal");
+    await vera.close();
+});
+
+test("a session name runs one turn at a time", async () => {
+    const vera = await Vera.create({
+        config: baseConfig(),
+        createAdapter: () => new FauxAdapter([answer("slow")], {
+            chunkSize: 1,
+            delayMs: 20,
+        }),
+    });
+    try {
+        const agent = vera.agent(basicDefinition());
+        const first = agent.run("one", { session: "sales" });
+        await expect(agent.run("two", { session: "sales" }))
+            .rejects.toThrow("Session sales is already running a turn");
+        expect((await first).outcome).toBe("completed");
+    } finally {
+        await vera.close();
+    }
+});
+
+test("a session name is checked before the run", async () => {
+    const vera = await scriptedVera([answer("unused")]);
+    const agent = vera.agent(basicDefinition());
+    await expect(agent.run("x", { session: "../escape" }))
+        .rejects.toThrow("Session name");
+    await expect(agent.run("x", { session: "a", sessionPath: "/tmp/a.jsonl" }))
+        .rejects.toThrow("Pass session or sessionPath, not both");
+    await vera.close();
+});
+
+test("agent tools resolve relative paths against the workspace", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-relative-");
+    const requests: ModelRequest[] = [];
+    writeFileSync(join(workspace, "note.txt"), "inside the workspace\n");
+    const vera = await scriptedVera([
+        toolCall("read", { path: "note.txt" }),
+        answer("done"),
+    ], requests, { workspace });
+    try {
+        await vera.agent(defineAgent({
+            name: "review-relative",
+            instructions: "Read the note.",
+            tools: ["read"],
+        })).run("read it");
+
+        expect(JSON.stringify(requests[1]?.messages)).toContain("inside the workspace");
+    } finally {
+        await vera.close();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("vera.tool runs one tool without calling the model", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-tool-");
+    writeFileSync(join(workspace, "note.txt"), "tool text\n");
+    const vera = await Vera.create({
+        workspace,
+        config: baseConfig(),
+        createAdapter: () => {
+            throw new Error("the model adapter must not be built");
+        },
+    });
+    try {
+        const read = await vera.tool("read", { path: "note.txt" });
+        expect(read.outcome).toBe("completed");
+        expect(read.output).toContain("tool text");
+
+        const missing = await vera.tool("read", { path: "absent.txt" });
+        expect(missing.outcome).toBe("failed");
+        expect(missing.output).toContain("ENOENT");
+
+        const write = await vera.tool("write", { path: "new.txt", content: "x" });
+        expect(write.outcome).toBe("denied");
+        expect(write.output).toContain("Permission mode readonly requires deny");
+        expect(existsSync(join(workspace, "new.txt"))).toBe(false);
+    } finally {
+        await vera.close();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("vera.tool writes under a posture that allows it", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-tool-write-");
+    const vera = await Vera.create({
+        workspace,
+        posture: "auto",
+        config: { ...baseConfig(), approval_mode: "auto" },
+    });
+    try {
+        const write = await vera.tool("write", { path: "new.txt", content: "x" });
+        expect(write.outcome).toBe("completed");
+        expect(readFileSync(join(workspace, "new.txt"), "utf8")).toBe("x");
+    } finally {
+        await vera.close();
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("vera.tool denies a call that needs an approval", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-tool-ask-");
+    const outside = temporaryWorkspace("vera-sdk-tool-outside-");
+    const vera = await Vera.create({
+        workspace,
+        posture: "ask",
+        config: { ...baseConfig(), approval_mode: "ask" },
+    });
+    try {
+        const write = await vera.tool("write", {
+            path: join(outside, "x.txt"),
+            content: "x",
+        });
+        expect(write.outcome).toBe("denied");
+        expect(write.output).toContain("No one can approve it here");
+        expect(existsSync(join(outside, "x.txt"))).toBe(false);
+    } finally {
+        await vera.close();
+        rmSync(workspace, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+    }
+});
+
+function instanceDirectories(): string[] {
+    return readdirSync(tmpdir())
+        .filter((name) => name.startsWith("vera-sdk-instance-"))
+        .sort();
 }
 
 function findingsSchema(): AgentOutputSchema<FindingOutput> {

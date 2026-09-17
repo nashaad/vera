@@ -11,7 +11,7 @@ import {
 
 import type { ExtensionListEntry } from "../../src/extensions/manager.ts";
 import {
-    APP_PADDING_TOP,
+    DIALOG_HEADER_HEIGHT,
     DIALOG_CARD_PADDING,
     DIALOG_CARD_Z_INDEX,
     dialogFooterNode,
@@ -26,9 +26,7 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import {
-    LIST_MIN_ROWS,
     dialogBoxHeight,
-    listWindowRows,
     listWindowSlice,
     wheelCursor,
 } from "./list-window.ts";
@@ -48,7 +46,8 @@ import {
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 
-const LIST_CHROME_ROWS = 6;
+const LIST_CHROME_ROWS = DIALOG_HEADER_HEIGHT + 6;
+const EXTENSION_ROW_HEIGHT = 3;
 const SCOPE_ORDER = ["project", "profile"] as const;
 
 const CAPABILITY_LABELS: Readonly<Record<string, string>> = {
@@ -269,6 +268,9 @@ export function createTuiExtensionsListView(
         minHeight: 1,
     });
     const footer = dialogFooterNode(renderer, "");
+    footer.flexShrink = 0;
+    footer.wrapMode = "none";
+    footer.overflow = "hidden";
     const box = new BoxRenderable(renderer, {
         id: "extensions-list",
         border: false,
@@ -310,9 +312,18 @@ export function createTuiExtensionsListView(
                 dialogInsetTop(renderer),
                 dialogInsetBottomOffset(renderer),
             );
-            const content = screenContent(state, visibleRowIndices(renderer, state));
+            const indices = visibleRowIndices(renderer, state);
+            const content = screenContent(state, indices);
+            body.flexShrink = state.screen === "list" ? 0 : 1;
             updateDialogHeaderTitle(header, content.title);
-            footer.content = content.footer;
+            const range = state.screen === "list" && indices.length < state.rows.length
+                ? `\nShowing ${indices[0]! + 1}-${indices.at(-1)! + 1} of ${state.rows.length}`
+                : "";
+            const hint = state.screen === "list" && state.rows.length > 0
+                && Bun.stringWidth(content.footer) > listContentWidth(renderer)
+                ? listFooter(state.rows[state.selectedIndex], true)
+                : content.footer;
+            footer.content = hint + range;
             for (const node of current) {
                 node.destroyRecursively();
             }
@@ -614,11 +625,13 @@ function listBody(
     return lines.join("\n");
 }
 
-function listFooter(row: TuiExtensionListRow | undefined): string {
+function listFooter(row: TuiExtensionListRow | undefined, compact = false): string {
     if (row === undefined) return "esc close";
     if (!row.managed) return "↑↓ move · ⏎ details · esc close";
     const toggle = row.status === "disabled" ? "Space enable" : "Space disable";
-    return `↑↓ move · ⏎ details · ${toggle} · esc close`;
+    return compact
+        ? `↑↓ · ⏎ details · ${toggle} · esc`
+        : `↑↓ move · ⏎ details · ${toggle} · esc close`;
 }
 
 function detailContent(
@@ -693,21 +706,20 @@ function visibleRowIndices(
     const indices = state.rows.map((_, index) => index);
     const groups = new Set(state.rows.map((row) => row.scope)).size;
     const groupLines = groups === 0 ? 0 : groups * 2 - 1;
+    const available = dialogBoxHeight(
+        renderer,
+        dialogInsetTop(renderer),
+        dialogInsetBottomOffset(renderer),
+    ) - LIST_CHROME_ROWS - groupLines;
     return listWindowSlice(
         indices,
         state.selectedIndex,
-        Math.max(
-            LIST_MIN_ROWS,
-            Math.floor((listWindowRows(
-                dialogBoxHeight(
-                    renderer,
-                    APP_PADDING_TOP,
-                    dialogInsetBottomOffset(renderer),
-                ),
-                LIST_CHROME_ROWS,
-            ) - groupLines) / 2),
-        ),
+        Math.max(1, Math.floor(available / EXTENSION_ROW_HEIGHT)),
     );
+}
+
+function listContentWidth(renderer: RenderContext): number {
+    return Math.max(1, Math.floor(renderer.width * 0.8) - DIALOG_CARD_PADDING * 2);
 }
 
 function paintList(
@@ -731,6 +743,10 @@ function paintList(
     }
     let scope: TuiExtensionListRow["scope"] | undefined;
     let firstGroup = true;
+    const width = listContentWidth(renderer);
+    const versionWidth = Math.min(12, Math.max(...state.rows.map((row) => Bun.stringWidth(row.version))));
+    const statusWidth = Math.max(...state.rows.map((row) => row.status.length));
+    const nameWidth = Math.max(1, width - versionWidth - statusWidth - 6);
     for (const index of visibleRowIndices(renderer, state)) {
         const row = state.rows[index];
         if (row === undefined) continue;
@@ -750,6 +766,7 @@ function paintList(
             row,
             index === state.selectedIndex,
             dialogRowPointer(pointer, index),
+            { width, nameWidth, versionWidth, statusWidth },
         );
         body.add(item);
         current.push(item);
@@ -840,11 +857,32 @@ function paintDetail(
     current.push(facts);
 }
 
+interface ExtensionRowColumns {
+    readonly width: number;
+    readonly nameWidth: number;
+    readonly versionWidth: number;
+    readonly statusWidth: number;
+}
+
+function fittedColumn(text: string, width: number): string {
+    let value = text;
+    if (Bun.stringWidth(value) > width) {
+        value = "";
+        for (const character of text) {
+            if (Bun.stringWidth(value + character) >= width) break;
+            value += character;
+        }
+        value += "…";
+    }
+    return value + " ".repeat(Math.max(0, width - Bun.stringWidth(value)));
+}
+
 function extensionRowNode(
     renderer: RenderContext,
     row: TuiExtensionListRow,
     active: boolean,
     pointer: Pick<{ onSelect?: () => void; onHover?: () => void }, "onSelect" | "onHover">,
+    columns: ExtensionRowColumns,
 ): BoxRenderable {
     const background = active ? TUI_ACCENT : TUI_PANEL;
     const label = active ? TUI_SELECTION_TEXT : TUI_TEXT;
@@ -858,7 +896,8 @@ function extensionRowNode(
         : TUI_MUTED;
     const item = new BoxRenderable(renderer, {
         width: "100%",
-        height: 2,
+        height: EXTENSION_ROW_HEIGHT,
+        flexShrink: 0,
         flexDirection: "column",
         backgroundColor: TUI_PANEL,
     });
@@ -877,9 +916,9 @@ function extensionRowNode(
     }
     item.add(new TextRenderable(renderer, {
         content: new StyledText([
-            fg(label)(`${active ? "›" : " "} ${row.id}`),
-            fg(detail)(`  ${row.version}  `),
-            fg(statusColor)(row.status),
+            fg(label)(`${active ? "›" : " "} ${fittedColumn(row.id, columns.nameWidth)}`),
+            fg(detail)(`  ${fittedColumn(row.version, columns.versionWidth)}  `),
+            fg(statusColor)(row.status.padEnd(columns.statusWidth)),
         ]),
         bg: background,
         attributes: active ? 1 : 0,
@@ -889,7 +928,7 @@ function extensionRowNode(
         overflow: "hidden",
     }));
     item.add(new TextRenderable(renderer, {
-        content: row.contributionLine,
+        content: `  ${fittedColumn(row.contributionLine, Math.max(1, columns.width - 2))}`,
         fg: row.status === "failed" ? TUI_DANGER : TUI_MUTED,
         bg: TUI_PANEL,
         width: "100%",

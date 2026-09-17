@@ -67,6 +67,7 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "extensions",
     "extensions.json",
     "skills",
+    "hooks",
     "memory",
     "agents",
 ] as const;

@@ -1,4 +1,4 @@
-export const CONTRIBUTION_KINDS = ["watches", "sidecars"] as const;
+export const CONTRIBUTION_KINDS = ["watches", "sidecars", "skills"] as const;
 
 export type ContributionKind = typeof CONTRIBUTION_KINDS[number];
 
@@ -37,12 +37,15 @@ export interface SidecarContribution {
 export interface ExtensionContributions {
     readonly watches: readonly WatchContribution[];
     readonly sidecars: readonly SidecarContribution[];
+    // Skill directories relative to the extension directory.
+    readonly skills: readonly string[];
 }
 
 export const EMPTY_EXTENSION_CONTRIBUTIONS: ExtensionContributions = Object
     .freeze({
         watches: Object.freeze([]) as readonly WatchContribution[],
         sidecars: Object.freeze([]) as readonly SidecarContribution[],
+        skills: Object.freeze([]) as readonly string[],
     });
 
 export class ExtensionContributionError extends Error {
@@ -92,7 +95,46 @@ export function parseExtensionContributions(
     return {
         watches: parseWatchContributions(value.watches, extensionId),
         sidecars: parseSidecarContributions(value.sidecars, extensionId),
+        skills: parseSkillContributions(value.skills, extensionId),
     };
+}
+
+function parseSkillContributions(
+    value: unknown,
+    extensionId: string,
+): readonly string[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        throw new ExtensionContributionError(
+            extensionId,
+            "contributes.skills must be an array",
+        );
+    }
+    const directories: string[] = [];
+    for (const entry of value) {
+        if (
+            typeof entry !== "string"
+            || entry.trim().length === 0
+            || entry.startsWith("/")
+            || entry.split(/[\\/]/).includes("..")
+        ) {
+            throw new ExtensionContributionError(
+                extensionId,
+                "a skills contribution must be a relative directory inside the extension",
+            );
+        }
+        const directory = entry.trim();
+        if (directories.includes(directory)) {
+            throw new ExtensionContributionError(
+                extensionId,
+                `duplicate skills directory "${directory}"`,
+            );
+        }
+        directories.push(directory);
+    }
+    return Object.freeze(directories);
 }
 
 function parseSidecarContributions(
@@ -327,6 +369,7 @@ export function applyWatchConfigOverrides(
 
     return Object.freeze({
         sidecars: contributions.sidecars,
+        skills: contributions.skills,
         watches: Object.freeze(
             contributions.watches.map((watch) => {
                 const override = overrides[watch.id];

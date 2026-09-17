@@ -5,7 +5,7 @@ import type {
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 
 interface CommandHookConfig {
-    readonly phase: "pre_tool_use" | "post_tool_use";
+    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeout_ms?: number;
@@ -38,7 +38,7 @@ function configuredHooks(config: JsonValue): readonly CommandHookConfig[] {
 
 function parseHook(value: unknown): CommandHookConfig {
     if (!isPlainObject(value)
-        || (value.phase !== "pre_tool_use" && value.phase !== "post_tool_use")
+        || (value.phase !== "pre_tool_use" && value.phase !== "post_tool_use" && value.phase !== "session_start")
         || !Array.isArray(value.argv)
         || !value.argv.every((argument) => typeof argument === "string")
         || (value.protocol !== undefined

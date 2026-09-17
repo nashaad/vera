@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import { defaultHostExtensionConfigs } from "../../src/extensions/bundled-host.ts";
@@ -34,6 +35,11 @@ test("Plan options require explicit opt-in and preserve the skill allow-list", (
 
 async function client(extensions: readonly VeraExtensionConfig[]) {
     const failures: string[] = [];
+    const activity: string[] = [];
+    const unexpected = (operation: string): never => {
+        activity.push(operation);
+        throw new Error(`Unexpected activation call: ${operation}`);
+    };
     const registry = await startClientExtensionRegistry({
         extensions,
         preferences: { async get() { return undefined; }, async set() {}, async delete() {} },
@@ -46,13 +52,26 @@ async function client(extensions: readonly VeraExtensionConfig[]) {
         notice: { post() {} },
         agents: {
             visible: () => [],
-            async create() { throw new Error("No conversation should start during activation"); },
-            async open() { throw new Error("No conversation should open during activation"); },
-            async message() { throw new Error("No message should be sent during activation"); },
+            async create() { return unexpected("No conversation should start during activation"); },
+            async open() { return unexpected("No conversation should open during activation"); },
+            async message() { return unexpected("No message should be sent during activation"); },
         },
         mentions: { set() {} },
+        context: {
+            current() { return unexpected("No context read during activation"); },
+            async sources() { return unexpected("No source scan during activation"); },
+        },
+        sessions: { async list() { return unexpected("No session scan during activation"); } },
+        experimentalTui: {
+            mount() { return unexpected("No view during activation"); },
+            mountRenderable() { return unexpected("No view during activation"); },
+            openDocument() { return unexpected("No document during activation"); },
+            events: { on: () => () => {} },
+            agentSurface: { current: () => undefined, cycleLayout: () => false, toggleFocus: () => false },
+        },
         onFailure: (failure) => failures.push(failure.message),
     });
+    expect(activity).toEqual([]);
     return { registry, failures };
 }
 
@@ -77,11 +96,15 @@ test("included host extensions start with a bounded Plan and no command hooks", 
     }
 });
 
-test("included client extensions expose BTW and Pair without a planning suggestion", async () => {
+test("included client extensions register commands without starting work", async () => {
     const { registry, failures } = await client(bundledClientExtensionConfigs([]));
     try {
         expect(failures).toEqual([]);
         expect(registry.loadedExtensionIds()).toContain("vera.btw");
+        expect(registry.loadedExtensionIds()).toContain("example.context");
+        for (const name of ["context", "dashboard"]) {
+            expect(registry.commands().filter((entry) => entry.name === name)).toHaveLength(1);
+        }
         expect(registry.commands().find((entry) => entry.name === "diff")).toBeDefined();
         expect(registry.loadedExtensionIds()).toContain("example.plan");
         expect(registry.commands().filter((entry) => ["btw", "pair"].includes(entry.name)))
@@ -93,7 +116,7 @@ test("included client extensions expose BTW and Pair without a planning suggesti
 });
 
 test("each included battery can be disabled on both applicable sides", () => {
-    const disabled = ["example.command-hooks", "example.plan", "vera.btw", "vera.diff"];
+    const disabled = ["example.command-hooks", "example.plan", "vera.btw", "vera.diff", "example.context"];
     for (const id of disabled) {
         expect(ids(defaultHostExtensionConfigs(disabled))).not.toContain(id);
         expect(ids(bundledClientExtensionConfigs(disabled))).not.toContain(id);
@@ -159,3 +182,34 @@ test("malformed supplied hook configuration still fails activation", async () =>
         await registry.close();
     }
 });
+
+test("the legacy Context path resolves to the canonical package", () => {
+    expect(realpathSync(join(root, "examples/extensions/context")))
+        .toBe(realpathSync(join(root, "extensions/context")));
+});
+
+for (const mode of ["override", "disabled-copy", "disabled-builtin"] as const) {
+    test(`Context ${mode} retains ID-based command ownership`, async () => {
+        const explicit = mode === "disabled-builtin" ? [] : [{
+            path: join(root, "examples/extensions/context"),
+            enabled: mode === "override",
+            config: { retained: true },
+        }];
+        const entries = configuredTuiClientExtensions(
+            mode === "disabled-builtin" ? ["example.context"] : [], explicit,
+        );
+        const context = entries.filter((entry) => loadExtensionManifest(entry.path).manifest.id === "example.context");
+        expect(context).toHaveLength(mode === "disabled-builtin" ? 0 : 1);
+        if (mode !== "disabled-builtin") expect(context[0]).toEqual(explicit[0]);
+        const { registry, failures } = await client(entries);
+        try {
+            expect(failures).toEqual([]);
+            for (const name of ["context", "dashboard"]) {
+                expect(registry.commands().filter((entry) => entry.name === name))
+                    .toHaveLength(mode === "override" ? 1 : 0);
+            }
+        } finally {
+            await registry.close();
+        }
+    });
+}

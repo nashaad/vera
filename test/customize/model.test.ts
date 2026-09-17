@@ -29,5 +29,6 @@ test("catalog availability does not claim loading before a measurement", () => {
     expect(sourceWasLoaded(source, measured)).toBe(true);
     expect(sourceStatus(source, measured)).toBe("loaded in last measured request");
     expect(sourceStatus({ ...source, category: "skills", contextIds: [] }, measured)).toContain("individual loading not measured");
+    expect(sourceStatus({ ...source, category: "skills", status: "disabled", contextIds: [] }, measured)).toBe("disabled by disabled_skills");
 });
 

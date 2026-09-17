@@ -62,3 +62,12 @@ test("reasoning cycle is a default bundled extension with no private tier", () =
     expect(bundledClientExtensionConfigs(["vera.reasoning-cycle"]))
         .not.toContainEqual(configured);
 });
+
+
+test("Context is a default client-only package with its existing ID", () => {
+    const configs = bundledClientExtensionConfigs([]);
+    const configured = configs.find((config) => loadExtensionManifest(config.path).manifest.id === "example.context");
+    expect(configured).toMatchObject({ enabled: true, config: {} });
+    expect(configured?.path).toEndWith("/extensions/context");
+    expect(bundledClientExtensionConfigs(["example.context"])).not.toContainEqual(configured);
+});

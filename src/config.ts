@@ -206,7 +206,7 @@ export interface VeraTuiConfig {
  * config that travels between machines cannot point at an arbitrary binary.
  */
 export interface VeraHookConfig {
-    readonly phase: "pre_tool_use" | "post_tool_use";
+    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeout_ms?: number;
@@ -249,6 +249,8 @@ export interface VeraConfig {
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly hooks?: readonly VeraHookConfig[];
     readonly disabled_builtin_extensions?: readonly string[];
+    // Skill names; a trailing `*` matches a prefix, so `["*"]` turns skills off.
+    readonly disabled_skills?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
     readonly tool_results?: VeraToolResultsConfig;
@@ -1153,6 +1155,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const disabledPromptContributions = parseStringList(
         config.disabled_prompt_contributions,
     );
+    const disabledSkills = parseSkillPatterns(config.disabled_skills);
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
     const toolResults = parseToolResultsConfig(config.tool_results);
@@ -1185,6 +1188,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || hooks === undefined
         || disabledBuiltinExtensions === undefined
         || disabledPromptContributions === undefined
+        || disabledSkills === undefined
         || experimental === undefined
         || inbox === undefined
         || toolResults === undefined
@@ -1265,6 +1269,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : {
                 disabled_prompt_contributions: disabledPromptContributions,
             }),
+        ...(config.disabled_skills === undefined
+            ? {}
+            : { disabled_skills: disabledSkills }),
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.inbox === undefined ? {} : { inbox }),
         ...(config.tool_results === undefined
@@ -1763,6 +1770,17 @@ export function tipsEnabled(config: Pick<VeraConfig, "tips">): boolean {
     return config.tips?.enabled !== false;
 }
 
+function parseSkillPatterns(value: unknown): readonly string[] | undefined {
+    const patterns = parseStringList(value);
+    if (
+        patterns === undefined
+        || patterns.some((pattern) => pattern.slice(0, -1).includes("*"))
+    ) {
+        return undefined;
+    }
+    return patterns;
+}
+
 function parseStringList(value: unknown): readonly string[] | undefined {
     if (value === undefined) {
         return [];
@@ -1804,7 +1822,7 @@ function parseHookConfigs(
         const hook = item as Record<string, unknown>;
         const { phase, argv, protocol, timeout_ms } = hook;
         if (
-            (phase !== "pre_tool_use" && phase !== "post_tool_use")
+            (phase !== "pre_tool_use" && phase !== "post_tool_use" && phase !== "session_start")
             || !Array.isArray(argv)
             || argv.length === 0
             || argv.some((argument) =>

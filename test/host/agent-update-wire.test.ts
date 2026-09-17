@@ -897,3 +897,13 @@ test("custom question labels survive decoding and reject invalid values", () => 
     expect(parseAgentUpdate({ ...update, request: { ...update.request, customLabel: 3 } })).toBeUndefined();
     expect(parseAgentUpdate({ ...update, request: { ...update.request, allowNotes: "false" } })).toBeUndefined();
 });
+
+test("history accepts transcript notices and rejects malformed ones", () => {
+    for (const tone of ["primary", "soft", "error"] as const) {
+        const update = { type: "history" as const, seq: 1, entries: [{ kind: "harness" as const, text: "context", tone }] };
+        expect(parseAgentUpdate(update)).toEqual(update);
+    }
+    for (const entry of [{ kind: "harness", text: 3, tone: "soft" }, { kind: "harness", text: "context", tone: "invalid" }]) {
+        expect(parseAgentUpdate({ type: "history", seq: 1, entries: [entry] })).toBeUndefined();
+    }
+});

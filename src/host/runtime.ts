@@ -183,6 +183,7 @@ import { createCommandHook } from "../extensions/command-hook.ts";
 import type {
     PostToolUseHook,
     PreToolUseHook,
+    SessionStartHook,
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
@@ -792,13 +793,20 @@ export async function startResidentHost(
             ];
         },
         createToolHooks: () => {
-            const hooks = new ToolHooks();
+            const hooks = new ToolHooks((failure) => hostLog({
+                type: "session_start_hook_failed",
+                level: "warn",
+                ...failure,
+            }));
             registerConfiguredHooks(hooks, currentConfig());
             for (const hook of extensions.preToolUseHooks()) {
                 hooks.registerPreToolUse(hook);
             }
             for (const hook of extensions.postToolUseHooks()) {
                 hooks.registerPostToolUse(hook);
+            }
+            for (const hook of extensions.sessionStartHooks()) {
+                hooks.registerSessionStart(hook);
             }
             for (const hook of extensions.preTurnHooks()) {
                 hooks.registerPreTurn(hook);
@@ -2444,7 +2452,9 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
                 ? {}
                 : { timeoutMs: spec.timeout_ms }),
         });
-        if (spec.phase === "pre_tool_use") {
+        if (spec.phase === "session_start") {
+            hooks.registerSessionStart(hook as SessionStartHook);
+        } else if (spec.phase === "pre_tool_use") {
             hooks.registerPreToolUse(hook as PreToolUseHook);
         } else {
             hooks.registerPostToolUse(hook as PostToolUseHook);

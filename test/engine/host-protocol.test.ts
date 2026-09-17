@@ -206,6 +206,16 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
             options: { timeoutMs: 1000 },
         },
         {
+            method: "hook.sessionStart",
+            payload: {
+                type: "session_start",
+                sessionId: "s1",
+                workspace: "/w",
+                reason: "resume",
+            },
+            options: { timeoutMs: 1000 },
+        },
+        {
             method: "compaction.complete",
             callId: "c6",
             role: "summarizer",

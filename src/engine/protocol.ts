@@ -2510,6 +2510,9 @@ export function projectTranscript(
             );
         };
         if (message.internal === true) {
+            if (message.role === "user" && message.contextSource === "session_start") {
+                push({ kind: "harness", text: textContent(message.content), tone: "soft" });
+            }
             appendHarnessMessages(index + 1);
             continue;
         }

@@ -10,7 +10,7 @@ import {
     contextReportLines,
     contextReportMarkdown,
     formatKilobytes,
-} from "../../examples/extensions/context/context-report.ts";
+} from "../../extensions/context/context-report.ts";
 import {
     startClientExtensionRegistry,
     type ClientExtensionExperimentalTuiAdapter,

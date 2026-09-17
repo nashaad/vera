@@ -49,6 +49,7 @@ export interface UserMessage {
     readonly role: "user";
     readonly content: readonly UserContent[];
     readonly internal?: boolean;
+    readonly contextSource?: "session_start";
     /** Compaction may summarize history before this message, never across it. */
     readonly compactionBarrier?: boolean;
 }

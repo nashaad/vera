@@ -213,7 +213,7 @@ function createExtension(): string {
     }));
     const dashboard = join(
         import.meta.dir,
-        "../../examples/extensions/context/dashboard.ts",
+        "../../extensions/context/dashboard.ts",
     );
     writeFileSync(join(directory, "extension.ts"), `
         import { registerDashboard } from ${JSON.stringify(dashboard)};

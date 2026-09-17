@@ -212,12 +212,22 @@ function reloadClientExtensionsForList(rt: TuiRuntime): void {
 
 function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
     const entries = [...listExtensions({ projectRoot: process.cwd() })];
+    const clientEnabled = new Map<string, boolean>();
+    for (const config of rt.configuredClientExtensions) {
+        try {
+            const { manifest } = loadExtensionManifest(config.path);
+            clientEnabled.set(manifest.id, config.enabled);
+        } catch {
+            // Activation reports invalid configured paths separately.
+        }
+    }
     const paths = [...defaultHostExtensionConfigs([]), ...bundledClientExtensionConfigs([])];
     for (const config of paths) {
         const { manifest } = loadExtensionManifest(config.path);
         if (entries.some((entry) => entry.id === manifest.id)) continue;
         entries.push({ id: manifest.id, version: manifest.version, scope: "profile", bundled: true,
-            enabled: !rt.disabledBuiltinExtensions.includes(manifest.id), managed: false,
+            enabled: clientEnabled.get(manifest.id)
+                ?? !rt.disabledBuiltinExtensions.includes(manifest.id), managed: false,
             path: config.path, source: "Bundled", capabilities: manifest.capabilities });
     }
     return entries;

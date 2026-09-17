@@ -6,10 +6,9 @@ draft: true
 
 # Python review workflow example
 
-This example requires `provider` and `model` arguments that the current Python
-SDK does not accept. It is preserved here as a draft and cannot run against
-the current SDK. Its references to overlapping calls also do not describe
-Halcyon's serial `.submit` behavior.
+This review example remains unvalidated. The SDK now accepts `provider` and
+`model` and makes live calls. References below to overlapping calls do not
+describe Halcyon’s serial `.submit` behavior.
 
 ## Example
 

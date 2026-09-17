@@ -21,6 +21,11 @@ test("an installed release activates included batteries without checkout example
             import { startExtensionRegistry } from "./src/extensions/registry.ts";
             import { startClientExtensionRegistry } from "./src/extensions/client-registry.ts";
             const failures = [];
+            const activity = [];
+            const unexpected = (operation) => {
+                activity.push(operation);
+                throw new Error("Unexpected activation call: " + operation);
+            };
             const host = await startExtensionRegistry({
                 extensions: defaultHostExtensionConfigs([]),
                 onFailure: (failure) => failures.push(failure.message),
@@ -37,16 +42,29 @@ test("an installed release activates included batteries without checkout example
                 notice: { post() {} },
                 agents: {
                     visible: () => [],
-                    async create() { throw new Error("Unexpected creation"); },
-                    async open() { throw new Error("Unexpected open"); },
-                    async message() { throw new Error("Unexpected message"); },
+                    async create() { return unexpected("Unexpected creation"); },
+                    async open() { return unexpected("Unexpected open"); },
+                    async message() { return unexpected("Unexpected message"); },
                 },
                 mentions: { set() {} },
+                context: {
+                    current() { return unexpected("Unexpected context read"); },
+                    async sources() { return unexpected("Unexpected source scan"); },
+                },
+                sessions: { async list() { return unexpected("Unexpected session scan"); } },
+                experimentalTui: {
+                    mount() { return unexpected("Unexpected view"); },
+                    mountRenderable() { return unexpected("Unexpected view"); },
+                    openDocument() { return unexpected("Unexpected document"); },
+                    events: { on: () => () => {} },
+                    agentSurface: { current: () => undefined, cycleLayout: () => false, toggleFocus: () => false },
+                },
                 onFailure: (failure) => failures.push(failure.message),
             });
             try {
                 console.log(JSON.stringify({
                     failures,
+                    activity,
                     plan: host.agents().find((entry) => entry.name === "plan"),
                     preHooks: host.preToolUseHooks().length,
                     postHooks: host.postToolUseHooks().length,
@@ -70,11 +88,15 @@ test("an installed release activates included batteries without checkout example
         expect(code).toBe(0);
         const result = JSON.parse(stdout);
         expect(result.failures).toEqual([]);
+        expect(result.activity).toEqual([]);
         expect(result.plan.tools).toEqual(["read", "grep", "list"]);
         expect(result.preHooks).toBe(0);
         expect(result.postHooks).toBe(0);
         expect(result.commands).toContain("btw");
         expect(result.commands).toContain("pair");
+        for (const name of ["context", "dashboard"]) {
+            expect(result.commands.filter((entry: string) => entry === name)).toHaveLength(1);
+        }
         expect(result.suggestions).toBe(0);
     } finally {
         rmSync(scratch, { recursive: true, force: true });

@@ -57,6 +57,7 @@ export interface RunHeadlessLoopData {
     readonly sessionId?: string;
     readonly sessionPath?: string;
     readonly resumeSessionPath?: string;
+    readonly sessionStartReason?: "start" | "resume";
     readonly eventLogPath?: string;
     readonly approvalMode?: ApprovalMode;
     readonly enabledToolEffects?: readonly ToolEffect["type"][];

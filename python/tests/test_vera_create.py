@@ -74,6 +74,10 @@ class TestVeraCreate(unittest.TestCase):
             Agent(name="reviewer", instructions="  ")
         with self.assertRaises(ValueError):
             Agent(name="reviewer", instructions="Review.", tools=[""])
+        with self.assertRaises(ValueError):
+            Agent(name="reviewer", instructions="Review.", provider=" ")
+        with self.assertRaises(ValueError):
+            Agent(name="reviewer", instructions="Review.", model="")
 
     def test_workflow_still_imports(self) -> None:
         from vera.workflow.api import step, workflow

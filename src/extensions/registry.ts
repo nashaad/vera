@@ -37,6 +37,7 @@ import type {
     PreToolUseHookPayload,
     PreToolUseHookResult,
     PreTurnHook,
+    SessionStartHook,
     PreTurnHookPayload,
     PreTurnHookResult,
     RegisteredModelRequestHook,
@@ -74,6 +75,7 @@ const MAX_EXTENSION_HOOK_BYTES = 64 * 1024;
 const MAX_EXTENSION_DIFF_LINES = 400;
 const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
 const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
+const SESSION_START_HOOK_CAPABILITY = "hooks.session_start";
 const PRE_TURN_HOOK_CAPABILITY = "hooks.pre_turn";
 const MODEL_REQUEST_HOOK_CAPABILITY = "hooks.model_request";
 const SESSION_IDENTITY_CAPABILITY = "sessions.identity";
@@ -112,6 +114,7 @@ export interface ExtensionRegistry {
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
     preTurnHooks(): readonly PreTurnHook[];
+    sessionStartHooks(): readonly SessionStartHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
     sessionIdentity(): SessionIdentityProvider | undefined;
     contributions(): HostContributionSet;
@@ -148,6 +151,7 @@ interface LoadedRegistryExtension {
     readonly preToolUseHooks: readonly PreToolUseHook[];
     readonly postToolUseHooks: readonly PostToolUseHook[];
     readonly preTurnHooks: readonly PreTurnHook[];
+    readonly sessionStartHooks: readonly SessionStartHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly disposers: readonly VeraExtensionDisposer[];
@@ -323,6 +327,9 @@ export async function startExtensionRegistry(
         postToolUseHooks(): readonly PostToolUseHook[] {
             return loaded.flatMap((extension) => extension.postToolUseHooks);
         },
+        sessionStartHooks(): readonly SessionStartHook[] {
+            return loaded.flatMap((extension) => extension.sessionStartHooks);
+        },
         preTurnHooks(): readonly PreTurnHook[] {
             return loaded.flatMap((extension) => extension.preTurnHooks);
         },
@@ -471,6 +478,7 @@ async function activateExtension(
     const preToolUseHooks: PreToolUseHook[] = [];
     const postToolUseHooks: PostToolUseHook[] = [];
     const preTurnHooks: PreTurnHook[] = [];
+    const sessionStartHooks: SessionStartHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
@@ -631,6 +639,19 @@ async function activateExtension(
                 postToolUseHooks.push(safe);
                 return () => removeHook(postToolUseHooks, safe);
             },
+            registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Extension hooks must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(SESSION_START_HOOK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_START_HOOK_CAPABILITY}`);
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid session-start hook registration");
+                }
+                sessionStartHooks.push(hook);
+                return () => removeHook(sessionStartHooks, hook);
+            },
             registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
@@ -689,6 +710,11 @@ async function activateExtension(
                 }
                 const command = normalizeCommandHookSpec(spec);
                 const hook = createCommandHook(command);
+                if (command.phase === "session_start") {
+                    const startHook = hook as SessionStartHook;
+                    sessionStartHooks.push(startHook);
+                    return () => removeHook(sessionStartHooks, startHook);
+                }
                 if (command.phase === "pre_tool_use") {
                     const safe = safePreToolHook(hook as PreToolUseHook);
                     preToolUseHooks.push(safe);
@@ -751,6 +777,7 @@ async function activateExtension(
             preToolUseHooks,
             postToolUseHooks,
             preTurnHooks,
+            sessionStartHooks,
             modelRequestHooks,
             sessionState,
             modelMiddleware,

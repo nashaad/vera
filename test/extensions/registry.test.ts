@@ -637,7 +637,7 @@ test("Claude command-hook compatibility rejects unsupported responses", async ()
         phase: "post_tool_use",
         protocol: "claude",
         argv: [process.execPath, "-e", "console.log('{}')"],
-    })).toThrow("support pre_tool_use only");
+    })).toThrow("does not support post_tool_use");
 });
 
 test("command hooks reject oversized input before spawning a process", async () => {

@@ -16,6 +16,7 @@ export function sourceWasLoaded(source: CustomizationSource, context: VeraClient
 
 export function sourceStatus(source: CustomizationSource, context: VeraClientContextSnapshot): string {
     if (source.status === "unreadable") return "source unavailable";
+    if (source.category === "skills" && source.status === "disabled") return "disabled by disabled_skills";
     if (sourceWasLoaded(source, context)) return "loaded in last measured request";
     if (source.category === "skills") return "available; individual loading not measured";
     if (source.category === "extensions") return source.status ?? "available";

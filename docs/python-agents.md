@@ -1,30 +1,42 @@
 ---
 title: "Run Vera from Python"
-description: "Create an isolated Python instance and run its echo-only entry point."
+description: "Run model requests from Python using your Vera configuration."
 ---
 
 # Run Vera from Python
 
-The Python SDK provides `Agent`, `Vera.create()`, and `Vera.run()`. The current
-`run()` implementation echoes the prompt back. It does not call a model.
-It runs from a Vera checkout and starts a Bun child process.
+The Python SDK runs Vera through a Bun child process. It uses your selected
+Vera home's configuration and credentials. [Connect a provider](/models/)
+before running a request with the configured default model.
 
-## Create and close an instance
+## Run a request
+
+Run this from an environment where the checkout's `python` directory is on
+`PYTHONPATH` and Bun is available:
 
 ```python
 from vera.agent import Agent
 from vera.instance import Vera
 
-vera = Vera.create(workspace="/path/to/project")
-try:
-    reply = vera.run(Agent(name="summarizer", instructions="Be brief."), "Hello")
+with Vera.create(workspace="/path/to/project") as vera:
+    reply = vera.run(
+        Agent(name="summarizer", instructions="Be brief.", tools=[]),
+        "Explain what a Python context manager does.",
+    )
     print(reply)
-finally:
-    vera.close()
 ```
 
-This prints `Hello`. The instructions do not change the echoed response.
-`Agent` accepts `name`, `instructions`, `tools`, and `posture`.
+`Agent` accepts `name`, `instructions`, `tools`, and `posture`. Set `provider`
+and `model` to choose a connected provider and model for that request.
 
-Each instance uses a private temporary home and removes it on close. It does
-not write your daily home or change the Python process's environment.
+## Continue a conversation
+
+Pass the same `session` name to successive `run()` calls on an instance to
+continue a conversation. Without a session name, each call starts fresh.
+The optional `timeout` argument sets the request timeout in seconds.
+
+## Close an instance
+
+The context manager closes the child process and removes its temporary runtime
+directory. If you create an instance without `with`, call `vera.close()` when
+you finish. The temporary runtime directory is separate from your Vera home.

@@ -1,4 +1,7 @@
 import type {
+    SessionStartHook,
+    SessionStartHookPayload,
+    SessionStartHookResult,
     HookToolCall,
     HookToolResult,
     PostToolUseHook,
@@ -11,6 +14,20 @@ import type {
     PreTurnHookPayload,
     PreTurnHookResult,
 } from "../sdk/hooks.ts";
+
+export const MAX_SESSION_START_CONTEXT_BYTES = 128 * 1024;
+
+export interface SessionStartContribution {
+    readonly index: number;
+    readonly context: string;
+}
+
+export interface SessionStartHookFailure {
+    readonly sessionId: string;
+    readonly reason: SessionStartHookPayload["reason"];
+    readonly index: number;
+    readonly error: string;
+}
 
 export interface HookCallOptions {
     readonly timeoutMs: number;
@@ -30,6 +47,50 @@ export class ToolHooks {
     private readonly preToolUse: PreToolUseHook[] = [];
     private readonly postToolUse: PostToolUseHook[] = [];
     private readonly preTurn: PreTurnHook[] = [];
+    private readonly sessionStart: SessionStartHook[] = [];
+
+    constructor(
+        private readonly onSessionStartFailure?: (failure: SessionStartHookFailure) => void,
+    ) {}
+
+    registerSessionStart(hook: SessionStartHook): () => void {
+        this.sessionStart.push(hook);
+        return () => removeHook(this.sessionStart, hook);
+    }
+
+    async runSessionStart(
+        payload: SessionStartHookPayload,
+        options: HookCallOptions,
+    ): Promise<readonly SessionStartContribution[]> {
+        const contributions: SessionStartContribution[] = [];
+        for (const [index, hook] of [...this.sessionStart].entries()) {
+            try {
+                const deadline = hookDeadline(options.timeoutMs);
+                const result = await callHook(
+                    async () => cloneHookData(await hook(cloneHookData(payload))),
+                    options.timeoutMs,
+                    options.timeoutMs,
+                    payload.type,
+                );
+                assertSessionStartHookResult(result);
+                remainingTime(deadline, options.timeoutMs, payload.type);
+                if (result.power === "mutate" && result.context.length > 0) {
+                    contributions.push({ index: index + 1, context: result.context });
+                }
+            } catch (error) {
+                console.warn(`session_start hook ${index + 1} failed: ${String(error)}`);
+                try {
+                    this.onSessionStartFailure?.({
+                        sessionId: payload.sessionId,
+                        reason: payload.reason,
+                        index: index + 1,
+                        error: String(error),
+                    });
+                } catch {}
+            }
+        }
+        return contributions;
+    }
 
     registerPreToolUse(hook: PreToolUseHook): () => void {
         this.preToolUse.push(hook);
@@ -208,6 +269,22 @@ export function restrictOfferedToolNames(
         return kept.includes("process") ? kept : [...kept, "process"];
     }
     return kept;
+}
+
+function assertSessionStartHookResult(
+    result: unknown,
+): asserts result is SessionStartHookResult {
+    assertHookResultObject(result, "session_start");
+    if (result.power === "observe") return;
+    if (result.power !== "mutate") {
+        throw new Error(`session_start returned unsupported power: ${String(result.power)}`);
+    }
+    if (typeof result.context !== "string") {
+        throw new Error("session_start mutate context must be a string");
+    }
+    if (Buffer.byteLength(result.context, "utf8") > MAX_SESSION_START_CONTEXT_BYTES) {
+        throw new Error("session_start context exceeds 128 KiB");
+    }
 }
 
 function assertPreToolUseHookResult(

@@ -41,6 +41,7 @@ import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
     PreTurnHookPayload,
+    SessionStartHookPayload,
 } from "../sdk/hooks.ts";
 import type {
     ToolEffect,
@@ -356,6 +357,12 @@ export interface PostToolUseHookRequest {
     readonly options: HookCallOptions;
 }
 
+export interface SessionStartHookRequest {
+    readonly method: "hook.sessionStart";
+    readonly payload: SessionStartHookPayload;
+    readonly options: HookCallOptions;
+}
+
 export interface PreTurnHookRequest {
     readonly method: "hook.preTurn";
     readonly payload: PreTurnHookPayload;
@@ -402,6 +409,7 @@ export type WorkerRequest =
     | PreToolUseHookRequest
     | PostToolUseHookRequest
     | PreTurnHookRequest
+    | SessionStartHookRequest
     | CompactionCompleteRequest;
 
 export interface SelectAgentReply {
@@ -551,6 +559,7 @@ export const HOST_PROTOCOL_METHODS = [
     "hook.preToolUse",
     "hook.postToolUse",
     "hook.preTurn",
+    "hook.sessionStart",
     "compaction.complete",
     "event.emit",
     "reviewLog.append",

@@ -1,3 +1,4 @@
+import { ToolHooks } from "../engine/hooks.ts";
 import { modelSelectionCleared } from "./model-catalog-settings.ts";
 import { randomUUID } from "node:crypto";
 import { link, mkdir, mkdtemp, readdir, realpath, rm, rmdir, unlink } from "node:fs/promises";
@@ -603,6 +604,7 @@ export class AgentRegistry {
         clientPromptRefusal?: string,
         ephemeral = false,
         pendingPublication = false,
+        sessionStartReason: "start" | "resume" = "start",
     ): Promise<ResidentAgent> {
         const identity = await this.bindSessionIdentity(store);
         const startupProfile = store.header.contextAssemblyMode ?? "default";
@@ -935,6 +937,7 @@ export class AgentRegistry {
             }
         };
         const loopData: RunHeadlessLoopData = {
+                sessionStartReason,
                 eventLogPath,
                 approvalMode: entry.approvalMode,
                 toolEnv: entry.identity?.env ?? {},
@@ -956,6 +959,12 @@ export class AgentRegistry {
                 offerTools: startupProfile !== "prompt_only",
                 loadOptionalContext: startupProfile === "default",
         };
+        const hooks = startupProfile === "default"
+            ? this.options.createToolHooks?.() ?? new ToolHooks()
+            : new ToolHooks();
+        for (const hook of projectExtensions?.sessionStartHooks() ?? []) {
+            hooks.registerSessionStart(hook);
+        }
         const loopServices: RunHeadlessLoopServices = {
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
@@ -1051,10 +1060,7 @@ export class AgentRegistry {
                     readPermissionPreferences: () =>
                         this.options.permissionPreferences!.list(),
                 }),
-                ...(startupProfile !== "default"
-                        || this.options.createToolHooks === undefined
-                    ? {}
-                    : { hooks: this.options.createToolHooks() }),
+                hooks,
                 router: {
                     onInboundReady: (inbound) => {
                         entry.inbound = inbound;

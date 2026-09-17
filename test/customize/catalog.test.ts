@@ -66,3 +66,55 @@ test("included extension status respects explicit copies and disabled IDs", asyn
     expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "bundled"))
         .toMatchObject({ status: "shadowed" });
 });
+
+
+for (const mode of ["included", "disabled-builtin", "override", "disabled-copy"] as const) {
+    test(`Context catalog reports ${mode}`, async () => {
+        const root = await mkdtemp(join(tmpdir(), "customize-context-")); roots.push(root);
+        const home = join(root, "home");
+        const workspace = join(root, "project");
+        process.env.VERA_HOME = home;
+        await mkdir(home, { recursive: true });
+        await mkdir(workspace, { recursive: true });
+        const explicit = mode === "override" || mode === "disabled-copy";
+        await writeFile(join(home, "config.json"), JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            disabled_builtin_extensions: mode === "disabled-builtin" ? ["example.context"] : [],
+            extensions: explicit ? [{
+                path: join(import.meta.dir, "../../examples/extensions/context"),
+                enabled: mode === "override",
+            }] : [],
+        }));
+        const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+        const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+        const entries = catalog.sources.filter((source) => source.name === "example.context");
+        expect(entries.find((source) => source.scope === "bundled"))
+            .toMatchObject({ status: explicit ? "shadowed" : mode === "included" ? "enabled" : "disabled" });
+        if (explicit) expect(entries.find((source) => source.scope === "user"))
+            .toMatchObject({ status: mode === "override" ? "enabled" : "disabled" });
+    });
+}
+
+test("skills turned off by disabled_skills still appear, marked disabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-skills-")); roots.push(root);
+    const home = join(root, "home");
+    const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(workspace, { recursive: true });
+    await mkdir(join(home, "skills/review"), { recursive: true });
+    await writeFile(join(home, "skills/review/SKILL.md"), "---\nname: review\ndescription: Review code\n---\nBody\n");
+    await writeFile(join(home, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "faux/test",
+        disabled_skills: ["review", "vera-*"],
+    }));
+    const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+    const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+    const skills = catalog.sources.filter((source) => source.category === "skills");
+    expect(skills.find((source) => source.name === "review")?.status).toBe("disabled");
+    expect(skills.find((source) => source.name === "vera-help")?.status).toBe("disabled");
+    expect(skills.find((source) => source.name === "create-agent")?.status).not.toBe("disabled");
+});

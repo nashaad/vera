@@ -4,6 +4,7 @@ import type {
     PostToolUseHook,
     PreToolUseHook,
     PreTurnHook,
+    SessionStartHook,
 } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type {
@@ -115,6 +116,7 @@ export interface VeraExtensionHooks {
     registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
     registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer;
+    registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer;
     registerModelRequest(
         namespace: string,
         hook: ModelRequestHook,
@@ -123,7 +125,7 @@ export interface VeraExtensionHooks {
 }
 
 export interface VeraExtensionCommandHookSpec {
-    readonly phase: "pre_tool_use" | "post_tool_use";
+    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
     /** Executable plus arguments; never interpreted by a shell. */
     readonly argv: readonly string[];
     /** Wire format used on stdin/stdout. Defaults to Vera's native format. */

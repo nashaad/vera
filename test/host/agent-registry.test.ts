@@ -1063,12 +1063,24 @@ test("session rename reaches a session nobody is attached to", async () => {
 
 test("failed session trash restores an available resident agent", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-trash-failure-"));
+    const reasons: string[] = [];
+    const started = Promise.withResolvers<void>();
+    const recovered = Promise.withResolvers<void>();
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         model: "faux/test",
         approvalMode: "auto",
         trashSessionArtifacts: () =>
             Promise.reject(new Error("trash unavailable")),
+        createToolHooks: () => {
+            const hooks = new ToolHooks();
+            hooks.registerSessionStart((payload) => {
+                reasons.push(payload.reason);
+                (reasons.length === 1 ? started : recovered).resolve();
+                return { power: "observe" };
+            });
+            return hooks;
+        },
     });
     const targetPath = join(root, "target.jsonl");
 
@@ -1079,7 +1091,10 @@ test("failed session trash restores an available resident agent", async () => {
             sessionPath: targetPath,
         });
 
+        await started.promise;
         expect(await registry.trashSession("target")).toBe("failed");
+        await recovered.promise;
+        expect(reasons).toEqual(["start", "resume"]);
         expect(registry.find("target")).toBeDefined();
         expect(registry.list()).toMatchObject([{ id: "target", status: "idle" }]);
     } finally {

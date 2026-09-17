@@ -15,6 +15,8 @@ class Agent:
         instructions: str,
         tools: list[str] | None = None,
         posture: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> None:
         if _AGENT_NAME.fullmatch(name) is None:
             raise ValueError(
@@ -41,7 +43,17 @@ class Agent:
                 raise ValueError("Agent posture must be a non-empty name")
             normalized_posture = posture.strip()
 
+        self.provider = _optional_name(provider, "provider")
+        self.model = _optional_name(model, "model")
         self.name = name
         self.instructions = normalized_instructions
         self.tools = normalized_tools
         self.posture = normalized_posture
+
+
+def _optional_name(value: str | None, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Agent {field} must be a non-empty string")
+    return value.strip()

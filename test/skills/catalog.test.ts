@@ -140,3 +140,72 @@ test("catalog discovery follows a symlinked skill directory", async () => {
     ]);
     expect(catalog.warnings).toEqual([]);
 });
+
+test("disabled skills leave the catalog and are listed separately", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const userDirectory = join(root, "user");
+    writeSkill(userDirectory, "review", "user review");
+    writeSkill(userDirectory, "data-clean", "clean");
+    writeSkill(userDirectory, "data-plot", "plot");
+
+    const catalog = await loadSkillCatalog({
+        projectRoot: join(root, "project"),
+        userDirectory,
+        systemDirectory: join(root, "system"),
+        disabledSkills: ["review", "data-*"],
+        extensionRoots: [],
+    });
+
+    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([]);
+    expect(catalog.disabledSkills.map((skill) => skill.metadata.name)).toEqual([
+        "data-clean",
+        "data-plot",
+        "review",
+    ]);
+});
+
+test("a lone star disables every skill including bundled ones", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const catalog = await loadSkillCatalog({
+        projectRoot: join(root, "project"),
+        userDirectory: join(root, "user"),
+        disabledSkills: ["*"],
+        extensionRoots: [],
+    });
+
+    expect(catalog.skills).toEqual([]);
+    expect(catalog.disabledSkills.map((skill) => skill.metadata.name)).toEqual([
+        "create-agent",
+        "vera-help",
+    ]);
+});
+
+test("extension skills sit between bundled and user skills", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const systemDirectory = join(root, "system");
+    const extensionDirectory = join(root, "extension");
+    const userDirectory = join(root, "user");
+    const projectRoot = join(root, "project");
+    writeSkill(systemDirectory, "analyze", "bundled analyze");
+    writeSkill(extensionDirectory, "analyze", "extension analyze");
+    writeSkill(extensionDirectory, "plot", "extension plot");
+    writeSkill(systemDirectory, "plot", "bundled plot");
+    writeSkill(userDirectory, "plot", "user plot");
+    writeSkill(extensionDirectory, "notebook", "extension notebook");
+    writeSkill(projectSkillDirectory(projectRoot), "notebook", "project notebook");
+
+    const catalog = await loadSkillCatalog({
+        projectRoot,
+        userDirectory,
+        systemDirectory,
+        disabledSkills: [],
+        extensionRoots: [{ extensionId: "vera.kernel", path: extensionDirectory }],
+    });
+
+    const byName = new Map(catalog.skills.map((skill) => [skill.metadata.name, skill]));
+    expect(byName.get("analyze")?.scope).toBe("extension");
+    expect(byName.get("analyze")?.extensionId).toBe("vera.kernel");
+    expect(byName.get("analyze")?.metadata.description).toBe("extension analyze");
+    expect(byName.get("plot")?.scope).toBe("user");
+    expect(byName.get("notebook")?.scope).toBe("project");
+});

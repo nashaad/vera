@@ -6,9 +6,7 @@ draft: true
 
 # Python model calls
 
-This draft describes a live model path that is not implemented. The Python
-`Agent` constructor does not accept `provider` or `model`, and `run()` echoes
-the prompt. The examples below do not work with the current SDK.
+This archived draft predates live Python SDK support. See [Run Vera from Python](/python-agents/) for current usage. The credential, reasoning-effort, and timeout details below have not been validated against the current implementation.
 
 ## Make a model request
 

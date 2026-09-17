@@ -37,6 +37,7 @@ import type {
     HookToolResult,
     PreToolUseHookResult,
     PreTurnHookPayload,
+    SessionStartHookPayload,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { AgentUpdate } from "./protocol.ts";
@@ -127,7 +128,7 @@ import {
     contextWindowForModel,
     budgetContextWindow,
 } from "./model-settings.ts";
-import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
+import { ToolHooks, type PreToolUseOutcome, type SessionStartContribution } from "./hooks.ts";
 import {
     InboundCommandRouter,
     type InboundTurnOutcome,
@@ -552,6 +553,7 @@ export async function runHeadlessLoop(
     }
     const messages = [...store.messages()];
     const injectedContextRoutePaths = new Set<string>();
+    let sessionStartReady: Promise<boolean> = Promise.resolve(false);
     let inbound: InboundCommandRouter;
     let compactOnRequest: (
         (turnActive: boolean, signal?: AbortSignal) => Promise<void>
@@ -1009,12 +1011,18 @@ export async function runHeadlessLoop(
             }
             if (result.outcome === "compacted") {
                 injectedContextRoutePaths.clear();
+                const contextAdded = await injectSessionStartContext(state, "compacted");
+                if (contextAdded) {
+                    protocol.checkpoint(messages, store.activeMessageIds());
+                }
                 const refreshedMeasurement: ContextMeasurement = {
-                    tokens: result.after,
-                    ...(measurement.capacity === undefined
-                        ? {}
-                        : { capacity: measurement.capacity }),
-                    estimated: measurement.estimated,
+                    ...(contextAdded ? measureContextNow(pendingMessages, context) : {
+                        tokens: result.after,
+                        ...(measurement.capacity === undefined
+                            ? {}
+                            : { capacity: measurement.capacity }),
+                        estimated: measurement.estimated,
+                    }),
                     compaction: contextCompactionPolicy(
                         compaction.trigger,
                         measurement.capacity,
@@ -1042,6 +1050,7 @@ export async function runHeadlessLoop(
                 });
                 return;
             }
+            await sessionStartReady;
             await runCompaction(signal ?? new AbortController().signal, true);
         };
     const state: RunTurnState = {
@@ -1142,6 +1151,14 @@ export async function runHeadlessLoop(
     );
 
     try {
+        sessionStartReady = injectSessionStartContext(
+            state,
+            data.sessionStartReason
+                ?? (data.resumeSessionPath !== undefined ? "resume" : "start"),
+        );
+        if (await sessionStartReady) {
+            protocol.checkpoint(state.messages, store.activeMessageIds());
+        }
         while (true) {
             const checkpointMessages = [...state.messages];
             await runTurn(adapter, model, state, reasoningEffort);
@@ -2962,6 +2979,39 @@ function withSuccessfulReadPath(
 ): CompletedToolCall {
     const readPath = successfulReadPath(toolCall, completed.result);
     return readPath === undefined ? completed : { ...completed, readPath };
+}
+
+async function injectSessionStartContext(
+    state: RunTurnState,
+    reason: SessionStartHookPayload["reason"],
+): Promise<boolean> {
+    if (state.sessionId === undefined) return false;
+    let contributions: readonly SessionStartContribution[];
+    try {
+        contributions = await state.hooks.runSessionStart({
+            type: "session_start",
+            sessionId: state.sessionId,
+            workspace: state.toolRuntime.workspace,
+            reason,
+        }, { timeoutMs: 60_000 });
+    } catch (error) {
+        console.warn(`session_start failed: ${String(error)}`);
+        return false;
+    }
+    if (contributions.length === 0) return false;
+    const text = contributions.map((entry) =>
+        `## Session start hook ${entry.index}\n\n${entry.context}`
+    ).join("\n\n");
+    await commitMessage(state, {
+        role: "user",
+        internal: true,
+        contextSource: "session_start",
+        content: [{
+            type: "text",
+            text,
+        }],
+    });
+    return true;
 }
 
 async function injectContextRouteReminders(
