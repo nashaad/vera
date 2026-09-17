@@ -648,6 +648,24 @@ test("Vera.run without a home runs the named provider and model", async () => {
     }
 });
 
+test("Vera.run names the provider the run used when its credential is unusable", async () => {
+    const result = await Vera.run({
+        prompt: "Review this patch",
+        agent: basicDefinition(),
+        config: baseConfig(),
+        provider: "other",
+        model: "reviewer",
+        createAdapter: () => ({
+            stream() {
+                throw new Error("401 unauthorized");
+            },
+        }),
+    });
+    expect(result.outcome).toBe("failed");
+    expect(result.error?.message).toContain("other credential is not usable");
+    expect(result.error?.message).toContain("API key");
+});
+
 test("Vera.run leaves auth.json untouched when the credential is unusable", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-run-auth-"));
     const previousHome = process.env.VERA_HOME;

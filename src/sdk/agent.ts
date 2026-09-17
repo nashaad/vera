@@ -256,7 +256,7 @@ export class Vera {
                 ? {}
                 : { sessionPath: options.sessionPath }),
         });
-        return mapCredentialFailure(result, config.provider);
+        return mapCredentialFailure(result);
     }
 
     agent(
@@ -715,7 +715,6 @@ function readOnlyAuthStorage(inner: AuthStorage): AuthStorage {
 
 function mapCredentialFailure<Output>(
     result: AgentRunResult<Output>,
-    provider: string,
 ): AgentRunResult<Output> {
     if (result.error === undefined || !isUnusableCredential(result.error.message)) {
         return result;
@@ -724,7 +723,7 @@ function mapCredentialFailure<Output>(
         ...result,
         error: {
             ...result.error,
-            message: `${provider} credential is not usable. Refresh it with vera login, then retry.`,
+            message: `${result.model.provider} credential is not usable. Set its API key or run vera login, then retry.`,
         },
     };
 }
