@@ -53,6 +53,31 @@ class TestVeraRun(unittest.TestCase):
                 first.close()
                 second.close()
 
+    def test_transcript_flag_picks_the_other_wire_field(self) -> None:
+        agent = Agent(
+            name="reviewer",
+            instructions="Return the recorded reply.",
+            tools=[],
+        )
+        reply = {
+            "type": "result",
+            "text": "the answer",
+            "transcript": "first I will read it\nthe answer",
+        }
+        with tempfile.TemporaryDirectory() as workspace:
+            instance = Vera.create(workspace=workspace, _replay=True)
+            try:
+                with mock.patch.object(instance, "_request", return_value=reply):
+                    self.assertEqual(instance.run(agent, "hello"), "the answer")
+                    self.assertEqual(
+                        instance.run(agent, "hello", transcript=True),
+                        "first I will read it\nthe answer",
+                    )
+                with self.assertRaises(TypeError):
+                    instance.run(agent, "hello", transcript="yes")
+            finally:
+                instance.close()
+
     def test_child_failure_is_non_empty_and_instance_can_run_again(self) -> None:
         invalid = Agent(
             name="invalid-posture",

@@ -146,7 +146,10 @@ export interface AgentRunModelIdentity {
 
 export interface AgentRunResult<Output = never> {
     readonly outcome: AgentRunOutcome;
+    /** What the agent answered: the assistant text after its last tool call. */
     readonly text: string;
+    /** Every word the agent said, including narration between tool calls. */
+    readonly transcript: string;
     readonly output?: Output;
     readonly model: AgentRunModelIdentity;
     readonly usage?: SessionModelUsage;
@@ -439,8 +442,8 @@ async function runResolvedTurn<Output>(
         });
     const resident = new ResidentAgent(id, resolved.workspace);
     const attachment = resident.attach();
+    let transcript = "";
     let text = "";
-    let terminalText = "";
     let usage: SessionModelUsage | undefined;
     let outcome: AgentRunOutcome = "completed";
     let error: AgentRunError | undefined;
@@ -523,12 +526,12 @@ async function runResolvedTurn<Output>(
         for (;;) {
             const update = await attachment.receive();
             if (update.type === "assistant_delta") {
+                transcript += update.text;
                 text += update.text;
-                terminalText += update.text;
                 continue;
             }
             if (update.type === "tool_started") {
-                terminalText = "";
+                text = "";
                 continue;
             }
             if (update.type === "model_substitution") {
@@ -586,7 +589,7 @@ async function runResolvedTurn<Output>(
     let hasOutput = false;
     if (outcome === "completed" && options.output !== undefined) {
         try {
-            output = options.output.parse(structuredValue(terminalText));
+            output = options.output.parse(structuredValue(text));
             hasOutput = true;
         } catch (caught) {
             outcome = "failed";
@@ -601,6 +604,7 @@ async function runResolvedTurn<Output>(
     return {
         outcome,
         text,
+        transcript,
         ...(hasOutput ? { output: output as Output } : {}),
         model: {
             provider: used?.provider ?? resolved.config.provider,

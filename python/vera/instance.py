@@ -169,8 +169,14 @@ class Vera:
         *,
         session: str | None = None,
         timeout: float | None = None,
+        transcript: bool = False,
     ) -> str:
-        """One agent turn. A session name continues that conversation until close()."""
+        """One agent turn, returning what the agent answered.
+
+        The answer is the text after the agent's last tool call. Pass
+        transcript=True for everything it said, narration between tool calls
+        included. A session name continues that conversation until close().
+        """
         if not isinstance(agent, Agent):
             raise TypeError("Vera.run agent must be an Agent")
         if not isinstance(prompt, str) or not prompt.strip():
@@ -181,6 +187,8 @@ class Vera:
             raise ValueError(
                 "Vera.run session must be letters, digits, - or _, up to 64 characters"
             )
+        if not isinstance(transcript, bool):
+            raise TypeError("Vera.run transcript must be a bool")
         if timeout is not None and (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -211,7 +219,7 @@ class Vera:
         reply = self._request(request, timeout)
         if reply.get("type") != "result":
             raise RuntimeError(f"Vera bun child sent an unexpected reply: {reply}")
-        return str(reply["text"])
+        return str(reply["transcript" if transcript else "text"])
 
     def tool(self, name: str, input: dict[str, object] | None = None) -> str:
         """Runs one tool under this instance's posture and returns its output.

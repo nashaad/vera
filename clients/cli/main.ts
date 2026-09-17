@@ -1009,7 +1009,7 @@ export async function runHostlessPrint(request: {
     return {
         agentId: "run",
         sessionPath: "",
-        text: result.text,
+        text: result.transcript,
         outcome,
         ...(result.error === undefined ? {} : { error: result.error.message }),
         notes: result.substitutions.map((substitution) =>

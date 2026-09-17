@@ -122,6 +122,7 @@ function noFindingsRuntime(events: string[]): ReviewRuntime {
                     return {
                         outcome: "completed",
                         text: '{"findings":[]}',
+                        transcript: '{"findings":[]}',
                         output: { findings: [] } as Output,
                         model: { provider: "faux", model: definition.name },
                         substitutions: [],

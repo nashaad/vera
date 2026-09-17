@@ -166,7 +166,12 @@ async function runAgent(
         ...(request.session === undefined ? {} : { session: request.session }),
     });
     if (result.outcome === "completed") {
-        send({ id: request.id, type: "result", text: result.text });
+        send({
+            id: request.id,
+            type: "result",
+            text: result.text,
+            transcript: result.transcript,
+        });
         return;
     }
     send({

@@ -381,9 +381,10 @@ test("C1 a run with an output schema returns typed output", async () => {
         outcome: "completed",
         output: { findings: [{ summary: "broken branch" }] },
     });
-    expect(result.text).toContain("I will inspect the file");
+    expect(result.text).not.toContain("I will inspect the file");
     expect(result.text).toContain("There is one supported finding.");
     expect(result.text).toContain('{"findings":[{"summary":"broken branch"}]}');
+    expect(result.transcript).toContain("I will inspect the file");
 });
 
 test("C2 a response that violates the schema fails loudly", async () => {
