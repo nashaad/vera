@@ -1,6 +1,6 @@
 
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
-import { ToolHooks } from "../../engine/hooks.ts";
+import { ToolHooks, type SessionStartContribution } from "../../engine/hooks.ts";
 import type {
     HostBoundary,
     HostBoundaryOffers,
@@ -414,6 +414,14 @@ function remoteHooks(pipe: JsonPipe): ToolHooks {
             options,
         }) as { readonly result: never };
         return reply.result;
+    };
+    hooks.runSessionStart = async (payload, options) => {
+        const reply = await pipe.request({
+            method: "hook.sessionStart",
+            payload,
+            options,
+        }) as { readonly contributions: readonly SessionStartContribution[] };
+        return reply.contributions;
     };
     hooks.runPreTurn = async (payload, options) => {
         const reply = await pipe.request({

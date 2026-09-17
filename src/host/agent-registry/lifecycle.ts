@@ -239,14 +239,16 @@ export async function resume(reg: AgentRegistry, options: ResumeRegisteredAgentO
             reg.requireOpen();
             const parentId = store.header.delegation?.parentId
                 ?? store.header.parentId;
-            return parentId === undefined
-                ? await reg.start(store, "interactive", options.eventLogPath)
-                : await reg.start(
-                    store,
-                    "background",
-                    options.eventLogPath,
-                    parentId,
-                );
+            return await reg.start(
+                store,
+                parentId === undefined ? "interactive" : "background",
+                options.eventLogPath,
+                parentId,
+                undefined,
+                false,
+                false,
+                "resume",
+            );
         } finally {
             reg.startingIds.delete(store.header.id);
         }
@@ -402,7 +404,16 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
         } catch {
             try {
                 const store = await SessionStore.open(entry.store.path);
-                await reg.start(store, entry.kind, entry.eventLogPath);
+                await reg.start(
+                    store,
+                    entry.kind,
+                    entry.eventLogPath,
+                    undefined,
+                    undefined,
+                    false,
+                    false,
+                    "resume",
+                );
             } catch {
             }
             return "failed";

@@ -1327,41 +1327,56 @@ export async function readSessionIndexMetadata(
         if (newlineAt === -1) {
             throw invalidSession(path, "session header exceeds 64 KiB");
         }
-        const source = buffer.subarray(0, length).toString("utf8");
-        const lines = source.split("\n");
-        const header = parseHeader(path, lines.shift() ?? "");
+        const header = parseHeader(path, buffer.subarray(0, newlineAt).toString("utf8"));
+        let pending: Buffer = Buffer.from(buffer.subarray(newlineAt + 1, length));
+        let position = length;
         let firstPrompt: string | undefined;
         let hasUserContent = false;
         let name: string | null | undefined;
-        for (const line of lines.slice(0, -1)) {
-            let record: Record<string, unknown>;
-            try {
-                record = JSON.parse(line) as Record<string, unknown>;
-            } catch {
-                continue;
-            }
-            if (record.type === "session_name") {
-                if (typeof record.name === "string" || record.name === null) {
-                    name = record.name as string | null;
-                }
-                continue;
-            }
-            const message = record.message as Record<string, unknown> | undefined;
-            if (
-                record.type === "message"
-                && message?.role === "user"
-                && message.internal !== true
-                && Array.isArray(message.content)
+        while (true) {
+            let lineStart = 0;
+            for (
+                let lineEnd = pending.indexOf(0x0a);
+                lineEnd !== -1;
+                lineEnd = pending.indexOf(0x0a, lineStart)
             ) {
-                hasUserContent = true;
-                const text = message.content.flatMap((part) => {
-                    const value = part as Record<string, unknown>;
-                    return value.type === "text" && typeof value.text === "string"
-                        ? [value.text]
-                        : [];
-                }).join(" ").replaceAll(/\s+/g, " ").trim();
-                if (firstPrompt === undefined && text.length > 0) firstPrompt = text;
+                const line = pending.toString("utf8", lineStart, lineEnd);
+                lineStart = lineEnd + 1;
+                let record: Record<string, unknown>;
+                try {
+                    record = JSON.parse(line) as Record<string, unknown>;
+                } catch {
+                    continue;
+                }
+                if (record.type === "session_name") {
+                    if (typeof record.name === "string" || record.name === null) {
+                        name = record.name as string | null;
+                    }
+                    continue;
+                }
+                const message = record.message as Record<string, unknown> | undefined;
+                if (
+                    record.type === "message"
+                    && message?.role === "user"
+                    && message.internal !== true
+                    && Array.isArray(message.content)
+                ) {
+                    hasUserContent = true;
+                    const text = message.content.flatMap((part) => {
+                        const value = part as Record<string, unknown>;
+                        return value.type === "text" && typeof value.text === "string"
+                            ? [value.text]
+                            : [];
+                    }).join(" ").replaceAll(/\s+/g, " ").trim();
+                    if (firstPrompt === undefined && text.length > 0) firstPrompt = text;
+                }
             }
+            if (hasUserContent) break;
+            pending = Buffer.from(pending.subarray(lineStart));
+            const { bytesRead } = await file.read(buffer, 0, buffer.length, position);
+            if (bytesRead === 0) break;
+            position += bytesRead;
+            pending = Buffer.concat([pending, buffer.subarray(0, bytesRead)]);
         }
         const title = name ?? firstPrompt;
         return {
@@ -2688,8 +2703,10 @@ function isModelMessage(value: unknown): value is ModelMessage {
         return false;
     }
     if (message.role === "user") {
-        return (message.internal === undefined
-            || typeof message.internal === "boolean")
+        return (message.contextSource === undefined
+            || (message.contextSource === "session_start" && message.internal === true))
+            && (message.internal === undefined
+                || typeof message.internal === "boolean")
             && (message.compactionBarrier === undefined
                 || typeof message.compactionBarrier === "boolean")
             && message.content.every((content) =>

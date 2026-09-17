@@ -259,6 +259,17 @@ export function createWorkerBoundaryServer(
                     );
                     return { result };
                 }
+                case "hook.sessionStart": {
+                    const request = body as {
+                        readonly payload: never;
+                        readonly options: never;
+                    };
+                    const contributions = await services.hooks?.runSessionStart(
+                        request.payload,
+                        request.options,
+                    ) ?? [];
+                    return { contributions };
+                }
                 case "hook.preTurn": {
                     const request = body as {
                         readonly payload: never;

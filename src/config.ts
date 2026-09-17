@@ -206,7 +206,7 @@ export interface VeraTuiConfig {
  * config that travels between machines cannot point at an arbitrary binary.
  */
 export interface VeraHookConfig {
-    readonly phase: "pre_tool_use" | "post_tool_use";
+    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeout_ms?: number;
@@ -1804,7 +1804,7 @@ function parseHookConfigs(
         const hook = item as Record<string, unknown>;
         const { phase, argv, protocol, timeout_ms } = hook;
         if (
-            (phase !== "pre_tool_use" && phase !== "post_tool_use")
+            (phase !== "pre_tool_use" && phase !== "post_tool_use" && phase !== "session_start")
             || !Array.isArray(argv)
             || argv.length === 0
             || argv.some((argument) =>

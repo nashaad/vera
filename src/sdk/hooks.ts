@@ -146,3 +146,21 @@ export interface RegisteredModelRequestHook {
     readonly namespace: string;
     readonly run: ModelRequestHook;
 }
+
+export interface SessionStartHookPayload {
+    readonly type: "session_start";
+    readonly sessionId: string;
+    readonly workspace: string;
+    readonly reason: "start" | "resume" | "compacted";
+}
+
+export interface MutateSessionStartHookResult {
+    readonly power: "mutate";
+    readonly context: string;
+}
+
+export type SessionStartHookResult = ObserveHookResult | MutateSessionStartHookResult;
+
+export type SessionStartHook = (
+    payload: SessionStartHookPayload,
+) => SessionStartHookResult | Promise<SessionStartHookResult>;
