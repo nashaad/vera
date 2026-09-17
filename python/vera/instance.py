@@ -16,14 +16,22 @@ class Vera:
         workspace: Path,
         posture: str | None,
         temporary_directory: tempfile.TemporaryDirectory[str],
+        replay: bool,
     ) -> None:
         self.workspace = workspace
         self.posture = posture
+        self._replay = replay
         self._temporary_directory = temporary_directory
         self._runtime_dir = Path(temporary_directory.name).resolve()
 
     @classmethod
-    def create(cls, *, workspace: str, posture: str | None = None) -> Vera:
+    def create(
+        cls,
+        *,
+        workspace: str,
+        posture: str | None = None,
+        _replay: bool = False,
+    ) -> Vera:
         if not isinstance(workspace, str) or not workspace.strip():
             raise ValueError("Vera workspace must be a non-empty path")
         if posture is not None:
@@ -36,6 +44,7 @@ class Vera:
             workspace=Path(workspace).expanduser().resolve(),
             posture=posture,
             temporary_directory=temporary_directory,
+            replay=_replay,
         )
 
     def close(self) -> None:
@@ -57,6 +66,10 @@ class Vera:
             agent_payload["tools"] = agent.tools
         if agent.posture is not None:
             agent_payload["posture"] = agent.posture
+        if agent.provider is not None:
+            agent_payload["provider"] = agent.provider
+        if agent.model is not None:
+            agent_payload["model"] = agent.model
         payload: dict[str, object] = {
             "workspace": str(self.workspace),
             "agent": agent_payload,
@@ -64,10 +77,13 @@ class Vera:
         }
         if self.posture is not None:
             payload["posture"] = self.posture
+        if self._replay:
+            payload["replay"] = True
 
         child_path = Path(__file__).with_name("_child.ts")
+        # The child reads the caller's Vera home; scratch files go under TMPDIR.
         child_env = os.environ | {
-            "VERA_HOME": str(self._runtime_dir),
+            "TMPDIR": str(self._runtime_dir),
         }
         try:
             completed = subprocess.run(

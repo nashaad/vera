@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 import { Vera, type Agent } from "../../src/sdk/agent.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
@@ -14,11 +14,14 @@ interface ChildAgentInput {
     readonly instructions: string;
     readonly tools?: string[];
     readonly posture?: string;
+    readonly provider?: string;
+    readonly model?: string;
 }
 
 interface ChildInput {
     readonly workspace: string;
     readonly posture?: string;
+    readonly replay: boolean;
     readonly agent: ChildAgentInput;
     readonly prompt: string;
 }
@@ -49,17 +52,36 @@ class RecordedAdapter implements ModelAdapter {
 }
 
 async function main(): Promise<void> {
-    const home = process.env.VERA_HOME;
-    if (home === undefined || home.length === 0) {
-        throw new Error("VERA_HOME is required for the Python child");
-    }
-    if (!statSync(home).isDirectory()) {
-        throw new Error("VERA_HOME must name a directory");
-    }
-
     const input = childInput(readFileSync(0, "utf8"));
+    const vera = input.replay ? await replayVera(input) : await Vera.create({
+        workspace: input.workspace,
+        ...(input.posture === undefined ? {} : { posture: input.posture }),
+    });
+    const definition = {
+        name: input.agent.name,
+        instructions: input.agent.instructions,
+        tools: input.agent.tools ?? [],
+        ...(input.agent.posture === undefined
+            ? {}
+            : { posture: input.agent.posture }),
+    };
+    const agent: Agent = vera.agent(definition, {
+        ...(input.agent.provider === undefined
+            ? {}
+            : { provider: input.agent.provider }),
+        ...(input.agent.model === undefined ? {} : { model: input.agent.model }),
+    });
+    const result = await agent.run(input.prompt);
+    if (result.outcome !== "completed") {
+        throw new Error(result.error?.message ?? "Vera agent run failed");
+    }
+    process.stdout.write(result.text);
+}
+
+// Replay answers with the prompt and never reads the Vera home.
+async function replayVera(input: ChildInput): Promise<Vera> {
     const runtimePosture = input.posture ?? "readonly";
-    const vera = await Vera.create({
+    return await Vera.create({
         workspace: input.workspace,
         posture: runtimePosture,
         config: {
@@ -71,20 +93,6 @@ async function main(): Promise<void> {
         },
         createAdapter: () => new RecordedAdapter(input.prompt),
     });
-    const definition = {
-        name: input.agent.name,
-        instructions: input.agent.instructions,
-        tools: input.agent.tools ?? [],
-        ...(input.agent.posture === undefined
-            ? {}
-            : { posture: input.agent.posture }),
-    };
-    const agent: Agent = vera.agent(definition);
-    const result = await agent.run(input.prompt);
-    if (result.outcome !== "completed") {
-        throw new Error(result.error?.message ?? "Vera agent run failed");
-    }
-    process.stdout.write(result.text);
 }
 
 function childInput(text: string): ChildInput {
@@ -102,15 +110,23 @@ function childInput(text: string): ChildInput {
     );
     const tools = optionalStrings(parsed.agent.tools, "agent.tools");
     const agentPosture = optionalString(parsed.agent.posture, "agent.posture");
+    const provider = optionalString(parsed.agent.provider, "agent.provider");
+    const model = optionalString(parsed.agent.model, "agent.model");
+    if (parsed.replay !== undefined && typeof parsed.replay !== "boolean") {
+        throw new Error("replay must be a boolean");
+    }
     return {
         workspace,
         prompt,
+        replay: parsed.replay === true,
         ...(posture === undefined ? {} : { posture }),
         agent: {
             name,
             instructions,
             ...(tools === undefined ? {} : { tools }),
             ...(agentPosture === undefined ? {} : { posture: agentPosture }),
+            ...(provider === undefined ? {} : { provider }),
+            ...(model === undefined ? {} : { model }),
         },
     };
 }

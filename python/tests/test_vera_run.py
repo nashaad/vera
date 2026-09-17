@@ -3,7 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import tempfile
+import json
 import unittest
+from unittest import mock
 
 from vera.agent import Agent
 from vera.instance import Vera
@@ -27,8 +29,8 @@ class TestVeraRun(unittest.TestCase):
             second_workspace = root / "second"
             first_workspace.mkdir()
             second_workspace.mkdir()
-            first = Vera.create(workspace=str(first_workspace))
-            second = Vera.create(workspace=str(second_workspace))
+            first = Vera.create(workspace=str(first_workspace), _replay=True)
+            second = Vera.create(workspace=str(second_workspace), _replay=True)
             first_runtime = first._runtime_dir
             second_runtime = second._runtime_dir
             try:
@@ -63,7 +65,7 @@ class TestVeraRun(unittest.TestCase):
             posture="readonly",
         )
         with tempfile.TemporaryDirectory() as workspace:
-            vera = Vera.create(workspace=workspace)
+            vera = Vera.create(workspace=workspace, _replay=True)
             try:
                 with self.assertRaisesRegex(
                     RuntimeError,
@@ -74,6 +76,66 @@ class TestVeraRun(unittest.TestCase):
                 self.assertEqual(vera.run(valid, "recovered"), "recovered")
             finally:
                 vera.close()
+
+    def test_live_run_reads_the_callers_vera_home(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            home = _home_with_config(root, provider="openrouter")
+            agent = Agent(name="reader", instructions="Answer.", tools=[])
+            with mock.patch.dict(
+                os.environ,
+                {"VERA_HOME": str(home), "OPENROUTER_API_KEY": ""},
+            ):
+                vera = Vera.create(workspace=str(root))
+                try:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "No credentials for provider openrouter",
+                    ):
+                        vera.run(agent, "hello")
+                finally:
+                    vera.close()
+
+    def test_agent_provider_overrides_the_home_route(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            home = _home_with_config(root, provider="openrouter")
+            agent = Agent(
+                name="reader",
+                instructions="Answer.",
+                tools=[],
+                provider="deepseek",
+                model="deepseek-chat",
+            )
+            with mock.patch.dict(
+                os.environ,
+                {"VERA_HOME": str(home), "DEEPSEEK_API_KEY": ""},
+            ):
+                vera = Vera.create(workspace=str(root))
+                try:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "No credentials for provider deepseek",
+                    ):
+                        vera.run(agent, "hello")
+                finally:
+                    vera.close()
+
+
+def _home_with_config(root: Path, *, provider: str) -> Path:
+    home = root / "home"
+    home.mkdir()
+    (home / "config.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "provider": provider,
+                "model": "upstage/solar-pro4",
+                "approval_mode": "readonly",
+            }
+        )
+    )
+    return home
 
 
 if __name__ == "__main__":
