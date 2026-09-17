@@ -161,8 +161,12 @@ export function paneHeaderText(rt: TuiRuntime,
     approvalMode: string | undefined,
     settings: TuiState["modelSettings"],
     width: number,
+    showModel: boolean,
 ): string {
     const left = `${name} · ${approvalMode ?? "loading"}`;
+    const contentWidth = Math.max(1, width - rt.composerHorizontalInset);
+    const indent = " ".repeat(rt.composerContentIndent);
+    if (!showModel) return `${indent}${left.slice(0, contentWidth)}`;
     const model = settings?.model;
     const selected = modelSelectionCleared(settings) ? "no model selected" : model === undefined
         ? "model loading"
@@ -170,8 +174,6 @@ export function paneHeaderText(rt: TuiRuntime,
         ? model
         : `${settings.provider}/${model}`;
     const right = `${selected} · ${modelSelectionCleared(settings) ? "default" : settings?.reasoningEffort ?? "default"}`;
-    const contentWidth = Math.max(1, width - rt.composerHorizontalInset);
-    const indent = " ".repeat(rt.composerContentIndent);
     if (left.length + right.length + 3 <= contentWidth) {
         return `${indent}${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
     }

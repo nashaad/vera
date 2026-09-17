@@ -57,9 +57,10 @@ export function renderStatus(rt: TuiRuntime): void {
             rt.state.approvalMode,
             rt.state.modelSettings,
             layout === "split" ? mainWidth : rt.renderer.width,
+            layout === "split",
         )
         : !isHomeClient(rt.client)
-        ? paneHeaderText(rt, rt.sessionTitle ?? "Vera", rt.state.approvalMode, rt.state.modelSettings, rt.renderer.width)
+        ? paneHeaderText(rt, rt.sessionTitle ?? "Vera", rt.state.approvalMode, rt.state.modelSettings, rt.renderer.width, false)
         : undefined);
     rt.sidebar.setHeader(
         paneHeadersVisible
@@ -73,6 +74,7 @@ export function renderStatus(rt: TuiRuntime): void {
             sideState.approvalMode,
             sideState.modelSettings,
             layout === "split" ? sideWidth : rt.renderer.width,
+            layout === "split",
         )
         : undefined);
     const workingHint = focusedSide === undefined

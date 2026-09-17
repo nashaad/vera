@@ -69,7 +69,7 @@ Removing a favorite preserves verification evidence and all default assignments.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
 Shift+Tab opens the HUD. Tab cycles Effort, Access, Model, and Agent; arrows change values within their control. Enter applies; Escape cancels. The HUD lists current, up to five recent models, then Favorites, with a default cap of ten models. All models · add/remove favorites opens Switch model without applying staged edits; its Enter hint says open picker.
 `model_picker.hudModels` (1 to 20, default 10) and `model_picker.hudRecents` (0 to 20, default 5) configure HUD limits. The All models action is separate from the model cap.
-The header reports the active model, effort, and access. Reasoning effort is model-dependent; `off` is explicit, never inferred for a model without an off mapping.
+The built-in composer status reports the focused conversation's model and effort. Headers show the conversation name and access, adding model and effort when two conversation panes are visible side by side. Reasoning effort is model-dependent; `off` is explicit, never inferred for a model without an off mapping.
 
 ## Conversations and background work [lines=9]
 `/resume` opens another conversation. Enter asks how to leave the one on screen: Stop & switch, or Switch, keep running.
