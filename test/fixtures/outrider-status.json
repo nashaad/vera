@@ -1,0 +1,12 @@
+{
+  "gateway": {
+    "kind": "stopped",
+    "endpoint": "http://127.0.0.1:11435",
+    "logFile": "/Users/x/.outrider/runs/gateway/gateway.log"
+  },
+  "model": {
+    "kind": "stopped",
+    "endpoint": "",
+    "logFile": ""
+  }
+}
