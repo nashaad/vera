@@ -31,6 +31,7 @@ import {
     isUserQuestionUiRequestUpdate,
     type UiRequestUpdate,
 } from "../engine/protocol.ts";
+import { EngineEventBus, type EngineEvent } from "../engine/events.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { SessionStore } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
@@ -57,6 +58,15 @@ import {
     applyModelRequestOptions,
     ProviderRoutingAdapter,
 } from "../providers/routing.ts";
+import {
+    SdkRuntime,
+    TOOL_CALL_ROUTE,
+    ToolCallAdapter,
+    type ClaimedSession,
+    type ToolRunResult,
+} from "./tool-call.ts";
+
+export type { ToolRunOutcome, ToolRunResult } from "./tool-call.ts";
 
 export interface VeraCreateOptions {
     /** Default workspace for agents created by this Vera instance. */
@@ -119,6 +129,11 @@ export interface AgentRunOptions<Output = never> {
     readonly prepareTurn?: PreTurnHook;
     /** Durable SessionStore path. Omitted means a temporary file that is deleted. */
     readonly sessionPath?: string;
+    /**
+     * Named session in this Vera instance's runtime directory. A later run
+     * with the same name continues it. Deleted by `vera.close()`.
+     */
+    readonly session?: string;
 }
 
 export type AgentRunOutcome = "completed" | "failed" | "aborted";
@@ -153,6 +168,7 @@ interface BoundAgentOptions {
     readonly runtimePosture: string;
     readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
     readonly readRequestOptionsConfig: () => VeraConfig;
+    readonly runtime: SdkRuntime;
 }
 
 interface ResolvedAgentOptions {
@@ -189,6 +205,7 @@ export class Vera {
             workspace: string,
         ) => ModelAdapter,
         private readonly readRequestOptionsConfig: () => VeraConfig,
+        private readonly runtime: SdkRuntime = new SdkRuntime(),
     ) {}
 
     static async create(options: VeraCreateOptions = {}): Promise<Vera> {
@@ -283,7 +300,81 @@ export class Vera {
             runtimePosture: this.runtimePosture,
             createAdapter: this.createAdapter,
             readRequestOptionsConfig: this.readRequestOptionsConfig,
+            runtime: this.runtime,
         });
+    }
+
+    /**
+     * Runs one tool call under this instance's posture, as if a model had
+     * asked for it. Approval prompts are refused, so `ask` tools are denied.
+     */
+    async tool(
+        name: string,
+        input: Readonly<Record<string, unknown>> = {},
+    ): Promise<ToolRunResult> {
+        if (name.trim().length === 0) {
+            throw new Error("Tool name must not be empty");
+        }
+        const events = new EngineEventBus();
+        let denied: string | undefined;
+        let finished: { readonly output: string; readonly isError: boolean } | undefined;
+        events.subscribe((event: EngineEvent) => {
+            if (event.type === "tool_denied") {
+                denied ??= event.reason;
+            }
+            if (
+                event.type === "ui_request"
+                && event.request.type === "tool_approval"
+            ) {
+                denied ??= `${event.request.reason} No one can approve it here.`;
+            }
+            if (event.type === "tool_execution_finished") {
+                finished = {
+                    output: event.result.content.map((part) => part.text).join(""),
+                    isError: event.result.isError,
+                };
+            }
+        });
+        const config: VeraConfig = {
+            ...this.config,
+            provider: TOOL_CALL_ROUTE.provider,
+            model: TOOL_CALL_ROUTE.model,
+            fallback: undefined,
+        };
+        const bound: BoundAgentOptions = {
+            definition: defineAgent({
+                name: "tool-call",
+                instructions: "Run the requested tool once.",
+                tools: [name],
+            }),
+            binding: TOOL_CALL_ROUTE,
+            workspace: this.workspace,
+            profileDirectory: this.profileDirectory,
+            config,
+            runtimePosture: this.runtimePosture,
+            createAdapter: () => new ToolCallAdapter(name, input),
+            readRequestOptionsConfig: () => config,
+            runtime: this.runtime,
+        };
+        const result = await runAgentTurn(bound, "Run the tool.", {}, events);
+        if (denied !== undefined) {
+            return { outcome: "denied", output: denied };
+        }
+        if (result.outcome !== "completed") {
+            throw new Error(result.error?.message ?? `Tool ${name} did not run`);
+        }
+        if (finished === undefined) {
+            throw new Error(`No tool named ${name}`);
+        }
+        return {
+            outcome: finished.isError ? "failed" : "completed",
+            output: finished.output,
+        };
+    }
+
+    /** Deletes this instance's runtime directory, including named sessions. */
+    async close(): Promise<void> {
+        await this.runtime.close();
     }
 }
 
@@ -294,200 +385,231 @@ export class Agent {
         prompt: string,
         options: AgentRunOptions<Output> = {},
     ): Promise<AgentRunResult<Output>> {
-        if (prompt.trim().length === 0) {
-            throw new Error("Agent prompt must not be empty");
-        }
-        options.signal?.throwIfAborted();
+        return await runAgentTurn(this.options, prompt, options);
+    }
+}
 
-        const resolved = await resolveAgentOptions(this.options);
-        const id = randomUUID();
-        const durableSessionPath = options.sessionPath;
-        const temporaryDirectory = durableSessionPath === undefined
-            ? await mkdtemp(join(tmpdir(), "vera-sdk-"))
-            : undefined;
-        const sessionPath = durableSessionPath
-            ?? join(temporaryDirectory!, `${id}.jsonl`);
-        if (durableSessionPath !== undefined) {
-            await mkdir(dirname(durableSessionPath), { recursive: true, mode: 0o700 });
-        }
-        // Tools resolve relative paths against the session header's cwd.
-        const sessionStore = await SessionStore.create(sessionPath, {
+async function runAgentTurn<Output>(
+    bound: BoundAgentOptions,
+    prompt: string,
+    options: AgentRunOptions<Output>,
+    events?: EngineEventBus,
+): Promise<AgentRunResult<Output>> {
+    if (prompt.trim().length === 0) {
+        throw new Error("Agent prompt must not be empty");
+    }
+    if (options.session !== undefined && options.sessionPath !== undefined) {
+        throw new Error("Pass session or sessionPath, not both");
+    }
+    options.signal?.throwIfAborted();
+    const resolved = await resolveAgentOptions(bound);
+    const claimed = options.session === undefined
+        ? undefined
+        : await bound.runtime.claimSession(options.session);
+    try {
+        return await runResolvedTurn(resolved, prompt, options, claimed, events);
+    } finally {
+        claimed?.release();
+    }
+}
+
+async function runResolvedTurn<Output>(
+    resolved: ResolvedAgentOptions,
+    prompt: string,
+    options: AgentRunOptions<Output>,
+    claimed: ClaimedSession | undefined,
+    events: EngineEventBus | undefined,
+): Promise<AgentRunResult<Output>> {
+    const id = randomUUID();
+    const durableSessionPath = claimed?.path ?? options.sessionPath;
+    const temporaryDirectory = durableSessionPath === undefined
+        ? await mkdtemp(join(tmpdir(), "vera-sdk-"))
+        : undefined;
+    const sessionPath = durableSessionPath
+        ?? join(temporaryDirectory!, `${id}.jsonl`);
+    if (durableSessionPath !== undefined) {
+        await mkdir(dirname(durableSessionPath), { recursive: true, mode: 0o700 });
+    }
+    // Tools resolve relative paths against the session header's cwd.
+    const sessionStore = claimed?.exists === true
+        ? await SessionStore.open(sessionPath)
+        : await SessionStore.create(sessionPath, {
             sessionId: id,
             cwd: resolved.workspace,
         });
-        const resident = new ResidentAgent(id, resolved.workspace);
-        const attachment = resident.attach();
-        let text = "";
-        let terminalText = "";
-        let usage: SessionModelUsage | undefined;
-        let outcome: AgentRunOutcome = "completed";
-        let error: AgentRunError | undefined;
-        const substitutions: ModelSubstitution[] = [];
-        let loop: Promise<void> | undefined;
-        let loopFailure: unknown;
-        const abort = (): void => {
-            try {
-                attachment.send({ type: "abort" });
-            } catch {
-                // A settled turn needs no second cancellation.
-            }
-        };
+    const resident = new ResidentAgent(id, resolved.workspace);
+    const attachment = resident.attach();
+    let text = "";
+    let terminalText = "";
+    let usage: SessionModelUsage | undefined;
+    let outcome: AgentRunOutcome = "completed";
+    let error: AgentRunError | undefined;
+    const substitutions: ModelSubstitution[] = [];
+    let loop: Promise<void> | undefined;
+    let loopFailure: unknown;
+    const abort = (): void => {
         try {
-            const configuredAdapter = resolved.createAdapter(
-                resolved.config,
-                resolved.workspace,
-            );
-            const adapter = new ProviderRoutingAdapter(
-                () => configuredAdapter,
-                resolved.config.provider,
-                undefined,
-                (request, provider) => applyModelRequestOptions(
-                    request,
-                    resolved.readRequestOptionsConfig(),
-                    provider,
-                ),
-            );
-            const selected = resolveAgentSnapshot(resolved.definition);
-            const hooks = new ToolHooks();
-            if (options.prepareTurn !== undefined) {
-                hooks.registerPreTurn(options.prepareTurn);
-            }
-            loop = runHeadlessLoop(
-                resident.engine,
-                adapter,
-                resolved.model,
-                resolved.reasoningEffort,
-                {
-                    approvalMode: resolved.posture,
-                    offerTools: resolved.definition.tools?.length !== 0,
-                    loadOptionalContext: false,
-                    instructionRoot: {
-                        path: resolved.workspace,
-                        source: "workspace",
-                    },
+            attachment.send({ type: "abort" });
+        } catch {
+            // A settled turn needs no second cancellation.
+        }
+    };
+    try {
+        const configuredAdapter = resolved.createAdapter(
+            resolved.config,
+            resolved.workspace,
+        );
+        const adapter = new ProviderRoutingAdapter(
+            () => configuredAdapter,
+            resolved.config.provider,
+            undefined,
+            (request, provider) => applyModelRequestOptions(
+                request,
+                resolved.readRequestOptionsConfig(),
+                provider,
+            ),
+        );
+        const selected = resolveAgentSnapshot(resolved.definition);
+        const hooks = new ToolHooks();
+        if (options.prepareTurn !== undefined) {
+            hooks.registerPreTurn(options.prepareTurn);
+        }
+        loop = runHeadlessLoop(
+            resident.engine,
+            adapter,
+            resolved.model,
+            resolved.reasoningEffort,
+            {
+                approvalMode: resolved.posture,
+                offerTools: resolved.definition.tools?.length !== 0,
+                loadOptionalContext: false,
+                instructionRoot: {
+                    path: resolved.workspace,
+                    source: "workspace",
                 },
-                {
-                    readModelSettings: () => ({
-                        provider: resolved.config.provider,
-                        model: resolved.model,
-                        ...(resolved.reasoningEffort === undefined
-                            ? {}
-                            : { reasoningEffort: resolved.reasoningEffort }),
-                    }),
-                    readPolicy: () => ({
-                        modelFallback: configuredModelFallback(resolved.config),
-                        ...(resolved.config.permission_modes === undefined
-                            ? {}
-                            : {
-                                permissionModes:
-                                    resolved.config.permission_modes,
-                            }),
-                    }),
-                    readSelectedAgent: () => selected,
-                    ...(options.prepareTurn === undefined ? {} : { hooks }),
-                    sessionStore,
-                },
-            ).catch((caught: unknown) => {
-                loopFailure = caught;
-                resident.fail(randomUUID(), errorMessage(caught));
-            });
-            if (options.signal?.aborted === true) {
-                abort();
-            } else {
-                options.signal?.addEventListener("abort", abort, { once: true });
+            },
+            {
+                readModelSettings: () => ({
+                    provider: resolved.config.provider,
+                    model: resolved.model,
+                    ...(resolved.reasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort: resolved.reasoningEffort }),
+                }),
+                readPolicy: () => ({
+                    modelFallback: configuredModelFallback(resolved.config),
+                    ...(resolved.config.permission_modes === undefined
+                        ? {}
+                        : {
+                            permissionModes:
+                                resolved.config.permission_modes,
+                        }),
+                }),
+                readSelectedAgent: () => selected,
+                ...(options.prepareTurn === undefined ? {} : { hooks }),
+                sessionStore,
+                ...(events === undefined ? {} : { eventBus: events }),
+            },
+        ).catch((caught: unknown) => {
+            loopFailure = caught;
+            resident.fail(randomUUID(), errorMessage(caught));
+        });
+        if (options.signal?.aborted === true) {
+            abort();
+        } else {
+            options.signal?.addEventListener("abort", abort, { once: true });
+        }
+        resident.sendPrompt(prompt);
+        for (;;) {
+            const update = await attachment.receive();
+            if (update.type === "assistant_delta") {
+                text += update.text;
+                terminalText += update.text;
+                continue;
             }
-            resident.sendPrompt(prompt);
-            for (;;) {
-                const update = await attachment.receive();
-                if (update.type === "assistant_delta") {
-                    text += update.text;
-                    terminalText += update.text;
-                    continue;
-                }
-                if (update.type === "tool_started") {
-                    terminalText = "";
-                    continue;
-                }
-                if (update.type === "model_substitution") {
-                    substitutions.push(update);
-                    continue;
-                }
-                if (update.type === "ui_request") {
-                    refuseHeadlessUiRequest(attachment, update);
-                    continue;
-                }
-                if (update.type === "agent_failed") {
-                    outcome = "failed";
-                    error = { kind: "runtime", message: update.detail };
-                    break;
-                }
-                if (update.type !== "turn_finished") continue;
-                usage = update.usage;
-                if (update.outcome === "aborted") {
-                    outcome = "aborted";
-                    error = {
-                        kind: "aborted",
-                        message: update.error ?? "Agent run was aborted",
-                    };
-                }
-                if (update.outcome === "error") {
-                    outcome = "failed";
-                    error = {
-                        kind: "model",
-                        message: update.error ?? "Model run failed",
-                    };
-                }
+            if (update.type === "tool_started") {
+                terminalText = "";
+                continue;
+            }
+            if (update.type === "model_substitution") {
+                substitutions.push(update);
+                continue;
+            }
+            if (update.type === "ui_request") {
+                refuseHeadlessUiRequest(attachment, update);
+                continue;
+            }
+            if (update.type === "agent_failed") {
+                outcome = "failed";
+                error = { kind: "runtime", message: update.detail };
                 break;
             }
-        } finally {
-            options.signal?.removeEventListener("abort", abort);
-            attachment.detach();
-            resident.close();
-            try {
-                await loop;
-                if (
-                    loopFailure !== undefined
-                    && outcome !== "failed"
-                    && !(loopFailure instanceof ResidentAgentClosedError)
-                ) {
-                    throw loopFailure;
-                }
-            } finally {
-                if (temporaryDirectory !== undefined) {
-                    await rm(temporaryDirectory, { recursive: true, force: true });
-                }
-            }
-        }
-
-        let output: Output | undefined;
-        let hasOutput = false;
-        if (outcome === "completed" && options.output !== undefined) {
-            try {
-                output = options.output.parse(structuredValue(terminalText));
-                hasOutput = true;
-            } catch (caught) {
-                outcome = "failed";
+            if (update.type !== "turn_finished") continue;
+            usage = update.usage;
+            if (update.outcome === "aborted") {
+                outcome = "aborted";
                 error = {
-                    kind: "schema",
-                    message: `Structured output failed validation: ${errorMessage(caught)}`,
+                    kind: "aborted",
+                    message: update.error ?? "Agent run was aborted",
                 };
             }
+            if (update.outcome === "error") {
+                outcome = "failed";
+                error = {
+                    kind: "model",
+                    message: update.error ?? "Model run failed",
+                };
+            }
+            break;
         }
-
-        const used = usage?.rows.at(-1);
-        return {
-            outcome,
-            text,
-            ...(hasOutput ? { output: output as Output } : {}),
-            model: {
-                provider: used?.provider ?? resolved.config.provider,
-                model: used?.model ?? resolved.model,
-            },
-            ...(usage === undefined ? {} : { usage }),
-            substitutions,
-            ...(error === undefined ? {} : { error }),
-        };
+    } finally {
+        options.signal?.removeEventListener("abort", abort);
+        attachment.detach();
+        resident.close();
+        try {
+            await loop;
+            if (
+                loopFailure !== undefined
+                && outcome !== "failed"
+                && !(loopFailure instanceof ResidentAgentClosedError)
+            ) {
+                throw loopFailure;
+            }
+        } finally {
+            if (temporaryDirectory !== undefined) {
+                await rm(temporaryDirectory, { recursive: true, force: true });
+            }
+        }
     }
+
+    let output: Output | undefined;
+    let hasOutput = false;
+    if (outcome === "completed" && options.output !== undefined) {
+        try {
+            output = options.output.parse(structuredValue(terminalText));
+            hasOutput = true;
+        } catch (caught) {
+            outcome = "failed";
+            error = {
+                kind: "schema",
+                message: `Structured output failed validation: ${errorMessage(caught)}`,
+            };
+        }
+    }
+
+    const used = usage?.rows.at(-1);
+    return {
+        outcome,
+        text,
+        ...(hasOutput ? { output: output as Output } : {}),
+        model: {
+            provider: used?.provider ?? resolved.config.provider,
+            model: used?.model ?? resolved.model,
+        },
+        ...(usage === undefined ? {} : { usage }),
+        substitutions,
+        ...(error === undefined ? {} : { error }),
+    };
 }
 
 async function resolveAgentOptions(
