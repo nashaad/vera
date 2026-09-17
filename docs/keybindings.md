@@ -1,66 +1,83 @@
-# Keybindings
+---
+title: "Keyboard shortcuts"
+description: "Use the common controls and remap supported actions."
+---
 
-Every key the TUI dispatches has an id. `tui.json` maps ids to chords, and
-nothing else: there are no macros and no action definitions, so a remap can
-only move a key Vera already has.
+# Keyboard shortcuts
 
-```jsonc
-// ~/.vera/tui.json — model picker on shift+tab, dials on ctrl+d
+Vera's command palette and dialog footers show the controls available in the
+current screen. A picker may use a shortcut differently from the composer.
+
+## Common controls
+
+| Key | Action |
+| --- | --- |
+| Ctrl+P | Open the command palette. |
+| Ctrl+X, then M | Open Switch model. Release Ctrl before M. |
+| Shift+Tab | Open quick model, effort, access, and definition controls. |
+| Ctrl+E | Show or hide the conversation rail. |
+| Ctrl+F | Search the conversation on screen. |
+| Ctrl+Shift+F | Search across conversations. |
+| Ctrl+G | Change focus between conversation panes. |
+| Ctrl+\ | Cycle split and single-pane layouts. |
+| Ctrl+C | Stop work, clear an idle draft, or exit with an empty composer. |
+
+Ctrl+C also exits when a stop is in progress. Other conversations can remain
+running after the TUI exits. See [Saved conversations](sessions.md).
+
+## Remap an action
+
+`tui.json` maps supported action IDs to key combinations. It does not define
+new actions or macros. For example:
+
+```json
 {
-  "keybindings": {
-    "open_model_picker": ["shift+tab"],
-    "dials.open": ["ctrl+d"]
-  }
+    "keybindings": {
+        "open_model_picker": ["shift+tab"],
+        "dials.open": ["ctrl+d"]
+    }
 }
 ```
 
-An empty list unbinds:
+An empty list unbinds an action:
 
-```jsonc
+```json
 { "keybindings": { "open_model_picker": [] } }
 ```
 
-## What can move
+The help pane lists action IDs and shows the effective shortcuts after
+remapping.
 
-Only bindings that open a visible picker, and movement inside one. Interrupt,
-enter, escape, cursor movement, text entry and scrolling stay where they are.
-So does every binding that changes state without showing you anything: those
-are grandfathered where they exist and no new one is accepted, which is what
-stops blind cycling from being rebuilt out of a config file.
+### What can be remapped
 
-`vera` names the ids in the help pane (`?`), and the help pane renders from the
-same merged table dispatch uses — so after a remap it shows your chord, not the
-default.
+Supported remaps cover actions that open visible pickers and navigation
+inside them. Core controls such as interrupt, Enter, Escape, text editing,
+and scrolling remain fixed. Actions that change state without opening a
+screen cannot be remapped.
 
-## Chords
+### Key names
 
-Lowercase, joined with `+`, modifiers first: `ctrl+shift+tab`. The two
-modifiers Vera binds are `ctrl` and `shift`. `alt`, `meta` and `option` are
-refused, because the TUI's key reader does not report them consistently across
-terminals: a chord that carries one would validate and then never fire.
+Use lowercase names with modifiers first, such as `ctrl+shift+tab`.
+Supported modifiers are `ctrl` and `shift`. `alt`, `meta`, and `option` are
+rejected because reporting differs between terminals.
 
-Key names: `tab`, `backtab`, `enter`, `esc`, `space`, `up`, `down`, `left`,
-`right`, `home`, `end`, `pageup`, `pagedown`, `delete`, `backspace`, `insert`,
-`f1`–`f12`, or a single printable character.
+Keys include `tab`, `backtab`, `enter`, `esc`, `space`, arrows, `home`, `end`,
+`pageup`, `pagedown`, `delete`, `backspace`, `insert`, `f1` through `f12`, and
+single printable characters.
 
-A `ctrl+shift+<letter>` chord only reaches Vera in terminals that speak the
-kitty keyboard protocol. It is accepted, with a line at startup saying so.
+Ctrl+Shift+letter combinations require a terminal that supports the kitty
+keyboard protocol. Vera accepts them and shows a startup notice.
 
-## When something is wrong
+## Fix a rejected binding
 
-Nothing in this block can stop the TUI from starting. A bad entry is ignored
-and named at startup:
+Invalid entries are ignored and named at startup. They do not prevent the
+TUI from starting. For example:
 
-```
+```text
 keybinding ignored: dials.opne: unknown binding id
 keybinding ignored: interrupt: this binding cannot be moved
-keybinding ignored: dials.open: alt+x: alt chords are not reported by every
-  terminal, so Vera does not bind them
 ```
 
-An unknown id is a warning rather than an error on purpose: a block written for
-a newer Vera has to stay readable by an older one.
-
-Two entries landing on the same chord in the same scope both stand down and the
-defaults come back, with both ids named. Vera does not pick a winner, because
-the pick would be a guess and the guess would be invisible.
+If two actions use the same chord in the same scope, both remaps are ignored
+and their defaults return. Correct the named entries rather than relying on
+one to take precedence.

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+site_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$site_dir"
+
+if ! command -v bun >/dev/null 2>&1; then
+    echo "Bun is required to run the Vera docs site: https://bun.sh" >&2
+    exit 1
+fi
+
+if [[ ! -x node_modules/.bin/astro ]]; then
+    echo "Installing Vera docs dependencies..."
+    bun install --frozen-lockfile
+fi
+
+exec bun run dev -- --host 127.0.0.1 "$@"

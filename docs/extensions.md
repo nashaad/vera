@@ -1,0 +1,71 @@
+---
+title: "Manage extensions"
+description: "Inspect installed capabilities, configure them, and enable or disable copies."
+---
+
+# Manage extensions
+
+Extensions add capabilities to Vera. Run `/extensions` to see included
+extensions and installed copies, what they contribute, and whether they are
+enabled. The same screen is available from **Manage extensions** in Ctrl+P.
+
+## Install a local extension
+
+Enter this in the composer with the source directory's path:
+
+```text
+/extension install <path>
+```
+
+Then open `/extensions` to inspect the installed copy. `/extension list`
+opens the same manager.
+
+## Inspect or change a copy
+
+Use Up/Down to choose an extension and Enter to open details. The detail
+screen shows its version, scope, status, contributed capabilities, path, and
+source when recorded.
+
+Space enables or disables a managed copy. **Remove** opens a confirmation;
+it deletes the managed copy and leaves the source untouched. Unmanaged copies
+have no enable/disable shortcut.
+
+### Understand status
+
+| Status | Meaning |
+| --- | --- |
+| enabled | The copy is enabled. |
+| disabled | The copy is turned off. |
+| failed | Loading failed. Inspect the details. |
+| unmanaged | The copy is not managed through this installation registry. |
+| shadowed | A project copy with the same ID takes precedence over this home copy. |
+
+Project copies appear above home copies. Bundled extensions appear alongside
+installed ones. Desktop and web expose the same facts in their own lists.
+
+## Apply configuration changes
+
+Loaded extensions expose their settings commands on the detail page. For
+example, choose `vera.web-search`, then **Search providers**, to configure
+[web search](web-search.md).
+
+Client extensions reload after changes and the manager refreshes. Host-side
+capabilities require a resident-host restart. The transcript collects changes
+in one note; Ctrl+T collapses or expands it.
+
+For credentials, use exact `{env:NAME}` references in extension configuration.
+See [Extension credentials](extension-credentials.md).
+
+## Try checkout extensions
+
+From a development worktree:
+
+```sh
+VERA_EXTENSIONS=extensions/btw,extensions/plan bun run dev:tui
+```
+
+`VERA_EXTENSIONS` replaces the configured list with the supplied comma-separated
+directories. It does not append them. A running host keeps the list from its
+startup. See [Development instances](runtime-and-worktrees.md).
+
+For browser work, see [Work in a Chrome tab](chrome-browser.md).

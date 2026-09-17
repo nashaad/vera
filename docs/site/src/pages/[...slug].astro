@@ -1,0 +1,67 @@
+---
+import { render, type CollectionEntry } from 'astro:content';
+import { Manual } from '../components/docs';
+import { Homepage } from '../components/homepage';
+import { getSource } from '../lib/source';
+import '../styles/global.css';
+import { unified } from '@astrojs/markdown-remark';
+import manualLinks from '../manual-links.mjs';
+
+interface Props {
+    entry: CollectionEntry<'docs'>;
+}
+
+export async function getStaticPaths() {
+    const source = await getSource();
+    return source.getPages().map((page) => ({
+        params: { slug: page.slugs.length ? page.slugs.join('/') : undefined },
+        props: { entry: page.data.entry },
+    }));
+}
+
+const { entry } = Astro.props;
+const source = await getSource();
+const indexRenderer = entry.id === 'index'
+    ? await unified({ remarkPlugins: [manualLinks] }).createRenderer({})
+    : undefined;
+const indexContent = await indexRenderer?.render(entry.body ?? '');
+const { headings } = indexContent?.metadata ?? await render(entry);
+const html = indexContent?.code ?? entry.rendered?.html;
+if (html === undefined) throw new Error(`Missing rendered Markdown for ${entry.id}`);
+const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3).map((heading) => ({
+    depth: heading.depth,
+    title: heading.text,
+    url: `#${heading.slug}`,
+}));
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>{entry.data.title} | Vera</title>
+        <meta name="description" content={entry.data.description} />
+        {entry.data.draft && <meta name="robots" content="noindex, nofollow" />}
+    </head>
+    <body class="flex min-h-screen flex-col">
+        {entry.data.layout === 'homepage' ? <Homepage
+            pathname={Astro.url.pathname}
+            description={entry.data.description}
+            html={html}
+            draft={entry.data.draft}
+            client:load
+        /> : <Manual
+            title={entry.data.title}
+            description={entry.data.description}
+            markdownUrl={`/${entry.id}.md`}
+            tree={source.getPageTree()}
+            pathname={Astro.url.pathname}
+            toc={toc}
+            html={html}
+            draft={entry.data.draft}
+            replay={entry.data.replay}
+            client:load
+        />}
+    </body>
+</html>

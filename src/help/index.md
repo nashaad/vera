@@ -71,7 +71,8 @@ supervisor, and watchdog. Each row shows the pid, kind, and the runtime
 directory it started from. Worktrees that share this home appear together.
 A relocated `VERA_HOME` is a different list.
 
-It asks `[y/N]` before stopping each process. `--yes` does not skip that.
+It asks `[y/N]` before stopping each process. It accepts no arguments;
+`vera prune --yes` is rejected.
 Without a terminal it prints the list and refuses to kill. A process that
 has been running since before this command existed will not appear until
 it is started again.

@@ -7,6 +7,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "dev:manual": "bash docs/site/run",
     "start": "bun run clients/stdio/main.ts",
     "pack:web": "bun run scripts/pack-web.ts dist/release/annex",
     "pack:release": "bun run scripts/pack-release.ts dist/release",

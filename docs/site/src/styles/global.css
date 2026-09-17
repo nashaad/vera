@@ -1,0 +1,70 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+.manual-toc {
+    --color-fd-primary: #786000;
+}
+
+.dark .manual-toc {
+    --color-fd-primary: #fff36d;
+}
+
+[role='dialog'] a[href^='https://scira.ai/'] {
+    display: none;
+}
+
+.manual-replay {
+    min-width: 0;
+}
+
+.manual-replay-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.manual-replay-controls button {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-fd-border);
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.manual-replay-controls button[aria-pressed='true'] {
+    background: var(--color-fd-accent);
+    color: var(--color-fd-accent-foreground);
+}
+
+.manual-replay-controls button:focus-visible {
+    outline: 2px solid var(--color-fd-primary);
+    outline-offset: 2px;
+}
+
+.manual-replay-controls button:disabled {
+    cursor: wait;
+    opacity: 0.5;
+}
+
+.manual-replay-frame {
+    overflow: hidden;
+    border: 1px solid var(--color-fd-border);
+    border-radius: 0.75rem;
+}
+
+.manual-replay-title {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--color-fd-border);
+    background: var(--color-fd-muted);
+    font-size: 0.75rem;
+}
+
+.manual-replay-scroll {
+    overflow-x: auto;
+}
+
+.manual-replay-player {
+    min-width: 680px;
+}

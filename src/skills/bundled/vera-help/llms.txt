@@ -10,7 +10,7 @@ Explain how something works: read the one section that names it and answer in tw
 Find where to do something: name the exact slash command and what it opens, in one line. The user is about to look at it.
 Set something up: name the surface that validates. Never edit a configuration file, never give a file path as the way to change a setting, and never repeat a key back in an answer.
 Install or download a model: provider connection expects a running endpoint. It does not install or download models.
-Find a command or a flag: `vera help` prints the whole reference and the topic list, and `vera help <topic>` reads one topic. `/commands` browses them in the TUI.
+Find a command or a flag: `vera help` prints the whole reference and the topic list, and `vera help <topic>` reads one topic. `/palette` browses them in the TUI.
 Something is not working: run one bounded check, report what it actually said, then offer at most one recovery. Do not loop.
 Report a problem: `/failure-report` writes a shareable report of recorded model failures. Vera has no general bug-report path.
 Anything this guide does not cover: say so, name the nearest thing it does cover, and stop. Never read source code instead.
@@ -43,7 +43,7 @@ A development instance registers a pointer to its home in `~/.vera-dev/instances
 Run `vera help` for the command and flag reference followed by the list of help topics. `vera --help` and `vera -h` print the same thing.
 Read one topic with `vera help <topic>`. Aliases resolve to the canonical topic, so an inexact name still lands.
 CLI help needs no TUI, no resident host, no provider, no network request, and no model call. It is safe to run anywhere.
-In the TUI, `/commands` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes. Help opens on a menu of pages: General, Keys, Slash commands, and Extensions. ↑↓ choose, Enter opens, Esc goes back to the menu. General is text. The other pages have Search and a list; Tab moves between them. ↑↓ move through the list and enter it from Search; ←→ move the caret in Search and return to Search from the list. Typing from the list goes to Search.
+In the TUI, `/palette` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes. Help opens on a menu of pages: General, Keys, Slash commands, and Extensions. ↑↓ choose, Enter opens, Esc goes back to the menu. General is text. The other pages have Search and a list; Tab moves between them. ↑↓ move through the list and enter it from Search; ←→ move the caret in Search and return to Search from the list. Typing from the list goes to Search.
 `vera help --llms` prints the whole help corpus as compact Markdown for an agent or a script. It is a projection of the same corpus, so it cannot drift from what `vera help <topic>` shows.
 
 ## First-run setup [lines=6]
@@ -75,7 +75,7 @@ The built-in composer status reports the focused conversation's model and effort
 `/resume` opens another conversation. Enter asks how to leave the one on screen: Stop & switch, or Switch, keep running.
 `/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
 Submitting while Vera is working queues another prompt. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape sends only the oldest queued prompt and leaves the turn running.
-Ctrl+C stops the active turn without sending queued work.
+Ctrl+C stops the active turn without sending queued work. While a stop is already in progress it exits the TUI. When idle, it clears a composer draft first; with an empty composer it exits.
 The transcript animates while work runs; the composer status has no spinner. A dim, full-width `Worked for` divider shows elapsed time after turns lasting at least five minutes, errors, or interruptions. Reopening a finished conversation also shows its last divider, even for a short turn. The local finish date and time appear only when the turn finished more than 24 hours ago; older turns without timing have no divider.
 The conversation rail groups sessions by needs-you, working, idle, and recent, never by workspace. It is a browse list: opening a row paints that session's file and starts no worker. Vera starts with the rail closed; `ctrl+e` opens it. Set `tui.sidebar.open_at_launch` to `true` in `config.json` to start with it open.
 Resuming is a separate act. Press Enter on the file already on screen, or `ctrl+r` for the picker covering anything the rail does not list.
@@ -99,7 +99,7 @@ The subagent tool lists available agent names and descriptions so the parent can
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
 The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
-Project instruction files, selected-agent instructions, memory, imports, and standing nudges may all contribute context.
+Project instruction files, selected-agent instructions, imports, and standing nudges may contribute context. Memory loading and writing are disabled; saved files may still appear in Customize.
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 `/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled sources have no edit action.
 When the Context extension is enabled, `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.
@@ -128,7 +128,7 @@ Smaller models should run with shorter fresh context and earlier compaction. Pre
 Tool results should be visibly bounded, truncated, or paginated. Oversized output must not silently consume the session.
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, and asks before clearing every lever at once.
 
-## Diagnostics and recovery [lines=10]
+## Diagnostics and recovery [lines=12]
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, use `/reconnect`. This attaches to or replaces the host process while preserving the same installed build.
 `/reconnect` does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
