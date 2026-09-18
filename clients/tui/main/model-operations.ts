@@ -59,7 +59,7 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
             const sidebar = rt.hostedSidebar.pane?.state;
             if (sidebar !== undefined) sidebar.state = { ...sidebar.state,
                 modelSettings: mergeTuiModelPickerSettings(sidebar.state.modelSettings, settings) };
-            if (rt.settingsPicker?.kind === "model") rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, { ...settings, providerCatalogs: providerCatalogsOf(settings) });
+            if (rt.settingsPicker !== undefined && rt.settingsPicker.kind !== "extension") rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, { ...settings, providerCatalogs: providerCatalogsOf(settings) });
         }
         if (membership) feedback(shortlistOperationFeedback(operation, label, results, settings));
     }).catch((error) => {

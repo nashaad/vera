@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { handleVerificationKey, verificationPicker, verificationResults } from "../../clients/tui/model-verification.ts";
+import { modelBrowse } from "../../clients/tui/model-browse.ts";
+import { startTuiSettingsPicker, syncTuiModelPicker } from "../../clients/tui/settings-picker.ts";
 const models = [
     { provider: "p", model: "one", verified: false },
     { provider: "q", model: "two", verified: true },
@@ -35,4 +37,27 @@ test("verification progress and completion preserve the caller and results curso
     const complete = verificationResults({ ...run, running: false }, progress);
     expect(complete.selectedIndex).toBe(1);
     expect(handleVerificationKey(complete, { name: "escape" }).state).toBe(parent);
+});
+
+test("a snapshot during a run reaches the pane the screen returns to", () => {
+    const parent = modelBrowse(startTuiSettingsPicker(
+        "model",
+        "one",
+        undefined,
+        undefined,
+        [{ provider: "p", model: "one", label: "One", description: "" }],
+        undefined,
+        "p",
+    ), "favorites");
+    expect(parent.allOptions.filter((row) => row.pooledRank !== undefined)).toHaveLength(0);
+    const results = verificationResults({ running: true, targets: models, results: [] }, parent);
+    const synced = syncTuiModelPicker(results, {
+        provider: "p",
+        model: "one",
+        availableModels: [{ provider: "p", model: "one", label: "One", description: "" }],
+        pooled: [{ provider: "p", model: "one", label: "One", available: true, verified: true, levels: [] }],
+    });
+    const returned = handleVerificationKey(synced, { name: "escape" }).state!;
+    expect(returned.kind).toBe("model");
+    expect(returned.allOptions.filter((row) => row.pooledRank !== undefined)).toHaveLength(1);
 });

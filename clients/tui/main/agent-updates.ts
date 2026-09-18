@@ -449,7 +449,8 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             }
             if (
                 update.type === "model_settings"
-                && rt.settingsPicker?.kind === "model"
+                && rt.settingsPicker !== undefined
+                && rt.settingsPicker.kind !== "extension"
             ) {
                 const pickerSettings = modelSettingsForOpenPicker(rt, 
                     rt.state.modelSettings,
@@ -463,7 +464,10 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         ),
                     },
                 );
-                if (rt.poolChangeUndo !== undefined) {
+                if (
+                    rt.poolChangeUndo !== undefined
+                    && rt.settingsPicker.kind === "model"
+                ) {
                     rt.settingsPicker = {
                         ...rt.settingsPicker,
                         canUndoPoolChange: true,

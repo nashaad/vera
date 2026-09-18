@@ -280,7 +280,12 @@ export function syncTuiModelPicker(
     } | undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
-        return state;
+        // The verification screen returns to the pane it was opened from, so
+        // that held state has to take the snapshot too.
+        const parent = state.parent;
+        if (parent === undefined) return state;
+        const synced = syncTuiModelPicker(parent, settings);
+        return synced === parent ? state : { ...state, parent: synced };
     }
     const selectedValue = state.options[state.selectedIndex]?.value;
     const rebuilt = startTuiSettingsPicker(
