@@ -466,6 +466,10 @@ function footerText(state: TuiModelSwitcherState): string {
     return `↑↓ move · ^u^d page · ⏎ switch · ${favorite} · esc close`;
 }
 
+export function switcherCounterText(state: TuiModelSwitcherState): string {
+    return counter(state);
+}
+
 export function switcherEmptyMessage(state: TuiModelSwitcherState): string {
     return emptyMessage(state);
 }
@@ -491,9 +495,10 @@ function rowMeta(
 }
 
 function counter(state: TuiModelSwitcherState): string {
-    return state.rows.length === 0
-        ? "0"
-        : `${state.selectedIndex + 1}/${state.rows.length}`;
+    if (state.rows.length === 0) return "0";
+    // The browse row is not a model, so it does not count itself.
+    const at = Math.min(state.selectedIndex + 1, state.rows.length);
+    return `${at}/${state.rows.length}`;
 }
 
 export function searchedTuiModelSwitcher(

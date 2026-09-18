@@ -9,6 +9,7 @@ import {
     onSwitcherBrowseRow,
     refreshedTuiModelSwitcher,
     startTuiModelSwitcher,
+    switcherCounterText,
     switcherEmptyMessage,
     searchedTuiModelSwitcher,
     switcherFooterText,
@@ -149,6 +150,11 @@ describe("model switcher keys", () => {
 
     test("the footer names paging", () => {
         expect(switcherFooterText(started())).toContain("^u^d page");
+    });
+
+    test("the counter does not count the browse row as a model", () => {
+        const last = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
+        expect(switcherCounterText(last)).toBe(`${rows.length}/${rows.length}`);
     });
 
     test("the cursor reaches the browse row one past the last model", () => {
