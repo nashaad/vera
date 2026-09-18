@@ -59,6 +59,13 @@ export interface TuiModelSwitcherState {
     readonly current?: string;
     readonly recents: readonly string[];
     readonly notice?: string;
+    /** The favorite change the notice is waiting on, cleared when it lands. */
+    readonly pending?: TuiModelSwitcherPending;
+}
+
+export interface TuiModelSwitcherPending {
+    readonly key: string;
+    readonly favorite: boolean;
 }
 
 export interface TuiModelSwitcherKey {
@@ -113,21 +120,41 @@ export function refreshedTuiModelSwitcher(
     allRows: readonly TuiModelSwitcherRow[],
     recents: readonly string[],
     notice?: string,
+    pending?: TuiModelSwitcherPending,
 ): TuiModelSwitcherState {
     const held = state.rows[state.selectedIndex];
     const ordered = orderedRows(allRows, recents, state.query);
     const at = held === undefined ? -1 : ordered.rows
         .findIndex((row) => modelSwitcherKey(row) === modelSwitcherKey(held));
+    const { notice: _notice, pending: _pending, ...carried } = state;
     return {
-        ...state,
+        ...carried,
         allRows,
         recents,
         ...ordered,
         selectedIndex: at >= 0
             ? at
             : Math.min(state.selectedIndex, Math.max(0, ordered.rows.length - 1)),
-        ...(notice === undefined ? {} : { notice }),
+        ...(notice === undefined
+            ? settledNotice(state, allRows)
+            : { notice, ...(pending === undefined ? {} : { pending }) }),
     };
+}
+
+/** A pending notice stands until the snapshot shows the change it announced. */
+function settledNotice(
+    state: TuiModelSwitcherState,
+    allRows: readonly TuiModelSwitcherRow[],
+): Pick<TuiModelSwitcherState, "notice" | "pending"> {
+    const { notice, pending } = state;
+    if (notice === undefined) return {};
+    if (pending === undefined) return { notice };
+    const row = allRows.find((candidate) =>
+        modelSwitcherKey(candidate) === pending.key
+    );
+    return row !== undefined && (row.favorite === true) === pending.favorite
+        ? {}
+        : { notice, pending };
 }
 
 function startingIndex(

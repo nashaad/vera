@@ -174,6 +174,30 @@ describe("model switcher favoriting", () => {
         expect(next.notice).toBe("Added to favorites");
     });
 
+    test("the pending notice stands until the snapshot carries the change", () => {
+        const state = started({ current: "openai/gpt-5.6-mini" });
+        const held = state.rows[state.selectedIndex]!;
+        const waiting = refreshedTuiModelSwitcher(
+            state,
+            state.allRows,
+            state.recents,
+            "Adding it to favorites…",
+            { key: modelSwitcherKey(held), favorite: true },
+        );
+        expect(waiting.notice).toBe("Adding it to favorites…");
+        // A snapshot that does not carry the change yet leaves the notice up.
+        expect(refreshedTuiModelSwitcher(waiting, state.allRows, state.recents).notice)
+            .toBe("Adding it to favorites…");
+        const kept = state.allRows.map((row) =>
+            modelSwitcherKey(row) === modelSwitcherKey(held)
+                ? { ...row, favorite: true }
+                : row
+        );
+        const settled = refreshedTuiModelSwitcher(waiting, kept, state.recents);
+        expect(settled.notice).toBeUndefined();
+        expect(settled.pending).toBeUndefined();
+    });
+
     test("a late recents reply fills the recents group without moving the cursor", () => {
         const state = started();
         const held = state.rows[state.selectedIndex]!;

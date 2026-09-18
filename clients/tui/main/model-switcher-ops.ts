@@ -4,6 +4,7 @@ import {
     modelSwitcherKey,
     refreshedTuiModelSwitcher,
     startTuiModelSwitcher,
+    type TuiModelSwitcherPending,
     type TuiModelSwitcherRow,
     type TuiModelSwitcherState,
 } from "../model-switcher.ts";
@@ -113,13 +114,18 @@ export function closeModelSwitcher(rt: TuiRuntime): void {
 }
 
 /** Keeps an open switcher current when the pool or the catalog changes underneath it. */
-export function refreshModelSwitcher(rt: TuiRuntime, notice?: string): void {
+export function refreshModelSwitcher(
+    rt: TuiRuntime,
+    notice?: string,
+    pending?: TuiModelSwitcherPending,
+): void {
     if (rt.modelSwitcher === undefined) return;
     rt.modelSwitcher = refreshedTuiModelSwitcher(
         rt.modelSwitcher,
         modelSwitcherRows(rt),
         switcherRecents(rt),
         notice,
+        pending,
     );
 }
 
@@ -134,10 +140,16 @@ export function toggleModelSwitcherFavorite(
             provider: row.provider,
             model: row.model,
         });
-        refreshModelSwitcher(rt, `Removing ${row.label} from favorites…`);
+        refreshModelSwitcher(rt, `Removing ${row.label} from favorites…`, {
+            key: modelSwitcherKey(row),
+            favorite: false,
+        });
     } else {
         requestPoolAdmission(rt, row.provider, row.model);
-        refreshModelSwitcher(rt, `Adding ${row.label} to favorites…`);
+        refreshModelSwitcher(rt, `Adding ${row.label} to favorites…`, {
+            key: modelSwitcherKey(row),
+            favorite: true,
+        });
     }
     renderState(rt);
 }
