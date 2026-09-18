@@ -733,7 +733,7 @@ test("model picker keeps the current model selected", async () => {
     expect(frame).not.toContain("Recent");
 });
 
-test("ctrl+f on a model row asks that provider for its list again", () => {
+test("ctrl+r on a model row asks that provider for its list again", () => {
     const state = startTuiSettingsPicker(
         "model",
         "z-ai/glm-5.2",
@@ -744,7 +744,7 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
         "openrouter",
     );
 
-    expect(handleTuiSettingsPickerKey(state, { name: "f", ctrl: true }))
+    expect(handleTuiSettingsPickerKey(state, { name: "r", ctrl: true }))
         .toMatchObject({ handled: true, refreshCatalog: "openrouter" });
 
     // A provider whose list Vera reads off disk rather than fetching has
@@ -756,7 +756,7 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
         selectedIndex: 0,
     };
     const refused = handleTuiSettingsPickerKey(onCodex, {
-        name: "f",
+        name: "r",
         ctrl: true,
     });
     expect(refused.handled).toBe(true);
@@ -768,7 +768,7 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
         selectedIndex: 0,
     };
     expect(handleTuiSettingsPickerKey(ollama, {
-        name: "f",
+        name: "r",
         ctrl: true,
     })).toMatchObject({ handled: true, refreshCatalog: "ollama" });
 
@@ -778,7 +778,7 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
         selectedIndex: 0,
     };
     expect(handleTuiSettingsPickerKey(omlx, {
-        name: "f",
+        name: "r",
         ctrl: true,
     })).toMatchObject({ handled: true, refreshCatalog: "omlx" });
 
@@ -788,7 +788,7 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
         selectedIndex: 0,
     };
     expect(handleTuiSettingsPickerKey(declared, {
-        name: "f",
+        name: "r",
         ctrl: true,
     })).toMatchObject({ handled: true, refreshCatalog: "gateway" });
 });
@@ -1662,7 +1662,7 @@ test("the current library model exposes an inspector and list action", async () 
     expect(frame).not.toContain("Verify all");
     expect(frame).toContain("Actions");
     expect(frame).toMatch(/Verify this model\s+\^v/);
-    expect(frame).toMatch(/Unpin\s+\^s/);
+    expect(frame).toMatch(/Unpin\s+\^f/);
     expect(frame).toMatch(/Name this model\s+\^n/);
     expect(frame).not.toContain("Refresh model catalog from providers");
     expect(pickerFooter(shortlist)).toContain("^v verify");
@@ -2378,7 +2378,7 @@ test("an empty declared provider can still ask for its model list", () => {
         declared: true,
     }]);
 
-    expect(handleTuiSettingsPickerKey(pane, { name: "f", ctrl: true }))
+    expect(handleTuiSettingsPickerKey(pane, { name: "r", ctrl: true }))
         .toMatchObject({ handled: true, refreshCatalog: "empty-gateway" });
 });
 
@@ -2812,7 +2812,7 @@ test("pooling a row refreshes the open pane from the snapshot that comes back", 
         model: "z-ai/glm-5.2",
         pooledRank: 0,
     });
-    expect(pickerFooter(synced)).toContain("unpin");
+    expect(pickerFooter(synced)).toContain("unfavorite");
 });
 
 test("the footer sheds whole hints rather than splitting a chord from its label", () => {
@@ -3420,7 +3420,7 @@ test("fixed subscription endpoints retain reconnect without unsupported actions"
 
 test("a shipped row's endpoint opens on the chord, and Codex's does not", () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "ollama" });
-    const chord = { name: "r", ctrl: true };
+    const chord = { name: "r", ctrl: true, shift: true };
 
     const moved = handleTuiSettingsPickerKey(pane, chord);
     expect("editEndpoint" in moved ? moved.editEndpoint : undefined)

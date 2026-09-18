@@ -2313,7 +2313,7 @@ export function pickerFooterText(
         const pool = selected === undefined || selected.provider === undefined
             ? undefined
             : isPooled(state, selected)
-                ? tuiKeyHint("toggle_pooled").replace("pin", "unpin")
+                ? tuiKeyHint("toggle_pooled").replace("favorite", "unfavorite")
                 : tuiKeyHint("toggle_pooled");
         return fittedHints([
             { text: "↑↓ ^d^u move", drop: 0 },

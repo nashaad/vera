@@ -450,10 +450,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "toggle_pooled",
-        keys: ["ctrl+s"],
+        keys: ["ctrl+f", "ctrl+s"],
         scope: "model_picker",
-        description: "Pin the selected model to your favorites, or unpin it",
-        hint: "^s pin",
+        description: "Keep the selected model in your favorites, or drop it",
+        hint: "^f favorite",
+        overrides: ["search_conversation"],
     },
     {
         id: "toggle_subagent_assignment",
@@ -471,11 +472,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "refresh_catalog",
-        keys: ["ctrl+f"],
+        keys: ["ctrl+r"],
         scope: "model_picker",
         description: "Ask the highlighted row's provider for its model list now",
-        hint: "^f refresh",
-        overrides: ["search_conversation"],
+        hint: "^r refresh",
     },
     {
         id: "verify_pool",
@@ -531,10 +531,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "edit_endpoint",
-        keys: ["ctrl+r"],
+        keys: ["ctrl+shift+r"],
         scope: "model_picker",
         description: "Change where the selected provider answers",
-        hint: "^r endpoint",
+        hint: "^⇧r endpoint",
     },
     {
         id: "forget_provider",
