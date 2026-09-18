@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readWorkflowRun } from "../../src/sdk/workflow-journal.ts";
@@ -23,4 +25,49 @@ test("readWorkflowRun loads a Python journal blob", () => {
         throw new Error("fixture blob value must be a string");
     }
     expect(record.value).toHaveLength(9000);
+    expect(record.ms).toBe(12);
+});
+
+test("readWorkflowRun carries step timing and the step in flight", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-timing-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({
+            run_id: "wf_00000000000000aa",
+            workflow: "timed",
+            status: "running",
+            active: { key: "timed/slow#0:abcd1234", step: "slow", at: "2026-09-17T12:00:00+00:00" },
+        }),
+    );
+    writeFileSync(
+        join(runDir, "journal.ndjson"),
+        `${JSON.stringify({
+            seq: 1,
+            key: "timed/quick#0:abcd1234",
+            ok: true,
+            at: "2026-09-17T11:59:59+00:00",
+            ms: 41,
+            value: 6,
+        })}\n`,
+    );
+
+    const run = readWorkflowRun(runDir);
+
+    expect(run.header.active?.step).toBe("slow");
+    expect(run.records[0]?.at).toBe("2026-09-17T11:59:59+00:00");
+    expect(run.records[0]?.ms).toBe(41);
+});
+
+test("readWorkflowRun refuses a record with no timing", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-untimed-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({ run_id: "wf_00000000000000ab", workflow: "timed", status: "ok" }),
+    );
+    writeFileSync(
+        join(runDir, "journal.ndjson"),
+        `${JSON.stringify({ seq: 1, key: "timed/quick#0:abcd1234", ok: true, value: 6 })}\n`,
+    );
+
+    expect(() => readWorkflowRun(runDir)).toThrow("invalid fields");
 });

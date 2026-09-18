@@ -6,12 +6,22 @@ export interface WorkflowRunHeader {
     readonly run_id: string;
     readonly workflow: string;
     readonly status: string;
+    // Present only while a step is in flight, and left behind by a crash.
+    readonly active?: WorkflowActiveStep;
+}
+
+export interface WorkflowActiveStep {
+    readonly key: string;
+    readonly step: string;
+    readonly at: string;
 }
 
 export interface WorkflowJournalRecord {
     readonly seq: number;
     readonly key: string;
     readonly ok: true;
+    readonly at: string;
+    readonly ms: number;
     readonly value?: unknown;
     readonly ref?: string;
 }
@@ -35,6 +45,7 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
     ) {
         throw new Error(`workflow header has invalid fields: ${headerPath}`);
     }
+    const active = readActiveStep(headerValue.active, headerPath);
 
     const journalPath = join(runDir, "journal.ndjson");
     const journalText = readFileSync(journalPath, "utf8");
@@ -42,9 +53,28 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
     const records = lines.map((line) => readRecord(line, runDir, journalPath));
 
     return {
-        header: { run_id: runId, workflow, status },
+        header: active === undefined
+            ? { run_id: runId, workflow, status }
+            : { run_id: runId, workflow, status, active },
         records,
     };
+}
+
+function readActiveStep(
+    value: unknown,
+    headerPath: string,
+): WorkflowActiveStep | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new Error(`workflow header active step must be an object: ${headerPath}`);
+    }
+    const { key, step, at } = value;
+    if (typeof key !== "string" || typeof step !== "string" || typeof at !== "string") {
+        throw new Error(`workflow header active step has invalid fields: ${headerPath}`);
+    }
+    return { key, step, at };
 }
 
 function readRecord(
@@ -56,12 +86,17 @@ function readRecord(
     if (!isRecord(value)) {
         throw new Error(`workflow journal record must be an object: ${journalPath}`);
     }
-    const { seq, key, ok } = value;
+    const { seq, key, ok, at, ms } = value;
     if (
         typeof seq !== "number"
         || !Number.isInteger(seq)
         || typeof key !== "string"
         || ok !== true
+        || typeof at !== "string"
+        || at === ""
+        || typeof ms !== "number"
+        || !Number.isInteger(ms)
+        || ms < 0
     ) {
         throw new Error(`workflow journal record has invalid fields: ${journalPath}`);
     }
@@ -75,7 +110,7 @@ function readRecord(
         if (Object.hasOwn(value, "bytes")) {
             throw new Error(`inline workflow journal record has bytes: ${journalPath}`);
         }
-        return { seq, key, ok: true, value: value.value };
+        return { seq, key, ok: true, at, ms, value: value.value };
     }
 
     const reference = value.ref;
@@ -103,6 +138,8 @@ function readRecord(
         seq,
         key,
         ok: true,
+        at,
+        ms,
         value: parseJson(blobText, blobPath),
         ref: reference,
     };

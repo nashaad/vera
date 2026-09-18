@@ -113,11 +113,13 @@ Steps are retried, not rolled back.
 ## Inspect recorded progress
 
 ```sh
-PYTHONPATH=python python3 -m vera.workflow show /tmp/wf-demo <run-id>
+PYTHONPATH=python python3 -m vera.workflow show <run-id> --journal-dir /tmp/wf-demo
 ```
 
-The output includes the run ID, workflow name, status, and completed step keys.
-A workflow docstring also appears in the report.
+The output includes the run ID, workflow name, status, and completed step keys
+with how long each step took. While a step is running, and after a crash, the
+report also names the step in flight. A workflow docstring also appears in the
+report.
 
 If the ID is missing, the error lists up to ten available run IDs and counts
 any remaining ones. In file storage, run IDs are also the directory names.
@@ -131,8 +133,9 @@ any remaining ones. In file storage, run IDs are also the directory names.
   blobs/
 ```
 
-The header stores run metadata and inputs. The journal has one record per
-successful step. Values larger than 8192 bytes are stored in `blobs/` with a
+The header stores run metadata and inputs, and while a step is running it also
+names that step under `active`. The journal has one record per successful step,
+each with the time it finished (`at`) and how many milliseconds it took (`ms`). Values larger than 8192 bytes are stored in `blobs/` with a
 hash reference. SQLite stores the same facts in `runs`, `records`, and `blobs`
 tables in one database file.
 

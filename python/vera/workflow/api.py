@@ -243,10 +243,12 @@ class _Runtime:
             return cast(R, self.journal.records[key])
         if self.cancel is not None and self.cancel.is_set():
             raise Cancelled(f"cancelled before {name}")
+        started = time.monotonic()
         # Re-reads the store, so a cancel from another process is seen here.
         requested = self.journal.cancel_requested()
         if requested is not None:
             raise Cancelled(requested)
+        self.journal.mark_step_started(key, step_name)
         call_args: tuple[object, ...] = positional_args
         call_kwargs: dict[str, object] = keyword_args
         if self._prepare_step:
@@ -276,7 +278,7 @@ class _Runtime:
             if chain.replaced:
                 try:
                     dumps(chain.replacement)
-                    self.journal.append(key, chain.replacement)
+                    self.journal.append(key, chain.replacement, _elapsed(started))
                 except WorkflowError as error:
                     raise _RuntimeFault(error) from error
                 return cast(R, chain.replacement)
@@ -290,7 +292,7 @@ class _Runtime:
         )
         try:
             dumps(value)
-            self.journal.append(key, value)
+            self.journal.append(key, value, _elapsed(started))
         except WorkflowError as error:
             raise _RuntimeFault(error) from error
         return value
@@ -301,6 +303,10 @@ _deadline: ContextVar[float | None] = ContextVar("vera_step_deadline", default=N
 _cancel: ContextVar[Event | None] = ContextVar("vera_run_cancel", default=None)
 _step_cancel: ContextVar[Event | None] = ContextVar("vera_step_cancel", default=None)
 current = _Current()
+
+
+def _elapsed(started: float) -> int:
+    return max(0, round((time.monotonic() - started) * 1000))
 
 
 def _error_message(error: Exception) -> str:
