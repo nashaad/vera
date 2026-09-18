@@ -26,6 +26,7 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import { isTuiDialTabKey } from "./keymap.ts";
+import { steppedSection } from "./section-keys.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import {
     insertTuiSingleLinePaste,
@@ -61,7 +62,14 @@ export interface TuiModelSwitcherState {
     readonly notice?: string;
     /** The favorite change the notice is waiting on, cleared when it lands. */
     readonly pending?: TuiModelSwitcherPending;
+    /** Which section the keys belong to. The browse row is a stop inside the list. */
+    readonly focus?: TuiModelSwitcherFocus;
 }
+
+export type TuiModelSwitcherFocus = "search" | "list";
+
+/** The three stops Tab and the horizontal arrows walk. */
+export type TuiModelSwitcherStop = "search" | "list" | "browse";
 
 export interface TuiModelSwitcherPending {
     readonly key: string;
@@ -112,6 +120,7 @@ export function startTuiModelSwitcher(
         selectedIndex: startingIndex(ordered.rows, context.current),
         query: "",
         queryCursor: 0,
+        focus: "search",
     };
 }
 
@@ -234,7 +243,8 @@ export function handleTuiModelSwitcherKey(
     key: TuiModelSwitcherKey,
 ): TuiModelSwitcherTransition {
     if (isTuiDialTabKey(key) && !key.ctrl && !key.meta) {
-        return { state, handled: true };
+        const forward = key.shift !== true && key.name !== "backtab";
+        return { state: steppedSwitcherSection(state, forward), handled: true };
     }
     const selected = state.rows[state.selectedIndex];
     if (key.ctrl === true && key.name === "f") {
@@ -252,6 +262,13 @@ export function handleTuiModelSwitcherKey(
         return { state, handled: false };
     }
     if (key.name === "escape") return { handled: true };
+    // The editor moves the caret first, so a horizontal arrow arriving from
+    // Search is at an edge and stays put.
+    if (key.name === "left" || key.name === "right") {
+        return switcherFocus(state) === "search"
+            ? { state, handled: true }
+            : { state: steppedSwitcherSection(state, key.name === "right"), handled: true };
+    }
     if (key.name === "up") return moved(state, -1);
     if (key.name === "down") return moved(state, 1);
     if (key.name === "pageup") return moved(state, -PAGE_ROWS);
@@ -273,6 +290,39 @@ export function onSwitcherBrowseRow(state: TuiModelSwitcherState): boolean {
     return state.selectedIndex === state.rows.length;
 }
 
+export function switcherFocus(state: TuiModelSwitcherState): TuiModelSwitcherFocus {
+    return state.focus ?? "search";
+}
+
+/** Search, the list, and the browse row, in the order Tab walks them. */
+export function switcherStop(state: TuiModelSwitcherState): TuiModelSwitcherStop {
+    if (switcherFocus(state) === "search") return "search";
+    return onSwitcherBrowseRow(state) ? "browse" : "list";
+}
+
+function steppedSwitcherSection(
+    state: TuiModelSwitcherState,
+    forward: boolean,
+): TuiModelSwitcherState {
+    const stops: readonly TuiModelSwitcherStop[] = state.rows.length === 0
+        ? ["search", "browse"]
+        : ["search", "list", "browse"];
+    return atSwitcherStop(state, steppedSection(stops, switcherStop(state), forward));
+}
+
+function atSwitcherStop(
+    state: TuiModelSwitcherState,
+    stop: TuiModelSwitcherStop,
+): TuiModelSwitcherState {
+    if (stop === "search") return { ...state, focus: "search" };
+    if (stop === "browse") {
+        return { ...state, focus: "list", selectedIndex: state.rows.length };
+    }
+    // Arriving from the browse row lands on the last model, not past it.
+    return { ...state, focus: "list",
+        selectedIndex: Math.min(state.selectedIndex, Math.max(0, state.rows.length - 1)) };
+}
+
 function moved(
     state: TuiModelSwitcherState,
     delta: number,
@@ -281,6 +331,7 @@ function moved(
     return {
         state: {
             ...state,
+            focus: "list",
             selectedIndex: Math.max(0, Math.min(last, state.selectedIndex + delta)),
         },
         handled: true,
@@ -355,6 +406,13 @@ export function createTuiModelSwitcherView(
                 || key.name === "down" || key.name === "return"
                 || key.name === "enter" || key.name === "kpenter"
                 || key.name === "pageup" || key.name === "pagedown"
+            ) {
+                return { state, handled: false };
+            }
+            // Outside Search the caret keys belong to the sections.
+            if (
+                switcherFocus(state) !== "search"
+                && ["left", "right", "home", "end"].includes(key.name)
             ) {
                 return { state, handled: false };
             }
@@ -460,10 +518,16 @@ export function switcherFooterText(state: TuiModelSwitcherState): string {
 }
 
 function footerText(state: TuiModelSwitcherState): string {
+    const stop = switcherStop(state);
+    if (stop === "browse") {
+        return "⏎ browse · ←→ sections · ↑↓ move · esc close";
+    }
     const favorite = state.rows[state.selectedIndex]?.favorite === true
         ? "^f unfavorite"
         : "^f favorite";
-    return `↑↓ move · ^u^d page · ⏎ switch · ${favorite} · esc close`;
+    return stop === "search"
+        ? `type search · ↓ list · ⏎ switch · ${favorite} · esc close`
+        : `↑↓ move · ←→ sections · ^u^d page · ⏎ switch · ${favorite} · esc`;
 }
 
 export function switcherCounterText(state: TuiModelSwitcherState): string {
@@ -514,11 +578,11 @@ function searched(
     queryCursor: number,
 ): TuiModelSwitcherTransition {
     if (query === state.query) {
-        return { state: { ...state, queryCursor }, handled: true };
+        return { state: { ...state, queryCursor, focus: "search" }, handled: true };
     }
     const ordered = orderedRows(state.allRows, state.recents, query);
     return {
-        state: { ...state, ...ordered, query, queryCursor, selectedIndex: 0 },
+        state: { ...state, ...ordered, query, queryCursor, selectedIndex: 0, focus: "search" },
         handled: true,
     };
 }

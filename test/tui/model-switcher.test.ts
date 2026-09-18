@@ -13,6 +13,7 @@ import {
     switcherEmptyMessage,
     searchedTuiModelSwitcher,
     switcherFooterText,
+    switcherStop,
     type TuiModelSwitcherRow,
 } from "../../clients/tui/model-switcher.ts";
 
@@ -148,8 +149,48 @@ describe("model switcher keys", () => {
         expect(transition.state).toBeUndefined();
     });
 
-    test("the footer names paging", () => {
-        expect(switcherFooterText(started())).toContain("^u^d page");
+    test("the footer names paging once the keys belong to the list", () => {
+        const list = handleTuiModelSwitcherKey(started(), { name: "down" }).state!;
+        expect(switcherFooterText(list)).toContain("^u^d page");
+        expect(switcherFooterText(list)).toContain("←→ sections");
+        expect(switcherFooterText(started())).toContain("↓ list");
+    });
+
+    test("tab walks search, the list and the browse row", () => {
+        const search = started();
+        expect(switcherStop(search)).toBe("search");
+        const list = handleTuiModelSwitcherKey(search, { name: "tab" }).state!;
+        expect(switcherStop(list)).toBe("list");
+        const browse = handleTuiModelSwitcherKey(list, { name: "tab" }).state!;
+        expect(switcherStop(browse)).toBe("browse");
+        expect(switcherStop(handleTuiModelSwitcherKey(browse, { name: "tab" }).state!))
+            .toBe("search");
+        expect(switcherStop(handleTuiModelSwitcherKey(list, { name: "tab", shift: true }).state!))
+            .toBe("search");
+    });
+
+    test("left returns to search and right reaches the browse row", () => {
+        const list = handleTuiModelSwitcherKey(started(), { name: "down" }).state!;
+        expect(switcherStop(handleTuiModelSwitcherKey(list, { name: "left" }).state!))
+            .toBe("search");
+        const browse = handleTuiModelSwitcherKey(list, { name: "right" }).state!;
+        expect(onSwitcherBrowseRow(browse)).toBe(true);
+        // Coming back off the browse row lands on the last model, not past it.
+        const back = handleTuiModelSwitcherKey(browse, { name: "left" }).state!;
+        expect(back.selectedIndex).toBe(back.rows.length - 1);
+    });
+
+    test("a horizontal arrow in search stays in search", () => {
+        for (const name of ["left", "right"]) {
+            const transition = handleTuiModelSwitcherKey(started(), { name });
+            expect(transition.handled).toBe(true);
+            expect(switcherStop(transition.state!)).toBe("search");
+        }
+    });
+
+    test("typing returns the keys to search", () => {
+        const list = handleTuiModelSwitcherKey(started(), { name: "down" }).state!;
+        expect(switcherStop(searchedTuiModelSwitcher(list, "gpt"))).toBe("search");
     });
 
     test("the counter does not count the browse row as a model", () => {
@@ -166,8 +207,8 @@ describe("model switcher keys", () => {
             .toBe(last.selectedIndex);
     });
 
-    test("no browse control is bound: scope, sort and cutoff keys fall through", () => {
-        for (const key of [{ name: "g", ctrl: true }, { name: "s", ctrl: true }, { name: "left" }, { name: "right" }]) {
+    test("no browse control is bound: scope and sort keys fall through", () => {
+        for (const key of [{ name: "g", ctrl: true }, { name: "s", ctrl: true }]) {
             expect(handleTuiModelSwitcherKey(started(), key).handled).toBe(false);
         }
     });

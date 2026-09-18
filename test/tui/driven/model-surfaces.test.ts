@@ -316,6 +316,22 @@ test("clicking the pinned browse row opens the browse page", async () => {
     } finally { await session.close(); }
 }, 15_000);
 
+test("tab and the arrows walk search, the list and the browse row", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-sections-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("↓ list");
+        session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ move");
+        session.sendKey("Left"); await session.waitForVisiblePane("↓ list");
+        session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ move");
+        session.sendKey("Right"); await session.waitForVisiblePane("⏎ browse");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Browse models · ");
+    } finally { await session.close(); }
+}, 15_000);
+
 test("ctrl+b leaves the switcher for the browse page", async () => {
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-key-")), width: 130, height: 44,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
