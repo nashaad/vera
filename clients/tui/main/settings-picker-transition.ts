@@ -20,7 +20,6 @@ import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
-import { effortWentStale } from "../../../src/model/effort-ladder.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import { applyModelSwitch } from "../main/model-switcher-ops.ts";
 
@@ -412,10 +411,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             const levels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)
                 : undefined;
-            const carriedEffort = rt.state.modelSettings?.reasoningEffort;
-            const mustAsk = levels !== undefined
-                && effortWentStale(levels.levels.map((level) => level.id), carriedEffort);
-            if (levels !== undefined && levels.levels.length > 0 && mustAsk) {
+            if (levels !== undefined && levels.levels.length > 0) {
                 rt.settingsPicker = startTuiReasoningPicker(levels.levels, levels.defaultLevel,
                     rt.state.modelSettings?.reasoningEffort,
                     { provider: selection.provider, model: selection.model, modelPaneState: switchPane });
@@ -426,11 +422,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 return;
             }
             const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
-            // Reaching here means the effort was not asked for, so a level the
-            // new model still supports has to survive the switch rather than
-            // be cleared by the patch.
-            const keptEffort = selection.reasoningEffort
-                ?? (levels !== undefined && levels.levels.length > 0 ? carriedEffort : undefined);
+            const keptEffort = selection.reasoningEffort;
             const apply = () => {
                 const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
                 void client.send({ type: "update_session_model_settings", requestId: randomUUID(),

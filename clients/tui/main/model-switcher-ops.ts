@@ -17,7 +17,6 @@ import { modelLevelFacts, openProviderPicker } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import { beginCreateSession, currentDraft } from "./session-ops.ts";
 import { startTuiReasoningPicker } from "../settings-picker.ts";
-import { effortWentStale } from "../../../src/model/effort-ladder.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import type { TuiState } from "../state.ts";
 
@@ -165,9 +164,7 @@ export function applyModelSwitcherSelection(
 ): void {
     const levels = modelLevelFacts(rt, row.provider, row.model);
     const carriedEffort = rt.state.modelSettings?.reasoningEffort;
-    const mustAsk = levels !== undefined
-        && effortWentStale(levels.levels.map((level) => level.id), carriedEffort);
-    if (levels !== undefined && levels.levels.length > 0 && mustAsk) {
+    if (levels !== undefined && levels.levels.length > 0) {
         rt.modelSwitcher = undefined;
         rt.modelSwitcherView.surface.visible = false;
         rt.settingsPicker = startTuiReasoningPicker(
@@ -182,15 +179,7 @@ export function applyModelSwitcherSelection(
         return;
     }
     closeModelSwitcher(rt);
-    applyModelSwitch(rt, {
-        provider: row.provider,
-        model: row.model,
-        // The effort was not asked for, so a level the new model still
-        // supports has to survive the switch rather than be cleared.
-        ...(levels !== undefined && levels.levels.length > 0 && carriedEffort !== undefined
-            ? { reasoningEffort: carriedEffort }
-            : {}),
-    });
+    applyModelSwitch(rt, { provider: row.provider, model: row.model });
 }
 
 export function applyModelSwitch(

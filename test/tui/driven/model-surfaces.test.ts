@@ -217,7 +217,7 @@ test("Home stages access without creating a session, then the switcher applies t
     } finally { await session.close(); }
 }, 15_000);
 
-test("the switcher applies a levelled model and clears the remembered effort", async () => {
+test("the switcher asks for effort whenever the model has levels", async () => {
     const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
     const commands: import("../../../src/engine/protocol.ts").ClientCommand[] = [];
     const levels = [{ id: "low" as const, label: "Low effort" }, { id: "high" as const, label: "High effort" }];
@@ -238,13 +238,14 @@ test("the switcher applies a levelled model and clears the remembered effort", a
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("↑↓ move · ⏎ switch");
         session.sendText("two"); await session.waitForVisiblePane("1/1");
-        session.sendKey("Enter"); await session.settle();
-        // Effort is its own command, so choosing a model never interrupts, and the
-        // level the old model carried does not follow the new one.
-        expect(session.captureVisiblePane()).not.toContain("High effort");
+        session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
+        // The cursor opens on the model's own default, so the switch is not
+        // applied until a level is chosen.
+        expect(commands.some((command) => command.type === "update_session_model_settings")).toBe(false);
+        session.sendKey("Down"); session.sendKey("Enter"); await session.settle();
         const applied = commands.filter((command) => command.type === "update_session_model_settings");
         expect(applied.map((command) => command.type === "update_session_model_settings" && command.patch))
-            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: null }]);
+            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: "high" }]);
         expect(commands.some((command) => command.type === "update_model_settings")).toBe(false);
     } finally { await session.close(); }
 }, 15_000);
