@@ -167,6 +167,47 @@ A start line and an end line share a `span_id`:
 The trace is the run and the parent is the attempt, so `a1` is the first
 `.run()` and `a2` the resume after it.
 
+### Record what a model call used
+
+A step that calls a model wraps the call, and the tokens it reports become a
+span of their own under the step:
+
+```python
+from vera.workflow.api import model_call, step
+
+@step
+def ask(prompt: str) -> str:
+    with model_call("claude-opus-5", provider="anthropic") as call:
+        answer = client.messages.create(...)
+        call.usage(
+            input_tokens=answer.usage.input_tokens,
+            output_tokens=answer.usage.output_tokens,
+            cost=0.0123,
+        )
+    return answer.content[0].text
+```
+
+`cost` is optional. Halcyon records the number it is given and adds nothing of
+its own, so a run with no reported cost shows tokens and no money. The report
+prints the total:
+
+```text
+cost   $0.0127
+attempts
+  1  2026-09-17T12:00:00+00:00  host pid 4120  ok
+       ask  1ms  ok
+         claude-opus-5  0ms  ok  1510 tokens  $0.0123
+```
+
+The counts ride in `attributes` under OpenInference names
+(`llm.model_name`, `llm.token_count.prompt`, `llm.token_count.completion`,
+`llm.token_count.total`, `llm.token_count.prompt_details.cache_read`, and
+`llm.cost.total`), on a span whose kind is `LLM`.
+
+Calling `model_call` outside a step runs the block and records nothing, so a
+helper that uses it works whether or not a workflow called it. A second
+`usage()` on the same call replaces the first.
+
 ## Find runs whose process died
 
 A run left `running` by a process that never came back stays `running` until

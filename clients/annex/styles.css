@@ -238,3 +238,8 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
 .wf-bar.open { background: repeating-linear-gradient(90deg, var(--m1) 0 4px, transparent 4px 8px); }
 .wf-ms { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .wf-note { grid-column: 1 / -1; color: var(--faint); font-size: 12px; }
+
+.wf-call {
+    font-family: var(--mono);
+    opacity: 0.85;
+}

@@ -7,7 +7,8 @@ into smaller steps.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -51,6 +52,8 @@ __all__ = [
     "Run",
     "RunError",
     "current",
+    "model_call",
+    "ModelCall",
     "Ticket",
     "CommandHook",
     "FileJournalStore",
@@ -201,6 +204,7 @@ class _Runtime:
         while True:
             span = self.journal.open_span(key, step_name)
             started = time.monotonic()
+            span_token = _step_span.set(_StepSpan(self.journal, span, key))
             try:
                 value = _invoke(step_name, function, args, kwargs, timeout)
             except _UserFailure as failure:
@@ -220,6 +224,8 @@ class _Runtime:
             else:
                 self.journal.close_span(span, _elapsed(started), "ok")
                 return value
+            finally:
+                _step_span.reset(span_token)
             remaining -= 1
             if delay > 0:
                 self._sleep(delay, step_name)
@@ -336,7 +342,92 @@ _runtime: ContextVar[_Runtime | None] = ContextVar("vera_workflow_runtime", defa
 _deadline: ContextVar[float | None] = ContextVar("vera_step_deadline", default=None)
 _cancel: ContextVar[Event | None] = ContextVar("vera_run_cancel", default=None)
 _step_cancel: ContextVar[Event | None] = ContextVar("vera_step_cancel", default=None)
+_step_span: ContextVar[_StepSpan | None] = ContextVar("vera_step_span", default=None)
 current = _Current()
+
+
+@dataclass(frozen=True)
+class _StepSpan:
+    journal: RunJournal
+    span_id: str
+    key: str
+
+
+class ModelCall:
+    """One model call inside a step, recorded as its own span.
+
+    The counts are whatever the caller read off the provider's response. Naming
+    follows OpenInference, so an exporter maps ids rather than shapes.
+    """
+
+    def __init__(self, model: str, provider: str = "") -> None:
+        self.model = model
+        self.provider = provider
+        self.attributes: dict[str, object] = {}
+
+    def usage(
+        self,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_input_tokens: int = 0,
+        cost: float | None = None,
+    ) -> None:
+        """Record what the call used. A second call replaces the first."""
+        for name, count in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("cached_input_tokens", cached_input_tokens),
+        ):
+            if count < 0:
+                raise WorkflowError("usage", f"{name} cannot be negative")
+        if cost is not None and cost < 0:
+            raise WorkflowError("usage", "cost cannot be negative")
+        attributes: dict[str, object] = {
+            "llm.token_count.prompt": input_tokens,
+            "llm.token_count.completion": output_tokens,
+            "llm.token_count.total": input_tokens + output_tokens,
+        }
+        if cached_input_tokens:
+            attributes["llm.token_count.prompt_details.cache_read"] = (
+                cached_input_tokens
+            )
+        if cost is not None:
+            attributes["llm.cost.total"] = cost
+        self.attributes = attributes
+
+
+@contextmanager
+def model_call(model: str, *, provider: str = "") -> Iterator[ModelCall]:
+    """Record one model call as a span under the step that made it.
+
+    Outside a step there is no span to hang it on, so the block still runs and
+    nothing is recorded.
+    """
+    call = ModelCall(model, provider)
+    step = _step_span.get()
+    if step is None:
+        yield call
+        return
+    opening: dict[str, object] = {"llm.model_name": model}
+    if provider:
+        opening["llm.provider"] = provider
+    span_id = step.journal.open_span(step.key, model, step.span_id, "LLM", opening)
+    started = time.monotonic()
+    try:
+        yield call
+    except BaseException as error:
+        step.journal.close_span(
+            span_id,
+            _elapsed(started),
+            _stop_status(error),
+            _error_message(error),
+            call.attributes,
+        )
+        raise
+    step.journal.close_span(
+        span_id, _elapsed(started), "ok", None, call.attributes
+    )
 
 
 def _elapsed(started: float) -> int:

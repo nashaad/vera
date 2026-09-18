@@ -39,6 +39,7 @@ function RunList({ onOpen }: { readonly onOpen: (id: string) => void }) {
                                         <th>Duration</th>
                                         <th>Steps</th>
                                         <th>Tries</th>
+                                        <th>Cost</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -66,6 +67,7 @@ function RunList({ onOpen }: { readonly onOpen: (id: string) => void }) {
                                                         </span>
                                                     )}
                                             </td>
+                                            <td>{money(row.cost)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -98,6 +100,11 @@ function RunPage({
                         <p className="meta mono">{detail.value.runId}</p>
                         <p className="meta">
                             <Status status={detail.value.status} />
+                            {detail.value.cost === undefined ? undefined : (
+                                <span className="faint">
+                                    {"  "}{money(detail.value.cost)}
+                                </span>
+                            )}
                             {detail.value.active === undefined ? undefined : (
                                 <span className="faint">
                                     {"  in "}{detail.value.active.step}
@@ -165,7 +172,14 @@ function Waterfall({ spans }: { readonly spans: readonly RunSpanView[] }) {
                     : ((ends[index] ?? first) - (starts[index] ?? first)) / total;
                 return (
                     <li key={span.spanId}>
-                        <span className="wf-name">{span.step}</span>
+                        <span
+                            className={span.model === undefined
+                                ? "wf-name"
+                                : "wf-name wf-call"}
+                            style={{ paddingLeft: `${span.depth * 12}px` }}
+                        >
+                            {span.step}
+                        </span>
                         <span className="wf-track">
                             <i
                                 className={`wf-bar ${open ? "open" : span.outcome ?? ""}`}
@@ -181,6 +195,16 @@ function Waterfall({ spans }: { readonly spans: readonly RunSpanView[] }) {
                         {span.message === undefined
                             ? undefined
                             : <span className="wf-note">{span.message}</span>}
+                        {span.model === undefined ? undefined : (
+                            <span className="wf-note">
+                                {span.tokens === undefined
+                                    ? "no tokens reported"
+                                    : `${span.tokens.toLocaleString()} tokens`}
+                                {span.cost === undefined
+                                    ? ""
+                                    : `  ${money(span.cost)}`}
+                            </span>
+                        )}
                     </li>
                 );
             })}
@@ -227,6 +251,11 @@ function duration(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
     if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
     return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function money(usd: number | undefined): string {
+    if (usd === undefined) return "\u2014";
+    return usd < 0.01 && usd > 0 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
 function clock(at: string): string {

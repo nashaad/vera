@@ -29,7 +29,9 @@
                         "halcyon.step.key"
                     ],
                     "properties": {
-                        "openinference.span.kind": { "type": "string" },
+                        "openinference.span.kind": { "enum": ["CHAIN", "LLM"] },
+                        "llm.model_name": { "type": "string" },
+                        "llm.provider": { "type": "string" },
                         "halcyon.attempt": { "type": "integer", "minimum": 1 },
                         "halcyon.step.key": { "type": "string", "minLength": 1 }
                     }
@@ -52,7 +54,15 @@
                         "halcyon.outcome": {
                             "enum": ["ok", "failed", "suspended", "cancelled"]
                         },
-                        "halcyon.duration_ms": { "type": "integer", "minimum": 0 }
+                        "halcyon.duration_ms": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.prompt": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.completion": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.total": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.prompt_details.cache_read": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "llm.cost.total": { "type": "number", "minimum": 0 }
                     }
                 }
             }

@@ -33,7 +33,14 @@ class RunJournal(Protocol):
 
     def start_attempt(self) -> None: ...
 
-    def open_span(self, key: str, step_name: str) -> str: ...
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str: ...
 
     def close_span(
         self,
@@ -41,6 +48,7 @@ class RunJournal(Protocol):
         ms: int,
         outcome: str,
         message: str | None = None,
+        attributes: dict[str, object] | None = None,
     ) -> None: ...
 
     def spans(self) -> list[dict[str, object]]: ...

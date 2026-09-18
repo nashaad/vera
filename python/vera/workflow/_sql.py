@@ -281,13 +281,22 @@ class SqlRunJournal:
         open_attempt(self.header)
         self.write_header()
 
-    def open_span(self, key: str, step_name: str) -> str:
-        line = span_start(self.header, self._span_count, key, step_name)
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str:
+        line = span_start(
+            self.header, self._span_count, key, step_name, parent, kind, attributes
+        )
         self._span_count += 1
         span_id = str(line["span_id"])
-        attributes = line["attributes"]
+        opening = line["attributes"]
         self._span_attributes[span_id] = dict(
-            attributes if type(attributes) is dict else {}
+            opening if type(opening) is dict else {}
         )
         self._store._execute(
             self._store.dialect.insert_span(),
@@ -297,7 +306,7 @@ class SqlRunJournal:
                 line["parent_id"],
                 line["name"],
                 line["start_time"],
-                dumps(attributes),
+                dumps(opening),
             ),
         )
         self._store._commit()
@@ -309,8 +318,9 @@ class SqlRunJournal:
         ms: int,
         outcome: str,
         message: str | None = None,
+        attributes: dict[str, object] | None = None,
     ) -> None:
-        line = span_end(span_id, ms, outcome, message)
+        line = span_end(span_id, ms, outcome, message, attributes)
         ending = line["attributes"]
         merged = self._span_attributes.pop(span_id, {})
         if type(ending) is dict:

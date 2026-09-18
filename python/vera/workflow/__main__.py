@@ -52,14 +52,20 @@ def _show(journal_dir: Path, run_id: str) -> None:
     active = journal.header.get("active")
     if type(active) is dict:
         print(f"active {active['step']}  since {active['at']}")
+    spans = journal.spans()
+    spend = _spend(spans)
+    if spend is not None:
+        print(f"cost   ${spend:.4f}")
     attempts = journal.header.get("attempts")
     if type(attempts) is list and attempts:
         print("attempts")
         for number, attempt in enumerate(attempts, start=1):
             print(f"  {number}  {_attempt_line(attempt)}")
-            for span in journal.spans():
-                if _attributes_of(span).get("halcyon.attempt") == number:
-                    print(f"       {_span_line(span)}")
+            for span in spans:
+                if _attributes_of(span).get("halcyon.attempt") != number:
+                    continue
+                depth = str(span.get("parent_id", "")).count(".")
+                print(f"       {'  ' * depth}{_span_line(span)}")
 
 
 def _attempt_line(attempt: object) -> str:
@@ -79,6 +85,16 @@ def _attributes_of(span: dict[str, object]) -> dict[str, object]:
     return attributes if type(attributes) is dict else {}
 
 
+def _spend(spans: list[dict[str, object]]) -> float | None:
+    """What the recorded model calls cost, or nothing when none said."""
+    costs = [
+        cost
+        for span in spans
+        if type(cost := _attributes_of(span).get("llm.cost.total")) in (int, float)
+    ]
+    return sum(costs) if costs else None
+
+
 def _span_line(span: dict[str, object]) -> str:
     name = span.get("name")
     attributes = _attributes_of(span)
@@ -87,7 +103,17 @@ def _span_line(span: dict[str, object]) -> str:
         return f"{name}  did not finish"
     message = span.get("status_message")
     detail = f": {message}" if outcome != "ok" and type(message) is str else ""
-    return f"{name}  {attributes.get('halcyon.duration_ms')}ms  {outcome}{detail}"
+    line = f"{name}  {attributes.get('halcyon.duration_ms')}ms  {outcome}{detail}"
+    return line + _usage_note(attributes)
+
+
+def _usage_note(attributes: dict[str, object]) -> str:
+    total = attributes.get("llm.token_count.total")
+    if total is None:
+        return ""
+    cost = attributes.get("llm.cost.total")
+    priced = f"  ${cost:.4f}" if type(cost) in (int, float) else ""
+    return f"  {total} tokens{priced}"
 
 
 def _sweep(journal_dir: Path, resume: bool) -> int:

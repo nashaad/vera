@@ -225,8 +225,11 @@ def span_start(
     count: int,
     key: str,
     step_name: str,
+    parent: str | None = None,
+    kind: str = "CHAIN",
+    attributes: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """The line that opens a span: one try of one step.
+    """The line that opens a span: one try of one step, or a call inside one.
 
     Field names follow OpenTelemetry, and the kind follows OpenInference, so a
     reader that speaks either needs a mapping of ids rather than of shapes.
@@ -234,17 +237,21 @@ def span_start(
     attempts = header.get("attempts")
     attempt = len(attempts) if type(attempts) is list and attempts else 1
     run_id = header.get("run_id")
+    parent_id = parent if parent is not None else f"a{attempt}"
+    carried = {
+        "openinference.span.kind": kind,
+        "halcyon.attempt": attempt,
+        "halcyon.step.key": key,
+    }
+    if attributes is not None:
+        carried.update(attributes)
     return {
         "trace_id": run_id if type(run_id) is str else "",
-        "span_id": f"a{attempt}.{count}",
-        "parent_id": f"a{attempt}",
+        "span_id": f"{parent_id}.{count}",
+        "parent_id": parent_id,
         "name": step_name,
         "start_time": _now(),
-        "attributes": {
-            "openinference.span.kind": "CHAIN",
-            "halcyon.attempt": attempt,
-            "halcyon.step.key": key,
-        },
+        "attributes": carried,
     }
 
 
@@ -253,20 +260,24 @@ def span_end(
     ms: int,
     outcome: str,
     message: str | None = None,
+    attributes: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """The line that settles a span.
 
     `status_code` is what OpenTelemetry can say about any span, so the word
     Halcyon uses rides along beside it rather than being flattened into it.
     """
+    settled: dict[str, object] = {
+        "halcyon.outcome": outcome,
+        "halcyon.duration_ms": ms,
+    }
+    if attributes is not None:
+        settled.update(attributes)
     line: dict[str, object] = {
         "span_id": span_id,
         "end_time": _now(),
         "status_code": SPAN_STATUS.get(outcome, "UNSET"),
-        "attributes": {
-            "halcyon.outcome": outcome,
-            "halcyon.duration_ms": ms,
-        },
+        "attributes": settled,
     }
     if message is not None:
         line["status_message"] = message
@@ -535,8 +546,17 @@ class Journal:
         open_attempt(self.header)
         self._write_header_during_run()
 
-    def open_span(self, key: str, step_name: str) -> str:
-        line = span_start(self.header, self._span_count, key, step_name)
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str:
+        line = span_start(
+            self.header, self._span_count, key, step_name, parent, kind, attributes
+        )
         self._span_count += 1
         self._append_span(line)
         return str(line["span_id"])
@@ -547,8 +567,9 @@ class Journal:
         ms: int,
         outcome: str,
         message: str | None = None,
+        attributes: dict[str, object] | None = None,
     ) -> None:
-        self._append_span(span_end(span_id, ms, outcome, message))
+        self._append_span(span_end(span_id, ms, outcome, message, attributes))
 
     def spans(self) -> list[dict[str, object]]:
         return fold_spans(read_span_lines(self.run_dir))

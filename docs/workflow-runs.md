@@ -22,6 +22,7 @@ SQLite journal or to a directory of your own do not appear.
 | Duration | Wall time of the last attempt. Blank while it is still open. |
 | Steps | Steps the journal recorded, so steps a resume would skip. |
 | Tries | Every call of a step, including the ones that failed and were retried. |
+| Cost | What the recorded model calls reported, or blank when none did. |
 
 A run whose files cannot be read is listed as `unreadable` rather than hidden.
 
@@ -34,6 +35,10 @@ shared timeline, so a step that waited on another is visible as a gap.
 Bars are colored by outcome, and a failure prints its message under the bar. A
 step that never ended is drawn hatched and labelled `open`: its process died
 inside that step, so there is no duration to show.
+
+A model call the step recorded is drawn indented under it, named after the
+model, with its tokens and what it cost. See
+[Record what a model call used](python-workflows.md#record-what-a-model-call-used).
 
 Steps and tries count different things. The journal records a step once, when
 it succeeds, because that is the value a resume replays. A step that failed

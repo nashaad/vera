@@ -152,3 +152,73 @@ test("the runs page lists Halcyon runs and their spans", async () => {
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
 });
+
+test("the runs page prices the model calls a step recorded", async () => {
+    const workflowDirectory = tempDir("vera-annex-cost-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import model_call, step, workflow",
+        "",
+        "@step",
+        "def ask() -> str:",
+        "    with model_call('claude-opus-5', provider='anthropic') as call:",
+        "        call.usage(input_tokens=1200, output_tokens=310, cost=0.0123)",
+        "    return 'done'",
+        "",
+        "@workflow",
+        "def priced() -> str:",
+        "    return ask()",
+        "",
+        "if __name__ == '__main__':",
+        "    priced.run(journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const python = Bun.spawnSync(
+        ["python3", entry, workflowDirectory],
+        { env: { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") } },
+    );
+    expect(python.exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-cost-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string; cost?: number; steps: number; tries: number }[];
+    };
+    expect(list.rows[0]?.cost).toBeCloseTo(0.0123, 6);
+    expect(list.rows[0]?.steps).toBe(1);
+    expect(list.rows[0]?.tries).toBe(1);
+
+    const detail = await (
+        await fetch(`${server.url}api/runs/${list.rows[0]?.runId ?? ""}`)
+    ).json() as {
+        cost?: number;
+        attempts: {
+            spans: {
+                spanId: string;
+                parentId: string;
+                depth: number;
+                step: string;
+                model?: string;
+                tokens?: number;
+                cost?: number;
+            }[];
+        }[];
+    };
+    const spans = detail.attempts[0]?.spans ?? [];
+    expect(detail.cost).toBeCloseTo(0.0123, 6);
+    expect(spans).toHaveLength(2);
+    expect(spans[0]?.depth).toBe(0);
+    expect(spans[0]?.model).toBeUndefined();
+    expect(spans[1]?.parentId).toBe(spans[0]?.spanId ?? "");
+    expect(spans[1]?.depth).toBe(1);
+    expect(spans[1]?.step).toBe("claude-opus-5");
+    expect(spans[1]?.tokens).toBe(1510);
+    expect(spans[1]?.cost).toBeCloseTo(0.0123, 6);
+});
