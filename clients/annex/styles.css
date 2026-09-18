@@ -265,3 +265,28 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
     font-family: var(--mono);
     opacity: 0.85;
 }
+.wf-open {
+    display: flex; align-items: center; gap: 4px;
+    text-align: left; color: var(--fg); padding: 0;
+}
+.wf-open:hover, .wf-open:focus-visible { color: var(--m1); outline: none; }
+.caret { color: var(--faint); width: 10px; flex: none; }
+.wf-value { grid-column: 1 / -1; }
+.value {
+    margin: 0; padding: 8px 10px;
+    font: 12px/1.5 var(--mono); color: var(--fg);
+    background: var(--fill); border: 1px solid var(--line); border-radius: var(--radius);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 320px; overflow: auto;
+}
+.io {
+    display: grid; grid-template-columns: 10rem 1fr;
+    gap: 8px 12px; margin: 0; align-items: start;
+}
+.io dt { color: var(--faint); font-size: 12px; padding-top: 8px; }
+.io dd { margin: 0; min-width: 0; }
+@media (max-width: 720px) {
+    .io { grid-template-columns: 1fr; gap: 4px; }
+    .io dt { padding-top: 6px; }
+    .wf li { grid-template-columns: 8rem 1fr 4rem; }
+}
