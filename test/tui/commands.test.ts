@@ -426,7 +426,7 @@ test("typing slash exposes the built-in rewind command", () => {
     ))).toContain("› /rewind");
     expect(registry.completion("/rew")).toBe("/rewind");
     expect(registry.completion("/mod")).toBe("/model");
-    expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model"]);
+    expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model", "models"]);
     expect(registry.completion("/lib")).toBe("/library-model");
     expect(registry.suggestions("/library").map((command) => command.name)).toEqual(["library-model"]);
     expect(registry.completion("  /rew")).toBe("  /rewind");
@@ -534,7 +534,9 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "open_settings_destination",
         destination: { kind: "reasoning" },
     });
-    expect(registry.dispatch("/mod")).toEqual({
+    // /mod prefixes both /model and /models, so only the full name dispatches.
+    expect(registry.dispatch("/mod")).toBeUndefined();
+    expect(registry.dispatch("/model")).toEqual({
         type: "open_settings_destination",
         destination: { kind: "model" },
     });
@@ -552,6 +554,7 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "open_settings_destination",
         destination: { kind: "model" },
     });
+    expect(registry.dispatch("/models")).toEqual({ type: "open_model_browse" });
     expect(registry.dispatch("/library-model")).toEqual({
         type: "open_settings_destination", destination: { kind: "model_shortlist" },
     });

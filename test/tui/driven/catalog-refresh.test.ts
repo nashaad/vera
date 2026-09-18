@@ -19,7 +19,7 @@ test("the model picker's refresh key asks the provider and shows the new list", 
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/model");
+        session.sendText("/models");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane("Switch model");
         expect(pane).toContain("Switch model");

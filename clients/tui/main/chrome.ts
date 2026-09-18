@@ -196,7 +196,7 @@ export function workerFreeAction(rt: TuiRuntime,
     viewingFile: boolean,
 ): boolean {
     if (action?.type === "create_session") return viewingFile;
-    if (!viewingFile && (action?.type === "open_model_utility" || action?.type === "open_settings_destination")) return true;
+    if (!viewingFile && (action?.type === "open_model_utility" || action?.type === "open_model_browse" || action?.type === "open_settings_destination")) return true;
     return action?.type === "resume_viewed_session"
         || action?.type === "open_resume_picker"
         || action?.type === "open_help"

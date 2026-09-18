@@ -203,12 +203,17 @@ export interface InvokeSkillTuiCommandAction {
     readonly argumentsText: string;
 }
 
+export interface OpenModelBrowseAction {
+    readonly type: "open_model_browse";
+}
+
 export interface OpenModelUtilityAction {
     readonly type: "open_model_utility";
     readonly utility: "dials" | "verify";
 }
 
 export type TuiCommandAction =
+    | OpenModelBrowseAction
     | OpenModelUtilityAction
     | ResumeViewedSessionTuiCommandAction
     | OpenRewindTuiCommandAction
@@ -268,6 +273,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
             return "focused_agent";
         case "open_model_utility":
             return action.utility === "dials" ? "focused_agent" : "application";
+        case "open_model_browse":
+            return "application";
         case "open_settings_destination":
             return action.destination.kind === "provider"
                     || action.destination.kind === "model_shortlist"
@@ -334,6 +341,7 @@ export interface TuiCommandDefinition {
     readonly prefixPriority?: "builtin" | "extension" | "skill";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
+        | OpenModelBrowseAction
         | OpenPreferencesListTuiCommandAction
         | OpenStandingNudgesTuiCommandAction
         | OpenSettingsDestinationTuiCommandAction
@@ -508,6 +516,12 @@ const COMPACT_COMMAND = {
     usage: "/compact",
 } as const satisfies TuiCommandCatalogEntry;
 
+const MODELS_COMMAND = {
+    name: "models",
+    description: "Browse every model, with scores and prices",
+    usage: "/models",
+} as const satisfies TuiCommandCatalogEntry;
+
 const POOL_COMMAND = {
     name: "library-model",
     description: "Open Favorites, or add the running model",
@@ -599,6 +613,7 @@ export const BUILTIN_COMMANDS = [
     USAGE_COMMAND,
     FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
+    MODELS_COMMAND,
     POOL_COMMAND,
     DEFAULTS_COMMAND,
     PROVIDERS_COMMAND,
@@ -1605,6 +1620,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Extensions",
             slashName: "reload-extensions",
             action: { type: "reload_client_extensions" },
+        },
+    });
+    registry.registerCommand({
+        ...MODELS_COMMAND,
+        action: { type: "open_model_browse" },
+        palette: {
+            name: "models",
+            label: "Browse models",
+            description: "scores, prices, filters and sort across every model",
+            group: "Settings",
+            slashName: "models",
+            action: { type: "open_model_browse" },
         },
     });
     registry.registerCommand({

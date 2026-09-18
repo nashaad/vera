@@ -20,7 +20,7 @@ test("picker focus preserves search editing, nested Back, and model selection", 
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [], onCommand: (command) => commands.push(command.type) }) });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/model"); session.sendKey("Enter");
+        session.sendText("/models"); session.sendKey("Enter");
         const initial = await session.waitForVisiblePane("Your library is empty");
         const lines = initial.split("\n");
         const scopeY = lines.findIndex((line) => line.includes("Show  Library models"));

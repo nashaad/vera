@@ -26,7 +26,7 @@ test("the defaults tab names the auto-approval job classifier", async () => {
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/model");
+        session.sendText("/models");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Select model");
         // Escape climbs from the page to the tab strip, where tab switches tabs.
