@@ -20,7 +20,7 @@ from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, 
 
 from ._canonical import digest, dumps
 from ._errors import Cancelled, Run, RunError, StepTimeout, Suspend, WorkflowError
-from ._journal import _now
+from ._journal import _INLINE_VALUE_MAX_BYTES, _now
 from ._hooks import (
     CommandHook,
     PrepareStepHook,
@@ -385,6 +385,7 @@ class ModelCall:
         self.model = model
         self.provider = provider
         self.attributes: dict[str, object] = {}
+        self.sent: dict[str, object] = {}
 
     def usage(
         self,
@@ -417,6 +418,33 @@ class ModelCall:
             attributes["llm.cost.total"] = cost
         self.attributes = attributes
 
+    def input(self, value: object) -> None:
+        """Record what was sent: a prompt string, or the messages as JSON."""
+        dumps(value)
+        self.sent["input"] = value
+
+    def output(self, value: object) -> None:
+        """Record what came back: the reply text, or the response as JSON."""
+        dumps(value)
+        self.sent["output"] = value
+
+
+def _io_attributes(journal: RunJournal, call: ModelCall) -> dict[str, object]:
+    """Small values ride on the span; a large one goes to a blob by digest."""
+    attributes: dict[str, object] = {}
+    for side, value in call.sent.items():
+        encoded = dumps(value).encode("utf-8")
+        if len(encoded) > _INLINE_VALUE_MAX_BYTES:
+            attributes[f"halcyon.{side}.ref"] = journal.put_blob(encoded)
+            attributes[f"halcyon.{side}.bytes"] = len(encoded)
+        elif type(value) is str:
+            attributes[f"{side}.value"] = value
+            attributes[f"{side}.mime_type"] = "text/plain"
+        else:
+            attributes[f"{side}.value"] = encoded.decode("utf-8")
+            attributes[f"{side}.mime_type"] = "application/json"
+    return attributes
+
 
 @contextmanager
 def model_call(model: str, *, provider: str = "") -> Iterator[ModelCall]:
@@ -443,11 +471,15 @@ def model_call(model: str, *, provider: str = "") -> Iterator[ModelCall]:
             _elapsed(started),
             _stop_status(error),
             _error_message(error),
-            call.attributes,
+            {**call.attributes, **_io_attributes(step.journal, call)},
         )
         raise
     step.journal.close_span(
-        span_id, _elapsed(started), "ok", None, call.attributes
+        span_id,
+        _elapsed(started),
+        "ok",
+        None,
+        {**call.attributes, **_io_attributes(step.journal, call)},
     )
 
 

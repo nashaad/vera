@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { packedAnnexRoot } from "../release/layout.ts";
-import { foldRunDetail, foldRunRows } from "./runs-report.ts";
+import { foldRunDetail, foldRunRows, readRunBlob } from "./runs-report.ts";
 import {
     dispatchAnnexRoute,
     exactRoute,
@@ -162,6 +162,19 @@ function runRoutes(
             { headers: { "cache-control": "no-store" } },
         )),
         prefixRoute("/api/runs/", ({ url }) => {
+            const blob = /^\/api\/runs\/([^/]+)\/blobs\/([^/]+)$/.exec(url.pathname);
+            if (blob !== null && directory !== undefined) {
+                const value = readRunBlob(
+                    directory,
+                    decodeURIComponent(blob[1] ?? ""),
+                    decodeURIComponent(blob[2] ?? ""),
+                );
+                return value === undefined
+                    ? Response.json({ error: "unknown blob" }, { status: 404 })
+                    : Response.json({ value }, {
+                        headers: { "cache-control": "no-store" },
+                    });
+            }
             const match = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
             if (match === null || directory === undefined) {
                 return new Response("Not found", { status: 404 });

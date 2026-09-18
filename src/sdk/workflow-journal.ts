@@ -376,25 +376,36 @@ function readRecord(
     ) {
         throw new Error(`workflow journal blob fields are invalid: ${journalPath}`);
     }
-    const blobPath = join(runDir, "blobs", reference);
-    const blobBytes = readFileSync(blobPath);
-    if (blobBytes.byteLength !== byteCount) {
-        throw new Error(`workflow journal blob byte count does not match: ${blobPath}`);
-    }
-    const digest = createHash("sha256").update(blobBytes).digest("hex");
-    if (digest !== reference) {
-        throw new Error(`workflow journal blob digest does not match: ${blobPath}`);
-    }
-    const blobText = blobBytes.toString("utf8");
     return {
         seq,
         key,
         ok: true,
         at,
         ms,
-        value: parseJson(blobText, blobPath),
+        value: readWorkflowBlob(runDir, reference, byteCount),
         ref: reference,
     };
+}
+
+/** Reads a run's blob by digest and checks the bytes before parsing them. */
+export function readWorkflowBlob(
+    runDir: string,
+    reference: string,
+    byteCount?: number,
+): unknown {
+    if (!/^[0-9a-f]{64}$/.test(reference)) {
+        throw new Error(`workflow blob reference is invalid: ${reference}`);
+    }
+    const blobPath = join(runDir, "blobs", reference);
+    const blobBytes = readFileSync(blobPath);
+    if (byteCount !== undefined && blobBytes.byteLength !== byteCount) {
+        throw new Error(`workflow journal blob byte count does not match: ${blobPath}`);
+    }
+    const digest = createHash("sha256").update(blobBytes).digest("hex");
+    if (digest !== reference) {
+        throw new Error(`workflow journal blob digest does not match: ${blobPath}`);
+    }
+    return parseJson(blobBytes.toString("utf8"), blobPath);
 }
 
 function journalLines(text: string, path: string): string[] {

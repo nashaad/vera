@@ -574,6 +574,12 @@ class Journal:
     def spans(self) -> list[dict[str, object]]:
         return fold_spans(read_span_lines(self.run_dir))
 
+    def put_blob(self, encoded: bytes) -> str:
+        """Store bytes under their digest in the run's blobs and return it."""
+        reference = hashlib.sha256(encoded).hexdigest()
+        _write_blob(self.run_dir, encoded, reference)
+        return reference
+
     def _append_span(self, line: dict[str, object]) -> None:
         try:
             text = json.dumps(

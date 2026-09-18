@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 
@@ -10,7 +12,7 @@ from vera.workflow.__main__ import _main
 from vera.workflow._errors import WorkflowError
 from vera.workflow._sql import SqliteJournalStore
 from vera.workflow._store import FileJournalStore
-from vera.workflow.api import model_call, step, workflow
+from vera.workflow.api import ModelCall, model_call, step, workflow
 
 
 BREAK = {"now": False}
@@ -35,6 +37,19 @@ def refused(prompt: str) -> str:
     with model_call("claude-opus-5") as call:
         call.usage(input_tokens=90)
         raise RuntimeError("provider said no")
+
+
+@step
+def converse(prompt: str) -> str:
+    with model_call("claude-opus-5") as call:
+        call.input([{"role": "user", "content": prompt}])
+        call.output("hi back")
+    return "hi back"
+
+
+@workflow
+def talk(prompt: str) -> str:
+    return converse(prompt)
 
 
 @workflow
@@ -151,6 +166,49 @@ class TestModelCalls(unittest.TestCase):
         self.assertIn("cost   $0.0127", out.getvalue())
         self.assertIn("claude-opus-5", out.getvalue())
         self.assertIn("1510 tokens", out.getvalue())
+
+    def test_a_call_records_what_it_sent_and_got_back(self) -> None:
+        run = talk.run("hello", journal=self.store)
+
+        call = _attributes(self._spans(run.id)[1])
+        self.assertEqual(
+            call["input.value"], '[{"content":"hello","role":"user"}]'
+        )
+        self.assertEqual(call["input.mime_type"], "application/json")
+        self.assertEqual(call["output.value"], "hi back")
+        self.assertEqual(call["output.mime_type"], "text/plain")
+
+    def test_a_large_prompt_goes_to_a_blob(self) -> None:
+        prompt = "x" * 9000
+        run = talk.run(prompt, journal=self.store)
+
+        call = _attributes(self._spans(run.id)[1])
+        self.assertNotIn("input.value", call)
+        reference = call["halcyon.input.ref"]
+        assert type(reference) is str
+        blob = (self.journal_dir / run.id / "blobs" / reference).read_bytes()
+        self.assertEqual(hashlib.sha256(blob).hexdigest(), reference)
+        self.assertEqual(call["halcyon.input.bytes"], len(blob))
+        self.assertIn(prompt, blob.decode("utf-8"))
+        self.assertEqual(call["output.value"], "hi back")
+
+    def test_the_sqlite_store_keeps_a_large_prompt_as_a_blob(self) -> None:
+        path = self.journal_dir / "runs.sqlite"
+        store = SqliteJournalStore(path)
+        run = talk.run("y" * 9000, journal=store)
+
+        call = _attributes(store.load(run.id, None).spans()[1])
+        reference = call["halcyon.input.ref"]
+        with contextlib.closing(sqlite3.connect(path)) as db:
+            row = db.execute(
+                "SELECT body FROM blobs WHERE digest = ?", (reference,)
+            ).fetchone()
+        self.assertEqual(hashlib.sha256(row[0]).hexdigest(), reference)
+
+    def test_a_value_that_is_not_json_is_refused(self) -> None:
+        call = ModelCall("claude-opus-5")
+        with self.assertRaises(WorkflowError):
+            call.input(object())
 
 
 if __name__ == "__main__":

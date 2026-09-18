@@ -500,6 +500,13 @@ class SqlRunJournal:
         )
         self._store._commit()
 
+    def put_blob(self, encoded: bytes) -> str:
+        """Store bytes under their digest in the blobs table and return it."""
+        reference = hashlib.sha256(encoded).hexdigest()
+        self._store._execute(self._store.dialect.blob_insert, (reference, encoded))
+        self._store._commit()
+        return reference
+
     def cancel_requested(self) -> str | None:
         rows = self._store._query(
             self._store.dialect.select_cancel_requested(),

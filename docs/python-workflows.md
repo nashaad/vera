@@ -253,7 +253,9 @@ from vera.workflow.api import model_call, step
 @step
 def ask(prompt: str) -> str:
     with model_call("claude-opus-5", provider="anthropic") as call:
+        call.input(prompt)
         answer = client.messages.create(...)
+        call.output(answer.content[0].text)
         call.usage(
             input_tokens=answer.usage.input_tokens,
             output_tokens=answer.usage.output_tokens,
@@ -278,6 +280,12 @@ The counts ride in `attributes` under OpenInference names
 (`llm.model_name`, `llm.token_count.prompt`, `llm.token_count.completion`,
 `llm.token_count.total`, `llm.token_count.prompt_details.cache_read`, and
 `llm.cost.total`), on a span whose kind is `LLM`.
+
+`input()` and `output()` record what the call sent and got back. Each takes a
+string or any JSON value, such as a list of messages. Both are optional. A
+value up to 8 KB is stored on the span as `input.value` or `output.value`; a
+larger one is stored as a blob in the run and the span holds its digest. The
+runs page shows both when you open the call.
 
 Calling `model_call` outside a step runs the block and records nothing, so a
 helper that uses it works whether or not a workflow called it. A second

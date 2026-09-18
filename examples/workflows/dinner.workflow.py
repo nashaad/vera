@@ -53,10 +53,12 @@ _dropped: set[str] = set()
 # --- one model call ---------------------------------------------------------
 
 def complete(prompt: str, offline: bool, canned: str) -> str:
-    """Send one prompt and record what it used on the current step."""
+    """Send one prompt and record it, the reply and the usage on the current step."""
     with model_call(MODEL, provider="openrouter") as call:
+        call.input(prompt)
         if offline:
             call.usage(input_tokens=len(prompt) // 4, output_tokens=len(canned) // 4)
+            call.output(canned)
             return canned
         body = json.dumps({
             "model": MODEL,
@@ -77,7 +79,9 @@ def complete(prompt: str, offline: bool, canned: str) -> str:
             cached_input_tokens=cached or 0,
             cost=usage.get("cost"),
         )
-        return answer["choices"][0]["message"]["content"]
+        reply = answer["choices"][0]["message"]["content"]
+        call.output(reply)
+        return reply
 
 
 def stop_point(label: str) -> None:

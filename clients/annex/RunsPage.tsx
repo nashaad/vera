@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import type {
     RunAttemptView,
+    RunCallText,
     RunDetail,
     RunStepView,
     RunRow,
@@ -130,6 +131,7 @@ function RunPage({
                     {detail.value.attempts.map((attempt) => (
                         <Attempt
                             key={attempt.number}
+                            runId={runId}
                             attempt={attempt}
                             steps={detail.value?.steps ?? []}
                         />
@@ -138,6 +140,7 @@ function RunPage({
                         <section className="panel">
                             <h2>Spans with no attempt <span>{detail.value.orphanSpans.length}</span></h2>
                             <Waterfall
+                                runId={runId}
                                 spans={detail.value.orphanSpans}
                                 steps={detail.value.steps}
                             />
@@ -192,9 +195,11 @@ function Value({ value }: { readonly value: unknown }) {
 }
 
 function Attempt({
+    runId,
     attempt,
     steps,
 }: {
+    readonly runId: string;
     readonly attempt: RunAttemptView;
     readonly steps: readonly RunStepView[];
 }) {
@@ -209,15 +214,17 @@ function Attempt({
             </h2>
             {attempt.spans.length === 0
                 ? <p className="note">No steps ran in this attempt.</p>
-                : <Waterfall spans={attempt.spans} steps={steps} />}
+                : <Waterfall runId={runId} spans={attempt.spans} steps={steps} />}
         </section>
     );
 }
 
 function Waterfall({
+    runId,
     spans,
     steps,
 }: {
+    readonly runId: string;
     readonly spans: readonly RunSpanView[];
     readonly steps: readonly RunStepView[];
 }) {
@@ -253,14 +260,16 @@ function Waterfall({
                 const result = span.model === undefined && span.outcome === "ok"
                     ? steps.find((step) => step.key === span.key)
                     : undefined;
-                const shown = result !== undefined && open.has(span.spanId);
+                const sent = span.input !== undefined || span.output !== undefined;
+                const openable = result !== undefined || sent;
+                const shown = openable && open.has(span.spanId);
                 const from = ((starts[index] ?? first) - first) / total;
                 const width = unfinished
                     ? 1 - from
                     : ((ends[index] ?? first) - (starts[index] ?? first)) / total;
                 return (
                     <li key={span.spanId}>
-                        {result === undefined
+                        {!openable
                             ? (
                                 <span
                                     className={span.model === undefined
@@ -274,7 +283,9 @@ function Waterfall({
                             : (
                                 <button
                                     type="button"
-                                    className="wf-name wf-open"
+                                    className={span.model === undefined
+                                        ? "wf-name wf-open"
+                                        : "wf-name wf-open wf-call"}
                                     aria-expanded={shown}
                                     style={{ paddingLeft: `${span.depth * 12}px` }}
                                     onClick={() => toggle(span.spanId)}
@@ -310,9 +321,15 @@ function Waterfall({
                                     : `  ${money(span.cost)}`}
                             </span>
                         )}
-                        {shown ? (
+                        {shown && result !== undefined ? (
                             <div className="wf-value">
                                 <Value value={result.value} />
+                            </div>
+                        ) : undefined}
+                        {shown && sent ? (
+                            <div className="wf-value">
+                                <CallText runId={runId} label="Prompt" text={span.input} />
+                                <CallText runId={runId} label="Reply" text={span.output} />
                             </div>
                         ) : undefined}
                     </li>
@@ -320,6 +337,41 @@ function Waterfall({
             })}
         </ol>
     );
+}
+
+function CallText({
+    runId,
+    label,
+    text,
+}: {
+    readonly runId: string;
+    readonly label: string;
+    readonly text: RunCallText | undefined;
+}) {
+    if (text === undefined) return undefined;
+    return (
+        <div className="call-text">
+            <h3>{label}</h3>
+            {"value" in text
+                ? <Value value={text.value} />
+                : <BlobValue runId={runId} reference={text.ref} />}
+        </div>
+    );
+}
+
+function BlobValue({
+    runId,
+    reference,
+}: {
+    readonly runId: string;
+    readonly reference: string;
+}) {
+    const blob = useJson<{ readonly value: unknown }>(
+        `/api/runs/${encodeURIComponent(runId)}/blobs/${reference}`,
+    );
+    if (blob.error !== undefined) return <p className="note">{blob.error}</p>;
+    if (blob.value === undefined) return <p className="note">Loading…</p>;
+    return <Value value={blob.value.value} />;
 }
 
 function Status({ status }: { readonly status: string }) {

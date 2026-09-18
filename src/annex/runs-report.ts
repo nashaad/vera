@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+    readWorkflowBlob,
     readWorkflowRun,
     type WorkflowAttempt,
     type WorkflowSpan,
@@ -53,7 +54,15 @@ export interface RunSpanView {
     readonly model?: string;
     readonly tokens?: number;
     readonly cost?: number;
+    /** What a model call sent and got back, when the workflow recorded it. */
+    readonly input?: RunCallText;
+    readonly output?: RunCallText;
 }
+
+/** Small values come inline; a large one is fetched from its blob on demand. */
+export type RunCallText =
+    | { readonly value: unknown }
+    | { readonly ref: string; readonly bytes: number };
 
 export interface RunStepView {
     readonly key: string;
@@ -207,11 +216,54 @@ function usageOf(
     }
     const tokens = span.attributes["llm.token_count.total"];
     const cost = span.attributes["llm.cost.total"];
+    const input = callText(span, "input");
+    const output = callText(span, "output");
     return {
         model,
         ...(typeof tokens === "number" ? { tokens } : {}),
         ...(typeof cost === "number" ? { cost } : {}),
+        ...(input === undefined ? {} : { input }),
+        ...(output === undefined ? {} : { output }),
     };
+}
+
+function callText(
+    span: WorkflowSpan,
+    side: "input" | "output",
+): RunCallText | undefined {
+    const ref = span.attributes[`halcyon.${side}.ref`];
+    const bytes = span.attributes[`halcyon.${side}.bytes`];
+    if (typeof ref === "string" && typeof bytes === "number") {
+        return { ref, bytes };
+    }
+    const value = span.attributes[`${side}.value`];
+    if (typeof value !== "string") {
+        return undefined;
+    }
+    if (span.attributes[`${side}.mime_type`] !== "application/json") {
+        return { value };
+    }
+    try {
+        return { value: JSON.parse(value) as unknown };
+    } catch {
+        return { value };
+    }
+}
+
+/** A blob one of the run's model calls points at, or undefined if it has none. */
+export function readRunBlob(
+    workflowDirectory: string,
+    runId: string,
+    reference: string,
+): unknown {
+    if (!isRunId(runId) || !/^[0-9a-f]{64}$/.test(reference)) {
+        return undefined;
+    }
+    const runDir = join(workflowDirectory, runId);
+    if (!existsSync(join(runDir, "blobs", reference))) {
+        return undefined;
+    }
+    return readWorkflowBlob(runDir, reference);
 }
 
 /** The tries of a step, leaving out the model calls recorded under them. */

@@ -317,3 +317,60 @@ test("the runs page shows what a run was given and what each step returned", asy
     const spanKeys = detail.attempts.flatMap((attempt) => attempt.spans.map((span) => span.key));
     expect(spanKeys).toContain(shouted?.key);
 });
+
+test("the runs page shows what a model call sent and got back", async () => {
+    const workflowDirectory = tempDir("vera-annex-prompts-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import model_call, step, workflow",
+        "",
+        "@step",
+        "def chat(text: str) -> str:",
+        "    with model_call('claude-opus-5') as call:",
+        "        call.input([{'role': 'user', 'content': text}])",
+        "        call.output('x' * 9000)",
+        "    return 'done'",
+        "",
+        "@workflow",
+        "def talk(text: str) -> str:",
+        "    return chat(text)",
+        "",
+        "if __name__ == '__main__':",
+        "    talk.run('hello', journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const env = { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") };
+    expect(Bun.spawnSync(["python3", entry, workflowDirectory], { env }).exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-prompts-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string }[];
+    };
+    const runId = list.rows[0]?.runId ?? "";
+    const detail = await (await fetch(`${server.url}api/runs/${runId}`)).json() as {
+        attempts: {
+            spans: {
+                model?: string;
+                input?: { value?: unknown };
+                output?: { ref?: string; bytes?: number };
+            }[];
+        }[];
+    };
+    const call = detail.attempts[0]?.spans.find((span) => span.model !== undefined);
+    expect(call?.input).toEqual({ value: [{ role: "user", content: "hello" }] });
+    expect(call?.output?.bytes).toBe(9002);
+
+    const blob = await fetch(`${server.url}api/runs/${runId}/blobs/${call?.output?.ref ?? ""}`);
+    expect(blob.status).toBe(200);
+    expect(await blob.json()).toEqual({ value: "x".repeat(9000) });
+
+    const missing = await fetch(`${server.url}api/runs/${runId}/blobs/${"0".repeat(64)}`);
+    expect(missing.status).toBe(404);
+});

@@ -273,6 +273,8 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
 .wf-open:hover, .wf-open:focus-visible { color: var(--m1); outline: none; }
 .caret { color: var(--faint); width: 10px; flex: none; }
 .wf-value { grid-column: 1 / -1; }
+.call-text + .call-text { margin-top: 8px; }
+.call-text h3 { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: var(--faint); }
 .value {
     margin: 0; padding: 8px 10px;
     font: 12px/1.5 var(--mono); color: var(--fg);

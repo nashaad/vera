@@ -29,11 +29,13 @@ ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 # --- one model call ---------------------------------------------------------
 
 def complete(prompt: str, offline: bool) -> str:
-    """Send one prompt and record what it used on the current step."""
+    """Send one prompt and record it, the reply and the usage on the current step."""
     with model_call(MODEL, provider="openrouter") as call:
+        call.input(prompt)
         if offline:
             reply = f"(offline reply to: {prompt.splitlines()[0]})"
             call.usage(input_tokens=len(prompt) // 4, output_tokens=len(reply) // 4)
+            call.output(reply)
             return reply
         body = json.dumps({
             "model": MODEL,
@@ -54,7 +56,9 @@ def complete(prompt: str, offline: bool) -> str:
             cached_input_tokens=cached or 0,
             cost=usage.get("cost"),
         )
-        return answer["choices"][0]["message"]["content"]
+        reply = answer["choices"][0]["message"]["content"]
+        call.output(reply)
+        return reply
 
 
 # --- steps ------------------------------------------------------------------
