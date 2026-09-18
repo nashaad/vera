@@ -7,6 +7,14 @@ import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { SESSION_LEAVE_OPTIONS, TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
+import {
+    handleSessionPreviewKey,
+    isSessionSpaceKey,
+    scrolledSessionPreview,
+    sessionPickerOwnsKey,
+    sessionPreviewWindow,
+    startSessionPreview,
+} from "./session-preview.ts";
 import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions, journeySort, journeySortOptions } from "./model-journeys.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
 import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
@@ -314,6 +322,20 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
     }
+    const previewKey = handleSessionPreviewKey(state, key, viewportRows);
+    if (state.kind === "session_preview") {
+        if (previewKey !== undefined) return previewKey;
+        if (
+            (key.name === "return" || key.name === "enter")
+            && state.parent !== undefined
+        ) {
+            return handleTuiSettingsPickerKey(
+                state.parent,
+                key,
+                viewportRows,
+            );
+        }
+    }
     if (state.kind === "session_leave") {
         if (key.ctrl || key.meta || key.super || key.hyper) {
             return unchanged(state, false);
@@ -428,6 +450,16 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
         }
+    }
+    if (
+        state.kind === "session"
+        && sessionPickerOwnsKey(state, key)
+        && isSessionSpaceKey(key)
+    ) {
+        const selected = state.options[state.selectedIndex];
+        return selected?.sessionId === undefined
+            ? unchanged(state, true)
+            : startSessionPreview(state, selected);
     }
     if (
         state.kind === "model_assignment"
@@ -1054,6 +1086,19 @@ export function handleTuiSettingsPickerScroll(
             ? unchanged(state, false)
             : { state: { ...state, selectedIndex }, handled: true };
     }
+    if (state.kind === "session_preview") {
+        const delta = scroll.direction === "up"
+            ? -Math.max(1, Math.floor(scroll.delta))
+            : scroll.direction === "down"
+            ? Math.max(1, Math.floor(scroll.delta))
+            : 0;
+        return delta === 0
+            ? unchanged(state, true)
+            : {
+                state: scrolledSessionPreview(state, delta, 8),
+                handled: true,
+            };
+    }
     if (selectedIndex === undefined) {
         return unchanged(state, false);
     }
@@ -1158,7 +1203,7 @@ export function createTuiSettingsPickerView(
                 || ((state.kind === "model" || state.kind === "provider")
                     && tuiBindingId("model_picker", key) !== undefined)
                 || (state.kind === "session"
-                    && tuiBindingId("session_picker", key) !== undefined)
+                    && sessionPickerOwnsKey(state, key))
                 || (state.query.length === 0 && state.modelJourney === undefined
                     && (key.name === "left" || key.name === "right"))
                 || (digitQuickSelect(state) && state.query === ""
@@ -1205,7 +1250,10 @@ export function createTuiSettingsPickerView(
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
             box.title = undefined;
-            surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
+            surface.justifyContent = state.kind === "session"
+                    || state.kind === "session_preview"
+                ? "flex-start"
+                : "center";
             box.paddingTop = state.kind === "model" && state.modelJourney !== undefined
                 && renderer.height < 30 ? 0 : 2;
             if (state.kind === "theme") {
@@ -1224,6 +1272,7 @@ export function createTuiSettingsPickerView(
                 return;
             }
             box.width = state.kind === "session"
+                    || state.kind === "session_preview"
                 ? "100%"
                 : state.kind === "model" || state.kind === "extension" && state.layout === "list-detail"
                 ? Math.max(1, Math.floor((renderer.width - railInset) * 0.96))
@@ -1416,6 +1465,47 @@ const TIP_LABELS: Record<TuiPickerTipLine["tone"], string> = {
     refusal: "Not set",
 };
 
+function renderSessionPreview(
+    renderer: RenderContext,
+    box: BoxRenderable,
+    state: TuiSettingsPickerState,
+    nodes: Renderable[],
+    railInset: number,
+): void {
+    const add = (node: Renderable): void => {
+        box.add(node);
+        nodes.push(node);
+    };
+    add(dialogHeaderNode(
+        renderer,
+        pickerTitle(state.kind, state.title),
+    ));
+    const width = Math.max(1, pickerContentWidth(renderer, state, railInset));
+    const rows = pickerMaxRows(renderer, 2);
+    const window = sessionPreviewWindow(
+        state.previewLines ?? [],
+        state.previewScroll ?? 0,
+        rows,
+        width,
+    );
+    for (const [index, line] of window.entries()) {
+        add(new TextRenderable(renderer, {
+            content: line.text,
+            fg: line.tone === "speaker" ? TUI_MUTED : TUI_TEXT,
+            width: "100%",
+            height: 1,
+            marginTop: index === 0 ? 1 : 0,
+            wrapMode: "none",
+            overflow: "hidden",
+        }));
+    }
+    add(dialogFooterNode(
+        renderer,
+        pickerFooter(state, pickerCardWidth(renderer, state, railInset)),
+    ));
+    box.height = "auto";
+}
+
 export function renderListPickerRows(
     renderer: RenderContext,
     box: BoxRenderable,
@@ -1436,6 +1526,10 @@ export function renderListPickerRows(
     onSort?: () => void,
     onJourneyAction?: (section: ModelJourneySection) => void,
 ): void {
+    if (state.kind === "session_preview") {
+        renderSessionPreview(renderer, box, state, nodes, railInset);
+        return;
+    }
     if (state.kind === "extension" && state.layout !== undefined) {
         renderExtensionPicker(renderer, box, state, nodes, search, pointer, railInset);
         return;
@@ -2370,17 +2464,28 @@ export function pickerFooterText(
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session_leave") return "↑↓ choose · ⏎ switch · esc back";
+    if (state.kind === "session_preview") {
+        return [
+            "↑↓ scroll",
+            state.nothingToLeave === true ? "⏎ open" : "⏎ switch",
+            "esc back",
+        ].join(" · ");
+    }
     if (state.kind === "session_create_leave") {
         return "↑↓ choose · ⏎ start · esc back";
     }
     if (state.kind === "session") {
-        return [
-            "↑↓ ^d^u move",
-            state.nothingToLeave === true ? "⏎ open" : "⏎ switch",
-            tuiKeyHint("rename_session"),
-            tuiKeyHint("trash_session"),
-            "esc close",
-        ].join(" · ");
+        return fittedHints([
+            { text: "↑↓ ^d^u move", drop: 0 },
+            { text: tuiKeyHint("preview_session"), drop: 1 },
+            {
+                text: state.nothingToLeave === true ? "⏎ open" : "⏎ switch",
+                drop: 0,
+            },
+            { text: tuiKeyHint("rename_session"), drop: 2 },
+            { text: tuiKeyHint("trash_session"), drop: 2 },
+            { text: "esc close", drop: 0 },
+        ], width);
     }
     if (state.kind === "extension") {
         const actions = (state.extensionActions ?? []).map((action) =>
@@ -2841,7 +2946,9 @@ export function pickerTitle(
                 ? "Permission mode"
                 : kind === "session"
                     ? "Resume"
-                    : kind === "session_create_leave"
+                    : kind === "session_preview"
+                        ? "Preview"
+                        : kind === "session_create_leave"
                     ? "New conversation"
                     : kind === "settings"
                         ? "Settings"

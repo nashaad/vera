@@ -564,6 +564,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         overrides: ["dials.open"],
     },
     {
+        id: "preview_session",
+        keys: ["space"],
+        scope: "session_picker",
+        description: "Preview the selected conversation",
+        hint: "space preview",
+    },
+    {
         id: "rename_session",
         keys: ["ctrl+r"],
         scope: "session_picker",

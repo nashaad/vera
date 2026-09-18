@@ -75,6 +75,37 @@ test("resume picker switches conversation without restarting the TUI", async () 
     }
 }, 15_000);
 
+test("space previews a conversation and escape returns to the picker", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-preview-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("The one already open");
+        session.sendKey(" ");
+        const preview = await session.waitForVisiblePane("current on disk");
+        expect(preview).toContain("You");
+        expect(preview).toContain("hello from disk");
+        expect(preview).toContain("esc back");
+        expect(preview).not.toContain("Search");
+        session.sendKey("Escape");
+        const picker = await session.waitForVisiblePane("Continue the theme picker");
+        expect(picker).toContain("The one already open");
+        expect(picker).toContain("Search");
+        expect(picker).not.toContain("current on disk");
+        session.sendKey("C-c");
+        await session.waitForSessionExit();
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("session picker renames a conversation it is not attached to", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-rename-"));
     const scenario = createTuiRenameSessionScenario({ home });

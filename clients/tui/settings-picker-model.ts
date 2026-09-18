@@ -202,7 +202,7 @@ export function pickerCardWidth(
     railInset = 0,
 ): number {
     const usableWidth = Math.max(0, renderer.width - railInset);
-    const cardWidth = state.kind === "session"
+    const cardWidth = state.kind === "session" || state.kind === "session_preview"
         ? usableWidth
         : state.kind === "model" || (state.kind === "extension" && state.layout === "list-detail")
         ? Math.floor(usableWidth * 0.96)
@@ -1892,6 +1892,7 @@ export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
         && state.kind !== "configure"
         && state.kind !== "model_defaults"
         && state.kind !== "session_leave"
+        && state.kind !== "session_preview"
         && state.kind !== "session_create_leave"
         && state.kind !== "model_verification"
         && state.kind !== "pool_verify_scope"
@@ -2538,7 +2539,7 @@ export function pickerSelection(
             }),
         };
     }
-    if (kind === "model_defaults" || kind === "session_leave" || kind === "session_create_leave" || kind === "model_verification" || kind === "model_menu") throw new Error("This picker handles its actions directly");
+    if (kind === "model_defaults" || kind === "session_leave" || kind === "session_preview" || kind === "session_create_leave" || kind === "model_verification" || kind === "model_menu") throw new Error("This picker handles its actions directly");
     if (kind === "provider_actions") throw new Error("Provider actions must use their action transition");
     return { kind, theme: value as TuiThemeName };
 }

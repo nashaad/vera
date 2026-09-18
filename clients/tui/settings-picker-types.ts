@@ -75,6 +75,7 @@ export type TuiSettingsPickerKind =
     | "override_value"
     | "session"
     | "session_leave"
+    | "session_preview"
     | "session_create_leave"
     | "configure"
     | "settings"
@@ -326,6 +327,9 @@ export interface TuiSettingsPickerState {
     readonly enterDisposition?: TuiSessionLeaveDisposition;
     readonly ignoreEnter?: boolean;
     readonly nothingToLeave?: boolean;
+    readonly previewSessionPath?: string;
+    readonly previewLines?: readonly string[];
+    readonly previewScroll?: number;
     readonly collapsed?: readonly string[];
     readonly parent?: TuiSettingsPickerState;
     readonly pendingModel?: TuiPendingModelChoice;
@@ -509,6 +513,9 @@ export interface TuiSettingsPickerTransition {
         readonly sessionId: string;
         readonly label: string;
         readonly value?: string;
+    };
+    readonly previewSession?: {
+        readonly path: string;
     };
 }
 

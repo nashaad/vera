@@ -253,6 +253,123 @@ test("session search accepts spaces between words", () => {
         .toHaveLength(1);
 });
 
+test("space on a conversation row opens a preview, escape closes it", async () => {
+    const start = startTuiSessionPicker([{
+        id: "11111111-first-session",
+        workspace: "/work/alpha",
+        session_path: "/sessions/first.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "whats 2 + 2",
+    }]);
+    expect(pickerFooter(start)).toContain("space preview");
+    const opened = handleTuiSettingsPickerKey(start, { name: "space" });
+    expect(opened.state?.kind).toBe("session_preview");
+    expect(opened.previewSession).toEqual({ path: "/sessions/first.jsonl" });
+    expect(opened.state?.title).toBe("whats 2 + 2");
+    expect(opened.state?.parent).toBe(start);
+    expect(handleTuiSettingsPickerKey(opened.state!, { name: "escape" }).state)
+        .toBe(start);
+
+    const loaded = {
+        ...opened.state!,
+        loading: false,
+        previewLines: ["You", "whats 2 + 2", "", "Vera", "4"],
+    };
+    const frame = await pickerFrame(loaded);
+    expect(frame).toContain("whats 2 + 2");
+    expect(frame).toContain("4");
+    expect(frame).toContain("You");
+    expect(frame).toContain("Vera");
+    expect(frame).toContain("esc back");
+    expect(frame).not.toContain("Search");
+    expect(handleTuiSettingsPickerKey(loaded, { name: "escape" }).state)
+        .toBe(start);
+    const leave = handleTuiSettingsPickerKey(loaded, { name: "enter" });
+    expect(leave.state?.kind).toBe("session_leave");
+    expect(leave.state?.parent).toBe(start);
+});
+
+test("space types in Resume search once a query is started", async () => {
+    const start = startTuiSessionPicker([{
+        id: "11111111-first-session",
+        workspace: "/work/alpha",
+        session_path: "/sessions/first.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Turn planning",
+    }]);
+    const setup = await createTestRenderer({ width: 100, height: 40 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    view.update(start);
+    try {
+        expect(view.handleEditorKey(start, { name: "space", sequence: " " }).handled)
+            .toBe(false);
+        const typed = updateTuiSettingsPickerSearch(start, "turn").state!;
+        view.update(typed);
+        expect(
+            view.handleEditorKey(typed, { name: "space", sequence: " " }).state
+                ?.query,
+        ).toBe("turn ");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("space on a group heading does not open a preview", () => {
+    const start = startTuiSessionPicker([{
+        id: "11111111-first-session",
+        workspace: "/work/alpha",
+        session_path: "/sessions/first.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Turn planning",
+    }]);
+    const heading = start.options.findIndex((option) =>
+        option.section !== undefined
+    );
+    expect(heading).toBeGreaterThanOrEqual(0);
+    const next = handleTuiSettingsPickerKey(
+        { ...start, selectedIndex: heading },
+        { name: "space" },
+    );
+    expect(next.state?.kind).toBe("session");
+    expect(next.previewSession).toBeUndefined();
+});
+
+test("space on a row without a session id stays on the list", () => {
+    const start = startTuiSessionPicker([{
+        id: "11111111-first-session",
+        workspace: "/work/alpha",
+        session_path: "/sessions/first.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Turn planning",
+    }]);
+    const row = start.options.findIndex((option) =>
+        option.section === undefined
+    );
+    expect(row).toBeGreaterThanOrEqual(0);
+    const next = handleTuiSettingsPickerKey({
+        ...start,
+        selectedIndex: row,
+        options: start.options.map((option, index) =>
+            index === row ? { ...option, sessionId: undefined } : option
+        ),
+    }, { name: "space" });
+    expect(next.handled).toBe(true);
+    expect(next.state?.kind).toBe("session");
+    expect(next.state?.selectedIndex).toBe(row);
+    expect(next.previewSession).toBeUndefined();
+});
+
+
 test("a child picker can include an untitled hosted agent", async () => {
     const state = startTuiSessionPicker([{
         id: "frosty-frost:9f3a:UAT-tester",

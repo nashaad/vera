@@ -85,6 +85,9 @@ const PICKERS: Record<TuiSettingsPickerKind, PickerCase> = {
     override_value: {},
     session: {},
     session_leave: {},
+    session_preview: {
+        exception: "Preview is a nested text page; Up/Down scroll, Escape returns to Resume",
+    },
     session_create_leave: {},
     configure: {},
     settings: {},

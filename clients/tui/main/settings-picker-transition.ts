@@ -14,6 +14,7 @@ import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, op
 import { renderState } from "../main/render-state.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { readSessionPreview } from "../session-preview.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
@@ -34,6 +35,12 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
     rt.settingsPicker = transition.state;
+    if (
+        "previewSession" in transition
+        && transition.previewSession !== undefined
+    ) {
+        beginSessionPreviewLoad(rt, transition.previewSession.path);
+    }
     if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney === "switch"
         && (previousPicker?.kind === "model_menu"
             || previousPicker?.kind === "model" && previousPicker.tab !== rt.settingsPicker.tab)) {
@@ -717,6 +724,36 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     if (returningToModelPicker) {
         requestAgentSettings(rt, focusedAgentClient(rt));
     }
+    renderState(rt);
+}
+
+function beginSessionPreviewLoad(rt: TuiRuntime, path: string): void {
+    void readSessionPreview(path).then((lines) => {
+        applySessionPreviewLines(rt, path, lines);
+    }).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        applySessionPreviewLines(rt, path, [`Could not read conversation: ${message}`]);
+    });
+}
+
+function applySessionPreviewLines(
+    rt: TuiRuntime,
+    path: string,
+    lines: readonly string[],
+): void {
+    if (rt.shuttingDown) return;
+    const open = rt.settingsPicker;
+    if (open?.kind !== "session_preview" || open.previewSessionPath !== path) {
+        return;
+    }
+    rt.settingsPicker = {
+        ...open,
+        previewLines: lines,
+        previewScroll: 0,
+        loading: false,
+    };
+    rt.settingsPickerView.update(rt.settingsPicker);
+    rt.settingsPickerView.focus();
     renderState(rt);
 }
 
