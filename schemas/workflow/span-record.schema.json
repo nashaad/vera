@@ -2,32 +2,59 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://vera.dev/schemas/workflow/span-record.schema.json",
     "title": "Vera workflow span line",
-    "description": "One line of spans.ndjson: a try of a step opening, or the same try settling.",
+    "description": "One line of spans.ndjson: a try of a step opening, or the same try settling. Field names follow OpenTelemetry; the span kind follows OpenInference.",
     "oneOf": [
         {
             "type": "object",
-            "required": ["span", "attempt", "key", "step", "start"],
+            "required": [
+                "trace_id",
+                "span_id",
+                "parent_id",
+                "name",
+                "start_time",
+                "attributes"
+            ],
             "additionalProperties": false,
             "properties": {
-                "span": { "type": "string", "minLength": 1 },
-                "attempt": { "type": "integer", "minimum": 1 },
-                "key": { "type": "string", "minLength": 1 },
-                "step": { "type": "string", "minLength": 1 },
-                "start": { "type": "string", "format": "date-time" }
+                "trace_id": { "type": "string" },
+                "span_id": { "type": "string", "minLength": 1 },
+                "parent_id": { "type": "string", "minLength": 1 },
+                "name": { "type": "string", "minLength": 1 },
+                "start_time": { "type": "string", "format": "date-time" },
+                "attributes": {
+                    "type": "object",
+                    "required": [
+                        "openinference.span.kind",
+                        "halcyon.attempt",
+                        "halcyon.step.key"
+                    ],
+                    "properties": {
+                        "openinference.span.kind": { "type": "string" },
+                        "halcyon.attempt": { "type": "integer", "minimum": 1 },
+                        "halcyon.step.key": { "type": "string", "minLength": 1 }
+                    }
+                }
             }
         },
         {
             "type": "object",
-            "required": ["span", "end", "ms", "status"],
+            "required": ["span_id", "end_time", "status_code", "attributes"],
             "additionalProperties": false,
             "properties": {
-                "span": { "type": "string", "minLength": 1 },
-                "end": { "type": "string", "format": "date-time" },
-                "ms": { "type": "integer", "minimum": 0 },
-                "status": {
-                    "enum": ["ok", "failed", "suspended", "cancelled"]
-                },
-                "message": { "type": "string" }
+                "span_id": { "type": "string", "minLength": 1 },
+                "end_time": { "type": "string", "format": "date-time" },
+                "status_code": { "enum": ["OK", "ERROR", "UNSET"] },
+                "status_message": { "type": "string" },
+                "attributes": {
+                    "type": "object",
+                    "required": ["halcyon.outcome", "halcyon.duration_ms"],
+                    "properties": {
+                        "halcyon.outcome": {
+                            "enum": ["ok", "failed", "suspended", "cancelled"]
+                        },
+                        "halcyon.duration_ms": { "type": "integer", "minimum": 0 }
+                    }
+                }
             }
         }
     ]

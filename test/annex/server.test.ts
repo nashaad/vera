@@ -135,12 +135,12 @@ test("the runs page lists Halcyon runs and their spans", async () => {
     const detail = await (
         await fetch(`${server.url}api/runs/${list.rows[0]?.runId ?? ""}`)
     ).json() as {
-        attempts: { spans: { status?: string }[] }[];
+        attempts: { spans: { outcome?: string }[] }[];
         steps: unknown[];
         orphanSpans: unknown[];
     };
     expect(detail.attempts).toHaveLength(1);
-    expect(detail.attempts[0]?.spans.map((span) => span.status))
+    expect(detail.attempts[0]?.spans.map((span) => span.outcome))
         .toEqual(["failed", "ok"]);
     expect(detail.steps).toHaveLength(1);
     expect(detail.orphanSpans).toEqual([]);

@@ -212,38 +212,64 @@ def close_attempt(header: dict[str, object], status: str) -> None:
         attempt["error"] = dict(error)
 
 
+SPAN_STATUS = {
+    "ok": "OK",
+    "failed": "ERROR",
+    "suspended": "UNSET",
+    "cancelled": "UNSET",
+}
+
+
 def span_start(
     header: dict[str, object],
     count: int,
     key: str,
     step_name: str,
 ) -> dict[str, object]:
-    """The line that opens a span: one try of one step."""
+    """The line that opens a span: one try of one step.
+
+    Field names follow OpenTelemetry, and the kind follows OpenInference, so a
+    reader that speaks either needs a mapping of ids rather than of shapes.
+    """
     attempts = header.get("attempts")
     attempt = len(attempts) if type(attempts) is list and attempts else 1
+    run_id = header.get("run_id")
     return {
-        "span": f"a{attempt}.{count}",
-        "attempt": attempt,
-        "key": key,
-        "step": step_name,
-        "start": _now(),
+        "trace_id": run_id if type(run_id) is str else "",
+        "span_id": f"a{attempt}.{count}",
+        "parent_id": f"a{attempt}",
+        "name": step_name,
+        "start_time": _now(),
+        "attributes": {
+            "openinference.span.kind": "CHAIN",
+            "halcyon.attempt": attempt,
+            "halcyon.step.key": key,
+        },
     }
 
 
 def span_end(
     span_id: str,
     ms: int,
-    status: str,
+    outcome: str,
     message: str | None = None,
 ) -> dict[str, object]:
+    """The line that settles a span.
+
+    `status_code` is what OpenTelemetry can say about any span, so the word
+    Halcyon uses rides along beside it rather than being flattened into it.
+    """
     line: dict[str, object] = {
-        "span": span_id,
-        "end": _now(),
-        "ms": ms,
-        "status": status,
+        "span_id": span_id,
+        "end_time": _now(),
+        "status_code": SPAN_STATUS.get(outcome, "UNSET"),
+        "attributes": {
+            "halcyon.outcome": outcome,
+            "halcyon.duration_ms": ms,
+        },
     }
     if message is not None:
-        line["message"] = message
+        line["status_message"] = message
     return line
 
 
@@ -269,21 +295,31 @@ def read_span_lines(run_dir: Path) -> list[dict[str, object]]:
 def fold_spans(lines: Iterable[dict[str, object]]) -> list[dict[str, object]]:
     """One entry per span, in the order they opened.
 
-    A span with no `end` is a try whose process died in it, so the gap is the
-    reading, not a defect in the file.
+    A span with no `end_time` is a try whose process died in it, so the gap is
+    the reading, not a defect in the file. Attributes merge across the two
+    lines; every other field is taken from whichever line carries it.
     """
     spans: dict[str, dict[str, object]] = {}
     for line in lines:
-        span_id = line.get("span")
+        span_id = line.get("span_id")
         if type(span_id) is not str:
             continue
-        if "start" in line:
+        if "start_time" in line:
             spans[span_id] = dict(line)
             continue
         found = spans.get(span_id)
-        if found is not None:
-            found.update(line)
+        if found is None:
+            continue
+        attributes = dict(_attributes_of(found))
+        attributes.update(_attributes_of(line))
+        found.update(line)
+        found["attributes"] = attributes
     return list(spans.values())
+
+
+def _attributes_of(line: dict[str, object]) -> dict[str, object]:
+    attributes = line.get("attributes")
+    return attributes if type(attributes) is dict else {}
 
 
 class Journal:
@@ -503,16 +539,16 @@ class Journal:
         line = span_start(self.header, self._span_count, key, step_name)
         self._span_count += 1
         self._append_span(line)
-        return str(line["span"])
+        return str(line["span_id"])
 
     def close_span(
         self,
         span_id: str,
         ms: int,
-        status: str,
+        outcome: str,
         message: str | None = None,
     ) -> None:
-        self._append_span(span_end(span_id, ms, status, message))
+        self._append_span(span_end(span_id, ms, outcome, message))
 
     def spans(self) -> list[dict[str, object]]:
         return fold_spans(read_span_lines(self.run_dir))

@@ -65,6 +65,20 @@ def paused(n: int) -> int:
     return waiting(n)
 
 
+def _attributes(span: dict[str, object]) -> dict[str, object]:
+    attributes = span["attributes"]
+    assert type(attributes) is dict
+    return attributes
+
+
+def _outcomes(spans: list[dict[str, object]]) -> list[object]:
+    return [_attributes(span).get("halcyon.outcome") for span in spans]
+
+
+def _attempts(spans: list[dict[str, object]]) -> list[object]:
+    return [_attributes(span)["halcyon.attempt"] for span in spans]
+
+
 class TestSpans(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -80,18 +94,23 @@ class TestSpans(unittest.TestCase):
         run = solid.run(3, journal=self.store)
 
         spans = self._spans(run.id)
-        self.assertEqual([span["step"] for span in spans], ["steady", "steady"])
+        self.assertEqual([span["name"] for span in spans], ["steady", "steady"])
         for span in spans:
-            self.assertEqual(span["status"], "ok")
-            self.assertEqual(span["attempt"], 1)
-            self.assertIn("start", span)
-            self.assertIn("end", span)
-            self.assertGreaterEqual(span["ms"], 0)
+            self.assertEqual(span["trace_id"], run.id)
+            self.assertEqual(span["status_code"], "OK")
+            self.assertEqual(_attributes(span)["openinference.span.kind"], "CHAIN")
+            self.assertEqual(_attributes(span)["halcyon.attempt"], 1)
+            self.assertEqual(span["parent_id"], "a1")
+            self.assertIn("start_time", span)
+            self.assertIn("end_time", span)
+            self.assertGreaterEqual(_attributes(span)["halcyon.duration_ms"], 0)
 
     def test_a_span_carries_the_journal_key_of_its_step(self) -> None:
         run = solid.run(3, journal=self.store)
 
-        keys = [span["key"] for span in self._spans(run.id)]
+        keys = [
+            _attributes(span)["halcyon.step.key"] for span in self._spans(run.id)
+        ]
         self.assertEqual(sorted(keys), sorted(self.store.load(run.id, None).records))
 
     def test_a_failed_try_is_a_span_the_journal_never_sees(self) -> None:
@@ -100,17 +119,19 @@ class TestSpans(unittest.TestCase):
 
         self.assertEqual(run.status, "ok")
         spans = self._spans(run.id)
+        self.assertEqual(_outcomes(spans), ["failed", "failed", "ok"])
         self.assertEqual(
-            [span["status"] for span in spans], ["failed", "failed", "ok"]
+            [span["status_code"] for span in spans], ["ERROR", "ERROR", "OK"]
         )
-        self.assertIn("not this time", spans[0]["message"])
+        self.assertIn("not this time", spans[0]["status_message"])
         self.assertEqual(len(self.store.load(run.id, None).records), 1)
 
     def test_a_suspended_step_closes_its_span_as_suspended(self) -> None:
         run = paused.run(3, journal=self.store)
 
         spans = self._spans(run.id)
-        self.assertEqual([span["status"] for span in spans], ["suspended"])
+        self.assertEqual(_outcomes(spans), ["suspended"])
+        self.assertEqual([span["status_code"] for span in spans], ["UNSET"])
 
     def test_a_resume_opens_spans_under_the_second_attempt(self) -> None:
         FAIL["left"] = 1
@@ -120,8 +141,9 @@ class TestSpans(unittest.TestCase):
         flaky.resume(run.id, journal=self.store)
 
         spans = self._spans(run.id)
-        self.assertEqual([span["attempt"] for span in spans], [1, 2])
-        self.assertEqual([span["status"] for span in spans], ["failed", "ok"])
+        self.assertEqual(_attempts(spans), [1, 2])
+        self.assertEqual([span["parent_id"] for span in spans], ["a1", "a2"])
+        self.assertEqual(_outcomes(spans), ["failed", "ok"])
 
     def test_a_crash_leaves_the_span_it_died_in_open(self) -> None:
         entry = Path(__file__).resolve().parent / "fixtures" / "crash_entry.py"
@@ -143,10 +165,10 @@ class TestSpans(unittest.TestCase):
 
         spans = self._spans(run_id)
 
-        self.assertEqual([span["step"] for span in spans], ["first", "second"])
-        self.assertEqual(spans[0]["status"], "ok")
-        self.assertNotIn("status", spans[1])
-        self.assertNotIn("end", spans[1])
+        self.assertEqual([span["name"] for span in spans], ["first", "second"])
+        self.assertEqual(spans[0]["status_code"], "OK")
+        self.assertNotIn("status_code", spans[1])
+        self.assertNotIn("end_time", spans[1])
 
     def test_the_sqlite_store_keeps_spans(self) -> None:
         store = SqliteJournalStore(self.journal_dir / "runs.sqlite")
@@ -156,9 +178,9 @@ class TestSpans(unittest.TestCase):
 
         spans = store.load(run.id, None).spans()
 
-        self.assertEqual([span["attempt"] for span in spans], [1, 2])
-        self.assertEqual([span["status"] for span in spans], ["failed", "ok"])
-        self.assertIn("not this time", spans[0]["message"])
+        self.assertEqual(_attempts(spans), [1, 2])
+        self.assertEqual(_outcomes(spans), ["failed", "ok"])
+        self.assertIn("not this time", spans[0]["status_message"])
 
     def test_show_prints_spans_under_their_attempt(self) -> None:
         run = solid.run(3, journal=self.store)
@@ -178,9 +200,9 @@ class TestSpans(unittest.TestCase):
         lines = [json.loads(line) for line in path.read_text().splitlines()]
 
         self.assertEqual(len(lines), 4)
-        self.assertEqual(lines[0]["span"], lines[1]["span"])
-        self.assertIn("start", lines[0])
-        self.assertIn("end", lines[1])
+        self.assertEqual(lines[0]["span_id"], lines[1]["span_id"])
+        self.assertIn("start_time", lines[0])
+        self.assertIn("end_time", lines[1])
 
 
 if __name__ == "__main__":

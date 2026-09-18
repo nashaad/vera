@@ -138,10 +138,34 @@ step once, when it succeeds, because that is the value a resume replays. Spans
 record every try, so a step that failed twice before succeeding is three spans
 and one record. A span with no ending is the try whose process died in it.
 
+Field names follow OpenTelemetry, and the span kind follows OpenInference, so
+an exporter maps ids rather than shapes. What Halcyon knows that OpenTelemetry
+has no word for rides in `attributes` under a `halcyon.` prefix.
+
 ```python
 for span in store.load(run_id, None).spans():
-    print(span["attempt"], span["step"], span.get("status"))
+    attributes = span["attributes"]
+    print(
+        attributes["halcyon.attempt"],
+        span["name"],
+        attributes.get("halcyon.outcome"),
+    )
 ```
+
+A start line and an end line share a `span_id`:
+
+```json
+{"trace_id": "wf_1a2b3c4d5e6f7a8b", "span_id": "a1.0", "parent_id": "a1",
+ "name": "fetch", "start_time": "2026-09-17T12:00:00+00:00",
+ "attributes": {"openinference.span.kind": "CHAIN", "halcyon.attempt": 1,
+                "halcyon.step.key": "demo/fetch#0:97fcdad9"}}
+{"span_id": "a1.0", "end_time": "2026-09-17T12:00:00.151+00:00",
+ "status_code": "OK",
+ "attributes": {"halcyon.outcome": "ok", "halcyon.duration_ms": 151}}
+```
+
+The trace is the run and the parent is the attempt, so `a1` is the first
+`.run()` and `a2` the resume after it.
 
 ## Find runs whose process died
 

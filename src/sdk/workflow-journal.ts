@@ -36,17 +36,31 @@ export interface WorkflowJournalRecord {
     readonly ref?: string;
 }
 
+/**
+ * Field names follow OpenTelemetry, and the span kind follows OpenInference, so
+ * a reader that speaks either needs a mapping of ids rather than of shapes.
+ */
 export interface WorkflowSpan {
-    readonly span: string;
-    readonly attempt: number;
-    readonly key: string;
-    readonly step: string;
-    readonly start: string;
+    readonly trace_id: string;
+    readonly span_id: string;
+    readonly parent_id: string;
+    readonly name: string;
+    readonly start_time: string;
     // Missing together on the try whose process died inside it.
-    readonly end?: string;
-    readonly ms?: number;
-    readonly status?: string;
-    readonly message?: string;
+    readonly end_time?: string;
+    readonly status_code?: string;
+    readonly status_message?: string;
+    readonly attributes: WorkflowSpanAttributes;
+}
+
+export interface WorkflowSpanAttributes {
+    readonly "openinference.span.kind": string;
+    readonly "halcyon.attempt": number;
+    readonly "halcyon.step.key": string;
+    // Written by the end line, so absent while the span is open.
+    readonly "halcyon.outcome"?: string;
+    readonly "halcyon.duration_ms"?: number;
+    readonly [name: string]: unknown;
 }
 
 export interface WorkflowRun {
@@ -96,11 +110,11 @@ function readSpans(runDir: string): WorkflowSpan[] {
     const order: string[] = [];
     for (const line of journalLines(readFileSync(spanPath, "utf8"), spanPath)) {
         const value = parseJson(line, spanPath);
-        if (!isRecord(value) || typeof value.span !== "string") {
+        if (!isRecord(value) || typeof value.span_id !== "string") {
             throw new Error(`workflow span line has no span id: ${spanPath}`);
         }
-        const id = value.span;
-        if (Object.hasOwn(value, "start")) {
+        const id = value.span_id;
+        if (Object.hasOwn(value, "start_time")) {
             open.set(id, readSpanStart(id, value, spanPath));
             order.push(id);
             continue;
@@ -109,7 +123,12 @@ function readSpans(runDir: string): WorkflowSpan[] {
         if (started === undefined) {
             throw new Error(`workflow span ends before it starts: ${spanPath}`);
         }
-        open.set(id, { ...started, ...readSpanEnd(value, spanPath) });
+        const ended = readSpanEnd(value, spanPath);
+        open.set(id, {
+            ...started,
+            ...ended,
+            attributes: { ...started.attributes, ...ended.attributes },
+        });
     }
     return order.map((id) => {
         const span = open.get(id);
@@ -125,44 +144,91 @@ function readSpanStart(
     value: Record<string, unknown>,
     spanPath: string,
 ): WorkflowSpan {
-    const { attempt, key, step, start } = value;
+    const {
+        trace_id: traceId,
+        parent_id: parentId,
+        name,
+        start_time: startTime,
+    } = value;
+    const attributes = readSpanAttributes(value.attributes, spanPath);
+    const attempt = attributes["halcyon.attempt"];
+    const key = attributes["halcyon.step.key"];
     if (
-        typeof attempt !== "number"
+        typeof traceId !== "string"
+        || typeof parentId !== "string"
+        || parentId === ""
+        || typeof name !== "string"
+        || name === ""
+        || typeof startTime !== "string"
+        || startTime === ""
+        || typeof attempt !== "number"
         || !Number.isInteger(attempt)
         || attempt < 1
         || typeof key !== "string"
-        || typeof step !== "string"
-        || typeof start !== "string"
-        || start === ""
+        || key === ""
     ) {
         throw new Error(`workflow span start has invalid fields: ${spanPath}`);
     }
-    return { span: id, attempt, key, step, start };
+    return {
+        trace_id: traceId,
+        span_id: id,
+        parent_id: parentId,
+        name,
+        start_time: startTime,
+        attributes,
+    };
 }
 
 function readSpanEnd(
     value: Record<string, unknown>,
     spanPath: string,
-): { end: string; ms: number; status: string; message?: string } {
-    const { end, ms, status, message } = value;
+): {
+    end_time: string;
+    status_code: string;
+    status_message?: string;
+    attributes: WorkflowSpanAttributes;
+} {
+    const {
+        end_time: endTime,
+        status_code: statusCode,
+        status_message: statusMessage,
+    } = value;
+    const attributes = readSpanAttributes(value.attributes, spanPath);
+    const ms = attributes["halcyon.duration_ms"];
     if (
-        typeof end !== "string"
-        || end === ""
+        typeof endTime !== "string"
+        || endTime === ""
+        || typeof statusCode !== "string"
+        || statusCode === ""
         || typeof ms !== "number"
         || !Number.isInteger(ms)
         || ms < 0
-        || typeof status !== "string"
-        || status === ""
+        || typeof attributes["halcyon.outcome"] !== "string"
     ) {
         throw new Error(`workflow span end has invalid fields: ${spanPath}`);
     }
-    if (message === undefined) {
-        return { end, ms, status };
+    if (statusMessage === undefined) {
+        return { end_time: endTime, status_code: statusCode, attributes };
     }
-    if (typeof message !== "string") {
+    if (typeof statusMessage !== "string") {
         throw new Error(`workflow span message must be a string: ${spanPath}`);
     }
-    return { end, ms, status, message };
+    return {
+        end_time: endTime,
+        status_code: statusCode,
+        status_message: statusMessage,
+        attributes,
+    };
+}
+
+function readSpanAttributes(
+    value: unknown,
+    spanPath: string,
+): WorkflowSpanAttributes {
+    if (!isRecord(value)) {
+        throw new Error(`workflow span attributes must be an object: ${spanPath}`);
+    }
+    return value as WorkflowSpanAttributes;
 }
 
 function readAttempts(value: unknown, headerPath: string): WorkflowAttempt[] {

@@ -39,7 +39,7 @@ class RunJournal(Protocol):
         self,
         span_id: str,
         ms: int,
-        status: str,
+        outcome: str,
         message: str | None = None,
     ) -> None: ...
 

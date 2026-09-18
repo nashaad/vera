@@ -4,8 +4,8 @@ import type {
     RunAttemptView,
     RunDetail,
     RunRow,
+    RunSpanView,
 } from "../../src/annex/runs-report.ts";
-import type { WorkflowSpan } from "../../src/sdk/workflow-journal.ts";
 import { AnnexChrome } from "./App.tsx";
 
 export function RunsApp() {
@@ -138,7 +138,7 @@ function Attempt({ attempt }: { readonly attempt: RunAttemptView }) {
     );
 }
 
-function Waterfall({ spans }: { readonly spans: readonly WorkflowSpan[] }) {
+function Waterfall({ spans }: { readonly spans: readonly RunSpanView[] }) {
     const starts = spans.map((span) => Date.parse(span.start));
     const ends = spans.map((span, index) =>
         span.end === undefined ? starts[index] ?? 0 : Date.parse(span.end)
@@ -164,11 +164,11 @@ function Waterfall({ spans }: { readonly spans: readonly WorkflowSpan[] }) {
                     ? 1 - from
                     : ((ends[index] ?? first) - (starts[index] ?? first)) / total;
                 return (
-                    <li key={span.span}>
+                    <li key={span.spanId}>
                         <span className="wf-name">{span.step}</span>
                         <span className="wf-track">
                             <i
-                                className={`wf-bar ${open ? "open" : span.status ?? ""}`}
+                                className={`wf-bar ${open ? "open" : span.outcome ?? ""}`}
                                 style={{
                                     left: `${from * 100}%`,
                                     width: `${Math.max(width * 100, 1.5)}%`,

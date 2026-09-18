@@ -58,7 +58,7 @@ def _show(journal_dir: Path, run_id: str) -> None:
         for number, attempt in enumerate(attempts, start=1):
             print(f"  {number}  {_attempt_line(attempt)}")
             for span in journal.spans():
-                if span.get("attempt") == number:
+                if _attributes_of(span).get("halcyon.attempt") == number:
                     print(f"       {_span_line(span)}")
 
 
@@ -74,14 +74,20 @@ def _attempt_line(attempt: object) -> str:
     return f"{attempt.get('started_at')}  {where}  {outcome}{detail}"
 
 
+def _attributes_of(span: dict[str, object]) -> dict[str, object]:
+    attributes = span.get("attributes")
+    return attributes if type(attributes) is dict else {}
+
+
 def _span_line(span: dict[str, object]) -> str:
-    step = span.get("step")
-    status = span.get("status")
-    if status is None:
-        return f"{step}  did not finish"
-    message = span.get("message")
-    detail = f": {message}" if status != "ok" and type(message) is str else ""
-    return f"{step}  {span.get('ms')}ms  {status}{detail}"
+    name = span.get("name")
+    attributes = _attributes_of(span)
+    outcome = attributes.get("halcyon.outcome")
+    if outcome is None:
+        return f"{name}  did not finish"
+    message = span.get("status_message")
+    detail = f": {message}" if outcome != "ok" and type(message) is str else ""
+    return f"{name}  {attributes.get('halcyon.duration_ms')}ms  {outcome}{detail}"
 
 
 def _sweep(journal_dir: Path, resume: bool) -> int:

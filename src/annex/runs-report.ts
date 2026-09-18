@@ -28,7 +28,20 @@ export interface RunAttemptView {
     readonly host: string;
     readonly finishedAt?: string;
     readonly status?: string;
-    readonly spans: readonly WorkflowSpan[];
+    readonly spans: readonly RunSpanView[];
+}
+
+/** One span flattened out of its OpenTelemetry field names, for drawing. */
+export interface RunSpanView {
+    readonly spanId: string;
+    readonly step: string;
+    readonly attempt: number;
+    readonly start: string;
+    // Missing together on the try whose process died inside it.
+    readonly end?: string;
+    readonly ms?: number;
+    readonly outcome?: string;
+    readonly message?: string;
 }
 
 export interface RunStepView {
@@ -46,7 +59,7 @@ export interface RunDetail {
     readonly attempts: readonly RunAttemptView[];
     readonly steps: readonly RunStepView[];
     /** Spans belonging to no listed attempt, so nothing is silently dropped. */
-    readonly orphanSpans: readonly WorkflowSpan[];
+    readonly orphanSpans: readonly RunSpanView[];
 }
 
 export function foldRunRows(workflowDirectory: string): RunRow[] {
@@ -71,7 +84,7 @@ export function foldRunDetail(
         attemptView(attempt, index + 1, run.spans)
     );
     const claimed = new Set(
-        attempts.flatMap((attempt) => attempt.spans.map((span) => span.span)),
+        attempts.flatMap((attempt) => attempt.spans.map((span) => span.spanId)),
     );
     const detail: RunDetail = {
         runId: run.header.run_id,
@@ -84,7 +97,9 @@ export function foldRunDetail(
             at: record.at,
             ms: record.ms,
         })),
-        orphanSpans: run.spans.filter((span) => !claimed.has(span.span)),
+        orphanSpans: run.spans
+            .filter((span) => !claimed.has(span.span_id))
+            .map(spanView),
     };
     const active = run.header.active;
     if (active === undefined) {
@@ -103,12 +118,37 @@ function attemptView(
         startedAt: attempt.started_at,
         pid: attempt.pid,
         host: attempt.host,
-        spans: spans.filter((span) => span.attempt === number),
+        spans: spans
+            .filter((span) => span.attributes["halcyon.attempt"] === number)
+            .map(spanView),
     };
     if (attempt.finished_at === undefined || attempt.status === undefined) {
         return view;
     }
     return { ...view, finishedAt: attempt.finished_at, status: attempt.status };
+}
+
+function spanView(span: WorkflowSpan): RunSpanView {
+    const view: RunSpanView = {
+        spanId: span.span_id,
+        step: span.name,
+        attempt: Number(span.attributes["halcyon.attempt"]),
+        start: span.start_time,
+    };
+    const outcome = span.attributes["halcyon.outcome"];
+    const ms = span.attributes["halcyon.duration_ms"];
+    if (span.end_time === undefined || typeof outcome !== "string") {
+        return view;
+    }
+    const ended: RunSpanView = {
+        ...view,
+        end: span.end_time,
+        ms: typeof ms === "number" ? ms : 0,
+        outcome,
+    };
+    return span.status_message === undefined
+        ? ended
+        : { ...ended, message: span.status_message };
 }
 
 function runRow(workflowDirectory: string, runId: string): RunRow {
@@ -123,8 +163,9 @@ function runRow(workflowDirectory: string, runId: string): RunRow {
             startedAt: attempts[0]?.started_at ?? "",
             steps: run.records.length,
             tries: run.spans.length,
-            failedTries: run.spans.filter((span) => span.status === "failed")
-                .length,
+            failedTries: run.spans.filter(
+                (span) => span.attributes["halcyon.outcome"] === "failed",
+            ).length,
         };
         if (last?.finished_at === undefined) {
             return row;

@@ -75,18 +75,17 @@ class SqlDialect:
             """,
             f"""
             CREATE TABLE IF NOT EXISTS spans (
-                run_id TEXT NOT NULL,
-                span TEXT NOT NULL,
-                attempt INTEGER NOT NULL,
-                key TEXT NOT NULL,
-                step TEXT NOT NULL,
-                start TEXT NOT NULL,
-                finish TEXT,
-                ms INTEGER,
-                status TEXT,
-                message TEXT,
-                PRIMARY KEY (run_id, span),
-                FOREIGN KEY (run_id) REFERENCES runs(run_id)
+                trace_id TEXT NOT NULL,
+                span_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                status_code TEXT,
+                status_message TEXT,
+                attributes TEXT NOT NULL,
+                PRIMARY KEY (trace_id, span_id),
+                FOREIGN KEY (trace_id) REFERENCES runs(run_id)
             )
             """,
             f"""
@@ -138,20 +137,23 @@ class SqlDialect:
 
     def insert_span(self) -> str:
         return (
-            "INSERT INTO spans (run_id, span, attempt, key, step, start) "
-            f"VALUES ({self.values(6)})"
+            "INSERT INTO spans ("
+            "trace_id, span_id, parent_id, name, start_time, attributes"
+            f") VALUES ({self.values(6)})"
         )
 
     def close_span(self) -> str:
         return (
-            "UPDATE spans SET finish = {p}, ms = {p}, status = {p}, message = {p} "
-            "WHERE run_id = {p} AND span = {p}"
+            "UPDATE spans SET end_time = {p}, status_code = {p}, "
+            "status_message = {p}, attributes = {p} "
+            "WHERE trace_id = {p} AND span_id = {p}"
         ).format(p=self.placeholder)
 
     def select_spans(self) -> str:
         return (
-            "SELECT span, attempt, key, step, start, finish, ms, status, message "
-            f"FROM spans WHERE run_id = {self.placeholder} ORDER BY start, span"
+            "SELECT trace_id, span_id, parent_id, name, start_time, end_time, "
+            "status_code, status_message, attributes FROM spans "
+            f"WHERE trace_id = {self.placeholder} ORDER BY start_time, span_id"
         )
 
     def select_blob(self) -> str:
@@ -217,6 +219,7 @@ class SqlRunJournal:
         self._store = store
         self._next_seq = next_seq
         self._span_count = 0
+        self._span_attributes: dict[str, dict[str, object]] = {}
 
     @property
     def run_id(self) -> str:
@@ -281,51 +284,77 @@ class SqlRunJournal:
     def open_span(self, key: str, step_name: str) -> str:
         line = span_start(self.header, self._span_count, key, step_name)
         self._span_count += 1
+        span_id = str(line["span_id"])
+        attributes = line["attributes"]
+        self._span_attributes[span_id] = dict(
+            attributes if type(attributes) is dict else {}
+        )
         self._store._execute(
             self._store.dialect.insert_span(),
             (
-                self.run_id,
-                line["span"],
-                line["attempt"],
-                line["key"],
-                line["step"],
-                line["start"],
+                line["trace_id"],
+                span_id,
+                line["parent_id"],
+                line["name"],
+                line["start_time"],
+                dumps(attributes),
             ),
         )
         self._store._commit()
-        return str(line["span"])
+        return span_id
 
     def close_span(
         self,
         span_id: str,
         ms: int,
-        status: str,
+        outcome: str,
         message: str | None = None,
     ) -> None:
-        line = span_end(span_id, ms, status, message)
+        line = span_end(span_id, ms, outcome, message)
+        ending = line["attributes"]
+        merged = self._span_attributes.pop(span_id, {})
+        if type(ending) is dict:
+            merged.update(ending)
         self._store._execute(
             self._store.dialect.close_span(),
-            (line["end"], ms, status, message, self.run_id, span_id),
+            (
+                line["end_time"],
+                line["status_code"],
+                line.get("status_message"),
+                dumps(merged),
+                self.run_id,
+                span_id,
+            ),
         )
         self._store._commit()
 
     def spans(self) -> list[dict[str, object]]:
         rows = self._store._query(self._store.dialect.select_spans(), (self.run_id,))
         spans: list[dict[str, object]] = []
-        for span, attempt, key, step, start, finish, ms, status, message in rows:
+        for (
+            trace_id,
+            span_id,
+            parent_id,
+            name,
+            start_time,
+            end_time,
+            status_code,
+            status_message,
+            attributes,
+        ) in rows:
             found: dict[str, object] = {
-                "span": span,
-                "attempt": attempt,
-                "key": key,
-                "step": step,
-                "start": start,
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_id": parent_id,
+                "name": name,
+                "start_time": start_time,
+                "attributes": _parse_json_text(attributes, "workflow span attributes"),
             }
-            if finish is not None:
-                found["end"] = finish
-                found["ms"] = ms
-                found["status"] = status
-            if message is not None:
-                found["message"] = message
+            if end_time is not None:
+                found["end_time"] = end_time
+                found["status_code"] = status_code
+            if status_message is not None:
+                found["status_message"] = status_message
             spans.append(found)
         return spans
 

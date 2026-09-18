@@ -116,19 +116,31 @@ test("readWorkflowRun folds span lines into one entry per try", () => {
     writeFileSync(
         join(runDir, "spans.ndjson"),
         [
-            { span: "a1.0", attempt: 1, key: "shaky/try#0:abcd1234", step: "try", start: "2026-09-17T12:00:00+00:00" },
-            { span: "a1.0", end: "2026-09-17T12:00:01+00:00", ms: 1000, status: "failed", message: "upstream said no" },
-            { span: "a1.1", attempt: 1, key: "shaky/try#0:abcd1234", step: "try", start: "2026-09-17T12:00:01+00:00" },
-            { span: "a1.1", end: "2026-09-17T12:00:02+00:00", ms: 900, status: "ok" },
+            spanStart("a1.0", "2026-09-17T12:00:00+00:00"),
+            {
+                span_id: "a1.0",
+                end_time: "2026-09-17T12:00:01+00:00",
+                status_code: "ERROR",
+                status_message: "upstream said no",
+                attributes: { "halcyon.outcome": "failed", "halcyon.duration_ms": 1000 },
+            },
+            spanStart("a1.1", "2026-09-17T12:00:01+00:00"),
+            {
+                span_id: "a1.1",
+                end_time: "2026-09-17T12:00:02+00:00",
+                status_code: "OK",
+                attributes: { "halcyon.outcome": "ok", "halcyon.duration_ms": 900 },
+            },
         ].map((line) => JSON.stringify(line)).join("\n") + "\n",
     );
 
     const run = readWorkflowRun(runDir);
 
     expect(run.spans).toHaveLength(2);
-    expect(run.spans[0]?.status).toBe("failed");
-    expect(run.spans[0]?.message).toBe("upstream said no");
-    expect(run.spans[1]?.ms).toBe(900);
+    expect(run.spans[0]?.attributes["halcyon.outcome"]).toBe("failed");
+    expect(run.spans[0]?.status_message).toBe("upstream said no");
+    expect(run.spans[0]?.attributes["halcyon.step.key"]).toBe("shaky/try#0:abcd1234");
+    expect(run.spans[1]?.attributes["halcyon.duration_ms"]).toBe(900);
 });
 
 test("readWorkflowRun leaves the span a crash died in open", () => {
@@ -146,19 +158,24 @@ test("readWorkflowRun leaves the span a crash died in open", () => {
     writeFileSync(
         join(runDir, "spans.ndjson"),
         `${JSON.stringify({
-            span: "a1.0",
-            attempt: 1,
-            key: "crashy/slow#0:abcd1234",
-            step: "slow",
-            start: "2026-09-17T12:00:00+00:00",
+            trace_id: "wf_00000000000000cc",
+            span_id: "a1.0",
+            parent_id: "a1",
+            name: "slow",
+            start_time: "2026-09-17T12:00:00+00:00",
+            attributes: {
+                "openinference.span.kind": "CHAIN",
+                "halcyon.attempt": 1,
+                "halcyon.step.key": "crashy/slow#0:abcd1234",
+            },
         })}\n`,
     );
 
     const run = readWorkflowRun(runDir);
 
-    expect(run.spans[0]?.step).toBe("slow");
-    expect(run.spans[0]?.end).toBeUndefined();
-    expect(run.spans[0]?.status).toBeUndefined();
+    expect(run.spans[0]?.name).toBe("slow");
+    expect(run.spans[0]?.end_time).toBeUndefined();
+    expect(run.spans[0]?.status_code).toBeUndefined();
 });
 
 test("readWorkflowRun reads a run written before spans existed", () => {
@@ -169,3 +186,18 @@ test("readWorkflowRun reads a run written before spans existed", () => {
 
     expect(readWorkflowRun(runDir).spans).toEqual([]);
 });
+
+function spanStart(spanId: string, startTime: string): Record<string, unknown> {
+    return {
+        trace_id: "wf_00000000000000bb",
+        span_id: spanId,
+        parent_id: "a1",
+        name: "try",
+        start_time: startTime,
+        attributes: {
+            "openinference.span.kind": "CHAIN",
+            "halcyon.attempt": 1,
+            "halcyon.step.key": "shaky/try#0:abcd1234",
+        },
+    };
+}
