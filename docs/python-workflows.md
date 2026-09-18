@@ -140,8 +140,9 @@ It considers a run only when the last attempt is still open and its `pid` on
 this host is gone. Those runs are marked `crashed` with a `reason`, and the open
 attempt is left open as the evidence. Nothing is run again.
 
-Passing `--resume` resumes each run it just marked, in this process, one after
-the other. A run someone asked to cancel is marked but never resumed.
+Passing `--resume` resumes every crashed run in the store, in this process, one
+after the other, whether this sweep marked it or an earlier one did. A run
+someone asked to cancel is reported and left alone.
 
 The sweep reads pids on the machine that recorded them, so it skips runs whose
 attempt names another host, and it skips a pid the operating system has since

@@ -74,32 +74,45 @@ def _attempt_line(attempt: object) -> str:
 def _sweep(journal_dir: Path, resume: bool) -> int:
     store = store_from_path(journal_dir)
     here = socket.gethostname()
-    found = 0
-    code = 0
+    marked = 0
+    crashed: list[str] = []
     for summary in store.runs():
-        if summary.status != "running":
+        if summary.status not in ("running", "crashed"):
             continue
         journal = store.load(summary.run_id, None)
-        attempt = _open_attempt(journal.header)
-        if attempt is None or attempt.get("host") != here:
+        if summary.status == "running":
+            pid = _dead_pid(journal.header, here)
+            if pid is None:
+                continue
+            marked += 1
+            journal.mark_crashed(f"process {pid} on {here} did not come back")
+            print(f"{summary.run_id} crashed  {summary.workflow}  pid {pid}")
+        crashed.append(summary.run_id)
+    if marked == 0:
+        print(f"no new crashes in {journal_dir}")
+    if not crashed:
+        return 0
+    if not resume:
+        print(f"{len(crashed)} crashed; pass --resume to run them again")
+        return 0
+    code = 0
+    for run_id in crashed:
+        if store.load(run_id, None).cancel_requested() is not None:
+            print(f"{run_id} not resumed; a cancel was asked for")
             continue
-        pid = attempt.get("pid")
-        if type(pid) is not int or _alive(pid):
-            continue
-        found += 1
-        journal.mark_crashed(f"process {pid} on {here} did not come back")
-        print(f"{summary.run_id} crashed  {summary.workflow}  pid {pid}")
-        if not resume:
-            continue
-        if journal.cancel_requested() is not None:
-            print(f"{summary.run_id} not resumed; a cancel was asked for")
-            continue
-        code = max(code, _resume(journal_dir, summary.run_id))
-    if found == 0:
-        print(f"no crashed workflow runs in {journal_dir}")
-    elif not resume:
-        print("pass --resume to run them again")
+        code = max(code, _resume(journal_dir, run_id))
     return code
+
+
+def _dead_pid(header: dict[str, object], here: str) -> int | None:
+    """The pid of the process that left this run, when it is gone from here."""
+    attempt = _open_attempt(header)
+    if attempt is None or attempt.get("host") != here:
+        return None
+    pid = attempt.get("pid")
+    if type(pid) is not int or _alive(pid):
+        return None
+    return pid
 
 
 def _open_attempt(header: dict[str, object]) -> dict[str, object] | None:

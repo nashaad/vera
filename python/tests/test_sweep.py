@@ -87,14 +87,25 @@ class TestSweep(unittest.TestCase):
         self.assertNotIn("finished_at", header["attempts"][0])
         self.assertEqual((self.journal_dir / "second.txt").exists(), False)
 
-    def test_sweeping_twice_finds_nothing_the_second_time(self) -> None:
-        self._crash_a_run()
+    def test_sweeping_twice_marks_nothing_the_second_time(self) -> None:
+        run_id = self._crash_a_run()
         self._cli("sweep")
 
         code, out = self._cli("sweep")
 
         self.assertEqual(code, 0)
-        self.assertIn("no crashed workflow runs", out)
+        self.assertIn("no new crashes", out)
+        self.assertIn("1 crashed", out)
+        self.assertEqual(len(self._header(run_id)["attempts"]), 1)
+
+    def test_a_run_marked_by_an_earlier_sweep_still_resumes(self) -> None:
+        run_id = self._crash_a_run()
+        self._cli("sweep")
+
+        code, out = self._cli("sweep", "--resume")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(self._header(run_id)["status"], "ok")
 
     def test_resume_finishes_the_work_the_dead_process_left(self) -> None:
         run_id = self._crash_a_run()
@@ -122,7 +133,7 @@ class TestSweep(unittest.TestCase):
         code, out = self._cli("sweep")
 
         self.assertEqual(code, 0)
-        self.assertIn("no crashed workflow runs", out)
+        self.assertIn("no new crashes", out)
         self.assertEqual(self._header("wf_00000000000000fe")["status"], "running")
 
     def test_a_run_from_another_machine_is_left_alone(self) -> None:
@@ -138,7 +149,7 @@ class TestSweep(unittest.TestCase):
         code, out = self._cli("sweep")
 
         self.assertEqual(code, 0)
-        self.assertIn("no crashed workflow runs", out)
+        self.assertIn("no new crashes", out)
 
     def test_a_cancelled_run_is_marked_but_never_resumed(self) -> None:
         run_id = self._crash_a_run()
