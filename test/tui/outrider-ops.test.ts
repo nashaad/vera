@@ -51,7 +51,9 @@ function driver(
 describe("driving a local runtime", () => {
     test("no binary is absent, and nothing is run to find that out", async () => {
         const outrider = driver(undefined);
-        expect(await outriderPresence(outrider)).toEqual({ state: "absent" });
+        expect(await outriderPresence(outrider, () => undefined)).toEqual({
+            state: "absent",
+        });
         expect(outrider.ran).toEqual([]);
     });
 
@@ -179,5 +181,38 @@ describe("what an install leaves behind", () => {
         );
         rememberOutriderBinary(gone);
         expect(outriderBinary()).not.toBe(gone);
+    });
+});
+
+describe("an app that carries the command but no install registered", () => {
+    test("presence names the binary in the bundle", async () => {
+        const presence = await outriderPresence(
+            driver(undefined),
+            () => "/Users/x/Applications/Outrider.app/Contents/MacOS/outrider",
+        );
+        expect(presence.state).toBe("absent");
+        expect(presence.unregistered).toBe(
+            "/Users/x/Applications/Outrider.app/Contents/MacOS/outrider",
+        );
+    });
+
+    test("a machine with no app anywhere stays plainly absent", async () => {
+        const presence = await outriderPresence(driver(undefined), () => undefined);
+        expect(presence).toEqual({ state: "absent" });
+    });
+
+    test("a registered install answers first, so the bundle is never consulted", async () => {
+        let asked = false;
+        const presence = await outriderPresence(
+            driver("/Users/x/.local/bin/outrider", {
+                ps: { ok: true, stdout: '{"kind":"stopped"}' },
+            }),
+            () => {
+                asked = true;
+                return "/Applications/Outrider.app/Contents/MacOS/outrider";
+            },
+        );
+        expect(asked).toBe(false);
+        expect(presence.unregistered).toBeUndefined();
     });
 });

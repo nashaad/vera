@@ -8,6 +8,8 @@ export interface OutriderPresence {
     readonly endpoint?: string;
     /** The profile the running gateway is serving. */
     readonly profile?: string;
+    /** An Outrider command inside an app bundle that no install registered, found only while `absent`. The app carries a working CLI, so this is a machine one command away from present. */
+    readonly unregistered?: string;
 }
 
 /**
@@ -100,6 +102,22 @@ export function outriderMarkerPaths(home: string): readonly string[] {
     return home === ""
         ? [SYSTEM_MARKER]
         : [`${home}/${USER_MARKER_RELATIVE}`, SYSTEM_MARKER];
+}
+
+/** The desktop app ships the same command the installer places. Mirrors the bundle layout `scripts/install.sh` builds. */
+const APP_BINARY_RELATIVE = "Outrider.app/Contents/MacOS/outrider";
+
+/** Both places the app lands, per-user first, matching the installer's own `OUTRIDER_APPLICATIONS_DIR` default. */
+export function outriderAppBinaryPaths(home: string): readonly string[] {
+    const shared = `/Applications/${APP_BINARY_RELATIVE}`;
+    return home === ""
+        ? [shared]
+        : [`${home}/Applications/${APP_BINARY_RELATIVE}`, shared];
+}
+
+/** Registers a binary Vera found but no install owns. `--link` points the install target at it rather than copying, so upgrading the app upgrades the command, and uninstall removes the link and never reaches into the bundle. */
+export function outriderRegisterCommand(binary: string): readonly string[] {
+    return [binary, "install", "--link"];
 }
 
 /** The binary a marker file points at. Mirrors `Marker` in `internal/installer/installer.go`. */

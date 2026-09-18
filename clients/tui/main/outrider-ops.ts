@@ -10,6 +10,7 @@ import {
     outriderServeCommand,
     outriderServiceCommand,
     outriderShowCommand,
+    outriderAppBinaryPaths,
     outriderStatusCommand,
     outriderUseCommand,
     parseOutriderProgress,
@@ -122,12 +123,24 @@ export const defaultOutriderDriver: OutriderDriver = {
     run: runOutrider,
 };
 
+/** An Outrider command sitting in an installed app that no install registered. Worth knowing only when nothing else turned a binary up, because a registered install already answers first. */
+export function unregisteredOutriderBinary(): string | undefined {
+    return outriderAppBinaryPaths(homedir()).find((path) => existsSync(path));
+}
+
 /** Where Outrider is. No binary anywhere is the one state Vera can act on by installing. */
 export async function outriderPresence(
     driver: OutriderDriver = defaultOutriderDriver,
+    findUnregistered: () => string | undefined = unregisteredOutriderBinary,
 ): Promise<OutriderPresence> {
     const binary = driver.binary();
-    if (binary === undefined) return { state: "absent" };
+    if (binary === undefined) {
+        const unregistered = findUnregistered();
+        return {
+            state: "absent",
+            ...(unregistered === undefined ? {} : { unregistered }),
+        };
+    }
     const run = driver.run(outriderStatusCommand(binary), () => {});
     const result = await run.finished;
     return result.ok ? readOutriderStatus(result.stdout) : { state: "stopped" };

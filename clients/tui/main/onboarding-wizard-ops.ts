@@ -17,6 +17,7 @@ import {
     type WizardSession,
 } from "../onboarding-wizard.ts";
 import {
+    outriderRegisterCommand,
     readInstallPath,
     type OutriderProgress,
 } from "../../../src/providers/outrider.ts";
@@ -393,10 +394,17 @@ async function checkRuntime(
     if (session.runtime?.state !== "checking") return;
     stopWizardSpinner(rt);
     if (presence.state === "absent") {
+        // An app carrying the command is not something installing again fixes:
+        // the installer refuses to replace an app that is already there.
+        const note = presence.unregistered === undefined
+            ? said
+            : `Outrider.app is installed but its command is not registered; run ${
+                outriderRegisterCommand(presence.unregistered).join(" ")
+            }`;
         updateWizardSession(rt, {
             ...session,
             runtime: { state: "absent", progress: [] },
-            ...(said === "" ? {} : { alert: said }),
+            ...(note === "" ? {} : { alert: note }),
         });
         return;
     }

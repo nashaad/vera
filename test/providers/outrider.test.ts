@@ -4,6 +4,8 @@ import {
     awaitingRuntime,
     downloadSize,
     OUTRIDER_INSTALL_URL_DEFAULT,
+    outriderAppBinaryPaths,
+    outriderRegisterCommand,
     outriderInstallCommand,
     outriderInstallUrl,
     outriderListCommand,
@@ -455,4 +457,24 @@ test("the parsers read what the binary actually prints", async () => {
     expect(service.model.kind).toBe("stopped");
 
     expect(readOutriderStatus(await recorded("ps")).state).toBe("stopped");
+});
+
+test("the app bundle is looked for per-user first, then shared", () => {
+    expect(outriderAppBinaryPaths("/Users/x")).toEqual([
+        "/Users/x/Applications/Outrider.app/Contents/MacOS/outrider",
+        "/Applications/Outrider.app/Contents/MacOS/outrider",
+    ]);
+    expect(outriderAppBinaryPaths("")).toEqual([
+        "/Applications/Outrider.app/Contents/MacOS/outrider",
+    ]);
+});
+
+test("registering a bundled command links rather than copies", () => {
+    expect(
+        outriderRegisterCommand("/Applications/Outrider.app/Contents/MacOS/outrider"),
+    ).toEqual([
+        "/Applications/Outrider.app/Contents/MacOS/outrider",
+        "install",
+        "--link",
+    ]);
 });
