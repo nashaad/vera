@@ -219,12 +219,18 @@ function orderedRows(
         const row = allRows.find((candidate) => modelSwitcherKey(candidate) === key);
         if (row !== undefined && !taken.has(key)) take(row, RECENT_GROUP);
     }
+    const byProvider = manyProviders(allRows);
     for (const row of allRows) {
         if (!taken.has(modelSwitcherKey(row))) {
-            take(row, row.providerLabel ?? row.provider);
+            take(row, byProvider ? row.providerLabel ?? row.provider : "");
         }
     }
     return { rows, groups };
+}
+
+/** With one provider connected its name is on every row, so it earns no heading and no meta. */
+function manyProviders(rows: readonly TuiModelSwitcherRow[]): boolean {
+    return new Set(rows.map((row) => row.provider)).size > 1;
 }
 
 function searchable(row: TuiModelSwitcherRow): string {
@@ -557,7 +563,9 @@ function rowMeta(
     row: TuiModelSwitcherRow,
 ): string | undefined {
     const parts = [
-        ...(state.query.length > 0 ? [row.providerLabel ?? row.provider] : []),
+        ...(state.query.length > 0 && manyProviders(state.allRows)
+            ? [row.providerLabel ?? row.provider]
+            : []),
         ...(row.effort === undefined ? [] : [row.effort]),
         ...(row.unavailable === true ? ["unavailable"] : []),
         ...(modelSwitcherKey(row) === state.current ? ["current"] : []),

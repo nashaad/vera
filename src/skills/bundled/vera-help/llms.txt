@@ -56,7 +56,7 @@ Open Switch model, type to search the connected models, then press Enter on one 
 ## Models and providers [lines=21]
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
-The list is Favorites, then Recommended, then Recent, then every connected model grouped by provider. Typing collapses all of it into one fuzzy-ranked list; clearing Search restores the groups.
+The list is Favorites, then Recommended, then Recent, then every connected model grouped by provider. With one provider connected the provider grouping has nothing to separate, so those rows carry no heading and a search does not repeat the provider name. Typing collapses all of it into one fuzzy-ranked list; clearing Search restores the groups.
 Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. Favoriting is the only thing Switch model writes that outlives the session.
 Its sections are Search, the model list, and a Browse models row pinned under the list. Tab and Left/Right move between them; Ctrl+B reaches Browse models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. Browse models opens the Models page, which is where `/models` opens.
 Switch model has no scope, sort, score, or price controls and no detail pane. Those are the Models page.

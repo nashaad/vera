@@ -257,6 +257,55 @@ describe("model switcher seeded favorites", () => {
     });
 });
 
+describe("model switcher provider headings", () => {
+    const openrouter: readonly TuiModelSwitcherRow[] = [
+        { provider: "openrouter", model: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", seeded: true },
+        { provider: "openrouter", model: "z-ai/glm-5.2", label: "GLM-5.2" },
+        { provider: "openrouter", model: "moonshotai/kimi-k3", label: "Kimi K3" },
+    ];
+
+    test("one connected provider earns no heading of its own", () => {
+        const state = startTuiModelSwitcher(openrouter);
+        expect(state.groups).toEqual([RECOMMENDED_GROUP, "", ""]);
+    });
+
+    test("two connected providers each get a heading", () => {
+        const state = startTuiModelSwitcher([
+            ...openrouter,
+            { provider: "openai-codex", model: "gpt-5.6-sol", label: "GPT-5.6 Sol (Codex)" },
+        ]);
+        expect(state.groups).toEqual([
+            RECOMMENDED_GROUP,
+            "openrouter",
+            "openrouter",
+            "openai-codex",
+        ]);
+    });
+
+    test("a search names the provider only when more than one is connected", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            view.update(searchedTuiModelSwitcher(startTuiModelSwitcher(openrouter), "glm"));
+            await setup.renderOnce();
+            expect(setup.captureCharFrame()).not.toContain("openrouter");
+            view.update(searchedTuiModelSwitcher(
+                startTuiModelSwitcher([
+                    ...openrouter,
+                    { provider: "openai-codex", model: "gpt-5.6-sol", label: "GPT-5.6 Sol (Codex)" },
+                ]),
+                "glm",
+            ));
+            await setup.renderOnce();
+            expect(setup.captureCharFrame()).toContain("openrouter");
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+});
+
 describe("model switcher favoriting", () => {
     test("a toggled row keeps the cursor after the list reorders", () => {
         const atBrowse = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
