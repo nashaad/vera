@@ -30,11 +30,11 @@ function columnLabel(label: string, width: number): string {
     return `${clipped.trimEnd()}…`;
 }
 
-export function modelSwitchRows(renderer: RenderContext): number {
+export function modelBrowseRows(renderer: RenderContext): number {
     return Math.max(1, renderer.height - dialogSearchHeight(renderer) - 19);
 }
 
-export function renderModelSwitch(
+export function renderModelBrowse(
     renderer: RenderContext,
     box: BoxRenderable,
     state: TuiSettingsPickerState,
@@ -55,8 +55,8 @@ export function renderModelSwitch(
     const split = candidateSplit !== undefined && candidateSplit.listWidth >= 59
         ? candidateSplit : undefined;
     const listWidth = split?.listWidth ?? width;
-    const columns = detailed && listWidth >= 59 && modelSwitchRows(renderer) >= 3;
-    const maximumRows = Math.max(1, modelSwitchRows(renderer) + (columns ? 2 : 0)
+    const columns = detailed && listWidth >= 59 && modelBrowseRows(renderer) >= 3;
+    const maximumRows = Math.max(1, modelBrowseRows(renderer) + (columns ? 2 : 0)
         - (columns && state.browseNotice !== undefined ? 1 : 0) - tipRows);
     const window = browseWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
     const listRows = Math.max(2, window.rows.length) + (columns ? 1 : 0);

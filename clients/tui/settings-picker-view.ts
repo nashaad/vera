@@ -1,7 +1,7 @@
 import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import { dialogChipNode } from "./dialog-chrome.ts";
 import { setModelFilterCutoff } from "./model-browse.ts";
-import { renderModelSwitch, modelSwitchRows } from "./model-switch-view.ts";
+import { renderModelBrowse, modelBrowseRows } from "./model-browse-view.ts";
 import { extensionPickerButtons, renderExtensionPicker } from "./extension-picker-view.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
@@ -1240,7 +1240,7 @@ export function tuiPickerViewportRows(
     state: TuiAnySettingsPickerState,
     extraChrome = 0,
 ): number {
-    if (state.kind === "model" && state.modelBrowse === "browse") return modelSwitchRows(renderer);
+    if (state.kind === "model" && state.modelBrowse === "browse") return modelBrowseRows(renderer);
     if (state.kind === "model" && state.modelBrowse !== undefined) return browseListLayout(renderer, state).rows;
     const stripHeight = modelStripStop(state) === undefined
         ? 0
@@ -1392,7 +1392,7 @@ export function renderListPickerRows(
         return;
     }
     if (state.kind === "model" && state.modelBrowse === "browse") {
-        renderModelSwitch(renderer, box, state, nodes, search, pointer, railInset, browseScroll, onSection, onBrowseAction, tip);
+        renderModelBrowse(renderer, box, state, nodes, search, pointer, railInset, browseScroll, onSection, onBrowseAction, tip);
         return;
     }
     if (state.kind === "model_menu") {

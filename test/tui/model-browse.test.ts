@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { modelPriceColumns } from "../../clients/tui/model-switch-view.ts";
+import { modelPriceColumns } from "../../clients/tui/model-browse-view.ts";
 import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
