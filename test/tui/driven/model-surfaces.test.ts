@@ -297,6 +297,25 @@ test("the pinned browse row opens the browse page", async () => {
     } finally { await session.close(); }
 }, 15_000);
 
+test("clicking the pinned browse row opens the browse page", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-click-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("⏎ switch");
+        const lines = pane.split("\n");
+        const row = lines.findIndex((line) => line.includes("Browse models"));
+        // The hit grid lags the dialog by a frame, so settle before clicking.
+        await session.settle();
+        await session.sendMouseClick(lines[row]!.indexOf("Browse models") + 2, row);
+        const browse = await session.waitForVisiblePane("Browse models · ");
+        expect(browse).not.toContain("⏎ switch");
+    } finally { await session.close(); }
+}, 15_000);
+
 test("ctrl+b leaves the switcher for the browse page", async () => {
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-key-")), width: 130, height: 44,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
