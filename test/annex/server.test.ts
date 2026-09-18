@@ -261,3 +261,59 @@ test("the runs page shows the question a run waits on", async () => {
     ).json() as { asking?: { question: string; at: string } };
     expect(detail.asking?.question).toBe("Ship it?");
 });
+
+test("the runs page shows what a run was given and what each step returned", async () => {
+    const workflowDirectory = tempDir("vera-annex-values-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import ask, step, workflow",
+        "",
+        "@step",
+        "def shout(text: str) -> str:",
+        "    return text.upper()",
+        "",
+        "@workflow",
+        "def loud(text: str) -> dict:",
+        "    said = shout(text)",
+        "    return {'said': said, 'reply': ask('Again?')}",
+        "",
+        "if __name__ == '__main__':",
+        "    loud.run('hello', journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const env = { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") };
+    expect(Bun.spawnSync(["python3", entry, workflowDirectory], { env }).exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-values-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string }[];
+    };
+    const runId = list.rows[0]?.runId ?? "";
+    const answered = Bun.spawnSync(
+        ["python3", "-m", "vera.workflow", "answer", runId, "no", "--journal-dir", workflowDirectory],
+        { env },
+    );
+    expect(answered.exitCode).toBe(0);
+
+    const detail = await (await fetch(`${server.url}api/runs/${runId}`)).json() as {
+        status: string;
+        args?: unknown[];
+        answers: { key: string; value: unknown }[];
+        steps: { key: string; value: unknown }[];
+        attempts: { spans: { key?: string; model?: string; outcome?: string }[] }[];
+    };
+    expect(detail.status).toBe("ok");
+    expect(detail.args).toEqual(["hello"]);
+    expect(detail.answers).toEqual([{ key: "ask#0", value: "no" }]);
+    const shouted = detail.steps.find((step) => step.value === "HELLO");
+    expect(shouted).toBeDefined();
+    const spanKeys = detail.attempts.flatMap((attempt) => attempt.spans.map((span) => span.key));
+    expect(spanKeys).toContain(shouted?.key);
+});

@@ -11,6 +11,11 @@ export interface WorkflowRunHeader {
     // Present only while the run is suspended waiting on an answer.
     readonly asking?: WorkflowQuestion;
     readonly attempts: readonly WorkflowAttempt[];
+    // What the run was called with, missing from runs written before it was kept.
+    readonly args?: readonly unknown[];
+    readonly kwargs?: Readonly<Record<string, unknown>>;
+    /** Answers to the run's questions, by the key of the ask. */
+    readonly inbox?: Readonly<Record<string, unknown>>;
 }
 
 export interface WorkflowAttempt {
@@ -95,6 +100,16 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
     const active = readActiveStep(headerValue.active, headerPath);
     const asking = readQuestion(headerValue.asking, headerPath);
     const attempts = readAttempts(headerValue.attempts, headerPath);
+    const { args, kwargs, inbox } = headerValue;
+    if (args !== undefined && !Array.isArray(args)) {
+        throw new Error(`workflow header args must be an array: ${headerPath}`);
+    }
+    if (kwargs !== undefined && !isRecord(kwargs)) {
+        throw new Error(`workflow header kwargs must be an object: ${headerPath}`);
+    }
+    if (inbox !== undefined && !isRecord(inbox)) {
+        throw new Error(`workflow header inbox must be an object: ${headerPath}`);
+    }
 
     const journalPath = join(runDir, "journal.ndjson");
     const journalText = readFileSync(journalPath, "utf8");
@@ -109,6 +124,9 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
             ...(active === undefined ? {} : { active }),
             ...(asking === undefined ? {} : { asking }),
             attempts,
+            ...(args === undefined ? {} : { args }),
+            ...(kwargs === undefined ? {} : { kwargs }),
+            ...(inbox === undefined ? {} : { inbox }),
         },
         records,
         spans: readWorkflowSpans(runDir),

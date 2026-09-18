@@ -13,10 +13,31 @@
     --m1: #7dd3fc;
     --m2: #86efac;
     --rest: #3f3f46;
+    --bad: #fca5a5;
     --radius: 6px;
     --font: Inter, ui-sans-serif, system-ui, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
     color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg: #fafafa;
+        --card: #ffffff;
+        --line: #ececef;
+        --line-2: #dcdce0;
+        --fg: #18181b;
+        --muted: #52525b;
+        --faint: #8b8b94;
+        --fill: #f4f4f5;
+        --fill-2: #e4e4e7;
+        --est: #a16207;
+        --m0: #52525b;
+        --m1: #0284c7;
+        --m2: #16a34a;
+        --rest: #d4d4d8;
+        --bad: #dc2626;
+        color-scheme: light;
+    }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
@@ -214,7 +235,7 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
 .nav-sidebar a[role="menuitem"] { text-decoration: none; display: block; }
 .status { font-size: 12px; }
 .status.ok { color: var(--m2); }
-.status.failed, .status.crashed, .status.unreadable { color: #fca5a5; }
+.status.failed, .status.crashed, .status.unreadable { color: var(--bad); }
 .status.running { color: var(--m1); }
 .status.suspended, .status.cancelled { color: var(--est); }
 .wf { list-style: none; margin: 0; padding: 0; }
@@ -234,7 +255,7 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
     border-radius: 2px;
 }
 .wf-bar { position: absolute; top: 0; height: 100%; border-radius: 2px; background: var(--m2); }
-.wf-bar.failed { background: #fca5a5; }
+.wf-bar.failed { background: var(--bad); }
 .wf-bar.suspended, .wf-bar.cancelled { background: var(--est); }
 .wf-bar.open { background: repeating-linear-gradient(90deg, var(--m1) 0 4px, transparent 4px 8px); }
 .wf-ms { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }

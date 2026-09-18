@@ -37,6 +37,8 @@ export interface RunAttemptView {
 export interface RunSpanView {
     readonly spanId: string;
     readonly parentId: string;
+    /** The journal key of the step, which matches a step in RunDetail.steps. */
+    readonly key?: string;
     /** How many spans deep this one sits, so a model call draws under its step. */
     readonly depth: number;
     readonly step: string;
@@ -58,6 +60,13 @@ export interface RunStepView {
     readonly step: string;
     readonly at: string;
     readonly ms: number;
+    /** What the step returned, as the journal recorded it. */
+    readonly value: unknown;
+}
+
+export interface RunAnswer {
+    readonly key: string;
+    readonly value: unknown;
 }
 
 export interface RunDetail {
@@ -67,6 +76,10 @@ export interface RunDetail {
     readonly active?: { readonly step: string; readonly at: string };
     readonly asking?: { readonly question: string; readonly at: string };
     readonly cost?: number;
+    // Missing on a run written before its arguments were kept.
+    readonly args?: readonly unknown[];
+    readonly kwargs?: Readonly<Record<string, unknown>>;
+    readonly answers: readonly RunAnswer[];
     readonly attempts: readonly RunAttemptView[];
     readonly steps: readonly RunStepView[];
     /** Spans belonging to no listed attempt, so nothing is silently dropped. */
@@ -103,12 +116,19 @@ export function foldRunDetail(
         workflow: run.header.workflow,
         status: run.header.status,
         ...(spend === undefined ? {} : { cost: spend }),
+        ...(run.header.args === undefined ? {} : { args: run.header.args }),
+        ...(run.header.kwargs === undefined ? {} : { kwargs: run.header.kwargs }),
+        answers: Object.entries(run.header.inbox ?? {}).map(([key, value]) => ({
+            key,
+            value,
+        })),
         attempts,
         steps: run.records.map((record) => ({
             key: record.key,
             step: stepNameOf(record.key),
             at: record.at,
             ms: record.ms,
+            value: record.value,
         })),
         orphanSpans: run.spans
             .filter((span) => !claimed.has(span.span_id))
@@ -154,6 +174,7 @@ function spanView(span: WorkflowSpan): RunSpanView {
         step: span.name,
         attempt: Number(span.attributes["halcyon.attempt"]),
         start: span.start_time,
+        ...keyOf(span),
         ...usageOf(span),
     };
     const outcome = span.attributes["halcyon.outcome"];
@@ -170,6 +191,11 @@ function spanView(span: WorkflowSpan): RunSpanView {
     return span.status_message === undefined
         ? ended
         : { ...ended, message: span.status_message };
+}
+
+function keyOf(span: WorkflowSpan): { key?: string } {
+    const key = span.attributes["halcyon.step.key"];
+    return typeof key === "string" ? { key } : {};
 }
 
 function usageOf(

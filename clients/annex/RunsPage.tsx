@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type {
     RunAttemptView,
     RunDetail,
+    RunStepView,
     RunRow,
     RunSpanView,
 } from "../../src/annex/runs-report.ts";
@@ -124,13 +125,21 @@ function RunPage({
                             </p>
                         </section>
                     )}
+                    <Inputs detail={detail.value} />
                     {detail.value.attempts.map((attempt) => (
-                        <Attempt key={attempt.number} attempt={attempt} />
+                        <Attempt
+                            key={attempt.number}
+                            attempt={attempt}
+                            steps={detail.value?.steps ?? []}
+                        />
                     ))}
                     {detail.value.orphanSpans.length === 0 ? undefined : (
                         <section className="panel">
                             <h2>Spans with no attempt <span>{detail.value.orphanSpans.length}</span></h2>
-                            <Waterfall spans={detail.value.orphanSpans} />
+                            <Waterfall
+                                spans={detail.value.orphanSpans}
+                                steps={detail.value.steps}
+                            />
                         </section>
                     )}
                 </>
@@ -139,7 +148,55 @@ function RunPage({
     );
 }
 
-function Attempt({ attempt }: { readonly attempt: RunAttemptView }) {
+function Inputs({ detail }: { readonly detail: RunDetail }) {
+    const kwargs = Object.entries(detail.kwargs ?? {});
+    if (detail.args === undefined && kwargs.length === 0 && detail.answers.length === 0) {
+        return undefined;
+    }
+    return (
+        <section className="panel">
+            <h2>Inputs</h2>
+            <dl className="io">
+                {(detail.args ?? []).map((arg, index) => (
+                    <IoRow key={`arg${index}`} label={`arg ${index + 1}`} value={arg} />
+                ))}
+                {kwargs.map(([name, value]) => (
+                    <IoRow key={`kw ${name}`} label={name} value={value} />
+                ))}
+                {detail.answers.map((answer) => (
+                    <IoRow
+                        key={`answer ${answer.key}`}
+                        label={`answer to ${answer.key}`}
+                        value={answer.value}
+                    />
+                ))}
+            </dl>
+        </section>
+    );
+}
+
+function IoRow({ label, value }: { readonly label: string; readonly value: unknown }) {
+    return (
+        <>
+            <dt>{label}</dt>
+            <dd><Value value={value} /></dd>
+        </>
+    );
+}
+
+function Value({ value }: { readonly value: unknown }) {
+    // Strings show as text so model replies keep their line breaks.
+    const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    return <pre className="value">{text}</pre>;
+}
+
+function Attempt({
+    attempt,
+    steps,
+}: {
+    readonly attempt: RunAttemptView;
+    readonly steps: readonly RunStepView[];
+}) {
     return (
         <section className="panel">
             <h2>
@@ -151,12 +208,26 @@ function Attempt({ attempt }: { readonly attempt: RunAttemptView }) {
             </h2>
             {attempt.spans.length === 0
                 ? <p className="note">No steps ran in this attempt.</p>
-                : <Waterfall spans={attempt.spans} />}
+                : <Waterfall spans={attempt.spans} steps={steps} />}
         </section>
     );
 }
 
-function Waterfall({ spans }: { readonly spans: readonly RunSpanView[] }) {
+function Waterfall({
+    spans,
+    steps,
+}: {
+    readonly spans: readonly RunSpanView[];
+    readonly steps: readonly RunStepView[];
+}) {
+    const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+    const toggle = (spanId: string) => {
+        setOpen((current) => {
+            const next = new Set(current);
+            if (!next.delete(spanId)) next.add(spanId);
+            return next;
+        });
+    };
     const starts = spans.map((span) => Date.parse(span.start));
     const ends = spans.map((span, index) =>
         span.end === undefined ? starts[index] ?? 0 : Date.parse(span.end)
@@ -176,24 +247,44 @@ function Waterfall({ spans }: { readonly spans: readonly RunSpanView[] }) {
     return (
         <ol className="wf">
             {spans.map((span, index) => {
-                const open = span.end === undefined;
+                const unfinished = span.end === undefined;
+                // Only the try that succeeded wrote the value the journal holds.
+                const result = span.model === undefined && span.outcome === "ok"
+                    ? steps.find((step) => step.key === span.key)
+                    : undefined;
+                const shown = result !== undefined && open.has(span.spanId);
                 const from = ((starts[index] ?? first) - first) / total;
-                const width = open
+                const width = unfinished
                     ? 1 - from
                     : ((ends[index] ?? first) - (starts[index] ?? first)) / total;
                 return (
                     <li key={span.spanId}>
-                        <span
-                            className={span.model === undefined
-                                ? "wf-name"
-                                : "wf-name wf-call"}
-                            style={{ paddingLeft: `${span.depth * 12}px` }}
-                        >
-                            {span.step}
-                        </span>
+                        {result === undefined
+                            ? (
+                                <span
+                                    className={span.model === undefined
+                                        ? "wf-name"
+                                        : "wf-name wf-call"}
+                                    style={{ paddingLeft: `${span.depth * 12}px` }}
+                                >
+                                    {span.step}
+                                </span>
+                            )
+                            : (
+                                <button
+                                    type="button"
+                                    className="wf-name wf-open"
+                                    aria-expanded={shown}
+                                    style={{ paddingLeft: `${span.depth * 12}px` }}
+                                    onClick={() => toggle(span.spanId)}
+                                >
+                                    <span className="caret">{shown ? "▾" : "▸"}</span>
+                                    {span.step}
+                                </button>
+                            )}
                         <span className="wf-track">
                             <i
-                                className={`wf-bar ${open ? "open" : span.outcome ?? ""}`}
+                                className={`wf-bar ${unfinished ? "open" : span.outcome ?? ""}`}
                                 style={{
                                     left: `${from * 100}%`,
                                     width: `${Math.max(width * 100, 1.5)}%`,
@@ -216,6 +307,11 @@ function Waterfall({ spans }: { readonly spans: readonly RunSpanView[] }) {
                                     : `  ${money(span.cost)}`}
                             </span>
                         )}
+                        {shown ? (
+                            <div className="wf-value">
+                                <Value value={result.value} />
+                            </div>
+                        ) : undefined}
                     </li>
                 );
             })}
