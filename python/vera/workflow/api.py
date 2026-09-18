@@ -103,6 +103,8 @@ class _Current:
         *args: object,
         key: str,
         timeout: float | None = None,
+        retries: int = 0,
+        backoff: float = 0.0,
         **kwargs: object,
     ) -> R:
         """Call `function` as a step journaled under an explicit key.
@@ -123,7 +125,17 @@ class _Current:
         runtime = _runtime.get()
         if runtime is None:
             return function(*args, **kwargs)
-        return runtime.call_step(name, function, args, kwargs, key=key, timeout=timeout)
+        _check_budget(retries, backoff)
+        return runtime.call_step(
+            name,
+            function,
+            args,
+            kwargs,
+            key=key,
+            timeout=timeout,
+            retries=retries,
+            backoff=backoff,
+        )
 
 
 class _UserFailure(BaseException):
@@ -166,6 +178,43 @@ class _Runtime:
         )
         self._ordinals: dict[str, int] = {}
 
+    def _attempt(
+        self,
+        step_name: str,
+        function: Callable[P, R],
+        args: P.args,
+        kwargs: P.kwargs,
+        timeout: float | None,
+        retries: int,
+        backoff: float,
+    ) -> R:
+        """Call the body, retrying an ordinary failure up to `retries` times.
+
+        Only the outcome of the last attempt reaches the journal, so a run that
+        dies mid-budget starts the step again from zero on resume. A timeout is
+        not retried: it ends the run.
+        """
+        delay = backoff
+        remaining = retries
+        while True:
+            try:
+                return _invoke(step_name, function, args, kwargs, timeout)
+            except _UserFailure as failure:
+                if remaining <= 0 or isinstance(failure.error, StepTimeout):
+                    raise
+            remaining -= 1
+            if delay > 0:
+                self._sleep(delay, step_name)
+                delay *= 2
+
+    def _sleep(self, delay: float, step_name: str) -> None:
+        """Wait out a backoff, cutting it short when the run is cancelled."""
+        if self.cancel is None:
+            time.sleep(delay)
+            return
+        if self.cancel.wait(delay):
+            raise Cancelled(f"cancelled before {step_name}")
+
     def call_step(
         self,
         step_name: str,
@@ -175,6 +224,8 @@ class _Runtime:
         *,
         key: str | None = None,
         timeout: float | None = None,
+        retries: int = 0,
+        backoff: float = 0.0,
     ) -> R:
         positional_args = tuple(args)
         keyword_args = dict(kwargs)
@@ -234,7 +285,9 @@ class _Runtime:
                 call_kwargs = chain.kwargs
         typed_args = cast("P.args", call_args)
         typed_kwargs = cast("P.kwargs", call_kwargs)
-        value = _invoke(step_name, function, typed_args, typed_kwargs, timeout)
+        value = self._attempt(
+            step_name, function, typed_args, typed_kwargs, timeout, retries, backoff
+        )
         try:
             dumps(value)
             self.journal.append(key, value)
@@ -303,12 +356,21 @@ def _invoke(
 
 
 class _Step(Generic[P, R]):
-    def __init__(self, function: Callable[P, R], timeout: float | None = None) -> None:
+    def __init__(
+        self,
+        function: Callable[P, R],
+        timeout: float | None = None,
+        retries: int = 0,
+        backoff: float = 0.0,
+    ) -> None:
         if timeout is not None and timeout <= 0:
             raise ValueError("timeout must be greater than zero")
+        _check_budget(retries, backoff)
         self._function = function
         self.name = function.__name__
         self.timeout = timeout
+        self.retries = retries
+        self.backoff = backoff
         update_wrapper(self, function, updated=())
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -321,6 +383,8 @@ class _Step(Generic[P, R]):
             args,
             kwargs,
             timeout=self.timeout,
+            retries=self.retries,
+            backoff=self.backoff,
         )
         return value
 
@@ -464,6 +528,8 @@ def step(
     function: Callable[P, R] | None = None,
     *,
     timeout: float | None = None,
+    retries: int = 0,
+    backoff: float = 0.0,
 ) -> _Step[P, R] | Callable[[Callable[P, R]], _Step[P, R]]:
     """Mark a function as a journaled step, bare or with arguments.
 
@@ -473,14 +539,29 @@ def step(
     the run does not continue. Nothing is journaled, so a resumed run tries the
     step again. A caller that needs a deadline to be an outcome rather than the
     end of the run enforces it inside the step and returns a value.
+
+    `retries` is how many extra attempts an ordinary failure gets, and
+    `backoff` the seconds before the first of them, doubling after each. The
+    budget lives in this process: only the last attempt reaches the journal, so
+    a run that dies mid-budget starts the step again from zero. A timeout is
+    not retried, and a cancelled run stops during the wait.
     """
     if function is not None:
-        return _Step(function, timeout)
+        return _Step(function, timeout, retries, backoff)
 
     def decorate(inner: Callable[P, R]) -> _Step[P, R]:
-        return _Step(inner, timeout)
+        return _Step(inner, timeout, retries, backoff)
 
     return decorate
+
+
+def _check_budget(retries: int, backoff: float) -> None:
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise ValueError("retries must be a whole number of extra attempts")
+    if isinstance(backoff, bool) or not isinstance(backoff, (int, float)):
+        raise ValueError("backoff must be a number of seconds")
+    if backoff < 0:
+        raise ValueError("backoff must not be negative")
 
 
 def workflow(
