@@ -138,7 +138,7 @@ export function modelBrowse(state: TuiSettingsPickerState, mode: "browse" | "fav
         title: mode === "browse" ? "Browse models" : "Favorites",
         browseView: state.browseView ?? "standard",
         tab: mode === "browse" ? state.tab ?? "pool" : "all", modelFocus: mode === "browse" ? "search" : "list", query: "", queryCursor: 0,
-        selectedIndex: 0, pickerLevel: "page" };
+        selectedIndex: 0 };
     return rebuiltBrowse({ ...next, collapsed: [] }, state.initialModel);
 }
 

@@ -114,7 +114,6 @@ import {
     modelDetailHeight,
     modelDetailNode,
     modelEmptyMessage,
-    modelHelpNode,
     modelListAction,
     modelListActionLineChunks,
     modelListActionTransition,
@@ -123,13 +122,8 @@ import {
     modelPageActions,
     modelPageEntry,
     modelPageEntryLabel,
-    modelPaneNote,
     modelPaneSplit,
-    modelStripPane,
-    modelStripStop,
     modelTabRows,
-    modelTabStripHeight,
-    modelTabStripNode,
     optionMeta,
     optionMetaPrefixParts,
     pickerCardWidth,
@@ -545,52 +539,6 @@ export function handleTuiSettingsPickerKey(
         return { state, handled: true, openProviders: true };
     }
     if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "switch_tab"
-        && key.ctrl !== true
-        && (state.pickerLevel ?? "page") === "page"
-    ) {
-        // In the page, tab belongs to the sections. Shift+tab off the first one
-        // is the way back up to the strip, so the two levels share one key
-        // without either needing a chord the terminal may not report.
-        const backward = key.shift === true;
-        if (backward && atFirstPickerSection(state)) {
-            return {
-                state: { ...state, pickerLevel: "strip" },
-                handled: true,
-            };
-        }
-        const next = steppedPickerSection(state, backward ? -1 : 1);
-        // A page with one section has nowhere else to put the cursor, so tab
-        // means the strip there rather than nothing at all.
-        return next === undefined
-            ? { state: { ...state, pickerLevel: "strip" }, handled: true }
-            : { state: focusedOnSection(state, next), handled: true };
-    }
-    if (
-        state.kind === "model"
-        && (state.pickerLevel ?? "page") === "strip"
-        && (key.name === "left" || key.name === "right")
-        && key.shift !== true
-        && key.ctrl !== true
-    ) {
-        return steppedModelTabTransition(state, key.name === "left");
-    }
-    if (
-        state.kind === "model"
-        && (state.pickerLevel ?? "page") === "strip"
-        && (key.name === "down" || key.name === "return"
-            || key.name === "enter")
-    ) {
-        return { state: descendedIntoPage(state), handled: true };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "switch_tab"
-    ) {
-        return steppedModelTabTransition(state, key.shift === true);
-    }
-    if (
         state.kind === "provider"
         && tuiBindingId("model_picker", key) === "declare_provider"
     ) {
@@ -810,14 +758,6 @@ export function handleTuiSettingsPickerKey(
     if (key.ctrl || key.meta || key.super || key.hyper || key.shift) {
         return unchanged(state, false);
     }
-    if (
-        key.name === "escape"
-        && state.kind === "model"
-        && (state.pickerLevel ?? "page") === "page"
-    ) {
-        // Up one level, not out. A second escape closes the card.
-        return { state: { ...state, pickerLevel: "strip" }, handled: true };
-    }
     if (key.name === "escape") {
         const preview = state.kind === "theme" && state.initialTheme !== undefined
             ? { previewTheme: state.initialTheme }
@@ -960,37 +900,6 @@ export function handleTuiSettingsPickerKey(
     return unchanged(state, false);
 }
 
-/** The tab to either side, wrapping through Providers, which is a page of its own rather than a tab in the strip. */
-function steppedModelTabTransition(
-    state: TuiSettingsPickerState,
-    backward: boolean,
-): TuiSettingsPickerTransition {
-    const cycle: readonly TuiModelPickerTab[] = [
-        "pool",
-        "all",
-        "actions",
-        "defaults",
-        "help",
-    ];
-    const at = cycle.indexOf(state.tab ?? "all");
-    const wraps = backward ? at === 0 : at === cycle.length - 1;
-    const next = backward
-        ? cycle[at - 1] ?? cycle.at(-1)!
-        : cycle[at + 1] ?? cycle[0]!;
-    return {
-        state: switchedModelTab(state, wraps ? (backward ? cycle.at(-1)! : cycle[0]!) : next),
-        handled: true,
-        ...(wraps ? { openProviders: true } : {}),
-    };
-}
-
-/** Into the page, on the list. The list is what the page is for, and the sections above it are a shift+tab away; landing on the More button instead would leave the arrows with nothing to move. */
-function descendedIntoPage(
-    state: TuiSettingsPickerState,
-): TuiSettingsPickerState {
-    return { ...focusedOnSection(state, "list"), pickerLevel: "page" };
-}
-
 export function handleTuiSettingsPickerScroll(
     state: TuiAnySettingsPickerState,
     scroll: { readonly direction: "up" | "down" | "left" | "right"; readonly delta: number },
@@ -1028,7 +937,7 @@ export function updateTuiSettingsPickerSearch(
 export function setTuiSettingsPickerCutoff(state: TuiSettingsPickerState, cutoff?: IntelligenceCutoff): TuiSettingsPickerState {
     if (state.kind === "model_menu") return setModelFilterCutoff(state, cutoff ?? state.parent?.intelligenceCutoff);
     if (state.kind !== "model" || (state.tab ?? "all") !== "all") return state;
-    const next: TuiSettingsPickerState = { ...state, pickerLevel: "page", modelFocus: "intelligence",
+    const next: TuiSettingsPickerState = { ...state, modelFocus: "intelligence",
         intelligenceCutoff: cutoff ?? state.intelligenceCutoff ?? "any" };
     const options = modelListFor(next);
     const selectedIndex = options.findIndex((row) => row.value === state.options[state.selectedIndex]?.value);
@@ -1101,7 +1010,6 @@ export function createTuiSettingsPickerView(
             if (
                 !pickerIsSearchable(state)
                 || (state.modelBrowse === "favorites" && key.ctrl === true)
-                || (state.kind === "model" && state.tab === "help")
                 || key.name === "escape" || key.name === "up"
                 || key.name === "down" || key.name === "return"
                 || key.name === "enter" || key.name === "kpenter"
@@ -1130,7 +1038,6 @@ export function createTuiSettingsPickerView(
             if (state.loading) return unchanged(state, true);
             if (
                 !pickerIsSearchable(state)
-                || (state.kind === "model" && state.tab === "help")
             ) {
                 return unchanged(state, false);
             }
@@ -1150,8 +1057,8 @@ export function createTuiSettingsPickerView(
             // Typing reaches the field from any section, so the field keeps its
             // cursor wherever focus sits.
             searchLive = (state.kind !== "extension" || state.searchFocused === true)
-                && pickerIsSearchable(state)
-                && !(state.kind === "model" && state.tab === "help");
+                && pickerIsSearchable(state);
+
             search.box.onMouseDown = state.kind === "model" && state.modelBrowse !== undefined
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
@@ -1187,8 +1094,6 @@ export function createTuiSettingsPickerView(
                 view.pointer,
                 view.tip,
                 view.verification,
-                view.onTab,
-                view.onConfigure,
                 search,
                 railInset,
                 view.onCutoff,
@@ -1242,9 +1147,6 @@ export function tuiPickerViewportRows(
 ): number {
     if (state.kind === "model" && state.modelBrowse === "browse") return modelBrowseRows(renderer);
     if (state.kind === "model" && state.modelBrowse !== undefined) return browseListLayout(renderer, state).rows;
-    const stripHeight = modelStripStop(state) === undefined
-        ? 0
-        : modelTabStripHeight(pickerContentWidth(renderer, state));
     const listedHeaderLines = showsListedFactsHeader(state)
             && state.options.length > 0
         ? 1
@@ -1260,8 +1162,7 @@ export function tuiPickerViewportRows(
         : 0;
     const rows = pickerMaxRows(
         renderer,
-        stripHeight
-            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
+        (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
             + listedHeaderLines
             + modelTreePadLines
             + intelligenceLines
@@ -1375,8 +1276,6 @@ export function renderListPickerRows(
     pointer?: DialogRowPointer,
     tip?: string | TuiPickerTipLine,
     verification?: { readonly subject: string },
-    onTab?: (tab: TuiModelPickerTab) => void,
-    onConfigure?: () => void,
     search?: ReturnType<typeof createDialogSearchNode>,
     railInset = 0,
     onCutoff?: (cutoff?: IntelligenceCutoff) => void,
@@ -1660,18 +1559,12 @@ export function renderListPickerRows(
         return;
     }
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
-    const stripPane = modelStripPane(state);
-    const stop = modelStripStop(state);
     const searchable = pickerIsSearchable(state);
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
             state.kind,
-            state.kind === "extension"
-                ? state.title
-                : stop === "providers"
-                ? pickerTitle("model")
-                : state.title,
+            state.title,
         ),
     );
     box.add(header);
@@ -1695,56 +1588,12 @@ export function renderListPickerRows(
             search,
             state.query,
             "Search",
-            tab !== "help",
+            true,
             "queryCursor" in state ? state.queryCursor : undefined,
         );
         search.box.marginTop = 1;
         box.add(search.box);
     }
-    let tabStripHeight = 0;
-    if (stop !== undefined && stripPane !== undefined) {
-        const strip = modelTabStripNode(
-            renderer,
-            stop,
-            {
-                pool: modelTabRows(
-                    stripPane.allOptions,
-                    "pool",
-                    false,
-                    [],
-                    stripPane.actionOptions ?? [],
-                ).filter((option) => option.action !== true).length,
-                all: modelTabRows(stripPane.allOptions, "all").length,
-            },
-            pickerContentWidth(renderer, state, railInset),
-            tab === undefined || tab === "help" ? undefined : modelPaneNote(state),
-            onTab,
-            onConfigure,
-            state.kind !== "model" || (state.pickerLevel ?? "page") === "strip",
-        );
-        tabStripHeight = strip.height;
-        box.add(strip.node);
-        nodes.push(strip.node);
-    }
-
-    if (tab === "help") {
-        const page = modelHelpNode(
-            renderer,
-            pickerCardWidth(renderer, state, railInset),
-            state,
-        );
-        box.add(page);
-        nodes.push(page);
-        const footer = dialogFooterNode(
-            renderer,
-            pickerFooter(state, pickerCardWidth(renderer, state, railInset)),
-        );
-        box.add(footer);
-        nodes.push(footer);
-        box.height = "auto";
-        return;
-    }
-
     const split = modelPaneSplit(renderer, state, railInset);
     const detailed = split !== undefined;
     // The More page stands in for the list, so the cutoff slider, the facts
@@ -1797,7 +1646,7 @@ export function renderListPickerRows(
 
     const availableRows = pickerMaxRows(
         renderer,
-        tabStripHeight + subtitleLines
+        subtitleLines
             + (verification === undefined
                 ? 0
                 : verificationConsoleLines(verification))
@@ -2397,14 +2246,6 @@ export function pickerFooterText(
             : "p assign";
         return `↑↓ move · ${action} · esc done`;
     }
-    if (state.kind === "model" && (state.pickerLevel ?? "page") === "strip") {
-        return fittedHints([
-            { text: "←→ ⇥ tabs", drop: 0 },
-            { text: "↓ list", drop: 0 },
-            { text: "type to filter", drop: 1 },
-            { text: "esc close", drop: 0 },
-        ], width);
-    }
     if (
         state.kind === "model"
         && (state.tab === "defaults" || state.tab === "actions")
@@ -2418,9 +2259,6 @@ export function pickerFooterText(
             { text: "\u21e5 tabs", drop: 1 },
             { text: "esc tabs", drop: 0 },
         ], width);
-    }
-    if (state.kind === "model" && state.tab === "help") {
-        return "⇥ tabs · esc tabs";
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];

@@ -2073,18 +2073,6 @@ export async function startTui(
         if (rt.settingsPicker === undefined) return;
         rt.settingsPicker = moveTuiSettingsPickerPointer(rt.settingsPicker, index);
     });
-    rt.settingsPickerView.onTab = (tab) => {
-        const pane = rt.settingsPicker?.kind === "provider"
-            ? rt.settingsPicker.parent
-            : rt.settingsPicker;
-        if (pane === undefined || pane.kind !== "model") {
-            return;
-        }
-        // A click on a chip is the same act as tabbing onto it: the reader is
-        // choosing tabs, so they are left on the strip with the page beneath.
-        rt.settingsPicker = { ...switchedModelTab(pane, tab), pickerLevel: "strip" };
-        renderState(rt);
-    };
     rt.settingsPickerView.onCutoff = (cutoff) => {
         if (rt.settingsPicker?.kind !== "model" && rt.settingsPicker?.kind !== "model_menu") return;
         rt.settingsPicker = setTuiSettingsPickerCutoff(rt.settingsPicker, cutoff);
@@ -2115,11 +2103,6 @@ export async function startTui(
         rt.settingsPicker = { ...rt.settingsPicker, modelFocus };
         renderState(rt);
         focusActiveSurface(rt);
-    };
-    rt.settingsPickerView.onConfigure = () => {
-        if (rt.settingsPicker?.kind === "provider") return;
-        if (rt.settingsPicker?.kind !== "model") return;
-        openProviderPicker(rt, rt.settingsPicker);
     };
     rt.preferencesListView.pointer = rowPointer(rt, (index) => {
         if (rt.preferencesList === undefined) return;

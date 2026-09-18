@@ -251,13 +251,6 @@ export interface TuiExtensionPickerAction {
     readonly button?: boolean;
 }
 
-/** Whether the page under the tab strip holds the keyboard. Nothing in the page is lit while the reader is up on the strip, even though each section still remembers where its cursor was. */
-export function pickerPageHasKeys(
-    state: { readonly pickerLevel?: "strip" | "page" },
-): boolean {
-    return (state.pickerLevel ?? "page") === "page";
-}
-
 export type ModelBrowseSection = "scope" | "sort" | "search" | "intelligence" | "list" | "more" | "view" | "providers" | "filters";
 
 /** How Switch model orders the models inside each provider group. */
@@ -288,7 +281,6 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     readonly tab?: TuiModelPickerTab;
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
-    readonly pickerLevel?: "strip" | "page";
     readonly modelFocus?:
         | ModelBrowseSection
         | "list_action"
@@ -527,8 +519,6 @@ export interface TuiSettingsPickerView {
             readonly status: "running" | "passed" | "failed" | "skipped";
         }[];
     };
-    onTab?: (tab: TuiModelPickerTab) => void;
-    onConfigure?: () => void;
     onCutoff?: (cutoff?: IntelligenceCutoff) => void;
     onMore?: () => void;
     onBrowseAction?: (section: ModelBrowseSection) => void;

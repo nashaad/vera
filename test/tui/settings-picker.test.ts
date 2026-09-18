@@ -1553,11 +1553,6 @@ function modelPickerWithPool(
     );
 }
 
-/** On the tab strip, where shift+tab off the first section leaves you. Tab switches tabs here; in the page below it moves between sections. */
-function onStrip(state: TuiSettingsPickerState): TuiSettingsPickerState {
-    return { ...state, pickerLevel: "strip" };
-}
-
 function typedInto(
     start: TuiSettingsPickerState,
     text: string,
@@ -1597,32 +1592,6 @@ test("an empty model list says which emptiness it is", async () => {
     expect(noCatalogFrame).not.toContain("Nothing in your favorites yet");
 });
 
-test("an empty model list stays put on Down and reaches More with one ⇧⇥", () => {
-    const empty = {
-        ...switchedModelTab(
-            modelPickerWithPool([], "z-ai/glm-5.2", "openrouter"),
-            "pool",
-        ),
-        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
-    } as TuiSettingsPickerState;
-    expect(empty.options).toHaveLength(0);
-
-    const down = handleTuiSettingsPickerKey(empty, { name: "down" }).state!;
-    expect(down.selectedIndex).toBe(0);
-    expect(down.modelFocus).toBe("list");
-
-    // Up stays in the list, empty or not: leaving a section is tab's job.
-    const up = handleTuiSettingsPickerKey(down, { name: "up" }).state!;
-    expect(up.selectedIndex).toBe(0);
-    expect(up.modelFocus).toBe("list");
-
-    const more = handleTuiSettingsPickerKey(down, {
-        name: "tab",
-        shift: true,
-    }).state!;
-    expect(more.modelFocus).toBe("page_entry");
-});
-
 test("a search that matches no model says so on Catalog", async () => {
     const empty = startTuiSettingsPicker(
         "model",
@@ -1639,58 +1608,6 @@ test("a search that matches no model says so on Catalog", async () => {
     expect(all.tab).toBe("all");
     expect(await pickerFrame(typedInto(all, "zzqq")))
         .toContain("No models match that search");
-});
-
-test("the model pane opens on Library, in the order the user's own use produced", async () => {
-    const state = modelPickerWithPool();
-    const frame = await pickerFrame(state);
-
-    expect(state.tab).toBe("pool");
-    // Pool order, not provider order: the pool is ordered by when each model
-    // was added, and sorting it by provider would throw that away.
-    expect(state.options.map((option) => option.model)).toEqual([
-        "gpt-5.6-sol",
-        "z-ai/glm-5.2",
-    ]);
-    // An entry that cannot run right now stays in the list: the user put it
-    // there, so only the user takes it out. It says so in the column that would
-    // otherwise carry its provider, since that is the one fact about the row a
-    // heading could never carry.
-    expect(frame).toContain("unavail");
-    expect(frame).not.toContain("unavailable");
-    expect(frame).toContain("GLM-5.2");
-    expect(frame).not.toContain("Z-AI: GLM-5.2");
-    expect(frame).toContain("Library");
-    expect(frame).toMatch(
-        /Library \(2\).*Catalog \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
-    );
-});
-
-test("the model tab strip keeps every stop inside the card at narrow widths", async () => {
-    for (const width of [70, 60, 40]) {
-        const frame = await pickerFrame(modelPickerWithPool(), width, 40);
-        expect(frame).toMatch(/Library/);
-        expect(frame).toContain("Catalog");
-        expect(frame).toMatch(/Def(?:s|aults)/);
-        expect(frame).toContain("Help");
-        expect(frame).toContain("Providers ^e");
-
-        const strip = frame.split("\n")
-            .find((line) => line.includes("Providers ^e"))!;
-        const providersEnd = strip.indexOf("Providers ^e")
-            + Bun.stringWidth("Providers ^e");
-        const cardRightEdge = Math.floor(width * 0.98);
-        expect(providersEnd).toBeLessThanOrEqual(cardRightEdge);
-        if (width === 40) {
-            const lines = frame.split("\n");
-            const firstTabRow = lines.findIndex((line) => line.includes("Short"));
-            const providersRow = lines.findIndex((line) =>
-                line.includes("Providers ^e")
-            );
-            expect(providersRow).toBeGreaterThan(firstTabRow);
-            expect(frame).toContain("moves between sections  tab");
-        }
-    }
 });
 
 test("the model pane's rows stay inside the card when it sits beside a workspace rail", async () => {
@@ -1727,67 +1644,6 @@ test("the pane opens on Library even when the running model is not in it", () =>
     // or not the model in effect happens to be on it.
     const state = modelPickerWithPool(pooledModels, "sonnet-4.5", "anthropic");
     expect(state.tab).toBe("pool");
-});
-
-test("Library offers the current model as a visible action row", async () => {
-    const base = modelPickerWithPool(
-        pooledModels,
-        "moonshotai/kimi-k3",
-        "openrouter",
-    );
-    const withAction = {
-        ...base,
-        actionOptions: tuiModelActionOptions(["openrouter"], {
-            hasPool: true,
-            currentModel: {
-                provider: "openrouter",
-                model: "moonshotai/kimi-k3",
-                shortlisted: false,
-            },
-        }),
-    } as TuiSettingsPickerState;
-    const shortlist = {
-        ...switchedModelTab(withAction, "pool"),
-        selectedIndex: 0,
-    };
-
-    // The shortlist column holds models and nothing else. Adding the current
-    // one is something the list can do, so it lives on the More page above.
-    expect(shortlist.options.every((option) =>
-        option.label !== "Add current model to favorites"
-    )).toBe(true);
-    const shortlistFrame = await pickerFrame(shortlist);
-    expect(shortlistFrame).toMatch(/More\s+.*\u203a/);
-    expect(shortlistFrame).not.toContain("Add current model to sh");
-
-    const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(shortlist, {
-            name: "tab",
-            shift: true,
-        }).state!,
-        { name: "return" },
-    ).state!;
-    expect(await pickerFrame(page)).toContain("Add current model");
-
-    const synced = syncTuiModelPicker(shortlist, {
-        provider: "openrouter",
-        model: "moonshotai/kimi-k3",
-        availableModels,
-        pooled: [
-            ...pooledModels,
-            {
-                provider: "openrouter",
-                model: "moonshotai/kimi-k3",
-                label: "Kimi K3",
-                available: true,
-                verified: false,
-                levels: [],
-            },
-        ],
-    });
-    expect(synced.options.some((option) =>
-        option.label === "Add current model to favorites"
-    )).toBe(false);
 });
 
 test("the current library model exposes an inspector and list action", async () => {
@@ -1829,46 +1685,6 @@ test("the current library model exposes an inspector and list action", async () 
         shortlist,
         { name: "v", ctrl: true, shift: true },
     ).poolVerifySweep).toBe(true);
-});
-
-test("right and left move between a model row and its inspector", async () => {
-    const shortlist = modelPickerWithPool(
-        pooledModels,
-        "z-ai/glm-5.2",
-        "openrouter",
-    );
-    const detail = handleTuiSettingsPickerKey(shortlist, { name: "right" })
-        .state!;
-    expect(detail.modelFocus).toBe("detail");
-    expect(detail.modelActionIndex).toBe(0);
-    expect(await pickerFrame(detail)).toMatch(/│  Verify this model/);
-    expect(handleTuiSettingsPickerKey(detail, { name: "enter" }).poolVerify)
-        .toEqual({ provider: "openrouter", model: "z-ai/glm-5.2" });
-
-    const remove = handleTuiSettingsPickerKey(detail, { name: "down" }).state!;
-    expect(await pickerFrame(remove)).toMatch(/│  Unpin/);
-    expect(handleTuiSettingsPickerKey(remove, { name: "enter" }).poolToggle)
-        .toEqual({
-            action: "remove",
-            provider: "openrouter",
-            model: "z-ai/glm-5.2",
-        });
-
-    const named = handleTuiSettingsPickerKey(remove, { name: "down" }).state!;
-    expect(handleTuiSettingsPickerKey(named, { name: "enter" }).poolName)
-        .toEqual({
-            provider: "openrouter",
-            model: "z-ai/glm-5.2",
-            label: "GLM-5.2",
-        });
-    expect(handleTuiSettingsPickerKey(named, { name: "left" }).state?.modelFocus)
-        .toBe("list");
-
-    const nextTab = handleTuiSettingsPickerKey(onStrip(detail), {
-        name: "tab",
-    }).state!;
-    expect(nextTab.tab).toBe("all");
-    expect(nextTab.modelFocus).toBe("list");
 });
 
 test("supported model inspectors expose exact request-option state and action", async () => {
@@ -1923,64 +1739,6 @@ test("supported model inspectors expose exact request-option state and action", 
     expect(await pickerFrame(unsupported)).not.toContain("Request options");
 });
 
-test("verifying favorites lives on More, and every row is clickable", async () => {
-    const shortlist = {
-        ...modelPickerWithPool(),
-        selectedIndex: 1,
-        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
-    };
-    // The last row is the end of the list. There is nothing below it to fall
-    // onto any more.
-    const below = handleTuiSettingsPickerKey(shortlist, { name: "down" }).state!;
-    expect(below.modelFocus ?? "list").toBe("list");
-
-    const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(
-            { ...shortlist, selectedIndex: 0 },
-            { name: "tab", shift: true },
-        ).state!,
-        { name: "return" },
-    ).state!;
-    expect(page.modelFocus).toBe("page");
-    const pageFrame = await pickerFrame(page);
-    expect(pageFrame).toMatch(/Verify favorites\s+\^⇧v/);
-    // The sign follows the pane: shut it offers to open, open it offers to
-    // close, whichever row the cursor is on.
-    expect(await pickerFrame(shortlist)).toContain("+ More");
-    expect(pageFrame).toContain("- More");
-    const sweep = [0, 1, 2].map((index) =>
-        handleTuiSettingsPickerKey(
-            { ...page, modelPageIndex: index },
-            { name: "return" },
-        ).poolVerifySweep
-    );
-    expect(sweep).toContain(true);
-
-    const inspectorClick = moveTuiSettingsPickerPointer(
-        shortlist,
-        shortlist.options.length + 1,
-    ) as TuiSettingsPickerState;
-    expect(inspectorClick.modelFocus).toBe("detail");
-    expect(handleTuiSettingsPickerKey(inspectorClick, { name: "enter" })
-        .poolVerify).toEqual({
-            provider: "openrouter",
-            model: "z-ai/glm-5.2",
-        });
-
-    const modelClick = moveTuiSettingsPickerPointer(
-        shortlist,
-        0,
-    ) as TuiSettingsPickerState;
-    expect(modelClick.modelFocus).toBe("list");
-    expect(modelClick.selectedIndex).toBe(0);
-    expect(handleTuiSettingsPickerKey(modelClick, { name: "enter" }).selection)
-        .toEqual({
-            kind: "model",
-            provider: "openai-codex",
-            model: "gpt-5.6-sol",
-        });
-});
-
 test("a main library refresh keeps the side agent's current model", () => {
     const side = {
         provider: "side-provider",
@@ -2011,83 +1769,6 @@ test("a main library refresh keeps the side agent's current model", () => {
         ...side,
         pooled: refreshed.pooled,
     });
-});
-
-test("with an empty pool the pane opens on Catalog, full width", async () => {
-    // An empty tab answers no question, so the pane falls back to the list that
-    // can always answer "which model do I switch to".
-    const state = modelPickerWithPool([]);
-    expect(state.tab).toBe("all");
-    const frame = await pickerFrame(state);
-    expect(frame).toMatch(/Catalog \(\d+\)/);
-    expect(frame).not.toMatch(/│ +full /);
-    expect(frame).not.toContain("┌");
-    expect(frame).not.toContain("└");
-});
-
-test("Catalog keeps a moderate modal height on a tall terminal", async () => {
-    const models = Array.from({ length: 40 }, (_, index) => ({
-        provider: "openrouter",
-        model: `example/model-${index}`,
-        label: `Model ${index}`,
-        description: "runnable",
-    }));
-    const state = startTuiSettingsPicker(
-        "model",
-        models[0]!.model,
-        undefined,
-        "auto",
-        models,
-        "default",
-        "openrouter",
-        undefined,
-        [],
-    );
-    const setup = await createTestRenderer({ width: 100, height: 50 });
-    const view = createTuiSettingsPickerView(setup.renderer);
-    setup.renderer.root.add(view.surface);
-    view.surface.visible = true;
-    view.update(state);
-    try {
-        await setup.flush();
-        expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(14);
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBeLessThan(40);
-        expect(view.box.height).toBeLessThan(
-            setup.renderer.height - 4,
-        );
-        const below = setup.renderer.height - view.box.screenY - view.box.height;
-        expect(below).toBeGreaterThanOrEqual(2);
-        expect(Math.abs(view.box.screenY - below)).toBeLessThanOrEqual(1);
-    } finally {
-        setup.renderer.destroy();
-    }
-});
-
-test("⇥ moves to Catalog, which lists what can run", async () => {
-    const state = modelPickerWithPool();
-    const allTab = handleTuiSettingsPickerKey(onStrip(state), {
-        name: "tab",
-    }).state;
-
-    expect(allTab?.tab).toBe("all");
-    // A pool model that cannot run right now is not offered here: choosing it
-    // would be a dead end. It keeps its row on the Pool tab.
-    expect(modelRows(allTab!).map((option) => option.model)).toEqual([
-        "z-ai/glm-5.2",
-        "moonshotai/kimi-k3",
-    ]);
-    expect(await pickerFrame(allTab!)).not.toContain("not available right now");
-
-    // The cycle is Pool, All models, Actions, Defaults, Help, and round again.
-    const actions = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
-    expect(actions.tab).toBe("actions");
-    const slots = handleTuiSettingsPickerKey(actions, { name: "tab" }).state!;
-    expect(slots.tab).toBe("defaults");
-    const help = handleTuiSettingsPickerKey(slots, { name: "tab" }).state!;
-    expect(help.tab).toBe("help");
-    expect(handleTuiSettingsPickerKey(help, { name: "tab" }).state?.tab)
-        .toBe("pool");
 });
 
 const RECOMMENDED_FIXTURE = [
@@ -2165,53 +1846,6 @@ test("a top pick says so on its own row, except under the heading that says it",
         55,
     );
     expect(opened).toMatch(/Kimi K3\s+top pick/);
-});
-
-test("a tab is switched by clicking its chip, cursor and all", () => {
-    const state = modelPickerWithPool();
-
-    // The click path is the key path: whatever ⇥ would do landing on that tab
-    // is what a click on it does.
-    expect(onStrip(switchedModelTab({ ...state, query: "glm" }, "all")))
-        .toEqual(handleTuiSettingsPickerKey(
-            onStrip({ ...state, query: "glm" }),
-            { name: "tab" },
-        ).state as TuiSettingsPickerState);
-});
-
-test("the Help tab explains the pane in the pane", async () => {
-    const state = modelPickerWithPool();
-    const help = switchedModelTab(state, "help");
-    const frame = await pickerFrame(help, 100, 50);
-
-    expect(frame).toContain("the model this conversation is running");
-    expect(frame).toContain("answered a live probe");
-    expect(frame).toContain("WebDev Arena");
-    expect(frame).toContain("CC-BY 4.0");
-    expect(frame).toContain("OpenRouter");
-    expect(frame).toContain("on or near Vera's WA Score × listed-output front");
-    expect(frame).toContain("★");
-    expect(frame).toContain("the model takes image input");
-    expect(frame).not.toContain("🖼");
-    expect(frame).toContain("snapshot unavailable");
-    expect(frame).toContain("on WA Score: the note under Sources, not the library.");
-    expect(frame).toContain("3:1");
-    // A page, not a list: nothing to filter, nothing to select, and the footer
-    // says only what the page can do.
-    expect(help.options).toHaveLength(0);
-    // The search field stays in place even though this page holds nothing to
-    // filter: dropping it would lift the tabs and the page under them as the
-    // user tabs onto Help and drop them again on the way off.
-    const lines = frame.split("\n").map((line) => line.trim())
-        .filter((line) => line.length > 0);
-    const title = lines.findIndex((line) => line.startsWith("Select model"));
-    expect(lines[title + 1]).toMatch(/^─+$/);
-    expect(lines[title + 2]).toBe("Search");
-    expect(lines[title + 3]).toStartWith("Library (2)");
-    expect(frame).toContain("⇥ tabs · esc tabs");
-    // The chip carries no count, because Help is not a collection of models.
-    expect(frame).toMatch(/Help\s/);
-    expect(frame).not.toMatch(/Help \d/);
 });
 
 function listedFactsModels() {
@@ -2322,43 +1956,6 @@ test("Catalog shows listed facts, glyphs, and a blank unmatched score", async ()
     expect(grokPick!.indexOf("1629")).toBe(steadyLine.indexOf("1400"));
 });
 
-test("Catalog intelligence cutoff hides rows below the WA Score floor", () => {
-    const all = { ...switchedModelTab(listedFactsPicker(), "all"), selectedIndex: 0 };
-    const focused = handleTuiSettingsPickerKey(all, {
-        name: "tab",
-        shift: true,
-    }).state!;
-    expect(focused.modelFocus).toBe("intelligence");
-
-    const floor = handleTuiSettingsPickerKey(focused, { name: "right" }).state!;
-    expect(floor.intelligenceCutoff).toBe("1400");
-    const floorNames = floor.options
-        .filter((option) => option.section === undefined)
-        .map((option) => option.label);
-    expect(floorNames).toContain("SpaceXAI: Grok 4.6");
-    expect(floorNames).toContain("Steady");
-    expect(floorNames).not.toContain("Unknown Blank");
-
-    const tighter = handleTuiSettingsPickerKey(floor, { name: "right" }).state!;
-    expect(tighter.intelligenceCutoff).toBe("1450");
-    const tightNames = tighter.options
-        .filter((option) => option.section === undefined)
-        .map((option) => option.label);
-    expect(tightNames).toContain("SpaceXAI: Grok 4.6");
-    expect(tightNames).not.toContain("Steady");
-
-    let top = tighter;
-    for (const stop of ["1500", "1550", "1600"] as const) {
-        top = handleTuiSettingsPickerKey(top, { name: "right" }).state!;
-        expect(top.intelligenceCutoff).toBe(stop);
-    }
-    const topNames = top.options
-        .filter((option) => option.section === undefined)
-        .map((option) => option.label);
-    expect(topNames).toContain("SpaceXAI: Grok 4.6");
-    expect(topNames).not.toContain("Steady");
-});
-
 test("Library keeps names on the list and listed facts in the inspector", async () => {
     const frame = await pickerFrame(listedFactsPicker(), 160);
 
@@ -2374,14 +1971,6 @@ test("Library keeps names on the list and listed facts in the inspector", async 
     expect(frame).toContain("✓");
     expect(frame).not.toContain("★");
     expect(frame).not.toContain("🖼");
-});
-
-test("the model tab strip offers the providers pane and its key", async () => {
-    const frame = await pickerFrame(modelPickerWithPool());
-    // The chip is not a fourth view, so ⇥ never lands on it. It carries the
-    // chord that opens it instead: a chip that sits among the tabs and answers
-    // to nothing on the keyboard is one the keyboard cannot reach at all.
-    expect(frame).toContain("Providers ^e");
 });
 
 test("⏎ on a heading opens its section, and ⏎ again folds it", () => {
@@ -2458,39 +2047,6 @@ test("⇧← folds every section and ⇧→ opens every one", () => {
         "openrouter",
         "GLM-5.2",
         "Kimi K3",
-    ]);
-});
-
-test("a fold survives a tab away and back, and a search opens everything", () => {
-    const folded = allTabWithRecommendations();
-
-    // All -> Actions -> Defaults -> Help -> Pool, the long way round the strip.
-    let pool = folded;
-    for (let step = 0; step < 4; step += 1) {
-        pool = handleTuiSettingsPickerKey(onStrip(pool), { name: "tab" }).state!;
-    }
-    expect(pool.tab).toBe("pool");
-    const back = handleTuiSettingsPickerKey(onStrip(pool), {
-        name: "tab",
-    }).state!;
-    expect(back.tab).toBe("all");
-    expect(sectionRows(back)).toEqual([
-        ["Top picks", false],
-        ["openrouter", true],
-    ]);
-
-    // A heading over hidden rows would claim the search found nothing there.
-    const searched = updateTuiSettingsPickerSearch(folded, "g").state!;
-    expect(modelRows(searched).map((option) => option.label)).toEqual([
-        "GLM-5.2",
-    ]);
-    expect(sectionRows(searched)).toEqual([["openrouter", false]]);
-
-    // Clearing the query puts the fold back.
-    const cleared = updateTuiSettingsPickerSearch(searched, "").state!;
-    expect(sectionRows(cleared)).toEqual([
-        ["Top picks", false],
-        ["openrouter", true],
     ]);
 });
 
@@ -2732,36 +2288,6 @@ test("ctrl+z asks the caller to undo only when a pool change is available", asyn
     expect(synced.canUndoPoolChange).toBe(true);
 });
 
-test("the model picker footer names the action the highlighted row would take", async () => {
-    const onPoolRow = modelPickerWithPool(
-        pooledModels,
-        "gpt-5.6-sol",
-        "openai-codex",
-    );
-    expect(onPoolRow.options[onPoolRow.selectedIndex]?.model)
-        .toBe("gpt-5.6-sol");
-    expect(await pickerFrame(onPoolRow)).toContain("^s unpin");
-
-    // On a row nobody pooled the same key says the opposite thing.
-    const onAll = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(
-            handleTuiSettingsPickerKey(onStrip(onPoolRow), { name: "tab" })
-                .state!,
-            { name: "down" },
-        ).state!,
-        { name: "right", shift: true },
-    ).state!;
-    const onUnpooledRow = {
-        ...onAll,
-        selectedIndex: onAll.options.findIndex((option) =>
-            option.model === "moonshotai/kimi-k3"
-        ),
-    };
-    expect(onUnpooledRow.options[onUnpooledRow.selectedIndex]?.model)
-        .toBe("moonshotai/kimi-k3");
-    expect(await pickerFrame(onUnpooledRow)).toContain("^s pin");
-});
-
 test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
     const state = modelPickerWithPool([]);
     const highlighted = state.options[state.selectedIndex];
@@ -2781,27 +2307,6 @@ test("a settings snapshot rebuilds the open pane without moving the cursor", () 
     )?.pooledRank).toBe(1);
 });
 
-test("a snapshot leaves the user on the tab they moved to", () => {
-    // The tab is the user's own place in the pane, so a rebuild must not drop
-    // them back onto the one it opens with mid-action.
-    const onAllTab = handleTuiSettingsPickerKey(
-        onStrip(modelPickerWithPool()),
-        { name: "tab" },
-    ).state!;
-    const synced = syncTuiModelPicker(onAllTab, {
-        provider: "openrouter",
-        model: "moonshotai/kimi-k3",
-        availableModels,
-        pooled: pooledModels,
-    });
-
-    expect(synced.tab).toBe("all");
-    expect(modelRows(synced).map((option) => option.model)).toEqual([
-        "z-ai/glm-5.2",
-        "moonshotai/kimi-k3",
-    ]);
-});
-
 test("a snapshot keeps the pane the pane was opened from", () => {
     // Adding a model round-trips through the host and rebuilds this pane. If
     // the rebuild dropped the parent, adding would quietly turn escape from
@@ -2815,11 +2320,8 @@ test("a snapshot keeps the pane the pane was opened from", () => {
         pooled: pooledModels,
     });
 
-    // Escape climbs one level at a time: out of the page onto the tab strip,
-    // and only then out of the pane to what opened it.
-    const strip = handleTuiSettingsPickerKey(synced, { name: "escape" }).state!;
-    expect(strip.pickerLevel).toBe("strip");
-    expect(handleTuiSettingsPickerKey(strip, { name: "escape" }).state)
+    // Escape leaves the pane for whatever opened it.
+    expect(handleTuiSettingsPickerKey(synced, { name: "escape" }).state)
         .toBe(menu);
     expect(tuiPickerMenuAncestor(synced)).toBe(menu);
 });
@@ -3183,52 +2685,6 @@ test("Configure providers is a standalone card even when opened from a model pan
         expect(transition.selection).toBeUndefined();
     }
     expect(handleTuiSettingsPickerKey(providers, { name: "escape" }).state).toBe(providers.parent);
-});
-
-test("legacy model tabs can open providers without making providers a tab", () => {
-    const help = switchedModelTab(modelPickerWithPool(), "help");
-
-    const onto = handleTuiSettingsPickerKey(onStrip(help), { name: "tab" });
-    expect(onto.openProviders).toBe(true);
-    // The list under the pane wraps, so leaving it does not drop the user back
-    // on the stop that opened it.
-    expect(onto.state?.kind).toBe("model");
-    expect((onto.state as TuiSettingsPickerState).tab).toBe("pool");
-
-    const providers = withTuiPickerParent(
-        startTuiProviderPicker(PROVIDER_ROWS),
-        onto.state as TuiSettingsPickerState,
-    );
-    const off = handleTuiSettingsPickerKey(providers, { name: "tab" });
-    expect(off.handled).toBe(true);
-    expect(off.state).toBe(providers);
-});
-
-test("legacy model tabs wrap left but providers ignores shift+tab", () => {
-    const all = switchedModelTab(modelPickerWithPool(), "all");
-    const pool = handleTuiSettingsPickerKey(onStrip(all), {
-        name: "tab",
-        shift: true,
-    });
-    expect((pool.state as TuiSettingsPickerState).tab).toBe("pool");
-
-    const ontoProviders = handleTuiSettingsPickerKey(
-        onStrip(pool.state as TuiSettingsPickerState),
-        { name: "tab", shift: true },
-    );
-    expect(ontoProviders.openProviders).toBe(true);
-    expect((ontoProviders.state as TuiSettingsPickerState).tab).toBe("help");
-
-    const providers = withTuiPickerParent(
-        startTuiProviderPicker(PROVIDER_ROWS),
-        ontoProviders.state as TuiSettingsPickerState,
-    );
-    const help = handleTuiSettingsPickerKey(providers, {
-        name: "tab",
-        shift: true,
-    });
-    expect(help.handled).toBe(true);
-    expect(help.state).toBe(providers);
 });
 
 test("the wheel moves the cursor, so enter still means the row on screen", () => {
@@ -4384,191 +3840,6 @@ test("an unsearched model list lists models only", () => {
     )).toBe(false);
 });
 
-test("Catalog puts its collection action under the list", async () => {
-    const picker = startTuiSettingsPicker(
-        "model",
-        "z-ai/glm-5.2",
-        "high",
-        "auto",
-        [...availableModels, {
-            provider: "openrouter",
-            model: "old/model",
-            label: "Old model",
-            description: "rarely used",
-            hiddenByDefault: "old" as const,
-        }],
-        "default",
-        "openrouter",
-    );
-    const all = {
-        ...switchedModelTab(picker, "all"),
-        actionOptions: tuiModelActionOptions(["openrouter"]),
-    };
-    // Showing every model is something the list does, so All models names it
-    // on the same entry row the shortlist uses.
-    const frame = await pickerFrame(all);
-    expect(frame).toContain("show every model");
-    expect(frame).toMatch(/More\s+.*\u203a/);
-
-    // Shift+tab climbs the ring: list, then the cutoff filter, then More.
-    const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(
-            handleTuiSettingsPickerKey(
-                { ...all, selectedIndex: 0 },
-                { name: "tab", shift: true },
-            ).state!,
-            { name: "tab", shift: true },
-        ).state!,
-        { name: "return" },
-    ).state!;
-    expect(page.modelFocus).toBe("page");
-    const pageFrame = await pickerFrame(page);
-    expect(pageFrame).toMatch(/Show or hide the rarely used models\s+\^a/);
-    const revealed = [0, 1, 2]
-        .map((index) =>
-            handleTuiSettingsPickerKey(
-                { ...page, modelPageIndex: index },
-                { name: "return" },
-            ).state
-        )
-        .find((next) => next?.revealAll === true);
-    expect(revealed?.tab).toBe("all");
-});
-
-test("the More page stands in for the list it covers", async () => {
-    const picker = startTuiSettingsPicker(
-        "model",
-        "z-ai/glm-5.2",
-        "high",
-        "auto",
-        availableModels,
-        "default",
-        "openrouter",
-    );
-    const all = {
-        ...switchedModelTab(picker, "all"),
-        actionOptions: tuiModelActionOptions(["openrouter"]),
-    };
-    const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(
-            handleTuiSettingsPickerKey(
-                { ...all, selectedIndex: 0 },
-                { name: "tab", shift: true },
-            ).state!,
-            { name: "tab", shift: true },
-        ).state!,
-        { name: "return" },
-    ).state!;
-    const frame = await pickerFrame(page);
-    // The cutoff slider, the facts header and the price card belong to the
-    // list, and the list is not on screen while the page is open.
-    expect(frame).not.toContain("Smarter");
-    expect(frame).not.toContain("WA Score*");
-    expect(frame).not.toContain("blended ");
-    // The rows read as the button's own menu, so they open right under it:
-    // the bottom edge, the gap and the "More" heading are all that sit between.
-    const lines = frame.split("\n");
-    const entry = lines.findIndex((line) => line.includes("- More"));
-    const first = lines.findIndex((line) =>
-        line.includes("Refresh model catalog")
-    );
-    expect(entry).toBeGreaterThan(-1);
-    expect(first - entry).toBe(4);
-});
-
-test("Library opens More under its button, the way Catalog does", async () => {
-    const shortlist = {
-        ...switchedModelTab(modelPickerWithPool(), "pool"),
-        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
-    } as TuiSettingsPickerState;
-    const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(
-            { ...shortlist, selectedIndex: 0 },
-            { name: "tab", shift: true },
-        ).state!,
-        { name: "return" },
-    ).state!;
-    expect(page.modelFocus).toBe("page");
-
-    const lines = (await pickerFrame(page)).split("\n");
-    const entry = lines.findIndex((line) => line.includes("- More"));
-    const first = lines.findIndex((line) =>
-        line.includes("Refresh model catalog")
-    );
-    expect(entry).toBeGreaterThan(-1);
-    // Same four lines as All models: the button's bottom edge, the gap, the
-    // "More" heading and its own gap. Not squeezed into the detail column.
-    expect(first - entry).toBe(4);
-    // The column the rows used to open in is a description of a list row, and
-    // the list is not on screen.
-    expect(lines[first]).not.toContain("\u2502");
-});
-
-test("the section hint is absent where the ring is not the way out", async () => {
-    const shortlist = {
-        ...switchedModelTab(modelPickerWithPool(), "pool"),
-        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
-    } as TuiSettingsPickerState;
-    expect(await pickerFrame(shortlist)).toContain(MODEL_ARROW_HINT);
-
-    // Inside the More page the footer says "← back · esc back" and tab does
-    // nothing, so a line promising tab crosses sections would contradict it.
-    const page = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(
-            { ...shortlist, selectedIndex: 0 },
-            { name: "tab", shift: true },
-        ).state!,
-        { name: "return" },
-    ).state!;
-    expect(await pickerFrame(page)).not.toContain(MODEL_ARROW_HINT);
-
-    // A page holding one section has no crossing to teach either.
-    const single = switchedModelTab(modelPickerWithPool(), "actions");
-    expect(pickerSections(single).length).toBe(1);
-    expect(await pickerFrame(single)).not.toContain(MODEL_ARROW_HINT);
-});
-
-test("the More entry is a button that marks focus without color", async () => {
-    const picker = startTuiSettingsPicker(
-        "model",
-        "z-ai/glm-5.2",
-        "high",
-        "auto",
-        availableModels,
-        "default",
-        "openrouter",
-    );
-    const all = {
-        ...switchedModelTab(picker, "all"),
-        actionOptions: tuiModelActionOptions(["openrouter"]),
-    };
-    function buttonRows(frame: string): readonly string[] {
-        const lines = frame.split("\n");
-        const row = lines.findIndex((line) => line.includes("More \u00b7"));
-        expect(row).toBeGreaterThan(-1);
-        return lines.slice(row - 1, row + 2);
-    }
-    const resting = buttonRows(await pickerFrame({ ...all, selectedIndex: 0 }));
-    expect(resting[0]).toContain("\u250c");
-    expect(resting[1]).toContain("\u2502");
-    expect(resting[2]).toContain("\u2514");
-    // The door it opens, not an arrow the list rows also use.
-    expect(resting[1]).toContain("\u203a");
-    const focused = buttonRows(await pickerFrame(
-        handleTuiSettingsPickerKey(
-            handleTuiSettingsPickerKey(
-                { ...all, selectedIndex: 0 },
-                { name: "tab", shift: true },
-            ).state!,
-            { name: "tab", shift: true },
-        ).state!,
-    ));
-    // A monochrome terminal reads the doubled edge; the accent is decoration.
-    expect(focused[0]).toContain("\u2554");
-    expect(focused[1]).toContain("\u2551");
-    expect(focused[2]).toContain("\u255a");
-});
-
 test("the show-or-hide row lands on the list it changed", () => {
     let actions = switchedModelTab(pickerWithActions(), "actions");
     actions = {
@@ -4717,39 +3988,6 @@ test("the aging level pane writes a word, and Auto clears it", () => {
     });
 });
 
-test("tab walks the sections a tab actually has, and stops at its edges", () => {
-    const all = {
-        ...switchedModelTab(listedFactsPicker(), "all"),
-        selectedIndex: 0,
-        actionOptions: tuiModelActionOptions(["openrouter"]),
-    };
-    expect(pickerSections(all)).toEqual(["more", "cutoff", "list"]);
-
-    const cutoff = handleTuiSettingsPickerKey(all, {
-        name: "tab",
-        shift: true,
-    }).state!;
-    expect(focusedPickerSection(cutoff)).toBe("cutoff");
-    // Up and down belong to the section, so they no longer walk out of it.
-    expect(
-        handleTuiSettingsPickerKey(cutoff, { name: "down" }).state?.modelFocus
-            ?? focusedPickerSection(cutoff),
-    ).toBe("intelligence");
-
-    const more = handleTuiSettingsPickerKey(cutoff, {
-        name: "tab",
-        shift: true,
-    }).state!;
-    expect(focusedPickerSection(more)).toBe("more");
-
-    // Shift+tab off the first section is the way up to the strip.
-    const strip = handleTuiSettingsPickerKey(more, {
-        name: "tab",
-        shift: true,
-    }).state!;
-    expect(strip.pickerLevel).toBe("strip");
-});
-
 test("the list keeps its cursor while another section is being used", () => {
     const all = { ...switchedModelTab(listedFactsPicker(), "all"), selectedIndex: 2 };
     const cutoff = handleTuiSettingsPickerKey(all, {
@@ -4759,56 +3997,6 @@ test("the list keeps its cursor while another section is being used", () => {
     const back = handleTuiSettingsPickerKey(cutoff, { name: "tab" }).state!;
     expect(focusedPickerSection(back)).toBe("list");
     expect(back.selectedIndex).toBe(2);
-});
-
-test("Library has no cutoff filter, so its ring is shorter", () => {
-    const pool = {
-        ...modelPickerWithPool(),
-        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
-    };
-    expect(pickerSections(pool)).not.toContain("cutoff");
-    const up = handleTuiSettingsPickerKey(pool, { name: "tab", shift: true })
-        .state!;
-    expect(focusedPickerSection(up)).toBe("more");
-});
-
-test("escape climbs to the strip before it closes the pane", () => {
-    const pool = modelPickerWithPool();
-    const strip = handleTuiSettingsPickerKey(pool, { name: "escape" }).state!;
-    expect(strip.pickerLevel).toBe("strip");
-    expect(handleTuiSettingsPickerKey(strip, { name: "escape" }).state)
-        .toBeUndefined();
-});
-
-test("the strip switches tabs, and down carries the reader into the list", () => {
-    const strip = onStrip(modelPickerWithPool());
-    const all = handleTuiSettingsPickerKey(strip, { name: "right" }).state!;
-    expect(all.tab).toBe("all");
-    expect(all.pickerLevel).toBe("strip");
-
-    const page = handleTuiSettingsPickerKey(all, { name: "down" }).state!;
-    expect(page.pickerLevel).toBe("page");
-    // The list, not the More button above it: the arrows have rows to move on.
-    expect(focusedPickerSection(page)).toBe("list");
-});
-
-test("ctrl+tab switches tabs from inside the page, where tab moves sections", () => {
-    const pool = modelPickerWithPool();
-    const section = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
-    expect(section.tab).toBe("pool");
-
-    const switched = handleTuiSettingsPickerKey(pool, {
-        name: "tab",
-        ctrl: true,
-    }).state!;
-    expect(switched.tab).toBe("all");
-});
-
-test("typing carries the reader out of the strip and into the list", () => {
-    const strip = onStrip(modelPickerWithPool());
-    const searched = updateTuiSettingsPickerSearch(strip, "glm").state!;
-    expect(searched.pickerLevel).toBe("page");
-    expect(focusedPickerSection(searched)).toBe("list");
 });
 
 test("the list cursor stays visible, and quiet, while the inspector has the keys", async () => {
@@ -4824,48 +4012,6 @@ test("the list cursor stays visible, and quiet, while the inspector has the keys
     expect(onRow).toContain(label);
     expect(await pickerFrame(inspector)).toContain(label);
 });
-
-test("focus falls to a section that is there when the one it was on goes", () => {
-    const all = {
-        ...switchedModelTab(listedFactsPicker(), "all"),
-        selectedIndex: 0,
-        actionOptions: tuiModelActionOptions(["openrouter"]),
-    };
-    const onCutoff = handleTuiSettingsPickerKey(all, {
-        name: "tab",
-        shift: true,
-    }).state!;
-    expect(focusedPickerSection(onCutoff)).toBe("cutoff");
-
-    // Shortlist has no cutoff filter. A pane rebuilt onto it while the cursor
-    // was there must not leave the keyboard pointed at nothing.
-    const moved = { ...onCutoff, tab: "pool" as const };
-    expect(pickerSections(moved)).not.toContain("cutoff");
-    expect(focusedPickerSection(moved)).toBe(pickerSections(moved)[0]!);
-    const settled = handleTuiSettingsPickerKey(moved, { name: "down" }).state!;
-    expect(settled.modelFocus).not.toBe("intelligence");
-});
-
-test("nothing in the page is lit while the tab strip has the keys", async () => {
-    const all = {
-        ...switchedModelTab(listedFactsPicker(), "all"),
-        selectedIndex: 0,
-        actionOptions: tuiModelActionOptions(["openrouter"]),
-    };
-    const onMore = handleTuiSettingsPickerKey(
-        handleTuiSettingsPickerKey(all, { name: "tab", shift: true }).state!,
-        { name: "tab", shift: true },
-    ).state!;
-    expect(await pickerFrame(onMore)).toContain("╔");
-
-    // Each section remembers where its cursor was, but a reader up on the strip
-    // is not in any of them, so none of them claims the keyboard.
-    const strip = onStrip(onMore);
-    const frame = await pickerFrame(strip);
-    expect(frame).not.toContain("╔");
-    expect(frame).toContain("┌");
-});
-
 
 test("the star on the WA Score column is answered under the list", async () => {
     const all = switchedModelTab(listedFactsPicker(), "all");

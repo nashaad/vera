@@ -71,7 +71,6 @@ import {
     type TuiSettingsPickerTransition,
     formatSessionSize,
     modelAssignmentOfValue,
-    pickerPageHasKeys,
     tuiModelActionOfValue,
     OVERRIDES_RESET_VALUE,
 } from "./settings-picker-types.ts";
@@ -502,7 +501,6 @@ export function modelDetailNode(
                 line();
             }
             const inside = state.kind === "model"
-                && pickerPageHasKeys(state)
                 && state.modelFocus === "detail";
             // One verb per direction, in one place: the panel header, which
             // sits beside what it describes. The footer no longer repeats it.
@@ -518,7 +516,6 @@ export function modelDetailNode(
         }
         actions.forEach((action, index) => {
             const active = state.kind === "model"
-                && pickerPageHasKeys(state)
                 && state.modelFocus === "detail"
                 && modelActionCursor(state, actions) === index;
             line(
@@ -551,90 +548,6 @@ export function wrappedTo(text: string, width: number): readonly string[] {
     }
     return lines;
 }
-
-export function modelHelpNode(
-    renderer: RenderContext,
-    width: number,
-    state: TuiAnySettingsPickerState,
-): BoxRenderable {
-    const page = new BoxRenderable(renderer, {
-        width,
-        height: modelHelpLines(state).length,
-        flexShrink: 0,
-        flexDirection: "column",
-    });
-    for (const [term, meaning] of modelHelpLines(state)) {
-        page.add(new TextRenderable(renderer, {
-            content: meaning === undefined
-                ? new StyledText([fg(TUI_TEXT)(term)])
-                : new StyledText([
-                    fg(TUI_ACCENT)(term.padEnd(MODEL_HELP_TERM_WIDTH)),
-                    fg(TUI_MUTED)(
-                        clippedTo(meaning, width - MODEL_HELP_TERM_WIDTH),
-                    ),
-                ]),
-            width,
-            height: 1,
-        }));
-    }
-    return page;
-}
-
-export function modelHelpLines(
-    state: TuiAnySettingsPickerState,
-): readonly (readonly [string, string?])[] {
-    const snapshot = state.kind === "model"
-        ? state.webdevArenaSnapshot
-        : undefined;
-    return [
-        ...MODEL_HELP_LINES,
-        [""],
-        ["Sources"],
-        ["* WA Score", "an Elo rating. How often people picked this model's"],
-        ["", "web app over another's, voted blind, side by side."],
-        ["", "Most models land 1000-1600,"],
-        ["", "and a 100-point gap is about 64% of votes."],
-        ["", "WebDev Arena (LMArena), CC-BY 4.0"],
-        ["", "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset"],
-        [
-            "",
-            snapshot === undefined
-                ? "snapshot unavailable"
-                : `snapshot ${snapshot}`,
-        ],
-        [
-            BLENDED_RATIO,
-            "OpenRouter listed blend / 1M. Full price in details",
-        ],
-        ["P", "Vera front, WA Score vs listed output / 1M"],
-    ];
-}
-
-export const MODEL_HELP_TERM_WIDTH = 14;
-
-export const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
-    ["The two lists"],
-    ["Library", "the models you keep. Ordered by you, not by provider."],
-    ["Catalog", "every model your connected providers offer. Cutoff: any, then 1400–1600."],
-    ["Top picks", "models Vera is built and tested against."],
-    [""],
-    ["Marks"],
-    ["●", "the model this conversation is running."],
-    ["✓", "on Library: answered a live probe, so its abilities are known."],
-    ["★", "on Catalog: already in your favorites."],
-    ["P", "on or near Vera's WA Score × listed-output front"],
-    ["i", "the model takes image input."],
-    ["*", "on WA Score: the note under Sources, not the library."],
-    ["top pick", "a model Vera is built and tested against."],
-    ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
-    [""],
-    ["Keys"],
-    ["⏎", "run this model. On Catalog it does not add it."],
-    ["→ / mouse", "focus or click model actions. ← returns to the list."],
-    ["Verify", "^v this model · ^⇧v all models in your favorites."],
-    ["Refresh", "^f refresh model catalog from providers."],
-    ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
-];
 
 export function modelDetailHeight(
     state: TuiAnySettingsPickerState,
@@ -768,8 +681,6 @@ export function clippedTo(text: string, width: number): string {
         : `${text.slice(0, Math.max(0, width - 1)).trimEnd()}…`;
 }
 
-export const MODEL_TAB_STRIP_CHROME_HEIGHT = 3;
-
 /** The one line that teaches the shape rather than the keys: tab crosses the bands, arrows stay inside one. The footer above it names the keys of whichever band has the cursor. */
 /** What the ring does, and the key that does it. The key is named in words and
  *  sits after the phrase, so it reads apart from the prose it explains. */
@@ -793,283 +704,6 @@ export const MODEL_ARROW_HINT = MODEL_ARROW_HINT_PARTS
     .join(" · ");
 
 export const MODEL_ALL_MAX_ROWS = 28;
-
-export type ModelStripStop = TuiModelPickerTab | "providers";
-
-export function modelStripPane(
-    state: TuiAnySettingsPickerState,
-): TuiSettingsPickerState | undefined {
-    if (state.kind === "model") {
-        return state;
-    }
-    return undefined;
-}
-
-export function modelStripStop(
-    state: TuiAnySettingsPickerState,
-): ModelStripStop | undefined {
-    if (state.kind === "model") {
-        return state.tab ?? "all";
-    }
-    return modelStripPane(state) === undefined ? undefined : "providers";
-}
-
-export const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
-    ["pool", "Library"],
-    ["all", "Catalog"],
-    ["actions", "Actions"],
-    ["defaults", "Defaults"],
-    ["help", "Help"],
-];
-
-export const MODEL_TAB_COMPACT_LABELS = MODEL_TAB_LABELS.map(([, label]) =>
-    label === "Defaults"
-        ? "Defs"
-        : label
-);
-
-export const MODEL_TAB_CONFIGURE_LABEL = "Providers ^e";
-
-/** Every stop on the strip is as wide as the widest one, so the chips read as a
- *  row of columns and the open tab's plate never sits narrower than the rest. */
-export function evenedTabNames(names: readonly string[]): readonly string[] {
-    const cell = Math.max(
-        Bun.stringWidth(MODEL_TAB_CONFIGURE_LABEL),
-        ...names.map((name) => Bun.stringWidth(name)),
-    );
-    return names.map((name) =>
-        `${name}${" ".repeat(Math.max(0, cell - Bun.stringWidth(name)))}`
-    );
-}
-
-export function modelTabStripItemWidths(
-    names: readonly string[],
-    gap: number,
-    pad: number,
-    configurePad: number,
-): readonly number[] {
-    const tabs = names.map((name, index) =>
-        Bun.stringWidth(name) + pad * (index === 0 ? 1 : 2) + gap
-    );
-    return [
-        ...tabs,
-        Math.max(
-            Bun.stringWidth(MODEL_TAB_CONFIGURE_LABEL),
-            ...names.map((name) => Bun.stringWidth(name)),
-        ) + configurePad * 2,
-    ];
-}
-
-export function modelTabStripRowCount(
-    width: number,
-    names: readonly string[],
-    gap: number,
-    pad: number,
-    configurePad: number,
-): number {
-    const limit = Math.max(1, width);
-    let rows = 1;
-    let used = 0;
-    for (const rawWidth of modelTabStripItemWidths(
-        names,
-        gap,
-        pad,
-        configurePad,
-    )) {
-        const itemWidth = Math.min(rawWidth, limit);
-        if (used > 0 && used + itemWidth > limit) {
-            rows += 1;
-            used = itemWidth;
-        } else {
-            used += itemWidth;
-        }
-    }
-    return rows;
-}
-
-export function modelTabStripHeight(width: number): number {
-    return MODEL_TAB_STRIP_CHROME_HEIGHT + modelTabStripRowCount(
-        width,
-        evenedTabNames(MODEL_TAB_COMPACT_LABELS),
-        1,
-        0,
-        0,
-    );
-}
-
-export function modelTabLabel(tab: TuiModelPickerTab): string {
-    return MODEL_TAB_LABELS.find(([id]) => id === tab)?.[1] ?? tab;
-}
-
-export const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
-    defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool:
-        'Models you keep close. "More" holds what this list can do, or browse Catalog.',
-    all: "Everything your providers offer. Enter runs one without adding it.",
-    actions: "Everything this pane can do besides choose a model.",
-    help: "What the marks and the keys in this pane mean.",
-};
-
-export function modelPaneNote(state: TuiAnySettingsPickerState): string {
-    const tab = state.kind === "model" ? state.tab ?? "all" : "all";
-    return MODEL_TAB_DESCRIPTIONS[tab];
-}
-
-export function modelTabStripNode(
-    renderer: RenderContext,
-    tab: ModelStripStop,
-    counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
-    width: number,
-    note?: string,
-    onTab?: (tab: TuiModelPickerTab) => void,
-    onConfigure?: () => void,
-    focused = true,
-): { readonly node: BoxRenderable; readonly height: number } {
-    const fullNames = MODEL_TAB_LABELS.map(([id, label]) => {
-        const count = counts[id];
-        return count === undefined ? label : `${label} (${count})`;
-    });
-    const namesWithoutCounts = MODEL_TAB_LABELS.map(([, label]) => label);
-    const stripWidth = (
-        names: readonly string[],
-        gap: number,
-        pad = 1,
-        configurePad = 1,
-    ) =>
-        names.reduce(
-            (total, name) => total + Bun.stringWidth(name) + pad * 2,
-            0,
-        )
-        + gap * MODEL_TAB_LABELS.length
-        + Math.max(
-            Bun.stringWidth(MODEL_TAB_CONFIGURE_LABEL),
-            ...names.map((name) => Bun.stringWidth(name)),
-        )
-        + configurePad * 2;
-    const rungs: readonly (
-        readonly [readonly string[], number, number, number]
-    )[] = [
-        // Even cells cost width, so each pair spends them first and gives them
-        // up before the counts or the names go. A count a reader can act on
-        // outranks a column edge they only look at.
-        [evenedTabNames(fullNames), 2, 1, 1],
-        [evenedTabNames(fullNames), 1, 1, 1],
-        [fullNames, 2, 1, 1],
-        [fullNames, 1, 1, 1],
-        [evenedTabNames(namesWithoutCounts), 1, 1, 1],
-        [namesWithoutCounts, 2, 1, 1],
-        [namesWithoutCounts, 1, 1, 1],
-        [namesWithoutCounts, 1, 0, 1],
-        [namesWithoutCounts, 1, 0, 0],
-        [MODEL_TAB_COMPACT_LABELS, 1, 0, 0],
-    ];
-    const [names, gap, pad, configurePad] = rungs.find(([
-        candidate,
-        spacing,
-        padding,
-        providerPadding,
-    ]) => stripWidth(candidate, spacing, padding, providerPadding) <= width)
-        ?? rungs.at(-1)!;
-    const tabRows = modelTabStripRowCount(
-        width,
-        names,
-        gap,
-        pad,
-        configurePad,
-    );
-    const height = MODEL_TAB_STRIP_CHROME_HEIGHT + tabRows;
-    const strip = new BoxRenderable(renderer, {
-        width: "100%",
-        height,
-        flexDirection: "column",
-    });
-    const chips = new BoxRenderable(renderer, {
-        width: "100%",
-        height: tabRows,
-        flexDirection: "row",
-        flexWrap: "wrap",
-    });
-    const itemLimit = Math.max(1, width);
-    MODEL_TAB_LABELS.forEach(([id], index) => {
-        const named = names[index]!;
-        const margin = " ".repeat(pad);
-        const text = index === 0
-            ? `${named}${" ".repeat(pad * 2)}`
-            : `${margin}${named}${margin}`;
-        const gapText = " ".repeat(gap);
-        const chip = new TextRenderable(renderer, {
-            content: new StyledText([
-                // Which tab is open never changes; whether it also holds the
-                // keyboard does. The plate keeps the chip's width, so nothing
-                // on the strip shifts as focus moves down into the page.
-                id === tab
-                    ? focused
-                        ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(text))
-                        : fg(TUI_ACCENT)(bg(TUI_ELEMENT)(text))
-                    : fg(TUI_ACCENT)(text),
-                fg(TUI_PANEL)(gapText),
-            ]),
-            width: Math.min(Bun.stringWidth(text + gapText), itemLimit),
-            flexShrink: 0,
-            height: 1,
-        });
-        if (onTab !== undefined) {
-            chip.onMouseDown = (event: MouseEvent) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onTab(id);
-            };
-        }
-        chips.add(chip);
-    });
-    const chord = tuiKeyHint("open_providers").split(" ")[0] ?? "";
-    const configureMargin = " ".repeat(configurePad);
-    const configureLabel = evenedTabNames([...names, `Providers ${chord}`]).at(-1)!;
-    const configureText = `${configureMargin}${configureLabel}${configureMargin}`;
-    const configure = new TextRenderable(renderer, {
-        content: new StyledText(
-            tab === "providers"
-                ? [
-                    focused
-                        ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(configureText))
-                        : fg(TUI_ACCENT)(bg(TUI_ELEMENT)(configureText)),
-                ]
-                : [
-                    fg(TUI_ACCENT)("Providers "),
-                    fg(TUI_MUTED)(configureLabel.slice("Providers ".length)),
-                ],
-        ),
-        width: Math.min(Bun.stringWidth(configureText), itemLimit),
-        flexShrink: 0,
-        height: 1,
-    });
-    if (onConfigure !== undefined) {
-        configure.onMouseDown = (event: MouseEvent) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onConfigure();
-        };
-    }
-    chips.add(configure);
-    strip.add(chips);
-    strip.add(new TextRenderable(renderer, {
-        content: "",
-        width: "100%",
-        height: 1,
-    }));
-    strip.add(new TextRenderable(renderer, {
-        content: note ?? "",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: 1,
-    }));
-    strip.add(new TextRenderable(renderer, {
-        content: "",
-        width: "100%",
-        height: 1,
-    }));
-    return { node: strip, height };
-}
 
 export function isPooled(
     state: TuiSettingsPickerState,
@@ -1862,11 +1496,9 @@ export function searched(
         selectedIndex: state.modelBrowse === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
         query,
         queryCursor,
-        // A query is about rows, so it carries the reader down out of the tab
-        // strip and into the list rather than filtering something they cannot see.
-        ...(state.kind === "model"
-            ? { modelFocus: "list" as const, pickerLevel: "page" as const }
-            : {}),
+        // A query is about rows, so it carries the reader into the list rather
+        // than filtering something they cannot see.
+        ...(state.kind === "model" ? { modelFocus: "list" as const } : {}),
     };
     return {
         state: next,
