@@ -12,12 +12,14 @@ import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
+import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
+import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile } from "./outrider-control.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
@@ -101,6 +103,13 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.sessionTrashCandidate = transition.trashCandidate;
     }
     if (
+        "importScope" in transition
+        && transition.importScope !== undefined
+    ) {
+        openImportPicker(rt, transition.importScope);
+        return;
+    }
+    if (
         "renameCandidate" in transition
         && transition.renameCandidate !== undefined
     ) {
@@ -125,6 +134,17 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         openRequestOptionsEditor(rt, 
             transition.requestOptions,
             previousPicker,
+        );
+        return;
+    }
+    if (
+        "runtimeAction" in transition
+        && transition.runtimeAction !== undefined
+    ) {
+        runLocalRuntimeAction(
+            rt,
+            transition.runtimeAction.action,
+            (provider) => { enterWizardModelStep(rt, provider); },
         );
         return;
     }
@@ -431,6 +451,12 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 const chosen = keptEffort === undefined ? selection.model : `${selection.model} (${keptEffort})`;
                 showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to your favorites.`);
                 renderState(rt);
+                // A local runtime serves one profile at a time, so picking one of its
+                // models is also the instruction to load it. Last, because what it is
+                // doing is the more useful of the two notices while it is doing it.
+                if (localRuntimeProvider()?.id === selection.provider) {
+                    switchLocalRuntimeProfile(rt, selection.model);
+                }
             };
             if (isHomeClient(target)) {
                 const draft = currentDraft(rt);
@@ -476,6 +502,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 `the model to ${chosen}`,
                 rt.settingsPickerAgent,
             );
+            // A local runtime serves one profile at a time, so picking one of
+            // its models is also the instruction to load it.
+            if (localRuntimeProvider()?.id === selection.provider) {
+                switchLocalRuntimeProfile(rt, selection.model);
+            }
         } else if (selection.kind === "provider") {
             const asked = connectProvider(rt, 
                 selection.providerId,
@@ -691,7 +722,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 );
                 return;
             }
-        } else {
+        } else if (selection.kind === "session") {
             beginSessionResume(rt, 
                 selection.sessionPath,
                 selection.sessionId,
@@ -700,6 +731,15 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 selection.sourceDisposition,
                 "attach",
             );
+            return;
+        } else if (selection.kind === "session_import") {
+            closeSettingsPickerSurface(rt);
+            importSessionFromTui(rt, selection.path);
+            renderState(rt);
+            return;
+        } else if (selection.kind === "session_create_leave") {
+            closeSettingsPickerSurface(rt);
+            beginCreateSession(rt, selection.sourceDisposition);
             return;
         }
         rt.settingsPicker = rt.confirmingFullAccess

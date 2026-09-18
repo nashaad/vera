@@ -94,6 +94,8 @@ import {
     validChildAgentLimit,
 } from "../../engine/agent-limits.ts";
 import type { ReviewLog } from "../../engine/review-log.ts";
+import type { SessionHeader } from "../../store/session-store.ts";
+import type { SessionImportTool } from "../../store/session-import-provenance.ts";
 import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import type {
     ReviewerModelDefault,
@@ -171,7 +173,6 @@ import type { OneshotMessage } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { loopCompactionState, type LoopState } from "../../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../../config.ts";
-import { discoverProjectExtensionConfigs } from "../../extensions/discovery.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,
@@ -269,6 +270,31 @@ export interface RegisteredAgentSummary {
     readonly size_bytes?: number;
     readonly created_at?: string;
     readonly facts?: SessionFacts;
+    readonly imported_from?: ImportedSessionSummary;
+}
+
+export interface ImportedSessionSummary {
+    readonly tool: SessionImportTool;
+    readonly source_session_id: string;
+    readonly source_started_at: string;
+    readonly message_count: number;
+    readonly last_message_id: string;
+}
+
+export function importedSessionSummary(
+    header: SessionHeader,
+): { readonly imported_from?: ImportedSessionSummary } {
+    const provenance = header.importedFrom;
+    if (provenance === undefined) return {};
+    return {
+        imported_from: {
+            tool: provenance.tool,
+            source_session_id: provenance.sourceSessionId,
+            source_started_at: provenance.sourceStartedAt,
+            message_count: provenance.messageCount,
+            last_message_id: provenance.lastMessageId,
+        },
+    };
 }
 
 export interface AgentRegistryOptions {
@@ -362,11 +388,7 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
-    readonly acquireWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    readonly releaseWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    readonly workerExtensions?: (
-        workspace: string,
-    ) => readonly VeraExtensionConfig[];
+    readonly workerExtensions?: () => readonly VeraExtensionConfig[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
@@ -486,15 +508,13 @@ export function entryStatus(entry: RegisteredAgentEntry): RegisteredAgentStatus 
                 : entry.agent.status;
 }
 
+/** Unattached idle leftovers stay live this long, then the host parks them. */
+export const LIVE_IDLE_WINDOW_MS = 10 * 60 * 1_000;
+
 export function entryIsLive(entry: RegisteredAgentEntry): boolean {
     return !entry.agent.closed
         && !entry.agent.failed
-        && entry.failure === undefined
-        && (
-            entry.agent.attached
-            || entry.agent.status === "working"
-            || entry.agent.status === "waiting"
-        );
+        && entry.failure === undefined;
 }
 
 export function entryUpdatedAt(entry: RegisteredAgentEntry): string {
@@ -770,7 +790,6 @@ export interface RegisteredAgentEntry {
     peerWakes: number[];
     run: Promise<void>;
     worker?: WorkerHandle;
-    projectExtensions?: ExtensionRegistry;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;

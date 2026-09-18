@@ -29,7 +29,7 @@ import {
     agentNameKey,
     mintAgentName,
     parseAgentName,
-} from "../../extensions/session-identity/names.ts";
+} from "../../src/core-extensions/session-identity/names.ts";
 import type { SessionIdentityProvider } from "../../src/sdk/extensions.ts";
 import { reserveSessionIdentity } from "../../src/host/session-identity-reservation.ts";
 import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
@@ -531,7 +531,7 @@ test("agent_roster reports an empty workspace as empty", async () => {
     }
 });
 
-test("compact agent_roster omits inactive resident sessions", async () => {
+test("compact agent_roster includes idle resident peers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-roster-inactive-"));
     const registry = createRegistry(() => agentRosterScript());
     const callerSession = join(root, "caller.jsonl");
@@ -551,7 +551,14 @@ test("compact agent_roster omits inactive resident sessions", async () => {
         await runPrompt(caller.attach(), "who is live here");
 
         expect(JSON.parse(await toolResultText(callerSession) ?? "{}"))
-            .toEqual({ self_participant_id: "caller", participants: [] });
+            .toMatchObject({
+                self_participant_id: "caller",
+                participants: [{
+                    participant_id: "inactive-peer",
+                    status: "idle",
+                    live: true,
+                }],
+            });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -616,7 +623,7 @@ test("detailed agent_roster derives repository and dirty-file facts at inspectio
     }
 });
 
-test("a listed session is live only while someone holds it", async () => {
+test("a listed session stays live until the host parks expired idle leftovers", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-live-"));
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
@@ -638,20 +645,29 @@ test("a listed session is live only while someone holds it", async () => {
             sessionPath: join(root, "other.jsonl"),
         });
 
-        // Both sessions are resident and idle, which is the state every
-        // session restored at startup is in. Being in the registry is not
-        // being alive, so neither is live until one is attached.
+        // Resident idle conversations stay live so New conversation can leave
+        // them in Idle and the rail cycle can return to them. The host parks
+        // unattached idle leftovers after ten minutes.
         expect(registry.list().map((agent) => agent.status))
             .toEqual(["held", "other"].map(() => "idle"));
-        expect(liveness("held")).toBe(false);
-        expect(liveness("other")).toBe(false);
+        expect(liveness("held")).toBe(true);
+        expect(liveness("other")).toBe(true);
 
         const attachment = other.attach();
         expect(liveness("other")).toBe(true);
-        expect(liveness("held")).toBe(false);
+        expect(liveness("held")).toBe(true);
+
+        const heldUpdated = Date.parse(
+            registry.list().find((agent) => agent.id === "held")?.updated_at ?? "",
+        );
+        const later = heldUpdated + 11 * 60 * 1_000;
+        await registry.parkExpiredIdle(later);
+        expect(registry.list().find((agent) => agent.id === "held")).toBeUndefined();
+        expect(liveness("other")).toBe(true);
 
         attachment.detach();
-        expect(liveness("other")).toBe(false);
+        await registry.parkExpiredIdle(later);
+        expect(registry.list().find((agent) => agent.id === "other")).toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -5571,7 +5587,7 @@ test("a worker sync failure after applying readonly keeps the new mode", async (
     }
 });
 
-test("a session loads project extension tools from its own workspace", async () => {
+test("a session ignores extensions inside its workspace", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vera-project-tools-")));
     const workspace = join(root, "app");
     const extension = join(workspace, ".vera", "extensions", "acme.ping");
@@ -5603,7 +5619,7 @@ test("a session loads project extension tools from its own workspace", async () 
             sessionPath: join(root, "session.jsonl"),
             eventLogPath: join(root, "events.jsonl"),
         });
-        expect(await readFile(loaded, "utf8")).toBe("loaded");
+        expect(existsSync(loaded)).toBe(false);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

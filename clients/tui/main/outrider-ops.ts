@@ -5,15 +5,31 @@ import {
     OUTRIDER_BINARY,
     outriderInstallCommand,
     outriderListCommand,
+    outriderLogsCommand,
     outriderMarkerPaths,
     outriderServeCommand,
+    outriderStartCommand,
+    outriderStopCommand,
+    outriderServiceCommand,
+    outriderShowCommand,
+    outriderAppBinaryPaths,
+    outriderRegisterCommand,
     outriderStatusCommand,
+    outriderUseCommand,
     parseOutriderProgress,
     readInstallMarker,
+    readOutriderLog,
+    readOutriderProfileDetail,
     readOutriderProfiles,
+    readOutriderService,
     readOutriderStatus,
+    readOutriderUse,
+    type OutriderLog,
     type OutriderPresence,
+    type OutriderProcess,
+    type OutriderProfileDetail,
     type OutriderProgress,
+    type OutriderService,
 } from "../../../src/providers/outrider.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -110,12 +126,24 @@ export const defaultOutriderDriver: OutriderDriver = {
     run: runOutrider,
 };
 
+/** An Outrider command sitting in an installed app that no install registered. Worth knowing only when nothing else turned a binary up, because a registered install already answers first. */
+export function unregisteredOutriderBinary(): string | undefined {
+    return outriderAppBinaryPaths(homedir()).find((path) => existsSync(path));
+}
+
 /** Where Outrider is. No binary anywhere is the one state Vera can act on by installing. */
 export async function outriderPresence(
     driver: OutriderDriver = defaultOutriderDriver,
+    findUnregistered: () => string | undefined = unregisteredOutriderBinary,
 ): Promise<OutriderPresence> {
     const binary = driver.binary();
-    if (binary === undefined) return { state: "absent" };
+    if (binary === undefined) {
+        const unregistered = findUnregistered();
+        return {
+            state: "absent",
+            ...(unregistered === undefined ? {} : { unregistered }),
+        };
+    }
     const run = driver.run(outriderStatusCommand(binary), () => {});
     const result = await run.finished;
     return result.ok ? readOutriderStatus(result.stdout) : { state: "stopped" };
@@ -140,6 +168,15 @@ export function installOutrider(
 }
 
 /** One command fetches what is missing and brings the gateway up on that profile. */
+/** Points the install target at a binary that is already on the machine, rather than fetching another copy. */
+export function registerOutrider(
+    binary: string,
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): RuntimeCommand {
+    return driver.run(outriderRegisterCommand(binary), onProgress);
+}
+
 export function serveOutrider(
     profile: string,
     onProgress: (line: OutriderProgress) => void,
@@ -149,6 +186,93 @@ export function serveOutrider(
         outriderServeCommand(profile, driver.binary() ?? OUTRIDER_BINARY),
         onProgress,
     );
+}
+
+/** Bring the gateway back up on the profile it last served. Nothing is fetched, so this is the quick path after a reboot. */
+export function startOutrider(
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): RuntimeCommand {
+    return driver.run(
+        outriderStartCommand(driver.binary() ?? OUTRIDER_BINARY),
+        onProgress,
+    );
+}
+
+/** Take the gateway down. Nothing to stop is not a failure, so a refusal is read as the state it leaves behind rather than an error to show. */
+export function stopOutrider(
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): RuntimeCommand {
+    return driver.run(
+        outriderStopCommand(driver.binary() ?? OUTRIDER_BINARY),
+        onProgress,
+    );
+}
+
+/** Both processes in one reading. Nothing here starts anything, so it is safe on every refresh. */
+export async function outriderService(
+    driver: OutriderDriver = defaultOutriderDriver,
+): Promise<OutriderService | undefined> {
+    const binary = driver.binary();
+    if (binary === undefined) return undefined;
+    const result = await driver.run(outriderServiceCommand(binary), () => {})
+        .finished;
+    return result.ok ? readOutriderService(result.stdout) : undefined;
+}
+
+/** The recipe behind one profile, and whether its weights are already here. */
+export async function outriderProfileDetail(
+    profile: string,
+    driver: OutriderDriver = defaultOutriderDriver,
+): Promise<OutriderProfileDetail | undefined> {
+    const binary = driver.binary();
+    if (binary === undefined) return undefined;
+    const result = await driver.run(outriderShowCommand(profile, binary), () => {})
+        .finished;
+    return result.ok ? readOutriderProfileDetail(result.stdout) : undefined;
+}
+
+/** The tail of the active log, so the common case does not need the Outrider window. */
+export interface LogTail extends OutriderLog {
+    /** Why there are no lines. Outrider refuses with plain text when nothing has run yet, and an empty tail on its own cannot say that. */
+    readonly detail?: string;
+}
+
+export async function outriderLogs(
+    lines: number,
+    driver: OutriderDriver = defaultOutriderDriver,
+): Promise<LogTail> {
+    const binary = driver.binary();
+    if (binary === undefined) return { lines: [], detail: "Outrider is not installed" };
+    const result = await driver.run(outriderLogsCommand(lines, binary), () => {})
+        .finished;
+    if (!result.ok) return { lines: [], ...(result.detail === "" ? {} : { detail: result.detail }) };
+    return readOutriderLog(result.stdout);
+}
+
+/** What a swap left behind, or the reason it did not happen. `use` needs a gateway already up; `serveOutrider` is the one that brings one up. */
+export interface SwapResult {
+    readonly ok: boolean;
+    readonly model?: OutriderProcess;
+    readonly detail: string;
+}
+
+export function useOutriderProfile(
+    profile: string,
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): { readonly finished: Promise<SwapResult>; stop(): void } {
+    const run = driver.run(
+        outriderUseCommand(profile, driver.binary() ?? OUTRIDER_BINARY),
+        onProgress,
+    );
+    const finished = run.finished.then((result): SwapResult =>
+        result.ok
+            ? { ok: true, model: readOutriderUse(result.stdout), detail: result.detail }
+            : { ok: false, detail: result.detail }
+    );
+    return { finished, stop: run.stop };
 }
 
 export { mergeProgress };

@@ -80,6 +80,7 @@ if (import.meta.main) {
             sessionDirectory: paths.sessionDirectory,
             catalogCacheDir: paths.catalogCacheDir,
             reviewLogPath: paths.reviewLogPath,
+            workflowDirectory: paths.workflowDirectory,
             port,
             ...(assets === undefined ? {} : { webRoot: assets }),
         });

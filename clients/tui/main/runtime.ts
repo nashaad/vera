@@ -1,3 +1,4 @@
+import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
 import type { ModelSettingsPatch, ModelTurnSettings } from "../../../src/engine/model-settings.ts";
 import type { AgentCatalogUpdate, AgentUpdate, UiRequestUpdate } from "../../../src/engine/protocol.ts";
@@ -53,7 +54,7 @@ import type { SearchOverlayState } from "../search-overlay.ts";
 import type { TuiSecretPromptState, TuiSecretPromptView } from "../secret-prompt.ts";
 import type { TuiSessionCloseConfirmView } from "../session-close-confirm.ts";
 import type { TuiSessionTrashConfirmView } from "../session-trash-confirm.ts";
-import type { TuiAnySettingsPickerState, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
+import type { TuiAnySettingsPickerState, TuiLocalRuntimeStatus, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
 import type { TuiSidebar } from "../sidebar.ts";
 import type { TuiExtensionsListState, TuiExtensionsListView } from "../extensions-list.ts";
 import type { TuiStandingNudgesState, TuiStandingNudgesView } from "../standing-nudges.ts";
@@ -81,6 +82,11 @@ export interface PoolChangeUndo {
     readonly poolName?: string;
 }
 
+export interface TuiImportedSession {
+    readonly agentId: string;
+    readonly facts: ImportedSessionSummary;
+}
+
 export interface TuiRuntime {
     dependencies: TuiDependencies;
     client: TuiAgentClient;
@@ -94,6 +100,7 @@ export interface TuiRuntime {
     entrySpacing: { message: number; toolGroup: number; };
     copyText: (text: string) => Promise<void>;
     sessionTitle: string | undefined;
+    importedSession: TuiImportedSession | undefined;
     mainHeaderVisible: boolean;
     sidebarSessionTitle: string | undefined;
     sidebarHeaderVisible: boolean;
@@ -291,6 +298,7 @@ export interface TuiRuntime {
     clientGeneration: number;
     composeSurfaceGeneration: number;
     resumeListVersion: number;
+    importListVersion: number;
     promptSubmitting: boolean;
     sessionSwitchPending: boolean;
     sessionSwitchActivity: string;
@@ -333,7 +341,7 @@ export interface TuiRuntime {
     }>;
     droppedImageReleases: Map<string, () => Promise<void>>;
     finished: { promise: Promise<TuiExit>; resolve: (value?: TuiExit | PromiseLike<TuiExit> | undefined) => void; reject: (reason?: any) => void; };
-    disabledBuiltinExtensions: readonly string[];
+    disabledIncludedExtensions: readonly string[];
     commandRegistry: TuiCommandRegistry;
     configuredClientExtensions: readonly VeraExtensionConfig[];
     hostedAgentSurface: TuiHostedAgentSurface;
@@ -486,5 +494,11 @@ export interface TuiRuntime {
     onboardingVerification: { readonly requestId: string; readonly provider: string; readonly model: string; } | undefined;
     /** The install or start the wizard has out, held so a key can stop it. */
     onboardingRuntimeCommand: RuntimeCommand | undefined;
+    /** What the local runtime was last seen doing. Read when the provider screen opens and after anything Vera asks of it. */
+    localRuntime: TuiLocalRuntimeStatus | undefined;
+    /** The lifecycle command Vera has out against the local runtime. One at a time, so a second press cannot stack another on it. */
+    localRuntimeCommand: { stop(): void } | undefined;
+    /** The last line a lifecycle command put in the status area, so the same one is not said twice. */
+    localRuntimeNotice: string | undefined;
     themeBindings: readonly TuiThemeBinding[];
 }

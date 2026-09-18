@@ -6,12 +6,15 @@ import { loadProjectInstructions } from "../engine/project-instructions.ts";
 import { loadMemory, MEMORY_ENABLED, type InstructionRoot } from "../engine/memory.ts";
 import { listExtensions } from "../extensions/manager.ts";
 import { loadOptionalVeraConfig } from "../config.ts";
-import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
-import { bundledClientExtensionConfigs } from "../extensions/bundled-client.ts";
+import { includedExtensions } from "../extensions/included.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
 import type { CustomizationCatalog, CustomizationSource } from "./types.ts";
 
 const MAX_PREVIEW_BYTES = 256 * 1024;
+
+function isIncluded(scope: string): boolean {
+    return scope === "included" || scope === "core";
+}
 
 function skillScopeLabel(skill: CatalogSkill): string {
     return skill.extensionId === undefined ? skill.scope : `extension ${skill.extensionId}`;
@@ -102,15 +105,14 @@ export async function loadCustomizationCatalog(options: {
         }
     }
     const config = loadOptionalVeraConfig();
-    const disabled = config?.disabled_builtin_extensions ?? [];
-    const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions({ projectRoot: options.workspace }).map((row) => ({
-        path: row.path, enabled: row.enabled, scope: row.scope, id: row.id,
+    const disabled = config?.disabled_included_extensions ?? [];
+    const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions().map((row) => ({
+        path: row.path, enabled: row.enabled, scope: "user", id: row.id,
     }));
     const paths = new Set(entries.map((row) => row.path));
     for (const row of [
         ...(config?.extensions ?? []).map((value) => ({ ...value, scope: "user" })),
-        ...defaultHostExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
-        ...bundledClientExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
+        ...includedExtensions().map((value) => ({ path: value.path, enabled: true, scope: value.core ? "core" : "included" })),
     ]) {
         if (paths.has(row.path)) continue;
         paths.add(row.path);
@@ -118,20 +120,20 @@ export async function loadCustomizationCatalog(options: {
             const { manifest } = loadExtensionManifest(row.path);
             entries.push({
                 path: row.path,
-                enabled: row.enabled && (row.scope !== "bundled" || !disabled.includes(manifest.id)),
+                enabled: row.enabled && (!isIncluded(row.scope) || !disabled.includes(manifest.id)),
                 scope: row.scope,
                 id: manifest.id,
             });
         } catch (error) { warnings.push(String(error)); }
     }
-    const explicitIds = new Set(entries.filter((row) => row.scope !== "bundled").map((row) => row.id));
+    const explicitIds = new Set(entries.filter((row) => !isIncluded(row.scope)).map((row) => row.id));
     for (const row of entries) {
         await add({
             id: `extensions:${row.scope}:${row.id}`, category: "extensions",
             name: row.id, description: "Extension manifest", scope: row.scope,
             path: join(row.path, "vera.extension.json"), content: "",
-            editable: String(row.scope) !== "bundled", contextIds: [],
-            status: row.scope === "bundled" && explicitIds.has(row.id)
+            editable: !isIncluded(row.scope), contextIds: [],
+            status: isIncluded(row.scope) && explicitIds.has(row.id)
                 ? "shadowed"
                 : row.enabled ? "enabled" : "disabled",
         });

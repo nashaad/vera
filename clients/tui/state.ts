@@ -77,6 +77,8 @@ export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
     readonly entryId?: string;
+    // Rows derived from a session's import facts; rebuilt, never stored.
+    readonly importRow?: true;
     readonly attachments?: readonly string[];
     readonly header?: string;
     readonly tool?: string;

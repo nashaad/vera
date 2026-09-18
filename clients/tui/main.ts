@@ -63,9 +63,9 @@ import {
     listExtensions,
     installExtension,
     removeExtension,
-    setExtensionEnabled,
+    setAnyExtensionEnabled,
 } from "../../src/extensions/manager.ts";
-import { extensionTarget, renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
+import { renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -92,6 +92,9 @@ import {
     renameSessionThroughHost,
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
+import { importSessionThroughHost, listImportableSessionsThroughHost } from "../../src/host/session-import-client.ts";
+import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
+import type { SessionImportOutcome } from "../../src/host/session-import-service.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
 import {
@@ -192,6 +195,8 @@ import {
     readModelSettingsThroughHost,
     refreshCatalogThroughHost,
 } from "../../src/host/model-settings-client.ts";
+import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
+import type { ClientExtensionHostRequest } from "../../src/extensions/client-registry.ts";
 import {
     readAnnexUrlThroughHost,
     type AnnexUrlResult,
@@ -295,7 +300,7 @@ import { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, r
 import { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp } from "./main/workspace-ops.ts";
 import { applyOverridesReset, applySettingsPickerTransition, closeSettingsPickerSurface } from "./main/settings-picker-transition.ts";
 import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings } from "./main/onboarding-wizard-ops.ts";
-import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
+import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
 import { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
@@ -307,7 +312,7 @@ export { showStatusNotice, showModeToast, showVerificationConsole, verificationC
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
 export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview };
 export { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings };
-export { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission };
+export { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission };
 export { applyOverridesReset, applySettingsPickerTransition, closeSettingsPickerSurface };
 export { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp };
 export { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo };
@@ -496,6 +501,7 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
@@ -560,10 +566,14 @@ export interface TuiDependencies {
         sessionId: string,
         name: string | null,
     ) => Promise<RenameSessionResult>;
-    readonly disabledBuiltinExtensions?: readonly string[];
+    readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
+    readonly listImportableSessions?: (
+        workspace: string | undefined,
+    ) => Promise<ImportableSessionListing | undefined>;
+    readonly disabledIncludedExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
     readonly loadClientExtensionConfiguration?: () => {
-        readonly disabledBuiltinExtensions: readonly string[];
+        readonly disabledIncludedExtensions: readonly string[];
         readonly clientExtensions: readonly VeraExtensionConfig[];
     };
     readonly build?: {
@@ -668,7 +678,7 @@ export async function startConfiguredTui(
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
     // Optional: requiring config made attach fail against an already-running host.
-    const config = loadOptionalVeraConfig({ projectRoot: process.cwd() });
+    const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
         ...(options.confirmBusyUpgrade === undefined
             ? {}
@@ -743,6 +753,8 @@ export async function startConfiguredTui(
                 readModelSettingsThroughHost(host.socket_path, workspace),
             refreshHostCatalog: (provider, workspace) =>
                 refreshCatalogThroughHost(host.socket_path, provider, workspace),
+            requestExtension: (extensionId, name, payload, signal) =>
+                requestExtensionThroughHost(host.socket_path, extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -798,20 +810,24 @@ export async function startConfiguredTui(
                 trashSessionThroughHost(host.socket_path, sessionId),
             renameSession: (sessionId, name) =>
                 renameSessionThroughHost(host.socket_path, sessionId, name),
-            ...(config?.disabled_builtin_extensions === undefined
+            importSession: (path) =>
+                importSessionThroughHost(host.socket_path, path),
+            listImportableSessions: (workspace) =>
+                listImportableSessionsThroughHost(host.socket_path, workspace),
+            ...(config?.disabled_included_extensions === undefined
                 ? {}
                 : {
-                    disabledBuiltinExtensions:
-                        config.disabled_builtin_extensions,
+                    disabledIncludedExtensions:
+                        config.disabled_included_extensions,
                 }),
             ...(config?.extensions === undefined
                 ? {}
                 : { clientExtensions: config.extensions }),
             loadClientExtensionConfiguration() {
-                const latest = loadOptionalVeraConfig({ projectRoot: process.cwd() });
+                const latest = loadOptionalVeraConfig();
                 return {
-                    disabledBuiltinExtensions:
-                        latest?.disabled_builtin_extensions ?? [],
+                    disabledIncludedExtensions:
+                        latest?.disabled_included_extensions ?? [],
                     clientExtensions: latest?.extensions ?? [],
                 };
             },
@@ -1012,6 +1028,7 @@ export async function startTui(
     rt.clientGeneration = 0;
     rt.composeSurfaceGeneration = 0;
     rt.resumeListVersion = 0;
+    rt.importListVersion = 0;
     rt.promptSubmitting = false;
     rt.sessionSwitchPending = false;
     rt.sessionSwitchActivity = "starting new session…";
@@ -1068,13 +1085,13 @@ export async function startTui(
         }));
     }
     rt.finished = Promise.withResolvers<TuiExit>();
-    rt.disabledBuiltinExtensions =
-        rt.dependencies.disabledBuiltinExtensions ?? [];
+    rt.disabledIncludedExtensions =
+        rt.dependencies.disabledIncludedExtensions ?? [];
     rt.commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
-        rt.disabledBuiltinExtensions,
+        rt.disabledIncludedExtensions,
     );
     rt.configuredClientExtensions = configuredTuiClientExtensions(
-        rt.disabledBuiltinExtensions,
+        rt.disabledIncludedExtensions,
         rt.dependencies.clientExtensions,
     );
     rt.hostedAgentSurface = createTuiHostedAgentSurface({
@@ -1094,6 +1111,7 @@ export async function startTui(
             extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
             readSources: (signal) => requestCustomizationSources(rt, signal),
+            requestExtension: rt.dependencies.requestExtension,
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState(rt).context,
                 focusedAgentState(rt).modelSettings,
@@ -2751,9 +2769,8 @@ export async function startTui(
         requestSessionSettings(rt);
     }
     void restorePersistedAgentPane(rt);
-    if (rt.configuredAppearance.sidebarOpenAtLaunch) {
-        openWorkspaceSidebar(rt, { focus: false });
-    }
+    // The rail listing is dormant; ctrl+e opens /resume. Keep the open-at-launch
+    // flag and sidebar shell, but do not paint an empty column on start.
 
     rt.authStorage = rt.dependencies.authStorage
         ?? createAuthStorage({

@@ -406,6 +406,30 @@ test("protocol replay restores usage against the effective context cap", () => {
     });
 });
 
+test("replay looks up capacity only for replies that carry usage", () => {
+    const unmeasured: ModelMessage[] = Array.from({ length: 500 }, (_, index) => ({
+        role: "assistant",
+        content: [{ type: "text", text: `imported reply ${index}` }],
+        source: { provider: "claude-code", api: "none", model: "claude-code" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    }));
+    const lookups: string[] = [];
+    const protocol = createProtocolEncoder(
+        { send: (): void => undefined },
+        undefined,
+        undefined,
+        (provider) => {
+            lookups.push(provider);
+            return 204_800;
+        },
+    );
+
+    protocol.checkpoint([...messages, ...unmeasured]);
+
+    expect(lookups).toEqual(["faux"]);
+});
+
 test("a checkpoint can restore the persisted compaction measurement", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

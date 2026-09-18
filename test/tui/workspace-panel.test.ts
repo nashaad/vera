@@ -212,6 +212,7 @@ describe("status markers", () => {
                 updatedAt: ELEVEN_MINUTES_AGO,
             }),
         ]);
+        expect(sessionRows(result)[0]?.group).toBe(IDLE_GROUP);
         expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_IDLE_MARKER);
         expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
@@ -563,5 +564,17 @@ describe("monochrome render", () => {
             expect(row.text).toBe(`${row.marker} ${row.title}`);
             expect(row.detail).toBeDefined();
         }
+    });
+});
+
+describe("imported sessions", () => {
+    test("clip the title and keep the import label whole", () => {
+        const rows = sessionRows(layout([session({
+            id: "imp",
+            title: "a long title about porting the old parser to the new store",
+            importLabel: "[imported · Claude Code]",
+        })], 50));
+        expect(rows[0]?.title.endsWith(" [imported · Claude Code]")).toBe(true);
+        expect(rows[0]?.title.startsWith("a long")).toBe(true);
     });
 });

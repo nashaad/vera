@@ -61,8 +61,6 @@ import {
     discoverExtensionConfigs,
     discoverManagedExtensionConfigs,
     mergeExtensionConfigs,
-    mergeExtensionScopes,
-    projectVeraExtensionDirectory,
 } from "./extensions/discovery.ts";
 import { veraProfileDirectory } from "./profile-paths.ts";
 import {
@@ -247,7 +245,7 @@ export interface VeraConfig {
     >;
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly hooks?: readonly VeraHookConfig[];
-    readonly disabled_builtin_extensions?: readonly string[];
+    readonly disabled_included_extensions?: readonly string[];
     // Skill names; a trailing `*` matches a prefix, so `["*"]` turns skills off.
     readonly disabled_skills?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
@@ -364,12 +362,15 @@ export interface VeraToolResultsConfig {
 export interface LoadVeraConfigOptions {
     readonly path?: string;
     readonly extensionDirectory?: string;
-    /** Adds the explicit project's `.vera/extensions` overlay. */
-    readonly projectRoot?: string;
 }
 
 export interface VeraConfigDefaultsPatch {
     readonly provider?: VeraProviderId;
+    /** Adds the id to `disabled_included_extensions`, or takes it off. */
+    readonly included_extension?: {
+        readonly id: string;
+        readonly enabled: boolean;
+    };
     readonly model?: string;
     /** Replaces or removes one exact provider/model request body. */
     readonly model_request_options?: {
@@ -535,24 +536,13 @@ export function loadVeraConfig(
         };
     }
     const explicitExtensions = config.extensions ?? [];
-    const profileExtensions = mergeExtensionConfigs(
+    const extensions = mergeExtensionConfigs(
         mergeExtensionConfigs(
             discoverExtensionConfigs(extensionDirectory),
             explicitExtensions,
         ),
         discoverManagedExtensionConfigs(extensionDirectory),
     );
-    const projectExtensions = options.projectRoot === undefined
-        ? []
-        : mergeExtensionConfigs(
-            discoverExtensionConfigs(
-                projectVeraExtensionDirectory(options.projectRoot),
-            ),
-            discoverManagedExtensionConfigs(
-                projectVeraExtensionDirectory(options.projectRoot),
-            ),
-        );
-    const extensions = mergeExtensionScopes(profileExtensions, projectExtensions);
     if (extensions.length === 0 && config.extensions === undefined) {
         return resolved;
     }
@@ -765,6 +755,14 @@ export function updateVeraConfigDefaults(
                     patch.tool_results,
                 ),
             }),
+        ...(patch.included_extension === undefined
+            ? {}
+            : {
+                disabled_included_extensions: patchedDisabledIncluded(
+                    current.disabled_included_extensions ?? [],
+                    patch.included_extension,
+                ),
+            }),
         ...(patch.compaction === undefined
             ? {}
             : {
@@ -782,6 +780,14 @@ export function updateVeraConfigDefaults(
     };
     writeVeraConfigFile(path, updated);
     return updated;
+}
+
+function patchedDisabledIncluded(
+    current: readonly string[],
+    patch: { readonly id: string; readonly enabled: boolean },
+): readonly string[] {
+    const rest = current.filter((id) => id !== patch.id);
+    return patch.enabled ? rest : [...rest, patch.id];
 }
 
 /**
@@ -1152,8 +1158,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     );
     const extensions = parseExtensionConfigs(config.extensions);
     const hooks = parseHookConfigs(config.hooks);
-    const disabledBuiltinExtensions = parseStringList(
-        config.disabled_builtin_extensions,
+    const disabledIncludedExtensions = parseStringList(
+        config.disabled_included_extensions,
     );
     const disabledPromptContributions = parseStringList(
         config.disabled_prompt_contributions,
@@ -1192,7 +1198,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || permissionModes === undefined
         || extensions === undefined
         || hooks === undefined
-        || disabledBuiltinExtensions === undefined
+        || disabledIncludedExtensions === undefined
         || disabledPromptContributions === undefined
         || disabledSkills === undefined
         || experimental === undefined
@@ -1267,10 +1273,10 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : { permission_modes: permissionModes }),
         ...(config.extensions === undefined ? {} : { extensions }),
         ...(config.hooks === undefined ? {} : { hooks }),
-        ...(config.disabled_builtin_extensions === undefined
+        ...(config.disabled_included_extensions === undefined
             ? {}
             : {
-                disabled_builtin_extensions: disabledBuiltinExtensions,
+                disabled_included_extensions: disabledIncludedExtensions,
             }),
         ...(config.disabled_prompt_contributions === undefined
             ? {}

@@ -77,7 +77,7 @@ test("the extension registry the installer writes is owned", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "extensions"), { recursive: true });
     writeFileSync(
-        extensionRegistryPathFor({ scope: "profile" }, { home: root }),
+        extensionRegistryPathFor({ home: root }),
         "{}",
     );
     expect(unrecognisedHomeEntries(root)).toEqual([]);

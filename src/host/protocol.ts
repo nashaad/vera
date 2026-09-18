@@ -1,3 +1,4 @@
+import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperation, ModelOperationResult } from "../model/model-operations.ts";
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
@@ -8,6 +9,7 @@ import {
 } from "../engine/protocol.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
+import type { SessionImportTool } from "../store/session-import-provenance.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
@@ -75,6 +77,24 @@ export interface CatalogRefreshRequest {
 export interface CatalogRefreshResponse {
     readonly type: "catalog_refresh";
     readonly settings: ModelTurnSettings;
+}
+
+/** Runs a handler an extension registered on the host with `requests.handle`. */
+export interface ExtensionRequest {
+    readonly type: "extension_request";
+    readonly extensionId: string;
+    readonly name: string;
+    readonly payload: JsonValue;
+}
+
+export interface ExtensionRequestResponse {
+    readonly type: "extension_response";
+    readonly value: JsonValue;
+}
+
+export interface ExtensionRequestFailedResponse {
+    readonly type: "extension_request_failed";
+    readonly message: string;
 }
 
 export interface CatalogRefreshFailedResponse {
@@ -300,6 +320,17 @@ export interface RenameSessionRequest {
     readonly name: string | null;
 }
 
+export interface ImportSessionRequest {
+    readonly type: "import_session";
+    readonly path: string;
+}
+
+// Without a workspace, sessions from every folder are listed.
+export interface ListImportableSessionsRequest {
+    readonly type: "list_importable_sessions";
+    readonly workspace?: string;
+}
+
 export interface HostIdentityResponse {
     readonly type: "host_identity";
     readonly pid: number;
@@ -521,6 +552,43 @@ export interface SessionRenameRejectedResponse {
     readonly reason: "invalid" | "busy" | "not_found" | "failed";
 }
 
+export interface SessionImportedResponse {
+    readonly type: "session_imported";
+    readonly agent_id: string;
+    readonly session_path: string;
+    readonly existing: boolean;
+}
+
+export type SessionImportRejection =
+    | "unreadable"
+    | "unrecognized"
+    | "empty"
+    | "failed";
+
+export interface SessionImportRejectedResponse {
+    readonly type: "session_import_rejected";
+    readonly reason: SessionImportRejection;
+}
+
+export interface ImportableSessionEntry {
+    readonly tool: SessionImportTool;
+    readonly path: string;
+    readonly source_session_id: string;
+    readonly workspace: string;
+    readonly updated_at: string;
+    readonly started_at?: string;
+    readonly title?: string;
+    readonly first_message?: string;
+    // The newest Vera session imported from the same source session.
+    readonly imported_session_id?: string;
+}
+
+export interface ImportableSessionsResponse {
+    readonly type: "importable_sessions";
+    readonly sessions: readonly ImportableSessionEntry[];
+    readonly truncated: boolean;
+}
+
 export interface ShutdownIfIdleAcceptedResponse {
     readonly type: "shutdown_if_idle_accepted";
     readonly pid: number;
@@ -578,6 +646,7 @@ export type HostRequest =
     | HostIdentityRequest
     | ModelSettingsRequest
     | CatalogRefreshRequest
+    | ExtensionRequest
     | RefreshCatalogsRequest
     | ListAgentsRequest
     | SearchSessionsRequest
@@ -592,6 +661,8 @@ export type HostRequest =
     | TrashSessionRequest
     | CloseAgentRequest
     | RenameSessionRequest
+    | ImportSessionRequest
+    | ListImportableSessionsRequest
     | AnnexUrlRequest
     | CheckpointStoresRequest
     | AttachRequest;
@@ -608,6 +679,8 @@ export type HostResponse =
     | ModelSettingsResponse
     | CatalogRefreshResponse
     | CatalogRefreshFailedResponse
+    | ExtensionRequestResponse
+    | ExtensionRequestFailedResponse
     | RefreshCatalogsResultResponse
     | RefreshCatalogsFailedResponse
     | AgentListResponse
@@ -627,6 +700,9 @@ export type HostResponse =
     | AgentCloseRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
+    | SessionImportedResponse
+    | SessionImportRejectedResponse
+    | ImportableSessionsResponse
     | ShutdownIfIdleResponse
     | ShutdownForReplacementResponse
     | AttachedResponse
@@ -705,6 +781,21 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(typeof workspace === "string" && workspace.length > 0
                 ? { workspace }
                 : {}),
+        };
+    }
+    if (
+        value?.type === "extension_request"
+        && typeof value.extensionId === "string"
+        && value.extensionId.length > 0
+        && typeof value.name === "string"
+        && value.name.length > 0
+        && "payload" in value
+    ) {
+        return {
+            type: "extension_request",
+            extensionId: value.extensionId,
+            name: value.name,
+            payload: value.payload as JsonValue,
         };
     }
     if (value?.type === "refresh_catalogs") {
@@ -898,6 +989,25 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             type: "close_agent",
             target_agent_id: value.target_agent_id,
         };
+    }
+    if (
+        value?.type === "import_session"
+        && typeof value.path === "string"
+        && isAbsolute(value.path)
+        && !value.path.includes("\0")
+    ) {
+        return { type: "import_session", path: value.path };
+    }
+    if (
+        value?.type === "list_importable_sessions"
+        && (value.workspace === undefined
+            || (typeof value.workspace === "string"
+                && isAbsolute(value.workspace)
+                && !value.workspace.includes("\0")))
+    ) {
+        return value.workspace === undefined
+            ? { type: "list_importable_sessions" }
+            : { type: "list_importable_sessions", workspace: value.workspace };
     }
     if (
         value?.type === "rename_session"

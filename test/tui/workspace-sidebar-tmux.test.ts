@@ -29,6 +29,8 @@ afterAll(() => {
 });
 
 const tmuxAvailable = runTmux("probe-unused", ["-V"], true).ok;
+/** The rail listing is dormant; ctrl+e opens /resume. Layout stays in workspace-sidebar.test.ts. */
+const RAIL_LISTING = false;
 
 /** ctrl+e, which is the chord that both opens and closes the pane. */
 const CTRL_E = ["05"];
@@ -36,7 +38,7 @@ const CTRL_E = ["05"];
 /** ctrl+r, the chord that opens the full session list from the rail. */
 const CTRL_R = ["12"];
 
-test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("ctrl+e opens the side bar and ctrl+e closes it", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -66,7 +68,7 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(rows.length - footerBottom).toBeLessThanOrEqual(3);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the header list control opens all conversations", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the header list control opens all conversations", async () => {
     const picker = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -84,7 +86,7 @@ test.skipIf(!tmuxAvailable)("the header list control opens all conversations", a
     expect(picker).not.toContain("VERA ·");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the sidebar resume action opens from a file view", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -117,7 +119,7 @@ test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", 
     expect(pane).toContain("The one already open");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("escape hides the side bar and returns to chat", async () => {
     const result = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -137,7 +139,7 @@ test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", asy
     expect(result.chat).toContain("draft after hide");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the rail's rule and edge say which side has the keyboard", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the rail's rule and edge say which side has the keyboard", async () => {
     const frames = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -159,7 +161,7 @@ test.skipIf(!tmuxAvailable)("the rail's rule and edge say which side has the key
     expect(railTitle(workspaceLine(frames.chat))).toBe(frames.title);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside the dock", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("slash suggestions stay one command per row beside the dock", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -188,7 +190,7 @@ test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside t
     expect(wrappedOrphans).toEqual([]);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("i returns to chat without hiding the dock", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("i returns to chat without hiding the dock", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -229,7 +231,7 @@ test.skipIf(!tmuxAvailable)("the model switcher covers the dock like every other
     expect(pane).toContain("esc close");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the scrim behind a dialog reaches the last row", async () => {
     const colored = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -254,7 +256,7 @@ test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", as
     expect(grounds[last]).not.toBe("default");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the shared dialog scrim dims the dock", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the shared dialog scrim dims the dock", async () => {
     const frames = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -278,7 +280,7 @@ test.skipIf(!tmuxAvailable)("the shared dialog scrim dims the dock", async () =>
     expect(dialogGround).not.toBe(railGround);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("a session question stays beside the agent rail", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -299,7 +301,7 @@ test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", as
         .toBeGreaterThanOrEqual(rail);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("rail controls stay inert during a session question", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("rail controls stay inert during a session question", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -323,7 +325,7 @@ test.skipIf(!tmuxAvailable)("rail controls stay inert during a session question"
     expect(pane).not.toContain("Resume session");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has the keys", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the selection bar is drawn only while the rail has the keys", async () => {
     const { focused, quiet, litPane, quietPane } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -359,7 +361,7 @@ test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has 
         .toEqual(rowRuns(quiet, "auth-race"));
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("arrows hand the keyboard across and back", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("arrows hand the keyboard across and back", async () => {
     const { railed, chat, editing, back } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -393,7 +395,7 @@ test.skipIf(!tmuxAvailable)("arrows hand the keyboard across and back", async ()
     expect(back).toContain("Move    ↑↓  j/k");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("tab completes commands without focusing the rail", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("tab completes commands without focusing the rail", async () => {
     const { completed, stayed, moved } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -423,7 +425,7 @@ test.skipIf(!tmuxAvailable)("tab completes commands without focusing the rail", 
     expect(moved).toContain("Move    ↑↓  j/k");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the divider drag resizes and persists the dock", async () => {
     const result = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -449,7 +451,7 @@ test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", as
     expect(result.width).toBeGreaterThan(workspaceRailColumns(120)!);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens the row", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the arrows and j/k move the cursor and enter opens the row", async () => {
     const { after, opened } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -485,7 +487,7 @@ const CTRL_SHIFT_RIGHT_BRACKET = Array.from(
     (character) => character.charCodeAt(0).toString(16).padStart(2, "0"),
 );
 
-test.skipIf(!tmuxAvailable)("ctrl+shift+] opens the next live session from chat", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("ctrl+shift+] opens the next live session from chat", async () => {
     const opened = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_SHIFT_RIGHT_BRACKET);
@@ -499,7 +501,7 @@ test.skipIf(!tmuxAvailable)("ctrl+shift+] opens the next live session from chat"
     expect(compact(opened)).not.toContain("/sessions/work-tab-child.jsonl");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("ctrl+d and ctrl+u jump half a page without opening", async () => {
     const CTRL_D = ["04"];
     const CTRL_U = ["15"];
     const { before, afterDown, afterUp } = await withTui(async (tui) => {
@@ -525,7 +527,7 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
     expect(afterDown).not.toContain("[ this one ]");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("a click opens the row the mouse landed on", async () => {
     const opened = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -548,7 +550,7 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
     expect(opened).toContain("OPENED /sessions/relay-gui.");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the chord block narrows to what the chat can press", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the chord block narrows to what the chat can press", async () => {
     const { focused, clicked } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -575,7 +577,7 @@ test.skipIf(!tmuxAvailable)("the chord block narrows to what the chat can press"
     expect(clicked).not.toContain("Pin");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the closed rail is named under the composer", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the closed rail is named under the composer", async () => {
     const { closed, open } = await withTui(async (tui) => {
         await tui.settled();
         const closed = await tui.paneWhere((value) =>
@@ -593,7 +595,7 @@ test.skipIf(!tmuxAvailable)("the closed rail is named under the composer", async
     expect(open).toContain("Hide    ctrl+e");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("digit jumping stays dormant", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("digit jumping stays dormant", async () => {
     const after = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -617,7 +619,7 @@ test.skipIf(!tmuxAvailable)("digit jumping stays dormant", async () => {
     expect(after).toContain("VERA · 6");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("p leaves dormant pinning unchanged", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("p leaves dormant pinning unchanged", async () => {
     const after = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -633,7 +635,7 @@ test.skipIf(!tmuxAvailable)("p leaves dormant pinning unchanged", async () => {
     expect(after).toContain("WORKING");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("every state the side bar shows has a text marker", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -660,7 +662,7 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
         .toBe(false);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in it", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("a session created while the pane is open appears in it", async () => {
     const { before, after } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -683,7 +685,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
     expect(rows[late]).toContain("! late-arrival");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside the transcript", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("at a wide size the listing is a left rail beside the transcript", async () => {
     const { open, closed } = await withTui(async (tui) => {
         await tui.settled();
         tui.text("hello");
@@ -715,7 +717,7 @@ test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside th
     expect(column(closed, "\u203a hello")).toBeLessThan(rail);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the transcript", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("at a narrow size the listing stays a card over the transcript", async () => {
     const open = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);

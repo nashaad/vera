@@ -9,7 +9,7 @@ import { copySessionMessageAttachments, createSessionBranch } from "../../store/
 import { SessionStore, defaultSessionPath } from "../../store/session-store.ts";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
 import { delegationAllows, isSessionIdentity, materializeSessionIdentity, publishBranchAttachments, removePublishedBranchAttachments, type PublishedBranchAttachments } from "./helpers.ts";
-import { resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
+import { LIVE_IDLE_WINDOW_MS, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
 import { ResidentAgent } from "../resident-agent.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
@@ -79,6 +79,49 @@ export async function closeAgentTree(reg: AgentRegistry, id: string): Promise<Cl
         };
     }
 
+export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Promise<void> {
+        if (reg.isClosed) return;
+        const expiredRoots: string[] = [];
+        for (const [id, entry] of reg.agents) {
+            if (reg.startingIds.has(id)) continue;
+            if (entry.parentId !== undefined && reg.agents.has(entry.parentId)) {
+                continue;
+            }
+            if (!treeIdleForPark(reg, id)) continue;
+            const latest = treeUpdatedAt(reg, id);
+            if (!Number.isFinite(latest)) continue;
+            if (now - latest < LIVE_IDLE_WINDOW_MS) continue;
+            expiredRoots.push(id);
+        }
+        for (const id of expiredRoots) {
+            if (reg.isClosed || !reg.agents.has(id)) continue;
+            try {
+                await closeAgentTree(reg, id);
+            } catch {
+                // A failed park must not stop the rest of the sweep.
+            }
+        }
+    }
+
+function treeIdleForPark(reg: AgentRegistry, id: string): boolean {
+        return [id, ...reg.liveDescendantsOf(id)].every((memberId) => {
+            const entry = reg.agents.get(memberId);
+            return entry !== undefined && entry.agent.idleForShutdown();
+        });
+    }
+
+function treeUpdatedAt(reg: AgentRegistry, id: string): number {
+        let latest = Number.NaN;
+        for (const memberId of [id, ...reg.liveDescendantsOf(id)]) {
+            const entry = reg.agents.get(memberId);
+            if (entry === undefined) continue;
+            const updated = Date.parse(entryUpdatedAt(entry));
+            if (!Number.isFinite(updated)) continue;
+            latest = Number.isFinite(latest) ? Math.max(latest, updated) : updated;
+        }
+        return latest;
+    }
+
 export async function closeDescendantTree(reg: AgentRegistry, callerId: string, targetId: string): Promise<CloseDescendantTreeResult> {
         const target = reg.agents.get(targetId);
         if (
@@ -119,8 +162,6 @@ export async function closeDescendantTree(reg: AgentRegistry, callerId: string, 
 
 export async function reapClosedAgent(reg: AgentRegistry, id: string, entry: RegisteredAgentEntry): Promise<void> {
         entry.inbox?.release();
-        await entry.projectExtensions?.close();
-        await reg.options.releaseWorkspaceSidecars?.(entry.store.header.cwd);
         reg.agents.delete(id);
         reg.spawnNotices.delete(id);
         if (entry.ephemeral) {

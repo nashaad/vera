@@ -1,3 +1,4 @@
+import { withImportRows } from "../import-rows.ts";
 import { isConfigurationRequiredUiRequestUpdate, isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { COMPOSER_PLACEHOLDER } from "../composer.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -466,6 +467,11 @@ export function renderState(rt: TuiRuntime): void {
         rt.admissionDialogView.update(rt.admissionDialog, dialogAdmission(rt));
     }
 
+    const imported = rt.importedSession?.agentId === rt.client.agentId
+        ? rt.importedSession?.facts
+        : undefined;
+    const entries = withImportRows(rt.state.entries, imported);
+    if (entries !== rt.state.entries) rt.state = { ...rt.state, entries };
     renderTranscriptEntries(rt, rt.state.entries);
 
     showSearchTarget(rt);

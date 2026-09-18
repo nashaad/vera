@@ -1,6 +1,6 @@
 {
     "schema_version": 1,
-    "order": 7,
+    "order": 8,
     "id": "digitalocean",
     "label": "DigitalOcean",
     "short_label": "digitalocean",

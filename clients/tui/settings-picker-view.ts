@@ -6,6 +6,7 @@ import { extensionPickerButtons, renderExtensionPicker } from "./extension-picke
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
+import { localRuntimeStatusLines } from "./local-runtime-status.ts";
 import { SESSION_LEAVE_OPTIONS, TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelBrowse, handleModelBrowseKey, handleModelBrowseMenuKey, browseHeader, browseFooter, browseMoreText, browseWindow, browseModels, browseScopeOptions, browseSort, browseSortOptions } from "./model-browse.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
@@ -350,6 +351,59 @@ export function handleTuiSettingsPickerKey(
         }
         return unchanged(state, true);
     }
+    if (state.kind === "session_create_leave") {
+        if (key.ctrl || key.meta || key.super || key.hyper) {
+            return unchanged(state, false);
+        }
+        if (key.name === "escape") {
+            return { handled: true };
+        }
+        if (key.name === "up" || key.name === "down") {
+            return {
+                state: {
+                    ...state,
+                    ignoreEnter: false,
+                    selectedIndex: Math.max(0, Math.min(
+                        state.options.length - 1,
+                        state.selectedIndex + (key.name === "up" ? -1 : 1),
+                    )),
+                },
+                handled: true,
+            };
+        }
+        const choice = state.options[state.selectedIndex];
+        if (
+            (key.name === "return" || key.name === "enter")
+            && choice !== undefined
+        ) {
+            if (state.ignoreEnter === true) {
+                return {
+                    state: { ...state, ignoreEnter: false },
+                    handled: true,
+                };
+            }
+            return {
+                selection: {
+                    kind: "session_create_leave",
+                    sourceDisposition: choice.value === "keep_running"
+                        ? "keep_running"
+                        : "stop",
+                },
+                handled: true,
+            };
+        }
+        return unchanged(state, true);
+    }
+    if (
+        state.kind === "session_import"
+        && tuiBindingId("import_picker", key) === "import_scope"
+    ) {
+        return {
+            state,
+            importScope: state.importScope === "all" ? "folder" : "all",
+            handled: true,
+        };
+    }
     if (state.kind === "session" && isTuiDialTabKey(key)) {
         return unchanged(state, true);
     }
@@ -361,7 +415,11 @@ export function handleTuiSettingsPickerKey(
         && state.enterDisposition !== "keep_running"
     ) {
         const selected = state.options[state.selectedIndex];
-        if (selected !== undefined && selected.current !== true) {
+        if (
+            selected !== undefined
+            && selected.section === undefined
+            && selected.current !== true
+        ) {
             return {
                 state: {
                     kind: "session_leave",
@@ -865,8 +923,10 @@ export function handleTuiSettingsPickerKey(
         if (selected === undefined) {
             return unchanged(state, true);
         }
-        if (state.kind === "model" && selected.section !== undefined) {
-            return toggledSection(state, selected.section);
+        if (selected.section !== undefined) {
+            return state.kind === "model"
+                ? toggledSection(state, selected.section)
+                : unchanged(state, true);
         }
         if (state.kind === "provider" && selected.action === true) {
             if (selected.value === TUI_REFRESH_PROVIDERS_VALUE) {
@@ -1018,6 +1078,8 @@ export function createTuiSettingsPickerView(
                     && tuiBindingId("model_picker", key) !== undefined)
                 || (state.kind === "session"
                     && tuiBindingId("session_picker", key) !== undefined)
+                || (state.kind === "session_import"
+                    && tuiBindingId("import_picker", key) !== undefined)
                 || (state.query.length === 0 && state.modelBrowse === undefined
                     && (key.name === "left" || key.name === "right"))
                 || (digitQuickSelect(state) && state.query === ""
@@ -1063,7 +1125,9 @@ export function createTuiSettingsPickerView(
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
             box.title = undefined;
-            surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
+            surface.justifyContent = state.kind === "session" || state.kind === "session_import"
+                ? "flex-start"
+                : "center";
             box.paddingTop = state.kind === "model" && state.modelBrowse !== undefined
                 && renderer.height < 30 ? 0 : 2;
             if (state.kind === "theme") {
@@ -1081,7 +1145,7 @@ export function createTuiSettingsPickerView(
                 );
                 return;
             }
-            box.width = state.kind === "session"
+            box.width = state.kind === "session" || state.kind === "session_import"
                 ? "100%"
                 : state.kind === "model" || state.kind === "extension" && state.layout === "list-detail"
                 ? Math.max(1, Math.floor((renderer.width - railInset) * 0.96))
@@ -1738,7 +1802,7 @@ export function renderListPickerRows(
                     row.option.sharedGroup !== undefined
                         && sharedOnScreen.get(row.option.sharedGroup) === 2,
                 ),
-                ...(state.kind === "session"
+                ...(state.kind === "session" || state.kind === "session_import"
                     ? { tint: (tinted = !tinted) }
                     : {}),
                 // One row of air between the providers a reader picks from and
@@ -1748,7 +1812,7 @@ export function renderListPickerRows(
                     : {}),
                 // The detail pane carries the prose when there is one.
                 ...(state.kind === "model" || state.kind === "session"
-                        || detailed
+                        || state.kind === "session_import" || detailed
                     ? {}
                     : { description: row.option.description }),
                 meta: row.option.rowMeta
@@ -2004,7 +2068,8 @@ export function renderListPickerRows(
         : tip;
     if (tipLine !== undefined && tipLine.text.length > 0 && (state.kind === "extension" || state.verificationTargets === undefined)
         && state.kind !== "model_verification" && state.kind !== "model_defaults"
-        && state.kind !== "session_leave") {
+        && state.kind !== "session_leave"
+        && state.kind !== "session_create_leave") {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
                 { text: DIALOG_GUTTER } as TextChunk,
@@ -2025,6 +2090,26 @@ export function renderListPickerRows(
         const consoleBox = verificationConsoleNode(renderer, verification);
         box.add(consoleBox);
         nodes.push(consoleBox);
+    }
+
+    if (state.kind === "provider" && state.localRuntime !== undefined) {
+        localRuntimeStatusLines(state.localRuntime).forEach((line, index) => {
+            const node = new TextRenderable(renderer, {
+                content: new StyledText([
+                    fg(TUI_MUTED)(DIALOG_GUTTER),
+                    fg(index === 0
+                        ? TUI_ACCENT
+                        : line.startsWith("!")
+                        ? TUI_DANGER
+                        : TUI_MUTED)(line),
+                ]),
+                width: "100%",
+                height: 1,
+                ...(index === 0 ? { marginTop: 1 } : {}),
+            });
+            box.add(node);
+            nodes.push(node);
+        });
     }
 
     const footer = dialogFooterNode(
@@ -2169,6 +2254,9 @@ export function pickerFooterText(
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session_leave") return "↑↓ choose · ⏎ switch · esc back";
+    if (state.kind === "session_create_leave") {
+        return "↑↓ choose · ⏎ start · esc back";
+    }
     if (state.kind === "session") {
         return [
             "↑↓ Ctrl+D/U move",
@@ -2177,6 +2265,9 @@ export function pickerFooterText(
             tuiKeyHint("trash_session"),
             "esc close",
         ].join(" · ");
+    }
+    if (state.kind === "session_import") {
+        return ["↑↓ ^d^u move", "⏎ import", tuiKeyHint("import_scope"), "esc close"].join(" · ");
     }
     if (state.kind === "extension") {
         const actions = (state.extensionActions ?? []).map((action) =>
@@ -2487,6 +2578,7 @@ export function optionLeading(
     if (option.section !== undefined || state.kind === "provider") {
         return "";
     }
+    if (state.kind === "session_import") return `${(option.activity ?? "").padEnd(activityWidth)}  `;
     if (state.kind !== "session") {
         return "";
     }
@@ -2509,6 +2601,15 @@ export function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "model_assignment") {
         return "No models in your favorites. Add one to assign it here.";
+    }
+    if (state.kind === "session_import") {
+        return state.loading === true
+            ? "Looking for Claude Code and Codex sessions…"
+            : state.query.length > 0
+            ? "No matches found"
+            : state.importScope === "folder"
+            ? "No Claude Code or Codex sessions in this folder. Press ctrl+g for all folders."
+            : "No Claude Code or Codex sessions found.";
     }
     if (state.kind !== "session") {
         return "No matches found";
@@ -2626,6 +2727,10 @@ export function pickerTitle(
                 ? "Permission mode"
                 : kind === "session"
                     ? "Resume"
+                    : kind === "session_import"
+                    ? "Import a conversation"
+                    : kind === "session_create_leave"
+                    ? "New conversation"
                     : kind === "settings"
                         ? "Settings"
                         : kind === "configure"

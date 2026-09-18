@@ -13,6 +13,7 @@ export type TuiKeyScope =
     | "model_picker"
     | "model_assignment_picker"
     | "session_picker"
+    | "import_picker"
     | "secret_prompt"
     | "provider_form"
     | "preferences_list"
@@ -39,6 +40,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "verification_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
     "secret_prompt",
     "provider_form",
     "preferences_list",
@@ -65,6 +67,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "verification_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
     "secret_prompt",
     "provider_form",
     "preferences_list",
@@ -83,6 +86,7 @@ const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "model_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
 ];
 
 const HALF_PAGE_IDS: ReadonlySet<string> = new Set([
@@ -224,12 +228,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "switch-agent-pane",
     },
     {
-        // Every terminal reports ctrl+e, so the side bar is reachable without the kitty keyboard protocol.
+        // Every terminal reports ctrl+e, so the conversation list is reachable without the kitty keyboard protocol.
         id: "toggle_workspace_sidebar",
         keys: ["ctrl+e"],
         scope: "global",
-        description: "Show or hide the agent sidebar",
-        hint: "ctrl+e agent sidebar",
+        description: "Open the conversation list",
+        hint: "ctrl+e conversations",
     },
     {
         // Arrows carry their modifiers through ordinary CSI encoding, so these reach every terminal. The bracket chords stay as aliases for the terminals that report them, but they cannot lead: ctrl+[ is the escape byte, so outside the kitty keyboard protocol the old primary cancelled instead of cycling.
@@ -268,8 +272,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "workspace_new_session",
         keys: ["ctrl+n"],
-        scope: "workspace",
-        description: "Start a new chat without stopping the current one",
+        scope: "global",
+        description: "Start a new conversation",
         hint: "^n new",
     },
     {
@@ -513,6 +517,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Name the selected model in your favorites",
         hint: "Ctrl+N name",
+        overrides: ["workspace_new_session"],
     },
     {
         id: "open_providers",
@@ -575,6 +580,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "session_picker",
         description: "Move the selected session to the trash",
         hint: "del trash",
+    },
+    {
+        id: "import_scope",
+        keys: ["ctrl+g"],
+        scope: "import_picker",
+        description: "Toggle this folder and all folders",
+        hint: "^g folder/all",
+        overrides: ["switch_pane"],
     },
     {
         id: "write_notes",

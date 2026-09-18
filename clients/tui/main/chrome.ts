@@ -57,7 +57,11 @@ export function refreshTerminalTitle(rt: TuiRuntime): void {
         if (rt.shuttingDown || agentId !== rt.client.agentId) {
             return;
         }
-        rt.sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
+        const agent = agents.find((candidate) => candidate.id === agentId);
+        rt.sessionTitle = agent?.title;
+        rt.importedSession = agent?.imported_from === undefined
+            ? undefined
+            : { agentId, facts: agent.imported_from };
         applyTerminalTitle(rt);
         if (rt.clientSurfaceReady) renderState(rt);
     }).catch(() => {

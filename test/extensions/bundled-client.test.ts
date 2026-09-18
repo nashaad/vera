@@ -1,9 +1,7 @@
 import { expect, test } from "bun:test";
 
-import {
-    bundledClientExtensionConfigs,
-    bundledClientExtensions,
-} from "../../src/extensions/bundled-client.ts";
+import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
+import { includedExtensionConfigs } from "../../src/extensions/included.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import {
     invokeDirectClientExtensionCommand,
@@ -51,23 +49,23 @@ test("direct client extension calls have a fixed deadline", async () => {
 });
 
 
-test("reasoning cycle is a default bundled extension with no private tier", () => {
-    const configured = bundledClientExtensionConfigs([]).find(
+test("reasoning cycle is a default included extension with no private tier", () => {
+    const configured = includedExtensionConfigs([]).find(
         (config) =>
             loadExtensionManifest(config.path).manifest.id
                 === "vera.reasoning-cycle",
     );
 
     expect(configured?.enabled).toBe(true);
-    expect(bundledClientExtensionConfigs(["vera.reasoning-cycle"]))
+    expect(includedExtensionConfigs(["vera.reasoning-cycle"]))
         .not.toContainEqual(configured);
 });
 
 
 test("Context is a default client-only package with its existing ID", () => {
-    const configs = bundledClientExtensionConfigs([]);
-    const configured = configs.find((config) => loadExtensionManifest(config.path).manifest.id === "example.context");
+    const configs = includedExtensionConfigs([]);
+    const configured = configs.find((config) => loadExtensionManifest(config.path).manifest.id === "vera.context");
     expect(configured).toMatchObject({ enabled: true, config: {} });
-    expect(configured?.path).toEndWith("/extensions/context");
-    expect(bundledClientExtensionConfigs(["example.context"])).not.toContainEqual(configured);
+    expect(configured?.path).toEndWith("/core-extensions/context");
+    expect(includedExtensionConfigs(["vera.context"])).not.toContainEqual(configured);
 });

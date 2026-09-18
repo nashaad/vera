@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,11 +76,301 @@ test("vera-annex starts by hand against a Vera home", async () => {
         expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
         const page = await fetch(new URL("usage", url).href);
         expect(page.status).toBe(200);
-        expect(await page.text()).toContain("Vera · Usage");
+        expect(await page.text()).toContain("<title>Vera</title>");
         const paths = annexPathsFromHome(home);
         expect(paths.sessionDirectory).toContain(home);
     } finally {
         child.kill("SIGTERM");
         await child.exited;
     }
+});
+
+test("the runs page lists Halcyon runs and their spans", async () => {
+    const workflowDirectory = tempDir("vera-annex-runs-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import step, workflow",
+        "",
+        "LEFT = {'n': 1}",
+        "",
+        "@step(retries=2)",
+        "def shaky() -> int:",
+        "    if LEFT['n'] > 0:",
+        "        LEFT['n'] -= 1",
+        "        raise RuntimeError('upstream said no')",
+        "    return 5",
+        "",
+        "@workflow",
+        "def demo() -> int:",
+        "    return shaky()",
+        "",
+        "if __name__ == '__main__':",
+        "    demo.run(journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const python = Bun.spawnSync(
+        ["python3", entry, workflowDirectory],
+        { env: { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") } },
+    );
+    expect(python.exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-runs-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string; workflow: string; status: string; tries: number; failedTries: number }[];
+    };
+    expect(list.rows).toHaveLength(1);
+    expect(list.rows[0]?.workflow).toBe("demo");
+    expect(list.rows[0]?.status).toBe("ok");
+    expect(list.rows[0]?.tries).toBe(2);
+    expect(list.rows[0]?.failedTries).toBe(1);
+
+    const detail = await (
+        await fetch(`${server.url}api/runs/${list.rows[0]?.runId ?? ""}`)
+    ).json() as {
+        attempts: { spans: { outcome?: string }[] }[];
+        steps: unknown[];
+        orphanSpans: unknown[];
+    };
+    expect(detail.attempts).toHaveLength(1);
+    expect(detail.attempts[0]?.spans.map((span) => span.outcome))
+        .toEqual(["failed", "ok"]);
+    expect(detail.steps).toHaveLength(1);
+    expect(detail.orphanSpans).toEqual([]);
+
+    const missing = await fetch(`${server.url}api/runs/wf_00000000000000ff`);
+    expect(missing.status).toBe(404);
+
+    const page = await fetch(`${server.url}runs`);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+});
+
+test("the runs page prices the model calls a step recorded", async () => {
+    const workflowDirectory = tempDir("vera-annex-cost-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import model_call, step, workflow",
+        "",
+        "@step",
+        "def ask() -> str:",
+        "    with model_call('claude-opus-5', provider='anthropic') as call:",
+        "        call.usage(input_tokens=1200, output_tokens=310, cost=0.0123)",
+        "    return 'done'",
+        "",
+        "@workflow",
+        "def priced() -> str:",
+        "    return ask()",
+        "",
+        "if __name__ == '__main__':",
+        "    priced.run(journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const python = Bun.spawnSync(
+        ["python3", entry, workflowDirectory],
+        { env: { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") } },
+    );
+    expect(python.exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-cost-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string; cost?: number; steps: number; tries: number }[];
+    };
+    expect(list.rows[0]?.cost).toBeCloseTo(0.0123, 6);
+    expect(list.rows[0]?.steps).toBe(1);
+    expect(list.rows[0]?.tries).toBe(1);
+
+    const detail = await (
+        await fetch(`${server.url}api/runs/${list.rows[0]?.runId ?? ""}`)
+    ).json() as {
+        cost?: number;
+        attempts: {
+            spans: {
+                spanId: string;
+                parentId: string;
+                depth: number;
+                step: string;
+                model?: string;
+                tokens?: number;
+                cost?: number;
+            }[];
+        }[];
+    };
+    const spans = detail.attempts[0]?.spans ?? [];
+    expect(detail.cost).toBeCloseTo(0.0123, 6);
+    expect(spans).toHaveLength(2);
+    expect(spans[0]?.depth).toBe(0);
+    expect(spans[0]?.model).toBeUndefined();
+    expect(spans[1]?.parentId).toBe(spans[0]?.spanId ?? "");
+    expect(spans[1]?.depth).toBe(1);
+    expect(spans[1]?.step).toBe("claude-opus-5");
+    expect(spans[1]?.tokens).toBe(1510);
+    expect(spans[1]?.cost).toBeCloseTo(0.0123, 6);
+});
+
+test("the runs page shows the question a run waits on", async () => {
+    const workflowDirectory = tempDir("vera-annex-ask-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import ask, workflow",
+        "",
+        "@workflow",
+        "def gated() -> str:",
+        "    return ask('Ship it?')",
+        "",
+        "if __name__ == '__main__':",
+        "    gated.run(journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const python = Bun.spawnSync(
+        ["python3", entry, workflowDirectory],
+        { env: { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") } },
+    );
+    expect(python.exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-ask-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string; status: string }[];
+    };
+    expect(list.rows[0]?.status).toBe("suspended");
+    const detail = await (
+        await fetch(`${server.url}api/runs/${list.rows[0]?.runId ?? ""}`)
+    ).json() as { asking?: { question: string; at: string } };
+    expect(detail.asking?.question).toBe("Ship it?");
+});
+
+test("the runs page shows what a run was given and what each step returned", async () => {
+    const workflowDirectory = tempDir("vera-annex-values-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import ask, step, workflow",
+        "",
+        "@step",
+        "def shout(text: str) -> str:",
+        "    return text.upper()",
+        "",
+        "@workflow",
+        "def loud(text: str) -> dict:",
+        "    said = shout(text)",
+        "    return {'said': said, 'reply': ask('Again?')}",
+        "",
+        "if __name__ == '__main__':",
+        "    loud.run('hello', journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const env = { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") };
+    expect(Bun.spawnSync(["python3", entry, workflowDirectory], { env }).exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-values-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string }[];
+    };
+    const runId = list.rows[0]?.runId ?? "";
+    const answered = Bun.spawnSync(
+        ["python3", "-m", "vera.workflow", "answer", runId, "no", "--journal-dir", workflowDirectory],
+        { env },
+    );
+    expect(answered.exitCode).toBe(0);
+
+    const detail = await (await fetch(`${server.url}api/runs/${runId}`)).json() as {
+        status: string;
+        args?: unknown[];
+        answers: { key: string; value: unknown }[];
+        steps: { key: string; value: unknown }[];
+        attempts: { spans: { key?: string; model?: string; outcome?: string }[] }[];
+    };
+    expect(detail.status).toBe("ok");
+    expect(detail.args).toEqual(["hello"]);
+    expect(detail.answers).toEqual([{ key: "ask#0", value: "no" }]);
+    const shouted = detail.steps.find((step) => step.value === "HELLO");
+    expect(shouted).toBeDefined();
+    const spanKeys = detail.attempts.flatMap((attempt) => attempt.spans.map((span) => span.key));
+    expect(spanKeys).toContain(shouted?.key);
+});
+
+test("the runs page shows what a model call sent and got back", async () => {
+    const workflowDirectory = tempDir("vera-annex-prompts-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import model_call, step, workflow",
+        "",
+        "@step",
+        "def chat(text: str) -> str:",
+        "    with model_call('claude-opus-5') as call:",
+        "        call.input([{'role': 'user', 'content': text}])",
+        "        call.output('x' * 9000)",
+        "    return 'done'",
+        "",
+        "@workflow",
+        "def talk(text: str) -> str:",
+        "    return chat(text)",
+        "",
+        "if __name__ == '__main__':",
+        "    talk.run('hello', journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const env = { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") };
+    expect(Bun.spawnSync(["python3", entry, workflowDirectory], { env }).exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-prompts-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string }[];
+    };
+    const runId = list.rows[0]?.runId ?? "";
+    const detail = await (await fetch(`${server.url}api/runs/${runId}`)).json() as {
+        attempts: {
+            spans: {
+                model?: string;
+                input?: { value?: unknown };
+                output?: { ref?: string; bytes?: number };
+            }[];
+        }[];
+    };
+    const call = detail.attempts[0]?.spans.find((span) => span.model !== undefined);
+    expect(call?.input).toEqual({ value: [{ role: "user", content: "hello" }] });
+    expect(call?.output?.bytes).toBe(9002);
+
+    const blob = await fetch(`${server.url}api/runs/${runId}/blobs/${call?.output?.ref ?? ""}`);
+    expect(blob.status).toBe(200);
+    expect(await blob.json()).toEqual({ value: "x".repeat(9000) });
+
+    const missing = await fetch(`${server.url}api/runs/${runId}/blobs/${"0".repeat(64)}`);
+    expect(missing.status).toBe(404);
 });

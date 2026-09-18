@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import socket
 import uuid
 
 from ._canonical import dumps
@@ -14,7 +16,7 @@ from ._errors import WorkflowError
 
 _RUN_ID = re.compile(r"wf_[0-9a-f]{16}\Z")
 _BLOB_REF = re.compile(r"[0-9a-f]{64}\Z")
-_STATUSES = {"ok", "failed", "suspended", "cancelled", "running"}
+_STATUSES = {"ok", "failed", "suspended", "cancelled", "crashed", "running"}
 _INLINE_VALUE_MAX_BYTES = 8192
 
 
@@ -131,7 +133,9 @@ def validate_header(
             raise _journal_error("failed workflow header must include error")
         if type(error.get("kind")) is not str or type(error.get("message")) is not str:
             raise _journal_error("workflow header error must include kind and message")
-    if status in ("suspended", "cancelled") and type(header.get("reason")) is not str:
+    if status in ("suspended", "cancelled", "crashed") and type(
+        header.get("reason")
+    ) is not str:
         raise _journal_error(f"{status} workflow header must include reason")
     args = header.get("args")
     kwargs = header.get("kwargs")
@@ -142,6 +146,7 @@ def validate_header(
     except WorkflowError as error:
         raise _journal_error("workflow header contains invalid inputs") from error
     _validate_entry(header.get("entry"))
+    _validate_attempts(header.get("attempts"))
     return header
 
 
@@ -163,6 +168,171 @@ def _validate_entry(entry: object) -> None:
         )
 
 
+def _validate_attempts(attempts: object) -> None:
+    if attempts is None:
+        return
+    if type(attempts) is not list:
+        raise _journal_error("header field attempts must be an array")
+    for attempt in attempts:
+        if type(attempt) is not dict:
+            raise _journal_error("each workflow attempt must be an object")
+        _validate_timestamp(attempt.get("started_at"), "attempts.started_at")
+        if type(attempt.get("pid")) is not int:
+            raise _journal_error("header field attempts.pid must be an integer")
+        if type(attempt.get("host")) is not str:
+            raise _journal_error("header field attempts.host must be a string")
+
+
+def open_attempt(header: dict[str, object]) -> None:
+    """Record the process about to run this workflow."""
+    attempts = header.get("attempts")
+    if type(attempts) is not list:
+        attempts = []
+        header["attempts"] = attempts
+    attempts.append(
+        {"started_at": _now(), "pid": os.getpid(), "host": socket.gethostname()}
+    )
+
+
+def close_attempt(header: dict[str, object], status: str) -> None:
+    """Close the attempt this process opened.
+
+    An attempt with no `finished_at` belongs to a process that never came back.
+    """
+    attempts = header.get("attempts")
+    if type(attempts) is not list or not attempts:
+        return
+    attempt = attempts[-1]
+    if type(attempt) is not dict or "finished_at" in attempt:
+        return
+    attempt["finished_at"] = _now()
+    attempt["status"] = status
+    error = header.get("error")
+    if status == "failed" and type(error) is dict:
+        attempt["error"] = dict(error)
+
+
+SPAN_STATUS = {
+    "ok": "OK",
+    "failed": "ERROR",
+    "suspended": "UNSET",
+    "cancelled": "UNSET",
+}
+
+
+def span_start(
+    header: dict[str, object],
+    count: int,
+    key: str,
+    step_name: str,
+    parent: str | None = None,
+    kind: str = "CHAIN",
+    attributes: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """The line that opens a span: one try of one step, or a call inside one.
+
+    Field names follow OpenTelemetry, and the kind follows OpenInference, so a
+    reader that speaks either needs a mapping of ids rather than of shapes.
+    """
+    attempts = header.get("attempts")
+    attempt = len(attempts) if type(attempts) is list and attempts else 1
+    run_id = header.get("run_id")
+    parent_id = parent if parent is not None else f"a{attempt}"
+    carried = {
+        "openinference.span.kind": kind,
+        "halcyon.attempt": attempt,
+        "halcyon.step.key": key,
+    }
+    if attributes is not None:
+        carried.update(attributes)
+    return {
+        "trace_id": run_id if type(run_id) is str else "",
+        "span_id": f"{parent_id}.{count}",
+        "parent_id": parent_id,
+        "name": step_name,
+        "start_time": _now(),
+        "attributes": carried,
+    }
+
+
+def span_end(
+    span_id: str,
+    ms: int,
+    outcome: str,
+    message: str | None = None,
+    attributes: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """The line that settles a span.
+
+    `status_code` is what OpenTelemetry can say about any span, so the word
+    Halcyon uses rides along beside it rather than being flattened into it.
+    """
+    settled: dict[str, object] = {
+        "halcyon.outcome": outcome,
+        "halcyon.duration_ms": ms,
+    }
+    if attributes is not None:
+        settled.update(attributes)
+    line: dict[str, object] = {
+        "span_id": span_id,
+        "end_time": _now(),
+        "status_code": SPAN_STATUS.get(outcome, "UNSET"),
+        "attributes": settled,
+    }
+    if message is not None:
+        line["status_message"] = message
+    return line
+
+
+def read_span_lines(run_dir: Path) -> list[dict[str, object]]:
+    path = run_dir / "spans.ndjson"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        raise _journal_error(f"cannot read {path}") from error
+    lines: list[dict[str, object]] = []
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        line = _parse_json_text(raw, str(path))
+        if type(line) is not dict:
+            raise _journal_error(f"workflow span must be an object in {path}")
+        lines.append(line)
+    return lines
+
+
+def fold_spans(lines: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+    """One entry per span, in the order they opened.
+
+    A span with no `end_time` is a try whose process died in it, so the gap is
+    the reading, not a defect in the file. Attributes merge across the two
+    lines; every other field is taken from whichever line carries it.
+    """
+    spans: dict[str, dict[str, object]] = {}
+    for line in lines:
+        span_id = line.get("span_id")
+        if type(span_id) is not str:
+            continue
+        if "start_time" in line:
+            spans[span_id] = dict(line)
+            continue
+        found = spans.get(span_id)
+        if found is None:
+            continue
+        attributes = dict(_attributes_of(found))
+        attributes.update(_attributes_of(line))
+        found.update(line)
+        found["attributes"] = attributes
+    return list(spans.values())
+
+
+def _attributes_of(line: dict[str, object]) -> dict[str, object]:
+    attributes = line.get("attributes")
+    return attributes if type(attributes) is dict else {}
+
+
 class Journal:
     def __init__(
         self,
@@ -171,12 +341,15 @@ class Journal:
         header: dict[str, object],
         records: dict[str, object],
         next_seq: int,
+        timings: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self.journal_dir = journal_dir
         self.run_dir = run_dir
         self.header = header
         self.records = records
+        self.timings = timings if timings is not None else {}
         self._next_seq = next_seq
+        self._span_count = 0
 
     @classmethod
     def create(
@@ -233,8 +406,8 @@ class Journal:
             raise _journal_error(f"cannot read {header_path}") from error
         raw_header = _parse_json(header_text, header_path)
         header = validate_header(raw_header, run_id, workflow_name)
-        records, next_seq = cls._load_records(run_dir / "journal.ndjson")
-        return cls(journal_dir, run_dir, header, records, next_seq)
+        records, timings, next_seq = cls._load_records(run_dir / "journal.ndjson")
+        return cls(journal_dir, run_dir, header, records, next_seq, timings)
 
     @staticmethod
     def _require_journal_dir(journal_dir: Path) -> None:
@@ -242,14 +415,17 @@ class Journal:
             raise _journal_error(f"journal directory does not exist: {journal_dir}")
 
     @staticmethod
-    def _load_records(path: Path) -> tuple[dict[str, object], int]:
+    def _load_records(
+        path: Path,
+    ) -> tuple[dict[str, object], dict[str, dict[str, object]], int]:
         if not path.exists():
-            return {}, 1
+            return {}, {}, 1
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeError) as error:
             raise _journal_error(f"cannot read {path}") from error
         records: dict[str, object] = {}
+        timings: dict[str, dict[str, object]] = {}
         for expected_seq, line in enumerate(lines, start=1):
             if not line:
                 raise _journal_error(f"blank line in {path}")
@@ -258,8 +434,8 @@ class Journal:
                 raise _journal_error("workflow journal record must be an object")
             record: dict[str, object] = raw
             fields = set(record)
-            inline_fields = {"seq", "key", "ok", "value"}
-            blob_fields = {"seq", "key", "ok", "ref", "bytes"}
+            inline_fields = {"seq", "key", "ok", "at", "ms", "value"}
+            blob_fields = {"seq", "key", "ok", "at", "ms", "ref", "bytes"}
             if fields not in (inline_fields, blob_fields):
                 raise _journal_error("workflow journal record has invalid fields")
             if type(record["seq"]) is not int or record["seq"] != expected_seq:
@@ -269,6 +445,10 @@ class Journal:
                 raise _journal_error("workflow journal key must be a non-empty string")
             if record["ok"] is not True:
                 raise _journal_error("workflow journal may contain successes only")
+            if type(record["at"]) is not str or not record["at"]:
+                raise _journal_error("workflow journal at must be a timestamp")
+            if type(record["ms"]) is not int or record["ms"] < 0:
+                raise _journal_error("workflow journal ms must be a whole number")
             if key in records:
                 raise _journal_error(f"duplicate workflow journal key: {key}")
             if fields == inline_fields:
@@ -298,7 +478,8 @@ class Journal:
                     byte_count,
                 )
             records[key] = value
-        return records, len(lines) + 1
+            timings[key] = {"at": record["at"], "ms": record["ms"]}
+        return records, timings, len(lines) + 1
 
     @property
     def run_id(self) -> str:
@@ -321,12 +502,15 @@ class Journal:
             raise _journal_error("workflow header is missing resumable inputs")
         return tuple(args), kwargs
 
-    def append(self, key: str, value: object) -> None:
+    def append(self, key: str, value: object, ms: int = 0) -> None:
         encoded_value = dumps(value).encode("utf-8")
+        at = _now()
         record: dict[str, object] = {
             "seq": self._next_seq,
             "key": key,
             "ok": True,
+            "at": at,
+            "ms": ms,
         }
         if len(encoded_value) > _INLINE_VALUE_MAX_BYTES:
             reference = hashlib.sha256(encoded_value).hexdigest()
@@ -353,10 +537,88 @@ class Journal:
         except (OSError, TypeError, ValueError) as error:
             raise _journal_error("cannot append workflow journal record") from error
         self.records[key] = value
+        self.timings[key] = {"at": at, "ms": ms}
         self._next_seq += 1
+        if self.header.pop("active", None) is not None:
+            self._write_header_during_run()
+
+    def start_attempt(self) -> None:
+        open_attempt(self.header)
+        self._write_header_during_run()
+
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str:
+        line = span_start(
+            self.header, self._span_count, key, step_name, parent, kind, attributes
+        )
+        self._span_count += 1
+        self._append_span(line)
+        return str(line["span_id"])
+
+    def close_span(
+        self,
+        span_id: str,
+        ms: int,
+        outcome: str,
+        message: str | None = None,
+        attributes: dict[str, object] | None = None,
+    ) -> None:
+        self._append_span(span_end(span_id, ms, outcome, message, attributes))
+
+    def spans(self) -> list[dict[str, object]]:
+        return fold_spans(read_span_lines(self.run_dir))
+
+    def put_blob(self, encoded: bytes) -> str:
+        """Store bytes under their digest in the run's blobs and return it."""
+        reference = hashlib.sha256(encoded).hexdigest()
+        _write_blob(self.run_dir, encoded, reference)
+        return reference
+
+    def _append_span(self, line: dict[str, object]) -> None:
+        try:
+            text = json.dumps(
+                line,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            with (self.run_dir / "spans.ndjson").open(
+                "a",
+                encoding="utf-8",
+                newline="\n",
+            ) as span_file:
+                span_file.write(text + "\n")
+                span_file.flush()
+                os.fsync(span_file.fileno())
+        except (OSError, TypeError, ValueError) as error:
+            raise _journal_error("cannot append workflow span") from error
+
+    def mark_step_started(self, key: str, step_name: str) -> None:
+        """Name the step now in flight, so a crashed run says where it stopped."""
+        self.header["active"] = {"key": key, "step": step_name, "at": _now()}
+        self._write_header_during_run()
+
+    def _write_header_during_run(self) -> None:
+        """Rewrite the header without dropping a cancel another process asked for.
+
+        The header file is the cancel channel, so a write from inside the run
+        has to carry back whatever landed there since it was last read.
+        """
+        requested = self.cancel_requested()
+        if requested is not None:
+            self.header["cancel_requested"] = requested
+        self.write_header()
 
     def mark_running(self) -> None:
         self.header["status"] = "running"
+        self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header.pop("cancel_requested", None)
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -365,20 +627,41 @@ class Journal:
 
     def mark_ok(self) -> None:
         self.header["status"] = "ok"
+        self.header.pop("active", None)
         self.header["finished_at"] = _now()
         self.header.pop("error", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "ok")
         self.write_header()
 
     def mark_failed(self, kind: str, message: str) -> None:
         self.header["status"] = "failed"
+        self.header.pop("active", None)
         self.header["error"] = {"kind": kind, "message": message}
         self.header.pop("finished_at", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "failed")
         self.write_header()
 
-    def mark_suspended(self, reason: str) -> None:
+    def mark_suspended(
+        self, reason: str, asking: dict[str, object] | None = None
+    ) -> None:
         self.header["status"] = "suspended"
+        self.header.pop("active", None)
+        self.header["reason"] = reason
+        if asking is None:
+            self.header.pop("asking", None)
+        else:
+            self.header["asking"] = asking
+        self.header.pop("finished_at", None)
+        self.header.pop("error", None)
+        close_attempt(self.header, "suspended")
+        self.write_header()
+
+    def mark_crashed(self, reason: str) -> None:
+        """Say the process died. The open attempt stays open as the evidence."""
+        self.header["status"] = "crashed"
+        self.header.pop("active", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -386,9 +669,12 @@ class Journal:
 
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
+        self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
+        close_attempt(self.header, "cancelled")
         self.write_header()
 
     def reload_inbox(self) -> None:
@@ -401,6 +687,15 @@ class Journal:
 
     def request_cancel(self, reason: str) -> None:
         self.header["cancel_requested"] = reason
+        self.write_header()
+
+    def put_inbox(self, key: str, value: object) -> None:
+        """Leave a value for the run to read from `current.run.inbox`."""
+        self.reload_inbox()
+        inbox = self.header["inbox"]
+        if type(inbox) is not dict:
+            raise _journal_error("header field inbox must be an object")
+        inbox[key] = value
         self.write_header()
 
     def cancel_requested(self) -> str | None:

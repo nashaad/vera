@@ -7,7 +7,8 @@ into smaller steps.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -19,6 +20,7 @@ from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, 
 
 from ._canonical import digest, dumps
 from ._errors import Cancelled, Run, RunError, StepTimeout, Suspend, WorkflowError
+from ._journal import _INLINE_VALUE_MAX_BYTES, _now
 from ._hooks import (
     CommandHook,
     PrepareStepHook,
@@ -44,6 +46,7 @@ WorkflowArgs = TypeVarTuple("WorkflowArgs")
 __all__ = [
     "workflow",
     "step",
+    "ask",
     "Cancelled",
     "StepTimeout",
     "Suspend",
@@ -51,6 +54,8 @@ __all__ = [
     "Run",
     "RunError",
     "current",
+    "model_call",
+    "ModelCall",
     "Ticket",
     "CommandHook",
     "FileJournalStore",
@@ -103,6 +108,8 @@ class _Current:
         *args: object,
         key: str,
         timeout: float | None = None,
+        retries: int = 0,
+        backoff: float = 0.0,
         **kwargs: object,
     ) -> R:
         """Call `function` as a step journaled under an explicit key.
@@ -123,13 +130,32 @@ class _Current:
         runtime = _runtime.get()
         if runtime is None:
             return function(*args, **kwargs)
-        return runtime.call_step(name, function, args, kwargs, key=key, timeout=timeout)
+        _check_budget(retries, backoff)
+        return runtime.call_step(
+            name,
+            function,
+            args,
+            kwargs,
+            key=key,
+            timeout=timeout,
+            retries=retries,
+            backoff=backoff,
+        )
 
 
 class _UserFailure(BaseException):
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
+
+
+class _Asking(Suspend):
+    """The run stopped to wait for an answer to `question`."""
+
+    def __init__(self, key: str, question: str) -> None:
+        super().__init__(question)
+        self.key = key
+        self.question = question
 
 
 class _RuntimeFault(BaseException):
@@ -165,6 +191,74 @@ class _Runtime:
             inbox=MappingProxyType(inbox),
         )
         self._ordinals: dict[str, int] = {}
+        self._asks: dict[str, int] = {}
+
+    def ask_key(self, step: _StepSpan | None) -> str:
+        """Name the next question, counted within its step or the workflow body."""
+        scope = "" if step is None else step.key
+        ordinal = self._asks.get(scope, 0)
+        self._asks[scope] = ordinal + 1
+        return f"ask#{ordinal}" if step is None else f"{scope}/ask#{ordinal}"
+
+    def _attempt(
+        self,
+        key: str,
+        step_name: str,
+        function: Callable[P, R],
+        args: P.args,
+        kwargs: P.kwargs,
+        timeout: float | None,
+        retries: int,
+        backoff: float,
+    ) -> R:
+        """Call the body, retrying an ordinary failure up to `retries` times.
+
+        Only the outcome of the last attempt reaches the journal, so a run that
+        dies mid-budget starts the step again from zero on resume. A timeout is
+        not retried: it ends the run. Every try opens a span, including the ones
+        the journal never hears about.
+        """
+        delay = backoff
+        remaining = retries
+        while True:
+            # A retry asks the same questions again, so it reads the same answers.
+            self._asks.pop(key, None)
+            span = self.journal.open_span(key, step_name)
+            started = time.monotonic()
+            span_token = _step_span.set(_StepSpan(self.journal, span, key))
+            try:
+                value = _invoke(step_name, function, args, kwargs, timeout)
+            except _UserFailure as failure:
+                self.journal.close_span(
+                    span,
+                    _elapsed(started),
+                    "failed",
+                    _error_message(failure.error),
+                )
+                if remaining <= 0 or isinstance(failure.error, StepTimeout):
+                    raise
+            except BaseException as stop:
+                self.journal.close_span(
+                    span, _elapsed(started), _stop_status(stop), _error_message(stop)
+                )
+                raise
+            else:
+                self.journal.close_span(span, _elapsed(started), "ok")
+                return value
+            finally:
+                _step_span.reset(span_token)
+            remaining -= 1
+            if delay > 0:
+                self._sleep(delay, step_name)
+                delay *= 2
+
+    def _sleep(self, delay: float, step_name: str) -> None:
+        """Wait out a backoff, cutting it short when the run is cancelled."""
+        if self.cancel is None:
+            time.sleep(delay)
+            return
+        if self.cancel.wait(delay):
+            raise Cancelled(f"cancelled before {step_name}")
 
     def call_step(
         self,
@@ -175,6 +269,8 @@ class _Runtime:
         *,
         key: str | None = None,
         timeout: float | None = None,
+        retries: int = 0,
+        backoff: float = 0.0,
     ) -> R:
         positional_args = tuple(args)
         keyword_args = dict(kwargs)
@@ -192,10 +288,12 @@ class _Runtime:
             return cast(R, self.journal.records[key])
         if self.cancel is not None and self.cancel.is_set():
             raise Cancelled(f"cancelled before {name}")
+        started = time.monotonic()
         # Re-reads the store, so a cancel from another process is seen here.
         requested = self.journal.cancel_requested()
         if requested is not None:
             raise Cancelled(requested)
+        self.journal.mark_step_started(key, step_name)
         call_args: tuple[object, ...] = positional_args
         call_kwargs: dict[str, object] = keyword_args
         if self._prepare_step:
@@ -225,7 +323,7 @@ class _Runtime:
             if chain.replaced:
                 try:
                     dumps(chain.replacement)
-                    self.journal.append(key, chain.replacement)
+                    self.journal.append(key, chain.replacement, _elapsed(started))
                 except WorkflowError as error:
                     raise _RuntimeFault(error) from error
                 return cast(R, chain.replacement)
@@ -234,23 +332,180 @@ class _Runtime:
                 call_kwargs = chain.kwargs
         typed_args = cast("P.args", call_args)
         typed_kwargs = cast("P.kwargs", call_kwargs)
-        value = _invoke(step_name, function, typed_args, typed_kwargs, timeout)
+        value = self._attempt(
+            key,
+            step_name,
+            function,
+            typed_args,
+            typed_kwargs,
+            timeout,
+            retries,
+            backoff,
+        )
         try:
             dumps(value)
-            self.journal.append(key, value)
+            self.journal.append(key, value, _elapsed(started))
         except WorkflowError as error:
             raise _RuntimeFault(error) from error
         return value
+
+
+def _stop_status(stop: BaseException) -> str:
+    """How a span ended when something other than a step failure stopped it."""
+    if isinstance(stop, Suspend):
+        return "suspended"
+    if isinstance(stop, Cancelled):
+        return "cancelled"
+    return "failed"
 
 
 _runtime: ContextVar[_Runtime | None] = ContextVar("vera_workflow_runtime", default=None)
 _deadline: ContextVar[float | None] = ContextVar("vera_step_deadline", default=None)
 _cancel: ContextVar[Event | None] = ContextVar("vera_run_cancel", default=None)
 _step_cancel: ContextVar[Event | None] = ContextVar("vera_step_cancel", default=None)
+_step_span: ContextVar[_StepSpan | None] = ContextVar("vera_step_span", default=None)
 current = _Current()
 
 
-def _error_message(error: Exception) -> str:
+@dataclass(frozen=True)
+class _StepSpan:
+    journal: RunJournal
+    span_id: str
+    key: str
+
+
+class ModelCall:
+    """One model call inside a step, recorded as its own span.
+
+    The counts are whatever the caller read off the provider's response. Naming
+    follows OpenInference, so an exporter maps ids rather than shapes.
+    """
+
+    def __init__(self, model: str, provider: str = "") -> None:
+        self.model = model
+        self.provider = provider
+        self.attributes: dict[str, object] = {}
+        self.sent: dict[str, object] = {}
+
+    def usage(
+        self,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_input_tokens: int = 0,
+        cost: float | None = None,
+    ) -> None:
+        """Record what the call used. A second call replaces the first."""
+        for name, count in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("cached_input_tokens", cached_input_tokens),
+        ):
+            if count < 0:
+                raise WorkflowError("usage", f"{name} cannot be negative")
+        if cost is not None and cost < 0:
+            raise WorkflowError("usage", "cost cannot be negative")
+        attributes: dict[str, object] = {
+            "llm.token_count.prompt": input_tokens,
+            "llm.token_count.completion": output_tokens,
+            "llm.token_count.total": input_tokens + output_tokens,
+        }
+        if cached_input_tokens:
+            attributes["llm.token_count.prompt_details.cache_read"] = (
+                cached_input_tokens
+            )
+        if cost is not None:
+            attributes["llm.cost.total"] = cost
+        self.attributes = attributes
+
+    def input(self, value: object) -> None:
+        """Record what was sent: a prompt string, or the messages as JSON."""
+        dumps(value)
+        self.sent["input"] = value
+
+    def output(self, value: object) -> None:
+        """Record what came back: the reply text, or the response as JSON."""
+        dumps(value)
+        self.sent["output"] = value
+
+
+def _io_attributes(journal: RunJournal, call: ModelCall) -> dict[str, object]:
+    """Small values ride on the span; a large one goes to a blob by digest."""
+    attributes: dict[str, object] = {}
+    for side, value in call.sent.items():
+        encoded = dumps(value).encode("utf-8")
+        if len(encoded) > _INLINE_VALUE_MAX_BYTES:
+            attributes[f"halcyon.{side}.ref"] = journal.put_blob(encoded)
+            attributes[f"halcyon.{side}.bytes"] = len(encoded)
+        elif type(value) is str:
+            attributes[f"{side}.value"] = value
+            attributes[f"{side}.mime_type"] = "text/plain"
+        else:
+            attributes[f"{side}.value"] = encoded.decode("utf-8")
+            attributes[f"{side}.mime_type"] = "application/json"
+    return attributes
+
+
+@contextmanager
+def model_call(model: str, *, provider: str = "") -> Iterator[ModelCall]:
+    """Record one model call as a span under the step that made it.
+
+    Outside a step there is no span to hang it on, so the block still runs and
+    nothing is recorded.
+    """
+    call = ModelCall(model, provider)
+    step = _step_span.get()
+    if step is None:
+        yield call
+        return
+    opening: dict[str, object] = {"llm.model_name": model}
+    if provider:
+        opening["llm.provider"] = provider
+    span_id = step.journal.open_span(step.key, model, step.span_id, "LLM", opening)
+    started = time.monotonic()
+    try:
+        yield call
+    except BaseException as error:
+        step.journal.close_span(
+            span_id,
+            _elapsed(started),
+            _stop_status(error),
+            _error_message(error),
+            {**call.attributes, **_io_attributes(step.journal, call)},
+        )
+        raise
+    step.journal.close_span(
+        span_id,
+        _elapsed(started),
+        "ok",
+        None,
+        {**call.attributes, **_io_attributes(step.journal, call)},
+    )
+
+
+def ask(question: str) -> str:
+    """Pause the run until someone answers `question`, then return the answer.
+
+    The first time through, the question goes in the journal and the run
+    suspends. `python -m vera.workflow answer <run_id>` records an answer and
+    resumes the run, and on that replay this call returns it. Each call is a
+    separate question, numbered in the order the run reaches them.
+    """
+    runtime = _runtime.get()
+    if runtime is None:
+        raise WorkflowError("ask", "ask() needs a running workflow")
+    key = runtime.ask_key(_step_span.get())
+    answer = runtime.current_run.inbox.get(key)
+    if type(answer) is str:
+        return answer
+    raise _Asking(key, question)
+
+
+def _elapsed(started: float) -> int:
+    return max(0, round((time.monotonic() - started) * 1000))
+
+
+def _error_message(error: BaseException) -> str:
     return str(error) or error.__class__.__name__
 
 
@@ -283,7 +538,7 @@ def _invoke(
     def body() -> None:
         try:
             outcome.append((True, function(*args, **kwargs)))
-        except Exception as error:  # noqa: BLE001 - reported through _UserFailure
+        except (Exception, Suspend) as error:  # noqa: BLE001 - reported below
             outcome.append((False, error))
 
     worker = Thread(
@@ -299,16 +554,27 @@ def _invoke(
     succeeded, value = outcome[0]
     if succeeded:
         return cast(R, value)
+    if isinstance(value, Suspend):
+        raise value
     raise _UserFailure(cast(Exception, value))
 
 
 class _Step(Generic[P, R]):
-    def __init__(self, function: Callable[P, R], timeout: float | None = None) -> None:
+    def __init__(
+        self,
+        function: Callable[P, R],
+        timeout: float | None = None,
+        retries: int = 0,
+        backoff: float = 0.0,
+    ) -> None:
         if timeout is not None and timeout <= 0:
             raise ValueError("timeout must be greater than zero")
+        _check_budget(retries, backoff)
         self._function = function
         self.name = function.__name__
         self.timeout = timeout
+        self.retries = retries
+        self.backoff = backoff
         update_wrapper(self, function, updated=())
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
@@ -321,6 +587,8 @@ class _Step(Generic[P, R]):
             args,
             kwargs,
             timeout=self.timeout,
+            retries=self.retries,
+            backoff=self.backoff,
         )
         return value
 
@@ -401,6 +669,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
     ) -> Run:
         if mark_running:
             journal.mark_running()
+        journal.start_attempt()
         inbox = clone_json(journal.inbox)
         if type(inbox) is not dict:
             raise WorkflowError("journal", "header field inbox must be an object")
@@ -421,7 +690,14 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             )
         except Suspend as suspended:
             journal.reload_inbox()
-            journal.mark_suspended(suspended.reason)
+            asking = None
+            if isinstance(suspended, _Asking):
+                asking = {
+                    "key": suspended.key,
+                    "question": suspended.question,
+                    "at": _now(),
+                }
+            journal.mark_suspended(suspended.reason, asking)
             return Run(
                 journal.run_id,
                 "suspended",
@@ -464,6 +740,8 @@ def step(
     function: Callable[P, R] | None = None,
     *,
     timeout: float | None = None,
+    retries: int = 0,
+    backoff: float = 0.0,
 ) -> _Step[P, R] | Callable[[Callable[P, R]], _Step[P, R]]:
     """Mark a function as a journaled step, bare or with arguments.
 
@@ -473,14 +751,29 @@ def step(
     the run does not continue. Nothing is journaled, so a resumed run tries the
     step again. A caller that needs a deadline to be an outcome rather than the
     end of the run enforces it inside the step and returns a value.
+
+    `retries` is how many extra attempts an ordinary failure gets, and
+    `backoff` the seconds before the first of them, doubling after each. The
+    budget lives in this process: only the last attempt reaches the journal, so
+    a run that dies mid-budget starts the step again from zero. A timeout is
+    not retried, and a cancelled run stops during the wait.
     """
     if function is not None:
-        return _Step(function, timeout)
+        return _Step(function, timeout, retries, backoff)
 
     def decorate(inner: Callable[P, R]) -> _Step[P, R]:
-        return _Step(inner, timeout)
+        return _Step(inner, timeout, retries, backoff)
 
     return decorate
+
+
+def _check_budget(retries: int, backoff: float) -> None:
+    if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+        raise ValueError("retries must be a whole number of extra attempts")
+    if isinstance(backoff, bool) or not isinstance(backoff, (int, float)):
+        raise ValueError("backoff must be a number of seconds")
+    if backoff < 0:
+        raise ValueError("backoff must not be negative")
 
 
 def workflow(

@@ -74,7 +74,9 @@ export type TuiSettingsPickerKind =
     | "overrides_settings"
     | "override_value"
     | "session"
+    | "session_import"
     | "session_leave"
+    | "session_create_leave"
     | "configure"
     | "settings"
     | "permission_settings"
@@ -99,6 +101,20 @@ export const SESSION_LEAVE_OPTIONS: readonly TuiSettingsPickerOption[] = [
         value: "keep_running",
         label: "Switch, keep running",
         description: "leave this conversation working in the background",
+    },
+];
+
+/** How New conversation / `/clear` leaves the conversation on screen. */
+export const SESSION_CREATE_LEAVE_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    {
+        value: "stop",
+        label: "Close this conversation",
+        description: "stop it, then start a new one",
+    },
+    {
+        value: "keep_running",
+        label: "Keep running",
+        description: "stay idle for 10 minutes, then close",
     },
 ];
 
@@ -174,6 +190,8 @@ export interface TuiSettingsPickerOption {
     readonly section?: string;
     readonly sectionCollapsed?: boolean;
     readonly inTopPicks?: boolean;
+    /** This provider is served by a runtime Vera can start and stop itself. */
+    readonly localRuntime?: boolean;
 }
 
 export interface TuiConfigureFile {
@@ -184,6 +202,38 @@ export interface TuiConfigureFile {
     readonly createIfMissing: boolean;
 }
 
+/** What the local runtime is doing. Facts only: the provider screen decides the words, and a screen with no reading yet says so rather than guessing. */
+export interface TuiLocalRuntimeStatus {
+    readonly provider: string;
+    readonly label: string;
+    readonly state: "unknown" | "absent" | "stopped" | "running";
+    /** The gateway moves separately from the model it serves: it can be up with nothing loaded. */
+    readonly gateway?: "up" | "down";
+    readonly profile?: string;
+    readonly endpoint?: string;
+    readonly healthy?: boolean;
+    readonly residentBytes?: number;
+    /** A command Vera is running right now. The facts around it are the ones from before it started, so the section says what is happening instead of showing them as settled. */
+    readonly busy?: "starting" | "stopping" | "switching";
+    /** How far the download behind a command in flight has got. Only a fetch reports bytes; bringing weights that are already on disk into memory reports nothing. */
+    readonly progress?: TuiLocalRuntimeProgress;
+    /** Why the last thing Vera asked of the runtime did not happen. */
+    readonly failure?: string;
+}
+
+export interface TuiLocalRuntimeProgress {
+    readonly downloaded: number;
+    readonly total?: number;
+    readonly etaSeconds?: number;
+}
+
+export type TuiLocalRuntimeAction =
+    | "start"
+    | "stop"
+    | "restart"
+    | "switch"
+    | "logs";
+
 export interface TuiProviderRow {
     readonly id: string;
     readonly label: string;
@@ -192,6 +242,7 @@ export interface TuiProviderRow {
     readonly hasCredential: boolean;
     readonly answerState?: ProviderAnswerState;
     readonly refreshable?: boolean;
+    readonly localRuntime?: boolean;
     readonly declared?: boolean;
     readonly endpointEditable?: boolean;
 }
@@ -256,8 +307,11 @@ export type ModelBrowseSection = "scope" | "sort" | "search" | "intelligence" | 
 /** How Switch model orders the models inside each provider group. */
 export type ModelBrowseSort = "library" | "az" | "price";
 
+export type TuiImportScope = "folder" | "all";
+
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
+    readonly importScope?: TuiImportScope;
     readonly allOptions: readonly TuiSettingsPickerOption[];
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
@@ -301,6 +355,7 @@ export interface TuiSettingsPickerState {
     readonly webdevArenaSnapshot?: string;
     readonly canUndoPoolChange?: boolean;
     readonly enterDisposition?: TuiSessionLeaveDisposition;
+    readonly ignoreEnter?: boolean;
     readonly nothingToLeave?: boolean;
     readonly collapsed?: readonly string[];
     readonly parent?: TuiSettingsPickerState;
@@ -320,6 +375,8 @@ export interface TuiSettingsPickerState {
     readonly browsePricedOnly?: boolean;
     readonly browseImagesOnly?: boolean;
     readonly configureFiles?: readonly TuiConfigureFile[];
+    /** The runtime behind a local provider on this screen, shown as its own section. */
+    readonly localRuntime?: TuiLocalRuntimeStatus;
     /** The provider the onboarding model step is choosing within. */
 }
 
@@ -390,6 +447,11 @@ export type TuiSettingsPickerSelection =
         readonly sessionId?: string;
         readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
+    | {
+        readonly kind: "session_create_leave";
+        readonly sourceDisposition: TuiSessionLeaveDisposition;
+    }
+    | { readonly kind: "session_import"; readonly path: string }
     | { readonly kind: "configure"; readonly file: TuiConfigureFile }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget }
     | {
@@ -473,11 +535,17 @@ export interface TuiSettingsPickerTransition {
     readonly refreshCatalogScope?: boolean;
     readonly editProvider?: string;
     readonly editEndpoint?: string;
+    readonly runtimeAction?: {
+        readonly provider: string;
+        readonly action: TuiLocalRuntimeAction;
+    };
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
         readonly label: string;
     };
+    // Asks for the import list again, for this folder or for every folder.
+    readonly importScope?: TuiImportScope;
     readonly renameCandidate?: {
         readonly sessionId: string;
         readonly label: string;

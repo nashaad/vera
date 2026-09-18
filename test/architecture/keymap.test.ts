@@ -228,7 +228,7 @@ test("the escape hatches survive the modifiers a terminal invents", () => {
 test("an extension chord that a built-in owns is reported, not silently lost", () => {
     expect(tuiChordOwner("ctrl+p")?.id).toBe("open_palette");
     expect(tuiChordOwner("ctrl+j")).toBeUndefined();
-    // The two bundled extensions are in the table, so they are answerable as
+    // The two included extensions are in the table, so they are answerable as
     // "what is this key" without being reported against themselves.
     expect(tuiChordOwner("ctrl+y")?.extensionId).toBe("cycle-reasoning");
 });
@@ -336,16 +336,12 @@ test("ctrl+w closes the conversation from the composer, not from search", () => 
         .toBeUndefined();
 });
 
-test("ctrl+n starts a new chat only while the agent sidebar holds focus", () => {
-    expect(tuiBindingId("workspace", { name: "n", ctrl: true }))
+test("ctrl+n starts a new chat from anywhere except the model picker", () => {
+    expect(tuiBindingId("global", { name: "n", ctrl: true }))
         .toBe("workspace_new_session");
     // The model picker already names a pooled model with this chord.
     expect(tuiBindingId("model_picker", { name: "n", ctrl: true }))
         .toBe("name_pooled");
-    expect(tuiBindingId("composer", { name: "n", ctrl: true }))
-        .toBeUndefined();
-    expect(tuiBindingId("global", { name: "n", ctrl: true }))
-        .toBeUndefined();
 });
 
 test("a digit jumps only while the side bar holds focus", () => {
@@ -364,7 +360,7 @@ test("a digit jumps only while the side bar holds focus", () => {
 });
 
 test("the moved chords take nothing that already resolved", () => {
-    // ctrl+e opens the side bar everywhere except inside the model picker,
+    // ctrl+e opens the conversation list everywhere except inside the model picker,
     // which owns the chord for as long as it is open.
     expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
         .toBe("toggle_workspace_sidebar");

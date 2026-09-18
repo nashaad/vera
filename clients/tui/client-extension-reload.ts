@@ -8,7 +8,7 @@ import {
 import type { TuiClientExtensionReloadSnapshot } from "./diagnostics.ts";
 
 export interface TuiClientExtensionReloadConfiguration {
-    readonly disabledBuiltinExtensions: readonly string[];
+    readonly disabledIncludedExtensions: readonly string[];
     readonly clientExtensions: readonly VeraExtensionConfig[];
 }
 
@@ -102,8 +102,8 @@ export function clientExtensionReloadFailed(
             failures,
         },
         notice: partialReload
-            ? `Client extensions reloaded with failures: ${kind}: ${message}`
-            : `Client extensions could not reload: ${message}`,
+            ? `Extensions reloaded in the TUI with failures: ${kind}: ${message}`
+            : `Extensions could not reload in the TUI: ${message}`,
     };
 }
 
@@ -114,9 +114,9 @@ export async function reloadTuiClientExtensions(
     const nextConfiguration = refreshed === undefined
         ? options.configuration
         : {
-            disabledBuiltinExtensions: refreshed.disabledBuiltinExtensions,
+            disabledIncludedExtensions: refreshed.disabledIncludedExtensions,
             clientExtensions: configuredTuiClientExtensions(
-                refreshed.disabledBuiltinExtensions,
+                refreshed.disabledIncludedExtensions,
                 refreshed.clientExtensions,
             ),
         };

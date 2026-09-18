@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { searchBrave, formatSearchResults } from "../../extensions/web-search/search.ts";
-import { defaultHostExtensionConfigs, WEB_SEARCH_EXTENSION_ID } from "../../src/extensions/bundled-host.ts";
+import { searchBrave, formatSearchResults } from "../../src/core-extensions/web-search/search.ts";
+import { includedExtensionConfigs } from "../../src/extensions/included.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import { decideToolPermission } from "../../src/engine/permissions.ts";
@@ -19,12 +19,12 @@ afterEach(() => {
     else process.env.BRAVE_API_KEY = originalKey;
 });
 
-test("bundled search uses permissions and returns a visible failure followed by a successful retry", async () => {
-    const configs = defaultHostExtensionConfigs([]).filter((config) =>
-        loadExtensionManifest(config.path).manifest.id === WEB_SEARCH_EXTENSION_ID).map((config) => ({ ...config, config: { providers: ["brave"] } }));
+test("included search uses permissions and returns a visible failure followed by a successful retry", async () => {
+    const configs = includedExtensionConfigs([]).filter((config) =>
+        loadExtensionManifest(config.path).manifest.id === "vera.web-search").map((config) => ({ ...config, config: { providers: ["brave"] } }));
     expect(configs).toHaveLength(1);
-    expect(defaultHostExtensionConfigs([WEB_SEARCH_EXTENSION_ID]).some((config) =>
-        loadExtensionManifest(config.path).manifest.id === WEB_SEARCH_EXTENSION_ID)).toBe(false);
+    expect(includedExtensionConfigs(["vera.web-search"]).some((config) =>
+        loadExtensionManifest(config.path).manifest.id === "vera.web-search")).toBe(false);
     delete process.env.BRAVE_API_KEY;
     const registry = await startExtensionRegistry({ extensions: configs });
     fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({

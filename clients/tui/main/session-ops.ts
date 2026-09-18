@@ -20,7 +20,7 @@ import { forgetPersistedAgentPane, rememberOpenPaneGroup } from "../main/sidebar
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { openCommandPalette, openResumePicker, openSearchOverlay, refreshWorkspaceSidebarRoster } from "../main/workspace-ops.ts";
 import type { TuiSessionLeaveDisposition, TuiSessionLeaveResult } from "../session-lifecycle.ts";
-import { sessionPickerLists, startTuiSessionPicker } from "../settings-picker.ts";
+import { sessionPickerLists, startTuiCreateLeavePicker, startTuiSessionPicker } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, createTuiState, dropTuiAdmission, setTuiWorkspaceRoot } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -388,12 +388,44 @@ export function resumeJsonlView(rt: TuiRuntime): void {
     });
 }
 
+export function requestCreateSession(
+    rt: TuiRuntime,
+    options: { readonly ignoreEnter?: boolean } = {},
+): void {
+    if (isHomeClient(rt.client) || isWorkerFreeClient(rt.client)) {
+        beginCreateSession(
+            rt,
+            isJsonlViewClient(rt.client) ? "keep_running" : "stop",
+        );
+        return;
+    }
+    if (rt.sessionSwitchPending) return;
+    rt.settingsPicker = startTuiCreateLeavePicker(options.ignoreEnter === true);
+    focusActiveSurface(rt);
+    renderState(rt);
+    if (options.ignoreEnter === true) {
+        setTimeout(() => {
+            if (
+                rt.settingsPicker?.kind === "session_create_leave"
+                && rt.settingsPicker.ignoreEnter === true
+            ) {
+                rt.settingsPicker = {
+                    ...rt.settingsPicker,
+                    ignoreEnter: false,
+                };
+            }
+        }, 0);
+    }
+}
+
 export function beginCreateSession(rt: TuiRuntime, 
     sourceDisposition: TuiSessionLeaveDisposition = "stop",
     draft?: () => TuiDraft | undefined,
     onReady?: () => void,
 ): void {
+    rt.settingsPickerView.surface.visible = false;
     rt.composer.clearComposer();
+    rt.composer.focus();
     const clearingSidebar = rt.sidebar.isFocused()
         && rt.hostedSidebar.pane !== undefined;
     const sourceClient = focusedAgentClient(rt);
@@ -531,6 +563,7 @@ export function beginCreateSession(rt: TuiRuntime,
             rt.state,
             `Could not start a new session: ${message}`,
         );
+        rt.composer.focus();
         renderState(rt);
     });
 }

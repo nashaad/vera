@@ -4,19 +4,28 @@ import type { AgentUpdate } from "../../../src/engine/protocol.ts";
 import { credentialRefusal, holdsCredential, providerMessage } from "../../../src/providers/onboarding.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
+import {
+    readProviderCatalogSnapshot,
+    writeProviderCatalogSnapshot,
+    type ProviderCatalogCacheOptions,
+} from "../../../src/model/catalog-cache.ts";
+import { readModelCatalog } from "../../../src/providers/read-model-catalog.ts";
 import { isHomeClient } from "../home-client.ts";
 import type { OnboardingScreenAction } from "../onboarding-screen.ts";
 import {
     newWizardSession,
+    wizardAdoptsDefault,
     OUTRIDER_REPO,
     RUNTIME_INSTALL_ROW,
     RUNTIME_MANUAL_ROW,
+    RUNTIME_REGISTER_ROW,
     wizardOpensAt,
     wizardScreen,
     type WizardRuntime,
     type WizardSession,
 } from "../onboarding-wizard.ts";
 import {
+    outriderRegisterCommand,
     readInstallPath,
     type OutriderProgress,
 } from "../../../src/providers/outrider.ts";
@@ -26,6 +35,7 @@ import {
     mergeProgress,
     outriderPresence,
     outriderProfiles,
+    registerOutrider,
     rememberOutriderBinary,
     serveOutrider,
     type OutriderDriver,
@@ -35,7 +45,7 @@ import { appendTuiError, appendTuiNotice } from "../state.ts";
 import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
 import { requestAgentSettings } from "./diagnostics-ops.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
-import { onboardingInput } from "./model-pickers.ts";
+import { homeNeedsProvider, onboardingInput } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { requestPoolAdmission } from "../main.ts";
@@ -86,12 +96,21 @@ function showWizard(rt: TuiRuntime, session: WizardSession): void {
     focusActiveSurface(rt);
 }
 
+function wizardAdopts(rt: TuiRuntime, provider: string | undefined): boolean {
+    return wizardAdoptsDefault(
+        provider,
+        homeNeedsProvider(rt),
+        loadOptionalVeraConfig()?.provider,
+    );
+}
+
 export function openOnboardingWizard(rt: TuiRuntime): void {
     const input = onboardingInput(rt);
     const at = wizardOpensAt(input);
     const chosen = at === "provider" ? undefined : input.config?.provider;
     showWizard(rt, {
         ...newWizardSession(at),
+        ...(wizardAdopts(rt, chosen) ? { adopts: true } : {}),
         ...(chosen === undefined ? {} : { chosen }),
     });
     if (at === "model" && chosen !== undefined) {
@@ -104,7 +123,11 @@ export function enterWizardModelStep(
     rt: TuiRuntime,
     provider: string,
 ): void {
-    showWizard(rt, { ...newWizardSession("model"), chosen: provider });
+    showWizard(rt, {
+        ...newWizardSession("model"),
+        ...(wizardAdopts(rt, provider) ? { adopts: true } : {}),
+        chosen: provider,
+    });
     requestWizardModels(rt, provider);
 }
 
@@ -115,6 +138,7 @@ export function enterWizardInstallStep(
 ): void {
     showWizard(rt, {
         ...newWizardSession("key"),
+        ...(wizardAdopts(rt, provider) ? { adopts: true } : {}),
         chosen: provider,
         runtime: { state: "checking", progress: [] },
     });
@@ -395,12 +419,59 @@ async function checkRuntime(
     if (presence.state === "absent") {
         updateWizardSession(rt, {
             ...session,
-            runtime: { state: "absent", progress: [] },
+            runtime: {
+                state: "absent",
+                progress: [],
+                ...(presence.unregistered === undefined
+                    ? {}
+                    : { unregistered: presence.unregistered }),
+            },
             ...(said === "" ? {} : { alert: said }),
         });
         return;
     }
     runtimeIsPresent(rt, session, provider);
+}
+
+/** Registers a command the app already carries. Nothing is fetched, so the only thing that can go wrong is the link itself. */
+function registerRuntime(
+    rt: TuiRuntime,
+    session: WizardSession,
+    provider: string,
+    binary: string,
+): void {
+    const { alert: _dropped, ...rest } = session;
+    updateWizardSession(rt, {
+        ...rest,
+        runtime: { state: "installing", progress: [], unregistered: binary },
+    });
+    startWizardSpinner(rt);
+    rt.onboardingRuntimeCommand = registerOutrider(binary, (line) => {
+        recordRuntimeProgress(rt, line);
+    }, outriderDriver(rt));
+    const command = rt.onboardingRuntimeCommand;
+    void command.finished.then(async (result) => {
+        if (rt.onboardingRuntimeCommand !== command) return;
+        rt.onboardingRuntimeCommand = undefined;
+        const live = rt.onboardingWizard;
+        if (live === undefined || live.runtime?.state !== "installing") return;
+        if (!result.ok) {
+            stopWizardSpinner(rt);
+            updateWizardSession(rt, {
+                ...live,
+                runtime: { state: "absent", progress: [], unregistered: binary },
+                alert: `could not register Outrider${
+                    result.detail === "" ? "" : `: ${result.detail}`
+                }`,
+            });
+            return;
+        }
+        updateWizardSession(rt, {
+            ...live,
+            runtime: { state: "checking", progress: [] },
+        });
+        await checkRuntime(rt, provider, result.detail);
+    });
 }
 
 function installRuntime(
@@ -493,11 +564,13 @@ function startRuntimeProfile(
 }
 
 /** The user says they will put the binary there themselves, so the wizard gets out of the way and leaves the address behind. */
-function leaveRuntimeToTheUser(rt: TuiRuntime): void {
+function leaveRuntimeToTheUser(rt: TuiRuntime, unregistered?: string): void {
     closeOnboardingWizard(rt);
     rt.state = appendTuiNotice(
         rt.state,
-        `install Outrider from ${OUTRIDER_REPO}, then pick Connect a provider again`,
+        unregistered === undefined
+            ? `install Outrider from ${OUTRIDER_REPO}, then pick Connect a provider again`
+            : `run ${outriderRegisterCommand(unregistered).join(" ")}, then pick Connect a provider again`,
     );
     renderState(rt);
     if (!isHomeClient(rt.client)) returnToHome(rt);
@@ -582,8 +655,10 @@ export function runOnboardingWizardAction(
         if (runtime.state === "absent" && action.kind === "choose") {
             if (action.id === RUNTIME_INSTALL_ROW) {
                 installRuntime(rt, session, session.chosen ?? "");
+            } else if (action.id === RUNTIME_REGISTER_ROW && runtime.unregistered !== undefined) {
+                registerRuntime(rt, session, session.chosen ?? "", runtime.unregistered);
             } else if (action.id === RUNTIME_MANUAL_ROW) {
-                leaveRuntimeToTheUser(rt);
+                leaveRuntimeToTheUser(rt, runtime.unregistered);
             }
             return;
         }
@@ -592,7 +667,7 @@ export function runOnboardingWizardAction(
         // The only key the verify screen offers is the one that abandons it.
         stopWizardSpinner(rt);
         rt.onboardingVerification = undefined;
-        const { verifying: _dropped, ...rest } = session;
+        const { verifying: _dropped, alert: _stale, ...rest } = session;
         updateWizardSession(rt, rest);
         return;
     }
@@ -629,6 +704,30 @@ export function runOnboardingWizardAction(
 }
 
 /** The gate closes on an answer, not on a stored key. A refusal is about the credential, so it sends the user one step back with the provider's own words. */
+/** A local endpoint counts as connected only once a catalog snapshot exists, and nothing refreshes one for a runtime Vera drives itself. Verification is the moment the gateway is known to be up, so the listing is read here. A listing that cannot be read still leaves the model that just answered, because that much was proved. */
+export async function recordLocalCatalog(
+    provider: string,
+    model: string,
+    options: ProviderCatalogCacheOptions & { readonly fetch?: typeof fetch } = {},
+): Promise<void> {
+    const descriptor = findConfiguredProvider(provider, loadOptionalVeraConfig());
+    if (descriptor?.localRuntime === undefined || descriptor.baseUrl === undefined
+        || descriptor.protocol === undefined) return;
+    if (readProviderCatalogSnapshot(provider, options).fetched_at !== undefined) return;
+    const catalog = await readModelCatalog({
+        provider,
+        baseUrl: descriptor.baseUrl,
+        protocol: descriptor.protocol,
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    }).catch(() => undefined);
+    writeProviderCatalogSnapshot(catalog ?? {
+        schema_version: 2,
+        provider,
+        fetched_at: new Date().toISOString(),
+        models: [{ id: model, label: model, levels: [] }],
+    }, options);
+}
+
 export function settleWizardVerification(
     rt: TuiRuntime,
     update: Extract<AgentUpdate, { type: "pool_admission_result" }>,
@@ -667,18 +766,21 @@ export function settleWizardVerification(
         });
         return true;
     }
-    // The model step is the user picking their first model, so the answer
-    // becomes the default rather than leaving them pointed at whatever the
-    // factory home shipped.
-    const modelRequest = requestModelSettingsChange(
-        rt,
-        { provider: pending.provider, model: pending.model },
-        `model → ${pending.provider}/${pending.model}`,
-        `the model to ${pending.provider}/${pending.model}`,
-    );
-    if (rt.onboardingPromptWaiting) {
-        rt.onboardingPromptRequest = modelRequest;
+    // On a home with nothing connected the answer is also the first model
+    // there is, so it becomes the default. Connecting a second provider
+    // later leaves the default where the user put it.
+    if (session.adopts === true) {
+        const modelRequest = requestModelSettingsChange(
+            rt,
+            { provider: pending.provider, model: pending.model },
+            `model → ${pending.provider}/${pending.model}`,
+            `the model to ${pending.provider}/${pending.model}`,
+        );
+        if (rt.onboardingPromptWaiting) {
+            rt.onboardingPromptRequest = modelRequest;
+        }
     }
+    void recordLocalCatalog(pending.provider, pending.model);
     updateWizardSession(rt, { ...rest, connected: pending.model });
     return true;
 }

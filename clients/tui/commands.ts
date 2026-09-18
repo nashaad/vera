@@ -138,6 +138,15 @@ export interface UpdateSessionNameTuiCommandAction {
     readonly name: string | null;
 }
 
+export interface ImportSessionTuiCommandAction {
+    readonly type: "import_session";
+    readonly path: string;
+}
+
+export interface OpenImportPickerTuiCommandAction {
+    readonly type: "open_import_picker";
+}
+
 export interface CloneSessionTuiCommandAction {
     readonly type: "clone_session";
 }
@@ -156,7 +165,6 @@ export interface ShowDiagnosticsTuiCommandAction {
 
 export interface ShowExtensionsTuiCommandAction {
     readonly type: "show_extensions";
-    readonly scope?: "profile" | "project";
 }
 
 export interface ManageExtensionsTuiCommandAction {
@@ -252,6 +260,8 @@ export type TuiCommandAction =
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | InvokeSkillTuiCommandAction
+    | ImportSessionTuiCommandAction
+    | OpenImportPickerTuiCommandAction
     | TuiCommandErrorAction;
 
 export type TuiCommandScope = "focused_agent" | "main_session" | "application";
@@ -270,6 +280,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "go_back":
         case "create_session":
         case "update_session_name":
+        case "import_session":
+        case "open_import_picker":
             return "focused_agent";
         case "open_model_utility":
             return action.utility === "dials" ? "focused_agent" : "application";
@@ -483,19 +495,19 @@ const RECONNECT_COMMAND = {
 const CLEAR_COMMAND = {
     name: "clear",
     description: "Start a new conversation",
-    usage: "/clear [--background]",
-} as const satisfies TuiCommandCatalogEntry;
-
-const FRESH_COMMAND = {
-    name: "fresh",
-    description: "Start a fresh conversation and keep this one running",
-    usage: "/fresh",
+    usage: "/clear",
 } as const satisfies TuiCommandCatalogEntry;
 
 const RENAME_COMMAND = {
     name: "rename",
     description: "Name or unname this conversation",
     usage: "/rename [name]",
+} as const satisfies TuiCommandCatalogEntry;
+
+const IMPORT_COMMAND = {
+    name: "import",
+    description: "Bring in a Claude Code or Codex conversation",
+    usage: "/import [path]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const CLONE_COMMAND = {
@@ -560,7 +572,7 @@ const FAILURE_REPORT_COMMAND = {
 
 const RELOAD_EXTENSIONS_COMMAND = {
     name: "reload-extensions",
-    description: "Reload client extensions without restarting Vera",
+    description: "Reload extensions in the TUI without restarting Vera",
     usage: "/reload-extensions",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -583,8 +595,8 @@ export const BUILTIN_COMMANDS = [
     BACK_COMMAND,
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
-    FRESH_COMMAND,
     RENAME_COMMAND,
+    IMPORT_COMMAND,
     CLONE_COMMAND,
     CLOSE_COMMAND,
     COMPACT_COMMAND,
@@ -1414,8 +1426,6 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         ...CLEAR_COMMAND,
         parse: (argumentsText) => argumentsText.length === 0
             ? { type: "create_session" }
-            : argumentsText === "--background"
-            ? { type: "create_session", sourceDisposition: "keep_running" }
             : {
                 type: "command_error",
                 message: `Usage: ${CLEAR_COMMAND.usage}`,
@@ -1423,25 +1433,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         palette: {
             name: "clear",
             label: "New conversation",
-            description: "start fresh with no history",
+            description: "start a new conversation; choose close or keep running",
             group: "Session",
             slashName: "clear",
             action: { type: "create_session" },
-        },
-    });
-    registry.registerCommand({
-        ...FRESH_COMMAND,
-        action: { type: "create_session", sourceDisposition: "keep_running" },
-        palette: {
-            name: "fresh",
-            label: "Start fresh conversation",
-            description: "start blank while keeping this conversation running",
-            group: "Session",
-            slashName: "fresh",
-            action: {
-                type: "create_session",
-                sourceDisposition: "keep_running",
-            },
         },
     });
     registry.registerCommand({
@@ -1457,6 +1452,20 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "rename",
             action: { type: "prefill_composer", text: "/rename " },
+        },
+    });
+    registry.registerCommand({
+        ...IMPORT_COMMAND,
+        parse: (argumentsText) => argumentsText.length === 0
+            ? { type: "open_import_picker" }
+            : { type: "import_session", path: argumentsText },
+        palette: {
+            name: "import",
+            label: "Import conversation",
+            description: "bring in a Claude Code or Codex conversation",
+            group: "Session",
+            slashName: "import",
+            action: { type: "open_import_picker" },
         },
     });
     registry.registerCommand({
@@ -1541,7 +1550,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                 return { type: "command_error", message: parsed.error };
             }
             return parsed.command.operation === "list"
-                ? { type: "show_extensions", scope: parsed.command.scope }
+                ? { type: "show_extensions" }
                 : { type: "manage_extensions", command: parsed.command };
         },
         palette: {
@@ -1594,7 +1603,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         action: { type: "reload_client_extensions" },
         palette: {
             name: "reload_extensions",
-            label: "Reload client extensions",
+            label: "Reload extensions in the TUI",
             description: "re-read extension code and client configuration",
             group: "Extensions",
             slashName: "reload-extensions",

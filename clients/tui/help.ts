@@ -118,6 +118,7 @@ const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "verification_picker", title: "Model verification" },
     { scope: "model_picker", title: "Model picker" },
     { scope: "session_picker", title: "Session picker" },
+    { scope: "import_picker", title: "Import picker" },
     { scope: "approval", title: "Approvals" },
     { scope: "question", title: "Questions" },
     { scope: "secret_prompt", title: "Key entry" },
@@ -518,7 +519,7 @@ function generalHelp(): StyledText {
         ),
         fg(TUI_TEXT)("Extensions\n"),
         fg(TUI_MUTED)(
-            "Bundled and installed extensions can contribute commands without entering model history.",
+            "Included and installed extensions can contribute commands without entering model history.",
         ),
     ]);
 }

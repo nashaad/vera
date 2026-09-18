@@ -279,7 +279,7 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
         session.sendText("/reload-extensions");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
-            "Client extensions reloaded with failures: none",
+            "Extensions reloaded in the TUI with failures: none",
         );
 
         session.sendText("/diagnostics");
@@ -315,7 +315,7 @@ test("partial reload names the extensions that stayed active", async () => {
         session.sendText("/reload-extensions");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
-            "Client extensions reloaded with failures: some",
+            "Extensions reloaded in the TUI with failures: some",
         );
 
         session.sendText("/diagnostics");

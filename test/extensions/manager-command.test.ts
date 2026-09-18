@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { homedir } from "node:os";
 
 import { runCli } from "../../clients/cli/main.ts";
 import {
@@ -6,36 +7,33 @@ import {
     renderExtensionList,
     tokenizeExtensionManagerArguments,
 } from "../../src/extensions/manager-command.ts";
-import type {
-    ExtensionManagerOptions,
-    ExtensionManagerTarget,
-} from "../../src/extensions/manager.ts";
+import type { ExtensionManagerOptions } from "../../src/extensions/manager.ts";
 
-test("extension manager command parsing keeps profile default and explicit project scope", () => {
+test("extension manager command parsing reads operations and refuses a project flag", () => {
     expect(parseExtensionManagerCommand([
         "extension", "install", "./local-extension", "--dry-run",
     ])).toEqual({
         command: {
             operation: "install",
             source: "./local-extension",
-            scope: "profile",
             dryRun: true,
         },
     });
     expect(parseExtensionManagerCommand([
+        "extension", "disable", "sample.extension",
+    ])).toEqual({
+        command: { operation: "disable", id: "sample.extension" },
+    });
+    expect(parseExtensionManagerCommand([
         "extension", "disable", "sample.extension", "--project",
     ])).toEqual({
-        command: {
-            operation: "disable",
-            id: "sample.extension",
-            scope: "project",
-        },
+        error: "Usage: vera extension disable <id>",
     });
     expect(parseExtensionManagerCommand(["extension", "reload"])).toEqual({
         command: { operation: "reload" },
     });
     expect(parseExtensionManagerCommand(["extension", "remove"])).toEqual({
-        error: "Usage: vera extension remove <id> [--project]",
+        error: "Usage: vera extension remove <id>",
     });
 });
 
@@ -56,13 +54,11 @@ test("extension CLI renders dry-run plans and delegates mutations", async () => 
     const extensionManager = {
         install: (
             source: string,
-            target: ExtensionManagerTarget,
             options: ExtensionManagerOptions & { readonly dryRun?: boolean } = {},
         ) => {
-            calls.push(`install:${source}:${target.scope}:${options.dryRun === true}`);
+            calls.push(`install:${source}:${options.dryRun === true}`);
             return {
                 preview: {
-                    scope: target.scope as "profile" | "project",
                     id: "sample.extension",
                     version: "1.0.0",
                     source,
@@ -74,7 +70,6 @@ test("extension CLI renders dry-run plans and delegates mutations", async () => 
             };
         },
         list: () => [{
-            scope: "profile" as const,
             id: "sample.extension",
             version: "1.0.0",
             enabled: true,
@@ -135,8 +130,13 @@ test("extension CLI renders dry-run plans and delegates mutations", async () => 
         stdout: { write() {} },
     })).toBe(0);
     expect(calls).toEqual([
-        "install:/source:profile:true",
+        "install:/source:true",
         "set:sample.extension:false",
         "remove:sample.extension",
     ]);
+});
+
+test("an install path starting with ~ resolves to the user's home directory", () => {
+    const parsed = parseExtensionManagerCommand(["extension", "install", "~/src/ext"]);
+    expect(parsed).toEqual({ command: { operation: "install", source: `${homedir()}/src/ext`, dryRun: false } });
 });

@@ -31,7 +31,7 @@ your first conversation. For recorded Python workflows, start with
 ## Work in a project
 
 - [Switch and search conversations](session-switching.md)
-- [The conversation rail](screen.md)
+- [Conversations](screen.md)
 - [Saved conversations](sessions.md)
 - [Queue messages while work runs](queued-messages.md)
 - [Browse workspace changes](workspace-diff.md)
@@ -44,6 +44,7 @@ your first conversation. For recorded Python workflows, start with
 - [How workflows run](halcyon.md)
 - [Write your first workflow](python-workflows.md)
 - [Control workflow steps](workflow-steps.md)
+- [Watch workflow runs](workflow-runs.md)
 - [Run Vera from Python](python-agents.md)
 
 ## Customize

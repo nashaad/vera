@@ -1,0 +1,71 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://vera.dev/schemas/workflow/span-record.schema.json",
+    "title": "Vera workflow span line",
+    "description": "One line of spans.ndjson: a try of a step opening, or the same try settling. Field names follow OpenTelemetry; the span kind follows OpenInference.",
+    "oneOf": [
+        {
+            "type": "object",
+            "required": [
+                "trace_id",
+                "span_id",
+                "parent_id",
+                "name",
+                "start_time",
+                "attributes"
+            ],
+            "additionalProperties": false,
+            "properties": {
+                "trace_id": { "type": "string" },
+                "span_id": { "type": "string", "minLength": 1 },
+                "parent_id": { "type": "string", "minLength": 1 },
+                "name": { "type": "string", "minLength": 1 },
+                "start_time": { "type": "string", "format": "date-time" },
+                "attributes": {
+                    "type": "object",
+                    "required": [
+                        "openinference.span.kind",
+                        "halcyon.attempt",
+                        "halcyon.step.key"
+                    ],
+                    "properties": {
+                        "openinference.span.kind": { "enum": ["CHAIN", "LLM"] },
+                        "llm.model_name": { "type": "string" },
+                        "llm.provider": { "type": "string" },
+                        "halcyon.attempt": { "type": "integer", "minimum": 1 },
+                        "halcyon.step.key": { "type": "string", "minLength": 1 }
+                    }
+                }
+            }
+        },
+        {
+            "type": "object",
+            "required": ["span_id", "end_time", "status_code", "attributes"],
+            "additionalProperties": false,
+            "properties": {
+                "span_id": { "type": "string", "minLength": 1 },
+                "end_time": { "type": "string", "format": "date-time" },
+                "status_code": { "enum": ["OK", "ERROR", "UNSET"] },
+                "status_message": { "type": "string" },
+                "attributes": {
+                    "type": "object",
+                    "required": ["halcyon.outcome", "halcyon.duration_ms"],
+                    "properties": {
+                        "halcyon.outcome": {
+                            "enum": ["ok", "failed", "suspended", "cancelled"]
+                        },
+                        "halcyon.duration_ms": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.prompt": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.completion": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.total": { "type": "integer", "minimum": 0 },
+                        "llm.token_count.prompt_details.cache_read": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "llm.cost.total": { "type": "number", "minimum": 0 }
+                    }
+                }
+            }
+        }
+    ]
+}

@@ -474,7 +474,7 @@ test("Vera config loads explicit extension paths and JSON settings", () => {
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
-        disabled_builtin_extensions: ["vera.model-presets"],
+        disabled_included_extensions: ["vera.model-presets"],
         extensions: [{
             path: "  /tmp/context-tools  ",
             enabled: false,
@@ -499,7 +499,7 @@ test("Vera config loads explicit extension paths and JSON settings", () => {
         enabled: true,
         config: {},
     }]);
-    expect(loadVeraConfig({ path }).disabled_builtin_extensions).toEqual([
+    expect(loadVeraConfig({ path }).disabled_included_extensions).toEqual([
         "vera.model-presets",
     ]);
 });
@@ -512,7 +512,7 @@ test("Vera config discovers global extension directories", () => {
     writeFileSync(
         join(extension, "vera.extension.json"),
         JSON.stringify({
-            id: "nash.web-search",
+            id: "example.web-search",
             version: "0.1.0",
             sdk: "1",
             entrypoint: "./index.ts",

@@ -52,6 +52,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "reconnect" },
         { type: "create_session" },
         { type: "update_session_name", name: "name" },
+        { type: "import_session", path: "/tmp/a.jsonl" },
         { type: "clone_session" },
         { type: "compact_session" },
         { type: "close_session" },
@@ -62,7 +63,6 @@ test("every slash action has an explicit pane scope", () => {
             command: {
                 operation: "install",
                 source: "./extension",
-                scope: "profile",
                 dryRun: true,
             },
         },
@@ -108,6 +108,7 @@ test("every slash action has an explicit pane scope", () => {
             ["reconnect", "main_session"],
             ["create_session", "focused_agent"],
             ["update_session_name", "focused_agent"],
+            ["import_session", "focused_agent"],
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],
             ["close_session", "main_session"],
@@ -249,18 +250,17 @@ test("the palette exposes the keyboard shortcut guide", () => {
     });
 });
 
-test("the palette exposes the fresh conversation action", () => {
+test("the palette exposes the new conversation action", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
     expect(registry.registeredPaletteActions()).toContainEqual({
-        name: "fresh",
-        label: "Start fresh conversation",
-        description: "start blank while keeping this conversation running",
+        name: "clear",
+        label: "New conversation",
+        description: "start a new conversation; choose close or keep running",
         group: "Session",
-        slashName: "fresh",
+        slashName: "clear",
         action: {
             type: "create_session",
-            sourceDisposition: "keep_running",
         },
     });
 });
@@ -276,17 +276,16 @@ test("extension manager slash commands are application-owned actions", () => {
         command: {
             operation: "install",
             source: "./local",
-            scope: "profile",
             dryRun: true,
         },
     });
-    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+    expect(registry.dispatch("/extension disable sample")).toEqual({
         type: "manage_extensions",
-        command: {
-            operation: "disable",
-            id: "sample",
-            scope: "project",
-        },
+        command: { operation: "disable", id: "sample" },
+    });
+    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+        type: "command_error",
+        message: "Usage: vera extension disable <id>",
     });
     expect(registry.dispatch(
         `/extension install "/tmp/My Local Extension" --dry-run`,
@@ -295,13 +294,11 @@ test("extension manager slash commands are application-owned actions", () => {
         command: {
             operation: "install",
             source: "/tmp/My Local Extension",
-            scope: "profile",
             dryRun: true,
         },
     });
-    expect(registry.dispatch("/extension list --project")).toEqual({
+    expect(registry.dispatch("/extension list")).toEqual({
         type: "show_extensions",
-        scope: "project",
     });
     expect(registry.dispatch("/extension reload")).toEqual({
         type: "manage_extensions",
@@ -444,7 +441,7 @@ test("slash context lists the name and ghosts [all] after a space", () => {
         name: "context",
         description: "Show context usage",
         usage: "/context [all]",
-        source: "example.context",
+        source: "vera.context",
     }]);
     const listed = tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/context"),
@@ -584,17 +581,14 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",
     });
-    expect(registry.dispatch("/fresh")).toEqual({
-        type: "create_session",
-        sourceDisposition: "keep_running",
-    });
+    expect(registry.dispatch("/fresh")).toBeUndefined();
     expect(registry.dispatch("/clear --background")).toEqual({
-        type: "create_session",
-        sourceDisposition: "keep_running",
+        type: "command_error",
+        message: "Usage: /clear",
     });
     expect(registry.dispatch("/clear later")).toEqual({
         type: "command_error",
-        message: "Usage: /clear [--background]",
+        message: "Usage: /clear",
     });
     expect(registry.dispatch("/c")).toBeUndefined();
     expect(registry.dispatch("/cle")).toEqual({ type: "create_session" });
@@ -606,6 +600,11 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_session_name",
         name: null,
     });
+    expect(registry.dispatch("/import ~/old session.jsonl")).toEqual({
+        type: "import_session",
+        path: "~/old session.jsonl",
+    });
+    expect(registry.dispatch("/import")).toEqual({ type: "open_import_picker" });
     expect(registry.dispatch("/clone")).toEqual({
         type: "clone_session",
     });

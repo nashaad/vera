@@ -1,5 +1,5 @@
 import { chmodSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
     RELEASE_ANNEX_NAME,
@@ -98,11 +98,16 @@ export function writeCheckoutPackWrappers(
 }
 
 function writeWrapper(path: string, bun: string, entry: string): void {
+    // ps names the process after argv[0]; a plain exec would show bun.
+    const name = shellSingleQuote(basename(path));
     writeFileSync(
         path,
         `#!/bin/sh\n`
             + `set -eu\n`
             + `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`
+            + `if (exec -a x true) 2>/dev/null; then\n`
+            + `    exec -a ${name} ${bun} ${entry} "$@"\n`
+            + `fi\n`
             + `exec ${bun} ${entry} "$@"\n`,
         { encoding: "utf8", mode: 0o755 },
     );

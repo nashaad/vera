@@ -1,0 +1,8 @@
+{
+    "id": "vera.command-hooks",
+    "version": "0.2.0",
+    "sdk": "1",
+    "entrypoint": "extension.ts",
+    "capabilities": ["hooks.command"],
+    "contributes": {}
+}

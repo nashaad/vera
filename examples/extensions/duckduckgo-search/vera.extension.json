@@ -1,0 +1,9 @@
+{
+  "id": "example.duckduckgo-search",
+  "version": "0.2.0",
+  "sdk": "1",
+  "entrypoint": "./index.ts",
+  "capabilities": [
+    "search.providers.register"
+  ]
+}

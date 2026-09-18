@@ -16,6 +16,7 @@ from ._journal import Journal, _journal_error
 class RunJournal(Protocol):
     header: dict[str, object]
     records: dict[str, object]
+    timings: dict[str, dict[str, object]]
     journal_dir: Path
 
     @property
@@ -26,7 +27,33 @@ class RunJournal(Protocol):
 
     def inputs(self) -> tuple[tuple[object, ...], dict[str, object]]: ...
 
-    def append(self, key: str, value: object) -> None: ...
+    def append(self, key: str, value: object, ms: int = 0) -> None: ...
+
+    def mark_step_started(self, key: str, step_name: str) -> None: ...
+
+    def start_attempt(self) -> None: ...
+
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str: ...
+
+    def close_span(
+        self,
+        span_id: str,
+        ms: int,
+        outcome: str,
+        message: str | None = None,
+        attributes: dict[str, object] | None = None,
+    ) -> None: ...
+
+    def spans(self) -> list[dict[str, object]]: ...
+
+    def put_blob(self, encoded: bytes) -> str: ...
 
     def mark_running(self) -> None: ...
 
@@ -34,7 +61,11 @@ class RunJournal(Protocol):
 
     def mark_failed(self, kind: str, message: str) -> None: ...
 
-    def mark_suspended(self, reason: str) -> None: ...
+    def mark_suspended(
+        self, reason: str, asking: dict[str, object] | None = None
+    ) -> None: ...
+
+    def mark_crashed(self, reason: str) -> None: ...
 
     def mark_cancelled(self, reason: str) -> None: ...
 
@@ -43,6 +74,8 @@ class RunJournal(Protocol):
     def reload_inbox(self) -> None: ...
 
     def request_cancel(self, reason: str) -> None: ...
+
+    def put_inbox(self, key: str, value: object) -> None: ...
 
     def cancel_requested(self) -> str | None: ...
 

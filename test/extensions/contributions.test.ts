@@ -215,7 +215,7 @@ const OVERRIDE_FIXTURE = parseExtensionContributions({
         },
         { id: "builds", source_family: "arc", config: { topic: "ci" } },
     ],
-}, "nash.arc-source");
+}, "example.arc-source");
 
 test("a user config override replaces declared keys and adds new ones", () => {
     const merged = applyWatchConfigOverrides(OVERRIDE_FIXTURE, {
@@ -225,7 +225,7 @@ test("a user config override replaces declared keys and adds new ones", () => {
                 timeout_ms: 5000,
             },
         },
-    }, "nash.arc-source");
+    }, "example.arc-source");
 
     expect(merged.watches[0]!.config).toEqual({
         server: "https://arc-nashaad.fly.dev",
@@ -238,7 +238,7 @@ test("a user config override replaces declared keys and adds new ones", () => {
 test("a watch the override does not name keeps its manifest config", () => {
     const merged = applyWatchConfigOverrides(OVERRIDE_FIXTURE, {
         watches: { issues: { server: "https://arc-nashaad.fly.dev" } },
-    }, "nash.arc-source");
+    }, "example.arc-source");
 
     expect(merged.watches[1]).toBe(OVERRIDE_FIXTURE.watches[1]);
     expect(merged.watches[1]!.config).toEqual({ topic: "ci" });
@@ -253,11 +253,11 @@ test("the merge replaces a nested object rather than merging into it", () => {
                 config: { auth: { scheme: "bearer", token: "x" } },
             },
         ],
-    }, "nash.arc-source");
+    }, "example.arc-source");
 
     const merged = applyWatchConfigOverrides(nested, {
         watches: { issues: { auth: { token: "y" } } },
-    }, "nash.arc-source");
+    }, "example.arc-source");
 
     expect(merged.watches[0]!.config).toEqual({ auth: { token: "y" } });
 });
@@ -265,7 +265,7 @@ test("the merge replaces a nested object rather than merging into it", () => {
 test("the manifest config is left untouched by an override", () => {
     applyWatchConfigOverrides(OVERRIDE_FIXTURE, {
         watches: { issues: { server: "https://arc-nashaad.fly.dev" } },
-    }, "nash.arc-source");
+    }, "example.arc-source");
 
     expect(OVERRIDE_FIXTURE.watches[0]!.config).toEqual({
         server: "https://arc.example",
@@ -278,7 +278,7 @@ test("an override naming an undeclared watch is refused", () => {
     expect(() =>
         applyWatchConfigOverrides(OVERRIDE_FIXTURE, {
             watches: { typo: { server: "https://arc-nashaad.fly.dev" } },
-        }, "nash.arc-source")
+        }, "example.arc-source")
     ).toThrow(ExtensionContributionError);
 });
 
@@ -286,12 +286,12 @@ test("an override that is not an object of inert JSON is refused", () => {
     expect(() =>
         applyWatchConfigOverrides(OVERRIDE_FIXTURE, {
             watches: { issues: "https://arc-nashaad.fly.dev" },
-        }, "nash.arc-source")
+        }, "example.arc-source")
     ).toThrow(ExtensionContributionError);
     expect(() =>
         applyWatchConfigOverrides(OVERRIDE_FIXTURE, {
             watches: [{ id: "issues" }],
-        }, "nash.arc-source")
+        }, "example.arc-source")
     ).toThrow(ExtensionContributionError);
 });
 

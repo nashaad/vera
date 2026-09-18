@@ -96,7 +96,7 @@ test("an extension modal cannot intercept a native approval answer", async () =>
         height: 18,
         dependencies: () => ({
             ...createTuiApprovalDependencies(),
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],

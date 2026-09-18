@@ -106,7 +106,7 @@ test("extension insertion edits the live draft without touching the queue", asyn
         height: 31,
         dependencies: () => ({
             ...createTuiChildDependencies(),
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],

@@ -14,6 +14,8 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera attach <agent-id>", description: "Attach to a live agent" },
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
+    { usage: "vera import [--all]", description: "List Claude Code and Codex sessions to import" },
+    { usage: "vera import <path>", description: "Import a Claude Code or Codex session" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
     { usage: "vera configure", description: "Open Vera's config file in your editor" },
     { usage: "vera extension list|install|enable|disable|remove", description: "Manage home or project extensions" },

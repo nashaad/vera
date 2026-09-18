@@ -874,10 +874,10 @@ test("compose suggesters reject an empty current-agent scope", async () => {
     await registry.close();
 });
 
-test("bundled reasoning cycle uses the same public seams as a user extension", async () => {
+test("included reasoning cycle uses the same public seams as a user extension", async () => {
     const extension = join(
         import.meta.dir,
-        "../../extensions/reasoning-cycle",
+        "../../src/core-extensions/reasoning-cycle",
     );
     const availableModels = [
         {
@@ -2100,4 +2100,36 @@ test("a duplicate tip id fails the extension", async () => {
     expect(registry.tips()).toEqual([]);
     expect(failures[0]?.message).toContain("Duplicate client extension tip");
     await registry.close();
+});
+
+test("host.request reaches the host under the caller's own extension ID", async () => {
+    const asker = createExtension("test.asker", ["client.commands.register", "client.host.request"], `
+        export function activateClient(vera) {
+            vera.commands.register({ name: "ask", description: "Ask", usage: "/ask",
+                async run() { return { kind: "text", text: JSON.stringify(await vera.host.request("echo", { n: 1 })) }; } });
+        }
+    `);
+    const blind = createExtension("test.blind", ["client.commands.register"], `
+        export function activateClient(vera) {
+            vera.commands.register({ name: "peek", description: "Peek", usage: "/peek",
+                async run() { return { kind: "text", text: String(await vera.host.request("echo")) }; } });
+        }
+    `);
+    const calls: unknown[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(asker), configured(blind)],
+        ...createHarness().adapters,
+        hostRequest: async (extensionId, name, payload) => {
+            calls.push([extensionId, name, payload]);
+            return { answered: name };
+        },
+    });
+    try {
+        expect(await registry.invokeCommand("ask", "", process.cwd())).toMatchObject({ body: { kind: "text", text: "{\"answered\":\"echo\"}" } });
+        expect(calls).toEqual([["test.asker", "echo", { n: 1 }]]);
+        expect(JSON.stringify(await registry.invokeCommand("peek", "", process.cwd()).catch((error: Error) => error.message)))
+            .toContain("client.host.request");
+    } finally {
+        await registry.close();
+    }
 });

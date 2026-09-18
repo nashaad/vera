@@ -21,7 +21,7 @@
             "minLength": 1
         },
         "status": {
-            "enum": ["ok", "failed", "suspended", "running"]
+            "enum": ["ok", "failed", "suspended", "cancelled", "crashed", "running"]
         },
         "started_at": {
             "type": "string",
@@ -54,6 +54,55 @@
         },
         "reason": {
             "type": "string"
+        },
+        "cancel_requested": {
+            "type": "string"
+        },
+        "asking": {
+            "type": "object",
+            "required": ["key", "question", "at"],
+            "additionalProperties": false,
+            "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "question": { "type": "string" },
+                "at": { "type": "string", "format": "date-time" }
+            }
+        },
+        "active": {
+            "type": "object",
+            "required": ["key", "step", "at"],
+            "additionalProperties": false,
+            "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "step": { "type": "string", "minLength": 1 },
+                "at": { "type": "string", "format": "date-time" }
+            }
+        },
+        "attempts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["started_at", "pid", "host"],
+                "additionalProperties": false,
+                "properties": {
+                    "started_at": { "type": "string", "format": "date-time" },
+                    "pid": { "type": "integer", "minimum": 0 },
+                    "host": { "type": "string" },
+                    "finished_at": { "type": "string", "format": "date-time" },
+                    "status": {
+                        "enum": ["ok", "failed", "suspended", "cancelled"]
+                    },
+                    "error": {
+                        "type": "object",
+                        "required": ["kind", "message"],
+                        "additionalProperties": false,
+                        "properties": {
+                            "kind": { "type": "string" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                }
+            }
         },
         "entry": {
             "type": "object",

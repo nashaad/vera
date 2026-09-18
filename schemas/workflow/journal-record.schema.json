@@ -3,7 +3,7 @@
     "$id": "https://vera.dev/schemas/workflow/journal-record.schema.json",
     "title": "Vera workflow journal record",
     "type": "object",
-    "required": ["seq", "key", "ok"],
+    "required": ["seq", "key", "ok", "at", "ms"],
     "properties": {
         "seq": {
             "type": "integer",
@@ -15,6 +15,14 @@
         },
         "ok": {
             "const": true
+        },
+        "at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "ms": {
+            "type": "integer",
+            "minimum": 0
         },
         "value": {},
         "ref": {

@@ -16,6 +16,10 @@ from ._journal import (
     _journal_error,
     _now,
     _parse_json_text,
+    close_attempt,
+    open_attempt,
+    span_end,
+    span_start,
     validate_header,
 )
 from ._store import RunSummary
@@ -46,10 +50,13 @@ class SqlDialect:
                 kwargs TEXT NOT NULL,
                 error TEXT,
                 reason TEXT,
+                active TEXT,
+                attempts TEXT,
                 entry_file TEXT,
                 entry_workflow TEXT,
                 entry_cwd TEXT,
-                cancel_requested TEXT
+                cancel_requested TEXT,
+                asking TEXT
             )
             """,
             """
@@ -57,12 +64,29 @@ class SqlDialect:
                 run_id TEXT NOT NULL,
                 seq INTEGER NOT NULL,
                 key TEXT NOT NULL,
+                at TEXT NOT NULL,
+                ms INTEGER NOT NULL,
                 value TEXT,
                 blob_ref TEXT,
                 blob_bytes INTEGER,
                 PRIMARY KEY (run_id, seq),
                 UNIQUE (run_id, key),
                 FOREIGN KEY (run_id) REFERENCES runs(run_id)
+            )
+            """,
+            f"""
+            CREATE TABLE IF NOT EXISTS spans (
+                trace_id TEXT NOT NULL,
+                span_id TEXT NOT NULL,
+                parent_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                status_code TEXT,
+                status_message TEXT,
+                attributes TEXT NOT NULL,
+                PRIMARY KEY (trace_id, span_id),
+                FOREIGN KEY (trace_id) REFERENCES runs(run_id)
             )
             """,
             f"""
@@ -77,36 +101,61 @@ class SqlDialect:
         return (
             "INSERT INTO runs ("
             "run_id, workflow, status, started_at, finished_at, inbox, doc, "
-            "args, kwargs, error, reason, entry_file, entry_workflow, entry_cwd"
-            f") VALUES ({self.values(14)})"
+            "args, kwargs, error, reason, active, attempts, entry_file, "
+            "entry_workflow, entry_cwd"
+            f") VALUES ({self.values(16)})"
         )
 
     def select_run(self) -> str:
         return (
             "SELECT run_id, workflow, status, started_at, finished_at, inbox, "
-            "doc, args, kwargs, error, reason, entry_file, entry_workflow, "
-            f"entry_cwd FROM runs WHERE run_id = {self.placeholder}"
+            "doc, args, kwargs, error, reason, active, attempts, entry_file, "
+            "entry_workflow, entry_cwd, asking "
+            f"FROM runs WHERE run_id = {self.placeholder}"
         )
 
     def update_run(self) -> str:
         return (
             "UPDATE runs SET workflow = {p}, status = {p}, started_at = {p}, "
             "finished_at = {p}, inbox = {p}, doc = {p}, args = {p}, "
-            "kwargs = {p}, error = {p}, reason = {p}, entry_file = {p}, "
-            "entry_workflow = {p}, entry_cwd = {p} WHERE run_id = {p}"
+            "kwargs = {p}, error = {p}, reason = {p}, active = {p}, "
+            "attempts = {p}, entry_file = {p}, entry_workflow = {p}, "
+            "entry_cwd = {p}, asking = {p} "
+            "WHERE run_id = {p}"
         ).format(p=self.placeholder)
 
     def select_records(self) -> str:
         return (
-            "SELECT seq, key, value, blob_ref, blob_bytes FROM records "
+            "SELECT seq, key, at, ms, value, blob_ref, blob_bytes FROM records "
             f"WHERE run_id = {self.placeholder} ORDER BY seq"
         )
 
     def insert_record(self) -> str:
         return (
             "INSERT INTO records ("
-            "run_id, seq, key, value, blob_ref, blob_bytes"
+            "run_id, seq, key, at, ms, value, blob_ref, blob_bytes"
+            f") VALUES ({self.values(8)})"
+        )
+
+    def insert_span(self) -> str:
+        return (
+            "INSERT INTO spans ("
+            "trace_id, span_id, parent_id, name, start_time, attributes"
             f") VALUES ({self.values(6)})"
+        )
+
+    def close_span(self) -> str:
+        return (
+            "UPDATE spans SET end_time = {p}, status_code = {p}, "
+            "status_message = {p}, attributes = {p} "
+            "WHERE trace_id = {p} AND span_id = {p}"
+        ).format(p=self.placeholder)
+
+    def select_spans(self) -> str:
+        return (
+            "SELECT trace_id, span_id, parent_id, name, start_time, end_time, "
+            "status_code, status_message, attributes FROM spans "
+            f"WHERE trace_id = {self.placeholder} ORDER BY start_time, span_id"
         )
 
     def select_blob(self) -> str:
@@ -120,6 +169,9 @@ class SqlDialect:
 
     def select_inbox(self) -> str:
         return f"SELECT inbox FROM runs WHERE run_id = {self.placeholder}"
+
+    def update_inbox(self) -> str:
+        return f"UPDATE runs SET inbox = {self.placeholder} WHERE run_id = {self.placeholder}"
 
     def select_cancel_requested(self) -> str:
         return (
@@ -163,12 +215,16 @@ class SqlRunJournal:
         header: dict[str, object],
         records: dict[str, object],
         next_seq: int,
+        timings: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self.journal_dir = store.journal_dir
         self.header = header
         self.records = records
+        self.timings = timings if timings is not None else {}
         self._store = store
         self._next_seq = next_seq
+        self._span_count = 0
+        self._span_attributes: dict[str, dict[str, object]] = {}
 
     @property
     def run_id(self) -> str:
@@ -191,8 +247,9 @@ class SqlRunJournal:
             raise _journal_error("workflow header is missing resumable inputs")
         return tuple(args), kwargs
 
-    def append(self, key: str, value: object) -> None:
+    def append(self, key: str, value: object, ms: int = 0) -> None:
         encoded_value = dumps(value).encode("utf-8")
+        at = _now()
         blob_ref: str | None = None
         blob_bytes: int | None = None
         inline: str | None = None
@@ -211,6 +268,8 @@ class SqlRunJournal:
                 self.run_id,
                 self._next_seq,
                 key,
+                at,
+                ms,
                 inline,
                 blob_ref,
                 blob_bytes,
@@ -218,10 +277,111 @@ class SqlRunJournal:
         )
         self._store._commit()
         self.records[key] = value
+        self.timings[key] = {"at": at, "ms": ms}
         self._next_seq += 1
+        if self.header.pop("active", None) is not None:
+            self.write_header()
+
+    def start_attempt(self) -> None:
+        open_attempt(self.header)
+        self.write_header()
+
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str:
+        line = span_start(
+            self.header, self._span_count, key, step_name, parent, kind, attributes
+        )
+        self._span_count += 1
+        span_id = str(line["span_id"])
+        opening = line["attributes"]
+        self._span_attributes[span_id] = dict(
+            opening if type(opening) is dict else {}
+        )
+        self._store._execute(
+            self._store.dialect.insert_span(),
+            (
+                line["trace_id"],
+                span_id,
+                line["parent_id"],
+                line["name"],
+                line["start_time"],
+                dumps(opening),
+            ),
+        )
+        self._store._commit()
+        return span_id
+
+    def close_span(
+        self,
+        span_id: str,
+        ms: int,
+        outcome: str,
+        message: str | None = None,
+        attributes: dict[str, object] | None = None,
+    ) -> None:
+        line = span_end(span_id, ms, outcome, message, attributes)
+        ending = line["attributes"]
+        merged = self._span_attributes.pop(span_id, {})
+        if type(ending) is dict:
+            merged.update(ending)
+        self._store._execute(
+            self._store.dialect.close_span(),
+            (
+                line["end_time"],
+                line["status_code"],
+                line.get("status_message"),
+                dumps(merged),
+                self.run_id,
+                span_id,
+            ),
+        )
+        self._store._commit()
+
+    def spans(self) -> list[dict[str, object]]:
+        rows = self._store._query(self._store.dialect.select_spans(), (self.run_id,))
+        spans: list[dict[str, object]] = []
+        for (
+            trace_id,
+            span_id,
+            parent_id,
+            name,
+            start_time,
+            end_time,
+            status_code,
+            status_message,
+            attributes,
+        ) in rows:
+            found: dict[str, object] = {
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_id": parent_id,
+                "name": name,
+                "start_time": start_time,
+                "attributes": _parse_json_text(attributes, "workflow span attributes"),
+            }
+            if end_time is not None:
+                found["end_time"] = end_time
+                found["status_code"] = status_code
+            if status_message is not None:
+                found["status_message"] = status_message
+            spans.append(found)
+        return spans
+
+    def mark_step_started(self, key: str, step_name: str) -> None:
+        """Name the step now in flight, so a crashed run says where it stopped."""
+        self.header["active"] = {"key": key, "step": step_name, "at": _now()}
+        self.write_header()
 
     def mark_running(self) -> None:
         self._set_cancel_requested(None)
+        self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["status"] = "running"
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -230,20 +390,41 @@ class SqlRunJournal:
 
     def mark_ok(self) -> None:
         self.header["status"] = "ok"
+        self.header.pop("active", None)
         self.header["finished_at"] = _now()
         self.header.pop("error", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "ok")
         self.write_header()
 
     def mark_failed(self, kind: str, message: str) -> None:
         self.header["status"] = "failed"
+        self.header.pop("active", None)
         self.header["error"] = {"kind": kind, "message": message}
         self.header.pop("finished_at", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "failed")
         self.write_header()
 
-    def mark_suspended(self, reason: str) -> None:
+    def mark_suspended(
+        self, reason: str, asking: dict[str, object] | None = None
+    ) -> None:
         self.header["status"] = "suspended"
+        self.header.pop("active", None)
+        self.header["reason"] = reason
+        if asking is None:
+            self.header.pop("asking", None)
+        else:
+            self.header["asking"] = asking
+        self.header.pop("finished_at", None)
+        self.header.pop("error", None)
+        close_attempt(self.header, "suspended")
+        self.write_header()
+
+    def mark_crashed(self, reason: str) -> None:
+        """Say the process died. The open attempt stays open as the evidence."""
+        self.header["status"] = "crashed"
+        self.header.pop("active", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -251,9 +432,12 @@ class SqlRunJournal:
 
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
+        self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
+        close_attempt(self.header, "cancelled")
         self.write_header()
 
     def write_header(self) -> None:
@@ -289,9 +473,12 @@ class SqlRunJournal:
                 dumps(kwargs),
                 error_text,
                 self.header.get("reason"),
+                _active_text(self.header.get("active")),
+                _attempts_text(self.header.get("attempts")),
                 entry_file,
                 entry_workflow,
                 entry_cwd,
+                _asking_text(self.header.get("asking")),
                 self.run_id,
             ),
         )
@@ -299,6 +486,26 @@ class SqlRunJournal:
 
     def request_cancel(self, reason: str) -> None:
         self._set_cancel_requested(reason)
+
+    def put_inbox(self, key: str, value: object) -> None:
+        """Leave a value for the run to read from `current.run.inbox`."""
+        self.reload_inbox()
+        inbox = self.header["inbox"]
+        if type(inbox) is not dict:
+            raise _journal_error("header field inbox must be an object")
+        inbox[key] = value
+        self._store._execute(
+            self._store.dialect.update_inbox(),
+            (dumps(inbox), self.run_id),
+        )
+        self._store._commit()
+
+    def put_blob(self, encoded: bytes) -> str:
+        """Store bytes under their digest in the blobs table and return it."""
+        reference = hashlib.sha256(encoded).hexdigest()
+        self._store._execute(self._store.dialect.blob_insert, (reference, encoded))
+        self._store._commit()
+        return reference
 
     def cancel_requested(self) -> str | None:
         rows = self._store._query(
@@ -406,6 +613,8 @@ class SqlJournalStore:
                 dumps(kwargs),
                 None,
                 None,
+                None,
+                None,
                 entry["file"],
                 entry["workflow"],
                 entry["cwd"],
@@ -422,8 +631,8 @@ class SqlJournalStore:
             raise _journal_error(f"workflow run does not exist: {run_id}")
         header = _header_from_row(rows[0])
         header = validate_header(header, run_id, workflow_name)
-        records, next_seq = self._load_records(run_id)
-        return SqlRunJournal(self, header, records, next_seq)
+        records, timings, next_seq = self._load_records(run_id)
+        return SqlRunJournal(self, header, records, next_seq, timings)
 
     def runs(self) -> list[RunSummary]:
         summaries: list[RunSummary] = []
@@ -438,17 +647,25 @@ class SqlJournalStore:
             ))
         return summaries
 
-    def _load_records(self, run_id: str) -> tuple[dict[str, object], int]:
+    def _load_records(
+        self, run_id: str
+    ) -> tuple[dict[str, object], dict[str, dict[str, object]], int]:
         rows = self._query(self.dialect.select_records(), (run_id,))
         records: dict[str, object] = {}
+        timings: dict[str, dict[str, object]] = {}
         for expected_seq, row in enumerate(rows, start=1):
-            seq, key, inline, blob_ref, blob_bytes = row
+            seq, key, at, ms, inline, blob_ref, blob_bytes = row
             if type(seq) is not int or seq != expected_seq:
                 raise _journal_error("workflow journal sequence is not contiguous")
             if type(key) is not str or not key:
                 raise _journal_error("workflow journal key must be a non-empty string")
             if key in records:
                 raise _journal_error(f"duplicate workflow journal key: {key}")
+            if type(at) is not str or not at:
+                raise _journal_error("workflow journal at must be a timestamp")
+            if type(ms) is not int or ms < 0:
+                raise _journal_error("workflow journal ms must be a whole number")
+            timings[key] = {"at": at, "ms": ms}
             if inline is not None:
                 value = _parse_json_text(inline, key)
                 try:
@@ -485,7 +702,7 @@ class SqlJournalStore:
                     f"workflow blob is not canonical JSON: {blob_ref}"
                 )
             records[key] = value
-        return records, len(rows) + 1
+        return records, timings, len(rows) + 1
 
 
 class SqliteJournalStore(SqlJournalStore):
@@ -504,6 +721,18 @@ class SqliteJournalStore(SqlJournalStore):
         super().__init__(locator, SqliteDialect(), connection)
 
 
+def _active_text(active: object) -> str | None:
+    return dumps(active) if type(active) is dict else None
+
+
+def _attempts_text(attempts: object) -> str | None:
+    return dumps(attempts) if type(attempts) is list else None
+
+
+def _asking_text(asking: object) -> str | None:
+    return dumps(asking) if type(asking) is dict else None
+
+
 def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
     (
         run_id,
@@ -517,9 +746,12 @@ def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
         kwargs,
         error,
         reason,
+        active,
+        attempts,
         entry_file,
         entry_workflow,
         entry_cwd,
+        asking,
     ) = row
     header: dict[str, object] = {
         "run_id": run_id,
@@ -537,6 +769,12 @@ def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
         header["error"] = _parse_json_text(error, "error")
     if type(reason) is str:
         header["reason"] = reason
+    if type(active) is str:
+        header["active"] = _parse_json_text(active, "active")
+    if type(attempts) is str:
+        header["attempts"] = _parse_json_text(attempts, "attempts")
+    if type(asking) is str:
+        header["asking"] = _parse_json_text(asking, "asking")
     if (
         type(entry_file) is str
         and type(entry_workflow) is str

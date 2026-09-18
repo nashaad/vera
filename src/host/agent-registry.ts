@@ -40,8 +40,6 @@ import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
-import { discoverProjectExtensionConfigs } from "../extensions/discovery.ts";
-import { startExtensionRegistry } from "../extensions/registry.ts";
 import type { SessionIdentity, SessionIdentityProvider } from "../sdk/extensions.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
@@ -136,6 +134,10 @@ export class AgentRegistry {
 
     async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
         return registryLifecycle.closeAgentTree(this, id);
+    }
+
+    async parkExpiredIdle(now = Date.now()): Promise<void> {
+        return registryLifecycle.parkExpiredIdle(this, now);
     }
 
     async closeDescendantTree(
@@ -608,23 +610,8 @@ export class AgentRegistry {
     ): Promise<ResidentAgent> {
         const identity = await this.bindSessionIdentity(store);
         const startupProfile = store.header.contextAssemblyMode ?? "default";
-        const projectExtensionConfigs = startupProfile === "default"
-            ? discoverProjectExtensionConfigs(store.header.cwd)
-            : [];
-        const projectExtensions = projectExtensionConfigs.length === 0
-            ? undefined
-            : await startExtensionRegistry({
-                extensions: projectExtensionConfigs,
-            });
-        if ((projectExtensions?.modelMiddleware().length ?? 0) > 0) {
-            await projectExtensions?.close();
-            throw new Error("Model middleware must be installed in the Vera home, not the project");
-        }
         const extensionTools = startupProfile === "default"
-            ? [
-                ...(this.options.extensionTools ?? []),
-                ...(projectExtensions?.tools() ?? []),
-            ]
+            ? [...(this.options.extensionTools ?? [])]
             : [];
         const registry = this;
         const disabledPromptContributions = () =>
@@ -730,9 +717,6 @@ export class AgentRegistry {
                 ? {}
                 : { selectedAgent: store.selectedAgent()!.snapshot }),
             run: Promise.resolve(),
-            ...(projectExtensions === undefined
-                ? {}
-                : { projectExtensions }),
             completed: false,
             peerHop: 0,
             peerWakes: [],
@@ -747,13 +731,6 @@ export class AgentRegistry {
                 : { failure: new Error(storedFailure.detail) }),
         };
         this.agents.set(agent.id, entry);
-        try {
-            await this.options.acquireWorkspaceSidecars?.(store.header.cwd);
-        } catch (error) {
-            this.agents.delete(agent.id);
-            await projectExtensions?.close();
-            throw error;
-        }
         this.notifyRosterChanged();
         void this.reconcileResumedSelectedAgent(entry, events);
         if (storedFailure !== undefined) {
@@ -962,9 +939,6 @@ export class AgentRegistry {
         const hooks = startupProfile === "default"
             ? this.options.createToolHooks?.() ?? new ToolHooks()
             : new ToolHooks();
-        for (const hook of projectExtensions?.sessionStartHooks() ?? []) {
-            hooks.registerSessionStart(hook);
-        }
         const loopServices: RunHeadlessLoopServices = {
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
@@ -1269,10 +1243,8 @@ export class AgentRegistry {
         return registrySubagent.workerAdapterSpecFor(this, store, entry);
     }
 
-    workerExtensions(
-        workspace: string,
-    ): readonly VeraExtensionConfig[] | undefined {
-        return registrySubagent.workerExtensions(this, workspace);
+    workerExtensions(): readonly VeraExtensionConfig[] | undefined {
+        return registrySubagent.workerExtensions(this);
     }
 
     pushWorkerState(id: string): void {

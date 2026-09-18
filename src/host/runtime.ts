@@ -34,11 +34,8 @@ import {
     mergeModelRequestBody,
 } from "../providers/routing.ts";
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
-import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
-import {
-    discoverProjectExtensionConfigs,
-    mergeExtensionScopes,
-} from "../extensions/discovery.ts";
+import { includedExtensionConfigs } from "../extensions/included.ts";
+import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
     veraHomeDirectory,
@@ -169,17 +166,27 @@ import {
     startSidecarRuntimeIfNeeded,
     type SidecarRuntime,
 } from "./sidecar-runtime.ts";
-import { createWorkspaceSidecarSupervisor } from "./workspace-sidecars.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
 import {
     AgentRegistry,
+    importedSessionSummary,
     renameStoredSession,
     type RegisteredAgentSummary,
 } from "./agent-registry.ts";
 import type { SessionArtifacts } from "./session-trash.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
+import { SessionImportNotes } from "./session-import-note.ts";
+import {
+    ImportableSessionScanner,
+    importRootsFrom,
+    type ImportRoots,
+} from "../session-import/discover.ts";
+import {
+    importSessionFile,
+    markImportedSessions,
+} from "./session-import-service.ts";
 import { createCommandHook } from "../extensions/command-hook.ts";
 import type {
     PostToolUseHook,
@@ -214,6 +221,8 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    // Where Claude Code and Codex keep their sessions. Read, never written.
+    readonly importRoots?: ImportRoots;
     readonly configPath?: string;
     readonly createAdapter?: () => ModelAdapter;
     readonly socketPath?: string;
@@ -326,8 +335,8 @@ export async function startResidentHost(
         "extension_registry",
         () => startExtensionRegistry({
             extensions: mergeExtensionScopes(
-                defaultHostExtensionConfigs(
-                    options.config.disabled_builtin_extensions ?? [],
+                includedExtensionConfigs(
+                    options.config.disabled_included_extensions ?? [],
                 ),
                 options.config.extensions ?? [],
             ),
@@ -373,6 +382,12 @@ export async function startResidentHost(
         string,
         StandingNudgeCadence
     >();
+    const importableSessions = new ImportableSessionScanner(
+        options.importRoots ?? importRootsFrom(process.env),
+    );
+    const sessionImportNotes = new SessionImportNotes(
+        (sessionId) => join(sessionDirectory, `${sessionId}.jsonl`),
+    );
     const createAdapter = options.createAdapter
         ?? ((
             provider?: string,
@@ -426,23 +441,8 @@ export async function startResidentHost(
     let scheduler: SchedulerRuntime | null = null;
     let sidecars: SidecarRuntime | null = null;
     let publishedSocketPath = options.socketPath ?? "";
-    const workspaceSidecars = createWorkspaceSidecarSupervisor({
-        socketPath: () => publishedSocketPath,
-        logDirectory: options.sidecarLogDirectory
-            ?? join(veraRuntimeDirectory(), "logs", "sidecars"),
-        onStateChange: (status) => hostLog({
-            type: "sidecar_state",
-            sidecar: status.sidecarId,
-            state: status.state,
-            ...(status.pid === null ? {} : { pid: status.pid }),
-            ...(status.lastError === null
-                ? {}
-                : { message: status.lastError }),
-        }),
-    });
     const closeSidecars = async (): Promise<void> => {
         curatedRefresh.close();
-        await workspaceSidecars.close();
         await sidecars?.close();
         sidecars = null;
     };
@@ -755,17 +755,7 @@ export async function startResidentHost(
         },
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
-        workerExtensions: (workspace) => {
-            const config = currentConfig();
-            return mergeExtensionScopes(
-                config.extensions ?? [],
-                discoverProjectExtensionConfigs(workspace),
-            );
-        },
-        acquireWorkspaceSidecars: (workspace) =>
-            workspaceSidecars.acquire(workspace),
-        releaseWorkspaceSidecars: (workspace) =>
-            workspaceSidecars.release(workspace),
+        workerExtensions: () => currentConfig().extensions ?? [],
         registeredAgents: extensions.agents(),
         sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>
@@ -797,6 +787,7 @@ export async function startResidentHost(
                 ...await loadSkillContribution(instructionRoot, allowedSkills),
                 ...startupFindings.contributions(),
                 ...(standing === undefined ? [] : [standing]),
+                ...await sessionImportNotes.contributions(context?.sessionId),
             ];
         },
         createToolHooks: () => {
@@ -899,6 +890,8 @@ export async function startResidentHost(
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
     ) => void = () => {};
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
+    // Imports run one at a time so two requests for one file cannot both write.
+    let importQueue: Promise<void> = Promise.resolve();
     const storedSessions = new Promise<
         ReadonlyMap<string, RegisteredAgentSummary>
     >(
@@ -907,11 +900,16 @@ export async function startResidentHost(
     const resumeSession = (sessionPath: string) =>
         resumeOrFind(registry, sessionPath, restoringSessions);
     let closing: Promise<void> | undefined;
+    let parkIdleTimer: ReturnType<typeof setInterval> | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
     });
     const closeHost = (): Promise<void> => {
+        if (parkIdleTimer !== undefined) {
+            clearInterval(parkIdleTimer);
+            parkIdleTimer = undefined;
+        }
         if (closing === undefined) {
             announceShutdown();
             closing = (async () => {
@@ -1020,6 +1018,8 @@ export async function startResidentHost(
                 });
                 return registry.readHostModelSettings(request.workspace);
             },
+            handleExtensionRequest: (extensionId, name, payload, signal) =>
+                extensions.handleRequest(extensionId, name, payload, signal),
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
             refreshCatalog: async (provider, workspace) => {
@@ -1182,6 +1182,29 @@ export async function startResidentHost(
                 }
                 return renamed;
             },
+            importSession: (path) => {
+                const run = importQueue.then(async () => {
+                    await storedSessions;
+                    const outcome = await importSessionFile(path, {
+                        sessionDirectory,
+                        indexed: storedSessionIndex.values(),
+                    });
+                    if (outcome.status === "imported" && !outcome.existing) {
+                        await indexStoredSession(
+                            outcome.sessionPath,
+                            storedSessionIndex,
+                        );
+                    }
+                    return outcome;
+                });
+                importQueue = run.then(() => undefined, () => undefined);
+                return run;
+            },
+            listImportableSessions: async (workspace) => {
+                const listed = await importableSessions.list(workspace);
+                await storedSessions;
+                return markImportedSessions(listed, storedSessionIndex.values());
+            },
             readExtensionState: (sessionId) => extensions.sessionState(sessionId),
             listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
@@ -1274,6 +1297,9 @@ export async function startResidentHost(
     }
 
     const buildId = readStampedRelease().build_id;
+    parkIdleTimer = setInterval(() => {
+        void registry.parkExpiredIdle().catch(() => {});
+    }, 30_000);
     startupLog({
         type: "host_startup_complete",
         duration_ms: performance.now() - startupStarted,
@@ -2365,6 +2391,7 @@ export async function indexStoredSession(
             ...(header.origin === undefined
                 ? {}
                 : { forked_from: header.origin.sessionId }),
+            ...importedSessionSummary(header),
             ...(header.delegation?.parentId === undefined
                     && header.parentId === undefined
                 ? {}

@@ -1,6 +1,7 @@
 import type { LinesViewLine, LinesViewState } from "./lines-view.ts";
 import { isTuiDialTabKey, tuiBindingId } from "./keymap.ts";
 import { relativeTime } from "../../src/relative-time.ts";
+import { importedSessionLabel } from "../../src/store/session-import-provenance.ts";
 import type {
     SessionSearchFilter,
     SessionSearchHit,
@@ -494,7 +495,9 @@ export function searchOverlayLines(
     for (const result of results) {
         lines.push({ kind: "blank", text: "" });
         const age = relativeTime(result.updated_at, now, "");
-        const title = `  ${result.title}`;
+        const title = result.imported_tool === undefined
+            ? `  ${result.title}`
+            : `  ${result.title} ${importedSessionLabel(result.imported_tool)}`;
         const gap = Math.max(1, layout.width - title.length - age.length);
         lines.push({
             kind: "result",

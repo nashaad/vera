@@ -17,6 +17,7 @@ export const HOST_CAPABILITY_SKILL_COMMANDS = "skills.commands.v1";
 export const HOST_CAPABILITY_WORK_INDEX = "work.index.v1";
 export const HOST_CAPABILITY_ANNEX = "annex.v1";
 export const HOST_CAPABILITY_HOME_SNAPSHOT = "home.snapshot.v1";
+export const HOST_CAPABILITY_SESSION_IMPORT = "session.import.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -32,6 +33,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_WORK_INDEX,
     HOST_CAPABILITY_ANNEX,
     HOST_CAPABILITY_HOME_SNAPSHOT,
+    HOST_CAPABILITY_SESSION_IMPORT,
 ] as const;
 
 export function parseHostCapabilities(
