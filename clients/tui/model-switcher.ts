@@ -135,6 +135,8 @@ export function refreshedTuiModelSwitcher(
         ...ordered,
         selectedIndex: at >= 0
             ? at
+            : onSwitcherBrowseRow(state)
+            ? ordered.rows.length
             : Math.min(state.selectedIndex, Math.max(0, ordered.rows.length - 1)),
         ...(notice === undefined
             ? settledNotice(state, allRows)
@@ -221,6 +223,9 @@ function searchRank(row: TuiModelSwitcherRow, terms: readonly string[]): number 
         + (row.favorite === true || row.seeded === true ? 1 : 0);
 }
 
+/** The row pinned under the list, which leaves for the page `/models` opens. */
+export const MODEL_SWITCHER_BROWSE_LABEL = "Browse models";
+
 /** One press of pageup, pagedown, ^u or ^d covers this many rows. */
 const PAGE_ROWS = 10;
 
@@ -254,19 +259,25 @@ export function handleTuiModelSwitcherKey(
     if (key.name === "home") return moved(state, -state.rows.length);
     if (key.name === "end") return moved(state, state.rows.length);
     if (key.name === "return" || key.name === "enter" || key.name === "kpenter") {
-        if (selected !== undefined) return { selection: selected, handled: true };
-        return state.allRows.length === 0
-            ? { providers: true, handled: true }
-            : { state, handled: true };
+        if (state.allRows.length === 0) return { providers: true, handled: true };
+        if (onSwitcherBrowseRow(state)) return { browse: true, handled: true };
+        return selected === undefined
+            ? { state, handled: true }
+            : { selection: selected, handled: true };
     }
     return { state, handled: false };
+}
+
+/** The cursor reaches the browse row by sitting one past the last model. */
+export function onSwitcherBrowseRow(state: TuiModelSwitcherState): boolean {
+    return state.selectedIndex === state.rows.length;
 }
 
 function moved(
     state: TuiModelSwitcherState,
     delta: number,
 ): TuiModelSwitcherTransition {
-    const last = Math.max(0, state.rows.length - 1);
+    const last = state.rows.length;
     return {
         state: {
             ...state,
@@ -283,7 +294,7 @@ export function handleTuiModelSwitcherScroll(
         readonly delta: number;
     },
 ): TuiModelSwitcherTransition {
-    const selectedIndex = wheelCursor(state.selectedIndex, state.rows.length, scroll);
+    const selectedIndex = wheelCursor(state.selectedIndex, state.rows.length + 1, scroll);
     return selectedIndex === undefined
         ? { state, handled: false }
         : { state: { ...state, selectedIndex }, handled: true };
@@ -412,6 +423,19 @@ export function createTuiModelSwitcherView(
                 nodes.push(node);
             }
 
+            for (
+                const node of dialogOptionRows(renderer, [{
+                    label: MODEL_SWITCHER_BROWSE_LABEL,
+                    meta: "^b",
+                    spaced: display.length > 0,
+                    active: onSwitcherBrowseRow(state),
+                    ...dialogRowPointer(view.pointer, state.rows.length),
+                }])
+            ) {
+                box.add(node);
+                nodes.push(node);
+            }
+
             if (state.notice !== undefined) {
                 const notice = new TextRenderable(renderer, {
                     content: `${DIALOG_GUTTER}${state.notice}`,
@@ -439,7 +463,7 @@ function footerText(state: TuiModelSwitcherState): string {
     const favorite = state.rows[state.selectedIndex]?.favorite === true
         ? "^f unfavorite"
         : "^f favorite";
-    return `↑↓ move · ^u^d page · ⏎ switch · ${favorite} · ^b browse all · esc close`;
+    return `↑↓ move · ^u^d page · ⏎ switch · ${favorite} · esc close`;
 }
 
 export function switcherEmptyMessage(state: TuiModelSwitcherState): string {
@@ -522,7 +546,7 @@ function windowedRows(
     if (state.rows.length === 0) return [];
     const window = listWindowSlice(
         state.rows,
-        state.selectedIndex,
+        Math.min(state.selectedIndex, state.rows.length - 1),
         switcherMaxRows(renderer),
     );
     return displayRows(state, window, Math.max(0, state.rows.indexOf(window[0]!)));

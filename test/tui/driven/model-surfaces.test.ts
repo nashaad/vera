@@ -281,17 +281,33 @@ test("the switcher favorites with Ctrl+F and ignores the legacy Ctrl+S", async (
     } finally { await session.close(); }
 }, 15_000);
 
-test("ctrl+b leaves the switcher for the browse page", async () => {
+test("the pinned browse row opens the browse page", async () => {
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-")), width: 130, height: 44,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("^b browse all");
+        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
+        expect(session.captureVisiblePane()).toContain("Browse models");
+        // The pinned row is the last thing the cursor reaches, and it opens the page.
+        session.sendKey("NPage"); session.sendKey("Enter");
+        const browse = await session.waitForVisiblePane("Filter and sort");
+        expect(browse).not.toContain("⏎ switch");
+    } finally { await session.close(); }
+}, 15_000);
+
+test("ctrl+b leaves the switcher for the browse page", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-key-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
         session.sendKey("C-b");
-        const browse = await session.waitForVisiblePane("Browse models");
-        expect(browse).not.toContain("Switch model");
+        const browse = await session.waitForVisiblePane("Filter and sort");
+        expect(browse).not.toContain("⏎ switch");
     } finally { await session.close(); }
 }, 15_000);
 

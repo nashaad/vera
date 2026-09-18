@@ -6,6 +6,7 @@ import {
     createTuiModelSwitcherView,
     handleTuiModelSwitcherKey,
     modelSwitcherKey,
+    onSwitcherBrowseRow,
     refreshedTuiModelSwitcher,
     startTuiModelSwitcher,
     switcherEmptyMessage,
@@ -120,9 +121,10 @@ describe("model switcher keys", () => {
         const state = started();
         expect(handleTuiModelSwitcherKey(state, { name: "up" }).state?.selectedIndex).toBe(0);
         const last = handleTuiModelSwitcherKey(state, { name: "end" }).state!;
-        expect(last.selectedIndex).toBe(rows.length - 1);
+        // One past the last model is the browse row, and nothing is past that.
+        expect(last.selectedIndex).toBe(rows.length);
         expect(handleTuiModelSwitcherKey(last, { name: "down" }).state?.selectedIndex)
-            .toBe(rows.length - 1);
+            .toBe(rows.length);
     });
 
     test("ctrl+u and ctrl+d page the list", () => {
@@ -145,9 +147,17 @@ describe("model switcher keys", () => {
         expect(transition.state).toBeUndefined();
     });
 
-    test("the footer names paging and the way out to browse", () => {
+    test("the footer names paging", () => {
         expect(switcherFooterText(started())).toContain("^u^d page");
-        expect(switcherFooterText(started())).toContain("^b browse all");
+    });
+
+    test("the cursor reaches the browse row one past the last model", () => {
+        const last = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
+        expect(onSwitcherBrowseRow(last)).toBe(true);
+        expect(last.rows[last.selectedIndex]).toBeUndefined();
+        expect(handleTuiModelSwitcherKey(last, { name: "return" }).browse).toBe(true);
+        expect(handleTuiModelSwitcherKey(last, { name: "down" }).state?.selectedIndex)
+            .toBe(last.selectedIndex);
     });
 
     test("no browse control is bound: scope, sort and cutoff keys fall through", () => {
@@ -184,8 +194,9 @@ describe("model switcher seeded favorites", () => {
 
 describe("model switcher favoriting", () => {
     test("a toggled row keeps the cursor after the list reorders", () => {
+        const atBrowse = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
         const state = handleTuiModelSwitcherKey(
-            handleTuiModelSwitcherKey(started(), { name: "end" }).state!,
+            handleTuiModelSwitcherKey(atBrowse, { name: "up" }).state!,
             { name: "up" },
         ).state!;
         const held = state.rows[state.selectedIndex]!;
@@ -235,7 +246,10 @@ describe("model switcher favoriting", () => {
     test("the footer names the action the highlighted row would take", () => {
         const state = started();
         expect(switcherFooterText(state)).toContain("^f unfavorite");
-        const last = handleTuiModelSwitcherKey(state, { name: "end" }).state!;
+        const last = handleTuiModelSwitcherKey(
+            handleTuiModelSwitcherKey(state, { name: "end" }).state!,
+            { name: "up" },
+        ).state!;
         expect(switcherFooterText(last)).toContain("^f favorite");
     });
 });
@@ -262,6 +276,26 @@ describe("model switcher rendering", () => {
             for (const gone of ["Sort", "Cutoff", "WA Score", "Filter and sort", "All connected"]) {
                 expect(frame).not.toContain(gone);
             }
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+
+    test("the browse row is pinned under the list", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            view.update(handleTuiModelSwitcherKey(started(), { name: "end" }).state!);
+            await setup.renderOnce();
+            const frame = setup.captureCharFrame();
+            const lines = frame.split("\n").map((line) => line.trim()).filter(Boolean);
+            const at = lines.findIndex((line) => line.startsWith("Browse models"));
+            expect(at).toBeGreaterThan(0);
+            // It sits under every model, above the footer.
+            expect(lines[at - 1]).toContain("qwen3:32b");
+            expect(lines.slice(at + 1).join(" ")).toContain("esc close");
         } finally {
             setup.renderer.destroy();
         }
