@@ -44,7 +44,7 @@ test("the request-options editor names scope and opens pretty JSON", () => {
     expect(frame).toContain("Model           z-ai/glm-5.3-flash");
     expect(frame).toContain("default profile · every use of this model");
     expect(frame).toContain('"allow_fallbacks": false');
-    expect(frame).toContain("ctrl+s save");
+    expect(frame).toContain("Ctrl+S save");
 });
 
 test("valid JSON saves and an empty object clears the exact entry", () => {
@@ -150,7 +150,7 @@ test("narrow monochrome rendering keeps context, error, and footer readable", as
         expect(frame).toContain("z-ai/glm-5.3-flash");
         expect(frame).toContain("┌");
         expect(frame).toContain("▲ request options.provider.only");
-        expect(frame).toContain("esc cancel  ctrl+s save");
+        expect(frame).toContain("esc cancel  Ctrl+S save");
     } finally {
         setup.renderer.destroy();
     }

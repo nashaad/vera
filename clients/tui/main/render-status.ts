@@ -6,7 +6,7 @@ import { AUTO_MODE_ANIMATION_DURATION_MS, mapDialRows, paintDialHud } from "../d
 import { DIAL_EXIT_SEPARATOR, renderDialStrip } from "../dials.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
-import { tuiKeyChord, tuiKeyHint } from "../keymap.ts";
+import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
 import { HUD_HINT, MODEL_PICKER_HINT, QUESTION_HINT, READY_HINT, SIDEBAR_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, quietHintColumns, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { setComposerMargin } from "../main/chrome.ts";
@@ -97,7 +97,7 @@ export function renderStatus(rt: TuiRuntime): void {
             rt.connectionFailure === undefined
                 ? ""
                 : `: ${shortConnectionFailure(rt.connectionFailure)}`
-        } · /reconnect · ctrl+c quit`;
+        } · /reconnect · Ctrl+C quit`;
     } else if (focusedAbort) {
         lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
     } else if (
@@ -133,7 +133,7 @@ export function renderStatus(rt: TuiRuntime): void {
             : "sending prompt with image…";
     } else if (rt.extensionCommandPending) {
         lifecycleHint =
-            `${rt.extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
+            `${rt.extensionCommandActivity ?? "running extension command"} · Ctrl+C quit`;
     } else if (rt.pendingImages.length > 0) {
         lifecycleHint = `${rt.pendingImages.length} image${rt.pendingImages.length === 1 ? "" : "s"} attached · enter send`;
     }
@@ -165,11 +165,11 @@ export function renderStatus(rt: TuiRuntime): void {
                 : rt.sidebar.layout() === "sidebar"
                 ? `${rt.hostedSidebar.modeLabel ?? rt.hostedSidebar.mention ?? "agent"} only`
                 : "vera only",
-            "ctrl+\\ layout",
+            "Ctrl+\\ layout",
             ...(rt.sidebar.layout() === "split"
                 ? [rt.sidebar.isFocused()
-                    ? "ctrl+g vera"
-                    : `ctrl+g ${rt.hostedSidebar.mention ?? rt.hostedSidebar.pane.agentId}`]
+                    ? "Ctrl+G vera"
+                    : `Ctrl+G ${rt.hostedSidebar.mention ?? rt.hostedSidebar.pane.agentId}`]
                 : []),
         ];
     const placeIdle = !focusedAbort
@@ -214,8 +214,8 @@ export function renderStatus(rt: TuiRuntime): void {
             rt.dialStrip,
             [
                 "↑/↓ lane",
-                `${tuiKeyChord("dials.pair.prev")}/${
-                    tuiKeyChord("dials.pair.next")
+                `${tuiKeyChordLabel("dials.pair.prev")}/${
+                    tuiKeyChordLabel("dials.pair.next")
                 } change`,
                 "⏎ apply",
             ].join(" · "),

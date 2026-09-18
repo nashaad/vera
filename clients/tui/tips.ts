@@ -1,5 +1,5 @@
 
-import { tuiKeyChord } from "./keymap.ts";
+import { tuiKeyChordLabel } from "./keymap.ts";
 
 export interface TuiTipContext {
     readonly launches: number;
@@ -23,7 +23,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
         id: "name-pool-entry",
         text: () =>
             `Press ${
-                tuiKeyChord("name_pooled")
+                tuiKeyChordLabel("name_pooled")
             } on a model in your favorites to give it a short name`,
         cooldownLaunches: 5,
         isRelevant: (context) =>
@@ -33,7 +33,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
     {
         id: "verify-model",
         text: () =>
-            `Press ${tuiKeyChord("verify_model")} to probe the highlighted model`,
+            `Press ${tuiKeyChordLabel("verify_model")} to probe the highlighted model`,
         cooldownLaunches: 8,
         isRelevant: (context) =>
             context.inModelPicker && context.pooledCount > 0
@@ -42,7 +42,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
     {
         id: "pool-a-model",
         text: () =>
-            `Press ${tuiKeyChord("toggle_pooled")} to keep a model in your favorites`,
+            `Press ${tuiKeyChordLabel("toggle_pooled")} to keep a model in your favorites`,
         cooldownLaunches: 4,
         isRelevant: (context) =>
             context.inModelPicker && context.pooledCount < 2,
@@ -51,7 +51,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
         id: "connect-provider",
         text: () =>
             `Press ${
-                tuiKeyChord("open_providers")
+                tuiKeyChordLabel("open_providers")
             } to connect another provider`,
         cooldownLaunches: 10,
         isRelevant: (context) => context.inModelPicker,
@@ -66,14 +66,14 @@ export const TUI_TIPS: readonly TuiTip[] = [
     },
     {
         id: "model-picker-shortcut",
-        text: () => `Press ${tuiKeyChord("open_model_prefix")}, release Ctrl, then ${tuiKeyChord("model_prefix_open")} to switch models`,
+        text: () => `Press ${tuiKeyChordLabel("open_model_prefix")}, release Ctrl, then ${tuiKeyChordLabel("model_prefix_open")} to switch models`,
         cooldownLaunches: 15,
         isRelevant: (context) => !context.inModelPicker,
     },
     {
         id: "command-palette",
         text: () =>
-            `Press ${tuiKeyChord("open_palette")} for the command palette`,
+            `Press ${tuiKeyChordLabel("open_palette")} for the command palette`,
         cooldownLaunches: 15,
         isRelevant: (context) => !context.inModelPicker,
     },

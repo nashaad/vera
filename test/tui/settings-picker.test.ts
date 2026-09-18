@@ -215,7 +215,7 @@ test("session picker filters titled durable conversations and selects an agent",
         label: "Fix the deployment race",
         value: "Fix the deployment race",
     });
-    expect(frame).toContain("^r rename");
+    expect(frame).toContain("Ctrl+R rename");
     expect(frame).toContain("⏎ switch");
     expect(frame).not.toContain("tab");
 
@@ -2608,7 +2608,7 @@ test("the connect pane groups providers by access and spells out connected statu
     const frame = await pickerFrame(pane, 151, 36);
 
     expect(frame).toContain("Configure providers");
-    expect(frame).not.toContain("Providers ^e");
+    expect(frame).not.toContain("Providers Ctrl+E");
     expect(frame).toContain("Subscriptions");
     expect(frame).toContain("API keys");
     expect(frame).toContain("Local");
@@ -2891,11 +2891,11 @@ test("Configure providers is a standalone card even when opened from a model pan
     const frame = await pickerFrame(providers);
     expect(frame).toContain("Configure providers");
     expect(frame).not.toContain("Select model");
-    expect(frame).not.toContain("Providers ^e");
+    expect(frame).not.toContain("Providers Ctrl+E");
     expect(frame).not.toContain("⇥ tabs");
     expect(frame).not.toContain("Catalog");
     expect(frame).toContain("esc back");
-    expect(frame).not.toContain("^f…");
+    expect(frame).not.toContain("Ctrl+F…");
     expect(frame).toContain("OpenRouter");
     for (const shift of [false, true]) {
         const transition = handleTuiSettingsPickerKey(providers, { name: "tab", shift });

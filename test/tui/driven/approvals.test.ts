@@ -42,7 +42,7 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         // `env` prints as many lines as the machine has variables, so
         // the row is pinned by its command and its details hint.
         expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
-        expect(pane).toContain("ctrl+t details");
+        expect(pane).toContain("Ctrl+T details");
         expect(pane).toContain("auto");
         expect(pane).not.toContain("Permission required");
         expect(pane).not.toContain("Allow once");

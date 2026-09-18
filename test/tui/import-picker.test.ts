@@ -81,7 +81,7 @@ test("empty states say what to do next", () => {
     expect(emptyPickerMessage(loading)).toBe("Looking for Claude Code and Codex sessions…");
     const empty = { sessions: [], truncated: false };
     expect(emptyPickerMessage(startTuiImportPicker({ scope: "folder", workspace: "/w", listing: empty })))
-        .toBe("No Claude Code or Codex sessions in this folder. Press ctrl+g for all folders.");
+        .toBe("No Claude Code or Codex sessions in this folder. Press Ctrl+G for all folders.");
     expect(emptyPickerMessage(startTuiImportPicker({ scope: "all", workspace: "/w", listing: empty })))
         .toBe("No Claude Code or Codex sessions found.");
 });
@@ -93,7 +93,7 @@ test("the picker renders rows, the scope and the keys", async () => {
     view.surface.visible = true;
     try {
         const state = startTuiImportPicker({ scope: "folder", workspace: "/work/alpha", listing, now });
-        expect(pickerFooterText(state)).toBe("↑↓ ^d^u move · ⏎ import · ^g folder/all · esc close");
+        expect(pickerFooterText(state)).toBe("↑↓ Ctrl+D/U move · ⏎ import · Ctrl+G folder/all · esc close");
         view.update(state);
         await setup.renderOnce();
         const frame = setup.captureCharFrame();
@@ -101,7 +101,7 @@ test("the picker renders rows, the scope and the keys", async () => {
         expect(frame).toContain("This folder: /work/alpha");
         expect(frame).toContain("Codex · add a test for the parser");
         expect(frame).toContain("Claude Code · Fix the build · imported");
-        expect(frame).toContain("^g folder/all");
+        expect(frame).toContain("Ctrl+G folder/all");
     } finally {
         setup.renderer.destroy();
     }

@@ -74,7 +74,7 @@ test("the palette opens Favorites with the current model ready to add", async ()
         // with the key that keeps it.
         expect(opened).toContain("Add to favorites");
         expect(opened).toContain("Favorites: not saved");
-        expect(opened).not.toContain("^s pin");
+        expect(opened).not.toContain("Ctrl+S pin");
     } finally {
         await session.close();
     }

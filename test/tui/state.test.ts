@@ -178,7 +178,7 @@ test("a completion reports the time the reasoning behind it took", () => {
         reasoning: "weighing the two orderings",
     }]);
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning: 3.0s  ctrl+o reasoning");
+        .toBe("Reasoning: 3.0s  Ctrl+O reasoning");
 });
 
 test("tool calls between two stretches of thinking do not split the row", () => {
@@ -358,7 +358,7 @@ test("the thought summary folds the reasoning it collected", () => {
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning: 12.4s  ctrl+o reasoning");
+        .toBe("Reasoning: 12.4s  Ctrl+O reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -377,7 +377,7 @@ test("toggling reasoning opens every fold and every later one", () => {
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
+        .toBe("Reasoning: 12.4s  Ctrl+O hide reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -410,7 +410,7 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "Reasoning: 3.3s  ctrl+o hide reasoning"
+        "Reasoning: 3.3s  Ctrl+O hide reasoning"
         + "\n\nEstimating remaining work\n\nChecking shipped slices",
     );
 });
@@ -1429,7 +1429,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "  Explored  List /workspace  ctrl+t details",
+            "  Explored  List /workspace  Ctrl+T details",
             "  └ file-0",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
@@ -1554,7 +1554,7 @@ test("a short completed tool result stays under its header", () => {
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "  Edited  Edit /workspace/note.txt  ctrl+t details",
+            "  Edited  Edit /workspace/note.txt  Ctrl+T details",
             "  └ ok",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
@@ -1570,7 +1570,7 @@ test("a folded tool header reserves a blank marker and an expanded one uses a ch
         detailLines: 9,
         expanded: false,
         hint: true,
-    }))).toBe("  Ran  pwd  ctrl+t details");
+    }))).toBe("  Ran  pwd  Ctrl+T details");
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
         text: "- Ran",
@@ -1578,7 +1578,7 @@ test("a folded tool header reserves a blank marker and an expanded one uses a ch
         detailLines: 9,
         expanded: true,
         hint: true,
-    }))).toBe("▾ Ran  pwd  ctrl+t details");
+    }))).toBe("▾ Ran  pwd  Ctrl+T details");
 });
 
 test("the first detail toggle hides completed activity that is currently visible", () => {

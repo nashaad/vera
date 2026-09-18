@@ -600,7 +600,7 @@ test("a stalled resume returns control to the current session", async () => {
     }
 }, 15_000);
 
-test("ctrl+c quits while a session switch is still pending", async () => {
+test("Ctrl+C quits while a session switch is still pending", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-switch-quit-"));
     const scenario = createTuiForkSessionScenario({
         home,
@@ -620,7 +620,7 @@ test("ctrl+c quits while a session switch is still pending", async () => {
         await session.waitForVisiblePane("Fork session");
         session.sendKey("Enter");
         // The deadline is a minute out, so the switch is still pending and
-        // ctrl+c is the only way out of it.
+        // Ctrl+C is the only way out of it.
         await session.waitForVisiblePane("forking session");
         session.sendKey("C-c");
         await session.waitForSessionExit();
@@ -787,7 +787,7 @@ test("back typed in the composer runs the command instead of prompting", async (
     }
 }, 15_000);
 
-test("ctrl+e opens the same conversation picker as /resume", async () => {
+test("Ctrl+E opens the same conversation picker as /resume", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-keep-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -804,7 +804,7 @@ test("ctrl+e opens the same conversation picker as /resume", async () => {
         expect(pane).toContain("Resume");
         expect(pane).toContain("The one already open");
         expect(pane).toContain("RECENT");
-        expect(pane).toContain("^r rename");
+        expect(pane).toContain("Ctrl+R rename");
         session.sendKey("C-e");
         await session.waitForVisiblePaneWhere(
             (visible) => !visible.includes("Continue the theme picker"),
@@ -836,7 +836,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane("This conversation is idle.");
         expect(pane).toContain("hello from disk");
-        expect(pane).toContain("ctrl+n new");
+        expect(pane).toContain("Ctrl+N new");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         expect(pane).not.toContain("permissions loading");
         // The slot is the composer's frame, not a frame of its own: top rule
@@ -895,7 +895,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
     }
 }, 15_000);
 
-test("ctrl+e opens the conversation picker from an idle file", async () => {
+test("Ctrl+E opens the conversation picker from an idle file", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-picker-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -909,19 +909,19 @@ test("ctrl+e opens the conversation picker from an idle file", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/close");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("ctrl+n new");
+        await session.waitForVisiblePane("Ctrl+N new");
         session.sendKey("C-e");
         const pane = await session.waitForVisiblePane("Continue the theme picker");
         expect(pane).toContain("Resume");
         expect(pane).toContain("The one already open");
         session.sendKey("Escape");
-        await session.waitForVisiblePane("ctrl+n new");
+        await session.waitForVisiblePane("Ctrl+N new");
     } finally {
         await session.close();
     }
 }, 15_000);
 
-test("ctrl+n from an idle file starts a new chat", async () => {
+test("Ctrl+N from an idle file starts a new chat", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-new-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -984,7 +984,7 @@ test("escape from an idle file goes home", async () => {
     }
 }, 15_000);
 
-test("picking a live conversation from ctrl+e asks, then attaches", async () => {
+test("picking a live conversation from Ctrl+E asks, then attaches", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-attach-"));
     const scenario = createTuiResumeScenario({ home, targetLive: true });
     const session = await startTuiTestSession({
@@ -1101,7 +1101,7 @@ test("theme preview and cancel repaint an attached sidebar transcript", async ()
     }
 }, 15_000);
 
-test("ctrl+n starts a new chat and asks how to leave", async () => {
+test("Ctrl+N starts a new chat and asks how to leave", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-new-"));
     const scenario = createTuiNewSessionScenario({
         home,
@@ -1175,7 +1175,7 @@ test("close command parks the current session as a resume file", async () => {
     }
 }, 15_000);
 
-test("ctrl+w parks the current session as a resume file", async () => {
+test("Ctrl+W parks the current session as a resume file", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-close-chord-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({

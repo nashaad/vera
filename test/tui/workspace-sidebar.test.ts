@@ -700,7 +700,7 @@ describe("the cursor", () => {
         expect(state.selectedId).toBe("a");
     });
 
-    test("ctrl+d and ctrl+u jump half a page without opening", () => {
+    test("Ctrl+D and Ctrl+U jump half a page without opening", () => {
         const sessions = Array.from({ length: 10 }, (_unused, at) =>
             session(`s${at}`, {
                 live: true,
@@ -752,7 +752,7 @@ describe("the cursor", () => {
         expect(workspaceJumpTargets(layout)).toEqual(["b"]);
     });
 
-    test("ctrl+r opens the resume picker directly", () => {
+    test("Ctrl+R opens the resume picker directly", () => {
         expect(press(open([session("a")]), "r", { ctrl: true }).action)
             .toEqual({ kind: "resume_picker" });
     });
@@ -800,7 +800,7 @@ describe("the cursor", () => {
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS)).not.toContain(" i");
     });
 
-    test("ctrl+n starts a new chat without opening a row", () => {
+    test("Ctrl+N starts a new chat without opening a row", () => {
         expect(press(open([session("a")]), "n", { ctrl: true }))
             .toEqual({ action: { kind: "new_session" }, handled: true });
     });
@@ -1087,14 +1087,14 @@ describe("the drawn card", () => {
         );
         expect(view.footer).toBe([
             "Move    ↑↓  j/k",
-            "Page    ctrl+d/u",
+            "Page    Ctrl+D/U",
             "Open    enter",
             "Rename  r",
-            "New     ctrl+n",
-            "Resume  ctrl+r",
-            "Cycle   ctrl+shift+← →",
+            "New     Ctrl+N",
+            "Resume  Ctrl+R",
+            "Cycle   Ctrl+Shift+← →",
             "Chat    →",
-            "Hide    ctrl+e",
+            "Hide    Ctrl+E",
         ].join("\n"));
         expect(view.footerTable).toHaveLength(9);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
@@ -1168,14 +1168,14 @@ describe("the drawn card", () => {
         // hint is measured against the column and not against the screen.
         expect(view.footer).toBe([
             "Move    ↑↓  j/k",
-            "Page    ctrl+d/u",
+            "Page    Ctrl+D/U",
             "Open    enter",
             "Rename  r",
-            "New     ctrl+n",
-            "Resume  ctrl+r",
-            "Cycle   ctrl+shift+← →",
+            "New     Ctrl+N",
+            "Resume  Ctrl+R",
+            "Cycle   Ctrl+Shift+← →",
             "Chat    →",
-            "Hide    ctrl+e",
+            "Hide    Ctrl+E",
         ].join("\n"));
         for (const line of view.footer.split("\n")) {
             expect(line.length)
@@ -1195,7 +1195,7 @@ describe("the drawn card", () => {
             NOW,
         );
         // All three work with the cursor in the composer: cycle is global,
-        // Left hands the rail the keys, and ctrl+e hides it.
+        // Left hands the rail the keys, and Ctrl+E hides it.
         const cycle = tuiChordPairLabel(
             tuiKeyChord("cycle_live_session_prev"),
             tuiKeyChord("cycle_live_session_next"),
@@ -1203,7 +1203,7 @@ describe("the drawn card", () => {
         expect(idle.footerTable).toEqual([
             { label: "Cycle", value: cycle },
             { label: "Focus", value: "←" },
-            { label: "Hide", value: "ctrl+e" },
+            { label: "Hide", value: "Ctrl+E" },
         ]);
         expect(idle.footer).toContain(cycle);
         // The rail's own chords are not offered to a keyboard that is elsewhere.
@@ -1266,7 +1266,7 @@ describe("the drawn card", () => {
             ));
             expect(workspaceSidebarFooterTable().find((row) =>
                 row.label === "Rename"
-            )?.value).toBe("ctrl+y");
+            )?.value).toBe("Ctrl+Y");
             expect(press(open([session("a")]), "y", { ctrl: true }).action)
                 .toEqual({
                     kind: "rename_session",

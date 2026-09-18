@@ -22,7 +22,7 @@ import {
 import { FauxAdapter } from "../../support/faux-adapter.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-const READY = "ready · ctrl+p";
+const READY = "ready · Ctrl+P";
 
 function chromeIsBusy(pane: string): boolean {
     return pane.includes("stopping…")
@@ -147,7 +147,7 @@ test("empty Enter releases every queued prompt in one model turn", async () => {
         await session.waitForVisiblePane("+1");
 
         const heldPane = await session.waitForVisiblePaneWhere(
-            (candidate) => candidate.includes("ready · ctrl+p commands")
+            (candidate) => candidate.includes("ready · Ctrl+P commands")
                 && candidate.includes("queued · first queued")
                 && candidate.includes("+1"),
             "held queue after the active turn finishes",
@@ -155,7 +155,7 @@ test("empty Enter releases every queued prompt in one model turn", async () => {
         expect(heldPane).not.toContain("BATCH OK");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePaneWhere(
-            (candidate) => candidate.includes("ready · ctrl+p commands")
+            (candidate) => candidate.includes("ready · Ctrl+P commands")
                 && candidate.includes("BATCH OK"),
             "one batched answer and ready status",
         );
@@ -224,7 +224,7 @@ test("empty Enter steers a released prompt that is still running", async () => {
 
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePaneWhere(
-            (candidate) => candidate.includes("ready · ctrl+p commands")
+            (candidate) => candidate.includes("ready · Ctrl+P commands")
                 && candidate.includes("second queued")
                 && candidate.includes("third queued"),
             "the steered batch ran both held prompts",
@@ -278,13 +278,13 @@ test("a typed prompt stays queued behind an idle send-one fence", async () => {
         session.sendKey("Escape");
 
         await session.waitForVisiblePane("queued · held first");
-        await session.waitForVisiblePane("ready · ctrl+p commands");
+        await session.waitForVisiblePane("ready · Ctrl+P commands");
         session.sendText("typed behind fence");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("+1");
 
         expect(pane).toContain("queued · held first");
-        expect(pane).toContain("ready · ctrl+p commands");
+        expect(pane).toContain("ready · Ctrl+P commands");
         expect(pane).not.toContain("stopping…");
         expect(sent.some((command) =>
             command.type === "prompt"
@@ -309,7 +309,7 @@ test("a legacy host still advances its client-owned prompt queue", async () => {
     });
 
     try {
-        await session.waitForVisiblePane("ready · ctrl+p commands");
+        await session.waitForVisiblePane("ready · Ctrl+P commands");
         session.sendText("first");
         session.sendKey("Enter");
         await session.waitForVisiblePane("esc stop");

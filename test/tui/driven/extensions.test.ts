@@ -61,10 +61,10 @@ test("extension slash commands stay in the TUI and render attributed results", a
         expect(existsSync(
             join(home, "extension-command-result.txt"),
         )).toBeFalse();
-        // The tmux test cleared the composer with ctrl+c. Typing into the
-        // native edit buffer right after a ctrl+c clear segfaults the virtual
+        // The tmux test cleared the composer with Ctrl+C. Typing into the
+        // native edit buffer right after a Ctrl+C clear segfaults the virtual
         // test renderer (opentui 0.2.16), so this port clears it key by key;
-        // the ctrl+c draft clear itself is covered by the draft test.
+        // the Ctrl+C draft clear itself is covered by the draft test.
         clearComposer(session, "/hello too early");
         session.sendText("/hell");
         pane = await session.waitForVisiblePane(
@@ -75,7 +75,7 @@ test("extension slash commands stay in the TUI and render attributed results", a
         session.sendText(" fail");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
-            "running /hello · ctrl+c quit",
+            "running /hello · Ctrl+C quit",
         );
         expect(pane).toContain("running /hello");
         pane = await session.waitForVisiblePane(

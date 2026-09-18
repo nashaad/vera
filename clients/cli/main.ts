@@ -1367,7 +1367,7 @@ async function runConfiguredTui(
 function runLogin(output: CliOutput): number {
     output.write(
         "Vera accounts are not available yet.\n"
-        + "To connect a model provider, open Vera and press ctrl+e in the model pane.\n",
+        + "To connect a model provider, open Vera and press Ctrl+E in the model pane.\n",
     );
     return 0;
 }

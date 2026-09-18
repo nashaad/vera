@@ -218,12 +218,15 @@ test("contribution parts name files without putting their bodies on the wire", (
     const component = measurement.projection?.components.find((entry) =>
         entry.id === "core.project-instructions"
     );
-    expect(component?.parts).toEqual([{
+    if (component === undefined) {
+        throw new Error("expected core.project-instructions component in projection");
+    }
+    expect(component.parts).toEqual([{
         id: "/workspace/AGENTS.local.md",
         displayName: "AGENTS.local.md",
         scope: "project",
         bytes: 20_000,
-        estimatedTokens: component?.estimatedTokens,
+        estimatedTokens: component.estimatedTokens,
     }]);
     expect(JSON.stringify(measurement)).not.toContain("secret body");
 });

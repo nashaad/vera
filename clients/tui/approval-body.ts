@@ -37,7 +37,7 @@ export function tuiApprovalBody(
     return {
         lines: [
             ...lines.slice(0, TUI_APPROVAL_BODY_LINES),
-            { text: `… ${hidden} more lines · ctrl+r expand`, tone: "muted" },
+            { text: `… ${hidden} more lines · Ctrl+R expand`, tone: "muted" },
         ],
         hidden,
     };

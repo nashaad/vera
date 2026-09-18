@@ -230,7 +230,7 @@ import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, handleTuiSetti
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
-import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
+import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
 
 import { modelBrowseScope, modelBrowseSort } from "./model-browse.ts";
 import {
@@ -361,7 +361,7 @@ export function confirmManualReconnectUpgrade(error: Error): boolean {
     return error instanceof HostUnresponsiveError;
 }
 
-export const MODEL_PICKER_HINT = `${tuiKeyChord("open_model_prefix")} then ${tuiKeyHint("model_prefix_open")}`;
+export const MODEL_PICKER_HINT = `${tuiKeyChordLabel("open_model_prefix")} then ${tuiKeyHint("model_prefix_open")}`;
 export const HUD_HINT = tuiKeyHint("dials.open");
 export const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
 
@@ -1791,7 +1791,7 @@ export async function startTui(
             text: renderMarkdown === undefined
                 ? document.markdown as string
                 : renderMarkdown(columns),
-            footerText: [document.footerText, document.editorPath === undefined ? undefined : "ctrl+o Open in editor", document.action === undefined ? undefined : `ctrl+o ${document.action.label}`].filter(Boolean).join(" · "),
+            footerText: [document.footerText, document.editorPath === undefined ? undefined : "Ctrl+O Open in editor", document.action === undefined ? undefined : `Ctrl+O ${document.action.label}`].filter(Boolean).join(" · "),
             action: document.action,
             editorPath: document.editorPath,
             onEditorClosed: document.onEditorClosed,

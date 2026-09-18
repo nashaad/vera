@@ -281,30 +281,30 @@ test("TUI status snapshot carries facts and no client state", () => {
 test("the idle status line reports the background agents still running", () => {
     // Ready is the place row's to say, and the place row still says it here:
     // a session waiting on its children is idle.
-    expect(renderTuiIdleHint("ready · ctrl+p commands", 2))
+    expect(renderTuiIdleHint("ready · Ctrl+P commands", 2))
         .toBe("waiting for 2 background agents");
-    expect(renderTuiIdleHint("ready · ctrl+p commands", 1))
+    expect(renderTuiIdleHint("ready · Ctrl+P commands", 1))
         .toBe("waiting for 1 background agent");
     // Back to the plain hint once the children are done.
-    expect(renderTuiIdleHint("ready · ctrl+p commands", 0))
-        .toBe("ready · ctrl+p commands");
+    expect(renderTuiIdleHint("ready · Ctrl+P commands", 0))
+        .toBe("ready · Ctrl+P commands");
 });
 
 test("the place row keeps ready off the band while a turn is live", () => {
-    expect(tuiPlaceRowModeLine("ready · ctrl+p commands", true))
-        .toBe("ready · ctrl+p commands");
-    expect(tuiPlaceRowModeLine("ready · ctrl+p commands", false)).toBe("");
+    expect(tuiPlaceRowModeLine("ready · Ctrl+P commands", true))
+        .toBe("ready · Ctrl+P commands");
+    expect(tuiPlaceRowModeLine("ready · Ctrl+P commands", false)).toBe("");
     expect(tuiPlaceRowModeLine(
-        "ready · ctrl+p commands",
+        "ready · Ctrl+P commands",
         false,
-        ["agent mode", "split", "ctrl+\\ layout"],
-    )).toBe("agent mode · split · ctrl+\\ layout");
+        ["agent mode", "split", "Ctrl+\\ layout"],
+    )).toBe("agent mode · split · Ctrl+\\ layout");
     expect(tuiPlaceRowModeLine(
-        "ready · ctrl+p commands",
+        "ready · Ctrl+P commands",
         true,
-        ["agent mode", "vera only", "ctrl+\\ layout"],
+        ["agent mode", "vera only", "Ctrl+\\ layout"],
     )).toBe(
-        "ready · ctrl+p commands · agent mode · vera only · ctrl+\\ layout",
+        "ready · Ctrl+P commands · agent mode · vera only · Ctrl+\\ layout",
     );
 });
 
@@ -447,7 +447,7 @@ test("the attention hint is the caller's, so it can name the jump chord", () => 
     expect(text(chord)).toContain("1 need you · ctrl+shift+j");
     // The click span follows whatever hint is shown.
     expect(needsYouChipColumns(chord, 1))
-        .toBe("1 need you · ctrl+shift+j".length);
+        .toBe("1 need you · Ctrl+Shift+J".length);
     // An empty hint leaves the count alone rather than a dangling separator.
     expect(text(rows(""))).toContain("1 need you · default · auto · test");
     expect(needsYouChipColumns(rows(""), 1)).toBe("1 need you".length);

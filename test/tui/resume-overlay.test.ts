@@ -43,7 +43,7 @@ test("the block above says idle, and says it ends by typing", () => {
     expect(IDLE_NOTICE_PROSE).not.toContain("closed");
     expect(IDLE_NOTICE_CHORD_LINE)
         .toBe(
-            "enter continue · esc home · ctrl+n new · ctrl+r all · ctrl+p commands",
+            "enter continue · esc home · Ctrl+N new · Ctrl+R all · Ctrl+P commands",
         );
 });
 
@@ -91,7 +91,7 @@ test("scroll wins even while the agent sidebar is focused", () => {
     )).toBe("scroll");
 });
 
-test("ctrl+shift+[ and ] cycle live sessions from a file view", () => {
+test("Ctrl+Shift+[ and ] cycle live sessions from a file view", () => {
     expect(jsonlViewKeyAction(
         { name: "[", ctrl: true, shift: true },
         {
@@ -136,7 +136,7 @@ test("the rail can still take focus so you can leave without resuming", () => {
     )).toBe("block");
 });
 
-test("ctrl+n starts a new chat from the file view", () => {
+test("Ctrl+N starts a new chat from the file view", () => {
     expect(jsonlViewKeyAction(
         { name: "n", ctrl: true },
         {
@@ -153,7 +153,7 @@ test("slash opens the command composer on a closed file", () => {
     )).toBe("command");
 });
 
-test("ctrl+p opens the palette from a closed file", () => {
+test("Ctrl+P opens the palette from a closed file", () => {
     expect(jsonlViewKeyAction(
         { name: "p", ctrl: true },
         { globalBinding: "open_palette", sidebarFocused: false },
@@ -201,7 +201,7 @@ test("a modified escape is not the way home", () => {
     }
 });
 
-test("ctrl+r opens the full list from a file, focused rail or not", () => {
+test("Ctrl+R opens the full list from a file, focused rail or not", () => {
     expect(jsonlViewKeyAction(
         { name: "r", ctrl: true },
         {
@@ -222,7 +222,7 @@ test("ctrl+r opens the full list from a file, focused rail or not", () => {
 
 test("the chord row drops from the right rather than running off the edge", () => {
     expect(idleNoticeChordsFor(80).map((chord) => chord.key))
-        .toEqual(["enter", "esc", "ctrl+n", "ctrl+r", "ctrl+p"]);
+        .toEqual(["enter", "esc", "Ctrl+N", "Ctrl+R", "Ctrl+P"]);
     // Enter remains visible first when the row gets tight.
     expect(idleNoticeChordsFor(34).map((chord) => chord.key))
         .toEqual(["enter", "esc"]);

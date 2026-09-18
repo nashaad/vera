@@ -131,20 +131,24 @@ test("stopLivePid kills a real child and drops its row", async () => {
             detached: true,
         });
         pid = child.pid;
-        expect(pid).toBeGreaterThan(0);
+        if (pid === undefined) {
+            throw new Error("expected spawn() to assign a pid");
+        }
+        const childPid = pid;
+        expect(childPid).toBeGreaterThan(0);
         child.unref();
         postLiveProcess("worker", {
             home,
-            pid,
+            pid: childPid,
             startedAt: new Date(Date.now() - 1_000).toISOString(),
             runtimeDir: "/tmp/vera-daily",
         });
-        expect(stopLivePid(pid)).toBe(true);
+        expect(stopLivePid(childPid)).toBe(true);
         const until = Date.now() + 2_000;
-        while (Date.now() < until && processIsAlive(pid)) {
+        while (Date.now() < until && processIsAlive(childPid)) {
             await Bun.sleep(25);
         }
-        expect(processIsAlive(pid)).toBe(false);
+        expect(processIsAlive(childPid)).toBe(false);
         expect(listLiveProcesses(home)).toEqual([]);
     } finally {
         if (previous === undefined) delete process.env.VERA_HOME;
@@ -185,6 +189,9 @@ test("a real worker process posts on creation", async () => {
         env: { ...process.env, VERA_HOME: join(home, ".vera") },
     });
     const pid = child.pid;
+    if (pid === undefined) {
+        throw new Error("expected spawn() to assign a pid");
+    }
     expect(pid).toBeGreaterThan(0);
     try {
         await waitForKind(home, "worker", pid);
@@ -208,6 +215,9 @@ test("a real supervisor process posts on creation", async () => {
         env: { ...process.env, VERA_HOME: join(home, ".vera") },
     });
     const pid = child.pid;
+    if (pid === undefined) {
+        throw new Error("expected spawn() to assign a pid");
+    }
     expect(pid).toBeGreaterThan(0);
     try {
         await waitForKind(home, "supervisor", pid);

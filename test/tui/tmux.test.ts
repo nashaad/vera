@@ -593,7 +593,7 @@ test.skipIf(!tmuxAvailable)(
                 line.includes("esc stop sidekick")
             );
             const hostedPlaceRow = hostedWorkingLines.find((line) =>
-                line.includes("ready · ctrl+p commands · btw mode · split")
+                line.includes("ready · Ctrl+P commands · btw mode · split")
             );
             expect(hostedActivityRow).toBeDefined();
             expect(hostedPlaceRow).toBeDefined();
@@ -614,7 +614,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Message Vera")
-                    && visible.includes("ctrl+g sidekick"),
+                    && visible.includes("Ctrl+G sidekick"),
                 "Ctrl+G to focus Vera",
             );
             expect(railWidth(pane)).toBeGreaterThan(0);
@@ -648,7 +648,7 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Message Vera")
-                    && visible.includes("ctrl+g peer"),
+                    && visible.includes("Ctrl+G peer"),
                 "Ctrl+G to focus Vera from Pair",
             );
             expect(railWidth(pane)).toBeGreaterThan(0);

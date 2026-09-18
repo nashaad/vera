@@ -116,6 +116,9 @@ test("command -v vera is the launcher, and the release runs with the repo denied
             cwd: scratch,
             env: childEnv,
         }) as ReturnType<typeof Bun.spawnSync>;
+        if (version.stderr === undefined || version.stdout === undefined) {
+            throw new Error("expected the sandboxed vera --version run to capture stdio");
+        }
         expect(version.stderr.toString()).toBe("");
         expect(version.exitCode).toBe(0);
         expect(version.stdout.toString()).toBe(expected);
@@ -137,6 +140,12 @@ test("command -v vera is the launcher, and the release runs with the repo denied
         ) as ReturnType<typeof Bun.spawn>;
         const stdout = annex.stdout;
         const stderr = annex.stderr;
+        if (typeof stdout === "number" || stdout === undefined) {
+            throw new Error("expected the annex process to have a piped stdout stream");
+        }
+        if (typeof stderr === "number" || stderr === undefined) {
+            throw new Error("expected the annex process to have a piped stderr stream");
+        }
         const decoder = new TextDecoder();
         let outBuf = "";
         let errBuf = "";

@@ -37,7 +37,7 @@ test("the search pane types into a box and pages through its results", async () 
     });
 
     try {
-        await session.waitForVisiblePane("ready · ctrl+p commands");
+        await session.waitForVisiblePane("ready · Ctrl+P commands");
         session.sendKey("C-f");
         await session.waitForVisiblePane("Search ·");
 

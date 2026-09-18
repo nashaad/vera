@@ -21,7 +21,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
     try {
         pane = await session.waitForVisiblePane("test · high");
         expect(pane).toContain("Start a conversation");
-        expect(pane).toContain("ready · ctrl+p commands");
+        expect(pane).toContain("ready · Ctrl+P commands");
         expect(pane).not.toContain("shift+enter newline");
         session.sendText("start streaming");
         session.sendKey("Enter");
@@ -35,7 +35,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
             line.includes("esc stop")
         );
         const placeLine = workingLines.find((line) =>
-            line.includes("ready · ctrl+p commands")
+            line.includes("ready · Ctrl+P commands")
         );
         expect(activityLine).toBeDefined();
         expect(placeLine).toBeDefined();
@@ -50,7 +50,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         expect(activityLine.indexOf("esc stop")).toBeGreaterThan(
             activityLabel,
         );
-        expect(activityLine).toEndWith("esc stop · ctrl+c stop");
+        expect(activityLine).toEndWith("esc stop · Ctrl+C stop");
         expect(activityLine.length).toBe(96);
         expect(workingLines.indexOf(activityLine)).toBeLessThan(
             workingLines.indexOf(placeLine),
@@ -82,7 +82,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         expect(pane).toContain("100%");
 
         // The second turn reasons, so its summary carries a fold that
-        // ctrl+o opens over a row already drawn. It starts in the same
+        // Ctrl+O opens over a row already drawn. It starts in the same
         // column as a summary with nothing behind it.
         expect(pane).toMatch(/^  Reasoning: \d+\.\d+s/m);
         expect(pane).not.toContain("WEIGHING THE ORDERINGS");
@@ -91,7 +91,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         session.sendKey("C-o");
         pane = await session.waitForVisiblePane("WEIGHING THE ORDERINGS");
         expect(pane).toMatch(/Reasoning: \d+\.\d+s/);
-        expect(pane).toContain("ctrl+o hide reasoning");
+        expect(pane).toContain("Ctrl+O hide reasoning");
         expect(pane).toContain("PARTIAL xxxxx");
     } finally {
         await session.close();

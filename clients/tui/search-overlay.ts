@@ -452,19 +452,19 @@ export function searchOverlayFooter(
     }
     if (focus === "filter") {
         return narrow
-            ? "space tab ^w esc"
-            : "space filter   tab section   ctrl+w scope   esc back";
+            ? "space tab Ctrl+W esc"
+            : "space filter   tab section   Ctrl+W scope   esc back";
     }
     if (focus === "results") {
         return narrow
-            ? "↑↓ ^u^d enter tab ^w esc"
-            : "↑↓ ^u ^d move   enter open at match"
-                + "   tab section   ctrl+w scope   esc back";
+            ? "↑↓ Ctrl+D/U enter tab Ctrl+W esc"
+            : "↑↓ Ctrl+D/U move   enter open at match"
+                + "   tab section   Ctrl+W scope   esc back";
     }
     return narrow
-        ? "enter ^u^d tab ^w esc"
-        : "enter open at match   ^u ^d move"
-            + "   tab section   ctrl+w scope   esc back";
+        ? "enter Ctrl+D/U tab Ctrl+W esc"
+        : "enter open at match   Ctrl+D/U move"
+            + "   tab section   Ctrl+W scope   esc back";
 }
 
 export function searchOverlayLines(

@@ -12,7 +12,12 @@ import {
     type WorkspaceSession,
     type WorkspaceSessionStatus,
 } from "./workspace-panel.ts";
-import { tuiBindingId, tuiChordPairLabel, tuiKeyChord } from "./keymap.ts";
+import {
+    tuiBindingId,
+    tuiChordPairLabel,
+    tuiKeyChord,
+    tuiKeyChordLabel,
+} from "./keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 
@@ -37,8 +42,8 @@ export function workspaceHeaderAction(
 
 export const WORKSPACE_EMPTY_LINES: readonly string[] = [
     "No sessions yet.",
-    "ctrl+n new session",
-    "ctrl+r all sessions",
+    "Ctrl+N new session",
+    "Ctrl+R all sessions",
 ];
 
 const ROW_PREFIX_COLUMNS = 2;
@@ -473,16 +478,16 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
 export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
     return [
         { label: "Move", value: "↑↓  j/k" },
-        { label: "Page", value: "ctrl+d/u" },
+        { label: "Page", value: "Ctrl+D/U" },
         { label: "Open", value: "enter" },
-        { label: "Rename", value: tuiKeyChord("workspace_rename_session") },
+        { label: "Rename", value: tuiKeyChordLabel("workspace_rename_session") },
         ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
         ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
-        { label: "New", value: "ctrl+n" },
-        { label: "Resume", value: "ctrl+r" },
+        { label: "New", value: "Ctrl+N" },
+        { label: "Resume", value: "Ctrl+R" },
         { label: "Cycle", value: sessionCycleChords() },
         { label: "Chat", value: "→" },
-        { label: "Hide", value: "ctrl+e" },
+        { label: "Hide", value: "Ctrl+E" },
     ];
 }
 
@@ -498,7 +503,7 @@ export function workspaceQuietFooterTable(): readonly LinesViewFooterRow[] {
     return [
         { label: "Cycle", value: sessionCycleChords() },
         { label: "Focus", value: "←" },
-        { label: "Hide", value: "ctrl+e" },
+        { label: "Hide", value: "Ctrl+E" },
     ];
 }
 

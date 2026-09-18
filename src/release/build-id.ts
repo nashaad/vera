@@ -27,10 +27,10 @@ function git(
 function gitOutput(cwd: string, args: readonly string[], error: string): Buffer {
     const result = git(cwd, args);
     if (result.exitCode !== 0) {
-        const detail = result.stderr.toString().trim();
+        const detail = (result.stderr ?? Buffer.alloc(0)).toString().trim();
         throw new Error(detail.length > 0 ? `${error}: ${detail}` : error);
     }
-    return Buffer.from(result.stdout);
+    return Buffer.from(result.stdout ?? Buffer.alloc(0));
 }
 
 function gitText(cwd: string, args: readonly string[], error: string): string {

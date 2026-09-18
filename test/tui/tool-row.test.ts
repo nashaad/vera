@@ -59,7 +59,7 @@ test("a short result keeps its tree row under the header", async () => {
         await setup.flush();
         const rows = setup.captureCharFrame().split("\n");
         expect(rows[0]).toContain("  Ran  test -f");
-        expect(rows[0]).toContain("ctrl+t details");
+        expect(rows[0]).toContain("Ctrl+T details");
         expect(rows[0]).not.toContain("└");
         expect(rows[1]).toContain("└ config-ok");
         expect(rows[2]?.trim()).toBe("");

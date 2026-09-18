@@ -21,7 +21,7 @@ live conversation, choose what happens to it:
 | Escape | Return to the picker. |
 
 From Home or a saved-file view, Enter opens the selected conversation directly.
-`ctrl+e` opens the same picker as `/resume`.
+`Ctrl+E` opens the same picker as `/resume`.
 
 ## Search for past work
 

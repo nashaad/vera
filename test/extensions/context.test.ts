@@ -136,23 +136,35 @@ test("a large tool result is named even without an instructions section", () => 
 });
 
 test("agent instructions are Instructions, not Custom agents", () => {
-    const snapshot = availableSnapshot();
-    snapshot.projection?.components.push({
-        kind: "prompt_contribution",
-        id: "core.agent-instructions",
-        owner: "core",
-        source: "stable",
-        displayName: "Agent",
-        count: 1,
-        estimatedTokens: 86,
-        parts: [{
-            id: "agent:build-reviewer",
-            displayName: "build-reviewer",
-            scope: "agent",
-            bytes: 400,
-            estimatedTokens: 86,
-        }],
-    });
+    const base = availableSnapshot();
+    if (base.projection === undefined) {
+        throw new Error("expected availableSnapshot() to include a projection");
+    }
+    const snapshot: VeraClientContextSnapshot = {
+        ...base,
+        projection: {
+            ...base.projection,
+            components: [
+                ...base.projection.components,
+                {
+                    kind: "prompt_contribution",
+                    id: "core.agent-instructions",
+                    owner: "core",
+                    source: "stable",
+                    displayName: "Agent",
+                    count: 1,
+                    estimatedTokens: 86,
+                    parts: [{
+                        id: "agent:build-reviewer",
+                        displayName: "build-reviewer",
+                        scope: "agent",
+                        bytes: 400,
+                        estimatedTokens: 86,
+                    }],
+                },
+            ],
+        },
+    };
     expect(contextCategories(snapshot).map((category) => category.label))
         .toContain("Instructions");
     expect(contextCategories(snapshot).some((category) =>

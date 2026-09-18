@@ -190,7 +190,7 @@ test("a long call is capped until it is expanded", () => {
     expect(capped.hidden).toBeGreaterThan(0);
     expect(capped.lines).toHaveLength(TUI_APPROVAL_BODY_LINES + 1);
     expect(capped.lines.at(-1)?.text)
-        .toBe(`… ${capped.hidden} more lines · ctrl+r expand`);
+        .toBe(`… ${capped.hidden} more lines · Ctrl+R expand`);
 
     const expanded = tuiApprovalBody(update, true);
     expect(expanded.hidden).toBe(0);
@@ -217,13 +217,13 @@ test("ctrl+r expands the capped call in place", async () => {
         // The count sits at the foot of the body, which is past the viewport.
         view.details.scrollTo(view.details.scrollHeight);
         await setup.flush();
-        expect(setup.captureCharFrame()).toContain("more lines · ctrl+r expand");
+        expect(setup.captureCharFrame()).toContain("more lines · Ctrl+R expand");
         expect(view.handleKey(update, { name: "r", ctrl: true }))
             .toEqual({ handled: true });
         view.details.scrollTo(view.details.scrollHeight);
         await setup.flush();
         expect(setup.captureCharFrame())
-            .not.toContain("more lines · ctrl+r expand");
+            .not.toContain("more lines · Ctrl+R expand");
     } finally {
         setup.renderer.destroy();
     }

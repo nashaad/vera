@@ -25,7 +25,7 @@ import type {
     PermissionInspection,
 } from "../../src/engine/permissions.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
-import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
+import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
 import {
     resolveTuiDiagnostic,
     type TuiDiagnostic,
@@ -1390,7 +1390,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         }
         const hint = fg(TUI_MUTED)(
             entry.expanded === true
-                ? `  ${tuiKeyChord("toggle_thinking")} hide reasoning`
+                ? `  ${tuiKeyChordLabel("toggle_thinking")} hide reasoning`
                 : `  ${tuiKeyHint("toggle_thinking")}`,
         );
         return entry.expanded === true

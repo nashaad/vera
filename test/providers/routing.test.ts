@@ -56,7 +56,7 @@ test("signing in again mid-session stops the old key from being spent", () => {
 });
 
 test("a live rewrite of a custom provider rebuilds the cached client", () => {
-    let fingerprint = "\nfirst-url";
+    let fingerprint: string | undefined = "\nfirst-url";
     let built = 0;
     const routing = new ProviderRoutingAdapter(
         () => {

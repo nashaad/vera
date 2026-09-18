@@ -57,9 +57,9 @@ export interface IdleNoticeChord {
 export const IDLE_NOTICE_CHORDS: readonly IdleNoticeChord[] = [
     { key: "enter", label: "continue" },
     { key: "esc", label: "home" },
-    { key: "ctrl+n", label: "new" },
-    { key: "ctrl+r", label: "all" },
-    { key: "ctrl+p", label: "commands" },
+    { key: "Ctrl+N", label: "new" },
+    { key: "Ctrl+R", label: "all" },
+    { key: "Ctrl+P", label: "commands" },
 ];
 
 export const IDLE_NOTICE_CHORD_LINE = IDLE_NOTICE_CHORDS

@@ -165,8 +165,8 @@ export function handleTuiExtensionPickerKey(
         const arrow = ["up", "down", "left", "right"].includes(key.name);
         const unowned = arrow && (state.focusedButton !== undefined
             || (state.searchFocused ? key.name === "up" || key.name === "down" : key.name === "left" || key.name === "right"));
-        if (key.name === "tab" || key.name === "backtab" || unowned) {
-            const backward = key.name === "backtab" || key.name === "tab" && key.shift || key.name === "up" || key.name === "left";
+        if (isTuiDialTabKey(key) || unowned) {
+            const backward = key.name === "backtab" || isTuiDialTabKey(key) && key.shift || key.name === "up" || key.name === "left";
             const next = sections[(sections.indexOf(focused) + (backward ? -1 : 1) + sections.length) % sections.length]!;
             return unchanged({ ...state, searchFocused: next === -1, focusedButton: next > 0 ? next - 1 : undefined }, true);
         }
@@ -178,7 +178,7 @@ export function handleTuiExtensionPickerKey(
         }
     }
     if (!state.layout && state.searchable && !key.ctrl && !key.meta) {
-        if (key.name === "tab" || ((key.name === "left" || key.name === "right") && !state.searchFocused)
+        if ((isTuiDialTabKey(key) && key.name !== "backtab") || ((key.name === "left" || key.name === "right") && !state.searchFocused)
             || ((key.name === "up" || key.name === "down") && state.searchFocused)) {
             return unchanged({ ...state, searchFocused: !state.searchFocused }, true);
         }
@@ -2372,7 +2372,7 @@ export function pickerFooterText(
         ], width);
     }
     if (state.kind === "session_import") {
-        return ["↑↓ ^d^u move", "⏎ import", tuiKeyHint("import_scope"), "esc close"].join(" · ");
+        return ["↑↓ Ctrl+D/U move", "⏎ import", tuiKeyHint("import_scope"), "esc close"].join(" · ");
     }
     if (state.kind === "extension") {
         const actions = (state.extensionActions ?? []).map((action) =>
@@ -2713,7 +2713,7 @@ export function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
             : state.query.length > 0
             ? "No matches found"
             : state.importScope === "folder"
-            ? "No Claude Code or Codex sessions in this folder. Press ctrl+g for all folders."
+            ? "No Claude Code or Codex sessions in this folder. Press Ctrl+G for all folders."
             : "No Claude Code or Codex sessions found.";
     }
     if (state.kind !== "session") {

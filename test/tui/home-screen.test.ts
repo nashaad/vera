@@ -34,9 +34,9 @@ describe("the home card", () => {
                 "  ────────────────────────────────",
                 "",
                 "❯ New conversation    enter",
-                "  All conversations   ctrl+r",
-                "  Search past work    ctrl+shift+f",
-                "  Commands            ctrl+p",
+                "  All conversations   Ctrl+R",
+                "  Search past work    Ctrl+Shift+F",
+                "  Commands            Ctrl+P",
                 "",
                 "  or just start typing",
             ].join("\n"),
@@ -81,7 +81,7 @@ describe("the home card", () => {
                 "❯ Connect a provider  enter",
                 "",
                 "  New conversation",
-                "  Commands            ctrl+p",
+                "  Commands            Ctrl+P",
             ].join("\n"),
         );
     });
@@ -143,7 +143,7 @@ describe("home keys", () => {
         });
     });
 
-    test("ctrl+r opens the full session picker", () => {
+    test("Ctrl+R opens the full session picker", () => {
         expect(handleHomeKey(home(), { name: "r", ctrl: true })).toEqual({
             action: { kind: "resume_picker" },
             handled: true,
@@ -157,13 +157,13 @@ describe("home keys", () => {
         });
     });
 
-    test("ctrl+r reaches nothing once there is nothing to list", () => {
+    test("Ctrl+R reaches nothing once there is nothing to list", () => {
         expect(handleHomeKey(home(false), { name: "r", ctrl: true }))
             .toEqual({ handled: false });
     });
 
     test("the search chords belong to the client, not to the card", () => {
-        // `ctrl+shift+f` searches from anywhere and `ctrl+f` finds in the
+        // `Ctrl+Shift+F` searches from anywhere and `Ctrl+F` finds in the
         // conversation, so home answers neither itself and lets both fall
         // through to the one place that owns them. Enter on the row still
         // opens the pane, which is what the row is for.

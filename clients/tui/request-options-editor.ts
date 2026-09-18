@@ -124,7 +124,7 @@ export function renderTuiRequestOptionsEditor(
         state.text,
         ...(state.error === undefined ? [] : ["", `Error: ${state.error}`]),
         "",
-        "esc cancel  ctrl+s save",
+        "esc cancel  Ctrl+S save",
     ].join("\n");
 }
 
@@ -174,7 +174,7 @@ export function createTuiRequestOptionsEditorView(
         marginTop: 1,
         visible: false,
     });
-    const footer = dialogFooterNode(renderer, "esc cancel  ctrl+s save");
+    const footer = dialogFooterNode(renderer, "esc cancel  Ctrl+S save");
     const box = new BoxRenderable(renderer, {
         id: "request-options-editor",
         border: false,

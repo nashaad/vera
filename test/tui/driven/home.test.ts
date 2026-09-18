@@ -134,7 +134,7 @@ test("first run drops the row it has nothing to list for", async () => {
     try {
         const pane = await session.waitForVisiblePane("V  E  R  A");
         expect(pane).not.toContain("All conversations");
-        // With nothing to list, ctrl+r reaches nothing, and r itself is an
+        // With nothing to list, Ctrl+R reaches nothing, and r itself is an
         // ordinary character that starts a conversation carrying it.
         session.sendKey("C-r");
         session.sendText("r");
@@ -234,7 +234,7 @@ test("new conversation with no provider opens provider configuration", async () 
     }
 }, 15_000);
 
-test("ctrl+r opens the session picker from home", async () => {
+test("Ctrl+R opens the session picker from home", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-resume-"));
     const session = await startTuiTestSession({
         home,
@@ -439,7 +439,7 @@ test("left and right hand focus between home and its rail", async () => {
     }
 }, 15_000);
 
-test("ctrl+f searches the transcripts without opening a session", async () => {
+test("Ctrl+F searches the transcripts without opening a session", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-search-"));
     const session = await startTuiTestSession({
         home,
