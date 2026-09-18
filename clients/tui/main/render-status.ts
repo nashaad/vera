@@ -318,8 +318,6 @@ export function renderStatus(rt: TuiRuntime): void {
                 rt.hostedSidebar.pane === undefined,
                 rt.workspaceBranch.current(),
                 {
-                    pairOverridden:
-                        statusState.modelSettingsOrigin === "user",
                     ...(statusState.agent === undefined
                         ? {}
                         : { agent: statusState.agent.name }),

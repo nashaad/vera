@@ -121,7 +121,6 @@ export interface TuiStatusChunk {
 
 export interface TuiStatusDials {
     readonly agent?: string;
-    readonly pairOverridden?: boolean;
     readonly postureOverridden?: boolean;
     readonly fallbackTo?: string;
 }
@@ -236,9 +235,6 @@ export function renderTuiStatusDetailsRows(
                 : `${model}→${dials.fallbackTo}`,
             tone: "text",
         },
-        ...(dials.pairOverridden === true
-            ? [{ text: "*", tone: "accent" } as TuiStatusChunk]
-            : []),
         separator,
         muted(thinking),
     ];
