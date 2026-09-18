@@ -154,7 +154,7 @@ disable-model-invocation: true
         writer: 'vera',
         placement: 'home',
         summary: 'Installed extensions.',
-        loads: 'Client extensions reload when a change lands. Host-side capabilities load when the host restarts.',
+        loads: 'The TUI side of an extension reloads when a change lands. The host side loads when the host restarts.',
         detail: '`/extension install <path>` copies an extension here. Remove deletes the managed copy and leaves the source untouched.',
         documentedIn: 'config-reference',
     },

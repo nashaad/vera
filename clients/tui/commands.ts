@@ -576,7 +576,7 @@ const FAILURE_REPORT_COMMAND = {
 
 const RELOAD_EXTENSIONS_COMMAND = {
     name: "reload-extensions",
-    description: "Reload client extensions without restarting Vera",
+    description: "Reload extensions in the TUI without restarting Vera",
     usage: "/reload-extensions",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1609,7 +1609,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         action: { type: "reload_client_extensions" },
         palette: {
             name: "reload_extensions",
-            label: "Reload client extensions",
+            label: "Reload extensions in the TUI",
             description: "re-read extension code and client configuration",
             group: "Extensions",
             slashName: "reload-extensions",

@@ -53,8 +53,8 @@ Loaded extensions expose their settings commands on the detail page. For
 example, choose `vera.web-search`, then **Search providers**, to configure
 [web search](web-search.md).
 
-Client extensions reload after changes and the manager refreshes. Host-side
-capabilities require a resident-host restart. The transcript collects changes
+After a change, the TUI side of an extension reloads and the manager
+refreshes. The host side needs a resident-host restart. The transcript collects changes
 in one note; Ctrl+T collapses or expands it.
 
 For credentials, use exact `{env:NAME}` references in extension configuration.

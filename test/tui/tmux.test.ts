@@ -91,7 +91,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "Client extensions reloaded",
+                "Extensions reloaded in the TUI",
             );
             expect(pane).not.toContain("m1 (faux)");
             expect(readFileSync(

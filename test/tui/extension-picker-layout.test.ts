@@ -76,7 +76,7 @@ for (const [width, height] of [[120, 36], [80, 24], [60, 24]] as const) {
     });
 }
 
-test("provider actions separate groups with gaps and put verification help below the list", async () => {
+test("provider actions separate groups with dashed rules and put verification help below the list", async () => {
     const setup = await createTestRenderer({ width: 100, height: 36 });
     try {
         const view = createTuiSettingsPickerView(setup.renderer);
@@ -96,10 +96,10 @@ test("provider actions separate groups with gaps and put verification help below
         const lines = frame.split("\n").map((line) => line.trim().replace(/^› /, ""));
         expect(lines[lines.indexOf("Set API key") + 1]).toBe("Verify");
         expect(lines[lines.indexOf("Verify") + 1]).toBe("Remove saved key");
-        expect(lines[lines.indexOf("Remove saved key") + 1]).toBe("");
+        expect(lines[lines.indexOf("Remove saved key") + 1]).toMatch(/^╌+$/);
         expect(lines[lines.indexOf("Disable") + 1]).toBe("Remove provider");
         expect(lines[lines.indexOf("Move up") + 1]).toBe("Move down");
-        expect(lines[lines.indexOf("Move down") + 1]).toBe("");
+        expect(lines[lines.indexOf("Move down") + 1]).toMatch(/^╌+$/);
         expect(frame).toContain("Runs one search for “Vera search test”.");
         expect(frame).toContain("API charges may apply.");
     } finally { setup.renderer.destroy(); }

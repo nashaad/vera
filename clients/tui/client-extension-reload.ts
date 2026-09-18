@@ -102,8 +102,8 @@ export function clientExtensionReloadFailed(
             failures,
         },
         notice: partialReload
-            ? `Client extensions reloaded with failures: ${kind}: ${message}`
-            : `Client extensions could not reload: ${message}`,
+            ? `Extensions reloaded in the TUI with failures: ${kind}: ${message}`
+            : `Extensions could not reload in the TUI: ${message}`,
     };
 }
 

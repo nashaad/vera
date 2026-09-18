@@ -71,7 +71,7 @@ test("client extension reload outcomes keep status and notices together", () => 
         loadedExtensionIds: ["old.extension"],
         failures: ["network failed"],
     });
-    expect(failed.notice).toBe("Client extensions could not reload: network failed");
+    expect(failed.notice).toBe("Extensions could not reload in the TUI: network failed");
 });
 
 test("client extension reload applies refreshed config before activation", async () => {

@@ -151,7 +151,7 @@ export function submitPrompt(rt: TuiRuntime,
         if (command.operation === "reload") {
             rt.state = appendTuiNotice(
                 rt.state,
-                "Client extensions reload now; restart the resident host for host-side capabilities.",
+                "The TUI side reloads now; restart the host for the host side.",
             );
             renderState(rt);
             submitPrompt(rt, "/reload-extensions");
@@ -178,7 +178,7 @@ export function submitPrompt(rt: TuiRuntime,
                 text = renderExtensionMutation("remove", record);
             }
             if (command.operation !== "install" || !command.dryRun) {
-                text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
+                text += "\nThe TUI side reloads now; restart the host for the host side.\n";
             }
             if (command.operation === "install") {
                 rt.extensionsDialog = { text, copyReady: true };
@@ -209,7 +209,7 @@ export function submitPrompt(rt: TuiRuntime,
         if (rt.clientExtensionReloadPending) {
             rt.state = appendTuiNotice(
                 rt.state,
-                "Client extensions are already reloading",
+                "Extensions are already reloading in the TUI",
             );
             renderState(rt);
             return;
@@ -258,7 +258,7 @@ export function submitPrompt(rt: TuiRuntime,
                     }),
                 };
             }
-            rt.state = appendTuiNotice(rt.state, "Client extensions reloaded");
+            rt.state = appendTuiNotice(rt.state, "Extensions reloaded in the TUI");
             refreshOpenExtensionsList(rt);
             renderState(rt);
             focusActiveSurface(rt);

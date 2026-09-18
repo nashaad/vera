@@ -30,7 +30,7 @@ import type { TuiRuntime } from "./runtime.ts";
 const EXTENSION_NOTICE_KEY = "extensions";
 
 const HOST_RESTART_NOTICE =
-    "Client extensions reload now; restart the resident host for host-side capabilities.";
+    "The TUI side reloads now; restart the host for the host side.";
 
 export function openExtensionsList(rt: TuiRuntime): void {
     rt.extensionsDialog = undefined;
