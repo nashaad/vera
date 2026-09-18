@@ -136,6 +136,17 @@ test("the model step offers jobs before model names", () => {
     expect(groups[1]?.rows.map((row) => row.id)).toEqual(["tiny"]);
 });
 
+test("a machine that is not an Apple Silicon Mac is not offered Outrider", () => {
+    for (const machine of [
+        { ...MAC, os: "linux", arch: "x64" },
+        { ...MAC, arch: "x64" },
+    ]) {
+        const rows = providerGroups(PROVIDERS, machine)
+            .flatMap((group) => group.rows.map((row) => row.id));
+        expect(rows).not.toContain("outrider");
+    }
+});
+
 test("a small Mac is still recommended Outrider, with the lite job first", () => {
     const small = providerGroups(PROVIDERS, {
         os: "darwin",
