@@ -2742,9 +2742,8 @@ export async function startTui(
         requestSessionSettings(rt);
     }
     void restorePersistedAgentPane(rt);
-    if (rt.configuredAppearance.sidebarOpenAtLaunch) {
-        openWorkspaceSidebar(rt, { focus: false });
-    }
+    // The rail listing is dormant; ctrl+e opens /resume. Keep the open-at-launch
+    // flag and sidebar shell, but do not paint an empty column on start.
 
     rt.authStorage = rt.dependencies.authStorage
         ?? createAuthStorage({

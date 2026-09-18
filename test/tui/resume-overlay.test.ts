@@ -140,7 +140,7 @@ test("ctrl+n starts a new chat from the file view", () => {
     expect(jsonlViewKeyAction(
         { name: "n", ctrl: true },
         {
-            workspaceBinding: "workspace_new_session",
+            globalBinding: "workspace_new_session",
             sidebarFocused: false,
         },
     )).toBe("new_session");

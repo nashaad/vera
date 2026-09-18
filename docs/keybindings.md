@@ -15,7 +15,7 @@ current screen. A picker may use a shortcut differently from the composer.
 | Ctrl+P | Open the command palette. |
 | Ctrl+X, then M | Open Switch model. Release Ctrl before M. |
 | Shift+Tab | Open quick model, effort, access, and definition controls. |
-| Ctrl+E | Show or hide the conversation rail. |
+| Ctrl+E | Open the conversation list. |
 | Ctrl+F | Search the conversation on screen. |
 | Ctrl+Shift+F | Search across conversations. |
 | Ctrl+G | Change focus between conversation panes. |

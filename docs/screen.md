@@ -1,16 +1,24 @@
 ---
-title: "The conversation rail"
-description: "Browse recent conversations and see which ones are working or waiting for you."
+title: "Conversations"
+description: "Find live and saved conversations, leave one running, or start another."
 ---
 
-# The conversation rail
+# Conversations
 
-Press Ctrl+E to show or hide the conversation rail. It groups work by status
-so you can see which conversations need attention, including work in other
-projects.
+Press Ctrl+E or run `/resume` to open the conversation picker. They are the
+same searchable list. Live work sits above parked history.
 
-Opening a row keeps the conversation you leave running. A saved conversation
-opens for reading; one that already has a running worker attaches to it.
+Enter asks what happens to the conversation on screen, because closing a Vera
+session stops its worker:
+
+| Choice | Result |
+| --- | --- |
+| Stop & switch | Stop its work and open the selected conversation. |
+| Switch, keep running | Leave it working and open the selected conversation. |
+| Escape | Return to the picker. |
+
+From Home or a saved-file view, Enter opens the selected conversation
+directly. Ctrl+E again, or Escape, closes the picker.
 
 ## Read the status groups
 
@@ -21,41 +29,16 @@ opens for reading; one that already has a running worker attaches to it.
 | Idle | Live conversations that are not working. |
 | Recent | Saved conversation history. |
 
-Markers remain readable without color: `!` means needs you, a spinner means
-working, a check mark means recently finished, and dots mark other idle or
-saved work. A workspace name appears when needed to distinguish projects.
+A group with no rows is omitted. Search keeps the same headings over the
+matching rows. Delegated conversations appear in their normal status group.
+Temporary BTW conversations do not appear here.
 
-All live sessions are listed. Recent saved files are limited to five, plus
-the conversation on screen if needed. Delegated conversations appear in
-their normal status group. Temporary BTW conversations do not appear here.
+Keep running stays idle for ten minutes without a viewer, then Vera closes
+that worker and keeps the saved file. Ctrl+Shift+Left and Ctrl+Shift+Right
+cycle those live conversations without opening the picker.
 
-## Resume saved work
-
-Reading a saved file does not start a worker. To continue it, press Enter on
-the file view's resume overlay. Ctrl+R opens the full conversation picker for
-work that is not in the rail.
-
-The rail header's menu control opens that picker; its plus control starts a
-new conversation. Ctrl+N also starts a new one. Pinning and number-key jumps
-are inactive.
+Ctrl+N from a live session asks Close this conversation or Keep running, the
+same as `/clear`. Home and file-view Ctrl+N start immediately.
 
 To park live work, use `/close` or Ctrl+W from the composer. See
 [Saved conversations](sessions.md).
-
-## Show the rail at startup
-
-The rail is closed by default. Add this to the home's `config.json` and
-relaunch the TUI to open it at startup:
-
-```json
-{
-  "tui": {
-    "sidebar": {
-      "open_at_launch": true
-    }
-  }
-}
-```
-
-Global dialogs cover and dim the rail. A question or approval for the current
-conversation leaves it visible, but its controls are inactive until you answer.

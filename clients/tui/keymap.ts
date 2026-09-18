@@ -224,12 +224,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "switch-agent-pane",
     },
     {
-        // Every terminal reports ctrl+e, so the side bar is reachable without the kitty keyboard protocol.
+        // Every terminal reports ctrl+e, so the conversation list is reachable without the kitty keyboard protocol.
         id: "toggle_workspace_sidebar",
         keys: ["ctrl+e"],
         scope: "global",
-        description: "Show or hide the agent sidebar",
-        hint: "ctrl+e agent sidebar",
+        description: "Open the conversation list",
+        hint: "ctrl+e conversations",
     },
     {
         // Arrows carry their modifiers through ordinary CSI encoding, so these reach every terminal. The bracket chords stay as aliases for the terminals that report them, but they cannot lead: ctrl+[ is the escape byte, so outside the kitty keyboard protocol the old primary cancelled instead of cycling.
@@ -268,7 +268,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "workspace_new_session",
         keys: ["ctrl+n"],
-        scope: "workspace",
+        scope: "global",
         description: "Start a new conversation",
         hint: "^n new",
     },
@@ -513,6 +513,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Name the selected model in your library",
         hint: "^n name",
+        overrides: ["workspace_new_session"],
     },
     {
         id: "open_providers",

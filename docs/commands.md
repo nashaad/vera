@@ -37,7 +37,7 @@ conversation unless they open a broader browser.
 
 | Command | What it does |
 | --- | --- |
-| `/resume` | Choose a saved conversation to resume. |
+| `/resume` | Choose a saved conversation to resume. Same picker as Ctrl+E. |
 | `/search` | Search past work. |
 | `/work` | Show conversations that need you or are running. |
 | `/rename [name]` | Name the conversation, or remove its name when omitted. |

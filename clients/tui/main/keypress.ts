@@ -16,7 +16,7 @@ import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
 import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiChord, tuiComposerWordDeleteDirection } from "../keymap.ts";
-import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, closeWorkspaceSidebar, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, focusWorkspaceSidebar, forgetProviderCredential, leaveJsonlCommandMode, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, openWorkspaceSidebar, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, runWorkspaceSidebarAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
+import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, focusWorkspaceSidebar, forgetProviderCredential, leaveJsonlCommandMode, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, runWorkspaceSidebarAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
 import { abortFocusedAgent, closeDials, commitDials, composerIsAtLeftBoundary, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
@@ -1391,18 +1391,33 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     }
 
     if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
-        if (rt.workspaceSidebar !== undefined) {
+        if (rt.settingsPicker?.kind === "session") {
             key.preventDefault();
             key.stopPropagation();
-            closeWorkspaceSidebar(rt);
+            rt.settingsPicker = undefined;
+            rt.settingsPickerView.surface.visible = false;
+            rt.composer.focus();
+            renderState(rt);
+            focusActiveSurface(rt);
             return;
         }
         if (!anyOverlayOpen(rt)) {
             key.preventDefault();
             key.stopPropagation();
-            openWorkspaceSidebar(rt);
+            openResumePicker(rt);
             return;
         }
+    }
+
+    if (
+        tuiBindingId("global", key) === "workspace_new_session"
+        && !anyOverlayOpen(rt)
+        && !rt.sessionSwitchPending
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        requestCreateSession(rt);
+        return;
     }
 
     const liveCycle = tuiBindingId("global", key);

@@ -32,6 +32,12 @@ import type {
 } from "../../src/engine/model-settings.ts";
 import { TUI_ACCENT, TUI_BACKGROUND, TUI_ELEMENT, TUI_INPUT, TUI_MUTED, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "./state.ts";
 import {
+    IDLE_GROUP,
+    NEEDS_YOU_GROUP,
+    RECENT_GROUP,
+    WORKING_GROUP,
+} from "./workspace-panel.ts";
+import {
     dialogBoxHeight,
     halfPageCursor,
     LIST_MIN_ROWS,
@@ -1853,13 +1859,17 @@ export function searched(
     query: string,
     queryCursor = query.length,
 ): TuiSettingsPickerTransition {
-    const options = state.kind !== "model"
-        ? matching(state.allOptions, query)
-        : modelListFor(state, { query });
+    const options = state.kind === "model"
+        ? modelListFor(state, { query })
+        : state.kind === "session"
+        ? sessionSectionedOptions(matching(state.allOptions, query))
+        : matching(state.allOptions, query);
     const next = {
         ...state,
         options,
-        selectedIndex: state.modelJourney === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
+        selectedIndex: state.kind === "session"
+            ? firstSessionOptionIndex(options)
+            : state.modelJourney === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
         query,
         queryCursor,
         // A query is about rows, so it carries the reader down out of the tab
@@ -2184,6 +2194,51 @@ export function sectionHeader(
 
 export function sectionValue(label: string): string {
     return `section:${label}`;
+}
+
+export const SESSION_PICKER_GROUPS = [
+    NEEDS_YOU_GROUP,
+    WORKING_GROUP,
+    IDLE_GROUP,
+    RECENT_GROUP,
+] as const;
+
+export function sessionSectionedOptions(
+    rows: readonly TuiSettingsPickerOption[],
+): readonly TuiSettingsPickerOption[] {
+    const byGroup = new Map<string, TuiSettingsPickerOption[]>(
+        SESSION_PICKER_GROUPS.map((group) => [group, []]),
+    );
+    for (const row of rows) {
+        const group = SESSION_PICKER_GROUPS.includes(
+            row.group as typeof SESSION_PICKER_GROUPS[number],
+        )
+            ? row.group!
+            : RECENT_GROUP;
+        byGroup.get(group)!.push(row);
+    }
+    const options: TuiSettingsPickerOption[] = [];
+    for (const label of SESSION_PICKER_GROUPS) {
+        const members = byGroup.get(label) ?? [];
+        if (members.length === 0) continue;
+        options.push(sectionHeader(label, members, []));
+        options.push(...members);
+    }
+    return options;
+}
+
+export function firstSessionOptionIndex(
+    options: readonly TuiSettingsPickerOption[],
+    currentAgentId?: string,
+): number {
+    if (currentAgentId !== undefined) {
+        const current = options.findIndex((option) =>
+            option.section === undefined && option.sessionId === currentAgentId
+        );
+        if (current >= 0) return current;
+    }
+    const first = options.findIndex((option) => option.section === undefined);
+    return Math.max(0, first);
 }
 
 export function sectionedOptions(

@@ -200,7 +200,8 @@ test("session picker filters titled durable conversations and selects an agent",
         state,
         "11111111-first-session",
     ).state!;
-    expect(searched.options).toHaveLength(1);
+    expect(searched.options.filter((option) => option.section === undefined))
+        .toHaveLength(1);
 });
 
 test("new conversation asks close or keep running", () => {
@@ -248,7 +249,8 @@ test("session search accepts spaces between words", () => {
     }]);
     const state = updateTuiSettingsPickerSearch(start, "turn p").state!;
     expect(state.query).toBe("turn p");
-    expect(state.options).toHaveLength(1);
+    expect(state.options.filter((option) => option.section === undefined))
+        .toHaveLength(1);
 });
 
 test("a child picker can include an untitled hosted agent", async () => {
@@ -357,11 +359,15 @@ test("session picker threads an async subagent under its parent", async () => {
     ], "parent", false, new Date("2026-07-20T20:02:00.000Z"));
 
     expect(state.options.map((option) => option.sessionId))
-        .toEqual(["parent", "child"]);
+        .toEqual([undefined, "child", undefined, "parent"]);
     expect(state.options[1]).toMatchObject({
-        depth: 1,
         activity: "working",
-        threadParent: "parent",
+        group: "WORKING",
+    });
+    expect(state.options[3]).toMatchObject({
+        activity: "open",
+        group: "IDLE",
+        current: true,
     });
     const frame = await pickerFrame(state);
     expect(frame).toContain("Coordinate parser work");
@@ -399,6 +405,7 @@ test("session picker hides empty chats and shows only meaningful live state", as
     expect(rendered).not.toContain("empty");
     expect(rendered).toContain("Investigate the host");
     expect(rendered).toContain("working");
+    expect(rendered).toContain("WORKING");
     expect(rendered).toContain("alpha");
 });
 
@@ -424,6 +431,36 @@ test("an open session says so where a stopped one says how long ago", async () =
     // and nothing else.
     expect(rowFor("Being read right now")).toContain("open");
     expect(rowFor("Left alone since yesterday")).toContain("3h");
+});
+
+test("session picker puts live work above parked history", async () => {
+    const state = startTuiSessionPicker([
+        {
+            ...session("old", "idle"),
+            title: "Parked last week",
+            updated_at: "2026-07-19T20:00:00.000Z",
+        },
+        {
+            ...session("live", "idle"),
+            live: true,
+            title: "Still resident",
+            updated_at: "2026-07-18T20:00:00.000Z",
+        },
+        {
+            ...session("busy", "working"),
+            live: true,
+            title: "Counting",
+            updated_at: "2026-07-17T20:00:00.000Z",
+        },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    expect(state.options.filter((option) => option.section === undefined)
+        .map((option) => option.label))
+        .toEqual(["Counting", "Still resident", "Parked last week"]);
+    const frame = await pickerFrame(state);
+    expect(frame.indexOf("WORKING")).toBeLessThan(frame.indexOf("IDLE"));
+    expect(frame.indexOf("IDLE")).toBeLessThan(frame.indexOf("RECENT"));
+    expect(frame.indexOf("Still resident")).toBeLessThan(frame.indexOf("Parked last week"));
 });
 
 test("the two visible panes form a shared group without implying ancestry", async () => {
@@ -461,7 +498,8 @@ test("the two visible panes form a shared group without implying ancestry", asyn
     expect(main).toContain("┌ open");
     expect(attached).toContain("└ open");
     expect(unrelated).not.toMatch(/[┌└]/);
-    expect(state.options.map((option) => option.sessionId)).toEqual([
+    expect(state.options.filter((option) => option.section === undefined)
+        .map((option) => option.sessionId)).toEqual([
         "main",
         "attached",
         "unrelated",
@@ -514,8 +552,10 @@ test("session titles reach the picker whole", () => {
 
     // Titles are no longer cut to a fixed measure: the row clips at whatever
     // the terminal actually has, so the option keeps the whole title.
-    expect(state.options[0]?.label).toBe(`${"a".repeat(28)}😀tail`);
-    expect(state.options[0]?.label).not.toContain("�");
+    expect(state.options.find((option) => option.section === undefined)?.label)
+        .toBe(`${"a".repeat(28)}😀tail`);
+    expect(state.options.find((option) => option.section === undefined)?.label)
+        .not.toContain("�");
 });
 
 test("session columns are bounded in cells, not characters", () => {
@@ -533,7 +573,7 @@ test("session columns are bounded in cells, not characters", () => {
         updated_at: "2026-07-20T20:00:00.000Z",
     }]);
 
-    const option = state.options[0]!;
+    const option = state.options.find((row) => row.section === undefined)!;
     expect(Bun.stringWidth(option.workspace ?? "")).toBeLessThanOrEqual(14);
     expect([...option.label]).toHaveLength(200);
     expect(option.label.endsWith("…")).toBe(true);
@@ -574,10 +614,11 @@ test("session forks hang under the session they came from", async () => {
 
     // The fork moves next to its parent even though it is the more recent of
     // the two; a fork of a session that is not listed stays where it sorted.
-    expect(state.options.map((option) => option.sessionId))
+    expect(state.options.filter((option) => option.section === undefined)
+        .map((option) => option.sessionId))
         .toEqual(["orphan", "parent", "child"]);
-    expect(state.options[2]?.depth).toBe(1);
-    expect(state.options[0]?.depth).toBeUndefined();
+    expect(state.options[3]?.depth).toBe(1);
+    expect(state.options[1]?.depth).toBeUndefined();
 
     const frame = await pickerFrame(state);
     const rows = frame.split("\n");
@@ -622,7 +663,8 @@ test("a fork loses its thread when search hides the parent", async () => {
     ]);
 
     const state = updateTuiSettingsPickerSearch(start, "cheese").state!;
-    expect(state.options.map((option) => option.sessionId))
+    expect(state.options.filter((option) => option.section === undefined)
+        .map((option) => option.sessionId))
         .toEqual(["child", "unrelated"]);
     // Without the parent on screen the fork is its own row, not something
     // hanging off whichever match search happened to leave above it.
@@ -655,7 +697,8 @@ test("a cycle in reported parentage still lists every session", () => {
         },
     ]);
 
-    expect(state.options.map((option) => option.sessionId).toSorted())
+    expect(state.options.filter((option) => option.section === undefined)
+        .map((option) => option.sessionId).toSorted())
         .toEqual(["a", "b"]);
 });
 
@@ -674,9 +717,10 @@ test("a long fork chain threads without exhausting the stack", () => {
         })),
     );
 
-    expect(state.options).toHaveLength(40_000);
-    expect(state.options[0]?.sessionId).toBe("s0");
-    expect(state.options[1]?.depth).toBe(1);
+    expect(state.options.filter((option) => option.section === undefined))
+        .toHaveLength(40_000);
+    expect(state.options[1]?.sessionId).toBe("s0");
+    expect(state.options[2]?.depth).toBe(1);
     expect(state.options.at(-1)?.depth).toBe(39_999);
 });
 
@@ -708,7 +752,8 @@ test("a duplicated session id keeps both rows on the list", () => {
     expect(state.options.map((option) => option.value)).toContain(
         "/sessions/two.jsonl",
     );
-    expect(state.options).toHaveLength(3);
+    expect(state.options.filter((option) => option.section === undefined))
+        .toHaveLength(3);
 });
 
 function session(

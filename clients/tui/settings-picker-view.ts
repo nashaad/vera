@@ -410,7 +410,11 @@ export function handleTuiSettingsPickerKey(
         && state.enterDisposition !== "keep_running"
     ) {
         const selected = state.options[state.selectedIndex];
-        if (selected !== undefined && selected.current !== true) {
+        if (
+            selected !== undefined
+            && selected.section === undefined
+            && selected.current !== true
+        ) {
             return {
                 state: {
                     kind: "session_leave",
@@ -968,8 +972,10 @@ export function handleTuiSettingsPickerKey(
         if (selected === undefined) {
             return unchanged(state, true);
         }
-        if (state.kind === "model" && selected.section !== undefined) {
-            return toggledSection(state, selected.section);
+        if (selected.section !== undefined) {
+            return state.kind === "model"
+                ? toggledSection(state, selected.section)
+                : unchanged(state, true);
         }
         if (state.kind === "provider" && selected.action === true) {
             if (selected.value === TUI_REFRESH_PROVIDERS_VALUE) {
