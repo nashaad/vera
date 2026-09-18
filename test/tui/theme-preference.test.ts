@@ -9,7 +9,6 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
-    loadTuiQuickslots,
     loadTuiRecentSessionId,
     loadTuiSharedSessionGroups,
     loadTuiPersistedAgentPane,
@@ -18,7 +17,6 @@ import {
     loadTuiThemePreference,
     loadTuiWorkspaceSidebarWidth,
     saveTuiActivityAnimationPreference,
-    saveTuiQuickslots,
     saveTuiRecentSessionId,
     saveTuiSharedSessionGroups,
     saveTuiPersistedAgentPane,
@@ -104,7 +102,6 @@ test("shared session groups persist as disjoint symmetric pairs", () => {
     }));
     expect(loadTuiSharedSessionGroups(path)).toEqual([["main", "assistant"]]);
 });
-import { emptyQuickslots } from "../../clients/tui/quickslots.ts";
 
 test("TUI theme preference persists outside the engine configuration", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
@@ -179,47 +176,7 @@ test("TUI activity animation accepts bounded numeric tuning", () => {
     expect(loadTuiActivityAnimationWidthPreference(path)).toBeUndefined();
 });
 
-test("quickslots persist beside the other client preferences", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
-    const path = join(directory, "tui.json");
-    const quickslot = {
-        provider: "openrouter",
-        model: "moonshotai/kimi-k3",
-        reasoningEffort: "low",
-    } as const;
-
-    expect(loadTuiQuickslots(path)).toEqual([null, null, null, null]);
-
-    saveTuiThemePreference("nightowl", path);
-    saveTuiQuickslots([null, quickslot, null, null], path);
-
-    // The two writers share one file, so neither may drop the other's key.
-    expect(loadTuiThemePreference(path)).toBe("nightowl");
-    expect(loadTuiQuickslots(path)).toEqual([null, quickslot, null, null]);
-    saveTuiThemePreference("github", path);
-    expect(loadTuiQuickslots(path)).toEqual([null, quickslot, null, null]);
-
-    expect(JSON.parse(readFileSync(path, "utf8")).model_presets).toEqual([
-        null,
-        {
-            provider: "openrouter",
-            model: "moonshotai/kimi-k3",
-            reasoning_effort: "low",
-        },
-        null,
-        null,
-    ]);
-    expect(loadTuiExtensionPreference(
-        "vera.model-presets",
-        "slots",
-        path,
-    )).toEqual(JSON.parse(readFileSync(path, "utf8")).model_presets);
-
-    saveTuiQuickslots(emptyQuickslots(), path);
-    expect(loadTuiQuickslots(path)).toEqual([null, null, null, null]);
-});
-
-test("saving an unrelated preference does not add an empty quickslot block", () => {
+test("saving one preference writes no empty blocks for the others", () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
     const path = join(directory, "tui.json");
 

@@ -815,11 +815,6 @@ export function tuiChordPairLabel(first: string, second: string): string {
     return `${tuiChordLabel(first)} ${chordPartLabel(tail, true)}`;
 }
 
-export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {
-    return ACTIVE_KEYMAP.filter((binding) => appliesIn(binding, scope))
-        .flatMap((binding) => binding.keys);
-}
-
 export function tuiChordOwner(
     chord: string,
     scope: TuiKeyScope = "global",

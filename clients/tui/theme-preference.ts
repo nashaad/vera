@@ -6,20 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 import type { TuiThemeName } from "./theme.ts";
 import type { TuiActivityAnimation } from "./activity-pulse.ts";
-import {
-    quickslotsForDisk,
-    parseQuickslots,
-    type DiskQuickslots,
-    type Quickslots,
-} from "./quickslots.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
-
-export interface FavoritePair {
-    readonly name?: string;
-    readonly provider?: string;
-    readonly modelId?: string;
-    readonly effort?: string;
-}
 
 interface TuiClientPreferences {
     readonly model_picker?: ModelPickerPreferences;
@@ -33,10 +20,7 @@ interface TuiClientPreferences {
     readonly shared_session_groups?: readonly (readonly [string, string])[];
     readonly pinned_session_ids?: readonly string[];
     readonly persisted_agent_panes?: readonly DiskPersistedAgentPane[];
-    readonly model_presets?: DiskQuickslots;
     readonly keybindings?: Readonly<Record<string, readonly string[]>>;
-    readonly favorite_pairs?: readonly DiskFavoritePair[];
-    readonly favorite_pairs_migrated?: number;
     readonly extensions?: Readonly<
         Record<string, Readonly<Record<string, JsonValue>>>
     >;
@@ -65,13 +49,6 @@ export function loadModelPickerPreferences(path = tuiThemePreferencePath()): Mod
 export function saveModelPickerPreferences(value: ModelPickerPreferences, path = tuiThemePreferencePath()): void {
     const existing = loadTuiClientPreferences(path);
     saveTuiClientPreferences({ ...existing, model_picker: { ...existing.model_picker, ...value } }, path);
-}
-
-interface DiskFavoritePair {
-    readonly name?: string;
-    readonly provider?: string;
-    readonly model_id?: string;
-    readonly effort?: string;
 }
 
 interface DiskPersistedAgentPane {
@@ -272,136 +249,6 @@ export function saveTuiPersistedAgentPane(
     }, path);
 }
 
-export function loadTuiFavoritePairs(
-    path = tuiThemePreferencePath(),
-): readonly FavoritePair[] {
-    return (loadTuiClientPreferences(path).favorite_pairs ?? []).map(
-        (entry) => ({
-            ...(entry.name === undefined ? {} : { name: entry.name }),
-            ...(entry.provider === undefined
-                ? {}
-                : { provider: entry.provider }),
-            ...(entry.model_id === undefined
-                ? {}
-                : { modelId: entry.model_id }),
-            ...(entry.effort === undefined ? {} : { effort: entry.effort }),
-        }),
-    );
-}
-
-export function saveTuiFavoritePairs(
-    favorites: readonly FavoritePair[],
-    path = tuiThemePreferencePath(),
-): void {
-    saveTuiClientPreferences({
-        ...loadTuiClientPreferences(path),
-        favorite_pairs: favorites.map(favoritePairForDisk),
-    }, path);
-}
-
-function favoritePairForDisk(favorite: FavoritePair): DiskFavoritePair {
-    return {
-        ...(favorite.name === undefined ? {} : { name: favorite.name }),
-        ...(favorite.provider === undefined
-            ? {}
-            : { provider: favorite.provider }),
-        ...(favorite.modelId === undefined
-            ? {}
-            : { model_id: favorite.modelId }),
-        ...(favorite.effort === undefined ? {} : { effort: favorite.effort }),
-    };
-}
-
-export function loadTuiQuickslotsForMigration(
-    path = tuiThemePreferencePath(),
-): readonly unknown[] {
-    const preferences = loadTuiClientPreferences(path);
-    const extensionSlots = preferences.extensions?.["vera.model-presets"]
-        ?.slots;
-    if (Array.isArray(extensionSlots)) {
-        return extensionSlots as readonly unknown[];
-    }
-    return (preferences.model_presets ?? []) as readonly unknown[];
-}
-
-export function migrateTuiQuickslotsToFavoritePairs(
-    resolve: (name: string) =>
-        { readonly provider: string; readonly model: string } | undefined,
-    path = tuiThemePreferencePath(),
-): { readonly migrated: number; readonly skipped: number } {
-    const preferences = loadTuiClientPreferences(path);
-    if (preferences.favorite_pairs_migrated !== undefined) {
-        return { migrated: 0, skipped: 0 };
-    }
-    const slots = loadTuiQuickslotsForMigration(path);
-    if (slots.length === 0) {
-        return { migrated: 0, skipped: 0 };
-    }
-    const favorites: DiskFavoritePair[] = [];
-    let skipped = 0;
-    for (const slot of slots) {
-        const favorite = favoriteFromQuickslot(slot, resolve);
-        if (favorite === undefined) {
-            if (slot !== null && slot !== undefined) skipped += 1;
-            continue;
-        }
-        favorites.push(favorite);
-    }
-    saveTuiClientPreferences({
-        ...preferences,
-        ...(favorites.length === 0 ? {} : { favorite_pairs: favorites }),
-        favorite_pairs_migrated: 1,
-    }, path);
-    return { migrated: favorites.length, skipped };
-}
-
-function favoriteFromQuickslot(
-    value: unknown,
-    resolve: (name: string) =>
-        { readonly provider: string; readonly model: string } | undefined,
-): DiskFavoritePair | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
-    }
-    const effort = Reflect.get(value, "reasoningEffort")
-        ?? Reflect.get(value, "reasoning_effort");
-    if (typeof effort !== "string" || effort.length === 0) {
-        return undefined;
-    }
-    const name = Reflect.get(value, "name");
-    if (typeof name === "string" && name.length > 0) {
-        const resolved = resolve(name);
-        return resolved === undefined ? { name, effort } : {
-            name,
-            provider: resolved.provider,
-            model_id: resolved.model,
-            effort,
-        };
-    }
-    const provider = Reflect.get(value, "provider");
-    const model = Reflect.get(value, "model");
-    return typeof provider === "string" && typeof model === "string"
-            && provider.length > 0 && model.length > 0
-        ? { provider, model_id: model, effort }
-        : undefined;
-}
-
-export function loadTuiQuickslots(
-    path = tuiThemePreferencePath(),
-): Quickslots {
-    return parseQuickslots(loadTuiClientPreferences(path).model_presets);
-}
-
-export function saveTuiQuickslots(
-    slots: Quickslots,
-    path = tuiThemePreferencePath(),
-): void {
-    saveTuiClientPreferences({
-        ...loadTuiClientPreferences(path),
-        model_presets: quickslotsForDisk(slots),
-    }, path);
-}
-
 export function loadTuiKeybindingOverlay(
     path = tuiThemePreferencePath(),
 ): Readonly<Record<string, readonly string[]>> {
@@ -413,16 +260,7 @@ export function loadTuiExtensionPreference(
     key: string,
     path = tuiThemePreferencePath(),
 ): JsonValue | undefined {
-    const preferences = loadTuiClientPreferences(path);
-    const value = preferences.extensions?.[extensionId]?.[key];
-    if (value !== undefined) {
-        return value;
-    }
-    return extensionId === "vera.model-presets"
-            && key === "slots"
-            && preferences.model_presets !== undefined
-        ? structuredClone(preferences.model_presets) as unknown as JsonValue
-        : undefined;
+    return loadTuiClientPreferences(path).extensions?.[extensionId]?.[key];
 }
 
 export function saveTuiExtensionPreference(
@@ -499,14 +337,6 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 20,
                 400,
             );
-            const quickslots = Reflect.get(value, "model_presets");
-            const favoritePairs = parseFavoritePairs(
-                Reflect.get(value, "favorite_pairs"),
-            );
-            const favoritesMigrated = Reflect.get(
-                value,
-                "favorite_pairs_migrated",
-            );
             const keybindings = parseKeybindingOverlay(
                 Reflect.get(value, "keybindings"),
             );
@@ -542,20 +372,6 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(workspaceSidebarWidth === undefined
                     ? {}
                     : { workspace_sidebar_width: workspaceSidebarWidth }),
-                ...(Array.isArray(quickslots)
-                    ? {
-                        model_presets: quickslotsForDisk(
-                            parseQuickslots(quickslots),
-                        ),
-                    }
-                    : {}),
-                ...(favoritePairs.length === 0
-                    ? {}
-                    : { favorite_pairs: favoritePairs }),
-                ...(typeof favoritesMigrated === "number"
-                        && Number.isInteger(favoritesMigrated)
-                    ? { favorite_pairs_migrated: favoritesMigrated }
-                    : {}),
                 ...(keybindings === undefined ? {} : { keybindings }),
                 ...(extensions === undefined ? {} : { extensions }),
                 ...(sharedSessionGroups.length === 0
@@ -630,35 +446,6 @@ function parseSharedSessionGroups(
         used.add(first);
         used.add(second);
         return [[first, second] as const];
-    });
-}
-
-function parseFavoritePairs(value: unknown): readonly DiskFavoritePair[] {
-    if (!Array.isArray(value)) return [];
-    return value.flatMap((candidate) => {
-        if (
-            typeof candidate !== "object" || candidate === null
-            || Array.isArray(candidate)
-        ) {
-            return [];
-        }
-        const name = Reflect.get(candidate, "name");
-        const provider = Reflect.get(candidate, "provider");
-        const modelId = Reflect.get(candidate, "model_id");
-        const effort = Reflect.get(candidate, "effort");
-        const named = typeof name === "string" && name.length > 0;
-        const identified = typeof provider === "string" && provider.length > 0
-            && typeof modelId === "string" && modelId.length > 0;
-        if (!named && !identified) return [];
-        return [{
-            ...(named ? { name: name as string } : {}),
-            ...(identified
-                ? { provider: provider as string, model_id: modelId as string }
-                : {}),
-            ...(typeof effort === "string" && effort.length > 0
-                ? { effort }
-                : {}),
-        }];
     });
 }
 

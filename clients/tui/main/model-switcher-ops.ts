@@ -6,7 +6,6 @@ import {
     startTuiModelSwitcher,
     type TuiModelSwitcherPending,
     type TuiModelSwitcherRow,
-    type TuiModelSwitcherState,
 } from "../model-switcher.ts";
 import { requestPoolAdmission, showStatusNotice } from "../main.ts";
 import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
@@ -227,10 +226,4 @@ export function applyModelSwitch(
         const draft = currentDraft(rt);
         beginCreateSession(rt, "stop", () => draft, apply);
     } else apply();
-}
-
-export function modelSwitcherIsOpen(
-    rt: TuiRuntime,
-): rt is TuiRuntime & { modelSwitcher: TuiModelSwitcherState } {
-    return rt.modelSwitcher !== undefined;
 }
