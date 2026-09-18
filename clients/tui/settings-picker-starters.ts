@@ -126,6 +126,7 @@ import {
     type TuiExtensionPickerState,
     type TuiModelPickerTab,
     type TuiPendingModelChoice,
+    type TuiLocalRuntimeStatus,
     type TuiProviderRow,
     type TuiReviewerSlot,
     type TuiSettingsMenuKind,
@@ -835,6 +836,7 @@ export function startTuiProviderPicker(
     options: {
         readonly selected?: string;
         readonly subtitle?: string;
+        readonly localRuntime?: TuiLocalRuntimeStatus;
     } = {},
 ): TuiSettingsPickerState {
     const rows: TuiSettingsPickerOption[] = [...providers]
@@ -857,6 +859,7 @@ export function startTuiProviderPicker(
             ...(provider.endpointEditable === true
                 ? { endpointEditable: true }
                 : {}),
+            ...(provider.localRuntime === true ? { localRuntime: true } : {}),
         }));
     const firstUnconnected = rows.findIndex(
         (option) => option.answerState !== "connected",
@@ -884,6 +887,9 @@ export function startTuiProviderPicker(
         ...(options.subtitle === undefined
             ? {}
             : { subtitle: options.subtitle }),
+        ...(options.localRuntime === undefined
+            ? {}
+            : { localRuntime: options.localRuntime }),
     };
 }
 
