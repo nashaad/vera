@@ -5,7 +5,7 @@ import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { activityFrame, applyWorkspaceRail, dialogAdmission, liveVerificationConsole, renderCommandSuggestions, renderHeldAddress, renderPendingQuote, renderStatus } from "../main.ts";
 import { focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { markSearchLanding } from "../main/chrome.ts";
-import { modelBrowseTip } from "../model-journeys.ts";
+import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
 import { destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
@@ -355,7 +355,7 @@ export function renderState(rt: TuiRuntime): void {
         rt.timelinePickerView.update(rt.timelinePicker);
     }
     const browsing = rt.settingsPicker?.kind === "model"
-        && rt.settingsPicker.modelJourney === "switch";
+        && rt.settingsPicker.modelBrowse === "browse";
     if (rt.settingsPicker === undefined) {
         rt.pickerTipKind = undefined;
         rt.switchTipShown = false;

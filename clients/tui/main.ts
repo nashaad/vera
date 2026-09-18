@@ -227,7 +227,7 @@ import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
 import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 
-import { modelJourneyScope, modelJourneySort } from "./model-journeys.ts";
+import { modelBrowseScope, modelBrowseSort } from "./model-browse.ts";
 import {
     AUTO_MODE_ANIMATION_DURATION_MS,
     paintDialHud,
@@ -2091,27 +2091,27 @@ export async function startTui(
         renderState(rt);
     };
     rt.settingsPickerView.onMore = () => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
         applySettingsPickerTransition(rt, handleTuiSettingsPickerKey(rt.settingsPicker, { name: "k", ctrl: true }));
     };
-    rt.settingsPickerView.onJourneyAction = (modelFocus) => {
+    rt.settingsPickerView.onBrowseAction = (modelFocus) => {
         if (rt.settingsPicker?.kind !== "model") return;
         applySettingsPickerTransition(rt, handleTuiSettingsPickerKey({ ...rt.settingsPicker, modelFocus }, { name: "enter" }));
     };
     rt.settingsPickerView.onScope = () => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
-        rt.settingsPicker = modelJourneyScope({ ...rt.settingsPicker, modelFocus: "scope" });
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
+        rt.settingsPicker = modelBrowseScope({ ...rt.settingsPicker, modelFocus: "scope" });
         renderState(rt);
         focusActiveSurface(rt);
     };
     rt.settingsPickerView.onSort = () => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
-        rt.settingsPicker = modelJourneySort({ ...rt.settingsPicker, modelFocus: "sort" });
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
+        rt.settingsPicker = modelBrowseSort({ ...rt.settingsPicker, modelFocus: "sort" });
         renderState(rt);
         focusActiveSurface(rt);
     };
     rt.settingsPickerView.onSection = (modelFocus) => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
         rt.settingsPicker = { ...rt.settingsPicker, modelFocus };
         renderState(rt);
         focusActiveSurface(rt);

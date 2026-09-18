@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { modelJourney } from "../../clients/tui/model-journeys.ts";
+import { modelBrowse } from "../../clients/tui/model-browse.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, setTuiSettingsPickerCutoff, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const options = [
@@ -10,12 +10,12 @@ const options = [
 ];
 
 test("cutoff band and printed ticks accept mouse clicks at their rendered positions", async () => {
-    for (const [width, journey] of [[110, true], [70, true], [50, true], [100, false]] as const) {
+    for (const [width, browsing] of [[110, true], [70, true], [50, true], [100, false]] as const) {
         const setup = await createTestRenderer({ width, height: 44 });
         const view = createTuiSettingsPickerView(setup.renderer);
         let state: TuiSettingsPickerState = { kind: "model", tab: "all", options, allOptions: options, selectedIndex: 0, query: "a" };
-        if (journey) state = { ...modelJourney(state, "switch"), tab: "all", options };
-        state = { ...state, query: journey ? "a" : "" };
+        if (browsing) state = { ...modelBrowse(state, "browse"), tab: "all", options };
+        state = { ...state, query: browsing ? "a" : "" };
         view.onCutoff = (cutoff) => { state = setTuiSettingsPickerCutoff(state, cutoff); view.update(state); };
         setup.renderer.root.add(view.surface);
         view.surface.visible = true;
@@ -37,7 +37,7 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
                     expect(setup.renderer.getSelection() === null).toBe(true);
                     expect(state.intelligenceCutoff).toBe(tick);
                     expect(state.modelFocus).toBe("intelligence");
-                    expect(state.query).toBe(journey ? "a" : "");
+                    expect(state.query).toBe(browsing ? "a" : "");
                 }
             }
             expect(state.options.filter((row) => row.model !== undefined)).toHaveLength(0);

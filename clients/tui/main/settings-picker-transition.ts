@@ -36,12 +36,12 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
     rt.settingsPicker = transition.state;
-    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney === "switch"
+    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelBrowse === "browse"
         && (previousPicker?.kind === "model_menu"
             || previousPicker?.kind === "model" && previousPicker.tab !== rt.settingsPicker.tab)) {
         try {
-            saveModelPickerPreferences({ view: rt.settingsPicker.journeyView ?? "standard",
-                scope: rt.settingsPicker.tab === "all" ? "all" : "pool", sort: rt.settingsPicker.journeySort ?? "library" });
+            saveModelPickerPreferences({ view: rt.settingsPicker.browseView ?? "standard",
+                scope: rt.settingsPicker.tab === "all" ? "all" : "pool", sort: rt.settingsPicker.browseSort ?? "library" });
         } catch (error) {
             showStatusNotice(rt, `Could not save model picker preferences: ${String(error)}`);
         }
@@ -218,7 +218,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             },
             transition.poolName.label,
             previousPicker?.kind === "extension" ? undefined : previousPicker,
-            previousPicker?.kind === "model" && previousPicker.modelJourney === "shortlist" ? transition.poolName.label : undefined,
+            previousPicker?.kind === "model" && previousPicker.modelBrowse === "favorites" ? transition.poolName.label : undefined,
         );
         return;
     }
@@ -261,11 +261,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        // The More menu hands the toggle back with the journey as its next
-        // state, so the journey path is chosen on where the toggle lands.
-        const journey = (previousPicker?.kind === "model" && previousPicker.modelJourney !== undefined)
-            || (transition.state?.kind === "model" && transition.state.modelJourney !== undefined);
-        if (journey) {
+        // The More menu hands the toggle back with the browse page as its next
+        // state, so the path is chosen on where the toggle lands.
+        const browsing = (previousPicker?.kind === "model" && previousPicker.modelBrowse !== undefined)
+            || (transition.state?.kind === "model" && transition.state.modelBrowse !== undefined);
+        if (browsing) {
             runModelOperation(rt, { operation: toggle.action === "add" ? "keep" : "unkeep",
                 models: [{ provider: toggle.provider, model: toggle.model }] });
             return;
@@ -389,9 +389,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             void openConfigureEditor(rt, selection.file);
             return;
         }
-        const switchPane = previousPicker?.kind === "model" && previousPicker.modelJourney === "switch"
+        const switchPane = previousPicker?.kind === "model" && previousPicker.modelBrowse === "browse"
             ? previousPicker
-            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState?.modelJourney === "switch"
+            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState?.modelBrowse === "browse"
             ? previousPicker.pendingModel.modelPaneState
             : undefined;
         const fromSwitcher = previousPicker?.kind === "reasoning"

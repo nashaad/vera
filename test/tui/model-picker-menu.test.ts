@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
-import { modelJourney, journeyModels } from "../../clients/tui/model-journeys.ts";
+import { modelBrowse, browseModels } from "../../clients/tui/model-browse.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_MUTED, TUI_TEXT } from "../../clients/tui/palette.ts";
 import { setTuiSettingsPickerCutoff } from "../../clients/tui/settings-picker.ts";
@@ -11,7 +11,7 @@ const rows = [
     { value: "p/b", provider: "p", model: "b", label: "Beta", description: "", waScore: 1600 },
     { value: "p/c", provider: "p", model: "c", label: "Gamma", description: "", waScore: 1550, hiddenByDefault: "old" as const },
 ];
-const base = modelJourney({ kind: "model", options: rows, allOptions: rows, query: "", selectedIndex: 0 }, "switch");
+const base = modelBrowse({ kind: "model", options: rows, allOptions: rows, query: "", selectedIndex: 0 }, "browse");
 const more = { name: "k", ctrl: true };
 
 test("filter sort names its current value and separates label and value tones", async () => {
@@ -19,8 +19,8 @@ test("filter sort names its current value and separates label and value tones", 
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
-        for (const [journeySort, label] of [["library", "Favorite order"], ["az", "A to Z"], ["price", "Cheapest first"]] as const) {
-            const menu = handleTuiSettingsPickerKey({ ...base, journeySort, modelFocus: "filters" }, { name: "enter" }).state!;
+        for (const [browseSort, label] of [["library", "Favorite order"], ["az", "A to Z"], ["price", "Cheapest first"]] as const) {
+            const menu = handleTuiSettingsPickerKey({ ...base, browseSort, modelFocus: "filters" }, { name: "enter" }).state!;
             view.update(menu); await setup.renderOnce();
             const lines = setup.captureCharFrame().split("\n");
             const y = lines.findIndex((line) => line.includes(`Sort: ${label}`));
@@ -89,7 +89,7 @@ test("More returns to the exact picker, and only its listed actions can run", ()
     for (const modelFocus of ["list", "intelligence"] as const) {
         const filtered = { ...base, tab: "all" as const, intelligenceCutoff: "1500" as const,
             query: "p", queryCursor: 0, selectedIndex: 1, modelFocus };
-        const parent = { ...filtered, options: journeyModels(filtered) };
+        const parent = { ...filtered, options: browseModels(filtered) };
         let menu = handleTuiSettingsPickerKey(parent, more).state!;
         expect(menu.kind).toBe("model_menu");
         expect(menu.options.map((row) => row.label)).toEqual(["Add to favorites", "Show extra variants and older models", "Refresh model catalog", "Add/remove favorites", "Edit model defaults", "Configure providers"]);
@@ -120,7 +120,7 @@ test.each([110, 124])("Manage models opens with the mouse at width %i", async (w
     const setup = await createTestRenderer({ width, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     let state: TuiSettingsPickerState = { ...base, tab: "all", options: rows };
-    view.onJourneyAction = (modelFocus) => {
+    view.onBrowseAction = (modelFocus) => {
         state = handleTuiSettingsPickerKey({ ...state, modelFocus }, { name: "enter" }).state!;
         view.update(state);
     };

@@ -5,7 +5,7 @@ import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 import { shortlistFactsText, shortlistLegendText } from "../../clients/tui/settings-picker-model.ts";
-import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, modelJourneySort, journeySort, journeySections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-journeys.ts";
+import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseModels, browseMatches, browseMoreText, browseWindow, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -15,13 +15,13 @@ const rows = [
 ];
 const base: TuiSettingsPickerState = { kind: "model", allOptions: rows, options: rows, selectedIndex: 0, query: "" };
 
-test.each(["standard", "detailed"] as const)("%s restores tips and separates controls from key hints", async (journeyView) => {
+test.each(["standard", "detailed"] as const)("%s restores tips and separates controls from key hints", async (browseView) => {
     const setup = await createTestRenderer({ width: 120, height: 30 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     view.tip = "Switching keeps the thread; the next turn uses the new model.";
     try {
-        view.update({ ...modelJourney(base, "switch"), journeyView }); await setup.renderOnce();
+        view.update({ ...modelBrowse(base, "browse"), browseView }); await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
         const control = lines.findIndex((line) => line.includes("Manage models"));
         const hint = lines.findIndex((line) => line.includes("Type to search"));
@@ -41,7 +41,7 @@ test("Detailed gives a 30-row terminal at least six model rows without duplicate
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
         const options = Array.from({ length: 30 }, (_, index) => ({ ...rows[0]!, value: `p/${index}`, model: `${index}`, label: `Entry ${index}`, pricing: { input: 1, output: 2 } }));
-        const state = { ...chooseScope(modelJourney({ ...base, allOptions: options }, "switch")), journeyView: "detailed" as const };
+        const state = { ...chooseScope(modelBrowse({ ...base, allOptions: options }, "browse")), browseView: "detailed" as const };
         view.update(state); await setup.renderOnce();
         const frame = setup.captureCharFrame();
         expect(frame.split("\n").filter((line) => /^\s+Entry \d/.test(line)).length).toBeGreaterThanOrEqual(6);
@@ -54,14 +54,14 @@ test("Detailed gives a 30-row terminal at least six model rows without duplicate
     } finally { setup.renderer.destroy(); }
 });
 
-test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep summary and headings on the body margin", async (journeyView) => {
+test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep summary and headings on the body margin", async (browseView) => {
     const setup = await createTestRenderer({ width: 110, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
     try {
         const options = Array.from({ length: 30 }, (_, index) => ({ ...rows[1]!, value: `p/${index}`, model: `${index}`, label: `Item ${index}`, pooledRank: index }));
-        view.update({ ...modelJourney({ ...base, allOptions: options.slice(0, 1) }, "switch"), journeyView });
+        view.update({ ...modelBrowse({ ...base, allOptions: options.slice(0, 1) }, "browse"), browseView });
         await setup.renderOnce();
         const sparseHeight = view.box.height;
         const lines = setup.captureCharFrame().split("\n");
@@ -70,13 +70,13 @@ test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep su
         expect(lines.some((line) => line.includes("View:"))).toBe(false);
         expect(lines.some((line) => line.trim() === "Favorites")).toBe(false);
         expect(lines[scope]!.indexOf("Browse models")).toBe(lines[row]!.indexOf("*"));
-        if (journeyView === "standard") {
+        if (browseView === "standard") {
             const price = lines.findIndex((line) => line.includes("Price unavailable"));
             expect(price).toBe(row + 2);
             expect(lines[scope]!.indexOf("Browse models")).toBe(lines[price]!.indexOf("Price"));
         }
         expect(lines.some((line) => line.includes("* favorite"))).toBe(false);
-        view.update({ ...modelJourney({ ...base, allOptions: options }, "switch"), journeyView });
+        view.update({ ...modelBrowse({ ...base, allOptions: options }, "browse"), browseView });
         await setup.renderOnce();
         expect(view.box.height).toBeGreaterThan(sparseHeight);
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(44);
@@ -84,13 +84,13 @@ test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep su
     } finally { setup.renderer.destroy(); }
 });
 
-test.each(["standard", "detailed"] as const)("%s picker aligns labels and reserves chevrons for groups", async (journeyView) => {
+test.each(["standard", "detailed"] as const)("%s picker aligns labels and reserves chevrons for groups", async (browseView) => {
     const setup = await createTestRenderer({ width: 110, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
     try {
-        const state = { ...modelJourney(base, "switch"), journeyView, modelFocus: "filters" as const };
+        const state = { ...modelBrowse(base, "browse"), browseView, modelFocus: "filters" as const };
         view.update(state);
         await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
@@ -126,10 +126,10 @@ test.each(["standard", "detailed"] as const)("%s picker aligns labels and reserv
 });
 
 test("changing view preserves the query, model, filters and collapsed groups", () => {
-    const parent = { ...updateTuiSettingsPickerSearch(modelJourney(base, "switch"), "alpha").state!, modelFocus: "filters" as const };
+    const parent = { ...updateTuiSettingsPickerSearch(modelBrowse(base, "browse"), "alpha").state!, modelFocus: "filters" as const };
     const menu = handleTuiSettingsPickerKey(parent, { name: "enter" }).state!;
     const detailed = handleTuiSettingsPickerKey({ ...menu, selectedIndex: 1 }, { name: "enter" }).state!;
-    expect(detailed.parent).toEqual({ ...parent, journeyView: "detailed" });
+    expect(detailed.parent).toEqual({ ...parent, browseView: "detailed" });
     const again = handleTuiSettingsPickerKey(detailed, { name: "enter" }).state!;
     const standard = handleTuiSettingsPickerKey(again, { name: "escape" }).state!;
     expect(standard).toEqual(parent);
@@ -140,28 +140,28 @@ test("search crosses favorites but retains explicit filters", () => {
         { ...rows[0]!, images: true, pricing: { input: 0, output: 0 } },
         { ...rows[1]!, unavailable: true }, rows[2]!,
     ];
-    const parent = modelJourney({ ...base, allOptions }, "switch");
+    const parent = modelBrowse({ ...base, allOptions }, "browse");
     expect(parent.options.map((row) => row.model)).toEqual(["b", "c"]);
     expect(updateTuiSettingsPickerSearch(parent, "alpha").state?.options.map((row) => row.model)).toEqual(["a"]);
     const search = updateTuiSettingsPickerSearch(parent, "alpha").state!;
     expect(updateTuiSettingsPickerSearch(search, "").state?.options.map((row) => row.model)).toEqual(["b", "c"]);
-    expect(journeyMatches({ ...search, journeyProvider: "q" })).toHaveLength(0);
-    expect(journeyMatches({ ...parent, tab: "all", journeyAvailableOnly: true }).map((row) => row.model)).toEqual(["a", "c"]);
-    expect(journeyMatches({ ...parent, tab: "all", journeyPricedOnly: true }).map((row) => row.model)).toEqual(["a"]);
-    expect(journeyMatches({ ...parent, tab: "all", journeyImagesOnly: true }).map((row) => row.model)).toEqual(["a"]);
+    expect(browseMatches({ ...search, browseProvider: "q" })).toHaveLength(0);
+    expect(browseMatches({ ...parent, tab: "all", browseAvailableOnly: true }).map((row) => row.model)).toEqual(["a", "c"]);
+    expect(browseMatches({ ...parent, tab: "all", browsePricedOnly: true }).map((row) => row.model)).toEqual(["a"]);
+    expect(browseMatches({ ...parent, tab: "all", browseImagesOnly: true }).map((row) => row.model)).toEqual(["a"]);
 });
 
 function chooseScope(state: TuiSettingsPickerState, tab: "pool" | "all" = "all"): TuiSettingsPickerState {
-    const menu = modelJourneyScope({ ...state, modelFocus: "scope" });
+    const menu = modelBrowseScope({ ...state, modelFocus: "scope" });
     const result = handleTuiSettingsPickerKey({ ...menu, selectedIndex: tab === "all" ? 1 : 0 }, { name: "enter" });
     return { ...result.state!, modelFocus: "list" };
 }
 
 test("Ctrl+G toggles scope from every Switch section without changing cutoff or favorites", () => {
     const options = rows.map((row) => ({ ...row, waScore: 1550 }));
-    for (const journeyView of ["standard", "detailed"] as const) {
-        const start = modelJourney({ ...base, allOptions: options, journeyView, intelligenceCutoff: "1500" }, "switch");
-        for (const modelFocus of journeySections(start)) {
+    for (const browseView of ["standard", "detailed"] as const) {
+        const start = modelBrowse({ ...base, allOptions: options, browseView, intelligenceCutoff: "1500" }, "browse");
+        for (const modelFocus of browseSections(start)) {
             const favorites = { ...start, modelFocus };
             const all = handleTuiSettingsPickerKey(favorites, { name: "g", ctrl: true });
             expect(all.handled).toBe(true);
@@ -171,7 +171,7 @@ test("Ctrl+G toggles scope from every Switch section without changing cutoff or 
             expect(all.poolToggle).toBeUndefined();
             expect(all.state?.modelFocus).toBe(modelFocus);
             expect(all.state?.intelligenceCutoff).toBe("1500");
-            expect(all.state?.journeyView).toBe(journeyView);
+            expect(all.state?.browseView).toBe(browseView);
             const back = handleTuiSettingsPickerKey(all.state!, { name: "g", ctrl: true }).state!;
             expect(back).toEqual(favorites);
         }
@@ -179,19 +179,19 @@ test("Ctrl+G toggles scope from every Switch section without changing cutoff or 
 });
 
 test("Ctrl+G retains query, explicit filters and search across connected models", () => {
-    const start = { ...updateTuiSettingsPickerSearch(modelJourney(base, "switch"), "alpha").state!, journeyProvider: "p", journeyAvailableOnly: true };
+    const start = { ...updateTuiSettingsPickerSearch(modelBrowse(base, "browse"), "alpha").state!, browseProvider: "p", browseAvailableOnly: true };
     const all = handleTuiSettingsPickerKey(start, { name: "g", ctrl: true }).state!;
     const favorites = handleTuiSettingsPickerKey(all, { name: "g", ctrl: true }).state!;
     expect(favorites.query).toBe("alpha");
     expect(favorites.queryCursor).toBe(start.queryCursor);
-    expect(favorites.journeyProvider).toBe("p");
-    expect(favorites.journeyAvailableOnly).toBe(true);
+    expect(favorites.browseProvider).toBe("p");
+    expect(favorites.browseAvailableOnly).toBe(true);
     expect(favorites.options.map((row) => row.model)).toEqual(["a"]);
     expect(updateTuiSettingsPickerSearch(favorites, "").state?.options.map((row) => row.model)).toEqual(["b"]);
 });
 
 test("Ctrl+G handles empty favorites and a selected model outside favorites", () => {
-    const start = modelJourney({ ...base, allOptions: [rows[0]!] }, "switch");
+    const start = modelBrowse({ ...base, allOptions: [rows[0]!] }, "browse");
     expect(start.options).toHaveLength(0);
     const all = handleTuiSettingsPickerKey(start, { name: "g", ctrl: true }).state!;
     expect(all.options).toHaveLength(1);
@@ -203,55 +203,55 @@ test("Ctrl+G handles empty favorites and a selected model outside favorites", ()
 
 
 test("scope counts ignore query and cutoff", () => {
-    const state = { ...modelJourney(base, "switch"), query: "missing", intelligenceCutoff: "1600" as const };
-    expect(modelJourneyScope(state).options.map((row) => row.label)).toEqual(["Favorites (2)", "All connected (3)"]);
+    const state = { ...modelBrowse(base, "browse"), query: "missing", intelligenceCutoff: "1600" as const };
+    expect(modelBrowseScope(state).options.map((row) => row.label)).toEqual(["Favorites (2)", "All connected (3)"]);
 });
 
 
 test("Enter favorites in either scope and never switches the model", () => {
-    let state = modelJourney(base, "switch");
+    let state = modelBrowse(base, "browse");
     expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c"]);
-    expect(journeyHeader(state)).not.toContain("Cutoff");
-    expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
-    expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
+    expect(browseHeader(state)).not.toContain("Cutoff");
+    expect(handleModelBrowseKey(state, { name: "enter" }).selection).toBeUndefined();
+    expect(handleModelBrowseKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
     state = chooseScope(state);
-    expect(journeyMatches(state)).toHaveLength(3);
-    expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
-    expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).refreshAllCatalogs).toBe(true);
+    expect(browseMatches(state)).toHaveLength(3);
+    expect(handleModelBrowseKey(state, { name: "enter" }).selection).toBeUndefined();
+    expect(handleModelBrowseKey(state, { name: "r", ctrl: true }).refreshAllCatalogs).toBe(true);
 });
 
 test("library Enter only keeps or unkeeps and row verbs are chords", () => {
-    const state = { ...modelJourney(base, "shortlist"), selectedIndex: 1 };
+    const state = { ...modelBrowse(base, "favorites"), selectedIndex: 1 };
     expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a", "b", "c"]);
-    expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
-    expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
-    expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).poolName?.model).toBe("b");
-    expect(handleModelJourneyKey(state, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
-    expect(handleModelJourneyKey(state, { name: "r" }).handled).toBe(false);
-    expect(journeyHeader(state)).toBe("");
+    expect(handleModelBrowseKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
+    expect(handleModelBrowseKey(state, { name: "enter" }).selection).toBeUndefined();
+    expect(handleModelBrowseKey(state, { name: "r", ctrl: true }).poolName?.model).toBe("b");
+    expect(handleModelBrowseKey(state, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
+    expect(handleModelBrowseKey(state, { name: "r" }).handled).toBe(false);
+    expect(browseHeader(state)).toBe("");
 });
 
 test("cutoff excludes unscored models only in all scope; search selects one model", () => {
-    let state = { ...modelJourney(base, "switch"), tab: "all" as const, intelligenceCutoff: "1500" as const };
-    expect(journeyModels(state).filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a"]);
-    expect(journeyHeader(state)).toContain("2 hidden below the cutoff, including 2 unscored");
-    const manage = updateTuiSettingsPickerSearch(modelJourney(base, "shortlist"), "beta").state!;
-    expect(handleModelJourneyKey(manage, { name: "enter" }).poolToggle?.model).toBe("b");
+    let state = { ...modelBrowse(base, "browse"), tab: "all" as const, intelligenceCutoff: "1500" as const };
+    expect(browseModels(state).filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a"]);
+    expect(browseHeader(state)).toContain("2 hidden below the cutoff, including 2 unscored");
+    const manage = updateTuiSettingsPickerSearch(modelBrowse(base, "favorites"), "beta").state!;
+    expect(handleModelBrowseKey(manage, { name: "enter" }).poolToggle?.model).toBe("b");
 });
 
 test("verification does not require a favorite", () => {
-    const state = modelJourney(base, "shortlist");
-    const refused = handleModelJourneyKey(state, { name: "y", ctrl: true });
+    const state = modelBrowse(base, "favorites");
+    const refused = handleModelBrowseKey(state, { name: "y", ctrl: true });
     expect(refused.poolVerify?.model).toBe("a");
-    expect(refused.state?.journeyFeedback).toBeUndefined();
-    expect(handleModelJourneyKey({ ...state, selectedIndex: 1 }, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
+    expect(refused.state?.browseFeedback).toBeUndefined();
+    expect(handleModelBrowseKey({ ...state, selectedIndex: 1 }, { name: "y", ctrl: true }).poolVerify?.model).toBe("b");
 });
 
 test("live library search accepts spaces and row actions do not appear as another screen", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);
     try {
-        let state = modelJourney(base, "shortlist");
+        let state = modelBrowse(base, "favorites");
         view.update(state);
         setup.renderer.root.add(view.surface);
         view.surface.visible = true;
@@ -287,15 +287,15 @@ test("a kept current model that disappears stays removable but cannot be selecte
     const picker = startTuiSettingsPicker("model", "gone", undefined, "ask", [], "default", "p", undefined, [
         { provider: "p", model: "gone", label: "Gone", available: false, verified: true, levels: [] },
     ]);
-    const switched = modelJourney({ ...picker, providerCatalogs: [{ id: "p", label: "P", refreshedAt: "2026-09-06" }] }, "switch");
+    const switched = modelBrowse({ ...picker, providerCatalogs: [{ id: "p", label: "P", refreshedAt: "2026-09-06" }] }, "browse");
     expect(switched.options[switched.selectedIndex]?.unavailable).toBe(true);
-    expect(handleModelJourneyKey(switched, { name: "enter" }).selection).toBeUndefined();
-    const managed = modelJourney(switched, "shortlist");
-    expect(journeyHeader(managed)).toBe("");
-    expect(handleModelJourneyKey(managed, { name: "enter" }).poolToggle?.action).toBe("remove");
+    expect(handleModelBrowseKey(switched, { name: "enter" }).selection).toBeUndefined();
+    const managed = modelBrowse(switched, "favorites");
+    expect(browseHeader(managed)).toBe("");
+    expect(handleModelBrowseKey(managed, { name: "enter" }).poolToggle?.action).toBe("remove");
 });
 
-test("model journey cards contain the footer and padding for empty, short, and full lists", async () => {
+test("model browse cards contain the footer and padding for empty, short, and full lists", async () => {
     const setup = await createTestRenderer({ width: 110, height: 24 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
@@ -305,9 +305,9 @@ test("model journey cards contain the footer and padding for empty, short, and f
             const options = Array.from({ length: count }, (_, index) => ({
                 ...rows[1]!, value: `p/model-${index}`, model: `model-${index}`, pooledRank: index,
             }));
-            for (const journey of ["switch", "shortlist"] as const) {
-                for (const journeyNotice of [undefined, "Catalog refreshed."]) {
-                    view.update({ ...modelJourney({ ...base, options, allOptions: options }, journey), journeyNotice });
+            for (const mode of ["browse", "favorites"] as const) {
+                for (const browseNotice of [undefined, "Catalog refreshed."]) {
+                    view.update({ ...modelBrowse({ ...base, options, allOptions: options }, mode), browseNotice });
                     await setup.renderOnce();
                     const bottom = view.box.screenY + view.box.height;
                     expect(bottom).toBeLessThanOrEqual(setup.renderer.height - 1);
@@ -315,7 +315,7 @@ test("model journey cards contain the footer and padding for empty, short, and f
                         expect(child.screenY + child.height).toBeLessThanOrEqual(bottom - 1);
                     }
                     const frame = setup.captureCharFrame().split("\n");
-                    const footer = frame.findIndex((line) => line.includes(journey === "switch" ? "Tab sections" : "⏎ / Ctrl+S"));
+                    const footer = frame.findIndex((line) => line.includes(mode === "browse" ? "Tab sections" : "⏎ / Ctrl+S"));
                     expect(footer).toBeGreaterThan(view.box.screenY);
                     expect(footer).toBeLessThan(bottom - 1);
                 }
@@ -324,14 +324,14 @@ test("model journey cards contain the footer and padding for empty, short, and f
     } finally { setup.renderer.destroy(); }
 });
 
-test("providers opened from either model journey never expose the legacy tabs", async () => {
+test("providers opened from either model surface never expose the legacy tabs", async () => {
     const setup = await createTestRenderer({ width: 110, height: 32 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
     try {
-        for (const journey of ["switch", "shortlist"] as const) {
-            const parent = modelJourney(base, journey);
+        for (const mode of ["browse", "favorites"] as const) {
+            const parent = modelBrowse(base, mode);
             const providers = withTuiPickerParent(startTuiProviderPicker([], {
                 subtitle: "No provider connected. Add provider to discover models.",
             }), parent);
@@ -351,55 +351,55 @@ test("providers opened from either model journey never expose the legacy tabs", 
 });
 
 test("plain provider groups keep a stable order and open headings stay out of navigation", () => {
-    const state = modelJourney(base, "shortlist");
+    const state = modelBrowse(base, "favorites");
     expect(state.options.map((row) => row.group)).toEqual(["p", "p", "q"]);
     expect(state.options.every((row) => row.model !== undefined && row.section === undefined)).toBe(true);
-    expect(handleModelJourneyKey(state, { name: "right" }).state?.modelFocus).toBe("search");
-    const next = handleModelJourneyKey(state, { name: "down" }).state!;
+    expect(handleModelBrowseKey(state, { name: "right" }).state?.modelFocus).toBe("search");
+    const next = handleModelBrowseKey(state, { name: "down" }).state!;
     expect(next.options[next.selectedIndex]?.model).toBe("b");
     const searched = updateTuiSettingsPickerSearch(state, "beta").state!;
     expect(searched.options[searched.selectedIndex]?.model).toBe("b");
-    expect(handleModelJourneyKey(searched, { name: "enter" }).poolToggle?.model).toBe("b");
+    expect(handleModelBrowseKey(searched, { name: "enter" }).poolToggle?.model).toBe("b");
 });
 
 test("a folded group collapses to one heading row that counts what it hides", () => {
-    const state = modelJourney(base, "shortlist");
+    const state = modelBrowse(base, "favorites");
     const group = state.options[0]?.group;
-    const folded = handleModelJourneyKey({ ...state, selectedIndex: 0 }, { name: "space", sequence: " " }).state!;
+    const folded = handleModelBrowseKey({ ...state, selectedIndex: 0 }, { name: "space", sequence: " " }).state!;
     const heading = folded.options[folded.selectedIndex]!;
     expect(heading.section).toBe(group);
     expect(heading.label).toBe(`${group} (2)`);
     expect(heading.sectionCollapsed).toBe(true);
     expect(folded.options.filter((row) => row.group === group)).toHaveLength(1);
     // Enter opens it again, so a fold is never a dead end.
-    const opened = handleModelJourneyKey(folded, { name: "enter" }).state!;
+    const opened = handleModelBrowseKey(folded, { name: "enter" }).state!;
     expect(opened.options.filter((row) => row.group === group)).toHaveLength(2);
 });
 
 test("reduced catalogs hide old entries without hiding kept models or search results", () => {
     const options = [rows[0]!, { ...rows[1]!, hiddenByDefault: "old" as const },
         { ...rows[2]!, pooledRank: undefined, hiddenByDefault: "superseded" as const }];
-    let state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
-    expect(journeyMatches(state).map((row) => row.model)).toEqual(["a", "b"]);
-    expect(handleModelJourneyKey(state, { name: "k", ctrl: true }).state?.options.find((row) => row.value === "variants")?.label).toBe("Show extra variants and older models");
-    state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
-    expect(journeyMatches(state)).toHaveLength(3);
-    expect(handleModelJourneyKey(state, { name: "k", ctrl: true }).state?.options.find((row) => row.value === "variants")?.label).toBe("Hide extra variants and older models");
-    state = handleModelJourneyKey(state, { name: "a", ctrl: true }).state!;
+    let state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
+    expect(browseMatches(state).map((row) => row.model)).toEqual(["a", "b"]);
+    expect(handleModelBrowseKey(state, { name: "k", ctrl: true }).state?.options.find((row) => row.value === "variants")?.label).toBe("Show extra variants and older models");
+    state = handleModelBrowseKey(state, { name: "a", ctrl: true }).state!;
+    expect(browseMatches(state)).toHaveLength(3);
+    expect(handleModelBrowseKey(state, { name: "k", ctrl: true }).state?.options.find((row) => row.value === "variants")?.label).toBe("Hide extra variants and older models");
+    state = handleModelBrowseKey(state, { name: "a", ctrl: true }).state!;
     const search = updateTuiSettingsPickerSearch(state, "gamma").state!;
     expect(search.options[search.selectedIndex]?.model).toBe("c");
-    const managed = modelJourney({ ...base, allOptions: options }, "shortlist");
-    expect(handleModelJourneyKey(managed, { name: "enter" }).poolToggle?.model).toBe("a");
+    const managed = modelBrowse({ ...base, allOptions: options }, "favorites");
+    expect(handleModelBrowseKey(managed, { name: "enter" }).poolToggle?.model).toBe("a");
 });
 
 test("large provider sections stay open and bounded windows retain provider context", () => {
     const options = Array.from({ length: 60 }, (_, index) => ({
         ...rows[0]!, value: JSON.stringify(["p", `model-${index}`]), model: `model-${index}`, label: `Model ${index}`,
     }));
-    let state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    let state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
     expect(state.options).toHaveLength(60);
     state = { ...state, selectedIndex: 40 };
-    const window = journeyWindow(state, 12).rows;
+    const window = browseWindow(state, 12).rows;
     expect(window.length).toBeLessThanOrEqual(12);
     expect(window[0]?.heading).toBe("p");
     expect(window.some((row) => row.index === state.selectedIndex)).toBe(true);
@@ -413,13 +413,13 @@ test("stepping through an overflowing window moves the list by one line, or two 
     const options = Array.from({ length: 30 }, (_, index) => ({
         ...rows[0]!, provider: `p${Math.floor(index / 4)}`, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
     }));
-    const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    const state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
     const walk = [...state.options.keys(), ...[...state.options.keys()].reverse()];
     let top = 0;
     let previous = 0;
-    let lines: readonly JourneyDisplayRow[] | undefined;
+    let lines: readonly BrowseDisplayRow[] | undefined;
     for (const selectedIndex of walk) {
-        const window = journeyWindow({ ...state, selectedIndex }, 12, top);
+        const window = browseWindow({ ...state, selectedIndex }, 12, top);
         expect(window.rows).toHaveLength(12);
         expect(window.rows.some((row) => row.index === selectedIndex)).toBe(true);
         expect(window.rows[0]?.heading !== undefined && window.rows[1]?.heading !== undefined).toBe(false);
@@ -443,13 +443,13 @@ test("walking down to a group boundary and back up keeps the list still, matchin
         ...["AionLabs: Aion-3.0", "AionLabs: Aion-3.0-Mini", ...Array.from({ length: 128 }, (_, index) => `Zeta ${String(index).padStart(3, "0")}`)]
             .map((label) => ({ ...rows[0]!, provider: "openrouter", value: `openrouter/${label}`, model: label, label })),
     ];
-    const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    const state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
     const at = (label: string) => state.options.findIndex((row) => row.label === label);
-    const frame = (rows: readonly JourneyDisplayRow[]) => rows.map((row) =>
-        row.more !== undefined ? journeyMoreText(row.more) : row.heading !== undefined ? `▼ ${row.heading}` : row.option?.label ?? "");
+    const frame = (rows: readonly BrowseDisplayRow[]) => rows.map((row) =>
+        row.more !== undefined ? browseMoreText(row.more) : row.heading !== undefined ? `▼ ${row.heading}` : row.option?.label ?? "");
     let top = 0;
     for (let selectedIndex = 0; selectedIndex <= at("AionLabs: Aion-3.0-Mini"); selectedIndex++) {
-        top = journeyWindow({ ...state, selectedIndex }, 15, top).top;
+        top = browseWindow({ ...state, selectedIndex }, 15, top).top;
     }
     const expected = [
         `▼ ${state.options[0]!.group}`,
@@ -461,7 +461,7 @@ test("walking down to a group boundary and back up keeps the list still, matchin
         "↑ 11 more models above · ↓ 128 more models below",
     ];
     for (const label of ["AionLabs: Aion-3.0-Mini", "AionLabs: Aion-3.0", "mock-model-20", "mock-model-13"]) {
-        const window = journeyWindow({ ...state, selectedIndex: at(label) }, 15, top);
+        const window = browseWindow({ ...state, selectedIndex: at(label) }, 15, top);
         expect(window.top).toBe(top);
         expect(frame(window.rows)).toEqual(expected);
     }
@@ -471,9 +471,9 @@ test("an overflowing window ends with counts of the models above and below it", 
     const options = Array.from({ length: 60 }, (_, index) => ({
         ...rows[0]!, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
     }));
-    const state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+    const state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
     for (const [selectedIndex, above, below] of [[0, false, true], [30, true, true], [59, true, false]] as const) {
-        const window = journeyWindow({ ...state, selectedIndex }, 12).rows;
+        const window = browseWindow({ ...state, selectedIndex }, 12).rows;
         expect(window.length).toBe(12);
         const more = window.at(-1)?.more;
         expect(more).toBeDefined();
@@ -481,12 +481,12 @@ test("an overflowing window ends with counts of the models above and below it", 
         expect(window.filter((row) => row.option !== undefined).length + more!.above + more!.below).toBe(60);
         expect([more!.above > 0, more!.below > 0]).toEqual([above, below]);
     }
-    const short = chooseScope(modelJourney(base, "switch"));
-    expect(journeyWindow(short, 12).rows.some((row) => row.more !== undefined)).toBe(false);
-    expect(journeyWindow(short, 12).rows.filter((row) => row.option !== undefined)).toHaveLength(3);
-    expect(journeyMoreText({ above: 2, below: 1 })).toBe("↑ 2 more models above · ↓ 1 more model below");
-    expect(journeyMoreText({ above: 0, below: 122 }, 30)).toBe("↓ 122 more models below");
-    expect(journeyMoreText({ above: 2, below: 1 }, 20)).toBe("↑ 2 · ↓ 1");
+    const short = chooseScope(modelBrowse(base, "browse"));
+    expect(browseWindow(short, 12).rows.some((row) => row.more !== undefined)).toBe(false);
+    expect(browseWindow(short, 12).rows.filter((row) => row.option !== undefined)).toHaveLength(3);
+    expect(browseMoreText({ above: 2, below: 1 })).toBe("↑ 2 more models above · ↓ 1 more model below");
+    expect(browseMoreText({ above: 0, below: 122 }, 30)).toBe("↓ 122 more models below");
+    expect(browseMoreText({ above: 2, below: 1 }, 20)).toBe("↑ 2 · ↓ 1");
 });
 
 test("narrow Switch cards draw nothing outside the card and keep one gap above search", async () => {
@@ -499,7 +499,7 @@ test("narrow Switch cards draw nothing outside the card and keep one gap above s
         const view = createTuiSettingsPickerView(setup.renderer);
         setup.renderer.root.add(view.surface); view.surface.visible = true;
         try {
-            const library = modelJourney({ ...base, allOptions }, "switch");
+            const library = modelBrowse({ ...base, allOptions }, "browse");
             for (const state of [library, chooseScope(library)]) {
                 let geometry: number[] | undefined;
                 for (const intelligenceCutoff of ["any", "1600"] as const) {
@@ -534,7 +534,7 @@ test("provider headings sit directly under the previous group inside the card", 
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
     try {
-        view.update(modelJourney(base, "shortlist"));
+        view.update(modelBrowse(base, "favorites"));
         await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
         // An open group carries the ▼ that says Space folds it.
@@ -547,7 +547,7 @@ test("provider headings sit directly under the previous group inside the card", 
 });
 
 test("cutoff is reached through the vertical filter menu", () => {
-    const state = { ...chooseScope(modelJourney(base, "switch")), modelFocus: "filters" as const };
+    const state = { ...chooseScope(modelBrowse(base, "browse")), modelFocus: "filters" as const };
     const menu = handleTuiSettingsPickerKey(state, { name: "enter" }).state!;
     expect(menu.title).toBe("Filter and sort");
     const cutoff = handleTuiSettingsPickerKey({ ...menu, selectedIndex: menu.options.findIndex((row) => row.value === "cutoff") }, { name: "enter" }).state!;
@@ -569,7 +569,7 @@ test("highlighted model details follow the row and distinguish verified, failed,
     try {
         const options = [{ ...rows[0]!, unverified: false, images: true },
             { ...rows[1]!, verificationError: "probe refused" }];
-        let state = modelJourney({ ...base, allOptions: options }, "shortlist");
+        let state = modelBrowse({ ...base, allOptions: options }, "favorites");
         state = { ...state, selectedIndex: state.options.findIndex((row) => row.model === "a") };
         view.update(state);
         await setup.renderOnce();
@@ -597,7 +597,7 @@ test("Detailed separates long names from compact prices and retains exact detail
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
         const option = { ...rows[0]!, label: "DeepSeek V4 Flash 0423 with a long name", pricing: { input: 0.088606, output: 0.177212 } };
-        const state = { ...chooseScope(modelJourney({ ...base, allOptions: [option] }, "switch")), journeyView: "detailed" as const };
+        const state = { ...chooseScope(modelBrowse({ ...base, allOptions: [option] }, "browse")), browseView: "detailed" as const };
         view.update(state); await setup.renderOnce();
         const row = setup.captureCharFrame().split("\n").find((line) => line.includes("$0.09"))!;
         expect(row).toMatch(/DeepSeek.*…\s+1550\s+\$0\.09\s+\$0\.18/);
@@ -617,7 +617,7 @@ test.each([90, 100, 120, 170])("Detailed aligns WA scores and prices at %s colum
             { ...rows[1]!, label: "Steady", waScore: 980, pricing: { input: 2, output: 6 }, unavailable: true },
             { ...rows[2]!, label: "Unknown" },
         ];
-        const state = { ...chooseScope(modelJourney({ ...base, allOptions: options }, "switch")), journeyView: "detailed" as const, initialModel: "p/a" };
+        const state = { ...chooseScope(modelBrowse({ ...base, allOptions: options }, "browse")), browseView: "detailed" as const, initialModel: "p/a" };
         view.update(state); await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
         const preferred = lines.find((line) => line.includes("$0.07") && line.includes("Preferred"))!;
@@ -634,7 +634,7 @@ test.each([90, 100, 120, 170])("Detailed aligns WA scores and prices at %s colum
         expect(preferred.indexOf("$0.07") + 5).toBe(steady.indexOf("$2") + 2);
         expect(preferred.indexOf("$0.13") + 5).toBe(steady.indexOf("$6") + 2);
         expect(lines.some((line) => line.includes("Input") && line.includes("Output"))).toBe(true);
-        view.update({ ...state, journeyView: "standard" }); await setup.renderOnce();
+        view.update({ ...state, browseView: "standard" }); await setup.renderOnce();
         expect(setup.captureCharFrame()).not.toContain("Input    Output");
         expect(setup.captureCharFrame()).not.toContain("View:");
         setup.resize(58, 24);
@@ -651,8 +651,8 @@ test("All keeps its price band and footer inside a short terminal with cutoff an
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
     try {
-        const state = chooseScope(modelJourney(base, "switch"));
-        view.update({ ...state, intelligenceCutoff: "1400", journeyNotice: "Catalog refreshed." });
+        const state = chooseScope(modelBrowse(base, "browse"));
+        view.update({ ...state, intelligenceCutoff: "1400", browseNotice: "Catalog refreshed." });
         await setup.renderOnce();
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(23);
         expect(setup.captureCharFrame()).toContain("switch model");
@@ -660,14 +660,14 @@ test("All keeps its price band and footer inside a short terminal with cutoff an
 });
 
 
-test("journey panels stay vertically centred as scope, content, and terminal size change", async () => {
+test("browse panels stay vertically centred as scope, content, and terminal size change", async () => {
     const setup = await createTestRenderer({ width: 140, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
     try {
-        const shortlist = modelJourney(base, "switch");
-        for (const state of [shortlist, chooseScope(shortlist), modelJourney(base, "shortlist")]) {
+        const shortlist = modelBrowse(base, "browse");
+        for (const state of [shortlist, chooseScope(shortlist), modelBrowse(base, "favorites")]) {
             view.update(state);
             await setup.renderOnce();
             const above = view.box.screenY;
@@ -689,8 +689,8 @@ test("journey panels stay vertically centred as scope, content, and terminal siz
 
 test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggle", () => {
     const options = Array.from({ length: 30 }, (_, index) => ({ ...rows[0]!, value: `p/${index}`, model: `${index}`, pooledRank: index }));
-    for (const journey of ["switch", "shortlist"] as const) {
-        const start = { ...modelJourney({ ...base, allOptions: options }, journey), modelFocus: "list" as const };
+    for (const mode of ["browse", "favorites"] as const) {
+        const start = { ...modelBrowse({ ...base, allOptions: options }, mode), modelFocus: "list" as const };
         const down = handleTuiSettingsPickerKey(start, { name: "d", ctrl: true }, 8);
         expect(down.state?.selectedIndex).toBe(start.selectedIndex + 4);
         expect(down.poolBulk).toBeUndefined();
@@ -704,10 +704,10 @@ test("Ctrl+D/U page without changing membership and Ctrl+S retains the row toggl
         expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true }).poolToggle).toEqual({
             action: "remove", provider: start.options[start.selectedIndex]!.provider!, model: start.options[start.selectedIndex]!.model!,
         });
-        if (journey === "shortlist") {
+        if (mode === "favorites") {
             expect(handleTuiSettingsPickerKey(start, { name: "k", ctrl: true, shift: true }).poolBulk).toBeUndefined();
         } else {
-            expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelJourney).toBe("switch");
+            expect(handleTuiSettingsPickerKey(start, { name: "s", ctrl: true, shift: true }).state?.modelBrowse).toBe("browse");
             // The provider catalog takes the same key, so a model found there
             // can be kept without leaving the list.
             let all = chooseScope(start);
@@ -730,9 +730,9 @@ test("scope is prominent and highlighting across provider boundaries never moves
         const options = Array.from({ length: 28 }, (_, index) => ({ ...rows[0]!, value: `p/${index}`, model: `${index}`,
             provider: index < 15 ? "p" : "q", label: `Model ${index}`, pooledRank: index < 3 ? index : undefined,
             ...(index % 2 ? { pricing: { input: 1, output: 3 }, images: true, recommended: true } : {}) }));
-        for (const mode of ["switch", "shortlist"] as const) {
-            const state = mode === "switch" ? chooseScope(modelJourney({ ...base, allOptions: options }, mode))
-                : modelJourney({ ...base, allOptions: options }, mode);
+        for (const mode of ["browse", "favorites"] as const) {
+            const state = mode === "browse" ? chooseScope(modelBrowse({ ...base, allOptions: options }, mode))
+                : modelBrowse({ ...base, allOptions: options }, mode);
             let geometry: number[] | undefined;
             for (let selectedIndex = 0; selectedIndex < state.options.length; selectedIndex++) {
                 view.update({ ...state, selectedIndex });
@@ -744,7 +744,7 @@ test("scope is prominent and highlighting across provider boundaries never moves
                 expect(frame).not.toContain("fold provider");
                 // Nothing is folded here, so no group shows the folded marker.
                 expect(frame).not.toContain("▶");
-                if (mode === "switch") {
+                if (mode === "browse") {
                     expect(frame).toContain("All connected models");
                     expect(frame).not.toContain("[ Catalog ]");
                     expect(frame).not.toContain("[ Library ]");
@@ -764,7 +764,7 @@ test("Switch sizes each scope consistently and Tab preserves the model", async (
     try {
         for (const height of [44, 24]) {
             setup.resize(110, height);
-            let state = modelJourney(base, "switch");
+            let state = modelBrowse(base, "browse");
             const geometry = new Map<string, number[]>();
             for (let i = 0; i < 4; i++) {
                 view.update(state); await setup.renderOnce();
@@ -777,7 +777,7 @@ test("Switch sizes each scope consistently and Tab preserves the model", async (
                 state = chooseScope(state, state.tab === "all" ? "pool" : "all");
             }
         }
-        let all = chooseScope(modelJourney(base, "switch"));
+        let all = chooseScope(modelBrowse(base, "browse"));
         all = updateTuiSettingsPickerSearch(all, "alpha").state!;
         const model = all.options[all.selectedIndex]?.model;
         view.update(all);
@@ -794,9 +794,9 @@ test("Switch sizes each scope consistently and Tab preserves the model", async (
 
 test("Tab cycles interactive sections without changing scope or model; reverse Tab reverses it", () => {
     for (const tab of ["pool", "all"] as const) {
-        let state = { ...chooseScope(modelJourney(base, "switch"), tab), selectedIndex: 1 };
+        let state = { ...chooseScope(modelBrowse(base, "browse"), tab), selectedIndex: 1 };
         const selected = state.options[state.selectedIndex]?.value;
-        const sections = journeySections(state);
+        const sections = browseSections(state);
         for (let i = 0; i < sections.length; i++) {
             const before = state;
             state = handleTuiSettingsPickerKey(state, { name: "tab" }).state!;
@@ -823,27 +823,27 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
 
 
 test("Switch names the half-page keys only while the list has the keys", () => {
-    const state = { ...modelJourney(base, "switch"), modelFocus: "list" as const };
-    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ / ^s remove from favorites · Space fold/unfold");
+    const state = { ...modelBrowse(base, "browse"), modelFocus: "list" as const };
+    expect(browseFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ / ^s remove from favorites · Space fold/unfold");
     for (const focus of ["scope", "sort", "search", "more"] as const) {
-        expect(journeyFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
+        expect(browseFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
     }
     for (const [name, index] of [["d", state.options.length - 1], ["u", 0]] as const) {
-        expect(handleModelJourneyKey(state, { name, ctrl: true }).state?.selectedIndex).toBe(index);
+        expect(handleModelBrowseKey(state, { name, ctrl: true }).state?.selectedIndex).toBe(index);
     }
 });
 
 test("Manage offers one model action and explains catalog visibility on its own line", () => {
-    const state = modelJourney(base, "shortlist");
-    expect(journeyFooter(state).split("\n")).toEqual([
+    const state = modelBrowse(base, "favorites");
+    expect(browseFooter(state).split("\n")).toEqual([
         "⏎ / Ctrl+S  Add to favorites",
         "Ctrl+A  Show extra variants and older models",
         "↑↓ choose · Space fold/unfold · Tab sections",
         "Ctrl+R Rename · Ctrl+Y Verify · Esc Back",
     ]);
-    expect(journeyFooter({ ...state, modelFocus: "search" }).split("\n")[2]).toBe("Type to search · ↑↓ sections · Tab sections");
-    expect(journeyFooter({ ...state, selectedIndex: 1 })).toContain("Remove from favorites");
-    expect(journeyFooter({ ...state, revealAll: true }).split("\n")[1]).toBe("Ctrl+A  Hide extra variants and older models");
+    expect(browseFooter({ ...state, modelFocus: "search" }).split("\n")[2]).toBe("Type to search · ↑↓ sections · Tab sections");
+    expect(browseFooter({ ...state, selectedIndex: 1 })).toContain("Remove from favorites");
+    expect(browseFooter({ ...state, revealAll: true }).split("\n")[1]).toBe("Ctrl+A  Hide extra variants and older models");
     for (const query of ["", "beta"]) for (const shift of [false, true]) {
         const filtered = updateTuiSettingsPickerSearch(state, query).state!;
         const ignored = handleTuiSettingsPickerKey(filtered, { name: "k", ctrl: true, shift });
@@ -866,7 +866,7 @@ test("filtered results size the card consistently without losing controls", asyn
         setup.renderer.root.add(view.surface);
         view.surface.visible = true;
         try {
-            let state = chooseScope(modelJourney({ ...base, allOptions: options }, "switch"));
+            let state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
             state = handleTuiSettingsPickerKey(state, { name: "tab", shift: true }).state!;
             const expected = new Map<number, number[]>();
             for (let step = 0; step < 7; step++) {
@@ -880,7 +880,7 @@ test("filtered results size the card consistently without losing controls", asyn
                 if (expected.has(count)) expect(geometry).toEqual(expected.get(count)!); else expected.set(count, geometry);
                 expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(height!);
                 expect(frame).not.toContain("fewer models");
-                expect(journeyHeader(state)).not.toContain("^a");
+                expect(browseHeader(state)).not.toContain("^a");
                 expect(anchors[2]).toBeGreaterThan(anchors[1]!);
                 state = handleTuiSettingsPickerKey(state, { name: "g", ctrl: true }).state!;
             }
@@ -895,7 +895,7 @@ test("typing and paste from every Switch control focuses search at its preserved
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
         for (const modelFocus of ["scope", "sort", "search", "intelligence", "list", "more"] as const) {
-            const state = { ...chooseScope(modelJourney(base, "switch")), modelFocus, query: "bta", queryCursor: 1 };
+            const state = { ...chooseScope(modelBrowse(base, "browse")), modelFocus, query: "bta", queryCursor: 1 };
             view.update(state);
             const typed = view.handleEditorKey(state, { name: "e", sequence: "e" }).state!;
             expect(typed.query).toBe("beta");
@@ -912,8 +912,8 @@ test("typing and paste from every Switch control focuses search at its preserved
 
 
 test("confirming scope focuses models while cancelling restores Show", () => {
-    const parent = { ...chooseScope(modelJourney(base, "switch")), modelFocus: "scope" as const };
-    const menu = modelJourneyScope(parent);
+    const parent = { ...chooseScope(modelBrowse(base, "browse")), modelFocus: "scope" as const };
+    const menu = modelBrowseScope(parent);
     expect(handleTuiSettingsPickerKey(menu, { name: "escape" }).state).toBe(parent);
     for (const selectedIndex of [0, 1]) {
         const selected = handleTuiSettingsPickerKey({ ...menu, selectedIndex }, { name: "enter" }).state!;
@@ -942,14 +942,14 @@ const priced = [
 ];
 
 function chooseSort(state: TuiSettingsPickerState, label: string): TuiSettingsPickerState {
-    const menu = modelJourneySort({ ...state, modelFocus: "sort" });
+    const menu = modelBrowseSort({ ...state, modelFocus: "sort" });
     return handleTuiSettingsPickerKey({ ...menu, selectedIndex: menu.options.findIndex((row) => row.label === label) }, { name: "enter" }).state!;
 }
 
 test("sort orders models inside each provider group, unpriced last", () => {
-    const state = modelJourney({ ...base, allOptions: priced }, "switch");
+    const state = modelBrowse({ ...base, allOptions: priced }, "browse");
     const labels = (next: TuiSettingsPickerState) => next.options.map((row) => row.label);
-    expect(journeySort(state)).toBe("library");
+    expect(browseSort(state)).toBe("library");
     expect(labels(state)).toEqual(["Zeta", "Mu", "Alpha", "Beta", "Gamma"]);
     expect(labels(chooseSort(state, "A to Z"))).toEqual(["Alpha", "Beta", "Mu", "Zeta", "Gamma"]);
     // 3:1 input:output puts Zeta (1.25) ahead of Beta (3.38) and Alpha (6); Gamma stays under its own heading.
@@ -957,17 +957,17 @@ test("sort orders models inside each provider group, unpriced last", () => {
 });
 
 test("Library order is offered only in Library models and Catalog falls back to A to Z", () => {
-    const state = modelJourney({ ...base, allOptions: priced }, "switch");
-    expect(modelJourneySort(state).options.map((row) => row.label)).toEqual(["Favorite order", "A to Z", "Cheapest first"]);
+    const state = modelBrowse({ ...base, allOptions: priced }, "browse");
+    expect(modelBrowseSort(state).options.map((row) => row.label)).toEqual(["Favorite order", "A to Z", "Cheapest first"]);
     const catalog = chooseScope(state);
-    expect(journeySort(catalog)).toBe("az");
-    expect(modelJourneySort(catalog).options.map((row) => row.label)).toEqual(["A to Z", "Cheapest first"]);
+    expect(browseSort(catalog)).toBe("az");
+    expect(modelBrowseSort(catalog).options.map((row) => row.label)).toEqual(["A to Z", "Cheapest first"]);
     const cheap = chooseScope(chooseSort(state, "Cheapest first"));
-    expect(journeySort(cheap)).toBe("price");
+    expect(browseSort(cheap)).toBe("price");
 });
 
 test("confirming a sort keeps the highlighted model while cancelling restores Sort", () => {
-    const state = { ...modelJourney({ ...base, allOptions: priced }, "switch"), selectedIndex: 2 };
+    const state = { ...modelBrowse({ ...base, allOptions: priced }, "browse"), selectedIndex: 2 };
     const sorted = chooseSort(state, "A to Z");
     expect(sorted.modelFocus).toBe("list");
     expect(sorted.options[sorted.selectedIndex]?.label).toBe("Alpha");
@@ -983,9 +983,9 @@ test("footer actions are mouse-accessible across the full inner width", async ()
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     const opened: string[] = [];
-    view.onJourneyAction = (section) => opened.push(section);
+    view.onBrowseAction = (section) => opened.push(section);
     try {
-        view.update(modelJourney(base, "switch")); await setup.renderOnce();
+        view.update(modelBrowse(base, "browse")); await setup.renderOnce();
         const lines = setup.captureCharFrame().split("\n");
         for (const label of ["Filter and sort", "Connect provider", "Manage models"]) {
             const y = lines.findIndex((line) => line.includes(label));
@@ -999,12 +999,12 @@ test("footer actions are mouse-accessible across the full inner width", async ()
 
 
 test("a host snapshot keeps the chosen sort", () => {
-    const sorted = chooseSort(modelJourney({ ...base, allOptions: priced }, "switch"), "Cheapest first");
-    expect(syncTuiModelPicker(sorted, undefined).journeySort).toBe("price");
+    const sorted = chooseSort(modelBrowse({ ...base, allOptions: priced }, "browse"), "Cheapest first");
+    expect(syncTuiModelPicker(sorted, undefined).browseSort).toBe("price");
 });
 
 test("unowned arrows follow the vertical section order", () => {
-    const state = modelJourney(base, "switch");
+    const state = modelBrowse(base, "browse");
     expect(state.modelFocus).toBe("search");
     const press = (focus: TuiSettingsPickerState["modelFocus"], name: string) => handleTuiSettingsPickerKey({ ...state, modelFocus: focus }, { name }).state!;
     expect(press("search", "right").modelFocus).toBe("search");
@@ -1031,7 +1031,7 @@ test("a free model reads free and an unlisted price reads no price", () => {
 test("Favorites has Search and Models sections under the same arrow rule", async () => {
     const press = (state: TuiSettingsPickerState, name: string, shift = false) =>
         handleTuiSettingsPickerKey(state, { name, shift, ...(name === "space" ? { sequence: " " } : {}) });
-    const library = modelJourney(base, "shortlist");
+    const library = modelBrowse(base, "favorites");
     const search = { ...library, modelFocus: "search" as const };
     expect(library.modelFocus).toBe("list");
     // Two sections: every unowned arrow and Tab lands on the other one.
@@ -1065,7 +1065,7 @@ test("Space types only in Search; elsewhere it stays out of the query", async ()
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
     try {
-        const state = { ...modelJourney(base, "switch"), query: "a", queryCursor: 1 };
+        const state = { ...modelBrowse(base, "browse"), query: "a", queryCursor: 1 };
         for (const modelFocus of ["scope", "sort", "intelligence", "list", "more"] as const) {
             const focused = { ...state, modelFocus };
             view.update(focused);
@@ -1082,7 +1082,7 @@ test.each([24, 36])("filter dialog explains the score beside its slider at %s ro
     const setup = await createTestRenderer({ width: 80, height });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
-    const state = modelJourney(base, "switch");
+    const state = modelBrowse(base, "browse");
     const menu = handleTuiSettingsPickerKey({ ...state, modelFocus: "filters" }, { name: "enter" }).state!;
     try {
         view.update({ ...menu, selectedIndex: menu.options.findIndex((row) => row.value === "cutoff") });

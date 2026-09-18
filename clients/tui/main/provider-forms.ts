@@ -3,7 +3,7 @@ import { normalizeOpenRouterModels } from "../../../src/model/openrouter-catalog
 import { writeProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { isProviderConnected } from "../../../src/providers/registry.ts";
 import { runModelOperation } from "./model-operations.ts";
-import { modelJourney } from "../model-journeys.ts";
+import { modelBrowse } from "../model-browse.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
 import { isConfigurationRequiredUiRequestUpdate, type UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import type { RenameSessionResult } from "../../../src/host/session-rename-client.ts";
@@ -354,7 +354,7 @@ export function applySessionRenamePromptTransition(rt: TuiRuntime,
     rt.settingsPicker = prompt.target.kind === "pool"
         ? rt.settingsPicker ?? parent
         : parent;
-    if (transition.submitted !== undefined && prompt.target.kind === "pool" && parent?.modelJourney === "shortlist") {
+    if (transition.submitted !== undefined && prompt.target.kind === "pool" && parent?.modelBrowse === "favorites") {
         runModelOperation(rt, { operation: "rename", displayName: transition.submitted ?? "",
             models: [{ provider: prompt.target.provider, model: prompt.target.model }] });
     } else if (transition.submitted !== undefined && prompt.target.kind === "pool") {
@@ -550,9 +550,9 @@ export function openSettingsDestination(rt: TuiRuntime,
         });
     } else if (route.type === "model_shortlist") {
         openModelPicker(rt, options.parent);
-        rt.settingsPicker = modelJourney(
+        rt.settingsPicker = modelBrowse(
             rt.settingsPicker as TuiSettingsPickerState,
-            "shortlist",
+            "favorites",
         );
         renderState(rt);
     } else if (route.type === "model_assignments") {

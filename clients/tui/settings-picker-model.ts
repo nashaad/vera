@@ -1,4 +1,4 @@
-import { journeyModels } from "./model-journeys.ts";
+import { browseModels } from "./model-browse.ts";
 import { providerCatalogsOf, type HostModelCatalogSettings } from "../../src/host/model-catalog-settings.ts";
 import { bg, BoxRenderable, fg, StyledText, TextRenderable, type MouseEvent, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -137,7 +137,7 @@ export function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     // The More page replaces the list, so there is no row left to describe.
     if (state.kind === "model" && state.modelFocus === "page") return false;
     if (state.kind === "overrides_settings") return true;
-    if (state.kind === "model" && state.modelJourney !== undefined) return true;
+    if (state.kind === "model" && state.modelBrowse !== undefined) return true;
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     return tab === "pool" || tab === "defaults" || tab === "actions";
 }
@@ -430,16 +430,16 @@ export function modelDetailNode(
         }
         return pane;
     }
-    if (described && state.kind === "model" && state.modelJourney !== undefined) {
+    if (described && state.kind === "model" && state.modelBrowse !== undefined) {
         line([fg(TUI_TEXT)(clippedTo(option.label, width))]);
         line([fg(TUI_MUTED)(clippedTo(option.provider ?? "", width))]);
         line();
         const facts = modelDetailFacts(state, option);
-        const squeezed = height < 3 + journeyFactLines(facts, width);
+        const squeezed = height < 3 + browseFactLines(facts, width);
         for (const fact of facts) {
             const [label, value, tone] = fact;
             const color = tone === "positive" ? TUI_SUCCESS : TUI_TEXT;
-            if (squeezed || journeyFactFits(fact, width)) line([fg(TUI_MUTED)(`${label}: `), fg(color)(clippedTo(value, Math.max(1, width - label.length - 2)))]);
+            if (squeezed || browseFactFits(fact, width)) line([fg(TUI_MUTED)(`${label}: `), fg(color)(clippedTo(value, Math.max(1, width - label.length - 2)))]);
             else {
                 line([fg(TUI_MUTED)(label)]);
                 line([fg(color)(clippedTo(value, width))]);
@@ -656,8 +656,8 @@ export function modelDetailHeight(
         return 3 + option.detailFacts.length * 2
             + wrappedTo(option.note ?? "", width).length;
     }
-    if (described && state.kind === "model" && state.modelJourney !== undefined) {
-        return 3 + journeyFactLines(modelDetailFacts(state, option), width);
+    if (described && state.kind === "model" && state.modelBrowse !== undefined) {
+        return 3 + browseFactLines(modelDetailFacts(state, option), width);
     }
     const facts = described ? modelDetailFacts(state, option) : [];
     const factLines = described
@@ -708,16 +708,16 @@ export function factColumnChunks(
     ];
 }
 
-function journeyFactFits(fact: ModelDetailFact, width: number): boolean {
+function browseFactFits(fact: ModelDetailFact, width: number): boolean {
     return fact[0].length + 2 + fact[1].length <= width;
 }
 
-/** A journey pane puts label and value on one line whenever both fit. */
-function journeyFactLines(
+/** A browse pane puts label and value on one line whenever both fit. */
+function browseFactLines(
     facts: readonly ModelDetailFact[],
     width: number,
 ): number {
-    return facts.reduce((total, fact) => total + (journeyFactFits(fact, width) ? 1 : 2), 0);
+    return facts.reduce((total, fact) => total + (browseFactFits(fact, width) ? 1 : 2), 0);
 }
 
 export function modelDetailFacts(
@@ -730,8 +730,8 @@ export function modelDetailFacts(
             ? ["Favorites", "not saved"]
             : ["Favorites", "saved", "positive"]);
     }
-    const journey = state.kind === "model" && state.modelJourney !== undefined;
-    if (journey) {
+    const browsing = state.kind === "model" && state.modelBrowse !== undefined;
+    if (browsing) {
         facts.push(option.verificationError !== undefined ? ["Verified", `failed: ${option.verificationError}`]
             : option.unverified === false || option.pooledRank !== undefined && option.unverified !== true
                 ? ["Verified", "answered a live probe", "positive"] : ["Verified", "not probed yet"]);
@@ -746,7 +746,7 @@ export function modelDetailFacts(
         facts.push(["WA Score", String(option.waScore)]);
     }
     const free = listedFree(option.pricing);
-    const full = state.kind === "model" && state.modelJourney === "switch" && option.pricing !== undefined
+    const full = state.kind === "model" && state.modelBrowse === "browse" && option.pricing !== undefined
         ? `${option.pricing.input}/${option.pricing.output}` : formatListedRates(option.pricing);
     if (full !== undefined) {
         facts.push(["Full price", free ? "free" : full]);
@@ -755,7 +755,7 @@ export function modelDetailFacts(
     if (!free && blended !== undefined) {
         facts.push(["Blended price", `${blended}  ${BLENDED_RATIO}`]);
     }
-    if (!journey) facts.push(["Model ID", option.model ?? "—"]);
+    if (!browsing) facts.push(["Model ID", option.model ?? "—"]);
     if (option.unavailable === true) {
         facts.push(["Available", "not from its provider"]);
     }
@@ -1859,7 +1859,7 @@ export function searched(
     const next = {
         ...state,
         options,
-        selectedIndex: state.modelJourney === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
+        selectedIndex: state.modelBrowse === undefined ? 0 : Math.max(0, options.findIndex((row) => row.model !== undefined)),
         query,
         queryCursor,
         // A query is about rows, so it carries the reader down out of the tab
@@ -2098,7 +2098,7 @@ export function modelListFor(
         intelligenceCutoff?: IntelligenceCutoff;
     } = {},
 ): readonly TuiSettingsPickerOption[] {
-    if (state.modelJourney !== undefined) return journeyModels({ ...state, ...patch });
+    if (state.modelBrowse !== undefined) return browseModels({ ...state, ...patch });
     return modelPickerOptions(
         state.allOptions,
         patch.tab ?? state.tab ?? "all",

@@ -2,10 +2,10 @@ import { BoxRenderable, TextRenderable, StyledText, fg, type Renderable, type Re
 import { dialogActionRow, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderNode, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
 import { dialogSearchHeight } from "./dialog-search.ts";
 import { modelDetailHeight, modelDetailNode, modelPaneSplit, pickerContentWidth } from "./settings-picker-model.ts";
-import { journeyWindow, journeyMoreText, emptyModelJourney } from "./model-journeys.ts";
+import { browseWindow, browseMoreText, emptyModelBrowse } from "./model-browse.ts";
 import { formatListedPrice } from "../../src/model/listed-rates.ts";
 import { TUI_ACCENT, TUI_DANGER, TUI_ELEMENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
-import type { ModelJourneySection, TuiSettingsPickerOption, TuiSettingsPickerState, TuiPickerTipLine } from "./settings-picker-types.ts";
+import type { ModelBrowseSection, TuiSettingsPickerOption, TuiSettingsPickerState, TuiPickerTipLine } from "./settings-picker-types.ts";
 import { mixHex } from "./theme.ts";
 
 export function modelPriceColumns(option?: TuiSettingsPickerOption): string {
@@ -43,22 +43,22 @@ export function renderModelSwitch(
     pointer: DialogRowPointer | undefined,
     railInset: number,
     scroll: { top: number } | undefined,
-    onSection: ((section: ModelJourneySection) => void) | undefined,
-    onAction: ((section: ModelJourneySection) => void) | undefined,
+    onSection: ((section: ModelBrowseSection) => void) | undefined,
+    onAction: ((section: ModelBrowseSection) => void) | undefined,
     tip?: string | TuiPickerTipLine,
 ): void {
     const tipLine = typeof tip === "string" ? { tone: "tip" as const, text: tip } : tip;
     const tipRows = tipLine?.text ? 2 : 0;
     const width = pickerContentWidth(renderer, state, railInset);
-    const detailed = state.journeyView === "detailed";
+    const detailed = state.browseView === "detailed";
     const candidateSplit = detailed ? modelPaneSplit(renderer, state, railInset) : undefined;
     const split = candidateSplit !== undefined && candidateSplit.listWidth >= 59
         ? candidateSplit : undefined;
     const listWidth = split?.listWidth ?? width;
     const columns = detailed && listWidth >= 59 && modelSwitchRows(renderer) >= 3;
     const maximumRows = Math.max(1, modelSwitchRows(renderer) + (columns ? 2 : 0)
-        - (columns && state.journeyNotice !== undefined ? 1 : 0) - tipRows);
-    const window = journeyWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
+        - (columns && state.browseNotice !== undefined ? 1 : 0) - tipRows);
+    const window = browseWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
     const listRows = Math.max(2, window.rows.length) + (columns ? 1 : 0);
     const detailRows = split === undefined || listRows >= maximumRows ? 0
         : Math.max(modelDetailHeight(state, split.detailWidth), ...state.options.map((_, selectedIndex) =>
@@ -72,7 +72,7 @@ export function renderModelSwitch(
     const text = (content: string, height = 1) => new TextRenderable(renderer, {
         content, height, width: "100%", fg: TUI_MUTED, selectable: false, wrapMode: "none", overflow: "hidden",
     });
-    const action = (section: ModelJourneySection, label: string) => {
+    const action = (section: ModelBrowseSection, label: string) => {
         const active = state.modelFocus === section;
         add(dialogActionRow(renderer, label, active, section === "view", () => onAction?.(section)));
     };
@@ -84,8 +84,8 @@ export function renderModelSwitch(
         search.box.marginBottom = 1;
         box.add(search.box);
     }
-    const filters = [state.journeyProvider, state.journeyAvailableOnly ? "available" : undefined,
-        state.journeyPricedOnly ? "known price" : undefined, state.journeyImagesOnly ? "images" : undefined,
+    const filters = [state.browseProvider, state.browseAvailableOnly ? "available" : undefined,
+        state.browsePricedOnly ? "known price" : undefined, state.browseImagesOnly ? "images" : undefined,
         state.intelligenceCutoff && state.intelligenceCutoff !== "any" ? `score >= ${state.intelligenceCutoff}` : undefined].filter(Boolean);
     if (filters.length > 0) add(text(filters.join(" · ")));
     const body = new BoxRenderable(renderer, { width: "100%", height: room, flexDirection: "row", flexShrink: 0 });
@@ -100,10 +100,10 @@ export function renderModelSwitch(
     };
     if (columns) list.add(dialogOptionRow(renderer, { label: "", active: false, meta: priceMeta() }));
     if (scroll !== undefined) scroll.top = window.top;
-    if (window.rows.length === 0) list.add(text(emptyModelJourney(state), 2));
+    if (window.rows.length === 0) list.add(text(emptyModelBrowse(state), 2));
     for (const row of window.rows) {
         if (row.heading !== undefined) { list.add(dialogGroupHeaderNode(renderer, `▼ ${row.heading}`, false)); continue; }
-        if (row.more !== undefined) { list.add(text(journeyMoreText(row.more, listWidth))); continue; }
+        if (row.more !== undefined) { list.add(text(browseMoreText(row.more, listWidth))); continue; }
         if (row.option === undefined) { list.add(text("")); continue; }
         const option = row.option;
         const status = option.unavailable ? "unavailable" : option.value === state.initialModel ? "current" : option.hiddenByDefault ? "hidden" : "";
@@ -124,12 +124,12 @@ export function renderModelSwitch(
     const addSummary = (node: Renderable) => split === undefined ? add(node) : list.add(node);
     const selected = state.options[state.selectedIndex];
     if (!columns) {
-        const price = text(state.journeyNotice ?? (selected?.model === undefined ? "" : selected.pricing === undefined
+        const price = text(state.browseNotice ?? (selected?.model === undefined ? "" : selected.pricing === undefined
             ? "Price unavailable" : `${formatListedPrice(selected.pricing)} input/output per 1M tokens`));
         price.marginTop = 1;
         addSummary(price);
-    } else if (state.journeyNotice !== undefined) {
-        add(text(state.journeyNotice));
+    } else if (state.browseNotice !== undefined) {
+        add(text(state.browseNotice));
     }
     add(new TextRenderable(renderer, {
         content: "─".repeat(width), height: 1, width: "100%", selectable: false,

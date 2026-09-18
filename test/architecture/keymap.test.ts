@@ -68,7 +68,7 @@ test("no TUI surface matches a chord outside the keymap", async () => {
  * force. Blind cycling is the thing being kept out.
  */
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
-    // The selected model-journey contract makes these actions visible in their open screen.
+    // The selected model-browse contract makes these actions visible in their open screen.
     "journey_section", "shortlist_section", "journey_refresh", "journey_cutoff",
     // Tab moves visible focus inside the open HUD without changing any value.
     "dials.section",

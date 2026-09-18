@@ -1,13 +1,13 @@
 import { DIALOG_SEARCH_HEIGHT, dialogSearchHeight } from "./dialog-search.ts";
 import { dialogChipNode } from "./dialog-chrome.ts";
-import { setModelFilterCutoff } from "./model-journeys.ts";
+import { setModelFilterCutoff } from "./model-browse.ts";
 import { renderModelSwitch, modelSwitchRows } from "./model-switch-view.ts";
 import { extensionPickerButtons, renderExtensionPicker } from "./extension-picker-view.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { SESSION_LEAVE_OPTIONS, TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
-import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions, journeySort, journeySortOptions } from "./model-journeys.ts";
+import { emptyModelBrowse, handleModelBrowseKey, handleModelBrowseMenuKey, browseHeader, browseFooter, browseMoreText, browseWindow, browseModels, browseScopeOptions, browseSort, browseSortOptions } from "./model-browse.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
 import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
@@ -68,7 +68,7 @@ import {
 
 import {
     MODEL_ASSIGNMENT_BROWSE_VALUE,
-    type ModelJourneySection,
+    type ModelBrowseSection,
     MODEL_ASSIGNMENT_SELF_VALUE,
     REVIEWER_CLEAR_VALUE,
     SESSION_MODEL_VALUE,
@@ -257,7 +257,7 @@ export function handleTuiSettingsPickerKey(
     if (state.kind === "extension") {
         return handleTuiExtensionPickerKey(state, key);
     }
-    if (state.kind === "model_menu") return handleModelJourneyMenuKey(state, key);
+    if (state.kind === "model_menu") return handleModelBrowseMenuKey(state, key);
     if (state.loading) return { state: key.name === "escape" || key.name === "esc" ? state.parent : state, handled: true };
     if (state.kind === "model_assignment" && state.options[state.selectedIndex]?.value === "verify_shortlist"
         && (key.name === "enter" || key.name === "return")) return { state, handled: true, poolVerifySweep: true };
@@ -270,7 +270,7 @@ export function handleTuiSettingsPickerKey(
         }
     }
     if (state.kind === "model_verification" || state.verificationTargets !== undefined) return handleVerificationKey(state, key);
-    if (state.modelJourney !== undefined) return handleModelJourneyKey(state, key, viewportRows);
+    if (state.modelBrowse !== undefined) return handleModelBrowseKey(state, key, viewportRows);
     if (state.kind === "model") {
         // Whoever rebuilt this pane may have taken the focused section away.
         // Settle that once, here, so no handler below has to ask.
@@ -1009,7 +1009,7 @@ export function handleTuiSettingsPickerScroll(
         return unchanged(state, false);
     }
     const next = { ...state, selectedIndex,
-        ...(state.kind === "model" && state.modelJourney !== undefined ? { modelFocus: "list" as const } : {}) };
+        ...(state.kind === "model" && state.modelBrowse !== undefined ? { modelFocus: "list" as const } : {}) };
     return { state: next, handled: true, ...themePreview(next) };
 }
 
@@ -1020,7 +1020,7 @@ export function updateTuiSettingsPickerSearch(
 ): TuiSettingsPickerTransition {
     if (!pickerIsSearchable(state)) return unchanged(state, false);
     const result = searched(state, query, cursor);
-    if (state.modelJourney === undefined || result.state === undefined) return result;
+    if (state.modelBrowse === undefined || result.state === undefined) return result;
     const index = result.state.options.findIndex((row) => row.value === state.options[state.selectedIndex]?.value);
     return { ...result, state: { ...result.state, modelFocus: "search", selectedIndex: Math.max(0, index) } };
 }
@@ -1046,7 +1046,7 @@ export function createTuiSettingsPickerView(
 ): TuiSettingsPickerView {
     let nodes: Renderable[] = [];
     let searchLive = false;
-    const journeyScroll = { top: 0 };
+    const browseScroll = { top: 0 };
     const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
@@ -1090,17 +1090,17 @@ export function createTuiSettingsPickerView(
         },
         handleEditorKey(state, key): TuiSettingsPickerTransition {
             if (state.loading) return unchanged(state, false);
-            if (state.modelJourney !== undefined) {
+            if (state.modelBrowse !== undefined) {
                 const searching = state.modelFocus === "search";
                 const typing = !key.ctrl && !key.meta && key.name !== "space"
                     && (key.sequence ?? key.name).length === 1;
-                const command = tuiBindingId(state.modelJourney === "switch" ? "switch_model_picker" : "shortlist_picker", key);
+                const command = tuiBindingId(state.modelBrowse === "browse" ? "switch_model_picker" : "shortlist_picker", key);
                 if ((!searching && !typing) || (command !== undefined
                     && !(searching && command === "journey_reveal"))) return unchanged(state, false);
             }
             if (
                 !pickerIsSearchable(state)
-                || (state.modelJourney === "shortlist" && key.ctrl === true)
+                || (state.modelBrowse === "favorites" && key.ctrl === true)
                 || (state.kind === "model" && state.tab === "help")
                 || key.name === "escape" || key.name === "up"
                 || key.name === "down" || key.name === "return"
@@ -1110,7 +1110,7 @@ export function createTuiSettingsPickerView(
                     && tuiBindingId("model_picker", key) !== undefined)
                 || (state.kind === "session"
                     && tuiBindingId("session_picker", key) !== undefined)
-                || (state.query.length === 0 && state.modelJourney === undefined
+                || (state.query.length === 0 && state.modelBrowse === undefined
                     && (key.name === "left" || key.name === "right"))
                 || (digitQuickSelect(state) && state.query === ""
                     && /^[1-9]$/.test(key.name))
@@ -1152,12 +1152,12 @@ export function createTuiSettingsPickerView(
             searchLive = (state.kind !== "extension" || state.searchFocused === true)
                 && pickerIsSearchable(state)
                 && !(state.kind === "model" && state.tab === "help");
-            search.box.onMouseDown = state.kind === "model" && state.modelJourney !== undefined
+            search.box.onMouseDown = state.kind === "model" && state.modelBrowse !== undefined
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
             box.title = undefined;
             surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
-            box.paddingTop = state.kind === "model" && state.modelJourney !== undefined
+            box.paddingTop = state.kind === "model" && state.modelBrowse !== undefined
                 && renderer.height < 30 ? 0 : 2;
             if (state.kind === "theme") {
                 box.paddingTop = 1;
@@ -1195,9 +1195,9 @@ export function createTuiSettingsPickerView(
                 view.onMore,
                 view.onScope,
                 view.onSection,
-                journeyScroll,
+                browseScroll,
                 view.onSort,
-                view.onJourneyAction,
+                view.onBrowseAction,
             );
         },
     };
@@ -1240,8 +1240,8 @@ export function tuiPickerViewportRows(
     state: TuiAnySettingsPickerState,
     extraChrome = 0,
 ): number {
-    if (state.kind === "model" && state.modelJourney === "switch") return modelSwitchRows(renderer);
-    if (state.kind === "model" && state.modelJourney !== undefined) return journeyListLayout(renderer, state).rows;
+    if (state.kind === "model" && state.modelBrowse === "browse") return modelSwitchRows(renderer);
+    if (state.kind === "model" && state.modelBrowse !== undefined) return browseListLayout(renderer, state).rows;
     const stripHeight = modelStripStop(state) === undefined
         ? 0
         : modelTabStripHeight(pickerContentWidth(renderer, state));
@@ -1277,23 +1277,23 @@ const MODEL_FILTER_LABEL = "Filter Models: ";
 /** Fits " › Cheapest first ▾ ", the longest sort label, so the chip never resizes. */
 const MODEL_SORT_WIDTH = 20;
 
-function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
+function browseScopeLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
     const width = pickerContentWidth(renderer, state, railInset);
     const linesFor = (candidate: TuiSettingsPickerState) => {
-        const text = [journeyHeader(candidate, width), candidate.journeyNotice].filter(Boolean).join("\n");
+        const text = [browseHeader(candidate, width), candidate.browseNotice].filter(Boolean).join("\n");
         return text ? text.split("\n").flatMap((line) => wrappedTo(line, width)) : [];
     };
     const headerLines = linesFor(state);
-    if (state.modelJourney === "switch" && state.tab === "all") {
+    if (state.modelBrowse === "browse" && state.tab === "all") {
         // Reserve wrapped cutoff counts before the slider changes them.
         const height = Math.max(headerLines.length, ...INTELLIGENCE_CUTOFFS.map((intelligenceCutoff) =>
             linesFor({ ...state, intelligenceCutoff }).length));
         while (headerLines.length < height) headerLines.push("");
     }
     const unfiltered = { ...state, query: "", revealAll: true, intelligenceCutoff: "any" as const };
-    const geometry = state.modelJourney === "switch"
-        ? { ...unfiltered, options: journeyModels(unfiltered) } : state;
-    const scope = state.modelJourney === "switch";
+    const geometry = state.modelBrowse === "browse"
+        ? { ...unfiltered, options: browseModels(unfiltered) } : state;
+    const scope = state.modelBrowse === "browse";
     const scopeWidth = Math.min(width, 25 + String(state.allOptions.length).length);
     const sortWidth = Math.min(width, MODEL_SORT_WIDTH);
     // The sort chip shares the filter line when it fits, else it takes its own line under the scope chip.
@@ -1303,10 +1303,10 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
     // Switch sets the header flush under the filter and the search box flush under the header.
     const headerHeight = (scope ? scopeRows + summaryMargin : 0)
         + (headerLines.length ? headerLines.length + (scope ? -1 : summaryMargin) : 0);
-    const cutoff = state.modelJourney === "switch" && state.tab === "all";
+    const cutoff = state.modelBrowse === "browse" && state.tab === "all";
     const split = geometry.options.length === 0 ? undefined : modelPaneSplit(renderer, geometry, railInset);
     const priceLines = cutoff && split === undefined ? (renderer.height < 30 ? 1 : 3) : 0;
-    const feedbackHeight = state.modelJourney === "shortlist" ? 3 : 2;
+    const feedbackHeight = state.modelBrowse === "favorites" ? 3 : 2;
     const footerHeight = scope && renderer.height < 30 ? 3 : 4;
     const titleExtraRows = renderer.height <= 10 ? 0 : DIALOG_HEADER_HEIGHT - 1;
     const room = Math.max(1, renderer.height - 18 + DIALOG_SEARCH_HEIGHT - dialogSearchHeight(renderer) - titleExtraRows + (4 - footerHeight)
@@ -1324,11 +1324,11 @@ function journeyScopeLayout(renderer: RenderContext, state: TuiSettingsPickerSta
 
 }
 
-function journeyListLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
-    const layout = journeyScopeLayout(renderer, state, railInset);
-    if (state.modelJourney !== "switch") return layout;
+function browseListLayout(renderer: RenderContext, state: TuiSettingsPickerState, railInset = 0) {
+    const layout = browseScopeLayout(renderer, state, railInset);
+    if (state.modelBrowse !== "browse") return layout;
     const other = { ...state, tab: state.tab === "all" ? "pool" as const : "all" as const };
-    const alternative = journeyScopeLayout(renderer, { ...other, options: journeyModels(other) }, railInset);
+    const alternative = browseScopeLayout(renderer, { ...other, options: browseModels(other) }, railInset);
     const height = Math.max(layout.chromeHeight + layout.bodyHeight, alternative.chromeHeight + alternative.bodyHeight);
     const bodyHeight = height - layout.chromeHeight;
     // The card reserves the taller scope's height, so the list fills it.
@@ -1382,17 +1382,17 @@ export function renderListPickerRows(
     onCutoff?: (cutoff?: IntelligenceCutoff) => void,
     onMore?: () => void,
     onScope?: () => void,
-    onSection?: (section: ModelJourneySection) => void,
-    journeyScroll?: { top: number },
+    onSection?: (section: ModelBrowseSection) => void,
+    browseScroll?: { top: number },
     onSort?: () => void,
-    onJourneyAction?: (section: ModelJourneySection) => void,
+    onBrowseAction?: (section: ModelBrowseSection) => void,
 ): void {
     if (state.kind === "extension" && state.layout !== undefined) {
         renderExtensionPicker(renderer, box, state, nodes, search, pointer, railInset);
         return;
     }
-    if (state.kind === "model" && state.modelJourney === "switch") {
-        renderModelSwitch(renderer, box, state, nodes, search, pointer, railInset, journeyScroll, onSection, onJourneyAction, tip);
+    if (state.kind === "model" && state.modelBrowse === "browse") {
+        renderModelSwitch(renderer, box, state, nodes, search, pointer, railInset, browseScroll, onSection, onBrowseAction, tip);
         return;
     }
     if (state.kind === "model_menu") {
@@ -1454,16 +1454,16 @@ export function renderListPickerRows(
             ? "←→ cutoff · ↑↓ choose · esc back" : "↑↓ choose · ⏎ select · esc back"));
         return;
     }
-    if (state.kind === "model" && state.modelJourney !== undefined) {
+    if (state.kind === "model" && state.modelBrowse !== undefined) {
         const width = pickerContentWidth(renderer, state, railInset);
         const add = (node: Renderable) => { box.add(node); nodes.push(node); };
-        const title = state.modelJourney === "shortlist"
+        const title = state.modelBrowse === "favorites"
             ? `Favorites (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`
             : state.title ?? "Switch model";
         add(dialogHeaderNode(renderer, title));
-        const layout = journeyListLayout(renderer, state, railInset);
-        if (state.modelJourney === "switch") {
-            const options = journeyScopeOptions(state);
+        const layout = browseListLayout(renderer, state, railInset);
+        if (state.modelBrowse === "browse") {
+            const options = browseScopeOptions(state);
             const active = state.modelFocus === "scope";
             const label = options[state.tab === "all" ? 1 : 0]!.label;
             const filter = new BoxRenderable(renderer, {
@@ -1485,7 +1485,7 @@ export function renderListPickerRows(
             };
             filter.add(scope);
             const sorting = state.modelFocus === "sort";
-            const sortLabel = journeySortOptions(state).find((row) => row.value === `sort:${journeySort(state)}`)!.label;
+            const sortLabel = browseSortOptions(state).find((row) => row.value === `sort:${browseSort(state)}`)!.label;
             const sort = dialogChipNode(renderer, sortLabel, sorting, true);
             sort.id = "model-sort";
             sort.width = layout.sortWidth;
@@ -1499,22 +1499,22 @@ export function renderListPickerRows(
         }
         if (layout.headerLines.length) add(new TextRenderable(renderer, {
             content: layout.headerLines.join("\n"), fg: TUI_MUTED, height: layout.headerLines.length,
-            marginTop: state.modelJourney === "switch" ? 0 : layout.summaryMargin, width: "100%",
+            marginTop: state.modelBrowse === "browse" ? 0 : layout.summaryMargin, width: "100%",
         }));
         if (search !== undefined) {
             updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
-            search.box.marginTop = state.modelJourney === "switch" && layout.headerLines.length ? 0 : 1;
+            search.box.marginTop = state.modelBrowse === "browse" && layout.headerLines.length ? 0 : 1;
             box.add(search.box);
         }
-        const cutoff = state.modelJourney === "switch" && state.tab === "all";
+        const cutoff = state.modelBrowse === "browse" && state.tab === "all";
         if (cutoff) for (const node of intelligenceScaleNodes(renderer, width,
             state.intelligenceCutoff ?? "any", state.modelFocus === "intelligence", onCutoff)) add(node);
         if (cutoff) add(new TextRenderable(renderer, { content: "", height: 1 }));
         const { priceLines, listed, rows: maxRows, bodyHeight } = layout;
         const split = layout.split;
         const rowWidth = split === undefined ? width : split.listWidth - MODEL_LIST_RULE_GAP;
-        const window = journeyWindow(state, maxRows, journeyScroll?.top);
-        if (journeyScroll !== undefined) journeyScroll.top = window.top;
+        const window = browseWindow(state, maxRows, browseScroll?.top);
+        if (browseScroll !== undefined) browseScroll.top = window.top;
         const rows = window.rows;
         const body = new BoxRenderable(renderer, { width: "100%", flexShrink: 0, flexDirection: "row" });
         const list = new BoxRenderable(renderer, { width: split?.listWidth ?? width, flexShrink: 0, flexDirection: "column" });
@@ -1523,7 +1523,7 @@ export function renderListPickerRows(
         add(body);
         const addRow = (node: Renderable) => list.add(node);
         if (rows.length === 0) addRow(new TextRenderable(renderer, {
-            content: emptyModelJourney(state),
+            content: emptyModelBrowse(state),
             fg: TUI_MUTED, height: 2, width: "100%",
         }));
         // The badges reserve the same width on every row so the fact columns
@@ -1561,7 +1561,7 @@ export function renderListPickerRows(
                     dimmed: state.modelFocus !== "list",
 
                     meta: heading ? "" : listed ? optionMeta(state, { ...row, poolName: undefined }, true, prefixWidth)
-                        : state.modelJourney === "shortlist" ? shortlistFactsText(row)
+                        : state.modelBrowse === "favorites" ? shortlistFactsText(row)
                         : `${formatListedPrice(row.pricing) ?? "price unknown"}  ${
                             row.value === state.initialModel ? "current" : ""}${row.unavailable ? "  not available" : ""}`,
                     ...dialogRowPointer(pointer, index),
@@ -1572,7 +1572,7 @@ export function renderListPickerRows(
         if (listed) addRow(rowNodes[at++]!);
         for (const row of rows) {
             addRow(row.heading !== undefined ? dialogGroupHeaderRow(renderer, row.heading, "▼") : row.more !== undefined
-                ? new TextRenderable(renderer, { content: clippedToWidth(journeyMoreText(row.more, rowWidth), rowWidth),
+                ? new TextRenderable(renderer, { content: clippedToWidth(browseMoreText(row.more, rowWidth), rowWidth),
                     fg: TUI_MUTED, width: "100%", height: 1, selectable: false })
                 : row.option === undefined
                 ? new TextRenderable(renderer, { content: "", height: 1 })
@@ -1591,9 +1591,9 @@ export function renderListPickerRows(
             add(prices);
         }
         if (listed) add(listedFactsFootnoteNode(renderer, width));
-        if (state.modelJourney === "shortlist") add(shortlistLegendNode(renderer, width));
-        if (state.modelJourney === "shortlist") {
-            const feedback = state.journeyFeedback;
+        if (state.modelBrowse === "favorites") add(shortlistLegendNode(renderer, width));
+        if (state.modelBrowse === "favorites") {
+            const feedback = state.browseFeedback;
             add(new TextRenderable(renderer, {
                 id: feedback?.status === "working" ? "model-operation-working" : "model-operation-result",
                 content: feedback === undefined ? "" : feedback.status === "working" ? "Working"
@@ -1602,8 +1602,8 @@ export function renderListPickerRows(
                 height: 1, marginTop: 1, width: "100%",
             }));
         }
-        if (state.modelJourney === "switch") {
-            const [more, ...navigation] = journeyFooter(state).split("\n");
+        if (state.modelBrowse === "browse") {
+            const [more, ...navigation] = browseFooter(state).split("\n");
             const focused = state.modelFocus === "more";
             const fullMore = ` ${more!.trim()} `;
             const moreLabel = Bun.stringWidth(fullMore) <= width ? fullMore : ` ${more!.split(":")[0]!.trim()} `;
@@ -1634,22 +1634,22 @@ export function renderListPickerRows(
                 width: "100%", selectable: false,
             }));
             add(footer);
-            const journeyTip = typeof tip === "string" ? { tone: "tip", text: tip } as TuiPickerTipLine : tip;
-            if (journeyTip !== undefined && journeyTip.text.length > 0) {
+            const browseTip = typeof tip === "string" ? { tone: "tip", text: tip } as TuiPickerTipLine : tip;
+            if (browseTip !== undefined && browseTip.text.length > 0) {
                 add(new TextRenderable(renderer, {
                     content: new StyledText([
-                        fg(journeyTip.tone === "tip" ? TUI_ACCENT : TUI_DANGER)(
-                            `${TIP_LABELS[journeyTip.tone]} `,
+                        fg(browseTip.tone === "tip" ? TUI_ACCENT : TUI_DANGER)(
+                            `${TIP_LABELS[browseTip.tone]} `,
                         ),
-                        fg(TUI_MUTED)(clippedToWidth(journeyTip.text, width - TIP_LABELS[journeyTip.tone].length - 1)),
+                        fg(TUI_MUTED)(clippedToWidth(browseTip.text, width - TIP_LABELS[browseTip.tone].length - 1)),
                     ]),
                     width: "100%", height: 1, selectable: false,
                 }));
             }
         } else {
-            const footer = dialogFooterNode(renderer, journeyFooter(state));
+            const footer = dialogFooterNode(renderer, browseFooter(state));
             footer.height = layout.footerHeight;
-            const [action, ...details] = journeyFooter(state).split("\n");
+            const [action, ...details] = browseFooter(state).split("\n");
             footer.content = new StyledText([
                 fg(TUI_TEXT)(action!),
                 fg(TUI_MUTED)(`\n${details.join("\n")}`),

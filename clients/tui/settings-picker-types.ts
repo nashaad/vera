@@ -258,10 +258,10 @@ export function pickerPageHasKeys(
     return (state.pickerLevel ?? "page") === "page";
 }
 
-export type ModelJourneySection = "scope" | "sort" | "search" | "intelligence" | "list" | "more" | "view" | "providers" | "filters";
+export type ModelBrowseSection = "scope" | "sort" | "search" | "intelligence" | "list" | "more" | "view" | "providers" | "filters";
 
 /** How Switch model orders the models inside each provider group. */
-export type ModelJourneySort = "library" | "az" | "price";
+export type ModelBrowseSort = "library" | "az" | "price";
 
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
@@ -275,10 +275,10 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly providerCatalogs?: readonly ProviderCatalogState[];
-    readonly modelJourney?: "switch" | "shortlist";
-    readonly journeyNotice?: string;
-    readonly journeyRetainedModels?: readonly string[];
-    readonly journeyFeedback?: {
+    readonly modelBrowse?: "browse" | "favorites";
+    readonly browseNotice?: string;
+    readonly browseRetainedModels?: readonly string[];
+    readonly browseFeedback?: {
         readonly status: "working" | "success" | "error";
         readonly membership?: "added" | "removed";
         readonly message: string;
@@ -290,7 +290,7 @@ export interface TuiSettingsPickerState {
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
     readonly pickerLevel?: "strip" | "page";
     readonly modelFocus?:
-        | ModelJourneySection
+        | ModelBrowseSection
         | "list_action"
         | "detail"
         | "page_entry"
@@ -321,12 +321,12 @@ export interface TuiSettingsPickerState {
     readonly assignmentAllowsSelf?: boolean;
     readonly revealAll?: boolean;
     readonly intelligenceCutoff?: IntelligenceCutoff;
-    readonly journeySort?: ModelJourneySort;
-    readonly journeyView?: "standard" | "detailed";
-    readonly journeyProvider?: string;
-    readonly journeyAvailableOnly?: boolean;
-    readonly journeyPricedOnly?: boolean;
-    readonly journeyImagesOnly?: boolean;
+    readonly browseSort?: ModelBrowseSort;
+    readonly browseView?: "standard" | "detailed";
+    readonly browseProvider?: string;
+    readonly browseAvailableOnly?: boolean;
+    readonly browsePricedOnly?: boolean;
+    readonly browseImagesOnly?: boolean;
     readonly configureFiles?: readonly TuiConfigureFile[];
     /** The provider the onboarding model step is choosing within. */
 }
@@ -531,10 +531,10 @@ export interface TuiSettingsPickerView {
     onConfigure?: () => void;
     onCutoff?: (cutoff?: IntelligenceCutoff) => void;
     onMore?: () => void;
-    onJourneyAction?: (section: ModelJourneySection) => void;
+    onBrowseAction?: (section: ModelBrowseSection) => void;
     onScope?: () => void;
     onSort?: () => void;
-    onSection?: (section: ModelJourneySection) => void;
+    onSection?: (section: ModelBrowseSection) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
     handleExtensionEditorKey(state: TuiExtensionPickerState, key: TuiSettingsPickerKey): TuiExtensionPickerTransition;

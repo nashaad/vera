@@ -122,7 +122,7 @@ export function advanceCatalogRefreshSweep(rt: TuiRuntime): void {
         const summary = catalogRefreshSummary(rt, sweep.results);
         showStatusNotice(rt, summary);
         refreshProviderPicker(rt, summary);
-        if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney !== undefined) rt.settingsPicker = { ...rt.settingsPicker, journeyNotice: summary };
+        if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelBrowse !== undefined) rt.settingsPicker = { ...rt.settingsPicker, browseNotice: summary };
         renderState(rt);
         return;
     }

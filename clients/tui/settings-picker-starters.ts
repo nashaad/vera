@@ -1,5 +1,5 @@
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
-import { journeyModels } from "./model-journeys.ts";
+import { browseModels } from "./model-browse.ts";
 import {
     bg,
     BoxRenderable,
@@ -303,15 +303,15 @@ export function syncTuiModelPicker(
         ...rebuilt,
         allOptions: settings?.providerCatalogs === undefined ? rebuilt.allOptions : rebuilt.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         providerCatalogs: settings?.providerCatalogs ?? state.providerCatalogs,
-        modelJourney: state.modelJourney,
-        journeyView: state.journeyView,
-        journeyProvider: state.journeyProvider,
-        journeyAvailableOnly: state.journeyAvailableOnly,
-        journeyPricedOnly: state.journeyPricedOnly,
-        journeyImagesOnly: state.journeyImagesOnly,
-        journeyNotice: state.journeyNotice,
-        journeyFeedback: state.journeyFeedback,
-        journeyRetainedModels: [...new Set([...(state.journeyRetainedModels ?? []),
+        modelBrowse: state.modelBrowse,
+        browseView: state.browseView,
+        browseProvider: state.browseProvider,
+        browseAvailableOnly: state.browseAvailableOnly,
+        browsePricedOnly: state.browsePricedOnly,
+        browseImagesOnly: state.browseImagesOnly,
+        browseNotice: state.browseNotice,
+        browseFeedback: state.browseFeedback,
+        browseRetainedModels: [...new Set([...(state.browseRetainedModels ?? []),
             ...state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value)])],
         title: state.title,
         tab,
@@ -328,11 +328,11 @@ export function syncTuiModelPicker(
                 || state.intelligenceCutoff === "any"
             ? {}
             : { intelligenceCutoff: state.intelligenceCutoff }),
-        ...(state.journeySort === undefined ? {} : { journeySort: state.journeySort }),
-        // A journey folds its own groups, so it keeps its own set even when
+        ...(state.browseSort === undefined ? {} : { browseSort: state.browseSort }),
+        // A browse page folds its own groups, so it keeps its own set even when
         // empty: the sectioned picker starts some providers closed, and those
-        // must not fold groups the journey shows as open.
-        ...(collapsed.length === 0 && state.modelJourney === undefined
+        // must not fold groups the browse page shows as open.
+        ...(collapsed.length === 0 && state.modelBrowse === undefined
             ? {}
             : { collapsed }),
         ...(settings?.webdevArenaSnapshot === undefined
@@ -354,8 +354,8 @@ export function syncTuiModelPicker(
             state.initialModel,
         ),
     };
-    const options = state.modelJourney !== undefined
-        ? journeyModels({ ...onTab, query: state.query })
+    const options = state.modelBrowse !== undefined
+        ? browseModels({ ...onTab, query: state.query })
         : state.query.length === 0
         ? onTab.options
         : searched(onTab, state.query).state?.options ?? onTab.options;
@@ -372,7 +372,7 @@ export function syncTuiModelPicker(
             ? { canUndoPoolChange: true }
             : {}),
         selectedIndex: selectedIndex === -1
-            ? state.modelJourney === undefined
+            ? state.modelBrowse === undefined
                 ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
                 : Math.max(0, options.findIndex((option) => option.model !== undefined))
             : selectedIndex,

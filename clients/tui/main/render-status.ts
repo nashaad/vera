@@ -25,7 +25,7 @@ export function renderStatus(rt: TuiRuntime): void {
     }
     const statusState = focusedAgentState(rt);
     if (anyOverlayOpen(rt) || rt.sessionSwitchPending) rt.modelPrefixPending = false;
-    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.journeyFeedback?.status === "working") {
+    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.browseFeedback?.status === "working") {
         rt.settingsPickerView.animateFeedback(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
     }
     rt.transcriptWorking.visible = rt.state.working && !isWorkerFreeClient(rt.client);

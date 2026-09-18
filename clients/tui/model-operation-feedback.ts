@@ -2,7 +2,7 @@ import type { ModelOperation, ModelOperationResult } from "../../src/model/model
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { TuiSettingsPickerState } from "./settings-picker-types.ts";
 
-type Feedback = NonNullable<TuiSettingsPickerState["journeyFeedback"]>;
+type Feedback = NonNullable<TuiSettingsPickerState["browseFeedback"]>;
 
 export function shortlistOperationFeedback(
     operation: ModelOperation,
@@ -26,8 +26,8 @@ export function shortlistOperationFeedback(
     return { status: "success", membership: operation.operation === "keep" ? "added" : "removed", message: `${subject} ${operation.operation === "keep" ? "added to" : "removed from"} favorites` };
 }
 
-export function replaceJourneyFeedback(state: TuiSettingsPickerState, pending: Feedback, feedback: Feedback): TuiSettingsPickerState {
-    const parent = state.parent === undefined ? undefined : replaceJourneyFeedback(state.parent, pending, feedback);
-    if (state.journeyFeedback !== pending && parent === state.parent) return state;
-    return { ...state, parent, journeyFeedback: state.journeyFeedback === pending ? feedback : state.journeyFeedback };
+export function replaceBrowseFeedback(state: TuiSettingsPickerState, pending: Feedback, feedback: Feedback): TuiSettingsPickerState {
+    const parent = state.parent === undefined ? undefined : replaceBrowseFeedback(state.parent, pending, feedback);
+    if (state.browseFeedback !== pending && parent === state.parent) return state;
+    return { ...state, parent, browseFeedback: state.browseFeedback === pending ? feedback : state.browseFeedback };
 }
