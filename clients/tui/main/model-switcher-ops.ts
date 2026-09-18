@@ -14,6 +14,7 @@ import { requestAgentSettings } from "./diagnostics-ops.ts";
 import { sendCommand } from "./extension-bridge.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
 import { modelLevelFacts, openModelPicker, openProviderPicker } from "./model-pickers.ts";
+import { runModelOperation } from "./model-operations.ts";
 import { renderState } from "./render-state.ts";
 import { beginCreateSession, currentDraft } from "./session-ops.ts";
 import { startTuiReasoningPicker } from "../settings-picker.ts";
@@ -126,24 +127,29 @@ export function toggleModelSwitcherFavorite(
     rt: TuiRuntime,
     row: TuiModelSwitcherRow,
 ): void {
-    if (row.favorite === true) {
-        sendCommand(rt, {
-            type: "pool_remove",
-            requestId: randomUUID(),
-            provider: row.provider,
-            model: row.model,
-        });
-        refreshModelSwitcher(rt, `Removing ${row.label} from favorites…`, {
-            key: modelSwitcherKey(row),
-            favorite: false,
-        });
-    } else {
+    const favorite = row.favorite !== true;
+    refreshModelSwitcher(
+        rt,
+        favorite
+            ? `Adding ${row.label} to favorites…`
+            : `Removing ${row.label} from favorites…`,
+        { key: modelSwitcherKey(row), favorite },
+    );
+    if (favorite && !isHomeClient(focusedAgentClient(rt))) {
         requestPoolAdmission(rt, row.provider, row.model);
-        refreshModelSwitcher(rt, `Adding ${row.label} to favorites…`, {
-            key: modelSwitcherKey(row),
-            favorite: true,
-        });
+        renderState(rt);
+        return;
     }
+    runModelOperation(rt, {
+        operation: favorite ? "keep" : "unkeep",
+        models: [{ provider: row.provider, model: row.model }],
+    }, (feedback) => {
+        refreshModelSwitcher(
+            rt,
+            feedback.status === "error" ? feedback.message : undefined,
+        );
+        renderState(rt);
+    });
     renderState(rt);
 }
 

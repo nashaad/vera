@@ -1,6 +1,7 @@
 import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts";
 import type { ModelOperation, ModelOperationResult } from "../../../src/model/model-operations.ts";
 import { replaceBrowseFeedback, shortlistOperationFeedback } from "../model-operation-feedback.ts";
+import type { TuiSettingsPickerState } from "../settings-picker-types.ts";
 import { verificationResults } from "../model-verification.ts";
 import { mergeTuiModelPickerSettings, syncTuiModelPicker } from "../settings-picker.ts";
 import { focusedAgentClient } from "./agents-dials.ts";
@@ -9,12 +10,18 @@ import { showStatusNotice } from "./notices.ts";
 import { renderState } from "./render-state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 
-export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): void {
+type Feedback = NonNullable<TuiSettingsPickerState["browseFeedback"]>;
+
+export function runModelOperation(rt: TuiRuntime, operation: ModelOperation, onSettled?: (feedback: Feedback) => void): void {
     if (operation.models.length === 0) return;
-    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.browseFeedback?.status === "working") return;
+    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.browseFeedback?.status === "working") {
+        onSettled?.({ status: "error", message: "Another favorites change is still running." });
+        return;
+    }
     const operate = rt.dependencies.operateModels;
     if (operate === undefined) {
         showStatusNotice(rt, "This host does not support model operations.");
+        onSettled?.({ status: "error", message: "This host does not support model operations." });
         renderState(rt); return;
     }
     const verifying = operation.operation === "verify";
@@ -61,11 +68,15 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation): vo
                 modelSettings: mergeTuiModelPickerSettings(sidebar.state.modelSettings, settings) };
             if (rt.settingsPicker !== undefined && rt.settingsPicker.kind !== "extension") rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, { ...settings, providerCatalogs: providerCatalogsOf(settings) });
         }
-        if (membership) feedback(shortlistOperationFeedback(operation, label, results, settings));
+        const outcome = shortlistOperationFeedback(operation, label, results, settings);
+        if (membership) feedback(outcome);
+        onSettled?.(outcome);
     }).catch((error) => {
         const reason = error instanceof Error ? error.message : String(error);
         showStatusNotice(rt, reason);
-        if (membership) feedback(shortlistOperationFeedback(operation, label, results, undefined, reason));
+        const outcome = shortlistOperationFeedback(operation, label, results, undefined, reason);
+        if (membership) feedback(outcome);
+        onSettled?.(outcome);
         if (verifying && rt.modelVerification !== undefined) {
             const run = rt.modelVerification;
             rt.modelVerification = { ...run, results: run.targets.map((target) =>
