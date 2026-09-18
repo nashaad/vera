@@ -57,6 +57,9 @@ def _show(journal_dir: Path, run_id: str) -> None:
         print("attempts")
         for number, attempt in enumerate(attempts, start=1):
             print(f"  {number}  {_attempt_line(attempt)}")
+            for span in journal.spans():
+                if span.get("attempt") == number:
+                    print(f"       {_span_line(span)}")
 
 
 def _attempt_line(attempt: object) -> str:
@@ -69,6 +72,16 @@ def _attempt_line(attempt: object) -> str:
     error = attempt.get("error")
     detail = f": {error['message']}" if type(error) is dict else ""
     return f"{attempt.get('started_at')}  {where}  {outcome}{detail}"
+
+
+def _span_line(span: dict[str, object]) -> str:
+    step = span.get("step")
+    status = span.get("status")
+    if status is None:
+        return f"{step}  did not finish"
+    message = span.get("message")
+    detail = f": {message}" if status != "ok" and type(message) is str else ""
+    return f"{step}  {span.get('ms')}ms  {status}{detail}"
 
 
 def _sweep(journal_dir: Path, resume: bool) -> int:

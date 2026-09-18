@@ -127,6 +127,22 @@ appears in the report.
 If the ID is missing, the error lists up to ten available run IDs and counts
 any remaining ones. In file storage, run IDs are also the directory names.
 
+### Spans
+
+Under each attempt the report lists its spans. A span is one try of one step,
+with the step name, how long the try took, and how it ended (`ok`, `failed`,
+`suspended`, or `cancelled`). A failure carries its message.
+
+Spans and journal records answer different questions. The journal records a
+step once, when it succeeds, because that is the value a resume replays. Spans
+record every try, so a step that failed twice before succeeding is three spans
+and one record. A span with no ending is the try whose process died in it.
+
+```python
+for span in store.load(run_id, None).spans():
+    print(span["attempt"], span["step"], span.get("status"))
+```
+
 ## Find runs whose process died
 
 A run left `running` by a process that never came back stays `running` until
@@ -154,6 +170,7 @@ handed to something else. Run it on the machine the workflows ran on.
 /tmp/wf-demo/<run-id>/
   header.json
   journal.ndjson
+  spans.ndjson
   blobs/
 ```
 
@@ -162,8 +179,9 @@ names that step under `active`. `attempts` holds one entry per run or resume,
 each with `started_at`, `pid`, and `host`, and gaining `finished_at`, `status`,
 and, on a failure, `error` when that attempt ends. The journal has one record per successful step,
 each with the time it finished (`at`) and how many milliseconds it took (`ms`). Values larger than 8192 bytes are stored in `blobs/` with a
-hash reference. SQLite stores the same facts in `runs`, `records`, and `blobs`
-tables in one database file.
+hash reference. `spans.ndjson` has two lines per span, one opening it and one
+settling it, folded together when read. SQLite stores the same facts in `runs`,
+`records`, `spans`, and `blobs` tables in one database file.
 
 ### Read a file journal from TypeScript
 

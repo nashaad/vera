@@ -18,6 +18,8 @@ from ._journal import (
     _parse_json_text,
     close_attempt,
     open_attempt,
+    span_end,
+    span_start,
     validate_header,
 )
 from ._store import RunSummary
@@ -72,6 +74,22 @@ class SqlDialect:
             )
             """,
             f"""
+            CREATE TABLE IF NOT EXISTS spans (
+                run_id TEXT NOT NULL,
+                span TEXT NOT NULL,
+                attempt INTEGER NOT NULL,
+                key TEXT NOT NULL,
+                step TEXT NOT NULL,
+                start TEXT NOT NULL,
+                finish TEXT,
+                ms INTEGER,
+                status TEXT,
+                message TEXT,
+                PRIMARY KEY (run_id, span),
+                FOREIGN KEY (run_id) REFERENCES runs(run_id)
+            )
+            """,
+            f"""
             CREATE TABLE IF NOT EXISTS blobs (
                 digest TEXT PRIMARY KEY,
                 body {self.blob_type} NOT NULL
@@ -116,6 +134,24 @@ class SqlDialect:
             "INSERT INTO records ("
             "run_id, seq, key, at, ms, value, blob_ref, blob_bytes"
             f") VALUES ({self.values(8)})"
+        )
+
+    def insert_span(self) -> str:
+        return (
+            "INSERT INTO spans (run_id, span, attempt, key, step, start) "
+            f"VALUES ({self.values(6)})"
+        )
+
+    def close_span(self) -> str:
+        return (
+            "UPDATE spans SET finish = {p}, ms = {p}, status = {p}, message = {p} "
+            "WHERE run_id = {p} AND span = {p}"
+        ).format(p=self.placeholder)
+
+    def select_spans(self) -> str:
+        return (
+            "SELECT span, attempt, key, step, start, finish, ms, status, message "
+            f"FROM spans WHERE run_id = {self.placeholder} ORDER BY start, span"
         )
 
     def select_blob(self) -> str:
@@ -180,6 +216,7 @@ class SqlRunJournal:
         self.timings = timings if timings is not None else {}
         self._store = store
         self._next_seq = next_seq
+        self._span_count = 0
 
     @property
     def run_id(self) -> str:
@@ -240,6 +277,57 @@ class SqlRunJournal:
     def start_attempt(self) -> None:
         open_attempt(self.header)
         self.write_header()
+
+    def open_span(self, key: str, step_name: str) -> str:
+        line = span_start(self.header, self._span_count, key, step_name)
+        self._span_count += 1
+        self._store._execute(
+            self._store.dialect.insert_span(),
+            (
+                self.run_id,
+                line["span"],
+                line["attempt"],
+                line["key"],
+                line["step"],
+                line["start"],
+            ),
+        )
+        self._store._commit()
+        return str(line["span"])
+
+    def close_span(
+        self,
+        span_id: str,
+        ms: int,
+        status: str,
+        message: str | None = None,
+    ) -> None:
+        line = span_end(span_id, ms, status, message)
+        self._store._execute(
+            self._store.dialect.close_span(),
+            (line["end"], ms, status, message, self.run_id, span_id),
+        )
+        self._store._commit()
+
+    def spans(self) -> list[dict[str, object]]:
+        rows = self._store._query(self._store.dialect.select_spans(), (self.run_id,))
+        spans: list[dict[str, object]] = []
+        for span, attempt, key, step, start, finish, ms, status, message in rows:
+            found: dict[str, object] = {
+                "span": span,
+                "attempt": attempt,
+                "key": key,
+                "step": step,
+                "start": start,
+            }
+            if finish is not None:
+                found["end"] = finish
+                found["ms"] = ms
+                found["status"] = status
+            if message is not None:
+                found["message"] = message
+            spans.append(found)
+        return spans
 
     def mark_step_started(self, key: str, step_name: str) -> None:
         """Name the step now in flight, so a crashed run says where it stopped."""

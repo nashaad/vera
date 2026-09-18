@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://vera.dev/schemas/workflow/span-record.schema.json",
+    "title": "Vera workflow span line",
+    "description": "One line of spans.ndjson: a try of a step opening, or the same try settling.",
+    "oneOf": [
+        {
+            "type": "object",
+            "required": ["span", "attempt", "key", "step", "start"],
+            "additionalProperties": false,
+            "properties": {
+                "span": { "type": "string", "minLength": 1 },
+                "attempt": { "type": "integer", "minimum": 1 },
+                "key": { "type": "string", "minLength": 1 },
+                "step": { "type": "string", "minLength": 1 },
+                "start": { "type": "string", "format": "date-time" }
+            }
+        },
+        {
+            "type": "object",
+            "required": ["span", "end", "ms", "status"],
+            "additionalProperties": false,
+            "properties": {
+                "span": { "type": "string", "minLength": 1 },
+                "end": { "type": "string", "format": "date-time" },
+                "ms": { "type": "integer", "minimum": 0 },
+                "status": {
+                    "enum": ["ok", "failed", "suspended", "cancelled"]
+                },
+                "message": { "type": "string" }
+            }
+        }
+    ]
+}

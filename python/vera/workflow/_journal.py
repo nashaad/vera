@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -211,6 +212,80 @@ def close_attempt(header: dict[str, object], status: str) -> None:
         attempt["error"] = dict(error)
 
 
+def span_start(
+    header: dict[str, object],
+    count: int,
+    key: str,
+    step_name: str,
+) -> dict[str, object]:
+    """The line that opens a span: one try of one step."""
+    attempts = header.get("attempts")
+    attempt = len(attempts) if type(attempts) is list and attempts else 1
+    return {
+        "span": f"a{attempt}.{count}",
+        "attempt": attempt,
+        "key": key,
+        "step": step_name,
+        "start": _now(),
+    }
+
+
+def span_end(
+    span_id: str,
+    ms: int,
+    status: str,
+    message: str | None = None,
+) -> dict[str, object]:
+    line: dict[str, object] = {
+        "span": span_id,
+        "end": _now(),
+        "ms": ms,
+        "status": status,
+    }
+    if message is not None:
+        line["message"] = message
+    return line
+
+
+def read_span_lines(run_dir: Path) -> list[dict[str, object]]:
+    path = run_dir / "spans.ndjson"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        raise _journal_error(f"cannot read {path}") from error
+    lines: list[dict[str, object]] = []
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        line = _parse_json_text(raw, str(path))
+        if type(line) is not dict:
+            raise _journal_error(f"workflow span must be an object in {path}")
+        lines.append(line)
+    return lines
+
+
+def fold_spans(lines: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+    """One entry per span, in the order they opened.
+
+    A span with no `end` is a try whose process died in it, so the gap is the
+    reading, not a defect in the file.
+    """
+    spans: dict[str, dict[str, object]] = {}
+    for line in lines:
+        span_id = line.get("span")
+        if type(span_id) is not str:
+            continue
+        if "start" in line:
+            spans[span_id] = dict(line)
+            continue
+        found = spans.get(span_id)
+        if found is not None:
+            found.update(line)
+    return list(spans.values())
+
+
 class Journal:
     def __init__(
         self,
@@ -227,6 +302,7 @@ class Journal:
         self.records = records
         self.timings = timings if timings is not None else {}
         self._next_seq = next_seq
+        self._span_count = 0
 
     @classmethod
     def create(
@@ -422,6 +498,43 @@ class Journal:
     def start_attempt(self) -> None:
         open_attempt(self.header)
         self._write_header_during_run()
+
+    def open_span(self, key: str, step_name: str) -> str:
+        line = span_start(self.header, self._span_count, key, step_name)
+        self._span_count += 1
+        self._append_span(line)
+        return str(line["span"])
+
+    def close_span(
+        self,
+        span_id: str,
+        ms: int,
+        status: str,
+        message: str | None = None,
+    ) -> None:
+        self._append_span(span_end(span_id, ms, status, message))
+
+    def spans(self) -> list[dict[str, object]]:
+        return fold_spans(read_span_lines(self.run_dir))
+
+    def _append_span(self, line: dict[str, object]) -> None:
+        try:
+            text = json.dumps(
+                line,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            with (self.run_dir / "spans.ndjson").open(
+                "a",
+                encoding="utf-8",
+                newline="\n",
+            ) as span_file:
+                span_file.write(text + "\n")
+                span_file.flush()
+                os.fsync(span_file.fileno())
+        except (OSError, TypeError, ValueError) as error:
+            raise _journal_error("cannot append workflow span") from error
 
     def mark_step_started(self, key: str, step_name: str) -> None:
         """Name the step now in flight, so a crashed run says where it stopped."""

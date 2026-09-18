@@ -180,6 +180,7 @@ class _Runtime:
 
     def _attempt(
         self,
+        key: str,
         step_name: str,
         function: Callable[P, R],
         args: P.args,
@@ -192,16 +193,33 @@ class _Runtime:
 
         Only the outcome of the last attempt reaches the journal, so a run that
         dies mid-budget starts the step again from zero on resume. A timeout is
-        not retried: it ends the run.
+        not retried: it ends the run. Every try opens a span, including the ones
+        the journal never hears about.
         """
         delay = backoff
         remaining = retries
         while True:
+            span = self.journal.open_span(key, step_name)
+            started = time.monotonic()
             try:
-                return _invoke(step_name, function, args, kwargs, timeout)
+                value = _invoke(step_name, function, args, kwargs, timeout)
             except _UserFailure as failure:
+                self.journal.close_span(
+                    span,
+                    _elapsed(started),
+                    "failed",
+                    _error_message(failure.error),
+                )
                 if remaining <= 0 or isinstance(failure.error, StepTimeout):
                     raise
+            except BaseException as stop:
+                self.journal.close_span(
+                    span, _elapsed(started), _stop_status(stop), _error_message(stop)
+                )
+                raise
+            else:
+                self.journal.close_span(span, _elapsed(started), "ok")
+                return value
             remaining -= 1
             if delay > 0:
                 self._sleep(delay, step_name)
@@ -288,7 +306,14 @@ class _Runtime:
         typed_args = cast("P.args", call_args)
         typed_kwargs = cast("P.kwargs", call_kwargs)
         value = self._attempt(
-            step_name, function, typed_args, typed_kwargs, timeout, retries, backoff
+            key,
+            step_name,
+            function,
+            typed_args,
+            typed_kwargs,
+            timeout,
+            retries,
+            backoff,
         )
         try:
             dumps(value)
@@ -296,6 +321,15 @@ class _Runtime:
         except WorkflowError as error:
             raise _RuntimeFault(error) from error
         return value
+
+
+def _stop_status(stop: BaseException) -> str:
+    """How a span ended when something other than a step failure stopped it."""
+    if isinstance(stop, Suspend):
+        return "suspended"
+    if isinstance(stop, Cancelled):
+        return "cancelled"
+    return "failed"
 
 
 _runtime: ContextVar[_Runtime | None] = ContextVar("vera_workflow_runtime", default=None)
@@ -309,7 +343,7 @@ def _elapsed(started: float) -> int:
     return max(0, round((time.monotonic() - started) * 1000))
 
 
-def _error_message(error: Exception) -> str:
+def _error_message(error: BaseException) -> str:
     return str(error) or error.__class__.__name__
 
 
