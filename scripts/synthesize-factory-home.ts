@@ -93,7 +93,8 @@ export function synthesizeFactoryHome(destination: string): void {
     writeJson(join(home, "config.json"), {
         schema_version: 1,
         provider: "openrouter",
-        model: "faux/test",
+        model: "openai/gpt-5.6-luna",
+        reasoning_effort: "low",
         approval_mode: "auto",
         experimental: { inbox: false },
         extensions: [],
@@ -101,7 +102,7 @@ export function synthesizeFactoryHome(destination: string): void {
     writeJson(join(home, "pool.json"), {
         defaults: {},
         models: {
-            "openrouter/faux/test": {
+            "openrouter/openai/gpt-5.6-luna": {
                 added: true,
                 tools: true,
             },

@@ -20,7 +20,7 @@ test("the factory home is a single home with no live secrets", () => {
         expect(existsSync(join(home, "machine", "auth.json"))).toBe(false);
         expect(unrecognisedHomeEntries(root)).toEqual([]);
         const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
-        expect(config.model).toBe("faux/test");
+        expect(config.model).toBe("openai/gpt-5.6-luna");
         expect(config.experimental.inbox).toBe(false);
         expect(config.extensions).toEqual([]);
         expect(existsSync(

@@ -9,6 +9,7 @@ import { releaseDroppedImage } from "../main/prompt-routing.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { syncTuiPreferencesList } from "../preferences-list.ts";
 import { refreshModelSwitcher } from "../main/model-switcher-ops.ts";
+import { modelSwitcherKey } from "../model-switcher.ts";
 import { startTuiOverridesMenu, startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, beginNextQueuedTuiTurn } from "../state.ts";
 import { applyTuiTimelineReply } from "../timeline-picker.ts";
@@ -406,6 +407,17 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         };
                     }
                 }
+            }
+            if (
+                update.type === "pool_admission_result"
+                && update.verdict !== "added"
+                && rt.modelSwitcher?.pending?.favorite === true
+                && rt.modelSwitcher.pending.key === modelSwitcherKey(update)
+            ) {
+                const label = rt.modelSwitcher.allRows.find((row) =>
+                    modelSwitcherKey(row) === modelSwitcherKey(update))?.label
+                    ?? update.model;
+                refreshModelSwitcher(rt, `Couldn't add ${label} to favorites.`);
             }
             if (
                 update.type === "pool_admission_result"
