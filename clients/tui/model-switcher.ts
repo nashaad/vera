@@ -378,9 +378,17 @@ interface SwitcherDisplayRow {
     readonly ordinal: string;
 }
 
-/** The card is 60% of the screen, padded either side; the rule spans what is left. */
+/** Fewest columns the card takes before it falls back to the whole screen. */
+const SWITCHER_MIN_WIDTH = 80;
+
+/** The card is 60% of the screen, but never under SWITCHER_MIN_WIDTH unless the screen is narrower. */
+function switcherCardWidth(renderer: RenderContext): number {
+    return Math.min(renderer.width, Math.max(SWITCHER_MIN_WIDTH, Math.floor(renderer.width * 0.6)));
+}
+
+/** The rule spans the card less its padding. */
 function switcherContentWidth(renderer: RenderContext): number {
-    return Math.max(1, Math.floor(renderer.width * 0.6) - DIALOG_CARD_PADDING * 2);
+    return Math.max(1, switcherCardWidth(renderer) - DIALOG_CARD_PADDING * 2);
 }
 
 export function createTuiModelSwitcherView(
@@ -392,7 +400,7 @@ export function createTuiModelSwitcherView(
         id: "model-switcher",
         border: false,
         backgroundColor: TUI_PANEL,
-        width: "60%",
+        width: switcherCardWidth(renderer),
         height: 8,
         paddingLeft: DIALOG_CARD_PADDING,
         paddingRight: DIALOG_CARD_PADDING,
@@ -439,6 +447,7 @@ export function createTuiModelSwitcherView(
             ).state ?? state;
         },
         update(state): void {
+            box.width = switcherCardWidth(renderer);
             search.box.parent?.remove(search.box.id);
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
