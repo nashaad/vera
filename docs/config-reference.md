@@ -13,6 +13,8 @@ For most changes, use the relevant settings screen. `/configure` opens
 configuration files in your editor, and `/customize` browses instructions,
 definitions, skills, and extensions.
 
+<div data-widget="directory-explorer"></div>
+
 ## Find what you need
 
 | You want to | Start here |
