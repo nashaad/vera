@@ -1011,6 +1011,8 @@ export async function startResidentHost(
                 });
                 return registry.readHostModelSettings(request.workspace);
             },
+            handleExtensionRequest: (extensionId, name, payload, signal) =>
+                extensions.handleRequest(extensionId, name, payload, signal),
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
             refreshCatalog: async (provider, workspace) => {

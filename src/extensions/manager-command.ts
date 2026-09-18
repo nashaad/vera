@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
     ExtensionInstallPreview,
     ExtensionListEntry,
@@ -93,7 +95,7 @@ export function parseExtensionManagerCommand(
         return {
             command: {
                 operation: "install",
-                source: positional[0]!,
+                source: expandHome(positional[0]!),
                 dryRun,
             },
         };
@@ -159,4 +161,10 @@ export function renderExtensionMutation(
         return `Removed ${record.id}.\n`;
     }
     return `${operation === "enable" ? "Enabled" : "Disabled"} ${record.id}.\n`;
+}
+
+// The composer passes paths unexpanded; a shell would have expanded ~ already.
+function expandHome(path: string): string {
+    if (path === "~") return homedir();
+    return path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 }

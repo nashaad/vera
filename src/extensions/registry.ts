@@ -16,6 +16,7 @@ import {
     type LiteralSecretFinding,
 } from "./literal-secret.ts";
 import { extensionStorage } from "./storage.ts";
+import { SearchProviderSet } from "./search-providers.ts";
 import type {
     VeraExtensionApi,
     VeraExtensionCommandHandler,
@@ -27,6 +28,8 @@ import type {
     VeraExtensionAgentSpec,
     VeraExtensionToolSpec,
     SessionIdentityProvider,
+    VeraSearchProvider,
+    VeraExtensionRequestHandler,
 } from "../sdk/extensions.ts";
 import type {
     ModelRequestHook,
@@ -41,6 +44,7 @@ import type {
     PreTurnHookPayload,
     PreTurnHookResult,
     RegisteredModelRequestHook,
+    JsonValue,
 } from "../sdk/hooks.ts";
 import { createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import type { RegisteredTool } from "../tools/types.ts";
@@ -79,6 +83,11 @@ const SESSION_START_HOOK_CAPABILITY = "hooks.session_start";
 const PRE_TURN_HOOK_CAPABILITY = "hooks.pre_turn";
 const MODEL_REQUEST_HOOK_CAPABILITY = "hooks.model_request";
 const SESSION_IDENTITY_CAPABILITY = "sessions.identity";
+const SEARCH_PROVIDERS_REGISTER_CAPABILITY = "search.providers.register";
+const SEARCH_PROVIDERS_USE_CAPABILITY = "search.providers.use";
+const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
+const REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_RESULT_LIMIT = 1_000_000;
 
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
@@ -126,6 +135,13 @@ export interface ExtensionRegistry {
         sessionId?: string,
         sessionPath?: string,
     ): Promise<ExtensionCommandResult>;
+    /** Runs a handler an extension registered with `requests.handle`. */
+    handleRequest(
+        extensionId: string,
+        name: string,
+        payload: JsonValue,
+        signal: AbortSignal,
+    ): Promise<JsonValue>;
     close(): Promise<void>;
 }
 
@@ -154,6 +170,7 @@ interface LoadedRegistryExtension {
     readonly sessionStartHooks: readonly SessionStartHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
+    readonly requestHandlers: ReadonlyMap<string, VeraExtensionRequestHandler>;
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -184,6 +201,7 @@ export async function startExtensionRegistry(
     const tools = new Map<string, LoadedRegistryExtension>();
     const modelRequestNamespaces = new Set<string>();
     let identityOwner: string | undefined;
+    const searchProviders = new SearchProviderSet();
     const contributions = createHostContributionSet();
     let closing: Promise<void> | undefined;
 
@@ -237,6 +255,7 @@ export async function startExtensionRegistry(
                 activationTimeoutMs,
                 handlerTimeoutMs,
                 disposeTimeoutMs,
+                searchProviders,
             );
             validateCommandOwnership(extension, commands);
             validateToolOwnership(extension, tools);
@@ -277,6 +296,7 @@ export async function startExtensionRegistry(
             let message = errorMessage(error);
             if (admitted && extensionId !== undefined) {
                 contributions.withdraw(extensionId);
+                searchProviders.withdraw(extensionId);
             }
             if (extension !== undefined) {
                 try {
@@ -434,6 +454,45 @@ export async function startExtensionRegistry(
                 signal?.removeEventListener("abort", abort);
             }
         },
+        async handleRequest(
+            extensionId: string,
+            name: string,
+            payload: JsonValue,
+            signal: AbortSignal,
+        ): Promise<JsonValue> {
+            if (closing !== undefined) throw new Error("Extension registry is closing");
+            const owner = owners.get(extensionId);
+            const handler = owner?.disposing === false ? owner.requestHandlers.get(name) : undefined;
+            if (owner === undefined || handler === undefined) {
+                throw new Error(`Extension ${extensionId} has no host request named ${name}`);
+            }
+            const controller = new AbortController();
+            let active: ActiveExtensionInvocation | undefined;
+            try {
+                const value = await runExtensionOperation(
+                    (operationSignal) => handler(structuredClone(payload), { signal: operationSignal }),
+                    {
+                        timeoutMs: REQUEST_TIMEOUT_MS,
+                        timeoutMessage: `Extension ${extensionId} request ${name} timed out after ${REQUEST_TIMEOUT_MS}ms`,
+                        abortMessage: `Extension ${extensionId} request ${name} was cancelled`,
+                        signal: AbortSignal.any([signal, controller.signal]),
+                        onExecutionStart(execution) {
+                            active = { controller, completion: execution.then(() => undefined, () => undefined) };
+                            owner.activeInvocations.add(active);
+                        },
+                    },
+                );
+                const text = value === undefined ? undefined : JSON.stringify(value);
+                if (text === undefined || text.length > REQUEST_RESULT_LIMIT) {
+                    throw new Error(`Extension ${extensionId} request ${name} returned an invalid result`);
+                }
+                return JSON.parse(text) as JsonValue;
+            } finally {
+                if (active !== undefined) {
+                    void active.completion.finally(() => owner.activeInvocations.delete(active!));
+                }
+            }
+        },
         close(): Promise<void> {
             closing ??= close();
             return closing;
@@ -446,6 +505,7 @@ export async function startExtensionRegistry(
         const failures: string[] = [];
         for (const extension of loaded.toReversed()) {
             contributions.withdraw(extension.id);
+            searchProviders.withdraw(extension.id);
             try {
                 await disposeExtension(extension, disposeTimeoutMs);
             } catch (error) {
@@ -469,6 +529,7 @@ async function activateExtension(
     activationTimeoutMs: number,
     handlerTimeoutMs: number,
     disposeTimeoutMs: number,
+    searchProviders: SearchProviderSet,
 ): Promise<LoadedRegistryExtension> {
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
@@ -483,6 +544,7 @@ async function activateExtension(
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
     let identityProvider: SessionIdentityProvider | undefined;
+    const requestHandlers = new Map<string, VeraExtensionRequestHandler>();
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const activeInvocations = new Set<ActiveExtensionInvocation>();
@@ -588,6 +650,41 @@ async function activateExtension(
                     if (identityProvider === provider) {
                         identityProvider = undefined;
                     }
+                };
+            },
+        }),
+        search: Object.freeze({
+            registerProvider(provider: VeraSearchProvider): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Search providers must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(SEARCH_PROVIDERS_REGISTER_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SEARCH_PROVIDERS_REGISTER_CAPABILITY}`);
+                }
+                return searchProviders.add(loaded.manifest.id, provider);
+            },
+            providers(): readonly VeraSearchProvider[] {
+                if (!loaded.manifest.capabilities.includes(SEARCH_PROVIDERS_USE_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SEARCH_PROVIDERS_USE_CAPABILITY}`);
+                }
+                return searchProviders.list();
+            },
+        }),
+        requests: Object.freeze({
+            handle(name: string, handler: VeraExtensionRequestHandler): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Host requests must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(REQUESTS_HANDLE_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${REQUESTS_HANDLE_CAPABILITY}`);
+                }
+                if (typeof name !== "string" || !/^[a-z][a-z0-9-]{0,63}$/.test(name) || typeof handler !== "function") {
+                    throw new Error("Invalid host request handler");
+                }
+                if (requestHandlers.has(name)) throw new Error(`Duplicate host request: ${name}`);
+                requestHandlers.set(name, handler);
+                return () => {
+                    if (requestHandlers.get(name) === handler) requestHandlers.delete(name);
                 };
             },
         }),
@@ -784,6 +881,7 @@ async function activateExtension(
             ...(identityProvider === undefined
                 ? {}
                 : { identityProvider }),
+            requestHandlers,
             disposers,
             activeInvocations,
             disposing: false,

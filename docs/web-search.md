@@ -9,8 +9,10 @@ Ask Vera to search for a topic and approve the action if prompted. The included
 search tool returns titles, URLs, and snippets. Vera uses a separate fetch tool
 to read a returned page.
 
-Search supports Brave, Exa, and DuckDuckGo Lite. Brave and Exa require API keys;
-DuckDuckGo does not.
+Search supports Brave and Exa, which both need an API key. Other extensions can
+add providers. With no provider ready, a search fails and says so: connect Brave
+or Exa, or install the DuckDuckGo example from
+`examples/extensions/duckduckgo-search`.
 
 ## Connect a search provider
 
@@ -31,8 +33,9 @@ without restarting Vera.
 Vera tries enabled providers from top to bottom. Open a provider's actions
 and choose **Move up**, **Move down**, **Enable**, or **Disable**.
 
-Before you customize the list, available keyed services are ordered Brave,
-then Exa, followed by DuckDuckGo. Your saved order replaces that initial order.
+Before you customize the list, connected services are ordered Brave, then Exa.
+Your saved order replaces that initial order. A provider from an extension joins
+at the bottom and leaves when the extension is removed.
 
 ### What causes fallback
 
@@ -41,8 +44,7 @@ failure tries the next one. Results identify the service used and any earlier
 failures. If all services fail, Vera reports them.
 
 Zero results is a successful search and stops fallback. Cancellation stops
-the search too. DuckDuckGo page changes or blocking are reported as failures,
-rather than as an empty result.
+the search too.
 
 ## Change or remove a key
 
@@ -59,5 +61,13 @@ The tool accepts a query and 1 to 10 results, defaulting to 5. Queries are
 limited to 600 characters and 75 words. A search has a 15-second deadline,
 with at most 5 seconds for each provider.
 
-Disable an older installed `example.web-search` example before using the included
-extension, because both register the same tool name.
+## Add a provider from an extension
+
+An extension adds a provider by declaring `search.providers.register` in its
+manifest and calling `vera.search.registerProvider(...)` from `activate`. The
+provider runs on the host, both for searches and for **Verify**.
+
+A provider has an `id`, a `label`, `requiresKey`, an optional `keyEnv`, and a
+`search({ query, count, key, signal })` function that returns titles, URLs,
+and snippets. Keys are saved in the credential store and passed in as `key`.
+`examples/extensions/duckduckgo-search` is a working example.

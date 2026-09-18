@@ -8,6 +8,7 @@ import {
     type ClientExtensionComposeAdapter,
     type ClientExtensionOneshotAdapter,
     type ClientExtensionContextAdapter,
+    type ClientExtensionHostRequest,
     type ClientExtensionExperimentalTuiAdapter,
     type ClientExtensionMentionsAdapter,
     type ClientExtensionModelSettingsAdapter,
@@ -46,6 +47,7 @@ export interface StartTuiClientExtensionHostOptions {
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
     readonly currentContext?: ClientExtensionContextAdapter["current"];
     readonly readSources?: ClientExtensionContextAdapter["sources"];
+    readonly requestExtension?: ClientExtensionHostRequest;
     readonly compose: ClientExtensionComposeAdapter;
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
@@ -81,6 +83,7 @@ export interface TuiClientExtensionHostBindings {
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
     readonly currentContext?: ClientExtensionContextAdapter["current"];
     readonly readSources?: ClientExtensionContextAdapter["sources"];
+    readonly requestExtension?: ClientExtensionHostRequest;
     readonly compose: ClientExtensionComposeAdapter;
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
@@ -139,6 +142,7 @@ export function createTuiClientExtensionHostStarter(
             currentModelSettings: options.currentModelSettings,
             currentContext: options.currentContext,
             readSources: options.readSources,
+            requestExtension: options.requestExtension,
             compose: options.compose,
             updateModelSettings: options.updateModelSettings,
             subscribeModelSettings: options.subscribeModelSettings,
@@ -282,6 +286,7 @@ export async function startTuiClientExtensionHost(
         ...(options.listSessions === undefined
             ? {}
             : { sessions: { list: options.listSessions } }),
+        hostRequest: options.requestExtension,
         context: {
             sources: options.readSources,
             current: options.currentContext

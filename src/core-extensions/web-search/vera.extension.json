@@ -5,8 +5,12 @@
   "entrypoint": "./extension.ts",
   "capabilities": [
     "tools.register",
+    "search.providers.register",
+    "search.providers.use",
+    "requests.handle",
     "client.commands.register",
     "client.ui.picker",
-    "client.experimental_tui"
+    "client.experimental_tui",
+    "client.host.request"
   ]
 }

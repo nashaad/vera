@@ -4,44 +4,29 @@ import {
 } from "bun:test";
 import { readFile } from "node:fs/promises";
 
-import { activate } from "./index.ts";
+import { activate, duckDuckGo } from "./index.ts";
 import {
-    formatSearchResults,
     parseDuckDuckGoLite,
-    searchBrave,
     searchDuckDuckGo,
 } from "./search.ts";
 
 const signal = new AbortController().signal;
 
-test("manifest and entrypoint register a web search tool", async () => {
+test("manifest and entrypoint register one DuckDuckGo provider", async () => {
     const manifest = JSON.parse(
         await readFile(new URL("./vera.extension.json", import.meta.url), "utf8"),
     );
-    let registered: Record<string, unknown> | undefined;
+    const registered: unknown[] = [];
+    const vera = { search: { registerProvider: (provider: unknown) => { registered.push(provider); } } };
 
-    activate({
-        config: { provider: "duckduckgo" },
-        tools: {
-            register(spec) {
-                registered = spec as unknown as Record<string, unknown>;
-            },
-        },
-    });
+    activate(vera);
 
     expect(manifest).toMatchObject({
         entrypoint: "./index.ts",
-        capabilities: ["tools.register"],
+        capabilities: ["search.providers.register"],
     });
-    expect(registered).toMatchObject({
-        name: "web_search",
-        parallel: true,
-        permissionOperation: "web.search",
-        inputSchema: {
-            required: ["query"],
-            additionalProperties: false,
-        },
-    });
+    expect(registered).toEqual([duckDuckGo]);
+    expect(duckDuckGo).toMatchObject({ id: "duckduckgo", label: "DuckDuckGo", requiresKey: false });
 });
 
 test("DuckDuckGo search keeps one IP-shaped session and parses results", async () => {
@@ -103,52 +88,5 @@ test("DuckDuckGo reports an honest blocked-or-changed-page failure", async () =>
 
     await expect(searchDuckDuckGo("dag", 5, signal, fetcher)).rejects.toThrow(
         "no parseable results",
-    );
-});
-
-test("Brave maps its official response without exposing the API key", async () => {
-    let request: { readonly url: string; readonly init?: RequestInit } | undefined;
-    const results = await searchBrave(
-        "dag",
-        3,
-        "secret-key",
-        signal,
-        async (input, init) => {
-            request = { url: String(input), init };
-            return Response.json({
-                web: {
-                    results: [{
-                        title: "Directed acyclic graph",
-                        url: "https://example.com/dag",
-                        description: "A graph with no directed cycles.",
-                    }],
-                },
-            });
-        },
-    );
-
-    expect(request?.url).toContain("q=dag");
-    expect(request?.init?.headers).toMatchObject({
-        "X-Subscription-Token": "secret-key",
-    });
-    expect(results).toEqual([{
-        title: "Directed acyclic graph",
-        url: "https://example.com/dag",
-        snippet: "A graph with no directed cycles.",
-    }]);
-    expect(JSON.stringify(results)).not.toContain("secret-key");
-});
-
-test("formatted output names the provider and preserves source URLs", () => {
-    expect(formatSearchResults("duckduckgo", "dag", [{
-        title: "Directed acyclic graph",
-        url: "https://example.com/dag",
-        snippet: "No directed cycles.",
-    }])).toBe(
-        "Provider: DuckDuckGo\n"
-        + "Search results for \"dag\":\n\n"
-        + "1. Directed acyclic graph\n"
-        + "   URL: https://example.com/dag\n"
-        + "   No directed cycles.",
     );
 });

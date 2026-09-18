@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { homedir } from "node:os";
 
 import { runCli } from "../../clients/cli/main.ts";
 import {
@@ -133,4 +134,9 @@ test("extension CLI renders dry-run plans and delegates mutations", async () => 
         "set:sample.extension:false",
         "remove:sample.extension",
     ]);
+});
+
+test("an install path starting with ~ resolves to the user's home directory", () => {
+    const parsed = parseExtensionManagerCommand(["extension", "install", "~/src/ext"]);
+    expect(parsed).toEqual({ command: { operation: "install", source: `${homedir()}/src/ext`, dryRun: false } });
 });

@@ -49,50 +49,6 @@ export async function searchDuckDuckGo(
     return results;
 }
 
-export async function searchBrave(
-    query: string,
-    maxResults: number,
-    apiKey: string,
-    signal: AbortSignal,
-    fetcher: Fetch = fetch,
-): Promise<readonly SearchResult[]> {
-    const url = new URL("https://api.search.brave.com/res/v1/web/search");
-    url.searchParams.set("q", query);
-    url.searchParams.set("count", String(maxResults));
-    const response = await fetcher(url, {
-        headers: {
-            Accept: "application/json",
-            "X-Subscription-Token": apiKey,
-        },
-        signal,
-    });
-    if (!response.ok) {
-        const detail = (await response.text()).trim();
-        throw new Error(
-            `Brave search failed with HTTP ${response.status}`
-                + (detail.length === 0 ? "" : `: ${detail}`),
-        );
-    }
-    const body: unknown = await response.json();
-    const web = record(body)?.web;
-    const rawResults = Array.isArray(record(web)?.results)
-        ? record(web)!.results as unknown[]
-        : [];
-    return rawResults.slice(0, maxResults).flatMap((value) => {
-        const result = record(value);
-        return typeof result?.title === "string"
-                && typeof result.url === "string"
-            ? [{
-                title: result.title,
-                url: result.url,
-                snippet: typeof result.description === "string"
-                    ? result.description
-                    : "",
-            }]
-            : [];
-    });
-}
-
 export function parseDuckDuckGoLite(
     html: string,
     maxResults: number,
@@ -139,28 +95,6 @@ function attribute(attributes: string, name: string): string | undefined {
         "i",
     ).exec(attributes);
     return match?.[2];
-}
-
-export function formatSearchResults(
-    provider: "duckduckgo" | "brave",
-    query: string,
-    results: readonly SearchResult[],
-): string {
-    const label = provider === "brave" ? "Brave" : "DuckDuckGo";
-    if (results.length === 0) {
-        return `Provider: ${label}\nNo results found for "${query}".`;
-    }
-    return [
-        `Provider: ${label}`,
-        `Search results for "${query}":`,
-        "",
-        ...results.flatMap((result, index) => [
-            `${index + 1}. ${result.title}`,
-            `   URL: ${result.url}`,
-            `   ${result.snippet}`,
-            "",
-        ]),
-    ].join("\n").trimEnd();
 }
 
 function browserHeaders(): Record<string, string> {
@@ -212,10 +146,4 @@ function decodeHtml(value: string): string {
             return named[entity.toLowerCase()] ?? `&${entity};`;
         },
     );
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-        ? value as Record<string, unknown>
-        : undefined;
 }

@@ -1,3 +1,4 @@
+import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperation, ModelOperationResult } from "../model/model-operations.ts";
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
@@ -76,6 +77,24 @@ export interface CatalogRefreshRequest {
 export interface CatalogRefreshResponse {
     readonly type: "catalog_refresh";
     readonly settings: ModelTurnSettings;
+}
+
+/** Runs a handler an extension registered on the host with `requests.handle`. */
+export interface ExtensionRequest {
+    readonly type: "extension_request";
+    readonly extensionId: string;
+    readonly name: string;
+    readonly payload: JsonValue;
+}
+
+export interface ExtensionRequestResponse {
+    readonly type: "extension_response";
+    readonly value: JsonValue;
+}
+
+export interface ExtensionRequestFailedResponse {
+    readonly type: "extension_request_failed";
+    readonly message: string;
 }
 
 export interface CatalogRefreshFailedResponse {
@@ -627,6 +646,7 @@ export type HostRequest =
     | HostIdentityRequest
     | ModelSettingsRequest
     | CatalogRefreshRequest
+    | ExtensionRequest
     | RefreshCatalogsRequest
     | ListAgentsRequest
     | SearchSessionsRequest
@@ -659,6 +679,8 @@ export type HostResponse =
     | ModelSettingsResponse
     | CatalogRefreshResponse
     | CatalogRefreshFailedResponse
+    | ExtensionRequestResponse
+    | ExtensionRequestFailedResponse
     | RefreshCatalogsResultResponse
     | RefreshCatalogsFailedResponse
     | AgentListResponse
@@ -759,6 +781,21 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             ...(typeof workspace === "string" && workspace.length > 0
                 ? { workspace }
                 : {}),
+        };
+    }
+    if (
+        value?.type === "extension_request"
+        && typeof value.extensionId === "string"
+        && value.extensionId.length > 0
+        && typeof value.name === "string"
+        && value.name.length > 0
+        && "payload" in value
+    ) {
+        return {
+            type: "extension_request",
+            extensionId: value.extensionId,
+            name: value.name,
+            payload: value.payload as JsonValue,
         };
     }
     if (value?.type === "refresh_catalogs") {

@@ -1,3 +1,4 @@
+import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
@@ -101,6 +102,13 @@ export interface CloseAgentOutcome {
     readonly sessionRetained?: boolean;
 }
 
+export type ExtensionRequestHandler = (
+    extensionId: string,
+    name: string,
+    payload: JsonValue,
+    signal: AbortSignal,
+) => Promise<JsonValue>;
+
 export interface StartHostServerOptions {
     readonly readExtensionState?: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates;
     readonly socketPath?: string;
@@ -132,6 +140,7 @@ export interface StartHostServerOptions {
         workspace?: string,
     ) => Promise<ModelTurnSettings | undefined>;
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
+    readonly handleExtensionRequest?: ExtensionRequestHandler;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
@@ -432,6 +441,7 @@ export async function startHostServer(
             options.forgetProvider,
             options.readAnnex,
             options.checkpointStores,
+            options.handleExtensionRequest,
             resolveHostLimits(options.limits),
         );
     });
@@ -580,6 +590,7 @@ function receiveConnection(
         readonly takenAt: string;
         readonly databases: readonly string[];
     }>) | undefined,
+    handleExtensionRequest: ExtensionRequestHandler | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1124,6 +1135,29 @@ function receiveConnection(
                     }
                     : { type: "model_settings", settings },
             ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "extension_request") {
+            clearDeadline();
+            finished = true;
+            const operationClosed = operationOpened();
+            const controller = new AbortController();
+            socket.once("close", () => controller.abort());
+            const extensionRequest = request;
+            void (async () => {
+                try {
+                    if (handleExtensionRequest === undefined) throw new Error("This host cannot run extension requests");
+                    const value = await handleExtensionRequest(
+                        extensionRequest.extensionId,
+                        extensionRequest.name,
+                        extensionRequest.payload,
+                        controller.signal,
+                    );
+                    await send({ type: "extension_response", value });
+                } catch (error) {
+                    await send({ type: "extension_request_failed", message: error instanceof Error ? error.message : String(error) }).catch(() => {});
+                } finally { operationClosed(); socket.end(); }
+            })();
             return;
         }
         if (request?.type === "catalog_refresh") {

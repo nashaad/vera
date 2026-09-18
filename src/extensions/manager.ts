@@ -719,7 +719,7 @@ function assertInstallSlot(
     const existing = records.find((record) => record.id === id);
     if (existing !== undefined) {
         throw new ExtensionManagerError(
-            `Extension ${id} is already installed`,
+            `Extension ${id} is already installed. To replace it, run /extension remove ${id}, then install again.`,
         );
     }
     const destination = join(directory, id);

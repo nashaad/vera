@@ -19,7 +19,7 @@ afterEach(() => {
     else process.env.BRAVE_API_KEY = originalKey;
 });
 
-test("bundled search uses permissions and returns a visible failure followed by a successful retry", async () => {
+test("included search uses permissions and returns a visible failure followed by a successful retry", async () => {
     const configs = includedExtensionConfigs([]).filter((config) =>
         loadExtensionManifest(config.path).manifest.id === "vera.web-search").map((config) => ({ ...config, config: { providers: ["brave"] } }));
     expect(configs).toHaveLength(1);

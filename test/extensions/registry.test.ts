@@ -1652,3 +1652,73 @@ test("a resolved env reference is not reported as a literal credential", async (
     expect(findings).toEqual([]);
     await registry.close();
 });
+
+test("search providers from one extension reach another, and leave with their extension", async () => {
+    const provider = (id: string) => `vera.search.registerProvider({ id: ${JSON.stringify(id)}, label: "Lookup", requiresKey: false, async search() { return []; } });`;
+    const reader = createExtension("test.reader", `
+        export function activate(vera) {
+            vera.tools.register({ name: "list_providers", description: "List", inputSchema: { type: "object" },
+                run() { return { output: vera.search.providers().map((entry) => entry.id).join(",") }; } });
+        }
+    `, ["tools.register", "search.providers.use"]);
+    const lookup = createExtension("test.lookup", `export function activate(vera) { ${provider("lookup")} }`, ["search.providers.register"]);
+    const clash = createExtension("test.clash", `export function activate(vera) { ${provider("lookup")} }`, ["search.providers.register"]);
+    const undeclared = createExtension("test.undeclared", `export function activate(vera) { ${provider("other")} }`, ["tools.register"]);
+    const failures: string[] = [];
+    const registry = await startExtensionRegistry({
+        extensions: [reader, lookup, clash, undeclared].map((path) => ({ path, enabled: true, config: null })),
+        onFailure: (failure) => failures.push(failure.message),
+    });
+    const list = async (from: typeof registry) => {
+        const result = await executeToolHandler({ type: "tool_call", id: "1", name: "list_providers", input: {} },
+            new ToolRuntime(process.cwd()), new AbortController().signal, from.tools());
+        return result.kind === "output" ? result.output : undefined;
+    };
+    try {
+        expect(await list(registry)).toBe("lookup");
+        expect(failures.join("\n")).toContain("Duplicate search provider lookup, already registered by test.lookup");
+        expect(failures.join("\n")).toContain("did not declare search.providers.register");
+    } finally {
+        await registry.close();
+    }
+    const without = await startExtensionRegistry({ extensions: [{ path: reader, enabled: true, config: null }] });
+    try {
+        expect(await list(without)).toBe("");
+    } finally {
+        await without.close();
+    }
+});
+
+test("host requests run the named handler of the named extension", async () => {
+    const echo = createExtension("test.echo", `
+        export function activate(vera) {
+            vera.requests.handle("echo", (payload) => ({ echoed: payload }));
+            vera.requests.handle("fail", () => { throw new Error("nope"); });
+            vera.requests.handle("wait", (_payload, { signal }) => new Promise((_resolve, reject) => {
+                signal.addEventListener("abort", () => reject(new Error("stopped")));
+            }));
+        }
+    `, ["requests.handle"]);
+    const undeclared = createExtension("test.undeclared", `
+        export function activate(vera) { vera.requests.handle("echo", () => null); }
+    `, ["tools.register"]);
+    const failures: string[] = [];
+    const registry = await startExtensionRegistry({
+        extensions: [echo, undeclared].map((path) => ({ path, enabled: true, config: null })),
+        onFailure: (failure) => failures.push(failure.message),
+    });
+    const signal = new AbortController().signal;
+    try {
+        expect(await registry.handleRequest("test.echo", "echo", { n: 1 }, signal)).toEqual({ echoed: { n: 1 } });
+        await expect(registry.handleRequest("test.echo", "fail", null, signal)).rejects.toThrow("nope");
+        await expect(registry.handleRequest("test.echo", "missing", null, signal)).rejects.toThrow("has no host request named missing");
+        await expect(registry.handleRequest("test.undeclared", "echo", null, signal)).rejects.toThrow("has no host request");
+        const controller = new AbortController();
+        const waiting = registry.handleRequest("test.echo", "wait", null, controller.signal);
+        controller.abort();
+        await expect(waiting).rejects.toThrow();
+        expect(failures.join("\n")).toContain("did not declare requests.handle");
+    } finally {
+        await registry.close();
+    }
+});

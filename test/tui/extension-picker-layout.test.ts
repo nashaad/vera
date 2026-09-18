@@ -48,29 +48,29 @@ for (const [width, height] of [[120, 36], [80, 24], [60, 24]] as const) {
             expect(frame).not.toContain("Manage provider");
             expect(frame).toContain("Tab sections");
             expect(frame).toContain("Fallback position: 1");
-            expect(frame).toContain("› Brave");
-            if (width > 60) expect(frame).toContain("› DuckDuckGo");
+            expect(frame).toContain("Brave");
+            expect(frame).not.toContain("› Brave");
+            if (width > 60) expect(frame).toContain("DuckDuckGo");
+            expect(frame).not.toContain("› DuckDuckGo");
             expect(frame).not.toContain("1. Brave");
             if (width === 120) {
                 expect(frame).toContain("│");
                 const lines = frame.split("\n");
-                const braveY = lines.findIndex((line) => line.includes("› Brave"));
-                const duckY = lines.findIndex((line) => line.includes("› DuckDuckGo"));
-                const caretX = lines[braveY]!.indexOf("›");
+                const braveY = lines.findIndex((line) => line.includes("Brave") && line.includes("Enabled"));
+                const duckY = lines.findIndex((line) => line.includes("DuckDuckGo"));
+                const labelX = lines[braveY]!.indexOf("Brave");
                 const cells = (y: number) => setup.captureSpans().lines[y]!.spans.flatMap((span) =>
                     Array.from({ length: span.text.length }, () => ({ fg: span.fg.toInts(), bg: span.bg.toInts() })));
-                expect(lines[duckY]!.indexOf("›")).toBe(caretX);
+                expect(lines[duckY]!.indexOf("DuckDuckGo")).toBe(labelX);
                 const selected = cells(braveY);
-                expect(selected[caretX]!.bg).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
-                expect(selected[caretX - 1]!.bg).toEqual(selected[caretX]!.bg);
-                expect(selected[caretX + 2]!.bg).toEqual(selected[caretX]!.bg);
-                expect(selected[caretX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
-                expect(cells(duckY)[caretX]!.fg).toEqual(RGBA.fromHex(TUI_MUTED).toInts());
+                expect(selected[labelX]!.bg).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
+                expect(selected[labelX - 1]!.bg).toEqual(selected[labelX]!.bg);
+                expect(selected[labelX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
+                expect(cells(duckY)[labelX]!.bg).not.toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
                 view.update({ ...providers(), selectedIndex: 1 });
                 await setup.flush();
-                expect(setup.captureCharFrame()).toContain("› Brave");
-                expect(cells(braveY)[caretX]!.fg).toEqual(RGBA.fromHex(TUI_MUTED).toInts());
-                expect(cells(duckY)[caretX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
+                expect(cells(braveY)[labelX]!.bg).not.toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
+                expect(cells(duckY)[labelX]!.bg).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
             }
         } finally { setup.renderer.destroy(); }
     });

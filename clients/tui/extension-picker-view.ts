@@ -78,7 +78,7 @@ export function renderExtensionPicker(
             label: row.label, meta: row.meta,
             active: index === state.selectedIndex,
             dimmed: state.searchFocused || state.focusedButton !== undefined,
-            leading: " › ", leadingTone: "muted",
+            leading: " ",
             ...dialogRowPointer(pointer, index),
         }));
     }

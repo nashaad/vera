@@ -194,6 +194,8 @@ import {
     readModelSettingsThroughHost,
     refreshCatalogThroughHost,
 } from "../../src/host/model-settings-client.ts";
+import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
+import type { ClientExtensionHostRequest } from "../../src/extensions/client-registry.ts";
 import {
     readAnnexUrlThroughHost,
     type AnnexUrlResult,
@@ -499,6 +501,7 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
@@ -750,6 +753,8 @@ export async function startConfiguredTui(
                 readModelSettingsThroughHost(host.socket_path, workspace),
             refreshHostCatalog: (provider, workspace) =>
                 refreshCatalogThroughHost(host.socket_path, provider, workspace),
+            requestExtension: (extensionId, name, payload, signal) =>
+                requestExtensionThroughHost(host.socket_path, extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -1106,6 +1111,7 @@ export async function startTui(
             extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
             readSources: (signal) => requestCustomizationSources(rt, signal),
+            requestExtension: rt.dependencies.requestExtension,
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState(rt).context,
                 focusedAgentState(rt).modelSettings,
