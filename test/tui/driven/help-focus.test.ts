@@ -29,12 +29,12 @@ test("turn completion keeps focus in the open Help surface", async () => {
         // Two rows since the status split across footer lines: the model
         // shortcut above, then the persistent ready and command controls.
         pane = await session.waitForVisiblePane(
-            "shift+tab HUD · Ctrl+X then m Models",
+            "Shift+Tab HUD · Ctrl+X then m Models",
         );
         expect(pane).toContain("ready · Ctrl+P commands");
         const footerLines = pane.split("\n");
         const modelHintLine = footerLines.findIndex((line) =>
-            line.includes("shift+tab HUD · Ctrl+X then m Models")
+            line.includes("Shift+Tab HUD · Ctrl+X then m Models")
         );
         const readyLine = footerLines.findIndex((line) =>
             line.includes("ready · Ctrl+P commands")

@@ -385,7 +385,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["shift+tab", "backtab"],
         scope: "global",
         description: "Open the dial strip: model and reasoning effort",
-        hint: "shift+tab HUD",
+        hint: "Shift+Tab HUD",
         remappable: true,
     },
     {
