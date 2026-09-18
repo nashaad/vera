@@ -1,42 +1,32 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ModelOperation } from "../../../src/model/model-operations.ts";
 import {
     createTuiCatalogRefreshDependencies,
 } from "../../support/tui-catalog-refresh-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-test("the model inspector stays inside a 100x40 terminal", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vera-tui-picker-height-"));
-    const configDirectory = join(home, ".vera");
-    mkdirSync(configDirectory, { recursive: true });
-    writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
-        schema_version: 1,
-        provider: "openrouter",
-        model: "one/model",
-    }));
+test("favorites verification stays inside a 100x40 terminal", async () => {
+    let finish = (): void => {};
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const available = [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }];
     const session = await startTuiTestSession({
-        home,
+        home: mkdtempSync(join(tmpdir(), "vera-tui-picker-height-")),
         width: 100,
         height: 40,
-        dependencies: () => createTuiCatalogRefreshDependencies({
-            pooled: [{
-                provider: "openrouter",
-                model: "one/model",
-                label: "One",
-                poolName: "Primary",
-                available: true,
-                verified: false,
-                levels: [],
-            }],
-            poolAdmissionDelayMs: 750,
-            poolAdmissionSteps: [
-                { step: "reasoning", label: "Reasoning", status: "passed" },
-                { step: "tools", label: "Tool calling", status: "passed" },
-                { step: "images", label: "Image input", status: "running" },
-            ],
+        dependencies: () => ({
+            ...createTuiCatalogRefreshDependencies({
+                pooled: [{ ...available[0]!, available: true, verified: false }],
+            }),
+            operateModels: async (operation: ModelOperation, onResult) => {
+                await gate;
+                onResult({ ...operation.models[0]!, status: "passed" });
+                return { model: "one/model", provider: "openrouter", availableModels: available,
+                    pooled: [{ ...available[0]!, available: true, verified: true }] };
+            },
         }),
     });
 
@@ -47,25 +37,14 @@ test("the model inspector stays inside a 100x40 terminal", async () => {
         session.sendText("favorites");
         await session.waitForVisiblePane("Favorites");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Favorites (1)");
-        session.sendKey("Right");
-        await session.waitForVisiblePane("Verify this model");
-        session.sendKey("Enter");
-        const pane = await session.waitForVisiblePaneWhere(
-            (frame) => frame.includes("Reasoning")
-                && frame.includes("Tool calling")
-                && frame.includes("Image input"),
-            "the three-step verification console",
-        );
-
-        expect(pane).toContain(
-            "moves between sections  tab · moves inside one  arrows · reaches the tabs  shift+tab",
-        );
-        expect(pane).toContain("↑↓ move · ⏎ run · ← list · ⇥ section · esc tabs");
-        expect(pane).toContain("Verify this model");
-        expect(pane).toContain("Unpin");
-        expect(pane).toContain("Name this model");
+        const favorites = await session.waitForVisiblePane("Favorites (1)");
+        expect(favorites).toContain("Ctrl+R Rename · Ctrl+Y Verify · Esc Back");
+        session.sendKey("C-y");
+        const verifying = await session.waitForVisiblePane("Verifying models");
+        expect(verifying).toContain("openrouter/one/model  waiting");
+        expect(verifying).toContain("↑↓ results · esc back (checks continue)");
     } finally {
+        finish();
         await session.close();
     }
 }, 15_000);
