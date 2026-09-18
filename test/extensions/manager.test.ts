@@ -5,7 +5,6 @@ import {
     mkdtempSync,
     readFileSync,
     readdirSync,
-    realpathSync,
     rmSync,
     symlinkSync,
     writeFileSync,
@@ -20,7 +19,6 @@ import {
     installExtension,
     listExtensions,
     managedExtensionConfigs,
-    projectExtensionDirectory,
     ExtensionManagerError,
     extensionRegistryPathFor,
     removeExtension,
@@ -50,7 +48,7 @@ test("install dry-run previews a local extension without writing state", () => {
     const { root, source } = temporaryExtension();
     const home = join(root, "home");
     try {
-        const result = installExtension(source, { scope: "profile" }, {
+        const result = installExtension(source, {
             home,
             dryRun: true,
         });
@@ -59,11 +57,10 @@ test("install dry-run previews a local extension without writing state", () => {
         expect(result.preview).toMatchObject({
             id: "sample-extension",
             version: "1.2.3",
-            scope: "profile",
             dryRun: true,
             capabilities: ["slash_commands", "context"],
         });
-        expect(existsSync(extensionDirectoryFor({ scope: "profile" }, { home })))
+        expect(existsSync(extensionDirectoryFor({ home })))
             .toBe(false);
     } finally {
         rmSync(root, { recursive: true, force: true });
@@ -74,9 +71,8 @@ test("managed install records source and digest, and disabled copies stay on dis
     const { root, source } = temporaryExtension();
     const home = join(root, "home");
     try {
-        const target = { scope: "profile" as const };
-        const result = installExtension(source, target, { home });
-        const directory = extensionDirectoryFor(target, { home });
+            const result = installExtension(source, { home });
+        const directory = extensionDirectoryFor({ home });
         const installed = join(directory, "sample-extension");
 
         expect(result.record).toMatchObject({
@@ -93,7 +89,7 @@ test("managed install records source and digest, and disabled copies stay on dis
         expect(readdirSync(directory).some((name) => name.startsWith(".staging-")))
             .toBe(false);
 
-        const disabled = setExtensionEnabled("sample-extension", false, target, { home });
+        const disabled = setExtensionEnabled("sample-extension", false, { home });
         expect(disabled.enabled).toBe(false);
         expect(managedExtensionConfigs(directory)).toEqual([{
             path: installed,
@@ -107,9 +103,9 @@ test("managed install records source and digest, and disabled copies stay on dis
             digest: result.preview.digest,
         })]);
 
-        const enabled = setExtensionEnabled("sample-extension", true, target, { home });
+        const enabled = setExtensionEnabled("sample-extension", true, { home });
         expect(enabled.enabled).toBe(true);
-        expect(removeExtension("sample-extension", target, { home }).id)
+        expect(removeExtension("sample-extension", { home }).id)
             .toBe("sample-extension");
         expect(existsSync(installed)).toBe(false);
         expect(listExtensions({ home })).toEqual([]);
@@ -118,39 +114,9 @@ test("managed install records source and digest, and disabled copies stay on dis
     }
 });
 
-test("project installs use an explicit .vera scope and list alongside profile installs", () => {
-    const { root, source } = temporaryExtension("project-extension");
-    const home = join(root, "home");
-    const projectRoot = join(root, "project");
-    try {
-        const result = installExtension(
-            source,
-            { scope: "project", projectRoot },
-            { home },
-        );
-
-        expect(result.preview.scope).toBe("project");
-        expect(result.preview.projectRoot).toBe(realpathSync(projectRoot));
-        expect(result.preview.destination).toBe(
-            join(projectExtensionDirectory(projectRoot), "project-extension"),
-        );
-        expect(listExtensions({ home, projectRoot })).toEqual([
-            expect.objectContaining({
-                scope: "project",
-                id: "project-extension",
-                managed: true,
-                enabled: true,
-            }),
-        ]);
-    } finally {
-        rmSync(root, { recursive: true, force: true });
-    }
-});
-
-test("config loading uses managed enabled state for profile and project scopes", () => {
+test("config loading uses the managed enabled state", () => {
     const { root, source } = temporaryExtension("config-extension");
     const home = join(root, "home");
-    const projectRoot = join(root, "project");
     const configPath = join(home, ".vera", "config.json");
     try {
         mkdirSync(join(home, ".vera"), { recursive: true });
@@ -159,33 +125,24 @@ test("config loading uses managed enabled state for profile and project scopes",
             provider: "openrouter",
             model: "test/model",
         }));
-        installExtension(source, { scope: "profile" }, { home });
-        installExtension(source, { scope: "project", projectRoot }, { home });
+        installExtension(source, { home });
 
-        setExtensionEnabled("config-extension", false, { scope: "profile" }, { home });
-        expect(loadVeraConfig({ path: configPath, projectRoot }).extensions)
-            .toEqual([
-                {
-                    path: join(
-                        projectExtensionDirectory(projectRoot),
-                        "config-extension",
-                    ),
-                    enabled: true,
-                    config: {},
-                },
-            ]);
+        setExtensionEnabled("config-extension", false, { home });
+        expect(loadVeraConfig({ path: configPath }).extensions).toEqual([{
+            path: join(extensionDirectoryFor({ home }), "config-extension"),
+            enabled: false,
+            config: {},
+        }]);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
 });
-
 test("registry paths are exact and cannot rename the whole extensions tree", () => {
     const { root, source } = temporaryExtension("safe-extension");
     const home = join(root, "home");
-    const target = { scope: "profile" as const };
     try {
-        installExtension(source, target, { home });
-        const registryPath = extensionRegistryPathFor(target, { home });
+        installExtension(source, { home });
+        const registryPath = extensionRegistryPathFor({ home });
         const registry = JSON.parse(readFileSync(registryPath, "utf8")) as {
             extensions: Array<Record<string, unknown>>;
         };
@@ -194,10 +151,10 @@ test("registry paths are exact and cannot rename the whole extensions tree", () 
             schema_version: 1,
             extensions: registry.extensions,
         }));
-        expect(() => removeExtension("safe-extension", target, { home }))
+        expect(() => removeExtension("safe-extension", { home }))
             .toThrow(ExtensionManagerError);
-        expect(existsSync(extensionDirectoryFor(target, { home }))).toBe(true);
-        expect(existsSync(join(extensionDirectoryFor(target, { home }), "safe-extension")))
+        expect(existsSync(extensionDirectoryFor({ home }))).toBe(true);
+        expect(existsSync(join(extensionDirectoryFor({ home }), "safe-extension")))
             .toBe(true);
     } finally {
         rmSync(root, { recursive: true, force: true });
@@ -207,14 +164,13 @@ test("registry paths are exact and cannot rename the whole extensions tree", () 
 test("managed markers preserve disabled state when the central registry disappears", () => {
     const { root, source } = temporaryExtension("marker-extension");
     const home = join(root, "home");
-    const target = { scope: "profile" as const };
     try {
-        installExtension(source, target, { home });
-        setExtensionEnabled("marker-extension", false, target, { home });
-        rmSync(extensionRegistryPathFor(target, { home }));
-        expect(managedExtensionConfigs(extensionDirectoryFor(target, { home })))
+        installExtension(source, { home });
+        setExtensionEnabled("marker-extension", false, { home });
+        rmSync(extensionRegistryPathFor({ home }));
+        expect(managedExtensionConfigs(extensionDirectoryFor({ home })))
             .toEqual([{
-                path: join(extensionDirectoryFor(target, { home }), "marker-extension"),
+                path: join(extensionDirectoryFor({ home }), "marker-extension"),
                 enabled: false,
                 config: {},
             }]);
@@ -227,22 +183,21 @@ test("managed markers preserve disabled state when the central registry disappea
 test("managed disabled state wins over an explicit config entry for the same path", () => {
     const { root, source } = temporaryExtension("explicit-extension");
     const home = join(root, "home");
-    const target = { scope: "profile" as const };
     const configPath = join(home, ".vera", "config.json");
     try {
         mkdirSync(join(home, ".vera"), { recursive: true });
-        installExtension(source, target, { home });
+        installExtension(source, { home });
         writeFileSync(configPath, JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
             model: "test/model",
             extensions: [{
-                path: join(extensionDirectoryFor(target, { home }), "explicit-extension"),
+                path: join(extensionDirectoryFor({ home }), "explicit-extension"),
                 enabled: true,
                 config: {},
             }],
         }));
-        setExtensionEnabled("explicit-extension", false, target, { home });
+        setExtensionEnabled("explicit-extension", false, { home });
         expect(loadVeraConfig({ path: configPath }).extensions?.[0]?.enabled)
             .toBe(false);
     } finally {
@@ -253,40 +208,27 @@ test("managed disabled state wins over an explicit config entry for the same pat
 test("stale managed records can be removed and reinstalled", () => {
     const { root, source } = temporaryExtension("stale-extension");
     const home = join(root, "home");
-    const target = { scope: "profile" as const };
     try {
-        installExtension(source, target, { home });
-        rmSync(join(extensionDirectoryFor(target, { home }), "stale-extension"), {
+        installExtension(source, { home });
+        rmSync(join(extensionDirectoryFor({ home }), "stale-extension"), {
             recursive: true,
         });
-        expect(removeExtension("stale-extension", target, { home }).id)
+        expect(removeExtension("stale-extension", { home }).id)
             .toBe("stale-extension");
-        expect(installExtension(source, target, { home }).record?.id)
+        expect(installExtension(source, { home }).record?.id)
             .toBe("stale-extension");
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
 });
 
-test("source symlinks and project extension boundaries are rejected", () => {
+test("source symlinks are rejected", () => {
     const { root, source } = temporaryExtension("symlink-extension");
     const home = join(root, "home");
-    const projectRoot = join(root, "project");
-    const outside = join(root, "outside");
     try {
-        mkdirSync(outside, { recursive: true });
         symlinkSync(join(source, "extension.ts"), join(source, "linked.ts"));
-        expect(() => installExtension(source, { scope: "profile" }, { home }))
+        expect(() => installExtension(source, { home }))
             .toThrow("Symlinks are not supported");
-        rmSync(join(source, "linked.ts"));
-        mkdirSync(join(projectRoot, ".vera"), { recursive: true });
-        rmSync(join(projectRoot, ".vera"), { recursive: true });
-        symlinkSync(outside, join(projectRoot, ".vera"));
-        expect(() => installExtension(
-            source,
-            { scope: "project", projectRoot },
-            { home },
-        )).toThrow("symlink");
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
@@ -295,15 +237,14 @@ test("source symlinks and project extension boundaries are rejected", () => {
 test("extension mutations refuse a live registry lock and reclaim a dead one", () => {
     const { root, source } = temporaryExtension("locked-extension");
     const home = join(root, "home");
-    const target = { scope: "profile" as const };
-    const lockPath = `${extensionRegistryPathFor(target, { home })}.lock`;
+    const lockPath = `${extensionRegistryPathFor({ home })}.lock`;
     try {
         mkdirSync(join(home, ".vera"), { recursive: true });
         writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
-        expect(() => installExtension(source, target, { home }))
+        expect(() => installExtension(source, { home }))
             .toThrow("Another extension operation");
         writeFileSync(lockPath, JSON.stringify({ pid: 999_999 }));
-        expect(installExtension(source, target, { home }).record?.id)
+        expect(installExtension(source, { home }).record?.id)
             .toBe("locked-extension");
     } finally {
         rmSync(root, { recursive: true, force: true });

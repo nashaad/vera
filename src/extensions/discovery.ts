@@ -25,26 +25,6 @@ export function defaultVeraExtensionDirectory(): string {
     return join(veraProfileDirectory(), "extensions");
 }
 
-export function discoverProjectExtensionConfigs(
-    projectRoot: string,
-): readonly VeraExtensionConfig[] {
-    const directory = projectVeraExtensionDirectory(projectRoot);
-    return mergeExtensionConfigs(
-        discoverExtensionConfigs(directory),
-        discoverManagedExtensionConfigs(directory),
-    );
-}
-
-export function projectVeraExtensionDirectory(projectRoot: string): string {
-    let root: string;
-    try {
-        root = realpathSync(resolve(projectRoot));
-    } catch {
-        root = resolve(projectRoot);
-    }
-    return join(root, ".vera", "extensions");
-}
-
 export function discoverExtensionConfigs(
     directory = defaultVeraExtensionDirectory(),
 ): readonly VeraExtensionConfig[] {

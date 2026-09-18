@@ -3,10 +3,7 @@ import { relative, resolve, isAbsolute } from "node:path";
 
 import { loadOptionalVeraConfig, type VeraConfig } from "../config.ts";
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
-import {
-    discoverProjectExtensionConfigs,
-    mergeExtensionScopes,
-} from "../extensions/discovery.ts";
+import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
 
 export interface ExtensionSkillRoot {
@@ -33,7 +30,7 @@ export function isSkillDisabled(
 
 // Reads the home config and enabled extensions from disk, so every caller
 // of the catalog sees the same set without threading it through the host.
-export function resolveSkillSources(projectRoot: string): SkillSources {
+export function resolveSkillSources(): SkillSources {
     const warnings: string[] = [];
     let config: VeraConfig | undefined;
     try {
@@ -44,13 +41,10 @@ export function resolveSkillSources(projectRoot: string): SkillSources {
     let extensions;
     try {
         extensions = mergeExtensionScopes(
-            mergeExtensionScopes(
-                defaultHostExtensionConfigs(
-                    config?.disabled_builtin_extensions ?? [],
-                ),
-                config?.extensions ?? [],
+            defaultHostExtensionConfigs(
+                config?.disabled_builtin_extensions ?? [],
             ),
-            discoverProjectExtensionConfigs(projectRoot),
+            config?.extensions ?? [],
         );
     } catch (error) {
         warnings.push(`extension skills could not be listed: ${errorMessage(error)}`);

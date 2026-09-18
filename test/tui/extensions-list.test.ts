@@ -19,7 +19,6 @@ function entry(
     overrides: Partial<ExtensionListEntry> & Pick<ExtensionListEntry, "id">,
 ): ExtensionListEntry {
     return {
-        scope: "profile",
         enabled: true,
         managed: true,
         path: `/managed/${overrides.id}`,
@@ -64,10 +63,12 @@ test("the empty list is explicit and still names install", () => {
     ].join("\n"));
 });
 
-test("the list groups project above profile and carries status in words", () => {
+test("the list groups installed above included and carries status in words", () => {
     let state = openTuiExtensionsList([
         entry({
-            id: "example.context",
+            id: "vera.context",
+            bundled: true,
+            managed: false,
             capabilities: [
                 "client.commands.register",
                 "client.context.read",
@@ -77,6 +78,8 @@ test("the list groups project above profile and carries status in words", () => 
         }),
         entry({
             id: "vera.btw",
+            bundled: true,
+            managed: false,
             version: "1.2.0",
             capabilities: [
                 "client.commands.register",
@@ -87,31 +90,29 @@ test("the list groups project above profile and carries status in words", () => 
             ],
         }),
         entry({
-            id: "vera.btw",
-            scope: "project",
+            id: "acme.notes",
             version: "1.2.0",
-            path: "/project/.vera/extensions/vera.btw",
             capabilities: ["client.agents"],
         }),
     ]);
     expect(renderTuiExtensionsList(state)).toBe([
         "Extensions",
         "",
-        "In Project",
-        "› vera.btw         v1.2.0  enabled",
+        "Installed",
+        "› acme.notes    v1.2.0  enabled",
         "  agents",
         "",
-        "In Profile",
-        "  example.context  v0.1.0  enabled",
-        "  commands · context · tui · sessions",
-        "  vera.btw         v1.2.0  shadowed",
+        "Included",
+        "  vera.btw      v1.2.0  enabled",
         "  commands · agents · sidebar · mentions · keys",
+        "  vera.context  v0.1.0  enabled",
+        "  commands · context · tui · sessions",
         "",
         "↑↓ move · ⏎ details · Space disable · esc close",
     ].join("\n"));
     state = key(state, "down");
     expect(renderTuiExtensionsList(state)).toContain(
-        "› example.context  v0.1.0  enabled",
+        "› vera.btw      v1.2.0  enabled",
     );
 });
 
@@ -157,7 +158,7 @@ test("Enter opens details, Space from the list asks to disable, Escape closes", 
     state = key(state, "enter");
     const rendered = renderTuiExtensionsList(state);
     expect(rendered).toContain("example.context");
-    expect(rendered).toContain("v0.1.0 · enabled · profile");
+    expect(rendered).toContain("v0.1.0 · enabled · installed");
     expect(rendered).toContain("loaded on this client");
     expect(rendered).toContain("commands · tui");
     expect(rendered).toContain("client.commands.register, client.experimental_tui");
@@ -320,7 +321,7 @@ for (const [width, height] of [[120, 36], [80, 24], [60, 20]] as const) {
             const entries = Array.from({ length: 14 }, (_, index) => entry({
                 id: `extension.${String(index).padStart(2, "0")}`,
                 version: index % 2 === 0 ? "0.1.0" : "12.34.56",
-                scope: index < 2 ? "project" : "profile",
+                bundled: index >= 2,
                 capabilities: ["client.commands.register", "client.context.read", "client.sessions.read"],
             }));
             const initial = openTuiExtensionsList(entries);

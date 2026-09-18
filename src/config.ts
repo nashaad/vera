@@ -62,8 +62,6 @@ import {
     discoverExtensionConfigs,
     discoverManagedExtensionConfigs,
     mergeExtensionConfigs,
-    mergeExtensionScopes,
-    projectVeraExtensionDirectory,
 } from "./extensions/discovery.ts";
 import { veraProfileDirectory } from "./profile-paths.ts";
 import {
@@ -359,8 +357,6 @@ export interface VeraToolResultsConfig {
 export interface LoadVeraConfigOptions {
     readonly path?: string;
     readonly extensionDirectory?: string;
-    /** Adds the explicit project's `.vera/extensions` overlay. */
-    readonly projectRoot?: string;
 }
 
 export interface VeraConfigDefaultsPatch {
@@ -530,24 +526,13 @@ export function loadVeraConfig(
         };
     }
     const explicitExtensions = config.extensions ?? [];
-    const profileExtensions = mergeExtensionConfigs(
+    const extensions = mergeExtensionConfigs(
         mergeExtensionConfigs(
             discoverExtensionConfigs(extensionDirectory),
             explicitExtensions,
         ),
         discoverManagedExtensionConfigs(extensionDirectory),
     );
-    const projectExtensions = options.projectRoot === undefined
-        ? []
-        : mergeExtensionConfigs(
-            discoverExtensionConfigs(
-                projectVeraExtensionDirectory(options.projectRoot),
-            ),
-            discoverManagedExtensionConfigs(
-                projectVeraExtensionDirectory(options.projectRoot),
-            ),
-        );
-    const extensions = mergeExtensionScopes(profileExtensions, projectExtensions);
     if (extensions.length === 0 && config.extensions === undefined) {
         return resolved;
     }

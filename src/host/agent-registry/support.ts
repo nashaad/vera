@@ -173,7 +173,6 @@ import type { OneshotMessage } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { loopCompactionState, type LoopState } from "../../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../../config.ts";
-import { discoverProjectExtensionConfigs } from "../../extensions/discovery.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,
@@ -389,11 +388,7 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
-    readonly acquireWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    readonly releaseWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    readonly workerExtensions?: (
-        workspace: string,
-    ) => readonly VeraExtensionConfig[];
+    readonly workerExtensions?: () => readonly VeraExtensionConfig[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
@@ -795,7 +790,6 @@ export interface RegisteredAgentEntry {
     peerWakes: number[];
     run: Promise<void>;
     worker?: WorkerHandle;
-    projectExtensions?: ExtensionRegistry;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;

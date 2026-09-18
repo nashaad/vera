@@ -65,7 +65,7 @@ import {
     removeExtension,
     setExtensionEnabled,
 } from "../../src/extensions/manager.ts";
-import { extensionTarget, renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
+import { renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -675,7 +675,7 @@ export async function startConfiguredTui(
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
     // Optional: requiring config made attach fail against an already-running host.
-    const config = loadOptionalVeraConfig({ projectRoot: process.cwd() });
+    const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
         ...(options.confirmBusyUpgrade === undefined
             ? {}
@@ -819,7 +819,7 @@ export async function startConfiguredTui(
                 ? {}
                 : { clientExtensions: config.extensions }),
             loadClientExtensionConfiguration() {
-                const latest = loadOptionalVeraConfig({ projectRoot: process.cwd() });
+                const latest = loadOptionalVeraConfig();
                 return {
                     disabledBuiltinExtensions:
                         latest?.disabled_builtin_extensions ?? [],

@@ -158,7 +158,6 @@ import {
     type ExtensionManagerOperations,
 } from "../../src/extensions/manager.ts";
 import {
-    extensionTarget,
     parseExtensionManagerCommand,
     renderExtensionInstallPreview,
     renderExtensionList,
@@ -491,26 +490,19 @@ export async function runCli(
                 ?? setExtensionEnabled,
             remove: dependencies.extensionManager?.remove ?? removeExtension,
         };
-        const target = extensionTarget(command, process.cwd());
         try {
             if (command.operation === "list") {
-                output.write(renderExtensionList(manager.list({
-                    ...(command.scope === "project"
-                        ? { projectRoot: process.cwd() }
-                        : {}),
-                    scope: command.scope,
-                })));
+                output.write(renderExtensionList(manager.list()));
                 return 0;
             }
             if (command.operation === "install") {
-                const result = manager.install(command.source, target, {
+                const result = manager.install(command.source, {
                     dryRun: command.dryRun,
                 });
                 output.write(renderExtensionInstallPreview(result.preview));
                 if (!command.dryRun) {
                     output.write(
-                        `Installed ${result.record?.id ?? result.preview.id}`
-                            + ` in the ${result.preview.scope} scope.\n`,
+                        `Installed ${result.record?.id ?? result.preview.id}.\n`,
                     );
                     output.write(
                         "Restart the resident host to apply host-side capabilities.\n",
@@ -522,20 +514,15 @@ export async function runCli(
                 const record = manager.setEnabled(
                     command.id,
                     command.operation === "enable",
-                    target,
                 );
-                output.write(renderExtensionMutation(
-                    command.operation,
-                    record,
-                    command.scope,
-                ));
+                output.write(renderExtensionMutation(command.operation, record));
                 output.write(
                     "Restart the resident host to apply host-side capabilities.\n",
                 );
                 return 0;
             }
-            const record = manager.remove(command.id, target);
-            output.write(renderExtensionMutation("remove", record, command.scope));
+            const record = manager.remove(command.id);
+            output.write(renderExtensionMutation("remove", record));
             output.write(
                 "Restart the resident host to apply host-side capabilities.\n",
             );

@@ -9,6 +9,10 @@ Extensions add capabilities to Vera. Run `/extensions` to see included
 extensions and installed copies, what they contribute, and whether they are
 enabled. The same screen is available from **Manage extensions** in Ctrl+P.
 
+Installed extensions live in the home, under `extensions/`. Vera does not load
+extensions from a project folder; a `.vera/extensions` directory in a
+workspace is ignored.
+
 ## Install a local extension
 
 Enter this in the composer with the source directory's path:
@@ -23,7 +27,7 @@ opens the same manager.
 ## Inspect or change a copy
 
 Use Up/Down to choose an extension and Enter to open details. The detail
-screen shows its version, scope, status, contributed capabilities, path, and
+screen shows its version, group, status, contributed capabilities, path, and
 source when recorded.
 
 Space enables or disables a managed copy. **Remove** opens a confirmation;
@@ -38,10 +42,8 @@ have no enable/disable shortcut.
 | disabled | The copy is turned off. |
 | failed | Loading failed. Inspect the details. |
 | unmanaged | The copy is not managed through this installation registry. |
-| shadowed | A project copy with the same ID takes precedence over this home copy. |
 
-Project copies appear above home copies. Bundled extensions appear alongside
-installed ones. Desktop and web expose the same facts in their own lists.
+Installed copies appear above included ones. Desktop and web expose the same facts in their own lists.
 
 ## Apply configuration changes
 

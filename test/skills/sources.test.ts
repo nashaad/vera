@@ -13,24 +13,43 @@ test("skill patterns match exact names or a trailing-star prefix", () => {
     expect(isSkillDisabled("vera-help", [])).toBe(false);
 });
 
-test("an enabled project extension contributes its skill directories", () => {
-    const projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "vera-skill-sources-")));
-    const extensionDirectory = join(projectRoot, ".vera", "extensions", "kernel");
-    mkdirSync(extensionDirectory, { recursive: true });
-    writeFileSync(join(extensionDirectory, "extension.ts"), "export default {};\n");
-    writeFileSync(join(extensionDirectory, "vera.extension.json"), JSON.stringify({
-        id: "acme.kernel",
+function writeSkillExtension(directory: string, id: string): void {
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "extension.ts"), "export default {};\n");
+    writeFileSync(join(directory, "vera.extension.json"), JSON.stringify({
+        id,
         version: "1.0.0",
         sdk: "1",
         entrypoint: "./extension.ts",
         capabilities: [],
         contributes: { skills: ["skills"] },
     }));
+}
 
-    const sources = resolveSkillSources(projectRoot);
+test("a home extension contributes its skill directories and a project one does not", () => {
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "vera-skill-home-")));
+    const projectRoot = realpathSync(mkdtempSync(join(tmpdir(), "vera-skill-project-")));
+    const homeExtension = join(home, "extensions", "kernel");
+    writeSkillExtension(homeExtension, "acme.kernel");
+    writeFileSync(join(home, "config.json"), JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+    writeSkillExtension(join(projectRoot, ".vera", "extensions", "cloned"), "acme.cloned");
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    try {
+        const sources = resolveSkillSources();
 
-    expect(sources.extensionRoots).toContainEqual({
-        extensionId: "acme.kernel",
-        path: join(extensionDirectory, "skills"),
-    });
+        expect(sources.extensionRoots).toContainEqual({
+            extensionId: "acme.kernel",
+            path: join(homeExtension, "skills"),
+        });
+        expect(sources.extensionRoots.map((root) => root.extensionId))
+            .not.toContain("acme.cloned");
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+    }
 });

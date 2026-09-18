@@ -165,7 +165,6 @@ export interface ShowDiagnosticsTuiCommandAction {
 
 export interface ShowExtensionsTuiCommandAction {
     readonly type: "show_extensions";
-    readonly scope?: "profile" | "project";
 }
 
 export interface ManageExtensionsTuiCommandAction {
@@ -1557,7 +1556,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                 return { type: "command_error", message: parsed.error };
             }
             return parsed.command.operation === "list"
-                ? { type: "show_extensions", scope: parsed.command.scope }
+                ? { type: "show_extensions" }
                 : { type: "manage_extensions", command: parsed.command };
         },
         palette: {

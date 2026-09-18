@@ -103,8 +103,8 @@ export async function loadCustomizationCatalog(options: {
     }
     const config = loadOptionalVeraConfig();
     const disabled = config?.disabled_builtin_extensions ?? [];
-    const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions({ projectRoot: options.workspace }).map((row) => ({
-        path: row.path, enabled: row.enabled, scope: row.scope, id: row.id,
+    const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions().map((row) => ({
+        path: row.path, enabled: row.enabled, scope: "user", id: row.id,
     }));
     const paths = new Set(entries.map((row) => row.path));
     for (const row of [

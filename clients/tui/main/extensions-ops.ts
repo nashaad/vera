@@ -93,13 +93,13 @@ export function refreshOpenExtensionsList(rt: TuiRuntime): void {
 
 function loadExtensionsList(
     rt: TuiRuntime,
-    selected?: { readonly scope: "profile" | "project"; readonly id: string },
+    selectedId?: string,
 ): TuiExtensionsListState {
     try {
         return withSettingsCommands(rt, openTuiExtensionsList(
             readExtensionEntries(rt),
             loadedExtensionIds(rt),
-            selected,
+            selectedId,
         ));
     } catch (error) {
         return openTuiExtensionsListError(
@@ -114,14 +114,10 @@ function applyExtensionsListMutation(
     entry: TuiExtensionListRow,
 ): void {
     try {
-        const target = entry.scope === "project"
-            ? { scope: "project" as const, projectRoot: process.cwd() }
-            : { scope: "profile" as const };
         const record = operation === "remove"
-            ? removeExtension(entry.id, target)
-            : setExtensionEnabled(entry.id, operation === "enable", target);
-        const line = renderExtensionMutation(operation, record, entry.scope)
-            .trimEnd();
+            ? removeExtension(entry.id)
+            : setExtensionEnabled(entry.id, operation === "enable");
+        const line = renderExtensionMutation(operation, record).trimEnd();
         const changes = [
             ...tuiNoticeCardLines(
                 rt.state,
@@ -139,11 +135,8 @@ function applyExtensionsListMutation(
             EXTENSION_NOTICE_KEY,
         );
         const previousScreen = rt.extensionsList?.screen;
-        const selected = operation === "remove" ? undefined : {
-            scope: entry.scope,
-            id: entry.id,
-        };
-        rt.extensionsList = loadExtensionsList(rt, selected);
+        const selectedId = operation === "remove" ? undefined : entry.id;
+        rt.extensionsList = loadExtensionsList(rt, selectedId);
         if (operation !== "remove" && previousScreen === "detail") {
             rt.extensionsList = {
                 ...rt.extensionsList,
@@ -211,7 +204,7 @@ function reloadClientExtensionsForList(rt: TuiRuntime): void {
 }
 
 function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
-    const entries = [...listExtensions({ projectRoot: process.cwd() })];
+    const entries = [...listExtensions()];
     const clientEnabled = new Map<string, boolean>();
     for (const config of rt.configuredClientExtensions) {
         try {
@@ -225,7 +218,7 @@ function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
     for (const config of paths) {
         const { manifest } = loadExtensionManifest(config.path);
         if (entries.some((entry) => entry.id === manifest.id)) continue;
-        entries.push({ id: manifest.id, version: manifest.version, scope: "profile", bundled: true,
+        entries.push({ id: manifest.id, version: manifest.version, bundled: true,
             enabled: clientEnabled.get(manifest.id)
                 ?? !rt.disabledBuiltinExtensions.includes(manifest.id), managed: false,
             path: config.path, source: "Bundled", capabilities: manifest.capabilities });
@@ -236,7 +229,7 @@ function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
 function withSettingsCommands(rt: TuiRuntime, state: TuiExtensionsListState): TuiExtensionsListState {
     const commands = rt.clientExtensionRegistry?.commands() ?? [];
     return { ...state, rows: state.rows.map((row) => ({ ...row,
-        settingsCommands: row.loaded && row.status !== "shadowed" ? commands
+        settingsCommands: row.loaded ? commands
             .filter((command) => command.source === row.id && command.palette?.group === "Settings" && (command.isAvailable?.() ?? true))
             .map((command) => ({ name: command.name, label: command.palette!.label })) : [],
     })) };
@@ -255,7 +248,7 @@ function runExtensionSettings(rt: TuiRuntime, command: string): void {
             rt.extensionCommandPending = false;
             if (rt.shuttingDown) return;
             const selected = previous.rows[previous.selectedIndex];
-            rt.extensionsList = { ...loadExtensionsList(rt, selected), screen: "detail" };
+            rt.extensionsList = { ...loadExtensionsList(rt, selected?.id), screen: "detail" };
             renderState(rt);
             focusActiveSurface(rt);
         });
@@ -269,8 +262,6 @@ function selectedIndexOf(
     state: TuiExtensionsListState,
     selected: TuiExtensionListRow,
 ): number {
-    const index = state.rows.findIndex((row) =>
-        row.scope === selected.scope && row.id === selected.id
-    );
+    const index = state.rows.findIndex((row) => row.id === selected.id);
     return index === -1 ? state.selectedIndex : index;
 }

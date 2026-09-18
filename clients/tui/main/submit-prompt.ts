@@ -1,6 +1,6 @@
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { invokeDirectClientExtensionCommand } from "../../../src/extensions/client.ts";
-import { extensionTarget, renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
+import { renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
 import { installExtension, removeExtension, setExtensionEnabled } from "../../../src/extensions/manager.ts";
 import { diagnoseVeraProcesses, renderVeraDoctor } from "../../process-doctor.ts";
 import { diagnoseProviders, renderProviderDoctor } from "../../provider-doctor.ts";
@@ -158,30 +158,24 @@ export function submitPrompt(rt: TuiRuntime,
             return;
         }
         try {
-            const target = extensionTarget(command, process.cwd());
             let text: string;
             if (command.operation === "install") {
-                const result = installExtension(command.source, target, {
+                const result = installExtension(command.source, {
                     dryRun: command.dryRun,
                 });
                 text = renderExtensionInstallPreview(result.preview)
                     + (result.record === undefined
                         ? ""
-                        : `\nInstalled ${result.record.id} in the ${result.preview.scope} scope.\n`);
+                        : `\nInstalled ${result.record.id}.\n`);
             } else if (command.operation === "enable" || command.operation === "disable") {
                 const record = setExtensionEnabled(
                     command.id,
                     command.operation === "enable",
-                    target,
                 );
-                text = renderExtensionMutation(
-                    command.operation,
-                    record,
-                    command.scope,
-                );
+                text = renderExtensionMutation(command.operation, record);
             } else {
-                const record = removeExtension(command.id, target);
-                text = renderExtensionMutation("remove", record, command.scope);
+                const record = removeExtension(command.id);
+                text = renderExtensionMutation("remove", record);
             }
             if (command.operation !== "install" || !command.dryRun) {
                 text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
