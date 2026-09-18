@@ -67,6 +67,8 @@ export interface WizardRuntime {
     /** The newest line for each named piece, in the order they first appeared. */
     readonly progress: readonly OutriderProgress[];
     readonly elapsedSeconds?: number;
+    /** A command found inside an installed app that no install registered. Installing again cannot help here; the installer refuses to replace an app that is already there. */
+    readonly unregistered?: string;
 }
 
 /** Everything the user has done in this run of the wizard. The stored facts say what is true; this says where they are. */
@@ -87,6 +89,18 @@ export interface WizardSession {
     readonly spinnerFrame: number;
     /** Only set for a provider Vera can put on the machine itself. */
     readonly runtime?: WizardRuntime;
+    /** Set when the home has nothing connected yet, so the model that answers becomes the default. A home that already has one keeps it. */
+    readonly adopts?: boolean;
+}
+
+/** Whether the model a wizard verifies also becomes the default. A home with nothing connected has no default worth keeping, and a wizard run against the provider already in use is the user changing which model that provider serves. Anything else is a second provider being added beside the first, which leaves the default alone. */
+export function wizardAdoptsDefault(
+    provider: string | undefined,
+    needsProvider: boolean,
+    current: string | undefined,
+): boolean {
+    if (needsProvider) return true;
+    return provider !== undefined && provider === current;
 }
 
 export function newWizardSession(at: OnboardingStepId): WizardSession {
@@ -299,8 +313,13 @@ function doneLines(
     provider: ProviderDescriptor | undefined,
     connected: string,
     machine: MachineFacts,
+    adopts: boolean,
 ): readonly string[] {
-    const opening = `Connected. ${connected} is your default now.`;
+    const current = input.providers
+        .find((entry) => entry.id === input.config?.provider)?.label;
+    const opening = adopts || current === undefined
+        ? `Connected. ${connected} is your default now.`
+        : `Connected. ${connected} is ready, and ${current} is still your default.`;
     const lite = provider?.recommendModels?.find((entry) =>
         entry.id === connected && entry.role === "lite"
     );
@@ -377,6 +396,8 @@ export const RUNTIME_INSTALL_ROW = "install-runtime";
 
 export const RUNTIME_MANUAL_ROW = "install-runtime-myself";
 
+export const RUNTIME_REGISTER_ROW = "register-runtime";
+
 export const OUTRIDER_REPO = "github.com/corvines/outrider";
 
 /** A download in flight is the one thing worth a bar; everything else is a line that is either finished or under way. */
@@ -439,7 +460,7 @@ function runtimeScreen(
         return {
             heading: "",
             body: runtimeProgressBody(
-                `Installing ${provider.label}`,
+                `${runtime.unregistered === undefined ? "Installing" : "Registering"} ${provider.label}`,
                 runtime,
                 "esc stop",
             ),
@@ -449,6 +470,33 @@ function runtimeScreen(
     const room = needed === undefined || machine.memoryGb >= needed
         ? "plenty"
         : "enough for the lite model";
+    if (runtime.unregistered !== undefined) {
+        return {
+            heading: `${provider.label} is on this ${here}, but Vera cannot run it.`,
+            body: {
+                kind: "choice",
+                notes: [
+                    `The app is installed. Its command is not on the path Vera`
+                    + ` looks along, and registering points that path at the app`
+                    + ` itself, so upgrading the app upgrades the command.`,
+                ],
+                groups: [{
+                    rows: [
+                        {
+                            id: RUNTIME_REGISTER_ROW,
+                            label: "Register it",
+                            detail: "a second, nothing is downloaded",
+                        },
+                        {
+                            id: RUNTIME_MANUAL_ROW,
+                            label: "I will do it myself",
+                            detail: "shows the one command to run",
+                        },
+                    ],
+                }],
+            },
+        };
+    }
     return {
         heading: `${provider.label} is not on this ${here}.`,
         body: {
@@ -528,7 +576,13 @@ export function wizardScreen(
             heading: "",
             body: {
                 kind: "done",
-                lines: doneLines(input, provider, session.connected, machine),
+                lines: doneLines(
+                    input,
+                    provider,
+                    session.connected,
+                    machine,
+                    session.adopts === true,
+                ),
             },
         };
     }

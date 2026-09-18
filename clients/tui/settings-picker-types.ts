@@ -191,6 +191,8 @@ export interface TuiSettingsPickerOption {
     readonly section?: string;
     readonly sectionCollapsed?: boolean;
     readonly inTopPicks?: boolean;
+    /** This provider is served by a runtime Vera can start and stop itself. */
+    readonly localRuntime?: boolean;
 }
 
 export interface TuiConfigureFile {
@@ -201,6 +203,38 @@ export interface TuiConfigureFile {
     readonly createIfMissing: boolean;
 }
 
+/** What the local runtime is doing. Facts only: the provider screen decides the words, and a screen with no reading yet says so rather than guessing. */
+export interface TuiLocalRuntimeStatus {
+    readonly provider: string;
+    readonly label: string;
+    readonly state: "unknown" | "absent" | "stopped" | "running";
+    /** The gateway moves separately from the model it serves: it can be up with nothing loaded. */
+    readonly gateway?: "up" | "down";
+    readonly profile?: string;
+    readonly endpoint?: string;
+    readonly healthy?: boolean;
+    readonly residentBytes?: number;
+    /** A command Vera is running right now. The facts around it are the ones from before it started, so the section says what is happening instead of showing them as settled. */
+    readonly busy?: "starting" | "stopping" | "switching";
+    /** How far the download behind a command in flight has got. Only a fetch reports bytes; bringing weights that are already on disk into memory reports nothing. */
+    readonly progress?: TuiLocalRuntimeProgress;
+    /** Why the last thing Vera asked of the runtime did not happen. */
+    readonly failure?: string;
+}
+
+export interface TuiLocalRuntimeProgress {
+    readonly downloaded: number;
+    readonly total?: number;
+    readonly etaSeconds?: number;
+}
+
+export type TuiLocalRuntimeAction =
+    | "start"
+    | "stop"
+    | "restart"
+    | "switch"
+    | "logs";
+
 export interface TuiProviderRow {
     readonly id: string;
     readonly label: string;
@@ -209,6 +243,7 @@ export interface TuiProviderRow {
     readonly hasCredential: boolean;
     readonly answerState?: ProviderAnswerState;
     readonly refreshable?: boolean;
+    readonly localRuntime?: boolean;
     readonly declared?: boolean;
     readonly endpointEditable?: boolean;
 }
@@ -348,6 +383,8 @@ export interface TuiSettingsPickerState {
     readonly journeyPricedOnly?: boolean;
     readonly journeyImagesOnly?: boolean;
     readonly configureFiles?: readonly TuiConfigureFile[];
+    /** The runtime behind a local provider on this screen, shown as its own section. */
+    readonly localRuntime?: TuiLocalRuntimeStatus;
     /** The provider the onboarding model step is choosing within. */
 }
 
@@ -505,6 +542,10 @@ export interface TuiSettingsPickerTransition {
     readonly refreshCatalogScope?: boolean;
     readonly editProvider?: string;
     readonly editEndpoint?: string;
+    readonly runtimeAction?: {
+        readonly provider: string;
+        readonly action: TuiLocalRuntimeAction;
+    };
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;

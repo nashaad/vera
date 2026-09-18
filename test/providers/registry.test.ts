@@ -87,10 +87,10 @@ test("provider access is explicit enough for clients to group without guessing",
             ["deepseek", "api_key"],
             ["openai-codex", "subscription"],
             ["openrouter", "api_key"],
+            ["outrider", "local"],
             ["ollama", "local"],
             ["omlx", "local"],
             ["digitalocean", "api_key"],
-            ["outrider", "local"],
         ]);
 });
 

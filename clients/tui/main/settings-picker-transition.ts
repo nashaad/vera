@@ -19,6 +19,7 @@ import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-pre
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
+import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile } from "./outrider-control.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
@@ -132,6 +133,17 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         openRequestOptionsEditor(rt, 
             transition.requestOptions,
             previousPicker,
+        );
+        return;
+    }
+    if (
+        "runtimeAction" in transition
+        && transition.runtimeAction !== undefined
+    ) {
+        runLocalRuntimeAction(
+            rt,
+            transition.runtimeAction.action,
+            (provider) => { enterWizardModelStep(rt, provider); },
         );
         return;
     }
@@ -423,6 +435,12 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 const chosen = selection.reasoningEffort === undefined ? selection.model : `${selection.model} (${selection.reasoningEffort})`;
                 showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to the library.`);
                 renderState(rt);
+                // A local runtime serves one profile at a time, so picking one of its
+                // models is also the instruction to load it. Last, because what it is
+                // doing is the more useful of the two notices while it is doing it.
+                if (localRuntimeProvider()?.id === selection.provider) {
+                    switchLocalRuntimeProfile(rt, selection.model);
+                }
             };
             if (isHomeClient(target)) {
                 const draft = currentDraft(rt);
@@ -468,6 +486,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 `the model to ${chosen}`,
                 rt.settingsPickerAgent,
             );
+            // A local runtime serves one profile at a time, so picking one of
+            // its models is also the instruction to load it.
+            if (localRuntimeProvider()?.id === selection.provider) {
+                switchLocalRuntimeProfile(rt, selection.model);
+            }
         } else if (selection.kind === "provider") {
             const asked = connectProvider(rt, 
                 selection.providerId,

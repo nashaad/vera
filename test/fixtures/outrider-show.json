@@ -1,0 +1,71 @@
+{
+  "profile": {
+    "id": "qwen35b-mtp",
+    "runnable": true,
+    "description": "Qwen3.6 35B-A3B MTP primary local agent",
+    "model": {
+      "repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "file": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+      "quant": "UD-Q4_K_M",
+      "sha256": "0b21525e972670ed59e1812e170b27c26355381f0656ecc4e25617ece7dac58b",
+      "sizeBytes": 22663387424
+    },
+    "context": {
+      "size": 32768,
+      "original": 131072
+    },
+    "gpuLayers": "auto",
+    "fit": "on",
+    "flashAttention": true,
+    "kvCache": {
+      "keyType": "q4_0",
+      "valueType": "q4_0",
+      "unified": true
+    },
+    "batch": {
+      "size": 1024,
+      "microSize": 512,
+      "parallel": 1
+    },
+    "memory": {
+      "mmap": true,
+      "mlock": false,
+      "cacheRamMiB": 0,
+      "contextCheckpoints": 32,
+      "checkpointMinStep": 8192
+    },
+    "jinja": true,
+    "multimodalProject": {
+      "repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "file": "mmproj-F16.gguf",
+      "quant": "F16",
+      "sha256": "71f3cbc1f7cc0f30d09d41cfa924c0060827ebc33bf15ace7e86661e856f0160",
+      "sizeBytes": 899283584
+    },
+    "systemPrompt": "You are a careful, helpful local assistant.",
+    "sampling": {
+      "temperature": 0.6,
+      "topP": 0.95,
+      "topK": 20,
+      "minP": 0.05,
+      "repeatPenalty": 1
+    },
+    "speculation": {
+      "mode": "mtp",
+      "tokens": 2,
+      "minTokens": 0,
+      "minProbability": 0
+    },
+    "persistence": {
+      "enabled": false
+    },
+    "extraArgs": null,
+    "admission": {
+      "validatedPhysicalMemoryMiB": 32768
+    }
+  },
+  "cache": {
+    "state": "missing",
+    "path": "/Users/x/.outrider/models/qwen35b-mtp-Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+  }
+}

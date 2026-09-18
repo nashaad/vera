@@ -287,6 +287,35 @@ test("a runtime provider asks to install rather than for a key", () => {
     expect(text).not.toContain("Paste your");
 });
 
+test("an app whose command is unregistered is offered registering, not installing again", () => {
+    const binary = "/Users/x/Applications/Outrider.app/Contents/MacOS/outrider";
+    const text = screenText({
+        ...newWizardSession("key"),
+        chosen: "outrider",
+        runtime: { state: "absent", progress: [], unregistered: binary },
+    });
+    expect(text).toContain("Outrider is on this Mac");
+    expect(text).toContain("Register it");
+    expect(text).toContain("shows the one command to run");
+    // Installing again cannot succeed here, so it is not on the screen.
+    expect(text).not.toContain("Install it");
+    expect(text).not.toContain("Outrider is not on this Mac.");
+});
+
+test("registering says so while it runs, rather than claiming a download", () => {
+    const text = screenText({
+        ...newWizardSession("key"),
+        chosen: "outrider",
+        runtime: {
+            state: "installing",
+            progress: [],
+            unregistered: "/Users/x/Applications/Outrider.app/Contents/MacOS/outrider",
+        },
+    });
+    expect(text).toContain("Registering Outrider");
+    expect(text).not.toContain("Installing Outrider");
+});
+
 test("a download says its size, its share, and what is left to wait", () => {
     const text = screenText({
         ...newWizardSession("model"),
