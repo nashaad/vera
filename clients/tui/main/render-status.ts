@@ -3,7 +3,7 @@ import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
 import { tuiApprovalHint } from "../approval.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS, mapDialRows, paintDialHud } from "../dial-paint.ts";
-import { DIAL_EXIT_SEPARATOR, DIAL_HUD_CAP, dialEffortPending, renderDialStrip } from "../dials.ts";
+import { DIAL_EXIT_SEPARATOR, renderDialStrip } from "../dials.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { tuiKeyChord, tuiKeyHint } from "../keymap.ts";
@@ -218,10 +218,8 @@ export function renderStatus(rt: TuiRuntime): void {
                     tuiKeyChord("dials.pair.next")
                 } change`,
                 "⏎ apply",
-                "/permissions for more",
             ].join(" · "),
             dialWidth,
-            Math.max(3, Math.min(DIAL_HUD_CAP, rt.renderer.height - 27)),
         );
     rt.dialCard.visible = stripLines !== undefined;
     rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
@@ -231,9 +229,7 @@ export function renderStatus(rt: TuiRuntime): void {
         if (event.button !== 0 || rt.dialStrip === undefined) return;
         const rows = mapDialRows(hudRows);
         const row = event.y - rt.dialCardTitle.screenY;
-        const lane = row >= rows.modelStart && row < rows.modelEnd ? "model"
-            : row === rows.access ? "access" : row === rows.agent ? "agent"
-            : row >= rows.effort - (rows.effortScaleRows > 0 ? 1 : 0) && row < rows.access ? "effort" : undefined;
+        const lane = row === rows.agent ? "agent" : row === rows.access ? "access" : undefined;
         if (lane === undefined) return;
         event.preventDefault(); event.stopPropagation(); rt.renderer.clearSelection();
         rt.dialStrip = { ...rt.dialStrip, lane };
@@ -260,9 +256,6 @@ export function renderStatus(rt: TuiRuntime): void {
             accessAuto: VERA_TUI_THEME.hud?.auto
                 ?? VERA_TUI_THEME.success,
         }, {
-            effortPending: rt.dialStrip === undefined
-                ? false
-                : dialEffortPending(rt.dialStrip),
             autoAnimation: rt.autoModeAnimationStartedAt === undefined
                 ? undefined
                 : {

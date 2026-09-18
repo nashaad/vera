@@ -1,12 +1,6 @@
 import { expect, test } from "bun:test";
 import {
-    adjustDialEffort,
-    composeDialStrip,
-    DIAL_DEFAULT_SEPARATOR,
-    DIAL_PROVIDER_SEPARATOR,
-    dialEffortPending,
     type DialLane,
-    type DialPoolEntry,
     type DialStripState,
     moveDialLane,
     openDialStrip,
@@ -35,35 +29,15 @@ const THEME: DialPaintTheme = {
 /** What a chosen value looks like on a rung the cursor has left. */
 const settled = (hex: string): string => mixHex(THEME.background, hex, 0.45);
 
-const POOL: readonly DialPoolEntry[] = [
-    {
-        provider: "openai-codex",
-        model: "gpt-5.6-sol",
-        poolName: "sol",
-        levels: ["low", "medium", "high"],
-        defaultLevel: "medium",
-    },
-    {
-        provider: "zai",
-        model: "glm-5",
-        poolName: "luna",
-        levels: ["low", "high"],
-    },
-];
-const SOL = { provider: "openai-codex", model: "gpt-5.6-sol" };
-const LUNA = { provider: "zai", model: "glm-5" };
+const LANES = ["agent", "access"] as const;
 
 function opened(permission = "ask"): DialStripState {
-    return openDialStrip(
-        composeDialStrip({ current: SOL, recents: [LUNA], pool: POOL }),
-        SOL,
-        {
-            agents: ["default", "reviewer"],
-            currentAgent: "default",
-            permissionModes: ["readonly", "ask", "auto"],
-            currentPermission: permission,
-        },
-    );
+    return openDialStrip({
+        agents: ["default", "reviewer"],
+        currentAgent: "default",
+        permissionModes: ["readonly", "ask", "auto"],
+        currentPermission: permission,
+    });
 }
 
 /** The HUD with a given rung focused, reached the way tab reaches it. */
@@ -77,9 +51,7 @@ const rowsOf = (state: DialStripState, width = 80): readonly string[] =>
     renderDialStrip(state, "hints", width).slice(0, -1);
 
 const paint = (state: DialStripState, width = 80) =>
-    paintDialHud(rowsOf(state, width), state.lane, THEME, {
-        effortPending: dialEffortPending(state),
-    });
+    paintDialHud(rowsOf(state, width), state.lane, THEME);
 
 /** The colour of the first span whose text opens with `startsWith`. */
 function colorOf(
@@ -113,7 +85,7 @@ function laneWeights(lane: DialLane): Record<string, string> {
     const painted = paintDialHud(rows, lane, THEME);
     const weights: Record<string, string> = {};
     for (const [index, row] of rows.entries()) {
-        const label = /^[› ] (EFFORT|ACCESS|MODEL|AGENT)/.exec(row)?.[1];
+        const label = /^[› ] (ACCESS|AGENT)/.exec(row)?.[1];
         if (label === undefined) continue;
         weights[label] = painted[index]?.[0]?.color === THEME.text
             ? "bright"
@@ -123,54 +95,8 @@ function laneWeights(lane: DialLane): Record<string, string> {
 }
 
 test("only the focused rung's label is lit", () => {
-    expect(laneWeights("effort")).toEqual({
-        EFFORT: "bright",
-        ACCESS: "muted",
-        MODEL: "muted",
-        AGENT: "muted",
-    });
-    expect(laneWeights("access")).toEqual({
-        EFFORT: "muted",
-        ACCESS: "bright",
-        MODEL: "muted",
-        AGENT: "muted",
-    });
-    expect(laneWeights("model")).toEqual({
-        EFFORT: "muted",
-        ACCESS: "muted",
-        MODEL: "bright",
-        AGENT: "muted",
-    });
-    expect(laneWeights("agent")).toEqual({
-        EFFORT: "muted",
-        ACCESS: "muted",
-        MODEL: "muted",
-        AGENT: "bright",
-    });
-});
-
-/** The model cell under the cursor, including its optional selection fill. */
-function cursorRowSpan(state: DialStripState): DialSpan | undefined {
-    const rows = rowsOf(state);
-    const map = mapDialRows(rows);
-    const painted = paintDialHud(rows, state.lane, THEME);
-    const end = map.modelEnd < 0 ? rows.length : map.modelEnd;
-    for (let index = map.modelStart; index < end; index += 1) {
-        if (!(rows[index] ?? "").includes("\u203a", 2)) continue;
-        return painted[index]?.find((span) => span.text.includes("sol"));
-    }
-    return undefined;
-}
-
-test("the active model cursor uses the normal filled selection row", () => {
-    expect(cursorRowSpan(strip("model"))).toMatchObject({
-        color: THEME.background,
-        background: THEME.accent,
-    });
-    expect(cursorRowSpan(strip("agent"))).toEqual(expect.objectContaining({
-        color: settled(THEME.text),
-    }));
-    expect(cursorRowSpan(strip("agent"))?.background).toBeUndefined();
+    expect(laneWeights("agent")).toEqual({ AGENT: "bright", ACCESS: "muted" });
+    expect(laneWeights("access")).toEqual({ AGENT: "muted", ACCESS: "bright" });
 });
 
 /** The colour of a span on one named rung, ignoring the rest of the HUD. */
@@ -188,7 +114,7 @@ test("a chosen value on an unfocused rung sits between lit and muted", () => {
     // The agent rung holds "default" either way: focused it is full text,
     // left behind it settles, and it never drops to the unchosen weight.
     expect(colorOnAgentRow(strip("agent"), "default")).toBe(THEME.background);
-    const away = colorOnAgentRow(strip("model"), "default");
+    const away = colorOnAgentRow(strip("access"), "default");
     expect(away).toBe(settled(THEME.text));
     expect(away).not.toBe(THEME.muted);
 });
@@ -202,7 +128,7 @@ test("access modes keep their hue when the cursor is elsewhere", () => {
         color: THEME.background,
         background: THEME.accessAsk,
     });
-    expect(colorOf(paint(strip("model")), "ask")).toBe(
+    expect(colorOf(paint(strip("agent")), "ask")).toBe(
         settled(THEME.accessAsk),
     );
 });
@@ -280,14 +206,10 @@ test("the auto tracer moves vertically instead of filling a row", () => {
 
 test("the auto tracer survives adversarial widths and progress values", () => {
     const state = strip("access");
-    const sentinels = new RegExp(
-        `[${DIAL_PROVIDER_SEPARATOR}${DIAL_DEFAULT_SEPARATOR}]`,
-        "g",
-    );
     const color = /^#[0-9a-f]{6}$/i;
     for (const width of [1, 2, 8, 20, 40, 60, 120]) {
         const rows = rowsOf(state, width);
-        const plain = rows.map((row) => row.slice(0, 2) + row.slice(2).replace(sentinels, "").replace("›", " "));
+        const plain = rows.map((row) => row.slice(0, 2) + row.slice(2).replace("›", " "));
         for (
             const progress of [
                 -1,
@@ -348,16 +270,6 @@ test("invalid tracer geometry is inert", () => {
     ).not.toThrow();
 });
 
-
-
-
-
-
-
-
-
-
-
 test("every span carries a colour the theme names", () => {
     const known = new Set<string>([
         ...Object.values(THEME),
@@ -372,7 +284,7 @@ test("every span carries a colour the theme names", () => {
         ]
             .map(settled),
     ]);
-    for (const lane of ["effort", "access", "model", "agent"] as const) {
+    for (const lane of LANES) {
         for (const row of paint(strip(lane))) {
             for (const span of row) expect([...known]).toContain(span.color);
         }
@@ -380,38 +292,29 @@ test("every span carries a colour the theme names", () => {
 });
 
 test("painting covers every row and drops none of its text", () => {
-    const sentinels = new RegExp(
-        `[${DIAL_PROVIDER_SEPARATOR}${DIAL_DEFAULT_SEPARATOR}]`,
-        "g",
-    );
-    for (const lane of ["effort", "access", "model", "agent"] as const) {
+    for (const lane of LANES) {
         for (const width of [80, 50, 40]) {
             const rows = rowsOf(strip(lane), width);
             const painted = paintDialHud(rows, lane, THEME);
             expect(painted).toHaveLength(rows.length);
             for (const [index, row] of painted.entries()) {
                 expect(row.map((span) => span.text).join("")).toBe(
-                    rows[index]!.slice(0, 2) + rows[index]!.slice(2).replace(sentinels, "").replace("›", " "),
+                    rows[index]!.slice(0, 2) + rows[index]!.slice(2).replace("›", " "),
                 );
             }
         }
     }
 });
 
-test("four lanes retain exactly one filled cursor, including when effort is pending", () => {
-    const state = moveDialLane(adjustDialEffort(strip("effort"), 1), 2);
-    const painted = paint(state);
-    expect(painted).toHaveLength(rowsOf(state).length);
-    expect(painted.flat().filter((span) => span.background !== undefined)).toHaveLength(1);
-    for (const lane of ["effort", "access", "model", "agent"] as const) {
+test("both lanes retain exactly one filled cursor", () => {
+    for (const lane of LANES) {
         for (const width of [100, 50]) {
-            const text = paint(strip(lane), width).map((row) => row.map((span) => span.text).join("")).join("\n");
+            const painted = paint(strip(lane), width);
+            expect(painted.flat().filter((span) => span.background !== undefined))
+                .toHaveLength(1);
+            const text = painted.map((row) => row.map((span) => span.text).join("")).join("\n");
             expect(text.match(/›/g)).toHaveLength(1);
             expect(text).toContain(`› ${lane.toUpperCase()}`);
-            expect(text).not.toContain("○");
-            expect(text.match(/●/g)).toHaveLength(1);
         }
     }
-    expect(mapDialRows(rowsOf(state)).effortScaleRows).toBe(2);
-    expect(rowsOf(state)[0]).toContain("live: default");
 });

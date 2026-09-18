@@ -91,8 +91,17 @@ export function openModelSwitcher(rt: TuiRuntime): void {
         recents: switcherRecents(rt),
     });
     requestAgentSettings(rt, focusedAgentClient(rt));
+    requestModelSettingsHistory(rt);
     renderState(rt);
     focusActiveSurface(rt);
+}
+
+/** The recents the switcher lists come from the session's own history. */
+function requestModelSettingsHistory(rt: TuiRuntime): void {
+    void focusedAgentClient(rt).send({
+        type: "get_session_model_settings_history",
+        requestId: randomUUID(),
+    }).catch(() => {});
 }
 
 export function closeModelSwitcher(rt: TuiRuntime): void {
