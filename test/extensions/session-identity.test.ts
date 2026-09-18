@@ -33,7 +33,7 @@ test("session identity is a default included extension", () => {
     expect(includedExtensionConfigs(includedExtensionIds())).toEqual([]);
 });
 
-test("the bundled namer uses the public sessions.identity seam", async () => {
+test("the included namer uses the public sessions.identity seam", async () => {
     const config = sessionIdentityConfig();
     const registry = await startExtensionRegistry({
         extensions: [config!],

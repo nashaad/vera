@@ -519,7 +519,7 @@ function generalHelp(): StyledText {
         ),
         fg(TUI_TEXT)("Extensions\n"),
         fg(TUI_MUTED)(
-            "Bundled and installed extensions can contribute commands without entering model history.",
+            "Included and installed extensions can contribute commands without entering model history.",
         ),
     ]);
 }

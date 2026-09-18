@@ -67,7 +67,7 @@ test("the list groups installed, included, then core, with status in words", () 
     let state = openTuiExtensionsList([
         entry({
             id: "vera.context",
-            bundled: true,
+            included: true,
             core: true,
             managed: false,
             capabilities: [
@@ -79,7 +79,7 @@ test("the list groups installed, included, then core, with status in words", () 
         }),
         entry({
             id: "vera.btw",
-            bundled: true,
+            included: true,
             managed: false,
             version: "1.2.0",
             capabilities: [
@@ -285,7 +285,7 @@ test("the OpenTUI card paints the selected row", async () => {
 });
 
 test("included extension details offer settings and disable, but not remove", () => {
-    const opened = openTuiExtensionsList([entry({ id: "vera.web-search", managed: false, bundled: true })], new Set(["vera.web-search"]));
+    const opened = openTuiExtensionsList([entry({ id: "vera.web-search", managed: false, included: true })], new Set(["vera.web-search"]));
     const state: TuiExtensionsListState = { ...opened, screen: "detail", rows: opened.rows.map((row) => ({ ...row,
         settingsCommands: [{ name: "search-providers", label: "Search providers" }],
     })) };
@@ -301,7 +301,7 @@ test("the rendered included settings action uses its command label", async () =>
     const view = createTuiExtensionsListView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    const opened = openTuiExtensionsList([entry({ id: "vera.web-search", bundled: true, managed: false })]);
+    const opened = openTuiExtensionsList([entry({ id: "vera.web-search", included: true, managed: false })]);
     const state: TuiExtensionsListState = { ...opened, screen: "detail", rows: opened.rows.map((row) => ({ ...row,
         settingsCommands: [{ name: "search-providers", label: "Search providers" }],
     })) };
@@ -325,7 +325,7 @@ for (const [width, height] of [[120, 36], [80, 24], [60, 20]] as const) {
             const entries = Array.from({ length: 14 }, (_, index) => entry({
                 id: `extension.${String(index).padStart(2, "0")}`,
                 version: index % 2 === 0 ? "0.1.0" : "12.34.56",
-                bundled: index >= 2,
+                included: index >= 2,
                 capabilities: ["client.commands.register", "client.context.read", "client.sessions.read"],
             }));
             const initial = openTuiExtensionsList(entries);
@@ -390,7 +390,7 @@ test("narrow extension rows clip long names and contributions while keeping stat
 
 test("space disables and enables an included extension", () => {
     const opened = openTuiExtensionsList([
-        entry({ id: "vera.btw", managed: false, bundled: true }),
+        entry({ id: "vera.btw", managed: false, included: true }),
     ]);
     expect(renderTuiExtensionsList(opened)).toContain("Space disable");
     expect(handleTuiExtensionsListKey(opened, { name: "space" }).mutate).toMatchObject({
@@ -398,7 +398,7 @@ test("space disables and enables an included extension", () => {
         entry: expect.objectContaining({ id: "vera.btw" }),
     });
     const disabled = openTuiExtensionsList([
-        entry({ id: "vera.btw", managed: false, bundled: true, enabled: false }),
+        entry({ id: "vera.btw", managed: false, included: true, enabled: false }),
     ]);
     expect(handleTuiExtensionsListKey(disabled, { name: "space" }).mutate).toMatchObject({
         operation: "enable",

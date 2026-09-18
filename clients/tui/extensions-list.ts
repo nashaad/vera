@@ -473,7 +473,7 @@ function toRow(
 ): TuiExtensionListRow {
     const capabilities = entry.capabilities ?? [];
     return {
-        group: entry.bundled !== true ? "installed" : entry.core === true ? "core" : "included",
+        group: entry.included !== true ? "installed" : entry.core === true ? "core" : "included",
         id: entry.id,
         version: entry.version === undefined ? "?" : `v${entry.version}`,
         status: rowStatus(entry),
@@ -493,7 +493,7 @@ function rowStatus(
     entry: ExtensionListEntry,
 ): TuiExtensionStatus {
     if (entry.error !== undefined) return "failed";
-    if (entry.bundled) return entry.enabled ? "enabled" : "disabled";
+    if (entry.included) return entry.enabled ? "enabled" : "disabled";
     if (!entry.managed) return "unmanaged";
     return entry.enabled ? "enabled" : "disabled";
 }

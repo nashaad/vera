@@ -11,10 +11,16 @@ context inspection, and command hooks. They appear in `/extensions` and
 
 Vera loads every extension folder in two places:
 
-- `src/core-extensions/` holds core extensions such as Customize, Context,
-  web search, and session names. They can be switched off but are part of Vera.
-- `extensions/` holds optional extensions: Plan, BTW, Diff, Budget, and MCP.
-  They are on by default, and deleting a folder removes that extension.
+- `src/core-extensions/` holds core extensions. They can be switched off but
+  are part of Vera.
+- `extensions/` holds optional extensions. They are on by default, and
+  deleting a folder removes that extension.
+
+```text
+core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
+           vera.reasoning-cycle, vera.session-identity, vera.web-search
+included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.plan
+```
 
 ## Plan before making changes
 
@@ -104,7 +110,7 @@ in configuration, name their IDs in `disabled_included_extensions`:
 }
 ```
 
-Other included IDs include `vera.diff` and `vera.context`.
+Any ID from the lists above works here.
 `/extension disable <id>` and `/extension enable <id>` edit this list, as does
 Space on an included row in `/extensions`.
 

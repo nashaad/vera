@@ -61,10 +61,10 @@ test("included extension status respects explicit copies and disabled IDs", asyn
     expect(extensions.filter((source) => source.name === "vera.plan"))
         .toMatchObject([{ scope: "user", status: "disabled" }]);
     expect(extensions.find((source) => source.name === "vera.command-hooks"))
-        .toMatchObject({ scope: "bundled", status: "disabled" });
+        .toMatchObject({ scope: "core", status: "disabled" });
     expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "user"))
         .toMatchObject({ status: "enabled" });
-    expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "bundled"))
+    expect(extensions.find((source) => source.name === "vera.btw" && source.scope === "included"))
         .toMatchObject({ status: "shadowed" });
 });
 
@@ -92,7 +92,7 @@ for (const mode of ["included", "disabled-builtin", "override", "disabled-copy"]
         const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
         const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
         const entries = catalog.sources.filter((source) => source.name === "vera.context");
-        expect(entries.find((source) => source.scope === "bundled"))
+        expect(entries.find((source) => source.scope === "core"))
             .toMatchObject({ status: explicit ? "shadowed" : mode === "included" ? "enabled" : "disabled" });
         if (explicit) expect(entries.find((source) => source.scope === "user"))
             .toMatchObject({ status: mode === "override" ? "enabled" : "disabled" });

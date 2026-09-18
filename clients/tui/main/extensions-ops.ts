@@ -218,16 +218,16 @@ function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
         try {
             manifest = loadExtensionManifest(included.path).manifest;
         } catch (error) {
-            entries.push({ id: included.path, bundled: true, core: included.core, enabled: false,
-                managed: false, path: included.path, source: "Bundled",
+            entries.push({ id: included.path, included: true, core: included.core, enabled: false,
+                managed: false, path: included.path, source: included.core ? "Core" : "Included",
                 error: error instanceof Error ? error.message : String(error) });
             continue;
         }
         if (entries.some((entry) => entry.id === manifest.id)) continue;
-        entries.push({ id: manifest.id, version: manifest.version, bundled: true, core: included.core,
+        entries.push({ id: manifest.id, version: manifest.version, included: true, core: included.core,
             enabled: clientEnabled.get(manifest.id)
                 ?? !rt.disabledIncludedExtensions.includes(manifest.id), managed: false,
-            path: included.path, source: "Bundled", capabilities: manifest.capabilities });
+            path: included.path, source: included.core ? "Core" : "Included", capabilities: manifest.capabilities });
     }
     return entries;
 }

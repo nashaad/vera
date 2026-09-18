@@ -3,7 +3,7 @@ import { includedExtensionConfigs } from "../../src/extensions/included.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 
-test("the bundled explorer registers a bounded definition and can be disabled", async () => {
+test("the included explorer registers a bounded definition and can be disabled", async () => {
     const configs = includedExtensionConfigs([]);
     const registry = await startExtensionRegistry({ extensions: configs });
     try {
