@@ -546,7 +546,7 @@ export function openCommandPalette(rt: TuiRuntime): void {
 
 export function openHelp(rt: TuiRuntime, tab: "general" | "keys" = "general"): void {
     const nextHelp = startTuiHelp(coreHelpCommands(rt), rt.hostExtensionCommands);
-    rt.help = tab === "general" ? nextHelp : { ...nextHelp, tab };
+    rt.help = tab === "general" ? nextHelp : { ...nextHelp, tab, open: true };
     rt.composer.blur();
     renderState(rt);
     focusActiveSurface(rt);
