@@ -21,6 +21,36 @@ PYTHONPATH=python python3 examples/workflows/counter.workflow.py /tmp/wf-demo
 The example prints a run ID and result, then stores the run under
 `/tmp/wf-demo`. The journal directory must exist before the run starts.
 
+### A workflow that calls a model and asks you
+
+`examples/workflows/writer.workflow.py` researches a topic, outlines it,
+waits for your notes on the outline, then writes a draft. Each step makes one
+call to `openai/gpt-5.6-luna` through OpenRouter.
+
+```sh
+export OPENROUTER_API_KEY=...
+PYTHONPATH=python python3 examples/workflows/writer.workflow.py "sea otters"
+```
+
+The run stops after the outline and prints its ID. Answer it:
+
+```sh
+PYTHONPATH=python python3 -m vera.workflow answer <run-id>
+```
+
+The command prints a local page address. The page shows the outline and takes
+your notes, then the run carries on and prints the draft. Pass the notes as a
+second argument to skip the page.
+
+The run is stored under the Vera home, so `/runs` in the annex lists it with
+its steps, the model calls under them, and the charge OpenRouter reported for
+each call. Stop the script during a step and run
+`python3 -m vera.workflow resume <run-id>`: finished steps return their
+recorded replies and are not sent again.
+
+`--offline` replaces the model with canned replies and needs no key. Offline
+calls record tokens but no cost.
+
 ## Define steps and a workflow
 
 A step is a function with `@step`. A workflow calls those steps from ordinary
