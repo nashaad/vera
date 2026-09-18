@@ -360,7 +360,7 @@ test("inspect health stays idle until v and reports red with no selected model",
         expect(pane).toContain("press v");
         expect(probed).toBe(0);
         session.sendKey("v");
-        pane = await session.waitForVisiblePane("no model in the library");
+        pane = await session.waitForVisiblePane("no model in your favorites");
         expect(pane).toContain("red");
         expect(pane).toContain("/model");
         expect(probed).toBe(0);

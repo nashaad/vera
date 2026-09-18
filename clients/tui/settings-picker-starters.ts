@@ -1014,7 +1014,7 @@ export function startTuiPoolVerifyScopePicker(
     ];
     return {
         kind: "pool_verify_scope",
-        title: "Verify library models",
+        title: "Verify favorites",
         subtitle: "each model is one live call to its provider",
         allOptions: options,
         options,

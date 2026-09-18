@@ -51,7 +51,7 @@ test("a favorite keeps through the host operation and verification can be left r
     } finally { finish(); await session.close(); }
 }, 15_000);
 
-test("verification is explicit and all coverage includes only library models", async () => {
+test("verification is explicit and all coverage includes only favorites", async () => {
     const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
     const operations: ModelOperation[] = [];
     const available = ["saved", "catalog-only"].map((model) => ({ provider: "openrouter", model, label: model, levels: [], description: "" }));
@@ -75,9 +75,9 @@ test("verification is explicit and all coverage includes only library models", a
         expect(session.captureVisiblePane()).not.toContain("Not now");
         expect(operations).toEqual([]);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
-        session.sendText("verify library"); await session.waitForVisiblePane("Verify library models");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Unverified models in your library");
-        session.sendKey("Tab"); await session.waitForVisiblePane("All models in your library");
+        session.sendText("verify favorites"); await session.waitForVisiblePane("Verify favorites");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Unverified favorites");
+        session.sendKey("Tab"); await session.waitForVisiblePane("All favorites");
         session.sendKey("Enter"); await session.waitForVisiblePane("Verification results");
         expect(operations).toHaveLength(1);
         expect(operations[0]?.operation).toBe("verify");

@@ -281,7 +281,7 @@ async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, subm
         }
         rt.providerForm = undefined;
         const notice = `${provider?.label ?? submitted.id} saved and its catalog read: ${catalog.models.length} models discovered. `
-            + "Discovery decides nothing: none is in your library, verified, or bound.";
+            + "Discovery decides nothing: none is in your favorites, verified, or bound.";
         requestAgentSettings(rt, focusedAgentClient(rt));
         const providerList = form.parent?.kind === "provider_actions" ? form.parent.parent : form.parent;
         openProviderPicker(rt, providerList?.parent, { selected: submitted.id, subtitle: notice });
@@ -563,7 +563,7 @@ export function openSettingsDestination(rt: TuiRuntime,
         }));
         rt.settingsPicker = { kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 0,
             allOptions: rows, options: rows, parent: options.parent,
-            subtitle: "Only verified models in your library are eligible. Assigning leaves the conversation model unchanged." };
+            subtitle: "Only verified models in your favorites are eligible. Assigning leaves the conversation model unchanged." };
         renderState(rt);
         focusActiveSurface(rt);
     } else {

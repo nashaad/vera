@@ -1666,7 +1666,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     for (const [utility, label, description] of [
         ["dials", "Dial strip", "stage agent and access together"],
-        ["verify", "Verify library models", "send real requests to check the models in your favorites"],
+        ["verify", "Verify favorites", "send real requests to check the models in your favorites"],
     ] as const) registry.registerPaletteAction({ name: utility, label, description, group: "Settings",
         action: { type: "open_model_utility", utility } });
     return registry;

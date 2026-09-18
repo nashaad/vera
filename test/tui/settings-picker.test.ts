@@ -1121,7 +1121,7 @@ test("one-section lists without groups consume left and right", () => {
     const screens: TuiSettingsPickerState[] = [
         { kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 1, allOptions: rows, options: rows },
         { kind: "model_menu", title: "More", query: "", selectedIndex: 1, allOptions: rows, options: rows },
-        { kind: "pool_verify_scope", title: "Verify library models", query: "", selectedIndex: 1, allOptions: rows, options: rows, verificationTargets: [] },
+        { kind: "pool_verify_scope", title: "Verify favorites", query: "", selectedIndex: 1, allOptions: rows, options: rows, verificationTargets: [] },
     ];
     for (const screen of screens) {
         for (const name of ["left", "right"]) {
@@ -1569,14 +1569,14 @@ test("an empty model list says which emptiness it is", async () => {
     const searched = typedInto(modelPickerWithPool(), "zzqq");
     expect(searched.options).toHaveLength(0);
     const searchedFrame = await pickerFrame(searched);
-    expect(searchedFrame).toContain("No models in your library match");
+    expect(searchedFrame).toContain("No favorites match");
     expect(searchedFrame).toContain("Tab switches to Catalog");
 
     // Nothing shortlisted and no current model leaves More with no actions to
     // hold, so the copy must not send the user to a row that is not drawn.
     const bare = switchedModelTab(modelPickerWithPool([], "", ""), "pool");
     const bareFrame = await pickerFrame(bare);
-    expect(bareFrame).toContain("Nothing in your library yet");
+    expect(bareFrame).toContain("No favorites yet");
     expect(bareFrame).toContain("Tab switches to Catalog");
     expect(bareFrame).not.toMatch(/More\s+.*\u203a/);
 
@@ -1754,7 +1754,7 @@ test("Library offers the current model as a visible action row", async () => {
     // The shortlist column holds models and nothing else. Adding the current
     // one is something the list can do, so it lives on the More page above.
     expect(shortlist.options.every((option) =>
-        option.label !== "Add current model to library"
+        option.label !== "Add current model to favorites"
     )).toBe(true);
     const shortlistFrame = await pickerFrame(shortlist);
     expect(shortlistFrame).toMatch(/More\s+.*\u203a/);
@@ -1786,7 +1786,7 @@ test("Library offers the current model as a visible action row", async () => {
         ],
     });
     expect(synced.options.some((option) =>
-        option.label === "Add current model to library"
+        option.label === "Add current model to favorites"
     )).toBe(false);
 });
 
@@ -1923,7 +1923,7 @@ test("supported model inspectors expose exact request-option state and action", 
     expect(await pickerFrame(unsupported)).not.toContain("Request options");
 });
 
-test("verifying the library lives on More, and every row is clickable", async () => {
+test("verifying favorites lives on More, and every row is clickable", async () => {
     const shortlist = {
         ...modelPickerWithPool(),
         selectedIndex: 1,
@@ -1943,7 +1943,7 @@ test("verifying the library lives on More, and every row is clickable", async ()
     ).state!;
     expect(page.modelFocus).toBe("page");
     const pageFrame = await pickerFrame(page);
-    expect(pageFrame).toMatch(/Verify library models\s+\^⇧v/);
+    expect(pageFrame).toMatch(/Verify favorites\s+\^⇧v/);
     // The sign follows the pane: shut it offers to open, open it offers to
     // close, whichever row the cursor is on.
     expect(await pickerFrame(shortlist)).toContain("+ More");
@@ -4246,10 +4246,10 @@ test("the Defaults row reports the subagent assignment instead of generic set", 
     }])[2]?.description).toBe("parent fallback");
 });
 
-test("the verify-library action asks how much of the collection it covers", () => {
+test("the verify-favorites action asks how much of the collection it covers", () => {
     const actions = switchedModelTab(pickerWithActions(), "actions");
     const selectedIndex = actions.options.findIndex((option) =>
-        option.label === "Verify library models"
+        option.label === "Verify favorites"
     );
     const transition = handleTuiSettingsPickerKey(
         { ...actions, selectedIndex },
@@ -4286,7 +4286,7 @@ test("the Actions tab lists what the pane can do in words", () => {
 
     expect(actions.options.map((option) => option.label)).toEqual([
         "Refresh model catalog from providers",
-        "Verify library models",
+        "Verify favorites",
         "Show or hide the rarely used models",
         "Connect, edit or forget a provider",
     ]);

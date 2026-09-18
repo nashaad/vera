@@ -300,7 +300,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     );
                 }
                 showStatusNotice(rt, 
-                    `${toggle.provider}/${toggle.model} is already in your library`,
+                    `${toggle.provider}/${toggle.model} is already in your favorites`,
                 );
                 renderState(rt);
                 return;
@@ -437,7 +437,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     patch: { provider: selection.provider, model: selection.model, reasoningEffort: keptEffort ?? null } })
                     .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
                 const chosen = keptEffort === undefined ? selection.model : `${selection.model} (${keptEffort})`;
-                showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to the library.`);
+                showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to your favorites.`);
                 renderState(rt);
             };
             if (isHomeClient(target)) {

@@ -74,8 +74,8 @@ test("a row is its name and one status word", () => {
     // Nothing in the list is longer than a word or two, so no row can clip.
     expect(status.get("model")).toBe("");
     expect(status.get("extra")).toBe("set");
-    expect(status.get("snappy")).toBe("not in your library");
-    expect(status.get("critic")).toBe("not in your library");
+    expect(status.get("snappy")).toBe("not in your favorites");
+    expect(status.get("critic")).toBe("not in your favorites");
     // Nothing is ever left unrun: an unset row names what runs it instead.
     expect(status.get("eco")).toBe("uses session");
     // eco is unset in this fixture, so compaction falls past it to the session.
@@ -275,10 +275,10 @@ test("the highlighted row explains itself beside the list", () => {
         ["Runs", "this session's model"],
         ["Set to", 'route "cheap"'],
         ["If unset", "this session's model"],
-        ["In library", "no"],
+        ["In favorites", "no"],
     ]);
     expect(cell.get("snappy")?.note).toContain(
-        "not in your library, so this session's model runs it instead",
+        "not in your favorites, so this session's model runs it instead",
     );
     // A job row names the substitute that actually ran.
     expect(cell.get("classifier")?.detailFacts).toEqual([
@@ -286,7 +286,7 @@ test("the highlighted row explains itself beside the list", () => {
         ["Set to", "nothing"],
         ["If unset", "whatever extra uses"],
     ]);
-    expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["In library", "yes"]);
+    expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["In favorites", "yes"]);
 });
 
 test("ordinary assignment rows always name what runs when unset", () => {

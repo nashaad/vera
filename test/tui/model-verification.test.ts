@@ -9,7 +9,7 @@ test("one verification screen combines provider scope and coverage with disabled
     expect(state.options.map((row) => [row.value, row.unavailable])).toEqual([["", false], ["p", false], ["q", true]]);
     expect(handleVerificationKey({ ...state, selectedIndex: 2 }, { name: "enter" }).selection).toBeUndefined();
     const all = handleVerificationKey({ ...state, selectedIndex: 2 }, { name: "tab" }).state!;
-    expect(all.subtitle).toContain("All models in your library");
+    expect(all.subtitle).toContain("All favorites");
     expect(handleVerificationKey(all, { name: "enter" }).selection)
         .toEqual({ kind: "pool_verify_scope", onlyUnverified: false, provider: "q" });
 });

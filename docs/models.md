@@ -47,14 +47,14 @@ and press M. Escape cancels that shortcut without changing your draft.
 
 ## Browse every model
 
-`/models` opens the model page: Library, Catalog, Actions, Defaults, and Help,
-with Ctrl+E for providers. Nothing here changes the model for your next
-request.
+`/models` opens the browse page: a searchable list of models with Filter and
+sort, Connect provider, and Manage models under it. Nothing here changes the
+model for your next request.
 
 ### Filter and sort
 
-The Catalog starts with Favorites unless you saved another collection. To see
-every connected model, open **Filter and sort** and choose **All connected**.
+Browse starts with Favorites unless you saved another collection. To see every
+connected model, open **Filter and sort** and choose **All connected**.
 Ctrl+G switches between these two collections.
 
 Filters narrow results by provider, availability, known price, image support,
@@ -101,9 +101,9 @@ In Favorites, Ctrl+R changes the highlighted model's display name. Leave the
 name empty to restore its catalog label. Ctrl+Y tests whether the model can
 answer; it also works on connected models you have not favorited.
 
-For bulk checks, choose **Verify library models** from the command palette.
-Tab switches between unverified favorites and all favorites. Choose the whole
-library or one provider, then press Enter to start.
+For bulk checks, choose **Verify favorites** from the command palette. Tab
+switches between unverified favorites and all favorites. Choose all of them or
+one provider, then press Enter to start.
 
 Verification makes real requests and can incur provider charges. Results show
 whether each check passed or failed. Escape returns to the previous screen
@@ -152,8 +152,9 @@ You are asked to choose again only when it does not.
 
 ## Refresh or recover a connection
 
-Choose **Refresh** from the model page's Actions to reload connected catalogs. A model that has
-disappeared from its provider is marked unavailable and cannot be selected.
+Choose **Refresh model catalog** from Manage models (Ctrl+K on the browse page)
+to reload connected catalogs. A model that has disappeared from its provider is
+marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
 Vera retries transient request failures up to twice. Missing credentials or

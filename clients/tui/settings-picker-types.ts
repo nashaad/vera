@@ -612,13 +612,13 @@ export function tuiModelActionOptions(
         const current = options.currentModel;
         rows.push({
             value: tuiModelActionValue("shortlist_current"),
-            label: "Add current model to library",
+            label: "Add current model to favorites",
             description: "enter",
             note:
-                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your library.`,
+                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your favorites.`,
             detailTitle: "add current model",
             detailFacts: [["Current model", `${current.provider}/${current.model}`]],
-            searchText: `add pin keep current model library ${current.provider} ${current.model}`,
+            searchText: `add pin keep current model favorites library ${current.provider} ${current.model}`,
             provider: current.provider,
             model: current.model,
             action: true,
@@ -639,13 +639,13 @@ export function tuiModelActionOptions(
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
-            label: "Verify library models",
+            label: "Verify favorites",
             description: tuiKeyHint("verify_pool").split(" ")[0] ?? "",
             note:
-                "Choose unverified models or the whole library, then send one small request to each and mark the ones that answer.",
-            detailTitle: "verify library",
+                "Choose unverified favorites or all of them, then send one small request to each and mark the ones that answer.",
+            detailTitle: "verify favorites",
             detailFacts: [],
-            searchText: "verify check test probe working broken library pool",
+            searchText: "verify check test probe working broken favorites library pool",
         });
     }
     rows.push({
@@ -765,7 +765,7 @@ export function assignmentStatusWord(row: ModelAssignmentRow): string {
         return `${row.declared.length} models`;
     }
     if (row.bound) {
-        return row.source === "assignment" ? "set" : "not in your library";
+        return row.source === "assignment" ? "set" : "not in your favorites";
     }
     return row.inherits === undefined
         ? "uses session"
@@ -806,7 +806,7 @@ export function assignmentFacts(
         ["If unset", ifUnset],
         ...(row.bound
             ? [[
-                "In library",
+                "In favorites",
                 row.source === "assignment" ? "yes" : "no",
             ] as const]
             : []),
@@ -828,8 +828,8 @@ export function assignmentNote(row: ModelAssignmentRow): string {
         return purpose;
     }
     const runs = `${row.inherits ?? "this session's model"} runs it instead`;
-    return `${purpose} The model it is set to is not in your library, so ${runs}.`
-        + ` Add that model to your library, or point ${row.label} at one that is.`;
+    return `${purpose} The model it is set to is not in your favorites, so ${runs}.`
+        + ` Add that model to your favorites, or point ${row.label} at one that is.`;
 }
 
 export const POOL_VERIFY_UNVERIFIED_VALUE = "unverified";

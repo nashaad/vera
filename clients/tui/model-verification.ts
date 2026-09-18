@@ -14,13 +14,13 @@ export function verificationPicker(models: readonly VerificationTarget[], onlyUn
     const scopes = [undefined, ...new Set(models.map((model) => model.provider))];
     const options = scopes.map((provider) => {
         const count = targets.filter((model) => provider === undefined || model.provider === provider).length;
-        return { value: provider ?? "", label: provider === undefined ? "Entire library" : `${provider} library`,
+        return { value: provider ?? "", label: provider === undefined ? "All favorites" : `${provider} favorites`,
             description: `${count} target${count === 1 ? "" : "s"}`, unavailable: count === 0 };
     });
-    return { kind: "pool_verify_scope", title: "Verify library models", query: "", selectedIndex,
+    return { kind: "pool_verify_scope", title: "Verify favorites", query: "", selectedIndex,
         verificationTargets: models, onlyUnverified,
-        subtitle: `${onlyUnverified ? "Unverified models in your library" : "All models in your library"} · tab to change\n`
-            + `${targets.length} model${targets.length === 1 ? "" : "s"} in your library to verify.`,
+        subtitle: `${onlyUnverified ? "Unverified favorites" : "All favorites"} · tab to change\n`
+            + `${targets.length} favorite${targets.length === 1 ? "" : "s"} to verify.`,
         allOptions: options, options };
 }
 

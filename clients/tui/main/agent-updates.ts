@@ -242,7 +242,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     && update.type === "model_settings"
                 ) {
                     rt.poolChangeUndo = undefined;
-                    showStatusNotice(rt, "library change undone");
+                    showStatusNotice(rt, "favorites change undone");
                 } else if (
                     pendingUndo !== undefined
                     && update.type === "model_settings_rejected"
@@ -256,7 +256,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     }
                     rt.state = appendTuiError(
                         rt.state,
-                        rejectionNotice("undo that library change", update.reason),
+                        rejectionNotice("undo that favorites change", update.reason),
                     );
                 }
                 settleExtensionModelSettings(rt, update, rt.client);

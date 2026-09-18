@@ -73,7 +73,7 @@ type PickerCase =
 
 const PICKERS: Record<TuiSettingsPickerKind, PickerCase> = {
     model: { exception: "Switch model has several sections; its own tests cover them" },
-    model_verification: { exception: "Verify library models: Tab toggles the unverified filter" },
+    model_verification: { exception: "Verify favorites: Tab toggles the unverified filter" },
     model_menu: {},
     provider: {},
     provider_actions: {},

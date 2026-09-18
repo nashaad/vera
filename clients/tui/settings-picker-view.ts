@@ -2670,7 +2670,7 @@ export function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
         return modelEmptyMessage(state);
     }
     if (state.kind === "model_assignment") {
-        return "No models in your favorites. Add one to the library to assign it here.";
+        return "No models in your favorites. Add one to assign it here.";
     }
     if (state.kind !== "session") {
         return "No matches found";

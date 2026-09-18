@@ -39,17 +39,17 @@ test("idle health names the key and does not claim a tone", () => {
     expect(lines.join("\n")).not.toContain("red");
 });
 
-test("no provider configured is red and names /providers", () => {
+test("no provider configured is red and names the providers section", () => {
     const ready = summarizeProviderHealth({
         results: [],
         configured: false,
     });
     expect(ready.tone).toBe("red");
     expect(ready.summary).toBe("no provider configured");
-    expect(ready.next).toContain("/providers");
+    expect(ready.next).toContain("/models then Providers");
     const text = renderProviderHealth(ready).join("\n");
     expect(text).toContain("red");
-    expect(text).toContain("/providers");
+    expect(text).toContain("/models then Providers");
 });
 
 test("a working ladder is green and names the rung that answered", () => {
@@ -76,14 +76,14 @@ test("only the last rung answering is yellow and names Verify all", () => {
         configured: true,
     });
     expect(ready.tone).toBe("yellow");
-    expect(ready.summary).toContain("only the last library model answered");
+    expect(ready.summary).toContain("only the last favorite answered");
     expect(ready.summary).toContain("ollama/qwen");
     expect(ready.details).toEqual(["openrouter/glm-flash failed"]);
     expect(ready.next).toContain("/model");
     expect(ready.next).toContain("Verify all");
 });
 
-test("a failed library model with an earlier answer stays green", () => {
+test("a failed favorite with an earlier answer stays green", () => {
     const ready = summarizeProviderHealth({
         results: [
             { rung: { provider: "openrouter", model: "glm-flash" }, answered: true },
@@ -124,7 +124,7 @@ test("nothing answering is red", () => {
     });
     expect(ready.tone).toBe("red");
     expect(ready.summary).toBe("nothing answered");
-    expect(ready.next).toContain("/providers");
+    expect(ready.next).toContain("/models then Providers");
 });
 
 test("monochrome health lines keep the tone word", () => {
@@ -140,7 +140,7 @@ test("monochrome health lines keep the tone word", () => {
     }
 });
 
-test("health rungs follow library order and ignore a fake session model", () => {
+test("health rungs follow favorites order and ignore a fake session model", () => {
     expect(healthRungsOf({
         model: "test",
         pooled: [

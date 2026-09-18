@@ -169,7 +169,7 @@ export function browseFooter(state: TuiSettingsPickerState): string {
     const libraryNavigation = state.modelFocus === "search" ? "Type to search · ↑↓ sections" : "↑↓ choose · Space fold/unfold";
     return state.modelBrowse === "favorites"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\n${libraryNavigation} · Tab sections\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
-        : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
+        : `› Ctrl+K More: ${state.tab === "all" ? "favorites, variants, refresh, defaults" : "favorites, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
 }
 
 /** The browse page always carries one of these, one per open. */

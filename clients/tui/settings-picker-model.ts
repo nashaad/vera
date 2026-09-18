@@ -621,7 +621,7 @@ export const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["Marks"],
     ["●", "the model this conversation is running."],
     ["✓", "on Library: answered a live probe, so its abilities are known."],
-    ["★", "on Catalog: already in your library."],
+    ["★", "on Catalog: already in your favorites."],
     ["P", "on or near Vera's WA Score × listed-output front"],
     ["i", "the model takes image input."],
     ["*", "on WA Score: the note under Sources, not the library."],
@@ -631,7 +631,7 @@ export const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["Keys"],
     ["⏎", "run this model. On Catalog it does not add it."],
     ["→ / mouse", "focus or click model actions. ← returns to the list."],
-    ["Verify", "^v this model · ^⇧v all models in your library."],
+    ["Verify", "^v this model · ^⇧v all models in your favorites."],
     ["Refresh", "^f refresh model catalog from providers."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
@@ -1300,7 +1300,7 @@ export function modelDetailActions(
         {
             id: "toggle_pool",
             chord: tuiKeyHint("toggle_pooled").split(" ")[0] ?? "",
-            label: pooled ? "Unpin" : "Add to library",
+            label: pooled ? "Unpin" : "Add to favorites",
         },
         ...(pooled
             ? [{
@@ -1774,7 +1774,7 @@ export function modelEmptyMessage(state: TuiAnySettingsPickerState): string {
     if (state.kind !== "model") return "No matches found";
     if (state.query !== "") {
         return state.tab === "pool"
-            ? "No models in your library match. Tab switches to Catalog."
+            ? "No favorites match. Tab switches to Catalog."
             : "No models match that search.";
     }
     if (state.modelCatalogUnavailable === true) {
@@ -1784,8 +1784,8 @@ export function modelEmptyMessage(state: TuiAnySettingsPickerState): string {
         return "No models yet. Ctrl+F asks your providers for their catalogs.";
     }
     return modelPageEntry(state) === undefined
-        ? "Nothing in your library yet. Tab switches to Catalog."
-        : "Nothing in your library yet. More above adds the current model.";
+        ? "No favorites yet. Tab switches to Catalog."
+        : "No favorites yet. More above adds the current model.";
 }
 
 export function modelEmptyDetailBody(
