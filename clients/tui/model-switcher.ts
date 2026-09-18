@@ -36,6 +36,8 @@ import {
 export const FAVORITES_GROUP = "Favorites";
 export const RECENT_GROUP = "Recent";
 export const RECOMMENDED_GROUP = "Recommended";
+/** Stands in for the provider heading when only one provider is connected. */
+export const ALL_MODELS_GROUP = "All models";
 
 export interface TuiModelSwitcherRow {
     readonly provider: string;
@@ -222,13 +224,13 @@ function orderedRows(
     const byProvider = manyProviders(allRows);
     for (const row of allRows) {
         if (!taken.has(modelSwitcherKey(row))) {
-            take(row, byProvider ? row.providerLabel ?? row.provider : "");
+            take(row, byProvider ? row.providerLabel ?? row.provider : ALL_MODELS_GROUP);
         }
     }
     return { rows, groups };
 }
 
-/** With one provider connected its name is on every row, so it earns no heading and no meta. */
+/** With one provider connected its name is on every row, so it names neither a heading nor a row. */
 function manyProviders(rows: readonly TuiModelSwitcherRow[]): boolean {
     return new Set(rows.map((row) => row.provider)).size > 1;
 }

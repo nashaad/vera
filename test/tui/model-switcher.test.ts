@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import {
+    ALL_MODELS_GROUP,
     FAVORITES_GROUP,
     RECENT_GROUP,
     RECOMMENDED_GROUP,
@@ -264,9 +265,13 @@ describe("model switcher provider headings", () => {
         { provider: "openrouter", model: "moonshotai/kimi-k3", label: "Kimi K3" },
     ];
 
-    test("one connected provider earns no heading of its own", () => {
+    test("one connected provider is not named, but its rows keep a heading", () => {
         const state = startTuiModelSwitcher(openrouter);
-        expect(state.groups).toEqual([RECOMMENDED_GROUP, "", ""]);
+        expect(state.groups).toEqual([
+            RECOMMENDED_GROUP,
+            ALL_MODELS_GROUP,
+            ALL_MODELS_GROUP,
+        ]);
     });
 
     test("two connected providers each get a heading", () => {
@@ -298,6 +303,8 @@ describe("model switcher provider headings", () => {
                 lines.findIndex((line) => line.includes(label));
             const column = (label: string): number => lines[at(label)]!.indexOf(label);
             expect(column("GLM-5.2")).toBe(column("Kimi K3"));
+            // The favorite block has to end somewhere visible.
+            expect(at("all models")).toBeGreaterThan(at("GLM-5.2"));
         } finally {
             setup.renderer.destroy();
         }
