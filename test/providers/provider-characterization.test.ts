@@ -54,10 +54,10 @@ test("shipped and declared providers resolve to the current client facts", () =>
         "deepseek",
         "openai-codex",
         "openrouter",
+        "outrider",
         "ollama",
         "omlx",
         "digitalocean",
-        "outrider",
         "gateway",
     ]);
     expect(providers.find((provider) => provider.id === "cerebras"))
@@ -201,8 +201,8 @@ test("provider access facts map to the current UI groups", () => {
             "API keys",
             "Local",
             "Local",
-            "API keys",
             "Local",
+            "API keys",
         ]);
     expect(tuiProviderGroup("api_key", true)).toBe("Added in config");
 });
