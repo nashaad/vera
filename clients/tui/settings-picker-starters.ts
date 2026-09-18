@@ -412,7 +412,9 @@ export function startTuiReasoningPicker(
         query: "",
         ...(pendingModel === undefined ? {} : {
             pendingModel,
-            parent: pendingModel.modelPaneState,
+            ...(pendingModel.modelPaneState === undefined
+                ? {}
+                : { parent: pendingModel.modelPaneState }),
         }),
     };
 }

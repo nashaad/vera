@@ -8,6 +8,7 @@ import { settleWizardVerification, wizardTookCatalogRefresh, wizardTookModelSett
 import { releaseDroppedImage } from "../main/prompt-routing.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { syncTuiPreferencesList } from "../preferences-list.ts";
+import { refreshModelSwitcher } from "../main/model-switcher-ops.ts";
 import { startTuiOverridesMenu, startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, beginNextQueuedTuiTurn } from "../state.ts";
 import { applyTuiTimelineReply } from "../timeline-picker.ts";
@@ -442,6 +443,9 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 || update.type === "model_settings_rejected"
             ) {
                 wizardTookCatalogRefresh(rt, update.requestId);
+            }
+            if (update.type === "model_settings") {
+                refreshModelSwitcher(rt);
             }
             if (
                 update.type === "model_settings"

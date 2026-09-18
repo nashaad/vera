@@ -159,6 +159,7 @@ import {
 } from "../provider-doctor.ts";
 import { copyTuiText } from "./clipboard.ts";
 import { createTuiCommandPaletteView, handleTuiCommandPaletteScroll } from "./command-palette.ts";
+import { createTuiModelSwitcherView, handleTuiModelSwitcherScroll } from "./model-switcher.ts";
 import { createTuiHelpView, handleTuiHelpScroll, helpPageSearchable, pointedHelpRow } from "./help.ts";
 import { createConfiguredBuiltinTuiCommandRegistry, registerExtensionTuiCommands, type TuiPaletteEntry } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel, TUI_COMPOSER_MIN_TEXT_ROWS } from "./composer.ts";
@@ -1681,6 +1682,7 @@ export async function startTui(
     rt.standingNudgesView = createTuiStandingNudgesView(rt.renderer);
     rt.extensionsListView = createTuiExtensionsListView(rt.renderer);
     rt.commandPaletteView = createTuiCommandPaletteView(rt.renderer);
+    rt.modelSwitcherView = createTuiModelSwitcherView(rt.renderer);
     rt.workTabView = createTuiLinesView(rt.renderer, "work-tab");
     rt.workspaceSidebarView = createTuiLinesView(
         rt.renderer,
@@ -1739,6 +1741,7 @@ export async function startTui(
         rt.standingNudgesView,
         rt.extensionsListView,
         rt.commandPaletteView,
+        rt.modelSwitcherView,
         rt.helpView,
         rt.diagnosticsDialogView,
         rt.extensionsDialogView,
@@ -2127,6 +2130,10 @@ export async function startTui(
         if (rt.commandPalette === undefined) return;
         rt.commandPalette = { ...rt.commandPalette, selectedIndex: index };
     });
+    rt.modelSwitcherView.pointer = rowPointer(rt, (index) => {
+        if (rt.modelSwitcher === undefined) return;
+        rt.modelSwitcher = { ...rt.modelSwitcher, selectedIndex: index };
+    });
     rt.helpView.pointer = rowPointer(rt, (index) => {
         if (rt.help === undefined) return;
         rt.help = pointedHelpRow(rt.help, index);
@@ -2212,6 +2219,15 @@ export async function startTui(
         rt.commandPalette = transition.state;
         renderState(rt);
     };
+    rt.modelSwitcherView.box.onMouseScroll = (event) => {
+        if (rt.modelSwitcher === undefined || event.scroll === undefined) return;
+        const transition = handleTuiModelSwitcherScroll(rt.modelSwitcher, event.scroll);
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        rt.modelSwitcher = transition.state;
+        renderState(rt);
+    };
     rt.helpView.box.onMouseScroll = (event) => {
         if (rt.help === undefined || event.scroll === undefined) return;
         const transition = handleTuiHelpScroll(rt.help, event.scroll);
@@ -2225,6 +2241,7 @@ export async function startTui(
     rt.app.add(rt.standingNudgesView.surface);
     rt.app.add(rt.extensionsListView.box);
     rt.app.add(rt.commandPaletteView.surface);
+    rt.app.add(rt.modelSwitcherView.surface);
     rt.workTabView.pointer = {
         hover: (rowId) => {
             if (rt.workTab === undefined || rt.workTab.selectedId === rowId) return;
@@ -2640,6 +2657,16 @@ export async function startTui(
             }
             return;
         }
+        if (rt.modelSwitcher !== undefined && rt.modelSwitcherView.surface.visible) {
+            event.preventDefault();
+            event.stopPropagation();
+            rt.modelSwitcher = rt.modelSwitcherView.handleEditorPaste(
+                rt.modelSwitcher,
+                pasted(),
+            );
+            renderState(rt);
+            return;
+        }
         if (rt.commandPalette !== undefined && rt.commandPaletteView.surface.visible) {
             event.preventDefault();
             event.stopPropagation();
@@ -2907,6 +2934,9 @@ export async function startTui(
             backgroundColor: "panel",
         }),
         tuiThemeProperties(rt.commandPaletteView.box, {
+            backgroundColor: "panel",
+        }),
+        tuiThemeProperties(rt.modelSwitcherView.box, {
             backgroundColor: "panel",
         }),
         tuiThemeProperties(rt.helpView.box, { backgroundColor: "panel" }),

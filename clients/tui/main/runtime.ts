@@ -18,6 +18,7 @@ import type { TuiApprovalView } from "../approval.ts";
 import type { TuiBodyFocusController } from "../body-focus.ts";
 import type { TuiClientExtensionHostController } from "../client-extension-host.ts";
 import type { TuiCommandPaletteState, TuiCommandPaletteView } from "../command-palette.ts";
+import type { TuiModelSwitcherState, TuiModelSwitcherView } from "../model-switcher.ts";
 import type { TuiCommandRegistry } from "../commands.ts";
 import type { TuiComposer } from "../composer.ts";
 import type { TuiDiagnosticsDialogState, TuiDiagnosticsDialogView } from "../diagnostics-dialog.ts";
@@ -174,6 +175,7 @@ export interface TuiRuntime {
     preferencesListParent: TuiSettingsPickerState | undefined;
     extensionsList: TuiExtensionsListState | undefined;
     commandPalette: TuiCommandPaletteState | undefined;
+    modelSwitcher: TuiModelSwitcherState | undefined;
     workTab: WorkTabState | undefined;
     workspaceSidebar: WorkspaceSidebarState | undefined;
     workspaceSidebarFocused: boolean;
@@ -409,6 +411,7 @@ export interface TuiRuntime {
     standingNudgesView: TuiStandingNudgesView;
     extensionsListView: TuiExtensionsListView;
     commandPaletteView: TuiCommandPaletteView;
+    modelSwitcherView: TuiModelSwitcherView;
     workTabView: LinesView;
     workspaceSidebarView: LinesView;
     searchOverlayView: LinesView;

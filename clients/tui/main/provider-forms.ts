@@ -16,6 +16,7 @@ import { focusedAgentClient, focusedAgentState, openAgentPicker, setSidebarFocus
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface, reportConnectionError } from "../main/focus-switch.ts";
+import { openModelSwitcher } from "../main/model-switcher-ops.ts";
 import { currentModelAssignmentRows, homeNeedsProvider, modelRequestOptionsFacts, openModelAssignmentPicker, openModelPicker, openPermissionsPicker, openProviderPicker, openReasoningPicker } from "../main/model-pickers.ts";
 import { enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { renderState } from "../main/render-state.ts";
@@ -517,7 +518,11 @@ export function openSettingsDestination(rt: TuiRuntime,
     if (route.type === "settings_menu") {
         openSettingsMenu(rt);
     } else if (route.type === "model_picker") {
-        openModelPicker(rt, options.parent);
+        // Nested inside a picker chain, or answering a configuration request,
+        // the caller needs a pane that can return; elsewhere switching is the job.
+        if (options.parent === undefined && rt.activeConfigurationRequest === undefined) {
+            openModelSwitcher(rt);
+        } else openModelPicker(rt, options.parent);
     } else if (route.type === "reasoning_picker") {
         openReasoningPicker(rt, options.parent);
     } else if (route.type === "permission_mode_picker") {

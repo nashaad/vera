@@ -339,7 +339,8 @@ export interface TuiAssignmentParentModel {
 export interface TuiPendingModelChoice {
     readonly provider: string;
     readonly model: string;
-    readonly modelPaneState: TuiSettingsPickerState;
+    /** Absent when the choice came from the switcher, which has no pane to return to. */
+    readonly modelPaneState?: TuiSettingsPickerState;
     readonly assignment?: ModelAssignmentId;
 }
 

@@ -472,6 +472,7 @@ export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
     rt.standingNudges = undefined;
     rt.extensionsList = undefined;
     rt.commandPalette = undefined;
+    rt.modelSwitcher = undefined;
     rt.help = undefined;
     rt.workTab = undefined;
     if (rt.workspaceRail === undefined) {

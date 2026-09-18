@@ -39,6 +39,7 @@ export function openExtensionsList(rt: TuiRuntime): void {
     rt.diagnosticsDialog = undefined;
     rt.doctorDialog = undefined;
     rt.commandPalette = undefined;
+    rt.modelSwitcher = undefined;
     rt.help = undefined;
     rt.extensionsList = loadExtensionsList(rt);
     rt.composer.blur();

@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import { effortWentStale } from "../../../src/model/effort-ladder.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
+import { applyModelSwitch } from "../main/model-switcher-ops.ts";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
     transition:
@@ -390,9 +391,23 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         }
         const switchPane = previousPicker?.kind === "model" && previousPicker.modelJourney === "switch"
             ? previousPicker
-            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState.modelJourney === "switch"
+            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState?.modelJourney === "switch"
             ? previousPicker.pendingModel.modelPaneState
             : undefined;
+        const fromSwitcher = previousPicker?.kind === "reasoning"
+            && previousPicker.pendingModel !== undefined
+            && previousPicker.pendingModel.modelPaneState === undefined;
+        if (selection.kind === "model" && fromSwitcher) {
+            closeSettingsPickerSurface(rt);
+            applyModelSwitch(rt, {
+                provider: selection.provider,
+                model: selection.model,
+                ...(selection.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: selection.reasoningEffort }),
+            });
+            return;
+        }
         if (selection.kind === "model" && switchPane !== undefined) {
             const levels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)
@@ -666,7 +681,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     ? previousPicker
                     : previousPicker !== undefined
                             && "pendingModel" in previousPicker
-                            && previousPicker.pendingModel?.modelPaneState.kind
+                            && previousPicker.pendingModel?.modelPaneState?.kind
                             === "model_assignment"
                     ? previousPicker.pendingModel.modelPaneState
                     : undefined;
