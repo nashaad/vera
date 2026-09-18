@@ -6,17 +6,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 
-async function showCatalog(session: Awaited<ReturnType<typeof startTuiTestSession>>): Promise<void> {
-    session.sendKey("Tab"); session.sendKey("Tab");
-    await session.waitForVisiblePane("⏎ choose which models to show");
-    session.sendKey("Enter"); await session.waitForVisiblePane("Show models");
-    session.sendKey("Down"); session.sendKey("Enter");
-    await session.waitForVisiblePane("Models from your connected providers");
-    await session.waitForVisiblePane("↑↓ ^d^u choose · ⏎ switch model");
-}
-
-
-test("live library keeps through the host operation and verification can be left running", async () => {
+test("a favorite keeps through the host operation and verification can be left running", async () => {
     const operations: ModelOperation[] = [];
     let finish!: () => void;
     const gate = new Promise<void>((resolve) => { finish = resolve; });
@@ -36,25 +26,28 @@ test("live library keeps through the host operation and verification can be left
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
-        session.sendText("model lib");
-        await session.waitForVisiblePane("Model Library");
+        session.sendText("favorites");
+        await session.waitForVisiblePane("Favorites");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("not kept ✗");
-        expect(session.captureVisiblePane()).toContain("Favorites (0)");
+        await session.waitForVisiblePane("Favorites (0)");
+        expect(session.captureVisiblePane()).toContain("· not kept");
         session.sendKey("C-s");
-        await session.waitForVisiblePane("✓ One added to library");
-        expect(session.captureVisiblePane()).toContain("Favorites (1)");
+        await session.waitForVisiblePane("✓ One added to favorites");
+        await session.waitForVisiblePane("Favorites (1)");
         expect(operations[0]?.operation).toBe("keep");
         session.sendKey("C-y");
         await session.waitForVisiblePane("Verifying models");
         session.sendKey("Escape");
         await session.settle();
         expect(session.captureVisiblePane()).not.toContain("Verifying models");
-        expect(session.captureVisiblePane()).toContain("Model Library");
+        expect(session.captureVisiblePane()).toContain("Search models");
         finish();
         await session.settle(50);
         expect(operations.map((operation) => operation.operation)).toEqual(["keep", "verify"]);
-        expect(session.captureVisiblePane()).toContain("Model Library");
+        session.sendKey("Escape"); await session.settle();
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("favorites"); await session.waitForVisiblePane("Favorites");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Favorites (1)");
     } finally { finish(); await session.close(); }
 }, 15_000);
 
@@ -133,13 +126,14 @@ test("defaults expose six slots and empty eligibility offers recovery", async ()
         const pane = await session.waitForVisiblePane("unset, inherits its intent");
         for (const label of ["snappy", "eco", "extra", "classifier", "compaction", "subagents"]) expect(pane).toContain(label);
         session.sendKey("Enter");
-        const assign = await session.waitForVisiblePane("Only verified models in your library are eligible");
-        expect(assign).toContain("Verify library models");
-        expect(assign).toContain("Model Library");
+        const assign = await session.waitForVisiblePane("Assign a model to snappy");
+        expect(assign).toContain("Choose any connected model");
+        expect(assign).toContain("Not set");
+        expect(assign).toContain("manage saved favorites");
     } finally { await session.close(); }
 }, 15_000);
 
-test("Home stages empty dials without creating a session, then switching applies the chosen model", async () => {
+test("Home stages access without creating a session, then the switcher applies the model", async () => {
     const { createHomeClient } = await import("../../../clients/tui/home-client.ts");
     const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
     const commands: import("../../../src/engine/protocol.ts").ClientCommand[] = [];
@@ -162,23 +156,18 @@ test("Home stages empty dials without creating a session, then switching applies
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("dial strip"); await session.waitForVisiblePane("Dial strip");
         session.sendKey("Enter");
-        const dials = await session.waitForVisiblePane("EFFORT");
+        const dials = await session.waitForVisiblePane("› AGENT");
+        // The rebuilt HUD carries agent and access only.
         expect(dials).toContain("readonly");
-        session.sendKey("Tab"); session.sendKey("Left");
-        await session.waitForVisiblePane("›readonly");
-        session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
-        expect(created).toBe(0);
-        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
-        session.sendText("dial strip"); await session.waitForVisiblePane("Dial strip");
-        session.sendKey("Enter"); await session.waitForVisiblePane("›readonly");
-        session.sendKey("Tab"); session.sendKey("Right"); session.sendKey("Right");
-        await session.waitForVisiblePane("live: readonly");
+        expect(dials).not.toContain("EFFORT");
+        expect(dials).not.toContain("MODEL");
+        session.sendKey("Tab"); session.sendKey("Right");
+        await session.waitForVisiblePane("live: ask");
         session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        await showCatalog(session); await session.waitForVisiblePane("One");
+        session.sendKey("Enter"); await session.waitForVisiblePane("↑↓ move · ⏎ switch");
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
         expect(created).toBe(1);
@@ -189,7 +178,7 @@ test("Home stages empty dials without creating a session, then switching applies
     } finally { await session.close(); }
 }, 15_000);
 
-test("Switch model asks for effort when the chosen model has levels and applies both to the session", async () => {
+test("the switcher applies a levelled model and clears the remembered effort", async () => {
     const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
     const commands: import("../../../src/engine/protocol.ts").ClientCommand[] = [];
     const levels = [{ id: "low" as const, label: "Low effort" }, { id: "high" as const, label: "High effort" }];
@@ -208,28 +197,25 @@ test("Switch model asks for effort when the chosen model has levels and applies 
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        await showCatalog(session);
-        session.sendText("two"); await session.waitForVisiblePane("Model ID: two/model");
-        session.sendKey("Tab"); session.sendKey("Tab"); await session.waitForVisiblePane("⏎ switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
-        expect(commands.some((command) => command.type === "update_session_model_settings")).toBe(false);
-        session.sendKey("Escape"); await session.waitForVisiblePane("Models from your connected providers");
-        session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
-        session.sendKey("Down"); session.sendKey("Enter"); await session.settle();
+        session.sendKey("Enter"); await session.waitForVisiblePane("↑↓ move · ⏎ switch");
+        session.sendText("two"); await session.waitForVisiblePane("1/1");
+        session.sendKey("Enter"); await session.settle();
+        // Effort is its own command, so choosing a model never interrupts, and the
+        // level the old model carried does not follow the new one.
+        expect(session.captureVisiblePane()).not.toContain("High effort");
         const applied = commands.filter((command) => command.type === "update_session_model_settings");
         expect(applied.map((command) => command.type === "update_session_model_settings" && command.patch))
-            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: "high" }]);
+            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: null }]);
         expect(commands.some((command) => command.type === "update_model_settings")).toBe(false);
     } finally { await session.close(); }
 }, 15_000);
 
-
-test("Switch model cannot mutate the library through legacy Ctrl+S or Ctrl+Shift+S", async () => {
+test("the switcher favorites with Ctrl+F and ignores the legacy Ctrl+S", async () => {
     const operations: ModelOperation[] = [];
+    const commands: string[] = [];
     const available = [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }];
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-keep-")), width: 140, height: 40,
-        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({ pooled: [] }),
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({ pooled: [], onCommand: (command) => commands.push(command.type) }),
             operateModels: async (operation) => {
                 operations.push(operation);
                 return { model: "one/model", provider: "openrouter", availableModels: available,
@@ -241,69 +227,66 @@ test("Switch model cannot mutate the library through legacy Ctrl+S or Ctrl+Shift
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        await showCatalog(session); await session.waitForVisiblePane("not in your library");
+        session.sendKey("Enter"); await session.waitForVisiblePane("^f favorite");
         session.sendKey("C-s"); await session.settle();
         session.sendKey("C-s"); await session.settle();
-        expect(session.captureVisiblePane()).toContain("not in your library");
-        expect(session.captureVisiblePane()).not.toContain("Model Library");
-        expect(session.captureVisiblePane()).not.toContain("tab to switch");
+        expect(operations).toEqual([]);
+        expect(commands).not.toContain("pool_add");
+        expect(session.captureVisiblePane()).toContain("Switch model");
+        // Favoriting from the switcher goes through host admission, not a library write.
+        session.sendKey("C-f"); await session.waitForVisiblePane("to favorites");
+        expect(commands).toContain("pool_add");
         expect(operations).toEqual([]);
         expect(session.captureVisiblePane()).toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);
 
-test("clicking a cutoff tick reaches the live picker without switching models", async () => {
+test("clicking a cutoff tick filters browse without switching models", async () => {
+    const commands: string[] = [];
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-cutoff-mouse-")), width: 130, height: 44,
-        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [], onCommand: (command) => commands.push(command.type) }) });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
-        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
-        await showCatalog(session);
-        const before = await session.waitForVisiblePane("Models from your connected providers");
+        session.sendText("/models"); session.sendKey("Enter");
+        await session.waitForVisiblePane("Browse models");
+        session.sendKey("Tab"); session.sendKey("Tab"); session.sendKey("Enter");
+        const before = await session.waitForVisiblePane("Intelligence cutoff: any");
         const lines = before.split("\n");
         const tickRow = lines.findIndex((line) => line.includes("1400") && line.includes("1600"));
         await session.sendMouseClick(lines[tickRow]!.indexOf("1600") + 3, tickRow);
-        const filtered = await session.waitForVisiblePane("hidden below the cutoff");
-        expect(filtered).toContain("Switch model");
-        expect(filtered).toContain("No model");
+        const filtered = await session.waitForVisiblePane("Intelligence cutoff: 1600");
         const filteredLines = filtered.split("\n");
         const nextRow = filteredLines.findIndex((line) => line.includes("1400") && line.includes("1600"));
         expect(nextRow).toBe(tickRow);
         await session.sendMouseClick(filteredLines[nextRow]!.indexOf("any"), nextRow);
-        await session.settle();
-        expect(session.captureVisiblePane()).not.toContain("hidden below the cutoff");
-        expect(session.captureVisiblePane()).toContain("Switch model");
+        await session.waitForVisiblePane("Intelligence cutoff: any");
+        session.sendKey("Escape"); await session.waitForVisiblePane("Browse models");
+        expect(commands).not.toContain("update_session_model_settings");
     } finally { await session.close(); }
 }, 15_000);
 
-test("Ctrl+K opens the relevant menu and Escape restores the live filtered picker", async () => {
+test("Ctrl+K opens the manage menu and Escape restores the browse page untouched", async () => {
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-model-more-")), width: 130, height: 44,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
-        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Your library is empty");
+        session.sendText("/models"); session.sendKey("Enter");
+        await session.waitForVisiblePane("No favorites yet");
         session.sendKey("C-k"); await session.waitForVisiblePane("Refresh model catalog");
+        // With no row highlighted the menu offers nothing model specific.
         expect(session.captureVisiblePane()).not.toContain("extra variants");
-        session.sendKey("Escape"); await session.waitForVisiblePane("Your library is empty");
-        await showCatalog(session);
+        session.sendKey("Escape"); await session.waitForVisiblePane("No favorites yet");
+        session.sendKey("C-g"); await session.waitForVisiblePane("All connected models");
         session.sendText("open"); await session.settle();
         const before = session.captureVisiblePane();
-        expect(before).toContain("Ctrl+K More: variants, refresh");
-        session.sendKey("C-k"); await session.waitForVisiblePane("Show extra variants and older models");
-        session.sendKey("Escape"); await session.waitForVisiblePane("Switch model");
+        expect(before).toContain("Ctrl+K manage highlighted model");
+        session.sendKey("C-k"); await session.waitForVisiblePane("Selected: One · openrouter");
+        session.sendKey("Escape"); await session.waitForVisiblePane("Browse models");
         await session.settle();
         expect(session.captureVisiblePane()).toBe(before);
         session.sendKey("C-k"); await session.waitForVisiblePane("Show extra variants and older models");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("C-k"); await session.waitForVisiblePane("Hide extra variants and older models");
         session.sendKey("Down"); session.sendKey("Enter");
-        const refreshed = await session.waitForVisiblePane("Refreshed 1 catalogs");
-        expect(refreshed).toContain("Switch model");
-        expect(refreshed).toContain("Two");
+        await session.waitForVisiblePane("Browse models");
+        session.sendKey("C-k"); await session.waitForVisiblePane("Hide extra variants and older models");
     } finally { await session.close(); }
 }, 15_000);
