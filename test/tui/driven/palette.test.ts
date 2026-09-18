@@ -21,34 +21,41 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         await session.waitForVisiblePane("test · high");
         session.sendText("/help");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane(
-            "Vera keeps agent sessions resident",
-        );
+        pane = await session.waitForVisiblePane("Every key, grouped by where it works");
         expect(pane).toContain("General");
-        session.sendKey("Right");
-        pane = await session.waitForVisiblePane("Open the command palette");
-        session.sendKey("Right");
-        pane = await session.waitForVisiblePane("Rewind the active conversation");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Vera keeps agent sessions resident");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("↑↓ choose");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Open the command palette");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("↑↓ choose");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Rewind the active conversation");
         // The list is longer than the card, so reach a late entry by search.
         session.sendText("help");
-        pane = await session.waitForVisiblePane(
-            "Learn Vera controls and command",
-        );
+        await session.waitForVisiblePane("Learn Vera controls and command");
         for (let index = 0; index < 4; index += 1) {
             session.sendKey("BSpace");
         }
         await session.waitForVisiblePane("Rewind the active conversation");
         session.sendText("palette");
-        pane = await session.waitForVisiblePane(
+        await session.waitForVisiblePane(
             "Search actions, commands, and keyboard shortcuts",
         );
+        // Help only describes: Enter on a row runs nothing.
         session.sendKey("Enter");
         pane = session.captureVisiblePane();
         expect(pane).toContain("Help");
         expect(pane).toContain("/palette");
         session.sendKey("Escape");
+        await session.waitForVisiblePane("↑↓ choose");
+        session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
-            (visible) => !visible.includes("←→ tabs"),
+            (visible) => !visible.includes("↑↓ choose"),
             "Help to close",
         );
         // ctrl+p is the advertised way in; the /palette alias is a fallback.
@@ -59,13 +66,12 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
         expect(pane).toContain("test · high");
-        expect(pane).toContain("settings    Switch model");
         expect(pane).not.toContain("Rewind the active conversation");
         session.sendText("switch model");
         pane = await session.waitForVisiblePane("switch model");
         expect(pane).toContain("Switch model");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("⏎ switch");
+        pane = await session.waitForVisiblePane("Search models");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
         expect(pane).toContain("test · high");
@@ -73,7 +79,7 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
             (visible) => visible.includes("Message Vera")
-                && !visible.includes("⏎ switch"),
+                && !visible.includes("Search models"),
             "the switcher to close",
         );
         session.sendText("/palette");
