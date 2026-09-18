@@ -130,7 +130,7 @@ export function jsonlViewKeyAction(
     ) {
         return "cycle_session";
     }
-    if (options.workspaceBinding === "workspace_new_session") {
+    if (options.globalBinding === "workspace_new_session") {
         return "new_session";
     }
     if (options.globalBinding === "open_palette") {

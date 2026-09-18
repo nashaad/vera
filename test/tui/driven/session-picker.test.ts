@@ -90,6 +90,7 @@ test("session picker renames a conversation it is not attached to", async () => 
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("Continue the theme picker");
         expect(pane).toContain("^r rename");
+        session.sendKey("Up");
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Rename conversation");
         expect(pane).toContain("Continue the theme picker");
@@ -120,7 +121,7 @@ test("session picker renames a conversation it is not attached to", async () => 
     }
 }, 15_000);
 
-test("the focused sidebar renames its selected conversation", async () => {
+test("ctrl+e opens the conversation picker and renames its selected row", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-rename-"));
     const scenario = createTuiRenameSessionScenario({ home });
     let focusedRenderable = (): string | undefined => undefined;
@@ -138,12 +139,13 @@ test("the focused sidebar renames its selected conversation", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        let pane = await session.waitForVisiblePane("Rename  r");
-        expect(pane).toContain("Fix the deployme");
-        expect(pane).toContain("Continue the the");
+        let pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("^r rename");
+        expect(pane).toContain("Fix the deployment race");
+        expect(pane).toContain("Continue the theme picker");
 
         session.sendKey("Up");
-        session.sendText("r");
+        session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Rename conversation");
         expect(pane).toContain("Continue the theme pick");
         expect(focusedRenderable()).toBe("name-prompt-entry");
@@ -158,7 +160,7 @@ test("the focused sidebar renames its selected conversation", async () => {
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane("release notes");
-        expect(pane).toContain("Rename  r");
+        expect(pane).toContain("^r rename");
         session.sendKey("Escape");
         await session.waitForVisiblePane("session renamed: release notes");
         session.sendKey("C-c");
@@ -236,6 +238,7 @@ test("a refused rename says so and leaves the pane open", async () => {
         session.sendText("/resume");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Continue the theme picker");
+        session.sendKey("Up");
         session.sendKey("C-r");
         await session.waitForVisiblePane("Rename conversation");
         for (const _character of "Continue the theme picker") {

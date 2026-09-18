@@ -78,9 +78,8 @@ Vera's resident host owns live conversations and tool execution. The terminal
 and other clients display that state and send your actions to the host.
 Closing a client does not necessarily stop the work it was displaying.
 
-The conversation rail lets you browse saved conversations. Resuming a
-conversation is a separate action. Use `/resume` to switch, choosing whether
-the current work stops or keeps running. See [Saved conversations](sessions.md)
+Use `/resume` or Ctrl+E to switch, choosing whether the current work stops or
+keeps running. See [Saved conversations](sessions.md)
 and [Switch conversations](session-switching.md).
 
 Delegated work runs in child conversations. `/subagents` opens their list;

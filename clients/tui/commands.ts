@@ -475,13 +475,7 @@ const RECONNECT_COMMAND = {
 const CLEAR_COMMAND = {
     name: "clear",
     description: "Start a new conversation",
-    usage: "/clear [--background]",
-} as const satisfies TuiCommandCatalogEntry;
-
-const FRESH_COMMAND = {
-    name: "fresh",
-    description: "Start a fresh conversation and keep this one running",
-    usage: "/fresh",
+    usage: "/clear",
 } as const satisfies TuiCommandCatalogEntry;
 
 const RENAME_COMMAND = {
@@ -587,7 +581,6 @@ export const BUILTIN_COMMANDS = [
     BACK_COMMAND,
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
-    FRESH_COMMAND,
     RENAME_COMMAND,
     CLONE_COMMAND,
     CLOSE_COMMAND,
@@ -1420,8 +1413,6 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         ...CLEAR_COMMAND,
         parse: (argumentsText) => argumentsText.length === 0
             ? { type: "create_session" }
-            : argumentsText === "--background"
-            ? { type: "create_session", sourceDisposition: "keep_running" }
             : {
                 type: "command_error",
                 message: `Usage: ${CLEAR_COMMAND.usage}`,
@@ -1429,25 +1420,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         palette: {
             name: "clear",
             label: "New conversation",
-            description: "start fresh with no history",
+            description: "start a new conversation; choose close or keep running",
             group: "Session",
             slashName: "clear",
             action: { type: "create_session" },
-        },
-    });
-    registry.registerCommand({
-        ...FRESH_COMMAND,
-        action: { type: "create_session", sourceDisposition: "keep_running" },
-        palette: {
-            name: "fresh",
-            label: "Start fresh conversation",
-            description: "start blank while keeping this conversation running",
-            group: "Session",
-            slashName: "fresh",
-            action: {
-                type: "create_session",
-                sourceDisposition: "keep_running",
-            },
         },
     });
     registry.registerCommand({

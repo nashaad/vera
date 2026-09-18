@@ -348,14 +348,7 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                             : entry.completed && entry.agent.status === "idle"
                                 ? "completed" as const
                                 : entry.agent.status,
-                    live: !entry.agent.closed
-                        && !entry.agent.failed
-                        && entry.failure === undefined
-                        && (
-                            entry.agent.attached
-                            || entry.agent.status === "working"
-                            || entry.agent.status === "waiting"
-                        ),
+                    live: entryIsLive(entry),
                     ...(entry.worker === undefined
                         ? {}
                         : {

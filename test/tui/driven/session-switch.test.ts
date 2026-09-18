@@ -23,6 +23,23 @@ import {
     saveTuiPersistedAgentPane,
 } from "../../../clients/tui/theme-preference.ts";
 
+async function chooseCreateLeave(
+    session: Awaited<ReturnType<typeof startTuiTestSession>>,
+    disposition: "stop" | "keep_running" = "stop",
+): Promise<void> {
+    await session.waitForVisiblePane("Close this conversation");
+    // Composer Enter can also land on this menu. ignoreEnter swallows that
+    // leftover on the same tick, then a 0-timer disarms it. Waiting for the
+    // menu can return in that same tick, so yield before confirming.
+    await session.settle(50);
+    if (disposition === "keep_running") {
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        return;
+    }
+    session.sendKey("Enter");
+}
+
 test("idle TUI exit stops the current conversation", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-exit-close-"));
     const scenario = createTuiResumeScenario({ home });
@@ -85,12 +102,14 @@ test("clear command leaves the current conversation for a fresh one", async () =
         expect(pane).not.toContain("FULL ACCESS");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         pane = await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
         expect(pane).toContain("ready");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane("starting new session");
         pane = session.captureVisiblePane();
         expect(pane).toContain("Start a conversation");
@@ -121,7 +140,7 @@ test("clear command leaves the current conversation for a fresh one", async () =
     }
 }, 15_000);
 
-test("fresh explicitly keeps the source running", async () => {
+test("keep running leaves the source idle", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-new-background-"));
     const scenario = createTuiNewSessionScenario({ home });
     const session = await startTuiTestSession({
@@ -135,11 +154,13 @@ test("fresh explicitly keeps the source running", async () => {
         // destination never applies the leave disposition early.
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
-        session.sendText("/fresh");
+        session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session, "keep_running");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
@@ -168,11 +189,13 @@ test("clear keeps a multiply-attached source running and says why", async () => 
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         const pane = await session.waitForVisiblePane(
             "The previous conversation is still running in another client",
         );
@@ -240,11 +263,13 @@ test("clear keeps the source and cleans up its target when close fails", async (
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         const pane = await session.waitForVisiblePane(
             "Could not start a new session: the host could not stop the current conversation",
         );
@@ -297,6 +322,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
         // the next /clear onto the successful replacement path.
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
@@ -304,6 +330,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
         session.sendKey("C-l");
         session.sendText("/clear");
         session.sendKey("Enter");
+        await chooseCreateLeave(session);
         await session.waitForVisiblePane("fresh-model");
         for (let attempt = 0; attempt < 100; attempt += 1) {
             if (existsSync(delayedResultPath)) break;
@@ -520,6 +547,9 @@ for (const stalled of stalledSwitches) {
             await session.waitForVisiblePane("Start a conversation");
             session.sendText(stalled.command);
             session.sendKey("Enter");
+            if (stalled.command === "/clear") {
+                await chooseCreateLeave(session);
+            }
             const pane = await session.waitForVisiblePane(stalled.notice);
             expect(pane).toContain("ready");
             // The session that was on screen is still the attached one.
@@ -547,7 +577,13 @@ test("a stalled resume returns control to the current session", async () => {
         session.sendText("/resume");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Continue the theme picker");
-        session.sendKey("Down");
+        session.sendText("theme");
+        await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("Continue the theme picker")
+                && !visible.includes("The one already open"),
+            "the picker filtered to the timed-out conversation",
+        );
         session.sendKey("Enter");
         // Stop & switch, the first row of the leave menu.
         session.sendKey("Enter");
@@ -751,7 +787,7 @@ test("back typed in the composer runs the command instead of prompting", async (
     }
 }, 15_000);
 
-test("opening a sidebar row keeps the source session running", async () => {
+test("ctrl+e opens the same conversation picker as /resume", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-keep-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -764,19 +800,21 @@ test("opening a sidebar row keeps the source session running", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA · 2");
-        session.sendKey("Down");
-        session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
-        expect(pane).not.toContain("Interrupted");
-        expect(pane).not.toContain("RESUMED HISTORY LOADED");
+        const pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("Resume");
+        expect(pane).toContain("The one already open");
+        expect(pane).toContain("RECENT");
+        expect(pane).toContain("^r rename");
+        session.sendKey("C-e");
+        await session.waitForVisiblePaneWhere(
+            (visible) => !visible.includes("Continue the theme picker"),
+            "the conversation picker to close",
+        );
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
-            .toBe(
-                "none\ndetached\ntarget-session-id\nclosed ",
-            );
+            .toBe("none\ndetached\ncurrent-session-id\nclosed current-session-id");
     } finally {
         await session.close();
     }
@@ -794,12 +832,10 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA · 2");
-        session.sendKey("Down");
+        session.sendText("/close");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
-        expect(pane).toContain("This conversation is idle.");
+        let pane = await session.waitForVisiblePane("This conversation is idle.");
+        expect(pane).toContain("hello from disk");
         expect(pane).toContain("ctrl+n new");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         expect(pane).not.toContain("permissions loading");
@@ -841,7 +877,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
                 && !visible.includes("Resume this conversation"),
             "the closed file after the palette closes",
         );
-        expect(pane).toContain(IDLE_TARGET_TRANSCRIPT);
+        expect(pane).toContain("hello from disk");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).toContain("resumed-model");
@@ -851,15 +887,15 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                `${scenario.targetPath}\ndetached\ntarget-session-id`
-                    + "\nclosed target-session-id",
+                `${join(home, "sessions", "current.jsonl")}\ndetached\ntarget-session-id`
+                    + "\nclosed current-session-id,target-session-id",
             );
     } finally {
         await session.close();
     }
 }, 15_000);
 
-test("the sidebar resume action opens the picker from an idle file", async () => {
+test("ctrl+e opens the conversation picker from an idle file", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-picker-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -871,23 +907,12 @@ test("the sidebar resume action opens the picker from an idle file", async () =>
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA · 2");
-        session.sendKey("Down");
+        session.sendText("/close");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane("ctrl+n new");
-
-        // Put focus back in the rail. Its direct key opens the full picker;
-        // ctrl+e would put the rail away instead.
-        session.sendKey("Left");
-        pane = await session.waitForVisiblePaneWhere(
-            (visible) =>
-                visible.includes("Resume  ctrl+r")
-                && !visible.includes("Resume session"),
-            "the focused rail without a resume row",
-        );
-        session.sendKey("C-r");
-        pane = await session.waitForVisiblePane("Continue the theme picker");
+        await session.waitForVisiblePane("ctrl+n new");
+        session.sendKey("C-e");
+        const pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("Resume");
         expect(pane).toContain("The one already open");
         session.sendKey("Escape");
         await session.waitForVisiblePane("ctrl+n new");
@@ -921,9 +946,7 @@ test("ctrl+n from an idle file starts a new chat", async () => {
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA · 2");
-        session.sendKey("Down");
+        session.sendText("/close");
         session.sendKey("Enter");
         await session.waitForVisiblePane("This conversation is idle.");
         session.sendKey("C-n");
@@ -946,9 +969,7 @@ test("escape from an idle file goes home", async () => {
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA · 2");
-        session.sendKey("Down");
+        session.sendText("/close");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane("This conversation is idle.");
         expect(pane).toContain("esc home");
@@ -963,7 +984,7 @@ test("escape from an idle file goes home", async () => {
     }
 }, 15_000);
 
-test("opening a live sidebar row attaches to the running worker", async () => {
+test("picking a live conversation from ctrl+e asks, then attaches", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-attach-"));
     const scenario = createTuiResumeScenario({ home, targetLive: true });
     const session = await startTuiTestSession({
@@ -976,10 +997,16 @@ test("opening a live sidebar row attaches to the running worker", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA · 2");
-        // The running one heads the listing and the idle file on screen is
-        // filed under recent, so the cursor starts below the row to open.
-        session.sendKey("Up");
+        await session.waitForVisiblePane("Continue the theme picker");
+        session.sendText("theme");
+        await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("Continue the theme picker")
+                && !visible.includes("The one already open"),
+            "the picker filtered to the live conversation",
+        );
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Stop & switch");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
@@ -989,7 +1016,7 @@ test("opening a live sidebar row attaches to the running worker", async () => {
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
                 `${scenario.targetPath}\ndetached\ntarget-session-id`
-                    + "\nclosed target-session-id",
+                    + "\nclosed current-session-id,target-session-id",
             );
     } finally {
         await session.close();
@@ -1074,7 +1101,7 @@ test("theme preview and cancel repaint an attached sidebar transcript", async ()
     }
 }, 15_000);
 
-test("ctrl+n in the agent sidebar starts a new chat and keeps the source running", async () => {
+test("ctrl+n starts a new chat and asks how to leave", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-new-"));
     const scenario = createTuiNewSessionScenario({
         home,
@@ -1101,9 +1128,8 @@ test("ctrl+n in the agent sidebar starts a new chat and keeps the source running
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendKey("C-e");
-        await session.waitForVisiblePane("VERA ·");
         session.sendKey("C-n");
+        await chooseCreateLeave(session, "keep_running");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();

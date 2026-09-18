@@ -356,6 +356,49 @@ export function handleTuiSettingsPickerKey(
         }
         return unchanged(state, true);
     }
+    if (state.kind === "session_create_leave") {
+        if (key.ctrl || key.meta || key.super || key.hyper) {
+            return unchanged(state, false);
+        }
+        if (key.name === "escape") {
+            return { handled: true };
+        }
+        if (key.name === "up" || key.name === "down") {
+            return {
+                state: {
+                    ...state,
+                    ignoreEnter: false,
+                    selectedIndex: Math.max(0, Math.min(
+                        state.options.length - 1,
+                        state.selectedIndex + (key.name === "up" ? -1 : 1),
+                    )),
+                },
+                handled: true,
+            };
+        }
+        const choice = state.options[state.selectedIndex];
+        if (
+            (key.name === "return" || key.name === "enter")
+            && choice !== undefined
+        ) {
+            if (state.ignoreEnter === true) {
+                return {
+                    state: { ...state, ignoreEnter: false },
+                    handled: true,
+                };
+            }
+            return {
+                selection: {
+                    kind: "session_create_leave",
+                    sourceDisposition: choice.value === "keep_running"
+                        ? "keep_running"
+                        : "stop",
+                },
+                handled: true,
+            };
+        }
+        return unchanged(state, true);
+    }
     if (state.kind === "session" && isTuiDialTabKey(key)) {
         return unchanged(state, true);
     }
@@ -367,7 +410,11 @@ export function handleTuiSettingsPickerKey(
         && state.enterDisposition !== "keep_running"
     ) {
         const selected = state.options[state.selectedIndex];
-        if (selected !== undefined && selected.current !== true) {
+        if (
+            selected !== undefined
+            && selected.section === undefined
+            && selected.current !== true
+        ) {
             return {
                 state: {
                     kind: "session_leave",
@@ -925,8 +972,10 @@ export function handleTuiSettingsPickerKey(
         if (selected === undefined) {
             return unchanged(state, true);
         }
-        if (state.kind === "model" && selected.section !== undefined) {
-            return toggledSection(state, selected.section);
+        if (selected.section !== undefined) {
+            return state.kind === "model"
+                ? toggledSection(state, selected.section)
+                : unchanged(state, true);
         }
         if (state.kind === "provider" && selected.action === true) {
             if (selected.value === TUI_REFRESH_PROVIDERS_VALUE) {
@@ -2155,7 +2204,8 @@ export function renderListPickerRows(
         : tip;
     if (tipLine !== undefined && tipLine.text.length > 0 && (state.kind === "extension" || state.verificationTargets === undefined)
         && state.kind !== "model_verification" && state.kind !== "model_defaults"
-        && state.kind !== "session_leave") {
+        && state.kind !== "session_leave"
+        && state.kind !== "session_create_leave") {
         const tipNode = new TextRenderable(renderer, {
             content: new StyledText([
                 { text: DIALOG_GUTTER } as TextChunk,
@@ -2320,6 +2370,9 @@ export function pickerFooterText(
     if (state.kind === "model_verification") return `↑↓ results · esc ${state.parent ? "back" : "close"} (checks continue)`;
     if (state.kind !== "extension" && state.verificationTargets !== undefined) return "↵ start · tab coverage · esc";
     if (state.kind === "session_leave") return "↑↓ choose · ⏎ switch · esc back";
+    if (state.kind === "session_create_leave") {
+        return "↑↓ choose · ⏎ start · esc back";
+    }
     if (state.kind === "session") {
         return [
             "↑↓ ^d^u move",
@@ -2788,6 +2841,8 @@ export function pickerTitle(
                 ? "Permission mode"
                 : kind === "session"
                     ? "Resume"
+                    : kind === "session_create_leave"
+                    ? "New conversation"
                     : kind === "settings"
                         ? "Settings"
                         : kind === "configure"

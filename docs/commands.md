@@ -37,7 +37,7 @@ conversation unless they open a broader browser.
 
 | Command | What it does |
 | --- | --- |
-| `/resume` | Choose a saved conversation to resume. |
+| `/resume` | Choose a saved conversation to resume. Same picker as Ctrl+E. |
 | `/search` | Search past work. |
 | `/work` | Show conversations that need you or are running. |
 | `/rename [name]` | Name the conversation, or remove its name when omitted. |
@@ -45,7 +45,7 @@ conversation unless they open a broader browser.
 | `/fork` | Choose an earlier prompt to fork from. |
 | `/rewind` | Choose a point to rewind the active conversation. |
 | `/compact` | Summarize earlier messages to free context. |
-| `/fresh` | Start a new conversation and keep this one running. |
+| `/clear` | Start a new conversation; choose close or keep running. |
 | `/close` | Stop this conversation and retain its saved file. |
 | `/subagents` | List this conversation's asynchronous children. |
 | `/parent` | Return to the parent conversation. |

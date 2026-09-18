@@ -25,7 +25,7 @@ export function leaveJsonlCommandMode(rt: TuiRuntime): void {
 export function refuseJsonlCommand(rt: TuiRuntime): void {
     rt.state = appendTuiNotice(
         rt.state,
-        "This conversation is idle. Only /resume, /fresh, /help, and /theme work until it wakes; press enter to carry on.",
+        "This conversation is idle. Only /resume, /clear, /help, and /theme work until it wakes; press enter to carry on.",
     );
     leaveJsonlCommandMode(rt);
 }

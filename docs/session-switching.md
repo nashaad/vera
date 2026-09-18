@@ -21,8 +21,7 @@ live conversation, choose what happens to it:
 | Escape | Return to the picker. |
 
 From Home or a saved-file view, Enter opens the selected conversation directly.
-Use [the conversation rail](screen.md) to browse recent work without stopping
-the conversation you leave.
+`ctrl+e` opens the same picker as `/resume`.
 
 ## Search for past work
 

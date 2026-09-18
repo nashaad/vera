@@ -138,6 +138,10 @@ export class AgentRegistry {
         return registryLifecycle.closeAgentTree(this, id);
     }
 
+    async parkExpiredIdle(now = Date.now()): Promise<void> {
+        return registryLifecycle.parkExpiredIdle(this, now);
+    }
+
     async closeDescendantTree(
         callerId: string,
         targetId: string,

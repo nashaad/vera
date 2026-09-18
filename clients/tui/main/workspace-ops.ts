@@ -4,7 +4,7 @@ import { startTuiCommandPalette } from "../command-palette.ts";
 import { startTuiHelp } from "../help.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { buildJumpRows, openJumpMenu as openJumpMenuState, type JumpOrigin } from "../jump.ts";
-import { beginCreateSession, beginSessionResume } from "../main.ts";
+import { beginCreateSession, requestCreateSession, beginSessionResume } from "../main.ts";
 import { focusedAgentClient } from "../main/agents-dials.ts";
 import { clearSearchLanding, coreHelpCommands, registeredPaletteEntries, setComposerMargin } from "../main/chrome.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
@@ -305,7 +305,7 @@ export function runWorkspaceSidebarAction(rt: TuiRuntime,
         rt.workspaceSidebarFocused = false;
         rt.composer.focus();
         renderState(rt);
-        beginCreateSession(rt, "keep_running");
+        requestCreateSession(rt);
         return;
     }
     if (action.kind === "resume_picker") {
