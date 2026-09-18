@@ -237,7 +237,7 @@ test("the switcher asks for effort whenever the model has levels", async () => {
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
-        session.sendText("two"); await session.waitForVisiblePane("1/1");
+        session.sendText("two"); await session.waitForVisiblePane("Two");
         session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
         // The cursor opens on the model's own default, so the switch is not
         // applied until a level is chosen.

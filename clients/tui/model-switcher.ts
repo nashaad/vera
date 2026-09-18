@@ -33,12 +33,6 @@ import {
     tuiTextareaKey,
 } from "./single-line-editor.ts";
 
-export const FAVORITES_GROUP = "Favorites";
-export const RECENT_GROUP = "Recent";
-export const RECOMMENDED_GROUP = "Recommended";
-/** Stands in for the provider heading when only one provider is connected. */
-export const ALL_MODELS_GROUP = "All models";
-
 export interface TuiModelSwitcherRow {
     readonly provider: string;
     readonly model: string;
@@ -55,8 +49,8 @@ export interface TuiModelSwitcherRow {
 export interface TuiModelSwitcherState {
     readonly allRows: readonly TuiModelSwitcherRow[];
     readonly rows: readonly TuiModelSwitcherRow[];
-    /** One per visible row, parallel to `rows`. Empty while searching. */
-    readonly groups: readonly string[];
+    /** Models the resting list or the search left out, reachable through Browse. */
+    readonly hidden?: number;
     readonly selectedIndex: number;
     readonly query: string;
     readonly queryCursor: number;
@@ -113,7 +107,7 @@ export function startTuiModelSwitcher(
     } = {},
 ): TuiModelSwitcherState {
     const recents = context.recents ?? [];
-    const ordered = orderedRows(allRows, recents, "");
+    const ordered = orderedRows(allRows, recents, "", context.current);
     return {
         allRows,
         recents,
@@ -136,7 +130,7 @@ export function refreshedTuiModelSwitcher(
     pending?: TuiModelSwitcherPending,
 ): TuiModelSwitcherState {
     const held = state.rows[state.selectedIndex];
-    const ordered = orderedRows(allRows, recents, state.query);
+    const ordered = orderedRows(allRows, recents, state.query, state.current);
     const at = held === undefined ? -1 : ordered.rows
         .findIndex((row) => modelSwitcherKey(row) === modelSwitcherKey(held));
     const { notice: _notice, pending: _pending, ...carried } = state;
@@ -181,58 +175,51 @@ function startingIndex(
     return at >= 0 ? at : 0;
 }
 
+/** How many models the resting list shows before Browse models takes over. */
+export const MODEL_SWITCHER_SHORTLIST = 6;
+
+/** How many matches a search shows before it points at Browse models. */
+export const MODEL_SWITCHER_MATCHES = 10;
+
 /**
- * Favorites, then recents, then every connected provider. Typing drops the
- * grouping: a search that spans providers cannot also be grouped by one.
+ * At rest the switcher answers "which model now?" with a handful: the current
+ * model, your favorites, what you used last, then the shipped picks. Everything
+ * else is a search or a trip to Browse models away.
  */
 function orderedRows(
     allRows: readonly TuiModelSwitcherRow[],
     recents: readonly string[],
     query: string,
+    current?: string,
 ): {
     readonly rows: readonly TuiModelSwitcherRow[];
-    readonly groups: readonly string[];
+    readonly hidden: number;
 } {
     const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
     if (terms.length > 0) {
         const matched = allRows
             .filter((row) => terms.every((term) => searchable(row).includes(term)))
             .toSorted((left, right) => searchRank(right, terms) - searchRank(left, terms));
-        return { rows: matched, groups: matched.map(() => "") };
+        const shown = matched.slice(0, MODEL_SWITCHER_MATCHES);
+        return { rows: shown, hidden: matched.length - shown.length };
     }
     const rows: TuiModelSwitcherRow[] = [];
-    const groups: string[] = [];
     const taken = new Set<string>();
-    const take = (row: TuiModelSwitcherRow, group: string): void => {
+    const take = (row: TuiModelSwitcherRow | undefined): void => {
+        if (row === undefined || taken.has(modelSwitcherKey(row))) return;
+        if (rows.length >= MODEL_SWITCHER_SHORTLIST) return;
         taken.add(modelSwitcherKey(row));
         rows.push(row);
-        groups.push(group);
     };
-    // Two passes: a group's rows have to be contiguous for its heading to hold.
-    for (const row of allRows) {
-        if (row.favorite === true) take(row, FAVORITES_GROUP);
-    }
-    for (const row of allRows) {
-        if (row.seeded === true && !taken.has(modelSwitcherKey(row))) {
-            take(row, RECOMMENDED_GROUP);
-        }
-    }
-    for (const key of recents) {
-        const row = allRows.find((candidate) => modelSwitcherKey(candidate) === key);
-        if (row !== undefined && !taken.has(key)) take(row, RECENT_GROUP);
-    }
-    const byProvider = manyProviders(allRows);
-    for (const row of allRows) {
-        if (!taken.has(modelSwitcherKey(row))) {
-            take(row, byProvider ? row.providerLabel ?? row.provider : ALL_MODELS_GROUP);
-        }
-    }
-    return { rows, groups };
-}
-
-/** With one provider connected its name is on every row, so it names neither a heading nor a row. */
-function manyProviders(rows: readonly TuiModelSwitcherRow[]): boolean {
-    return new Set(rows.map((row) => row.provider)).size > 1;
+    const find = (key: string): TuiModelSwitcherRow | undefined =>
+        allRows.find((candidate) => modelSwitcherKey(candidate) === key);
+    if (current !== undefined) take(find(current));
+    for (const row of allRows) if (row.favorite === true) take(row);
+    for (const key of recents) take(find(key));
+    for (const row of allRows) if (row.seeded === true) take(row);
+    // Nothing favorited, nothing recommended, nothing used yet: show the top of the list.
+    if (rows.length === 0) for (const row of allRows) take(row);
+    return { rows, hidden: allRows.length - rows.length };
 }
 
 function searchable(row: TuiModelSwitcherRow): string {
@@ -385,8 +372,8 @@ export interface TuiModelSwitcherView {
 interface SwitcherDisplayRow {
     readonly row: TuiModelSwitcherRow;
     readonly index: number;
-    readonly heading?: string;
-    readonly spaced: boolean;
+    /** The resting list numbers its rows; a search leaves the column blank. */
+    readonly ordinal: string;
 }
 
 export function createTuiModelSwitcherView(
@@ -452,7 +439,7 @@ export function createTuiModelSwitcherView(
             const header = dialogHeaderNode(
                 renderer,
                 "Switch model",
-                `${counter(state)} · esc`,
+                "esc",
             );
             updateDialogSearchNode(
                 search,
@@ -481,10 +468,8 @@ export function createTuiModelSwitcherView(
                     const meta = rowMeta(state, entry.row);
                     return {
                         label: entry.row.label,
-                        ...(entry.heading === undefined
-                            ? {}
-                            : { leading: entry.heading, leadingTone: "muted" as const }),
-                        spaced: entry.spaced,
+                        leading: entry.ordinal,
+                        leadingTone: "muted" as const,
                         ...(meta === undefined ? {} : { meta }),
                         active: entry.index === state.selectedIndex,
                         current: modelSwitcherKey(entry.row) === state.current,
@@ -498,7 +483,7 @@ export function createTuiModelSwitcherView(
 
             for (
                 const node of dialogOptionRows(renderer, [{
-                    label: MODEL_SWITCHER_BROWSE_LABEL,
+                    label: browseRowLabel(state),
                     meta: "^b",
                     spaced: display.length > 0,
                     active: onSwitcherBrowseRow(state),
@@ -545,10 +530,6 @@ function footerText(state: TuiModelSwitcherState): string {
         : `↑↓ move · ←→ sections · ^u^d page · ⏎ switch · ${favorite} · esc`;
 }
 
-export function switcherCounterText(state: TuiModelSwitcherState): string {
-    return counter(state);
-}
-
 export function switcherEmptyMessage(state: TuiModelSwitcherState): string {
     return emptyMessage(state);
 }
@@ -559,27 +540,25 @@ function emptyMessage(state: TuiModelSwitcherState): string {
         : "No models match that search. /models adds a provider.";
 }
 
-/** Bold alone marks the current row, so the word goes in the meta column too. */
+/** The bar marks the cursor, so the check has to mark the current model on its own. */
 function rowMeta(
     state: TuiModelSwitcherState,
     row: TuiModelSwitcherRow,
 ): string | undefined {
     const parts = [
-        ...(state.query.length > 0 && manyProviders(state.allRows)
-            ? [row.providerLabel ?? row.provider]
-            : []),
         ...(row.effort === undefined ? [] : [row.effort]),
         ...(row.unavailable === true ? ["unavailable"] : []),
-        ...(modelSwitcherKey(row) === state.current ? ["current"] : []),
+        ...(modelSwitcherKey(row) === state.current ? ["✓"] : []),
     ];
     return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
-function counter(state: TuiModelSwitcherState): string {
-    if (state.rows.length === 0) return "0";
-    // The browse row is not a model, so it does not count itself.
-    const at = Math.min(state.selectedIndex + 1, state.rows.length);
-    return `${at}/${state.rows.length}`;
+/** A search that reached its limit says where the rest of the matches are. */
+export function browseRowLabel(state: TuiModelSwitcherState): string {
+    const hidden = state.query.trim().length === 0 ? 0 : state.hidden ?? 0;
+    return hidden === 0
+        ? MODEL_SWITCHER_BROWSE_LABEL
+        : `${MODEL_SWITCHER_BROWSE_LABEL} · ${hidden} more ${hidden === 1 ? "match" : "matches"}`;
 }
 
 export function searchedTuiModelSwitcher(
@@ -597,7 +576,7 @@ function searched(
     if (query === state.query) {
         return { state: { ...state, queryCursor, focus: "search" }, handled: true };
     }
-    const ordered = orderedRows(state.allRows, state.recents, query);
+    const ordered = orderedRows(state.allRows, state.recents, query, state.current);
     return {
         state: { ...state, ...ordered, query, queryCursor, selectedIndex: 0, focus: "search" },
         handled: true,
@@ -609,20 +588,14 @@ function displayRows(
     window: readonly TuiModelSwitcherRow[],
     offset: number,
 ): readonly SwitcherDisplayRow[] {
-    const width = Math.max(0, ...state.groups.map((group) => group.length)) + 2;
-    // An ungrouped row still gets the blank gutter, or it slides out of the column.
-    const headed = state.groups.some((group) => group.length > 0);
+    // The column stays reserved while searching, or the labels shift as you type.
+    const numbered = state.query.trim().length === 0;
     return window.map((row, position) => {
         const index = offset + position;
-        const group = state.groups[index] ?? "";
-        const first = state.groups[index - 1] !== group;
         return {
             row,
             index,
-            ...(headed
-                ? { heading: (first ? group.toLowerCase() : "").padEnd(width) }
-                : {}),
-            spaced: first && position > 0 && group.length > 0,
+            ordinal: (numbered ? `${index + 1}` : "").padEnd(3),
         };
     });
 }

@@ -1,17 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import {
-    ALL_MODELS_GROUP,
-    FAVORITES_GROUP,
-    RECENT_GROUP,
-    RECOMMENDED_GROUP,
+    MODEL_SWITCHER_MATCHES,
+    MODEL_SWITCHER_SHORTLIST,
+    browseRowLabel,
     createTuiModelSwitcherView,
     handleTuiModelSwitcherKey,
     modelSwitcherKey,
     onSwitcherBrowseRow,
     refreshedTuiModelSwitcher,
     startTuiModelSwitcher,
-    switcherCounterText,
     switcherEmptyMessage,
     searchedTuiModelSwitcher,
     switcherFooterText,
@@ -30,21 +28,17 @@ const rows: readonly TuiModelSwitcherRow[] = [
 const started = (context = {}) => startTuiModelSwitcher(rows, context);
 
 describe("model switcher ordering", () => {
-    test("favorites come first, then recents, then every provider", () => {
-        const state = started({ recents: ["ollama/qwen3:32b", "anthropic/claude-sonnet-5"] });
+    test("the current model leads, then favorites, then recents", () => {
+        const state = started({
+            current: "openai/gpt-5.6-mini",
+            recents: ["ollama/qwen3:32b", "anthropic/claude-sonnet-5"],
+        });
         expect(state.rows.map((row) => row.label)).toEqual([
+            "GPT-5.6 mini",
             "Claude Opus 5",
             "GPT-5.6",
             "qwen3:32b",
             "Claude Sonnet 5",
-            "GPT-5.6 mini",
-        ]);
-        expect(state.groups).toEqual([
-            FAVORITES_GROUP,
-            FAVORITES_GROUP,
-            RECENT_GROUP,
-            RECENT_GROUP,
-            "openai",
         ]);
     });
 
@@ -52,11 +46,24 @@ describe("model switcher ordering", () => {
         const state = started({ recents: ["openai/gpt-5.6"] });
         const keys = state.rows.map(modelSwitcherKey);
         expect(new Set(keys).size).toBe(keys.length);
-        expect(state.rows.length).toBe(rows.length);
     });
 
-    test("the catalog is not gated: every connected model is listed", () => {
-        expect(started().rows.length).toBe(rows.length);
+    test("a model nobody asked for is left to Browse models", () => {
+        const state = started();
+        expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5", "GPT-5.6"]);
+        expect(state.hidden).toBe(rows.length - 2);
+    });
+
+    test("the resting list stops at the shortlist, however many are connected", () => {
+        const many = Array.from({ length: 30 }, (_, at) => ({
+            provider: "openrouter",
+            model: `m${at}`,
+            label: `Model ${at}`,
+            favorite: true,
+        }));
+        const state = startTuiModelSwitcher(many);
+        expect(state.rows.length).toBe(MODEL_SWITCHER_SHORTLIST);
+        expect(state.hidden).toBe(many.length - MODEL_SWITCHER_SHORTLIST);
     });
 
     test("the cursor opens on the current model", () => {
@@ -72,19 +79,31 @@ describe("model switcher search", () => {
         expect(typed("qwen").rows.map((row) => row.label)).toEqual(["qwen3:32b"]);
     });
 
-    test("typing collapses the groups into one list", () => {
+    test("typing reaches past the shortlist into the whole catalog", () => {
         const searching = typed("gpt");
         expect(searching.rows.map((row) => row.label)).toEqual(["GPT-5.6", "GPT-5.6 mini"]);
-        expect(new Set(searching.groups)).toEqual(new Set([""]));
+        expect(searching.hidden).toBe(0);
+        expect(browseRowLabel(searching)).toBe("Browse models");
+    });
+
+    test("a search past its limit says how many matches Browse models holds", () => {
+        const many = Array.from({ length: MODEL_SWITCHER_MATCHES + 3 }, (_, at) => ({
+            provider: "openrouter",
+            model: `glm-${at}`,
+            label: `GLM ${at}`,
+        }));
+        const searching = searchedTuiModelSwitcher(startTuiModelSwitcher(many), "glm");
+        expect(searching.rows.length).toBe(MODEL_SWITCHER_MATCHES);
+        expect(browseRowLabel(searching)).toBe("Browse models · 3 more matches");
     });
 
     test("a match on the model id reaches a model the label does not name", () => {
         expect(typed("sonnet").rows.map((row) => row.label)).toEqual(["Claude Sonnet 5"]);
     });
 
-    test("clearing the search restores the groups", () => {
+    test("clearing the search restores the resting list", () => {
         expect(typed("gpt")).not.toEqual(started());
-        expect(searchedTuiModelSwitcher(typed("gpt"), "").groups).toEqual(started().groups);
+        expect(searchedTuiModelSwitcher(typed("gpt"), "").rows).toEqual(started().rows);
     });
 
     test("a search that matches nothing says so rather than offering providers", () => {
@@ -126,12 +145,12 @@ describe("model switcher keys", () => {
         expect(handleTuiModelSwitcherKey(state, { name: "up" }).state?.selectedIndex).toBe(0);
         const last = handleTuiModelSwitcherKey(state, { name: "end" }).state!;
         // One past the last model is the browse row, and nothing is past that.
-        expect(last.selectedIndex).toBe(rows.length);
+        expect(last.selectedIndex).toBe(state.rows.length);
         expect(handleTuiModelSwitcherKey(last, { name: "down" }).state?.selectedIndex)
-            .toBe(rows.length);
+            .toBe(state.rows.length);
     });
 
-    test("ctrl+u and ctrl+d page the list", () => {
+    test("a shortlist shorter than a page clamps ctrl+d to the browse row", () => {
         const many = Array.from({ length: 30 }, (_, index) => ({
             provider: "openai",
             model: `m${index}`,
@@ -139,7 +158,7 @@ describe("model switcher keys", () => {
         }));
         const state = startTuiModelSwitcher(many);
         const down = handleTuiModelSwitcherKey(state, { name: "d", ctrl: true }).state!;
-        expect(down.selectedIndex).toBe(10);
+        expect(down.selectedIndex).toBe(state.rows.length);
         expect(handleTuiModelSwitcherKey(down, { name: "u", ctrl: true }).state?.selectedIndex)
             .toBe(0);
     });
@@ -195,11 +214,6 @@ describe("model switcher keys", () => {
         expect(switcherStop(searchedTuiModelSwitcher(list, "gpt"))).toBe("search");
     });
 
-    test("the counter does not count the browse row as a model", () => {
-        const last = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
-        expect(switcherCounterText(last)).toBe(`${rows.length}/${rows.length}`);
-    });
-
     test("the cursor reaches the browse row one past the last model", () => {
         const last = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
         expect(onSwitcherBrowseRow(last)).toBe(true);
@@ -223,29 +237,15 @@ describe("model switcher seeded favorites", () => {
         { provider: "openai", model: "gpt-5.6", label: "GPT-5.6", seeded: true },
     ];
 
-    test("a seeded row is listed under recommended, not favorites", () => {
+    test("a seeded row fills the list when nothing else has been chosen", () => {
         const state = startTuiModelSwitcher(seeded);
-        expect(state.rows.map((row) => row.label)).toEqual([
-            "Claude Opus 5",
-            "GPT-5.6",
-            "Claude Sonnet 5",
-        ]);
-        expect(state.groups).toEqual([
-            RECOMMENDED_GROUP,
-            RECOMMENDED_GROUP,
-            "anthropic",
-        ]);
+        expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5", "GPT-5.6"]);
     });
 
-    test("a chosen favorite outranks a seeded row and keeps its own heading", () => {
+    test("a chosen favorite outranks a seeded row", () => {
         const state = startTuiModelSwitcher([
             ...seeded,
             { provider: "openai", model: "gpt-5.6-mini", label: "GPT-5.6 mini", favorite: true },
-        ]);
-        expect(state.groups.slice(0, 3)).toEqual([
-            FAVORITES_GROUP,
-            RECOMMENDED_GROUP,
-            RECOMMENDED_GROUP,
         ]);
         expect(state.rows[0]?.label).toBe("GPT-5.6 mini");
     });
@@ -258,89 +258,11 @@ describe("model switcher seeded favorites", () => {
     });
 });
 
-describe("model switcher provider headings", () => {
-    const openrouter: readonly TuiModelSwitcherRow[] = [
-        { provider: "openrouter", model: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", seeded: true },
-        { provider: "openrouter", model: "z-ai/glm-5.2", label: "GLM-5.2" },
-        { provider: "openrouter", model: "moonshotai/kimi-k3", label: "Kimi K3" },
-    ];
-
-    test("one connected provider is not named, but its rows keep a heading", () => {
-        const state = startTuiModelSwitcher(openrouter);
-        expect(state.groups).toEqual([
-            RECOMMENDED_GROUP,
-            ALL_MODELS_GROUP,
-            ALL_MODELS_GROUP,
-        ]);
-    });
-
-    test("two connected providers each get a heading", () => {
-        const state = startTuiModelSwitcher([
-            ...openrouter,
-            { provider: "openai-codex", model: "gpt-5.6-sol", label: "GPT-5.6 Sol (Codex)" },
-        ]);
-        expect(state.groups).toEqual([
-            RECOMMENDED_GROUP,
-            "openrouter",
-            "openrouter",
-            "openai-codex",
-        ]);
-    });
-
-    test("ungrouped rows stay in the model column under a heading", async () => {
-        const setup = await createTestRenderer({ width: 100, height: 30 });
-        const view = createTuiModelSwitcherView(setup.renderer);
-        setup.renderer.root.add(view.surface);
-        view.surface.visible = true;
-        try {
-            view.update(startTuiModelSwitcher([
-                { provider: "openrouter", model: "z-ai/glm-5.2", label: "GLM-5.2", favorite: true },
-                ...openrouter.slice(1),
-            ]));
-            await setup.renderOnce();
-            const lines = setup.captureCharFrame().split("\n");
-            const at = (label: string): number =>
-                lines.findIndex((line) => line.includes(label));
-            const column = (label: string): number => lines[at(label)]!.indexOf(label);
-            expect(column("GLM-5.2")).toBe(column("Kimi K3"));
-            // The favorite block has to end somewhere visible.
-            expect(at("all models")).toBeGreaterThan(at("GLM-5.2"));
-        } finally {
-            setup.renderer.destroy();
-        }
-    });
-
-    test("a search names the provider only when more than one is connected", async () => {
-        const setup = await createTestRenderer({ width: 100, height: 30 });
-        const view = createTuiModelSwitcherView(setup.renderer);
-        setup.renderer.root.add(view.surface);
-        view.surface.visible = true;
-        try {
-            view.update(searchedTuiModelSwitcher(startTuiModelSwitcher(openrouter), "glm"));
-            await setup.renderOnce();
-            expect(setup.captureCharFrame()).not.toContain("openrouter");
-            view.update(searchedTuiModelSwitcher(
-                startTuiModelSwitcher([
-                    ...openrouter,
-                    { provider: "openai-codex", model: "gpt-5.6-sol", label: "GPT-5.6 Sol (Codex)" },
-                ]),
-                "glm",
-            ));
-            await setup.renderOnce();
-            expect(setup.captureCharFrame()).toContain("openrouter");
-        } finally {
-            setup.renderer.destroy();
-        }
-    });
-});
-
 describe("model switcher favoriting", () => {
     test("a toggled row keeps the cursor after the list reorders", () => {
-        const atBrowse = handleTuiModelSwitcherKey(started(), { name: "end" }).state!;
-        const state = handleTuiModelSwitcherKey(
-            handleTuiModelSwitcherKey(atBrowse, { name: "up" }).state!,
-            { name: "up" },
-        ).state!;
+        const opened = started({ recents: ["openai/gpt-5.6-mini"] });
+        const atBrowse = handleTuiModelSwitcherKey(opened, { name: "end" }).state!;
+        const state = handleTuiModelSwitcherKey(atBrowse, { name: "up" }).state!;
         const held = state.rows[state.selectedIndex]!;
         expect(held.label).toBe("GPT-5.6 mini");
         const promoted = rows.map((row) =>
@@ -348,7 +270,7 @@ describe("model switcher favoriting", () => {
         );
         const next = refreshedTuiModelSwitcher(state, promoted, state.recents, "Added to favorites");
         expect(next.rows[next.selectedIndex]?.label).toBe("GPT-5.6 mini");
-        expect(next.groups[next.selectedIndex]).toBe(FAVORITES_GROUP);
+        expect(next.rows[next.selectedIndex]?.favorite).toBe(true);
         expect(next.notice).toBe("Added to favorites");
     });
 
@@ -376,17 +298,17 @@ describe("model switcher favoriting", () => {
         expect(settled.pending).toBeUndefined();
     });
 
-    test("a late recents reply fills the recents group without moving the cursor", () => {
+    test("a late recents reply joins the list without moving the cursor", () => {
         const state = started();
         const held = state.rows[state.selectedIndex]!;
         const next = refreshedTuiModelSwitcher(state, state.allRows, ["ollama/qwen3:32b"]);
         expect(next.recents).toEqual(["ollama/qwen3:32b"]);
-        expect(next.groups).toContain(RECENT_GROUP);
+        expect(next.rows.map((row) => row.label)).toContain("qwen3:32b");
         expect(next.rows[next.selectedIndex]?.label).toBe(held.label);
     });
 
     test("the footer names the action the highlighted row would take", () => {
-        const state = started();
+        const state = started({ recents: ["openai/gpt-5.6-mini"] });
         expect(switcherFooterText(state)).toContain("^f unfavorite");
         const last = handleTuiModelSwitcherKey(
             handleTuiModelSwitcherKey(state, { name: "end" }).state!,
@@ -397,7 +319,7 @@ describe("model switcher favoriting", () => {
 });
 
 describe("model switcher rendering", () => {
-    test("the dialog shows groups, the current row and no browse controls", async () => {
+    test("the dialog numbers its rows and carries no headings or browse controls", async () => {
         const setup = await createTestRenderer({ width: 100, height: 30 });
         const view = createTuiModelSwitcherView(setup.renderer);
         setup.renderer.root.add(view.surface);
@@ -410,12 +332,13 @@ describe("model switcher rendering", () => {
             await setup.renderOnce();
             const frame = setup.captureCharFrame();
             expect(frame).toContain("Switch model");
-            expect(frame).toContain("favorites");
-            expect(frame).toContain("recent");
             expect(frame).toContain("Claude Opus 5");
             expect(frame).toContain("qwen3:32b");
-            expect(frame).toContain("current");
-            for (const gone of ["Sort", "Cutoff", "WA Score", "Filter and sort", "All connected"]) {
+            const numbered = frame.split("\n")
+                .filter((line) => /^\s*\d\s+\S/.test(line))
+                .map((line) => line.trim().slice(0, 1));
+            expect(numbered).toEqual(["1", "2", "3"]);
+            for (const gone of ["favorites", "recent", "Sort", "Cutoff", "WA Score", "All connected"]) {
                 expect(frame).not.toContain(gone);
             }
         } finally {
@@ -436,7 +359,7 @@ describe("model switcher rendering", () => {
             const at = lines.findIndex((line) => line.startsWith("Browse models"));
             expect(at).toBeGreaterThan(0);
             // It sits under every model, above the footer.
-            expect(lines[at - 1]).toContain("qwen3:32b");
+            expect(lines[at - 1]).toContain("GPT-5.6");
             expect(lines.slice(at + 1).join(" ")).toContain("esc close");
         } finally {
             setup.renderer.destroy();
@@ -449,7 +372,7 @@ describe("model switcher rendering", () => {
         setup.renderer.root.add(view.surface);
         view.surface.visible = true;
         try {
-            view.update(started());
+            view.update(started({ recents: ["ollama/qwen3:32b"] }));
             await setup.renderOnce();
             expect(setup.captureCharFrame()).toContain("unavailable");
         } finally {
