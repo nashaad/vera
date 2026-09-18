@@ -41,6 +41,8 @@ export interface TuiModelSwitcherRow {
     readonly label: string;
     readonly providerLabel?: string;
     readonly favorite?: boolean;
+    /** Listed under favorites before anyone has curated; ^f still adds it. */
+    readonly seeded?: boolean;
     readonly unavailable?: boolean;
     /** The effort this model last ran with, so the row says what Enter will do. */
     readonly effort?: string;
@@ -163,7 +165,7 @@ function orderedRows(
         groups.push(group);
     };
     for (const row of allRows) {
-        if (row.favorite === true) take(row, FAVORITES_GROUP);
+        if (row.favorite === true || row.seeded === true) take(row, FAVORITES_GROUP);
     }
     for (const key of recents) {
         const row = allRows.find((candidate) => modelSwitcherKey(candidate) === key);
@@ -185,7 +187,8 @@ function searchRank(row: TuiModelSwitcherRow, terms: readonly string[]): number 
     const label = row.label.toLowerCase();
     const prefix = terms.every((term) => label.startsWith(term)) ? 4 : 0;
     const inLabel = terms.every((term) => label.includes(term)) ? 2 : 0;
-    return prefix + inLabel + (row.favorite === true ? 1 : 0);
+    return prefix + inLabel
+        + (row.favorite === true || row.seeded === true ? 1 : 0);
 }
 
 export function handleTuiModelSwitcherKey(
@@ -408,7 +411,7 @@ export function switcherEmptyMessage(state: TuiModelSwitcherState): string {
 function emptyMessage(state: TuiModelSwitcherState): string {
     return state.allRows.length === 0
         ? "No models. ⏎ connects a provider."
-        : "No models match that search.";
+        : "No models match that search. /models adds a provider.";
 }
 
 /** Bold alone marks the current row, so the word goes in the meta column too. */

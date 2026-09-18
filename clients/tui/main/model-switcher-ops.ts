@@ -24,11 +24,16 @@ import type { TuiState } from "../state.ts";
  * The rows the switcher lists: every connected model, favorites and recents
  * first. Reduction-hidden entries stay out; they are duplicates and dated
  * snapshots of rows already here, not models the pool is holding back.
+ *
+ * With nothing in the pool the catalog's recommended models stand in as
+ * favorites, so the default path works before anyone curates. They are seeded,
+ * not pooled, so the first `^f` on one adds it rather than trying to remove it.
  */
 export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[] {
     const settings = focusedAgentState(rt).modelSettings;
     const pooled = settings?.pooled ?? [];
     const favorites = new Set(pooled.map(modelSwitcherKey));
+    const seed = pooled.length === 0;
     const efforts = lastEfforts(focusedAgentState(rt));
     return (settings?.availableModels ?? [])
         .filter((model) => model.hiddenByDefault === undefined)
@@ -41,6 +46,7 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
                 label: model.label,
                 providerLabel: model.provider,
                 ...(favorites.has(key) ? { favorite: true } : {}),
+                ...(seed && model.recommended === true ? { seeded: true } : {}),
                 ...(model.verificationError === undefined ? {} : { unavailable: true }),
                 ...(effort === undefined ? {} : { effort }),
             };

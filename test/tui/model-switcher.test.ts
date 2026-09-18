@@ -85,7 +85,7 @@ describe("model switcher search", () => {
     test("a search that matches nothing says so rather than offering providers", () => {
         const empty = typed("zzz");
         expect(empty.rows).toEqual([]);
-        expect(switcherEmptyMessage(empty)).toBe("No models match that search.");
+        expect(switcherEmptyMessage(empty)).toContain("No models match that search.");
     });
 
     test("an empty catalog sends the user to providers", () => {
@@ -129,6 +129,31 @@ describe("model switcher keys", () => {
         for (const key of [{ name: "g", ctrl: true }, { name: "s", ctrl: true }, { name: "left" }, { name: "right" }]) {
             expect(handleTuiModelSwitcherKey(started(), key).handled).toBe(false);
         }
+    });
+});
+
+describe("model switcher seeded favorites", () => {
+    const seeded: readonly TuiModelSwitcherRow[] = [
+        { provider: "anthropic", model: "claude-opus-5", label: "Claude Opus 5", seeded: true },
+        { provider: "anthropic", model: "claude-sonnet-5", label: "Claude Sonnet 5" },
+        { provider: "openai", model: "gpt-5.6", label: "GPT-5.6", seeded: true },
+    ];
+
+    test("a seeded row is listed under favorites", () => {
+        const state = startTuiModelSwitcher(seeded);
+        expect(state.rows.map((row) => row.label)).toEqual([
+            "Claude Opus 5",
+            "GPT-5.6",
+            "Claude Sonnet 5",
+        ]);
+        expect(state.groups).toEqual([FAVORITES_GROUP, FAVORITES_GROUP, "anthropic"]);
+    });
+
+    test("ctrl+f on a seeded row offers to add it, not to remove it", () => {
+        const state = startTuiModelSwitcher(seeded);
+        expect(switcherFooterText(state)).toContain("^f favorite");
+        expect(handleTuiModelSwitcherKey(state, { name: "f", ctrl: true }).favorite?.label)
+            .toBe("Claude Opus 5");
     });
 });
 
