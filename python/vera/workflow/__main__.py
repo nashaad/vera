@@ -110,6 +110,18 @@ def _resume(journal_dir: Path, run_id: str) -> int:
 
 
 def _load_entry_module(source: Path, run_id: str) -> object:
+    package = _package_entry(source)
+    if package is not None:
+        root, dotted = package
+        sys.path.insert(0, str(root))
+        try:
+            return importlib.import_module(dotted)
+        except ImportError as error:
+            raise WorkflowError(
+                "journal",
+                f"cannot import workflow entry module {dotted}: {error}",
+            ) from error
+
     name = f"vera_workflow_entry_{run_id}"
     spec = importlib.util.spec_from_file_location(name, source)
     if spec is None or spec.loader is None:
@@ -118,6 +130,22 @@ def _load_entry_module(source: Path, run_id: str) -> object:
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _package_entry(source: Path) -> tuple[Path, str] | None:
+    """Where an entry file sits in a package, and what to import it as.
+
+    A module loaded from a path cannot run its own relative imports, so a
+    workflow defined inside a package is imported by dotted name instead.
+    """
+    parts = [source.stem]
+    directory = source.parent
+    while (directory / "__init__.py").is_file():
+        parts.append(directory.name)
+        directory = directory.parent
+    if len(parts) == 1:
+        return None
+    return directory, ".".join(reversed(parts))
 
 
 def _parse(arguments: list[str]) -> tuple[str, str, Path] | None:
