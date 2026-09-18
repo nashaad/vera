@@ -37,6 +37,10 @@ import type {
     RegisteredAgentSummary,
     RenameSessionOutcome,
 } from "./agent-registry.ts";
+import type {
+    ImportableSessionListing,
+    SessionImportOutcome,
+} from "./session-import-service.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import {
     backgroundAgentsSnapshot,
@@ -185,6 +189,10 @@ export interface StartHostServerOptions {
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>;
+    readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
+    readonly listImportableSessions?: (
+        workspace: string | undefined,
+    ) => Promise<ImportableSessionListing>;
     readonly listExtensionCommands?: () =>
         readonly ExtensionCommandDescriptor[];
     readonly runExtensionCommand?: (
@@ -393,6 +401,13 @@ export async function startHostServer(
                 ?? (() => Promise.resolve({ status: "not_found" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
+            options.importSession
+                ?? (() => Promise.resolve({
+                    status: "rejected" as const,
+                    reason: "failed" as const,
+                })),
+            options.listImportableSessions
+                ?? (() => Promise.resolve({ sessions: [], truncated: false })),
             options.readExtensionState ?? (() => ({})),
             options.listExtensionCommands ?? (() => []),
             options.runExtensionCommand ?? (() => Promise.reject(
@@ -513,6 +528,10 @@ function receiveConnection(
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>,
+    importSession: (path: string) => Promise<SessionImportOutcome>,
+    listImportableSessions: (
+        workspace: string | undefined,
+    ) => Promise<ImportableSessionListing>,
     readExtensionState: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionStates,
     listExtensionCommands: () => readonly ExtensionCommandDescriptor[],
     runExtensionCommand: (
@@ -1455,6 +1474,36 @@ function receiveConnection(
                     reason: "failed",
                 }),
             ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "import_session") {
+            clearDeadline();
+            finished = true;
+            void importSession(request.path).then(
+                (result) => result.status === "imported"
+                    ? send({
+                        type: "session_imported",
+                        agent_id: result.sessionId,
+                        session_path: result.sessionPath,
+                        existing: result.existing,
+                    })
+                    : send({
+                        type: "session_import_rejected",
+                        reason: result.reason,
+                    }),
+                () => send({
+                    type: "session_import_rejected",
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "list_importable_sessions") {
+            clearDeadline();
+            finished = true;
+            void listImportableSessions(request.workspace)
+                .then((listing) => send({ type: "importable_sessions", ...listing }))
+                .then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "rename_session") {

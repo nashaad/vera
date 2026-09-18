@@ -94,6 +94,8 @@ import {
     validChildAgentLimit,
 } from "../../engine/agent-limits.ts";
 import type { ReviewLog } from "../../engine/review-log.ts";
+import type { SessionHeader } from "../../store/session-store.ts";
+import type { SessionImportTool } from "../../store/session-import-provenance.ts";
 import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import type {
     ReviewerModelDefault,
@@ -269,6 +271,31 @@ export interface RegisteredAgentSummary {
     readonly size_bytes?: number;
     readonly created_at?: string;
     readonly facts?: SessionFacts;
+    readonly imported_from?: ImportedSessionSummary;
+}
+
+export interface ImportedSessionSummary {
+    readonly tool: SessionImportTool;
+    readonly source_session_id: string;
+    readonly source_started_at: string;
+    readonly message_count: number;
+    readonly last_message_id: string;
+}
+
+export function importedSessionSummary(
+    header: SessionHeader,
+): { readonly imported_from?: ImportedSessionSummary } {
+    const provenance = header.importedFrom;
+    if (provenance === undefined) return {};
+    return {
+        imported_from: {
+            tool: provenance.tool,
+            source_session_id: provenance.sourceSessionId,
+            source_started_at: provenance.sourceStartedAt,
+            message_count: provenance.messageCount,
+            last_message_id: provenance.lastMessageId,
+        },
+    };
 }
 
 export interface AgentRegistryOptions {

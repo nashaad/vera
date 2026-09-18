@@ -118,8 +118,25 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         )
         && isOptionalTimestamp(agent.created_at)
         && isOptionalTimestamp(agent.updated_at)
+        && (agent.imported_from === undefined
+            || isImportedSessionSummary(agent.imported_from))
         // Facts are opaque to the listing contract: an older client that never asked for them must not reject a row that carries them.
         && (agent.facts === undefined || asRecord(agent.facts) !== undefined);
+}
+
+function isImportedSessionSummary(value: unknown): boolean {
+    const imported = asRecord(value);
+    return imported !== undefined
+        && (imported.tool === "claude-code" || imported.tool === "codex")
+        && typeof imported.source_session_id === "string"
+        && imported.source_session_id.length > 0
+        && isOptionalTimestamp(imported.source_started_at)
+        && imported.source_started_at !== undefined
+        && typeof imported.message_count === "number"
+        && Number.isSafeInteger(imported.message_count)
+        && imported.message_count > 0
+        && typeof imported.last_message_id === "string"
+        && imported.last_message_id.length > 0;
 }
 
 function isOptionalPid(value: unknown): boolean {

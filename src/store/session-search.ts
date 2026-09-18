@@ -1,6 +1,11 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
+import {
+    isSessionImportProvenance,
+    type SessionImportTool,
+} from "./session-import-provenance.ts";
+
 export type SessionSearchKind =
     | "user_message"
     | "agent_message"
@@ -28,6 +33,7 @@ export interface SessionSearchResult {
     readonly title: string;
     readonly workspace: string;
     readonly updated_at: string;
+    readonly imported_tool?: SessionImportTool;
     readonly hits: readonly SessionSearchHit[];
 }
 
@@ -196,6 +202,9 @@ export async function searchSessionFile(
         title: name ?? title ?? sessionId,
         workspace,
         updated_at: updatedAt,
+        ...(isSessionImportProvenance(header.importedFrom)
+            ? { imported_tool: header.importedFrom.tool }
+            : {}),
         hits,
     };
 }

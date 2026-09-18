@@ -8,6 +8,7 @@ import {
     type SessionSearchResult,
     type SessionSearchResults,
 } from "../store/session-search.ts";
+import { isSessionImportTool } from "../store/session-import-provenance.ts";
 
 export class SessionSearchUnavailableError extends Error {
     constructor() {
@@ -95,6 +96,8 @@ function parseSearchResult(
         || typeof result.workspace !== "string"
         || !isText(result.updated_at)
         || Number.isNaN(Date.parse(result.updated_at as string))
+        || (result.imported_tool !== undefined
+            && !isSessionImportTool(result.imported_tool))
         || !Array.isArray(result.hits)
         || result.hits.length === 0
         || result.hits.length > maxHitsPerSession
@@ -113,6 +116,9 @@ function parseSearchResult(
         title: result.title,
         workspace: result.workspace,
         updated_at: result.updated_at as string,
+        ...(isSessionImportTool(result.imported_tool)
+            ? { imported_tool: result.imported_tool }
+            : {}),
         hits,
     };
 }

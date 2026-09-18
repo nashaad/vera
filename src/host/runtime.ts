@@ -174,11 +174,22 @@ import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
 import {
     AgentRegistry,
+    importedSessionSummary,
     renameStoredSession,
     type RegisteredAgentSummary,
 } from "./agent-registry.ts";
 import type { SessionArtifacts } from "./session-trash.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
+import { SessionImportNotes } from "./session-import-note.ts";
+import {
+    ImportableSessionScanner,
+    importRootsFrom,
+    type ImportRoots,
+} from "../session-import/discover.ts";
+import {
+    importSessionFile,
+    markImportedSessions,
+} from "./session-import-service.ts";
 import { createCommandHook } from "../extensions/command-hook.ts";
 import type {
     PostToolUseHook,
@@ -213,6 +224,8 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    // Where Claude Code and Codex keep their sessions. Read, never written.
+    readonly importRoots?: ImportRoots;
     readonly configPath?: string;
     readonly createAdapter?: () => ModelAdapter;
     readonly socketPath?: string;
@@ -372,6 +385,12 @@ export async function startResidentHost(
         string,
         StandingNudgeCadence
     >();
+    const importableSessions = new ImportableSessionScanner(
+        options.importRoots ?? importRootsFrom(process.env),
+    );
+    const sessionImportNotes = new SessionImportNotes(
+        (sessionId) => join(sessionDirectory, `${sessionId}.jsonl`),
+    );
     const createAdapter = options.createAdapter
         ?? ((
             provider?: string,
@@ -790,6 +809,7 @@ export async function startResidentHost(
                 ...await loadSkillContribution(instructionRoot, allowedSkills),
                 ...startupFindings.contributions(),
                 ...(standing === undefined ? [] : [standing]),
+                ...await sessionImportNotes.contributions(context?.sessionId),
             ];
         },
         createToolHooks: () => {
@@ -892,6 +912,8 @@ export async function startResidentHost(
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
     ) => void = () => {};
     const storedSessionIndex = new Map<string, RegisteredAgentSummary>();
+    // Imports run one at a time so two requests for one file cannot both write.
+    let importQueue: Promise<void> = Promise.resolve();
     const storedSessions = new Promise<
         ReadonlyMap<string, RegisteredAgentSummary>
     >(
@@ -1179,6 +1201,29 @@ export async function startResidentHost(
                     await indexStoredSession(sessionPath, storedSessionIndex);
                 }
                 return renamed;
+            },
+            importSession: (path) => {
+                const run = importQueue.then(async () => {
+                    await storedSessions;
+                    const outcome = await importSessionFile(path, {
+                        sessionDirectory,
+                        indexed: storedSessionIndex.values(),
+                    });
+                    if (outcome.status === "imported" && !outcome.existing) {
+                        await indexStoredSession(
+                            outcome.sessionPath,
+                            storedSessionIndex,
+                        );
+                    }
+                    return outcome;
+                });
+                importQueue = run.then(() => undefined, () => undefined);
+                return run;
+            },
+            listImportableSessions: async (workspace) => {
+                const listed = await importableSessions.list(workspace);
+                await storedSessions;
+                return markImportedSessions(listed, storedSessionIndex.values());
             },
             readExtensionState: (sessionId) => extensions.sessionState(sessionId),
             listExtensionCommands: () => extensions.commands(),
@@ -2366,6 +2411,7 @@ export async function indexStoredSession(
             ...(header.origin === undefined
                 ? {}
                 : { forked_from: header.origin.sessionId }),
+            ...importedSessionSummary(header),
             ...(header.delegation?.parentId === undefined
                     && header.parentId === undefined
                 ? {}

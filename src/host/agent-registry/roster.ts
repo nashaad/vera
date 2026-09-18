@@ -4,7 +4,7 @@ import { sessionChangedFiles } from "../../store/preimage-stash.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ToolOutput } from "../../tools/types.ts";
 import { SOURCE_GAP_KIND } from "../../watch/source.ts";
 import { workspaceKey } from "../../workspace-key.ts";
-import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, gitRosterFacts, normalizeSessionName, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
+import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, importedSessionSummary, gitRosterFacts, normalizeSessionName, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "../inbox-delivery.ts";
 import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, parsePeerRead, type PeerMessagePayload } from "../local-participation.ts";
@@ -365,6 +365,7 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                     ...(entry.store.header.origin === undefined
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),
+                    ...importedSessionSummary(entry.store.header),
                     ...(entry.parentId === undefined
                         ? {}
                         : { parent_id: entry.parentId }),

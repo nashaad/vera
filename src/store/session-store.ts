@@ -42,6 +42,10 @@ import {
     isContextMeasurement,
     type ContextMeasurement,
 } from "../engine/context-measurement.ts";
+import {
+    isSessionImportProvenance,
+    type SessionImportProvenance,
+} from "./session-import-provenance.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -55,6 +59,7 @@ export interface SessionHeader {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
+    readonly importedFrom?: SessionImportProvenance;
 }
 
 export function sessionIsSubagent(header: SessionHeader): boolean {
@@ -244,6 +249,7 @@ export interface CreateSessionStoreOptions {
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
+    readonly importedFrom?: SessionImportProvenance;
     readonly now?: () => Date;
     readonly createId?: () => string;
     readonly onRecordAppended?: (
@@ -358,6 +364,9 @@ export class SessionStore {
             ...(options.contextAssemblyMode === undefined
                 ? {}
                 : { contextAssemblyMode: options.contextAssemblyMode }),
+            ...(options.importedFrom === undefined
+                ? {}
+                : { importedFrom: options.importedFrom }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -2007,6 +2016,8 @@ export function parseHeaderRecord(
             && value.parentId !== undefined
             && (value.delegation as SessionDelegation).parentId !== value.parentId)
         || storedContextAssemblyModeInvalid(value)
+        || (value.importedFrom !== undefined
+            && !isSessionImportProvenance(value.importedFrom))
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }
