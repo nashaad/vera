@@ -53,14 +53,24 @@ export const DIALOG_CHROME_HEIGHT = 13;
 
 export function dialogActionRow(
     renderer: RenderContext, label: string, active: boolean, dropdown = false,
-    onSelect?: () => void, onHover?: () => void,
+    onSelect?: () => void, onHover?: () => void, meta?: string,
 ): BoxRenderable {
     const node = dialogChipNode(renderer, label, active, dropdown);
-    node.width = "100%";
+    node.flexGrow = 1;
+    node.width = "auto";
     const control = new BoxRenderable(renderer, {
-        width: "100%", height: 1, backgroundColor: active ? TUI_ACCENT : TUI_ELEMENT,
+        width: "100%", height: 1, flexDirection: "row",
+        backgroundColor: active ? TUI_ACCENT : TUI_ELEMENT,
     });
     control.add(node);
+    if (meta !== undefined && meta.length > 0) {
+        control.add(new TextRenderable(renderer, {
+            content: `${meta} `,
+            width: Bun.stringWidth(meta) + 1, height: 1, flexShrink: 0, selectable: false,
+            fg: active ? TUI_SELECTION_TEXT : TUI_MUTED,
+            bg: active ? TUI_ACCENT : TUI_ELEMENT,
+        }));
+    }
     node.onMouseDown = (event) => {
         if (event.button !== 0) return;
         event.preventDefault();

@@ -18,6 +18,7 @@ import {
     DIALOG_GUTTER,
     centeredDialogSurface,
     createDialogSearchNode,
+    dialogActionRow,
     dialogFooterNode,
     dialogHeaderNode,
     dialogOptionRows,
@@ -27,7 +28,8 @@ import {
 } from "./dialog-chrome.ts";
 import { isTuiDialTabKey } from "./keymap.ts";
 import { steppedSection } from "./section-keys.ts";
-import { TUI_MUTED, TUI_PANEL } from "./state.ts";
+import { TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import { mixHex } from "./theme.ts";
 import {
     insertTuiSingleLinePaste,
     tuiTextareaKey,
@@ -376,6 +378,11 @@ interface SwitcherDisplayRow {
     readonly ordinal: string;
 }
 
+/** The card is 60% of the screen, padded either side; the rule spans what is left. */
+function switcherContentWidth(renderer: RenderContext): number {
+    return Math.max(1, Math.floor(renderer.width * 0.6) - DIALOG_CARD_PADDING * 2);
+}
+
 export function createTuiModelSwitcherView(
     renderer: RenderContext,
 ): TuiModelSwitcherView {
@@ -489,18 +496,24 @@ export function createTuiModelSwitcherView(
                 nodes.push(node);
             }
 
-            for (
-                const node of dialogOptionRows(renderer, [{
-                    label: browseRowLabel(state),
-                    meta: "^b",
-                    spaced: display.length > 0,
-                    active: onSwitcherBrowseRow(state),
-                    ...dialogRowPointer(view.pointer, state.rows.length),
-                }])
-            ) {
-                box.add(node);
-                nodes.push(node);
-            }
+            // Buttons sit under a rule, in their own band, the way every other dialog draws them.
+            const rule = new TextRenderable(renderer, {
+                content: "\u2500".repeat(switcherContentWidth(renderer)),
+                fg: mixHex(TUI_PANEL, TUI_TEXT, 0.30),
+                width: "100%",
+                height: 1,
+                marginTop: 1,
+                selectable: false,
+            });
+            box.add(rule);
+            nodes.push(rule);
+            const pointer = dialogRowPointer(view.pointer, state.rows.length);
+            const browse = dialogActionRow(
+                renderer, browseRowLabel(state), onSwitcherBrowseRow(state), false,
+                pointer.onSelect, pointer.onHover, "^b",
+            );
+            box.add(browse);
+            nodes.push(browse);
 
             if (state.notice !== undefined) {
                 const notice = new TextRenderable(renderer, {

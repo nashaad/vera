@@ -164,7 +164,6 @@ export interface TuiSettingsPickerOption {
     readonly verificationError?: string;
     readonly hiddenByDefault?: ReductionReason;
     readonly recommended?: boolean;
-    readonly recommendedLevel?: string;
     readonly refreshable?: boolean;
     readonly group?: string;
     readonly hasCredential?: boolean;

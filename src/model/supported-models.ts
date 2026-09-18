@@ -21,7 +21,6 @@ export interface SuggestedModel {
     readonly created?: number;
     readonly hiddenByDefault?: ReductionReason;
     readonly recommended?: boolean;
-    readonly recommendedLevel?: ReasoningLevelId;
 }
 
 export interface VerifiedReasoningCombination {

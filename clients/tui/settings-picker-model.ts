@@ -1657,17 +1657,8 @@ export function modelRowLabel(
 
 export function recommendationMarks(model: {
     readonly recommended?: boolean;
-    readonly recommendedLevel?: string;
 }): Partial<TuiSettingsPickerOption> {
-    if (model.recommended !== true) {
-        return {};
-    }
-    return {
-        recommended: true,
-        ...(model.recommendedLevel === undefined
-            ? {}
-            : { recommendedLevel: model.recommendedLevel }),
-    };
+    return model.recommended === true ? { recommended: true } : {};
 }
 
 export function modelTabRows(

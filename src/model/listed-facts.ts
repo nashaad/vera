@@ -60,9 +60,6 @@ function withScore<T extends AvailableModel | PooledModel>(
     const waScore = joinWaScore({
         provider: model.provider,
         model: model.model,
-        ...(model.recommendedLevel === undefined
-            ? {}
-            : { recommendedLevel: model.recommendedLevel }),
     }, snapshot, aliases);
     return waScore === undefined ? model : { ...model, waScore };
 }

@@ -65,11 +65,6 @@ test("an alias hit returns the overall rating rounded to an integer", () => {
         provider: "openrouter",
         model: "anthropic/claude-opus-5",
     }, snapshot, aliases)).toBe(1691);
-    expect(joinWaScore({
-        provider: "openrouter",
-        model: "anthropic/claude-opus-5",
-        recommendedLevel: "max",
-    }, snapshot, aliases)).toBe(1691);
 });
 
 test("a unique exact last-segment hit joins", () => {
@@ -101,12 +96,7 @@ test("a parenthesized rung and a codex-harness marker both fold away", () => {
     }, variants, aliases)).toBe(1617);
 });
 
-test("several rungs resolve to the recommended one, else the ceiling", () => {
-    expect(joinWaScore({
-        provider: "openrouter",
-        model: "meta/muse-spark-1.3",
-        recommendedLevel: "xhigh",
-    }, variants, aliases)).toBe(1625);
+test("several rungs resolve to the ceiling", () => {
     expect(joinWaScore({
         provider: "openrouter",
         model: "meta/muse-spark-1.3",

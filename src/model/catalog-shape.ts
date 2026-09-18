@@ -34,7 +34,6 @@ export interface CatalogModel {
     readonly pricing?: ModelPricing;
     readonly default_level?: ReasoningLevelId;
     readonly recommended?: boolean;
-    readonly recommended_level?: ReasoningLevelId;
     readonly levels: readonly ReasoningLevel[];
 }
 

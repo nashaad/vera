@@ -1778,7 +1778,6 @@ const RECOMMENDED_FIXTURE = [
         label: "Kimi K3",
         description: "runnable",
         recommended: true,
-        recommendedLevel: "medium",
     },
     {
         provider: "openrouter",

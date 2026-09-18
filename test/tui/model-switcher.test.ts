@@ -359,10 +359,12 @@ describe("model switcher rendering", () => {
             await setup.renderOnce();
             const frame = setup.captureCharFrame();
             const lines = frame.split("\n").map((line) => line.trim()).filter(Boolean);
-            const at = lines.findIndex((line) => line.startsWith("Browse models"));
+            // The caret marks it as the one button among the numbered rows.
+            const at = lines.findIndex((line) => line.startsWith("\u203a Browse models"));
             expect(at).toBeGreaterThan(0);
-            // It sits under every model, above the footer.
-            expect(lines[at - 1]).toContain("GPT-5.6");
+            // A rule separates it from the models, and the footer follows it.
+            expect(lines[at - 1]).toMatch(/^\u2500+$/);
+            expect(lines[at - 2]).toContain("GPT-5.6");
             expect(lines.slice(at + 1).join(" ")).toContain("esc close");
         } finally {
             setup.renderer.destroy();
