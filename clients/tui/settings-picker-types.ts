@@ -74,6 +74,7 @@ export type TuiSettingsPickerKind =
     | "overrides_settings"
     | "override_value"
     | "session"
+    | "session_import"
     | "session_leave"
     | "session_preview"
     | "session_create_leave"
@@ -180,7 +181,6 @@ export interface TuiSettingsPickerOption {
     readonly verificationError?: string;
     readonly hiddenByDefault?: ReductionReason;
     readonly recommended?: boolean;
-    readonly recommendedLevel?: string;
     readonly refreshable?: boolean;
     readonly group?: string;
     readonly hasCredential?: boolean;
@@ -191,6 +191,8 @@ export interface TuiSettingsPickerOption {
     readonly section?: string;
     readonly sectionCollapsed?: boolean;
     readonly inTopPicks?: boolean;
+    /** This provider is served by a runtime Vera can start and stop itself. */
+    readonly localRuntime?: boolean;
 }
 
 export interface TuiConfigureFile {
@@ -201,6 +203,38 @@ export interface TuiConfigureFile {
     readonly createIfMissing: boolean;
 }
 
+/** What the local runtime is doing. Facts only: the provider screen decides the words, and a screen with no reading yet says so rather than guessing. */
+export interface TuiLocalRuntimeStatus {
+    readonly provider: string;
+    readonly label: string;
+    readonly state: "unknown" | "absent" | "stopped" | "running";
+    /** The gateway moves separately from the model it serves: it can be up with nothing loaded. */
+    readonly gateway?: "up" | "down";
+    readonly profile?: string;
+    readonly endpoint?: string;
+    readonly healthy?: boolean;
+    readonly residentBytes?: number;
+    /** A command Vera is running right now. The facts around it are the ones from before it started, so the section says what is happening instead of showing them as settled. */
+    readonly busy?: "starting" | "stopping" | "switching";
+    /** How far the download behind a command in flight has got. Only a fetch reports bytes; bringing weights that are already on disk into memory reports nothing. */
+    readonly progress?: TuiLocalRuntimeProgress;
+    /** Why the last thing Vera asked of the runtime did not happen. */
+    readonly failure?: string;
+}
+
+export interface TuiLocalRuntimeProgress {
+    readonly downloaded: number;
+    readonly total?: number;
+    readonly etaSeconds?: number;
+}
+
+export type TuiLocalRuntimeAction =
+    | "start"
+    | "stop"
+    | "restart"
+    | "switch"
+    | "logs";
+
 export interface TuiProviderRow {
     readonly id: string;
     readonly label: string;
@@ -209,6 +243,7 @@ export interface TuiProviderRow {
     readonly hasCredential: boolean;
     readonly answerState?: ProviderAnswerState;
     readonly refreshable?: boolean;
+    readonly localRuntime?: boolean;
     readonly declared?: boolean;
     readonly endpointEditable?: boolean;
 }
@@ -239,6 +274,7 @@ export function tuiProviderGroup(
 export type TuiModelPickerTab =
     | "all"
     | "pool"
+    | "recommended"
     | "actions"
     | "defaults"
     | "help";
@@ -267,20 +303,16 @@ export interface TuiExtensionPickerAction {
     readonly button?: boolean;
 }
 
-/** Whether the page under the tab strip holds the keyboard. Nothing in the page is lit while the reader is up on the strip, even though each section still remembers where its cursor was. */
-export function pickerPageHasKeys(
-    state: { readonly pickerLevel?: "strip" | "page" },
-): boolean {
-    return (state.pickerLevel ?? "page") === "page";
-}
-
-export type ModelJourneySection = "scope" | "sort" | "search" | "intelligence" | "list" | "more" | "view" | "providers" | "filters";
+export type ModelBrowseSection = "scope" | "sort" | "search" | "intelligence" | "list" | "more" | "view" | "providers" | "filters";
 
 /** How Switch model orders the models inside each provider group. */
-export type ModelJourneySort = "library" | "az" | "price";
+export type ModelBrowseSort = "library" | "az" | "price";
+
+export type TuiImportScope = "folder" | "all";
 
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
+    readonly importScope?: TuiImportScope;
     readonly allOptions: readonly TuiSettingsPickerOption[];
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
@@ -291,10 +323,10 @@ export interface TuiSettingsPickerState {
     readonly initialTheme?: TuiThemeName;
     readonly initialModel?: string;
     readonly providerCatalogs?: readonly ProviderCatalogState[];
-    readonly modelJourney?: "switch" | "shortlist";
-    readonly journeyNotice?: string;
-    readonly journeyRetainedModels?: readonly string[];
-    readonly journeyFeedback?: {
+    readonly modelBrowse?: "browse" | "favorites";
+    readonly browseNotice?: string;
+    readonly browseRetainedModels?: readonly string[];
+    readonly browseFeedback?: {
         readonly status: "working" | "success" | "error";
         readonly membership?: "added" | "removed";
         readonly message: string;
@@ -304,9 +336,8 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     readonly tab?: TuiModelPickerTab;
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
-    readonly pickerLevel?: "strip" | "page";
     readonly modelFocus?:
-        | ModelJourneySection
+        | ModelBrowseSection
         | "list_action"
         | "detail"
         | "page_entry"
@@ -341,13 +372,15 @@ export interface TuiSettingsPickerState {
     readonly assignmentAllowsSelf?: boolean;
     readonly revealAll?: boolean;
     readonly intelligenceCutoff?: IntelligenceCutoff;
-    readonly journeySort?: ModelJourneySort;
-    readonly journeyView?: "standard" | "detailed";
-    readonly journeyProvider?: string;
-    readonly journeyAvailableOnly?: boolean;
-    readonly journeyPricedOnly?: boolean;
-    readonly journeyImagesOnly?: boolean;
+    readonly browseSort?: ModelBrowseSort;
+    readonly browseView?: "standard" | "detailed";
+    readonly browseProvider?: string;
+    readonly browseAvailableOnly?: boolean;
+    readonly browsePricedOnly?: boolean;
+    readonly browseImagesOnly?: boolean;
     readonly configureFiles?: readonly TuiConfigureFile[];
+    /** The runtime behind a local provider on this screen, shown as its own section. */
+    readonly localRuntime?: TuiLocalRuntimeStatus;
     /** The provider the onboarding model step is choosing within. */
 }
 
@@ -359,7 +392,8 @@ export interface TuiAssignmentParentModel {
 export interface TuiPendingModelChoice {
     readonly provider: string;
     readonly model: string;
-    readonly modelPaneState: TuiSettingsPickerState;
+    /** Absent when the choice came from the switcher, which has no pane to return to. */
+    readonly modelPaneState?: TuiSettingsPickerState;
     readonly assignment?: ModelAssignmentId;
 }
 
@@ -421,6 +455,7 @@ export type TuiSettingsPickerSelection =
         readonly kind: "session_create_leave";
         readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
+    | { readonly kind: "session_import"; readonly path: string }
     | { readonly kind: "configure"; readonly file: TuiConfigureFile }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget }
     | {
@@ -504,11 +539,17 @@ export interface TuiSettingsPickerTransition {
     readonly refreshCatalogScope?: boolean;
     readonly editProvider?: string;
     readonly editEndpoint?: string;
+    readonly runtimeAction?: {
+        readonly provider: string;
+        readonly action: TuiLocalRuntimeAction;
+    };
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
         readonly label: string;
     };
+    // Asks for the import list again, for this folder or for every folder.
+    readonly importScope?: TuiImportScope;
     readonly renameCandidate?: {
         readonly sessionId: string;
         readonly label: string;
@@ -553,14 +594,12 @@ export interface TuiSettingsPickerView {
             readonly status: "running" | "passed" | "failed" | "skipped";
         }[];
     };
-    onTab?: (tab: TuiModelPickerTab) => void;
-    onConfigure?: () => void;
     onCutoff?: (cutoff?: IntelligenceCutoff) => void;
     onMore?: () => void;
-    onJourneyAction?: (section: ModelJourneySection) => void;
+    onBrowseAction?: (section: ModelBrowseSection) => void;
     onScope?: () => void;
     onSort?: () => void;
-    onSection?: (section: ModelJourneySection) => void;
+    onSection?: (section: ModelBrowseSection) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
     handleExtensionEditorKey(state: TuiExtensionPickerState, key: TuiSettingsPickerKey): TuiExtensionPickerTransition;
@@ -638,13 +677,13 @@ export function tuiModelActionOptions(
         const current = options.currentModel;
         rows.push({
             value: tuiModelActionValue("shortlist_current"),
-            label: "Add current model to library",
+            label: "Add current model to favorites",
             description: "enter",
             note:
-                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your library.`,
+                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your favorites.`,
             detailTitle: "add current model",
             detailFacts: [["Current model", `${current.provider}/${current.model}`]],
-            searchText: `add pin keep current model library ${current.provider} ${current.model}`,
+            searchText: `add pin keep current model favorites library ${current.provider} ${current.model}`,
             provider: current.provider,
             model: current.model,
             action: true,
@@ -665,13 +704,13 @@ export function tuiModelActionOptions(
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
-            label: "Verify library models",
+            label: "Verify favorites",
             description: tuiKeyHint("verify_pool").split(" ")[0] ?? "",
             note:
-                "Choose unverified models or the whole library, then send one small request to each and mark the ones that answer.",
-            detailTitle: "verify library",
+                "Choose unverified favorites or all of them, then send one small request to each and mark the ones that answer.",
+            detailTitle: "verify favorites",
             detailFacts: [],
-            searchText: "verify check test probe working broken library pool",
+            searchText: "verify check test probe working broken favorites library pool",
         });
     }
     rows.push({
@@ -791,7 +830,7 @@ export function assignmentStatusWord(row: ModelAssignmentRow): string {
         return `${row.declared.length} models`;
     }
     if (row.bound) {
-        return row.source === "assignment" ? "set" : "not in your library";
+        return row.source === "assignment" ? "set" : "not in your favorites";
     }
     return row.inherits === undefined
         ? "uses session"
@@ -832,7 +871,7 @@ export function assignmentFacts(
         ["If unset", ifUnset],
         ...(row.bound
             ? [[
-                "In library",
+                "In favorites",
                 row.source === "assignment" ? "yes" : "no",
             ] as const]
             : []),
@@ -854,8 +893,8 @@ export function assignmentNote(row: ModelAssignmentRow): string {
         return purpose;
     }
     const runs = `${row.inherits ?? "this session's model"} runs it instead`;
-    return `${purpose} The model it is set to is not in your library, so ${runs}.`
-        + ` Add that model to your library, or point ${row.label} at one that is.`;
+    return `${purpose} The model it is set to is not in your favorites, so ${runs}.`
+        + ` Add that model to your favorites, or point ${row.label} at one that is.`;
 }
 
 export const POOL_VERIFY_UNVERIFIED_VALUE = "unverified";

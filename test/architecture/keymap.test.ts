@@ -68,7 +68,7 @@ test("no TUI surface matches a chord outside the keymap", async () => {
  * force. Blind cycling is the thing being kept out.
  */
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
-    // The selected model-journey contract makes these actions visible in their open screen.
+    // The selected model-browse contract makes these actions visible in their open screen.
     "journey_section", "shortlist_section", "journey_refresh", "journey_cutoff",
     // Tab moves visible focus inside the open HUD without changing any value.
     "dials.section",
@@ -229,7 +229,7 @@ test("the escape hatches survive the modifiers a terminal invents", () => {
 test("an extension chord that a built-in owns is reported, not silently lost", () => {
     expect(tuiChordOwner("ctrl+p")?.id).toBe("open_palette");
     expect(tuiChordOwner("ctrl+j")).toBeUndefined();
-    // The two bundled extensions are in the table, so they are answerable as
+    // The two included extensions are in the table, so they are answerable as
     // "what is this key" without being reported against themselves.
     expect(tuiChordOwner("ctrl+y")?.extensionId).toBe("cycle-reasoning");
 });

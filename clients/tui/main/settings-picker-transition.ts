@@ -12,6 +12,7 @@ import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
+import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
@@ -19,9 +20,11 @@ import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-pre
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
+import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile } from "./outrider-control.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
+import { applyModelSwitch } from "../main/model-switcher-ops.ts";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
     transition:
@@ -41,12 +44,12 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     ) {
         beginSessionPreviewLoad(rt, transition.previewSession.path);
     }
-    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney === "switch"
+    if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelBrowse === "browse"
         && (previousPicker?.kind === "model_menu"
             || previousPicker?.kind === "model" && previousPicker.tab !== rt.settingsPicker.tab)) {
         try {
-            saveModelPickerPreferences({ view: rt.settingsPicker.journeyView ?? "standard",
-                scope: rt.settingsPicker.tab === "all" ? "all" : "pool", sort: rt.settingsPicker.journeySort ?? "library" });
+            saveModelPickerPreferences({ view: rt.settingsPicker.browseView ?? "standard",
+                scope: rt.settingsPicker.tab === "all" ? "all" : "pool", sort: rt.settingsPicker.browseSort ?? "library" });
         } catch (error) {
             showStatusNotice(rt, `Could not save model picker preferences: ${String(error)}`);
         }
@@ -107,6 +110,13 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.sessionTrashCandidate = transition.trashCandidate;
     }
     if (
+        "importScope" in transition
+        && transition.importScope !== undefined
+    ) {
+        openImportPicker(rt, transition.importScope);
+        return;
+    }
+    if (
         "renameCandidate" in transition
         && transition.renameCandidate !== undefined
     ) {
@@ -131,6 +141,17 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         openRequestOptionsEditor(rt, 
             transition.requestOptions,
             previousPicker,
+        );
+        return;
+    }
+    if (
+        "runtimeAction" in transition
+        && transition.runtimeAction !== undefined
+    ) {
+        runLocalRuntimeAction(
+            rt,
+            transition.runtimeAction.action,
+            (provider) => { enterWizardModelStep(rt, provider); },
         );
         return;
     }
@@ -223,7 +244,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             },
             transition.poolName.label,
             previousPicker?.kind === "extension" ? undefined : previousPicker,
-            previousPicker?.kind === "model" && previousPicker.modelJourney === "shortlist" ? transition.poolName.label : undefined,
+            previousPicker?.kind === "model" && previousPicker.modelBrowse === "favorites" ? transition.poolName.label : undefined,
         );
         return;
     }
@@ -266,11 +287,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             renderState(rt);
             return;
         }
-        // The More menu hands the toggle back with the journey as its next
-        // state, so the journey path is chosen on where the toggle lands.
-        const journey = (previousPicker?.kind === "model" && previousPicker.modelJourney !== undefined)
-            || (transition.state?.kind === "model" && transition.state.modelJourney !== undefined);
-        if (journey) {
+        // The More menu hands the toggle back with the browse page as its next
+        // state, so the path is chosen on where the toggle lands.
+        const browsing = (previousPicker?.kind === "model" && previousPicker.modelBrowse !== undefined)
+            || (transition.state?.kind === "model" && transition.state.modelBrowse !== undefined);
+        if (browsing) {
             runModelOperation(rt, { operation: toggle.action === "add" ? "keep" : "unkeep",
                 models: [{ provider: toggle.provider, model: toggle.model }] });
             return;
@@ -305,7 +326,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     );
                 }
                 showStatusNotice(rt, 
-                    `${toggle.provider}/${toggle.model} is already in your library`,
+                    `${toggle.provider}/${toggle.model} is already in your favorites`,
                 );
                 renderState(rt);
                 return;
@@ -394,11 +415,25 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             void openConfigureEditor(rt, selection.file);
             return;
         }
-        const switchPane = previousPicker?.kind === "model" && previousPicker.modelJourney === "switch"
+        const switchPane = previousPicker?.kind === "model" && previousPicker.modelBrowse === "browse"
             ? previousPicker
-            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState.modelJourney === "switch"
+            : previousPicker?.kind === "reasoning" && previousPicker.pendingModel?.modelPaneState?.modelBrowse === "browse"
             ? previousPicker.pendingModel.modelPaneState
             : undefined;
+        const fromSwitcher = previousPicker?.kind === "reasoning"
+            && previousPicker.pendingModel !== undefined
+            && previousPicker.pendingModel.modelPaneState === undefined;
+        if (selection.kind === "model" && fromSwitcher) {
+            closeSettingsPickerSurface(rt);
+            applyModelSwitch(rt, {
+                provider: selection.provider,
+                model: selection.model,
+                ...(selection.reasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: selection.reasoningEffort }),
+            });
+            return;
+        }
         if (selection.kind === "model" && switchPane !== undefined) {
             const levels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)
@@ -414,14 +449,21 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 return;
             }
             const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
+            const keptEffort = selection.reasoningEffort;
             const apply = () => {
                 const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
                 void client.send({ type: "update_session_model_settings", requestId: randomUUID(),
-                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: selection.reasoningEffort ?? null } })
+                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: keptEffort ?? null } })
                     .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
-                const chosen = selection.reasoningEffort === undefined ? selection.model : `${selection.model} (${selection.reasoningEffort})`;
-                showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to the library.`);
+                const chosen = keptEffort === undefined ? selection.model : `${selection.model} (${keptEffort})`;
+                showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to your favorites.`);
                 renderState(rt);
+                // A local runtime serves one profile at a time, so picking one of its
+                // models is also the instruction to load it. Last, because what it is
+                // doing is the more useful of the two notices while it is doing it.
+                if (localRuntimeProvider()?.id === selection.provider) {
+                    switchLocalRuntimeProfile(rt, selection.model);
+                }
             };
             if (isHomeClient(target)) {
                 const draft = currentDraft(rt);
@@ -467,6 +509,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 `the model to ${chosen}`,
                 rt.settingsPickerAgent,
             );
+            // A local runtime serves one profile at a time, so picking one of
+            // its models is also the instruction to load it.
+            if (localRuntimeProvider()?.id === selection.provider) {
+                switchLocalRuntimeProfile(rt, selection.model);
+            }
         } else if (selection.kind === "provider") {
             const asked = connectProvider(rt, 
                 selection.providerId,
@@ -664,7 +711,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     ? previousPicker
                     : previousPicker !== undefined
                             && "pendingModel" in previousPicker
-                            && previousPicker.pendingModel?.modelPaneState.kind
+                            && previousPicker.pendingModel?.modelPaneState?.kind
                             === "model_assignment"
                     ? previousPicker.pendingModel.modelPaneState
                     : undefined;
@@ -691,6 +738,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 selection.sourceDisposition,
                 "attach",
             );
+            return;
+        } else if (selection.kind === "session_import") {
+            closeSettingsPickerSurface(rt);
+            importSessionFromTui(rt, selection.path);
+            renderState(rt);
             return;
         } else if (selection.kind === "session_create_leave") {
             closeSettingsPickerSurface(rt);

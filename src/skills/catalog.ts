@@ -60,7 +60,7 @@ export async function loadSkillCatalog(
     let disabledPatterns = options.disabledSkills;
     let extensionRoots = options.extensionRoots;
     if (disabledPatterns === undefined || extensionRoots === undefined) {
-        const sources = resolveSkillSources(options.projectRoot);
+        const sources = resolveSkillSources();
         disabledPatterns ??= sources.disabledSkills;
         extensionRoots ??= sources.extensionRoots;
         warnings.push(...sources.warnings);

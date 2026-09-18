@@ -9,6 +9,19 @@ Vera includes extensions for planning, side conversations, workspace diffs,
 context inspection, and command hooks. They appear in `/extensions` and
 `/customize`; no separate installation is needed.
 
+Vera loads every extension folder in two places:
+
+- `src/core-extensions/` holds core extensions. They can be switched off but
+  are part of Vera.
+- `extensions/` holds optional extensions. They are on by default, and
+  deleting a folder removes that extension.
+
+```text
+core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
+           vera.reasoning-cycle, vera.session-identity, vera.web-search
+included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.plan
+```
+
 ## Plan before making changes
 
 Use `/agent plan` to investigate and plan with read, search, and listing
@@ -56,13 +69,13 @@ provides `/dashboard`; disabling it removes both commands.
 Command hooks run configured executables around tool calls. With no hooks
 configured, the extension runs nothing.
 
-Find `example.command-hooks` in `/customize` under Extensions and note its
+Find `vera.command-hooks` in `/customize` under Extensions and note its
 absolute path. Add an explicit entry to the home's `config.json`:
 
 ```json
 {
     "extensions": [{
-        "path": "/absolute/path/to/extensions/command-hooks",
+        "path": "/absolute/path/to/src/core-extensions/command-hooks",
         "enabled": true,
         "config": {
             "hooks": [{
@@ -89,17 +102,22 @@ Malformed supplied configuration prevents activation.
 ## Configure or disable included copies
 
 Use the extension manager for available controls. To suppress included copies
-in configuration, name their IDs in `disabled_builtin_extensions`:
+in configuration, name their IDs in `disabled_included_extensions`:
 
 ```json
 {
-    "disabled_builtin_extensions": ["example.plan", "example.command-hooks", "vera.btw"]
+    "disabled_included_extensions": ["vera.plan", "vera.command-hooks", "vera.btw"]
 }
 ```
 
-Other included IDs include `vera.diff` and `example.context`. An explicit
-extension entry with the same ID replaces the included copy, even when that
-explicit entry is disabled. It keeps its own configuration.
+Any ID from the lists above works here.
+`/extension disable <id>` and `/extension enable <id>` edit this list, as does
+Space on an included row in `/extensions`.
+
+An `extensions` entry in `config.json` whose path is an included directory
+replaces the included copy, even when that entry is disabled. It keeps its own
+configuration. An installed extension with the same ID also replaces the
+included copy.
 
 For Plan configuration, use an explicit entry with the absolute path shown in
 Customize. Restart the host for command-hook or Plan changes. Restart the

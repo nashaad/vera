@@ -1,9 +1,0 @@
-{
-  "id": "nash.web-search",
-  "version": "0.1.0",
-  "sdk": "1",
-  "entrypoint": "./index.ts",
-  "capabilities": [
-    "tools.register"
-  ]
-}

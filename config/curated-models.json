@@ -1,0 +1,67 @@
+{
+  "schema_version": 3,
+  "updated_at": "2026-09-18",
+  "about": "Models I reach for, and what each one is good for. Effort tiers are left out: pick the model, then pick how hard it thinks.",
+  "models": [
+    {
+      "make": "Alibaba",
+      "model": "qwen3.8-max",
+      "note": "Pretty powerful and reliable, there are cheaper options though, like Qwen Flash Next"
+    },
+    {
+      "make": "Moonshot",
+      "model": "kimi-k3",
+      "note": "Really good, and has image support"
+    },
+    {
+      "make": "Z.ai",
+      "model": "glm-5.3",
+      "note": "Reliable. Try the flash counterpart too"
+    },
+    {
+      "make": "Z.ai",
+      "model": "glm-5.3-flash",
+      "note": ""
+    },
+    {
+      "make": "DeepSeek",
+      "model": "deepseek-v4.1-flash",
+      "note": "Amazing for the price"
+    },
+    {
+      "make": "DeepSeek",
+      "model": "deepseek-v4-pro",
+      "note": "Scores really well, but worth trying out the 4.1 flash model from DeepSeek also"
+    },
+    {
+      "make": "Alibaba",
+      "model": "qwen3.8-flash",
+      "note": ""
+    },
+    {
+      "make": "Alibaba",
+      "model": "qwen3.8-27b",
+      "note": "Good for running locally. Apache 2.0, small enough for one box."
+    },
+    {
+      "make": "Meta",
+      "model": "muse-spark-1.3",
+      "note": ""
+    },
+    {
+      "make": "Tencent",
+      "model": "hy4-preview",
+      "note": "Really good and cheaper than best Qwen and Kimi models at time of writing"
+    },
+    {
+      "make": "Google",
+      "model": "gemini-3.8-flash",
+      "note": "These latest models are very talkative, but pretty good"
+    },
+    {
+      "make": "OpenAI",
+      "model": "gpt-5.6-luna",
+      "note": "Run it at highest reasoning levels, where it packs above its weight"
+    }
+  ]
+}

@@ -162,8 +162,6 @@ export async function closeDescendantTree(reg: AgentRegistry, callerId: string, 
 
 export async function reapClosedAgent(reg: AgentRegistry, id: string, entry: RegisteredAgentEntry): Promise<void> {
         entry.inbox?.release();
-        await entry.projectExtensions?.close();
-        await reg.options.releaseWorkspaceSidecars?.(entry.store.header.cwd);
         reg.agents.delete(id);
         reg.spawnNotices.delete(id);
         if (entry.ephemeral) {

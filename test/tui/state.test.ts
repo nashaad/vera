@@ -107,6 +107,18 @@ test("soft harness prose stays visible when history is rebuilt", () => {
         .toBe(TextAttributes.ITALIC);
 });
 
+test("a success notice renders in the success color, upright", () => {
+    const rendered = renderTuiEntry({
+        kind: "notice",
+        text: "✓ signed in to OpenAI Codex",
+        tone: "success",
+    });
+
+    expect(plainText(rendered)).toBe("✓ signed in to OpenAI Codex");
+    expect(rendered.chunks[0]?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(rendered.chunks[0]?.attributes ?? 0).toBe(0);
+});
+
 test("ask_user completion is semantic in live and replayed transcripts", () => {
     const output = JSON.stringify({
         choice_id: "preview-channel",
@@ -1121,7 +1133,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
         verdict: "added",
         seq: 1,
     });
-    expect(state.entries[0]?.text).toContain("Pinned to your library");
+    expect(state.entries[0]?.text).toContain("Kept in your favorites");
 
     state = applyAgentUpdate(state, {
         type: "model_settings",
@@ -1145,7 +1157,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
         seq: 2,
     });
     expect(state.entries[0]?.text)
-        .toContain("Pinned to your library (2 levels verified)");
+        .toContain("Kept in your favorites (2 levels verified)");
     // Settled rather than dropped: the dialog showing this verdict still
     // renders from the record.
     expect(state.admission?.settled).toBe(true);
@@ -2591,7 +2603,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         state.effortSubstitution,
-    )).toContain("HIGH (ASKED LOW)");
+    )).toContain("high (asked low)");
 
     // The stored setting is untouched: the line reports, it does not change.
     expect(state.modelSettings?.reasoningEffort).toBe("low");
@@ -2608,7 +2620,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         none.effortSubstitution,
-    )).toContain("NONE (ASKED LOW)");
+    )).toContain("none (asked low)");
 
     // A different model is a different question, so the evidence is dropped.
     const moved = applyAgentUpdate(state, settingsUpdate({
@@ -2623,7 +2635,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         moved.effortSubstitution,
-    )).toContain("LOW ·");
+    )).toContain("· low");
 });
 
 test("the same substitution is announced once, and again when it changes", () => {
@@ -2736,12 +2748,12 @@ test("the pool listing names the effort, the probe state and the provider", () =
             levels: [],
         },
     ])).toBe([
-        "Library (2):",
+        "Favorites (2):",
         "  z-ai/glm-5.2 · medium · verified · openrouter",
         "  gpt-5.6-sol · provider default · unverified · openai-codex,"
             + " unavailable right now",
     ].join("\n"));
-    expect(tuiPoolListing([])).toContain("Your library is empty");
+    expect(tuiPoolListing([])).toContain("You have no favorites yet");
 });
 
 test("a named pool entry lists by its name, with the model id behind it", () => {

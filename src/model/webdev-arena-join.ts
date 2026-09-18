@@ -17,7 +17,6 @@ export interface WebDevArenaAliases {
 export interface WebDevJoinRef {
     readonly provider: string;
     readonly model: string;
-    readonly recommendedLevel?: string;
 }
 
 const ALIASES_PATH = fileURLToPath(
@@ -73,12 +72,6 @@ function arenaNameFor(
     overall: readonly WebDevArenaRow[],
 ): string | undefined {
     const id = `${ref.provider}/${ref.model}`;
-    if (ref.recommendedLevel !== undefined) {
-        const keyed = aliases.aliases[`${id}@${ref.recommendedLevel}`];
-        if (keyed !== undefined) {
-            return keyed;
-        }
-    }
     const exactAlias = aliases.aliases[id];
     if (exactAlias !== undefined) {
         return exactAlias;
@@ -119,13 +112,6 @@ function effortVariantName(
     }
     if (variants.length === 0) {
         return undefined;
-    }
-    const asked = ref.recommendedLevel;
-    if (asked !== undefined) {
-        const exact = variants.filter((variant) => variant.effort === asked);
-        if (exact.length === 1) {
-            return exact[0]?.name;
-        }
     }
     const ceiling = variants.reduce(
         (highest, variant) =>

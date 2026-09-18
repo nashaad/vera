@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -600,4 +600,123 @@ test("reviewer spend in the prior window counts toward prior totals", async () =
     });
     expect(report.totals.spend.combined).toBeCloseTo(1, 8);
     expect(report.prior?.spend.combined).toBeCloseTo(4, 8);
+});
+
+function writeRunSpans(
+    workflowDirectory: string,
+    runId: string,
+    calls: readonly {
+        readonly at: Date;
+        readonly attributes: Record<string, unknown>;
+        readonly open?: boolean;
+    }[],
+): void {
+    const runDir = join(workflowDirectory, runId);
+    mkdirSync(runDir, { recursive: true });
+    const lines: string[] = [];
+    calls.forEach((call, index) => {
+        const spanId = `a1.${index + 1}.1`;
+        lines.push(JSON.stringify({
+            trace_id: runId,
+            span_id: spanId,
+            parent_id: `a1.${index + 1}`,
+            name: "openai/gpt-5.6-luna",
+            start_time: call.at.toISOString(),
+            attributes: {
+                "openinference.span.kind": "LLM",
+                "halcyon.attempt": 1,
+                "halcyon.step.key": `writer/draft#${index}:x`,
+                "llm.model_name": "anthropic/claude-sonnet-4",
+                "llm.provider": "openrouter",
+            },
+        }));
+        if (call.open === true) return;
+        lines.push(JSON.stringify({
+            span_id: spanId,
+            end_time: call.at.toISOString(),
+            status_code: "OK",
+            attributes: {
+                "halcyon.outcome": "ok",
+                "halcyon.duration_ms": 10,
+                ...call.attributes,
+            },
+        }));
+    });
+    writeFileSync(join(runDir, "spans.ndjson"), lines.join("\n") + "\n");
+}
+
+test("halcyon model calls count toward totals but add no conversation", async () => {
+    const sessionDirectory = tempDir("vera-usage-workflow-sessions-");
+    const workflowDirectory = tempDir("vera-usage-workflows-");
+    writeRunSpans(workflowDirectory, "wf_0000000000000001", [
+        {
+            at: NOW,
+            attributes: {
+                "llm.token_count.prompt": 1_000,
+                "llm.token_count.completion": 100,
+                "llm.token_count.total": 1_100,
+                "llm.cost.total": 0.25,
+            },
+        },
+        {
+            at: NOW,
+            attributes: {
+                "llm.token_count.prompt": 1_000_000,
+                "llm.token_count.completion": 500_000,
+                "llm.token_count.prompt_details.cache_read": 200_000,
+                "llm.token_count.total": 1_500_000,
+            },
+        },
+        { at: NOW, attributes: {}, open: true },
+    ]);
+    writeRunSpans(workflowDirectory, "wf_0000000000000002", [{
+        at: new Date(2026, 7, 20, 12, 0, 0),
+        attributes: {
+            "llm.token_count.prompt": 10,
+            "llm.token_count.completion": 10,
+            "llm.token_count.total": 20,
+            "llm.cost.total": 4,
+        },
+    }]);
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+        workflowDirectory,
+    });
+    expect(report.totals.calls).toBe(2);
+    expect(report.totals.spend.reported).toBeCloseTo(0.25, 8);
+    expect(report.totals.spend.estimated).toBeCloseTo(9.96, 8);
+    expect(report.totals.cachedInputTokens).toBe(200_000);
+    expect(report.prior?.spend.combined).toBeCloseTo(4, 8);
+    expect(report.models[0]?.model).toBe("anthropic/claude-sonnet-4");
+    expect(report.sessions).toEqual([]);
+});
+
+test("a run last written before the window is not read", async () => {
+    const workflowDirectory = tempDir("vera-usage-workflows-stale-");
+    writeRunSpans(workflowDirectory, "wf_0000000000000003", [{
+        at: NOW,
+        attributes: {
+            "llm.token_count.prompt": 10,
+            "llm.token_count.completion": 10,
+            "llm.token_count.total": 20,
+            "llm.cost.total": 1,
+        },
+    }]);
+    const old = new Date(2026, 0, 1);
+    await utimes(
+        join(workflowDirectory, "wf_0000000000000003", "spans.ndjson"),
+        old,
+        old,
+    );
+    const report = await foldUsageReport({
+        sessionDirectory: tempDir("vera-usage-workflow-stale-sessions-"),
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+        workflowDirectory,
+    });
+    expect(report.totals.calls).toBe(0);
 });

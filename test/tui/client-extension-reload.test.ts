@@ -71,7 +71,7 @@ test("client extension reload outcomes keep status and notices together", () => 
         loadedExtensionIds: ["old.extension"],
         failures: ["network failed"],
     });
-    expect(failed.notice).toBe("Client extensions could not reload: network failed");
+    expect(failed.notice).toBe("Extensions could not reload in the TUI: network failed");
 });
 
 test("client extension reload applies refreshed config before activation", async () => {
@@ -89,14 +89,14 @@ test("client extension reload applies refreshed config before activation", async
 
     const loaded = await reloadTuiClientExtensions({
         configuration: {
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],
             clientExtensions: [],
         },
         refreshConfiguration: () => ({
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],
@@ -126,7 +126,7 @@ test("client extension reload reports loaded IDs when activation partially fails
 
     await expect(reloadTuiClientExtensions({
         configuration: {
-            disabledBuiltinExtensions: [],
+            disabledIncludedExtensions: [],
             clientExtensions: [],
         },
         applyConfiguration() {},

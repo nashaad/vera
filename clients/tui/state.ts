@@ -77,6 +77,8 @@ export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
     readonly entryId?: string;
+    // Rows derived from a session's import facts; rebuilt, never stored.
+    readonly importRow?: true;
     readonly attachments?: readonly string[];
     readonly header?: string;
     readonly tool?: string;
@@ -98,7 +100,7 @@ export interface TuiTextTranscriptEntry {
     readonly hint?: boolean;
     readonly admission?: string;
     readonly diagnostic?: TuiDiagnostic;
-    readonly tone?: "primary" | "soft" | "error";
+    readonly tone?: "primary" | "soft" | "error" | "success";
     readonly card?: boolean;
     readonly summary?: string;
 }
@@ -943,7 +945,7 @@ export function tuiPoolListing(
     pooled: readonly PooledModel[] | undefined,
 ): string {
     if (pooled === undefined || pooled.length === 0) {
-        return "Your library is empty. ^s in the model picker pins a model to it.";
+        return "You have no favorites yet. Ctrl+S in the model picker keeps one.";
     }
     const lines = pooled.map((entry) => {
         const effort = entry.defaultLevel ?? "provider default";
@@ -954,7 +956,7 @@ export function tuiPoolListing(
             : `${entry.poolName} (${entry.model})`;
         return `  ${named} · ${effort} · ${state} · ${entry.provider}${availability}`;
     });
-    return [`Library (${pooled.length}):`, ...lines].join("\n");
+    return [`Favorites (${pooled.length}):`, ...lines].join("\n");
 }
 
 export function tuiAdmissionVerdictLine(
@@ -962,8 +964,8 @@ export function tuiAdmissionVerdictLine(
 ): string | undefined {
     if (admission.verdict === "added") {
         return admission.verifiedLevels === undefined
-            ? "Pinned to your library"
-            : `Pinned to your library (${admission.verifiedLevels} ${
+            ? "Kept in your favorites"
+            : `Kept in your favorites (${admission.verifiedLevels} ${
                 admission.verifiedLevels === 1 ? "level" : "levels"
             } verified)`;
     }
@@ -973,7 +975,7 @@ export function tuiAdmissionVerdictLine(
         }`;
     }
     if (admission.verdict === "pool_write_refused") {
-        return `Not pinned, your library was left untouched${
+        return `Not kept, your favorites were left untouched${
             admission.reason === undefined ? "" : `: ${admission.reason}`
         }`;
     }
@@ -1109,7 +1111,7 @@ function substitutionEntry(
 export function appendTuiNotice(
     state: TuiState,
     message: string,
-    tone?: "primary" | "soft" | "error",
+    tone?: "primary" | "soft" | "error" | "success",
     supersedes?: string,
 ): TuiState {
     return placeTuiNotice(state, {
@@ -1365,6 +1367,8 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
                 ? TUI_MUTED
                 : entry.tone === "error"
                 ? TUI_DANGER
+                : entry.tone === "success"
+                ? TUI_SUCCESS
                 : TUI_NOTICE;
             const text = fg(color)(entry.text);
             return new StyledText([

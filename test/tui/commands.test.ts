@@ -52,6 +52,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "reconnect" },
         { type: "create_session" },
         { type: "update_session_name", name: "name" },
+        { type: "import_session", path: "/tmp/a.jsonl" },
         { type: "clone_session" },
         { type: "compact_session" },
         { type: "close_session" },
@@ -62,7 +63,6 @@ test("every slash action has an explicit pane scope", () => {
             command: {
                 operation: "install",
                 source: "./extension",
-                scope: "profile",
                 dryRun: true,
             },
         },
@@ -108,6 +108,7 @@ test("every slash action has an explicit pane scope", () => {
             ["reconnect", "main_session"],
             ["create_session", "focused_agent"],
             ["update_session_name", "focused_agent"],
+            ["import_session", "focused_agent"],
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],
             ["close_session", "main_session"],
@@ -275,17 +276,16 @@ test("extension manager slash commands are application-owned actions", () => {
         command: {
             operation: "install",
             source: "./local",
-            scope: "profile",
             dryRun: true,
         },
     });
-    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+    expect(registry.dispatch("/extension disable sample")).toEqual({
         type: "manage_extensions",
-        command: {
-            operation: "disable",
-            id: "sample",
-            scope: "project",
-        },
+        command: { operation: "disable", id: "sample" },
+    });
+    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+        type: "command_error",
+        message: "Usage: vera extension disable <id>",
     });
     expect(registry.dispatch(
         `/extension install "/tmp/My Local Extension" --dry-run`,
@@ -294,13 +294,11 @@ test("extension manager slash commands are application-owned actions", () => {
         command: {
             operation: "install",
             source: "/tmp/My Local Extension",
-            scope: "profile",
             dryRun: true,
         },
     });
-    expect(registry.dispatch("/extension list --project")).toEqual({
+    expect(registry.dispatch("/extension list")).toEqual({
         type: "show_extensions",
-        scope: "project",
     });
     expect(registry.dispatch("/extension reload")).toEqual({
         type: "manage_extensions",
@@ -425,9 +423,11 @@ test("typing slash exposes the built-in rewind command", () => {
     ))).toContain("› /rewind");
     expect(registry.completion("/rew")).toBe("/rewind");
     expect(registry.completion("/mod")).toBe("/model");
-    expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model"]);
-    expect(registry.completion("/lib")).toBe("/library-model");
-    expect(registry.suggestions("/library").map((command) => command.name)).toEqual(["library-model"]);
+    expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model", "models"]);
+    // Favorites, defaults and providers are sections of /models, reachable from
+    // the palette by name, so they have no slash command of their own.
+    expect(registry.completion("/lib")).toBeUndefined();
+    expect(registry.suggestions("/library")).toEqual([]);
     expect(registry.completion("  /rew")).toBe("  /rewind");
     expect(registry.completion("/rewind")).toBeUndefined();
     expect(registry.completion("/wat")).toBeUndefined();
@@ -441,7 +441,7 @@ test("slash context lists the name and ghosts [all] after a space", () => {
         name: "context",
         description: "Show context usage",
         usage: "/context [all]",
-        source: "example.context",
+        source: "vera.context",
     }]);
     const listed = tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/context"),
@@ -472,9 +472,7 @@ test("slash context lists the name and ghosts [all] after a space", () => {
     expect(tuiCommandArgumentHint(commands, "/context all")).toBeUndefined();
     expect(tuiCommandArgumentHint(commands, "/context  ")).toBeUndefined();
     expect(tuiCommandArgumentHint(commands, "/contex ")).toBeUndefined();
-    expect(tuiCommandArgumentHint(commands, "/effort ")).toBe(
-        "<off|low|medium|high|max>",
-    );
+    expect(tuiCommandArgumentHint(commands, "/effort ")).toBe("[level]");
     expect(tuiCommandArgumentHint(commands, "/rewind ")).toBeUndefined();
     expect(tuiCommandArgumentHint(commands, "/model ")).toBe("<model-id>");
 });
@@ -533,7 +531,9 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "open_settings_destination",
         destination: { kind: "reasoning" },
     });
-    expect(registry.dispatch("/mod")).toEqual({
+    // /mod prefixes both /model and /models, so only the full name dispatches.
+    expect(registry.dispatch("/mod")).toBeUndefined();
+    expect(registry.dispatch("/model")).toEqual({
         type: "open_settings_destination",
         destination: { kind: "model" },
     });
@@ -551,16 +551,9 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "open_settings_destination",
         destination: { kind: "model" },
     });
-    expect(registry.dispatch("/library-model")).toEqual({
-        type: "open_settings_destination", destination: { kind: "model_shortlist" },
-    });
-    expect(registry.dispatch("/library-model add")).toEqual({
-        type: "pool_current_model",
-    });
-    for (const alias of ["library", "shortlist"]) {
-        expect(registry.dispatch(`/${alias}`)).toEqual(registry.dispatch("/library-model"));
-        expect(registry.dispatch(`/${alias} add`)).toEqual(registry.dispatch("/library-model add"));
-        expect(registry.registeredCommands().some((command) => command.name === alias)).toBe(false);
+    expect(registry.dispatch("/models")).toEqual({ type: "open_model_browse" });
+    for (const retired of ["/library-model", "/library", "/shortlist", "/providers", "/defaults"]) {
+        expect(registry.dispatch(retired)).toBeUndefined();
     }
     expect(registry.dispatch("/effort")).toEqual({
         type: "open_settings_destination",
@@ -607,6 +600,11 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_session_name",
         name: null,
     });
+    expect(registry.dispatch("/import ~/old session.jsonl")).toEqual({
+        type: "import_session",
+        path: "~/old session.jsonl",
+    });
+    expect(registry.dispatch("/import")).toEqual({ type: "open_import_picker" });
     expect(registry.dispatch("/clone")).toEqual({
         type: "clone_session",
     });

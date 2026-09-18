@@ -36,6 +36,8 @@ export type WorkspaceSessionStatus = VeraClientSession["status"];
 
 export interface WorkspaceSession extends VeraClientSession {
     readonly ephemeral?: boolean;
+    // `[imported · Claude Code]`; the title is clipped before it is.
+    readonly importLabel?: string;
 }
 
 export const WORKSPACE_WAITING_MARKER = "!";
@@ -326,7 +328,9 @@ function sessionRow(
     const age = context.showAge && group === RECENT_GROUP
         ? relativeTime(session.updatedAt, context.now, "")
         : "";
-    const shown = clip(title, Math.max(1, context.contentColumns));
+    const shown = session.importLabel === undefined
+        ? clip(title, Math.max(1, context.contentColumns))
+        : labelledTitle(title, session.importLabel, context.contentColumns);
     const text = `${marker} ${shown}`;
     const detail = group === RECENT_GROUP
         ? age
@@ -346,6 +350,13 @@ function sessionRow(
         text,
         detail,
     };
+}
+
+function labelledTitle(title: string, label: string, columns: number): string {
+    const room = columns - label.length - 1;
+    return room < 4
+        ? clip(`${title} ${label}`, Math.max(1, columns))
+        : `${clip(title, room)} ${label}`;
 }
 
 export function workspaceGroupPath(workspace: string): string {

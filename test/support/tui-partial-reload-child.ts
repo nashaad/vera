@@ -56,18 +56,18 @@ export function createTuiPartialReloadDependencies(
         enabled: true,
         config: null,
     }] as const;
-    const disabledBuiltinExtensions = [
+    const disabledIncludedExtensions = [
         "vera.model-presets",
         "vera.reasoning-cycle",
     ] as const;
 
     return {
         client,
-        disabledBuiltinExtensions,
+        disabledIncludedExtensions,
         clientExtensions: extensions,
         loadClientExtensionConfiguration() {
             return {
-                disabledBuiltinExtensions,
+                disabledIncludedExtensions,
                 clientExtensions: extensions,
             };
         },

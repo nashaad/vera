@@ -13,6 +13,7 @@ export type TuiKeyScope =
     | "model_picker"
     | "model_assignment_picker"
     | "session_picker"
+    | "import_picker"
     | "secret_prompt"
     | "provider_form"
     | "preferences_list"
@@ -39,6 +40,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "verification_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
     "secret_prompt",
     "provider_form",
     "preferences_list",
@@ -65,6 +67,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "verification_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
     "secret_prompt",
     "provider_form",
     "preferences_list",
@@ -83,6 +86,7 @@ const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "model_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
 ];
 
 const HALF_PAGE_IDS: ReadonlySet<string> = new Set([
@@ -131,11 +135,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "journey_reveal", keys: ["ctrl+a"], scope: "switch_model_picker",
-        description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
+        description: "Show all models or hide older and duplicate entries", hint: "Ctrl+A show all/fewer", remappable: true,
     },
     {
         id: "shortlist_reveal", keys: ["ctrl+a"], scope: "shortlist_picker",
-        description: "Show all models or hide older and duplicate entries", hint: "^a show all/fewer", remappable: true,
+        description: "Show all models or hide older and duplicate entries", hint: "Ctrl+A show all/fewer", remappable: true,
     },
     {
         id: "journey_section", keys: ["tab", "shift+tab", "backtab"], scope: "switch_model_picker",
@@ -149,28 +153,28 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "journey_refresh", keys: ["ctrl+r"], scope: "switch_model_picker",
-        description: "Refresh connected catalogs in place", hint: "^r refresh",
+        description: "Refresh connected catalogs in place", hint: "Ctrl+R refresh",
     },
     {
         id: "journey_scope", keys: ["ctrl+g", "ctrl+shift+g"], scope: "switch_model_picker",
-        description: "Toggle Favorites and All connected models", hint: "^g favorites/all",
+        description: "Cycle Favorites, Recommended and All connected models", hint: "Ctrl+G scope",
         remappable: true,
         overrides: ["switch_pane"],
     },
     {
         id: "shortlist_providers", keys: ["ctrl+e"], scope: "shortlist_picker",
-        description: "Open Configure providers", hint: "^e providers",
+        description: "Open Configure providers", hint: "Ctrl+E providers",
         remappable: true,
         overrides: ["toggle_workspace_sidebar"],
     },
     {
         id: "shortlist_rename", keys: ["ctrl+r"], scope: "shortlist_picker",
-        description: "Rename the selected display name", hint: "^r rename",
+        description: "Rename the selected display name", hint: "Ctrl+R rename",
         remappable: true,
     },
     {
         id: "shortlist_verify", keys: ["ctrl+y"], scope: "shortlist_picker",
-        description: "Verify the selected model and show results", hint: "^y verify",
+        description: "Verify the selected model and show results", hint: "Ctrl+Y verify",
         remappable: true,
     },
     {
@@ -450,10 +454,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "toggle_pooled",
-        keys: ["ctrl+s"],
+        keys: ["ctrl+f", "ctrl+s"],
         scope: "model_picker",
-        description: "Pin the selected model to your library, or unpin it",
-        hint: "^s pin",
+        description: "Keep the selected model in your favorites, or drop it",
+        hint: "Ctrl+F favorite",
+        overrides: ["search_conversation"],
     },
     {
         id: "toggle_subagent_assignment",
@@ -466,53 +471,52 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "undo_pool_change",
         keys: ["ctrl+z"],
         scope: "model_picker",
-        description: "Undo the last library add or remove",
-        hint: "^z undo",
+        description: "Undo the last favorites add or remove",
+        hint: "Ctrl+Z undo",
     },
     {
         id: "refresh_catalog",
-        keys: ["ctrl+f"],
+        keys: ["ctrl+r"],
         scope: "model_picker",
         description: "Ask the highlighted row's provider for its model list now",
-        hint: "^f refresh",
-        overrides: ["search_conversation"],
+        hint: "Ctrl+R refresh",
     },
     {
         id: "verify_pool",
         keys: ["ctrl+shift+v"],
         scope: "model_picker",
         description: "Probe the models you keep, and record what they can do",
-        hint: "^⇧v verify all",
+        hint: "Ctrl+Shift+V verify all",
     },
     {
         id: "verify_model",
         keys: ["ctrl+v"],
         scope: "model_picker",
         description: "Probe the selected model and record what it can do",
-        hint: "^v verify",
+        hint: "Ctrl+V verify",
     },
     {
         id: "move_pooled_up",
         keys: ["shift+up"],
         scope: "model_picker",
-        description: "Move the selected model in your library up the order",
-        hint: "⇧↑ move up",
+        description: "Move the selected model in your favorites up the order",
+        hint: "Shift+↑ move up",
         remappable: true,
     },
     {
         id: "move_pooled_down",
         keys: ["shift+down"],
         scope: "model_picker",
-        description: "Move the selected model in your library down the order",
-        hint: "⇧↓ move down",
+        description: "Move the selected model in your favorites down the order",
+        hint: "Shift+↓ move down",
         remappable: true,
     },
     {
         id: "name_pooled",
         keys: ["ctrl+n"],
         scope: "model_picker",
-        description: "Name the selected model in your library",
-        hint: "^n name",
+        description: "Name the selected model in your favorites",
+        hint: "Ctrl+N name",
         overrides: ["workspace_new_session"],
     },
     {
@@ -520,7 +524,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+e"],
         scope: "model_picker",
         description: "Connect or disconnect a provider",
-        hint: "^e providers",
+        hint: "Ctrl+E providers",
         overrides: ["toggle_workspace_sidebar"],
     },
     {
@@ -528,14 +532,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+shift+n"],
         scope: "model_picker",
         description: "Add a provider connection",
-        hint: "^⇧n add provider",
+        hint: "Ctrl+Shift+N add provider",
     },
     {
         id: "edit_endpoint",
-        keys: ["ctrl+r"],
+        keys: ["ctrl+shift+r"],
         scope: "model_picker",
         description: "Change where the selected provider answers",
-        hint: "^r endpoint",
+        hint: "Ctrl+Shift+R endpoint",
     },
     {
         id: "forget_provider",
@@ -549,7 +553,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+a"],
         scope: "model_picker",
         description: "Show every model, including the folded ones",
-        hint: "^a show all",
+        hint: "Ctrl+A show all",
     },
     {
         // Tab does both jobs, one level apart: on the strip it switches tabs,
@@ -583,6 +587,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "session_picker",
         description: "Move the selected session to the trash",
         hint: "del trash",
+    },
+    {
+        id: "import_scope",
+        keys: ["ctrl+g"],
+        scope: "import_picker",
+        description: "Toggle this folder and all folders",
+        hint: "^g folder/all",
+        overrides: ["switch_pane"],
     },
     {
         id: "write_notes",
@@ -631,14 +643,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["shift+left"],
         scope: "model_picker",
         description: "Close every section in the list",
-        hint: "⇧← fold all",
+        hint: "Shift+← fold all",
     },
     {
         id: "expand_all",
         keys: ["shift+right"],
         scope: "model_picker",
         description: "Open every section in the list",
-        hint: "⇧→ open all",
+        hint: "Shift+→ open all",
     },
     {
         id: "help_section",

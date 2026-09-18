@@ -19,21 +19,21 @@ test("the model picker's refresh key asks the provider and shows the new list", 
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/model");
+        session.sendText("/models");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane("Switch model");
-        expect(pane).toContain("Switch model");
+        let pane = await session.waitForVisiblePane("Browse models");
+        expect(pane).toContain("Browse models");
         expect(pane).not.toContain("Two");
 
-        session.sendKey("Tab");
+        // The page opens on Favorites, and the catalog rows are under All.
+        session.sendKey("C-g");
+        await session.waitForVisiblePane("Browse models · Recommended");
+        session.sendKey("C-g");
         await session.waitForVisiblePane("One");
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Two");
         expect(pane).toContain("Refreshed 1 catalogs");
-        session.sendKey("C-g");
-        pane = await session.waitForVisiblePane("2 hidden below the cutoff");
-        expect(pane).toContain("2 unscored models");
     } finally {
         await session.close();
     }
-});
+}, 20_000);

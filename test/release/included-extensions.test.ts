@@ -16,8 +16,7 @@ test("an installed release activates included batteries without checkout example
         expect(existsSync(join(installed.releaseRoot, "examples"))).toBe(false);
         const script = join(installed.releaseRoot, "check-batteries.ts");
         writeFileSync(script, `
-            import { defaultHostExtensionConfigs } from "./src/extensions/bundled-host.ts";
-            import { bundledClientExtensionConfigs } from "./src/extensions/bundled-client.ts";
+            import { includedExtensionConfigs } from "./src/extensions/included.ts";
             import { startExtensionRegistry } from "./src/extensions/registry.ts";
             import { startClientExtensionRegistry } from "./src/extensions/client-registry.ts";
             const failures = [];
@@ -27,11 +26,11 @@ test("an installed release activates included batteries without checkout example
                 throw new Error("Unexpected activation call: " + operation);
             };
             const host = await startExtensionRegistry({
-                extensions: defaultHostExtensionConfigs([]),
+                extensions: includedExtensionConfigs([]),
                 onFailure: (failure) => failures.push(failure.message),
             });
             const client = await startClientExtensionRegistry({
-                extensions: bundledClientExtensionConfigs([]),
+                extensions: includedExtensionConfigs([]),
                 preferences: { async get() {}, async set() {}, async delete() {} },
                 modelSettings: {
                     current: () => undefined,

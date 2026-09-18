@@ -7,7 +7,7 @@ import type { IdentifiedTuiAgentClient, TuiAgentClient } from "../agent-client.t
 import { visibleTuiAgentMentions } from "../agent-message-routing.ts";
 import { isCurrentTuiExtensionComposeTarget, type TuiExtensionComposeTarget } from "../client-extension-compose.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS } from "../dial-paint.ts";
-import { DIAL_HUD_CAP, DIAL_HUD_RECENT_CAP, dialAccessAllowed, composeDialStrip, openDialStrip, refreshDialStrip, type DialPair, type DialPoolEntry } from "../dials.ts";
+import { dialAccessAllowed, openDialStrip } from "../dials.ts";
 import { abortProviderHealthCheck, displayModeLabel, focusActiveSurface, notifyExtensionSettings, rejectPendingExtensionSettingsFor, rememberOpenPaneGroup, renderState, reportConnectionError, requestAgentSettings, requestExtensionPicker, requestPermissionsChange, sendCommand, showModeToast, showStatusNotice, switchToClient } from "../main.ts";
 import { clearSidebarEntryNodes } from "../main/chrome.ts";
 import { mergeTuiModelPickerSettings } from "../settings-picker.ts";
@@ -116,7 +116,16 @@ export function modelSettingsForOpenPicker(rt: TuiRuntime,
     return mergeTuiModelPickerSettings(target, poolSource);
 }
 
-export function dialPool(rt: TuiRuntime): readonly DialPoolEntry[] {
+export interface PooledModelEntry {
+    readonly provider?: string;
+    readonly model: string;
+    readonly poolName?: string;
+    readonly levels: readonly string[];
+    readonly defaultLevel?: string;
+    readonly available?: boolean;
+}
+
+export function dialPool(rt: TuiRuntime): readonly PooledModelEntry[] {
     return (focusedAgentState(rt).modelSettings?.pooled ?? []).map(
         (entry) => ({
             provider: entry.provider,
@@ -131,20 +140,13 @@ export function dialPool(rt: TuiRuntime): readonly DialPoolEntry[] {
     );
 }
 
-export function dialCatalog(rt: TuiRuntime): readonly DialPoolEntry[] {
-    return (focusedAgentState(rt).modelSettings?.availableModels ?? []).map(
-        (entry) => ({
-            provider: entry.provider,
-            model: entry.model,
-            levels: entry.levels.map((level) => level.id),
-            ...(entry.defaultLevel === undefined
-                ? {}
-                : { defaultLevel: entry.defaultLevel }),
-        }),
-    );
+export interface CommittedModelPair {
+    readonly provider?: string;
+    readonly model: string;
+    readonly effort?: string;
 }
 
-export function committedDialPair(rt: TuiRuntime): DialPair | undefined {
+export function committedDialPair(rt: TuiRuntime): CommittedModelPair | undefined {
     if (isHomeClient(focusedAgentClient(rt))) return undefined;
     const settings = focusedAgentState(rt).modelSettings;
     return settings === undefined || modelSelectionCleared(settings) ? undefined : {
@@ -156,32 +158,6 @@ export function committedDialPair(rt: TuiRuntime): DialPair | undefined {
             ? {}
             : { effort: settings.reasoningEffort }),
     };
-}
-
-function dialComposition(rt: TuiRuntime, history = focusedAgentState(rt).modelSettingsHistory ?? []) {
-    const preferences = loadModelPickerPreferences();
-    return composeDialStrip({
-        current: committedDialPair(rt),
-        recents: history.map(({ settings }) => ({
-            provider: settings.provider,
-            model: settings.model,
-            effort: settings.reasoningEffort,
-        })),
-        pool: dialPool(rt),
-        catalog: dialCatalog(rt),
-        includePool: true,
-        cap: preferences.hudModels ?? DIAL_HUD_CAP,
-        recentCap: preferences.hudRecents ?? DIAL_HUD_RECENT_CAP,
-        includeBrowse: true,
-    });
-}
-
-export function receiveDialHistory(rt: TuiRuntime, update: SessionModelSettingsHistoryUpdate, source: TuiAgentClient): void {
-    const pending = rt.dialHistoryRequest;
-    if (pending?.requestId !== update.requestId || pending.target !== source) return;
-    rt.dialHistoryRequest = undefined;
-    if (rt.dialStrip === undefined || focusedAgentClient(rt) !== source) return;
-    rt.dialStrip = refreshDialStrip(rt.dialStrip, dialComposition(rt, update.entries));
 }
 
 export function openDials(rt: TuiRuntime): void {
@@ -199,16 +175,7 @@ export function openDials(rt: TuiRuntime): void {
         return;
     }
     const catalog = rt.agentCatalog;
-    const requestId = randomUUID();
-    rt.dialHistoryRequest = { requestId, target };
-    void target.send({
-        type: "get_session_model_settings_history",
-        requestId,
-    }).catch(() => {
-        if (rt.dialHistoryRequest?.requestId === requestId) rt.dialHistoryRequest = undefined;
-    });
-    const composition = dialComposition(rt);
-    rt.dialStrip = openDialStrip(composition, committedDialPair(rt), {
+    rt.dialStrip = openDialStrip({
         agents: catalog?.agents.map((agent) => agent.name),
         currentAgent: catalog?.selected ?? focusedAgentState(rt).agent?.name,
         agentPostures: Object.fromEntries(
@@ -459,7 +426,6 @@ export function startAutoModeAnimation(rt: TuiRuntime): void {
 export function closeDials(rt: TuiRuntime): void {
     stopAutoModeAnimation(rt);
     rt.dialStrip = undefined;
-    rt.dialHistoryRequest = undefined;
     renderState(rt);
     focusActiveSurface(rt);
 }
@@ -467,11 +433,11 @@ export function closeDials(rt: TuiRuntime): void {
 export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
     stopAutoModeAnimation(rt);
     rt.dialStrip = undefined;
-    rt.dialHistoryRequest = undefined;
     rt.settingsPicker = undefined;
     rt.standingNudges = undefined;
     rt.extensionsList = undefined;
     rt.commandPalette = undefined;
+    rt.modelSwitcher = undefined;
     rt.help = undefined;
     rt.workTab = undefined;
     if (rt.workspaceRail === undefined) {
@@ -496,7 +462,6 @@ export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
 }
 
 export function commitDials(rt: TuiRuntime, 
-    pair: DialPair | undefined,
     agent: string | undefined,
     permission: string | undefined,
 ): void {
@@ -508,29 +473,13 @@ export function commitDials(rt: TuiRuntime,
         return;
     }
     closeDials(rt);
-    if (isHomeClient(target) && pair === undefined) {
+    if (isHomeClient(target)) {
         if (isApprovalMode(permission)) rt.state = { ...rt.state, approvalMode: permission };
         renderState(rt);
         return;
     }
     const apply = () => {
-        const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
-        if (pair !== undefined && (opened?.opened === undefined
-            || pair.model !== opened.opened.model
-            || pair.provider !== opened.opened.provider
-            || pair.effort !== opened.opened.effort)) {
-            void client.send({
-                type: "update_session_model_settings",
-                requestId: randomUUID(),
-                patch: {
-                    ...(pair.provider === undefined
-                        ? {}
-                        : { provider: pair.provider }),
-                    model: pair.model,
-                    reasoningEffort: pair.effort ?? null,
-                },
-            }).catch(((error: unknown) => reportConnectionError(rt, error)));
-        }
+        const client = target;
         if (agent !== undefined && agent !== opened?.openedAgent) {
             selectAgent(rt, agent);
         }
@@ -539,10 +488,7 @@ export function commitDials(rt: TuiRuntime,
             requestPermissionsChange(rt, permission, client, "session");
         }
     };
-    if (isHomeClient(target)) {
-        const draft = currentDraft(rt);
-        beginCreateSession(rt, "stop", () => draft, apply);
-    } else apply();
+    apply();
 }
 
 export function setSidebarFocused(rt: TuiRuntime, focused: boolean): void {

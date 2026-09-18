@@ -57,7 +57,11 @@ export function refreshTerminalTitle(rt: TuiRuntime): void {
         if (rt.shuttingDown || agentId !== rt.client.agentId) {
             return;
         }
-        rt.sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
+        const agent = agents.find((candidate) => candidate.id === agentId);
+        rt.sessionTitle = agent?.title;
+        rt.importedSession = agent?.imported_from === undefined
+            ? undefined
+            : { agentId, facts: agent.imported_from };
         applyTerminalTitle(rt);
         if (rt.clientSurfaceReady) renderState(rt);
     }).catch(() => {
@@ -196,7 +200,7 @@ export function workerFreeAction(rt: TuiRuntime,
     viewingFile: boolean,
 ): boolean {
     if (action?.type === "create_session") return viewingFile;
-    if (!viewingFile && (action?.type === "open_model_utility" || action?.type === "open_settings_destination")) return true;
+    if (!viewingFile && (action?.type === "open_model_utility" || action?.type === "open_model_browse" || action?.type === "open_settings_destination")) return true;
     return action?.type === "resume_viewed_session"
         || action?.type === "open_resume_picker"
         || action?.type === "open_help"

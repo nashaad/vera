@@ -48,7 +48,7 @@ import {
 
 const LIST_CHROME_ROWS = DIALOG_HEADER_HEIGHT + 6;
 const EXTENSION_ROW_HEIGHT = 3;
-const SCOPE_ORDER = ["project", "profile"] as const;
+const GROUP_ORDER = ["installed", "included", "core"] as const;
 
 const CAPABILITY_LABELS: Readonly<Record<string, string>> = {
     "agents.register": "agents",
@@ -81,8 +81,7 @@ export type TuiExtensionStatus =
     | "enabled"
     | "disabled"
     | "failed"
-    | "unmanaged"
-    | "shadowed";
+    | "unmanaged";
 
 export type TuiExtensionsListScreen = "list" | "detail" | "remove_confirm" | "error";
 
@@ -93,7 +92,7 @@ export interface TuiExtensionSettingsCommand {
 
 export interface TuiExtensionListRow {
     readonly settingsCommands?: readonly TuiExtensionSettingsCommand[];
-    readonly scope: "profile" | "project";
+    readonly group: "installed" | "included" | "core";
     readonly id: string;
     readonly version: string;
     readonly status: TuiExtensionStatus;
@@ -162,13 +161,13 @@ export function extensionContributionLine(
 export function openTuiExtensionsList(
     entries: readonly ExtensionListEntry[],
     loadedIds: ReadonlySet<string> = new Set(),
-    selected?: { readonly scope: "profile" | "project"; readonly id: string },
+    selectedId?: string,
 ): TuiExtensionsListState {
     const rows = extensionListRows(entries, loadedIds);
     return {
         screen: "list",
         rows,
-        selectedIndex: selectedIndexOf(rows, selected),
+        selectedIndex: selectedIndexOf(rows, selectedId),
         actionIndex: 0,
     };
 }
@@ -201,9 +200,7 @@ export function syncTuiExtensionsList(
             actionIndex: 0,
         };
     }
-    const selectedIndex = rows.findIndex((row) =>
-        row.scope === selected.scope && row.id === selected.id
-    );
+    const selectedIndex = rows.findIndex((row) => row.id === selected.id);
     if (selectedIndex === -1) {
         return {
             screen: "list",
@@ -465,26 +462,21 @@ function extensionListRows(
     entries: readonly ExtensionListEntry[],
     loadedIds: ReadonlySet<string>,
 ): readonly TuiExtensionListRow[] {
-    const projectIds = new Set(
-        entries.filter((entry) => entry.scope === "project").map((entry) => entry.id),
-    );
     return [...entries]
-        .map((entry) => toRow(entry, projectIds, loadedIds))
+        .map((entry) => toRow(entry, loadedIds))
         .toSorted((left, right) => compareRows(left, right));
 }
 
 function toRow(
     entry: ExtensionListEntry,
-    projectIds: ReadonlySet<string>,
     loadedIds: ReadonlySet<string>,
 ): TuiExtensionListRow {
     const capabilities = entry.capabilities ?? [];
-    const shadowed = entry.scope === "profile" && projectIds.has(entry.id);
     return {
-        scope: entry.scope,
+        group: entry.included !== true ? "installed" : entry.core === true ? "core" : "included",
         id: entry.id,
         version: entry.version === undefined ? "?" : `v${entry.version}`,
-        status: rowStatus(entry, shadowed),
+        status: rowStatus(entry),
         managed: entry.managed,
         path: entry.path,
         ...(entry.source === undefined ? {} : { source: entry.source }),
@@ -499,36 +491,32 @@ function toRow(
 
 function rowStatus(
     entry: ExtensionListEntry,
-    shadowed: boolean,
 ): TuiExtensionStatus {
     if (entry.error !== undefined) return "failed";
-    if (entry.bundled) return entry.enabled ? "enabled" : "disabled";
+    if (entry.included) return entry.enabled ? "enabled" : "disabled";
     if (!entry.managed) return "unmanaged";
-    if (shadowed) return "shadowed";
     return entry.enabled ? "enabled" : "disabled";
 }
 
 function compareRows(left: TuiExtensionListRow, right: TuiExtensionListRow): number {
-    const scope = SCOPE_ORDER.indexOf(left.scope) - SCOPE_ORDER.indexOf(right.scope);
-    if (scope !== 0) return scope;
+    const group = GROUP_ORDER.indexOf(left.group) - GROUP_ORDER.indexOf(right.group);
+    if (group !== 0) return group;
     return left.id.localeCompare(right.id);
 }
 
 function selectedIndexOf(
     rows: readonly TuiExtensionListRow[],
-    selected: { readonly scope: "profile" | "project"; readonly id: string } | undefined,
+    selectedId: string | undefined,
 ): number {
-    if (selected === undefined) return 0;
-    const index = rows.findIndex((row) =>
-        row.scope === selected.scope && row.id === selected.id
-    );
+    if (selectedId === undefined) return 0;
+    const index = rows.findIndex((row) => row.id === selectedId);
     return index === -1 ? 0 : index;
 }
 
 function toggleMutation(
     entry: TuiExtensionListRow,
 ): TuiExtensionsListMutation | undefined {
-    if (!entry.managed) return undefined;
+    if (!entry.managed && entry.group === "installed") return undefined;
     return {
         operation: entry.status === "disabled" ? "enable" : "disable",
         entry,
@@ -539,7 +527,7 @@ function detailActions(
     entry: TuiExtensionListRow | undefined,
 ): readonly string[] {
     if (!entry) return [];
-    return [...(entry.settingsCommands ?? []).map((command) => `command:${command.name}`), ...(entry.managed ? ["toggle", "remove"] : [])];
+    return [...(entry.settingsCommands ?? []).map((command) => `command:${command.name}`), ...(entry.managed ? ["toggle", "remove"] : entry.group !== "installed" ? ["toggle"] : [])];
 }
 
 function lastCapabilitySegment(capability: string): string {
@@ -607,14 +595,14 @@ function listBody(
 ): string {
     const idWidth = Math.max(...state.rows.map((row) => row.id.length));
     const lines: string[] = [];
-    let scope: TuiExtensionListRow["scope"] | undefined;
+    let group: TuiExtensionListRow["group"] | undefined;
     for (const index of indices) {
         const row = state.rows[index];
         if (row === undefined) continue;
-        if (row.scope !== scope) {
+        if (row.group !== group) {
             if (lines.length > 0) lines.push("");
-            lines.push(scopeLabel(row.scope));
-            scope = row.scope;
+            lines.push(groupLabel(row.group));
+            group = row.group;
         }
         const marker = index === state.selectedIndex ? "›" : " ";
         lines.push(
@@ -627,7 +615,7 @@ function listBody(
 
 function listFooter(row: TuiExtensionListRow | undefined, compact = false): string {
     if (row === undefined) return "esc close";
-    if (!row.managed) return "↑↓ move · ⏎ details · esc close";
+    if (!row.managed && row.group === "installed") return "↑↓ move · ⏎ details · esc close";
     const toggle = row.status === "disabled" ? "Space enable" : "Space disable";
     return compact
         ? `↑↓ · ⏎ details · ${toggle} · esc`
@@ -652,7 +640,7 @@ function detailContent(
         return `${marker} ${label}`;
     });
     const facts = [
-        `${row.version} · ${row.status} · ${row.scope}`,
+        `${row.version} · ${row.status} · ${row.group}`,
         row.loaded ? "loaded on this client" : "not loaded on this client",
         "",
         row.contributionLine,
@@ -692,8 +680,8 @@ function toggleLabel(row: TuiExtensionListRow): string {
     return row.status === "disabled" ? "Enable" : "Disable";
 }
 
-function scopeLabel(scope: TuiExtensionListRow["scope"]): string {
-    return scope === "project" ? "In Project" : "In Profile";
+function groupLabel(group: TuiExtensionListRow["group"]): string {
+    return group === "core" ? "Core" : group === "included" ? "Included" : "Installed";
 }
 
 function visibleRowIndices(
@@ -704,7 +692,7 @@ function visibleRowIndices(
         return state.rows.map((_, index) => index);
     }
     const indices = state.rows.map((_, index) => index);
-    const groups = new Set(state.rows.map((row) => row.scope)).size;
+    const groups = new Set(state.rows.map((row) => row.group)).size;
     const groupLines = groups === 0 ? 0 : groups * 2 - 1;
     const available = dialogBoxHeight(
         renderer,
@@ -741,7 +729,7 @@ function paintList(
         current.push(empty);
         return;
     }
-    let scope: TuiExtensionListRow["scope"] | undefined;
+    let group: TuiExtensionListRow["group"] | undefined;
     let firstGroup = true;
     const width = listContentWidth(renderer);
     const versionWidth = Math.min(12, Math.max(...state.rows.map((row) => Bun.stringWidth(row.version))));
@@ -750,15 +738,15 @@ function paintList(
     for (const index of visibleRowIndices(renderer, state)) {
         const row = state.rows[index];
         if (row === undefined) continue;
-        if (row.scope !== scope) {
+        if (row.group !== group) {
             const header = dialogGroupHeaderNode(
                 renderer,
-                scopeLabel(row.scope),
+                groupLabel(row.group),
                 !firstGroup,
             );
             body.add(header);
             current.push(header);
-            scope = row.scope;
+            group = row.group;
             firstGroup = false;
         }
         const item = extensionRowNode(
@@ -797,7 +785,7 @@ function paintDetail(
         content: new StyledText([
             fg(TUI_TEXT)(`${row.version} · `),
             ...statusChunks(row.status, false),
-            fg(TUI_TEXT)(` · ${row.scope}\n`),
+            fg(TUI_TEXT)(` · ${row.group}\n`),
             fg(TUI_MUTED)(
                 row.loaded ? "loaded on this client" : "not loaded on this client",
             ),

@@ -1,13 +1,14 @@
 import { receiveCustomizationSources } from "./customization-sources.ts";
 import { isConfigurationRequiredUiRequestUpdate, isTimelineReplyUpdate } from "../../../src/engine/protocol.ts";
 import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
-import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, receiveDialHistory, setSidebarFocused } from "../main/agents-dials.ts";
+import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { adoptFallbackSessionTitle, applyTerminalTitle, refreshTerminalTitle } from "../main/chrome.ts";
 import { isSettingsRetryTrigger, noticeRepeatedModelFailure, retryMissingAgentSettings } from "../main/diagnostics-ops.ts";
 import { settleWizardVerification, wizardTookCatalogRefresh, wizardTookModelSettings } from "../main/onboarding-wizard-ops.ts";
 import { releaseDroppedImage } from "../main/prompt-routing.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { syncTuiPreferencesList } from "../preferences-list.ts";
+import { refreshModelSwitcher } from "../main/model-switcher-ops.ts";
 import { startTuiOverridesMenu, startTuiReviewerMenu, syncTuiModelPicker, withTuiPickerParent } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice, applyAgentUpdate, beginNextQueuedTuiTurn } from "../state.ts";
 import { applyTuiTimelineReply } from "../timeline-picker.ts";
@@ -241,7 +242,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     && update.type === "model_settings"
                 ) {
                     rt.poolChangeUndo = undefined;
-                    showStatusNotice(rt, "library change undone");
+                    showStatusNotice(rt, "favorites change undone");
                 } else if (
                     pendingUndo !== undefined
                     && update.type === "model_settings_rejected"
@@ -255,7 +256,7 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                     }
                     rt.state = appendTuiError(
                         rt.state,
-                        rejectionNotice("undo that library change", update.reason),
+                        rejectionNotice("undo that favorites change", update.reason),
                     );
                 }
                 settleExtensionModelSettings(rt, update, rt.client);
@@ -322,7 +323,6 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 continue;
             }
             rt.state = applyAgentUpdate(rt.state, update);
-            if (update.type === "session_model_settings_history") receiveDialHistory(rt, update, source);
             if (isSettingsRetryTrigger(rt, update)) {
                 retryMissingAgentSettings(rt, source, rt.state);
             }
@@ -443,9 +443,14 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             ) {
                 wizardTookCatalogRefresh(rt, update.requestId);
             }
+            if (update.type === "model_settings"
+                || update.type === "session_model_settings_history") {
+                refreshModelSwitcher(rt);
+            }
             if (
                 update.type === "model_settings"
-                && rt.settingsPicker?.kind === "model"
+                && rt.settingsPicker !== undefined
+                && rt.settingsPicker.kind !== "extension"
             ) {
                 const pickerSettings = modelSettingsForOpenPicker(rt, 
                     rt.state.modelSettings,
@@ -459,7 +464,10 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                         ),
                     },
                 );
-                if (rt.poolChangeUndo !== undefined) {
+                if (
+                    rt.poolChangeUndo !== undefined
+                    && rt.settingsPicker.kind === "model"
+                ) {
                     rt.settingsPicker = {
                         ...rt.settingsPicker,
                         canUndoPoolChange: true,

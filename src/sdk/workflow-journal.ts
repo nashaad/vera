@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface WorkflowRunHeader {
@@ -8,7 +8,14 @@ export interface WorkflowRunHeader {
     readonly status: string;
     // Present only while a step is in flight, and left behind by a crash.
     readonly active?: WorkflowActiveStep;
+    // Present only while the run is suspended waiting on an answer.
+    readonly asking?: WorkflowQuestion;
     readonly attempts: readonly WorkflowAttempt[];
+    // What the run was called with, missing from runs written before it was kept.
+    readonly args?: readonly unknown[];
+    readonly kwargs?: Readonly<Record<string, unknown>>;
+    /** Answers to the run's questions, by the key of the ask. */
+    readonly inbox?: Readonly<Record<string, unknown>>;
 }
 
 export interface WorkflowAttempt {
@@ -26,6 +33,12 @@ export interface WorkflowActiveStep {
     readonly at: string;
 }
 
+export interface WorkflowQuestion {
+    readonly key: string;
+    readonly question: string;
+    readonly at: string;
+}
+
 export interface WorkflowJournalRecord {
     readonly seq: number;
     readonly key: string;
@@ -36,9 +49,38 @@ export interface WorkflowJournalRecord {
     readonly ref?: string;
 }
 
+/**
+ * Field names follow OpenTelemetry, and the span kind follows OpenInference, so
+ * a reader that speaks either needs a mapping of ids rather than of shapes.
+ */
+export interface WorkflowSpan {
+    readonly trace_id: string;
+    readonly span_id: string;
+    readonly parent_id: string;
+    readonly name: string;
+    readonly start_time: string;
+    // Missing together on the try whose process died inside it.
+    readonly end_time?: string;
+    readonly status_code?: string;
+    readonly status_message?: string;
+    readonly attributes: WorkflowSpanAttributes;
+}
+
+export interface WorkflowSpanAttributes {
+    readonly "openinference.span.kind": string;
+    readonly "halcyon.attempt": number;
+    readonly "halcyon.step.key": string;
+    // Written by the end line, so absent while the span is open.
+    readonly "halcyon.outcome"?: string;
+    readonly "halcyon.duration_ms"?: number;
+    readonly [name: string]: unknown;
+}
+
 export interface WorkflowRun {
     readonly header: WorkflowRunHeader;
     readonly records: readonly WorkflowJournalRecord[];
+    // One entry per try of a step, including the tries the journal never records.
+    readonly spans: readonly WorkflowSpan[];
 }
 
 export function readWorkflowRun(runDir: string): WorkflowRun {
@@ -56,7 +98,18 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
         throw new Error(`workflow header has invalid fields: ${headerPath}`);
     }
     const active = readActiveStep(headerValue.active, headerPath);
+    const asking = readQuestion(headerValue.asking, headerPath);
     const attempts = readAttempts(headerValue.attempts, headerPath);
+    const { args, kwargs, inbox } = headerValue;
+    if (args !== undefined && !Array.isArray(args)) {
+        throw new Error(`workflow header args must be an array: ${headerPath}`);
+    }
+    if (kwargs !== undefined && !isRecord(kwargs)) {
+        throw new Error(`workflow header kwargs must be an object: ${headerPath}`);
+    }
+    if (inbox !== undefined && !isRecord(inbox)) {
+        throw new Error(`workflow header inbox must be an object: ${headerPath}`);
+    }
 
     const journalPath = join(runDir, "journal.ndjson");
     const journalText = readFileSync(journalPath, "utf8");
@@ -64,11 +117,151 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
     const records = lines.map((line) => readRecord(line, runDir, journalPath));
 
     return {
-        header: active === undefined
-            ? { run_id: runId, workflow, status, attempts }
-            : { run_id: runId, workflow, status, active, attempts },
+        header: {
+            run_id: runId,
+            workflow,
+            status,
+            ...(active === undefined ? {} : { active }),
+            ...(asking === undefined ? {} : { asking }),
+            attempts,
+            ...(args === undefined ? {} : { args }),
+            ...(kwargs === undefined ? {} : { kwargs }),
+            ...(inbox === undefined ? {} : { inbox }),
+        },
         records,
+        spans: readWorkflowSpans(runDir),
     };
+}
+
+/** The spans alone, without reading the header or the journal. */
+export function readWorkflowSpans(runDir: string): WorkflowSpan[] {
+    const spanPath = join(runDir, "spans.ndjson");
+    if (!existsSync(spanPath)) {
+        return [];
+    }
+    const open = new Map<string, WorkflowSpan>();
+    const order: string[] = [];
+    for (const line of journalLines(readFileSync(spanPath, "utf8"), spanPath)) {
+        const value = parseJson(line, spanPath);
+        if (!isRecord(value) || typeof value.span_id !== "string") {
+            throw new Error(`workflow span line has no span id: ${spanPath}`);
+        }
+        const id = value.span_id;
+        if (Object.hasOwn(value, "start_time")) {
+            open.set(id, readSpanStart(id, value, spanPath));
+            order.push(id);
+            continue;
+        }
+        const started = open.get(id);
+        if (started === undefined) {
+            throw new Error(`workflow span ends before it starts: ${spanPath}`);
+        }
+        const ended = readSpanEnd(value, spanPath);
+        open.set(id, {
+            ...started,
+            ...ended,
+            attributes: { ...started.attributes, ...ended.attributes },
+        });
+    }
+    return order.map((id) => {
+        const span = open.get(id);
+        if (span === undefined) {
+            throw new Error(`workflow span went missing: ${spanPath}`);
+        }
+        return span;
+    });
+}
+
+function readSpanStart(
+    id: string,
+    value: Record<string, unknown>,
+    spanPath: string,
+): WorkflowSpan {
+    const {
+        trace_id: traceId,
+        parent_id: parentId,
+        name,
+        start_time: startTime,
+    } = value;
+    const attributes = readSpanAttributes(value.attributes, spanPath);
+    const attempt = attributes["halcyon.attempt"];
+    const key = attributes["halcyon.step.key"];
+    if (
+        typeof traceId !== "string"
+        || typeof parentId !== "string"
+        || parentId === ""
+        || typeof name !== "string"
+        || name === ""
+        || typeof startTime !== "string"
+        || startTime === ""
+        || typeof attempt !== "number"
+        || !Number.isInteger(attempt)
+        || attempt < 1
+        || typeof key !== "string"
+        || key === ""
+    ) {
+        throw new Error(`workflow span start has invalid fields: ${spanPath}`);
+    }
+    return {
+        trace_id: traceId,
+        span_id: id,
+        parent_id: parentId,
+        name,
+        start_time: startTime,
+        attributes,
+    };
+}
+
+function readSpanEnd(
+    value: Record<string, unknown>,
+    spanPath: string,
+): {
+    end_time: string;
+    status_code: string;
+    status_message?: string;
+    attributes: WorkflowSpanAttributes;
+} {
+    const {
+        end_time: endTime,
+        status_code: statusCode,
+        status_message: statusMessage,
+    } = value;
+    const attributes = readSpanAttributes(value.attributes, spanPath);
+    const ms = attributes["halcyon.duration_ms"];
+    if (
+        typeof endTime !== "string"
+        || endTime === ""
+        || typeof statusCode !== "string"
+        || statusCode === ""
+        || typeof ms !== "number"
+        || !Number.isInteger(ms)
+        || ms < 0
+        || typeof attributes["halcyon.outcome"] !== "string"
+    ) {
+        throw new Error(`workflow span end has invalid fields: ${spanPath}`);
+    }
+    if (statusMessage === undefined) {
+        return { end_time: endTime, status_code: statusCode, attributes };
+    }
+    if (typeof statusMessage !== "string") {
+        throw new Error(`workflow span message must be a string: ${spanPath}`);
+    }
+    return {
+        end_time: endTime,
+        status_code: statusCode,
+        status_message: statusMessage,
+        attributes,
+    };
+}
+
+function readSpanAttributes(
+    value: unknown,
+    spanPath: string,
+): WorkflowSpanAttributes {
+    if (!isRecord(value)) {
+        throw new Error(`workflow span attributes must be an object: ${spanPath}`);
+    }
+    return value as WorkflowSpanAttributes;
 }
 
 function readAttempts(value: unknown, headerPath: string): WorkflowAttempt[] {
@@ -119,6 +312,23 @@ function readActiveStep(
     return { key, step, at };
 }
 
+function readQuestion(
+    value: unknown,
+    headerPath: string,
+): WorkflowQuestion | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new Error(`workflow header question must be an object: ${headerPath}`);
+    }
+    const { key, question, at } = value;
+    if (typeof key !== "string" || typeof question !== "string" || typeof at !== "string") {
+        throw new Error(`workflow header question has invalid fields: ${headerPath}`);
+    }
+    return { key, question, at };
+}
+
 function readRecord(
     line: string,
     runDir: string,
@@ -166,25 +376,36 @@ function readRecord(
     ) {
         throw new Error(`workflow journal blob fields are invalid: ${journalPath}`);
     }
-    const blobPath = join(runDir, "blobs", reference);
-    const blobBytes = readFileSync(blobPath);
-    if (blobBytes.byteLength !== byteCount) {
-        throw new Error(`workflow journal blob byte count does not match: ${blobPath}`);
-    }
-    const digest = createHash("sha256").update(blobBytes).digest("hex");
-    if (digest !== reference) {
-        throw new Error(`workflow journal blob digest does not match: ${blobPath}`);
-    }
-    const blobText = blobBytes.toString("utf8");
     return {
         seq,
         key,
         ok: true,
         at,
         ms,
-        value: parseJson(blobText, blobPath),
+        value: readWorkflowBlob(runDir, reference, byteCount),
         ref: reference,
     };
+}
+
+/** Reads a run's blob by digest and checks the bytes before parsing them. */
+export function readWorkflowBlob(
+    runDir: string,
+    reference: string,
+    byteCount?: number,
+): unknown {
+    if (!/^[0-9a-f]{64}$/.test(reference)) {
+        throw new Error(`workflow blob reference is invalid: ${reference}`);
+    }
+    const blobPath = join(runDir, "blobs", reference);
+    const blobBytes = readFileSync(blobPath);
+    if (byteCount !== undefined && blobBytes.byteLength !== byteCount) {
+        throw new Error(`workflow journal blob byte count does not match: ${blobPath}`);
+    }
+    const digest = createHash("sha256").update(blobBytes).digest("hex");
+    if (digest !== reference) {
+        throw new Error(`workflow journal blob digest does not match: ${blobPath}`);
+    }
+    return parseJson(blobBytes.toString("utf8"), blobPath);
 }
 
 function journalLines(text: string, path: string): string[] {

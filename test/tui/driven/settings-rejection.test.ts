@@ -24,7 +24,7 @@ test("a refused settings change is reported in the transcript", async () => {
             "Changing the model to openrouter/other is unavailable",
         );
         // The status line kept reporting the model that is still in force.
-        expect(pane).toContain("current-model · DEFAULT");
+        expect(pane).toContain("current-model · default");
 
         session.sendText("/permissions auto");
         session.sendKey("Enter");

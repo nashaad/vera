@@ -2,6 +2,8 @@ import { openInspectEditor } from "./inspect-editor.ts";
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
+import { handleTuiModelSwitcherKey } from "../model-switcher.ts";
+import { applyModelSwitcherSelection, openBrowseFromSwitcher, openModelSwitcher, switcherNeedsProviders, toggleModelSwitcherFavorite } from "../main/model-switcher-ops.ts";
 import { tuiArgumentCompletion, tuiWithArgument } from "../commands.ts";
 import { composeSuggesterDismissalKey } from "../compose-suggester.ts";
 import { DIAGNOSTICS_SCOPES, handleTuiDiagnosticsDialogKey } from "../diagnostics-dialog.ts";
@@ -88,7 +90,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             && parseRawInputEvent(key)?.type !== "interrupt") {
             key.preventDefault();
             key.stopPropagation();
-            if (tuiBindingId("model_prefix", key) === "model_prefix_open") openModelPicker(rt);
+            if (tuiBindingId("model_prefix", key) === "model_prefix_open") openModelSwitcher(rt);
             return;
         }
     }
@@ -431,11 +433,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             renderState(rt);
         } else if (action.kind === "cancel") {
             closeDials(rt);
-        } else if (action.kind === "browse") {
-            closeDials(rt);
-            openModelPicker(rt);
         } else if (action.kind === "commit") {
-            commitDials(rt, action.pair, action.agent, action.permission);
+            commitDials(rt, action.agent, action.permission);
         }
         return;
     }
@@ -869,6 +868,35 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             rt.searchOverlay = transition.state;
             if (transition.action !== undefined) {
                 runSearchOverlayAction(rt, transition.action);
+            } else {
+                renderState(rt);
+                focusActiveSurface(rt);
+            }
+            return;
+        }
+    }
+
+    if (rt.modelSwitcher !== undefined) {
+        const editorTransition = rt.modelSwitcherView.handleEditorKey(
+            rt.modelSwitcher,
+            key,
+        );
+        const transition = editorTransition.handled
+            ? editorTransition
+            : handleTuiModelSwitcherKey(rt.modelSwitcher, key);
+        if (transition.handled) {
+            key.preventDefault();
+            key.stopPropagation();
+            rt.modelSwitcher = transition.state;
+            if (transition.providers === true) {
+                switcherNeedsProviders(rt);
+            } else if (transition.browse === true) {
+                openBrowseFromSwitcher(rt);
+            } else if (transition.selection !== undefined) {
+                applyModelSwitcherSelection(rt, transition.selection);
+            } else if (transition.favorite !== undefined) {
+                toggleModelSwitcherFavorite(rt, transition.favorite);
+                focusActiveSurface(rt);
             } else {
                 renderState(rt);
                 focusActiveSurface(rt);
@@ -1510,7 +1538,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     ) {
         key.preventDefault();
         key.stopPropagation();
-        openModelPicker(rt);
+        openModelSwitcher(rt);
         return;
     }
 

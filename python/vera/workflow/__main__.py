@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+import html
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import importlib.util
 import os
+import secrets
 import socket
 import sys
+from threading import Thread
+from urllib.parse import parse_qs
 
 from ._errors import WorkflowError
 from ._store import default_journal_dir, store_from_path
@@ -16,6 +22,7 @@ USAGE = (
     "       python -m vera.workflow show <run_id> [--journal-dir DIR]\n"
     "       python -m vera.workflow resume <run_id> [--journal-dir DIR]\n"
     "       python -m vera.workflow cancel <run_id> [--journal-dir DIR]\n"
+    "       python -m vera.workflow answer <run_id> [TEXT] [--journal-dir DIR]\n"
     "       python -m vera.workflow sweep [--resume] [--journal-dir DIR]"
 )
 
@@ -52,11 +59,23 @@ def _show(journal_dir: Path, run_id: str) -> None:
     active = journal.header.get("active")
     if type(active) is dict:
         print(f"active {active['step']}  since {active['at']}")
+    asking = journal.header.get("asking")
+    if type(asking) is dict:
+        print(f"asking {asking.get('question')}")
+    spans = journal.spans()
+    spend = _spend(spans)
+    if spend is not None:
+        print(f"cost   ${spend:.4f}")
     attempts = journal.header.get("attempts")
     if type(attempts) is list and attempts:
         print("attempts")
         for number, attempt in enumerate(attempts, start=1):
             print(f"  {number}  {_attempt_line(attempt)}")
+            for span in spans:
+                if _attributes_of(span).get("halcyon.attempt") != number:
+                    continue
+                depth = str(span.get("parent_id", "")).count(".")
+                print(f"       {'  ' * depth}{_span_line(span)}")
 
 
 def _attempt_line(attempt: object) -> str:
@@ -69,6 +88,42 @@ def _attempt_line(attempt: object) -> str:
     error = attempt.get("error")
     detail = f": {error['message']}" if type(error) is dict else ""
     return f"{attempt.get('started_at')}  {where}  {outcome}{detail}"
+
+
+def _attributes_of(span: dict[str, object]) -> dict[str, object]:
+    attributes = span.get("attributes")
+    return attributes if type(attributes) is dict else {}
+
+
+def _spend(spans: list[dict[str, object]]) -> float | None:
+    """What the recorded model calls cost, or nothing when none said."""
+    costs = [
+        cost
+        for span in spans
+        if type(cost := _attributes_of(span).get("llm.cost.total")) in (int, float)
+    ]
+    return sum(costs) if costs else None
+
+
+def _span_line(span: dict[str, object]) -> str:
+    name = span.get("name")
+    attributes = _attributes_of(span)
+    outcome = attributes.get("halcyon.outcome")
+    if outcome is None:
+        return f"{name}  did not finish"
+    message = span.get("status_message")
+    detail = f": {message}" if outcome != "ok" and type(message) is str else ""
+    line = f"{name}  {attributes.get('halcyon.duration_ms')}ms  {outcome}{detail}"
+    return line + _usage_note(attributes)
+
+
+def _usage_note(attributes: dict[str, object]) -> str:
+    total = attributes.get("llm.token_count.total")
+    if total is None:
+        return ""
+    cost = attributes.get("llm.cost.total")
+    priced = f"  ${cost:.4f}" if type(cost) in (int, float) else ""
+    return f"  {total} tokens{priced}"
 
 
 def _sweep(journal_dir: Path, resume: bool) -> int:
@@ -102,6 +157,26 @@ def _sweep(journal_dir: Path, resume: bool) -> int:
             continue
         code = max(code, _resume(journal_dir, run_id))
     return code
+
+
+def _held_by(header: dict[str, object]) -> str | None:
+    """Why this run may not be resumed from here, or None.
+
+    Only the machine that recorded a pid can say whether that process is gone,
+    so a run left by another machine is refused until a sweep there marks it.
+    """
+    if header.get("status") != "running":
+        return None
+    attempt = _open_attempt(header)
+    if attempt is None:
+        return None
+    host = attempt.get("host")
+    pid = attempt.get("pid")
+    if host != socket.gethostname():
+        return f"last ran on {host}; sweep there to mark it crashed"
+    if type(pid) is int and _alive(pid):
+        return f"is still running here as pid {pid}"
+    return None
 
 
 def _dead_pid(header: dict[str, object], here: str) -> int | None:
@@ -155,9 +230,127 @@ def _cancel(journal_dir: Path, run_id: str) -> int:
     return 2
 
 
+def _answer(journal_dir: Path, run_id: str, text: str | None) -> int:
+    journal = store_from_path(journal_dir).load(run_id, None)
+    asking = journal.header.get("asking")
+    if journal.header["status"] != "suspended" or type(asking) is not dict:
+        print(f"{run_id} is not waiting on a question", file=sys.stderr)
+        return 2
+    key = asking.get("key")
+    question = asking.get("question")
+    if type(key) is not str or type(question) is not str:
+        raise WorkflowError("journal", "workflow header asking is incomplete")
+    if text is None:
+        print(f"{run_id} is asking: {question}")
+        try:
+            text = _serve_answer(
+                run_id,
+                question,
+                lambda url: print(f"answer at {url}", flush=True),
+            )
+        except KeyboardInterrupt:
+            print(f"\n{run_id} is still waiting", file=sys.stderr)
+            return 130
+    journal.put_inbox(key, text)
+    print(f"{run_id} answered")
+    return _resume(journal_dir, run_id)
+
+
+def _serve_answer(run_id: str, question: str, ready: Callable[[str], None]) -> str:
+    """Serve one page on localhost that takes one answer, then stop."""
+    token = secrets.token_urlsafe(12)
+    path = f"/{token}"
+    answers: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path != path:
+                self.send_error(404)
+                return
+            self._send(200, _answer_page(run_id, question))
+
+        def do_POST(self) -> None:
+            if self.path != path:
+                self.send_error(404)
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            form = parse_qs(self.rfile.read(length).decode("utf-8"))
+            answer = form.get("answer", [""])[0].strip()
+            if not answer:
+                self._send(400, _answer_page(run_id, question))
+                return
+            answers.append(answer)
+            self._send(200, _answered_page(run_id))
+            Thread(target=self.server.shutdown, daemon=True).start()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def _send(self, status: int, body: str) -> None:
+            encoded = body.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    try:
+        ready(f"http://127.0.0.1:{server.server_port}{path}")
+        server.serve_forever()
+    finally:
+        server.server_close()
+    return answers[0]
+
+
+_PAGE_STYLE = """
+:root { --bg: #fafaf9; --fg: #1c1917; --muted: #78716c; --line: #d6d3d1; --accent: #166534; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111110; --fg: #e7e5e4; --muted: #a8a29e; --line: #3a3835; --accent: #86efac; }
+}
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 system-ui, sans-serif; }
+main { max-width: 640px; margin: 48px auto; padding: 0 16px; }
+.run { color: var(--muted); font: 12px ui-monospace, monospace; }
+.question { white-space: pre-wrap; margin: 12px 0 20px; font-size: 17px; }
+textarea { width: 100%; box-sizing: border-box; min-height: 96px; padding: 10px;
+  background: transparent; color: inherit; border: 1px solid var(--line);
+  border-radius: 6px; font: inherit; }
+button { margin-top: 12px; padding: 8px 18px; border: 0; border-radius: 6px;
+  background: var(--accent); color: var(--bg); font: inherit; cursor: pointer; }
+"""
+
+
+def _answer_page(run_id: str, question: str) -> str:
+    return (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        f"<title>Answer {html.escape(run_id)}</title><style>{_PAGE_STYLE}</style>"
+        f"</head><body><main><div class=\"run\">{html.escape(run_id)} is asking</div>"
+        f"<div class=\"question\">{html.escape(question)}</div>"
+        "<form method=\"post\"><textarea name=\"answer\" autofocus required>"
+        "</textarea><button type=\"submit\">Send</button></form>"
+        "</main></body></html>"
+    )
+
+
+def _answered_page(run_id: str) -> str:
+    return (
+        "<!doctype html><html><head><meta charset=\"utf-8\">"
+        f"<title>Answered</title><style>{_PAGE_STYLE}</style></head><body><main>"
+        f"<div class=\"run\">{html.escape(run_id)}</div>"
+        "<p>Answered. The run carries on in the terminal.</p>"
+        "</main></body></html>"
+    )
+
+
 def _resume(journal_dir: Path, run_id: str) -> int:
     store = store_from_path(journal_dir)
     journal = store.load(run_id, None)
+    held = _held_by(journal.header)
+    if held is not None:
+        print(f"{run_id} {held}", file=sys.stderr)
+        return 2
     entry = journal.header.get("entry")
     if type(entry) is not dict:
         raise WorkflowError(
@@ -241,8 +434,8 @@ def _package_entry(source: Path) -> tuple[Path, str] | None:
     return directory, ".".join(reversed(parts))
 
 
-def _parse(arguments: list[str]) -> tuple[str, str, Path, bool] | None:
-    commands = {"list", "show", "resume", "cancel", "sweep"}
+def _parse(arguments: list[str]) -> tuple[str, str, Path, bool, str | None] | None:
+    commands = {"list", "show", "resume", "cancel", "sweep", "answer"}
     if not arguments or arguments[0] not in commands:
         return None
     command = arguments[0]
@@ -254,6 +447,9 @@ def _parse(arguments: list[str]) -> tuple[str, str, Path, bool] | None:
     resume = command == "sweep" and "--resume" in rest
     if resume:
         rest = [argument for argument in rest if argument != "--resume"]
+    text: str | None = None
+    if command == "answer" and len(rest) == 2:
+        text = rest.pop()
     wanted = 0 if command in ("list", "sweep") else 1
     if len(rest) != wanted:
         return None
@@ -263,6 +459,7 @@ def _parse(arguments: list[str]) -> tuple[str, str, Path, bool] | None:
         run_id,
         directory if directory is not None else default_journal_dir(),
         resume,
+        text,
     )
 
 
@@ -272,7 +469,7 @@ def _main(argv: list[str] | None = None) -> int:
     if parsed is None:
         print(USAGE, file=sys.stderr)
         return 2
-    command, run_id, path, resume = parsed
+    command, run_id, path, resume, text = parsed
     try:
         if command == "list":
             _list(path)
@@ -284,6 +481,8 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if command == "cancel":
             return _cancel(path, run_id)
+        if command == "answer":
+            return _answer(path, run_id, text)
         return _resume(path, run_id)
     except WorkflowError as error:
         print(error, file=sys.stderr)

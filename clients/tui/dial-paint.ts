@@ -1,9 +1,4 @@
-import {
-    DIAL_DEFAULT_SEPARATOR,
-    DIAL_PICK_MARKER,
-    DIAL_PROVIDER_SEPARATOR,
-    type DialLane,
-} from "./dials.ts";
+import { DIAL_PICK_MARKER, type DialLane } from "./dials.ts";
 import { mixHex } from "./theme.ts";
 
 export interface DialSpan {
@@ -25,16 +20,11 @@ export interface DialPaintTheme {
 }
 
 export interface DialRowMap {
-    readonly effort: number;
-    readonly effortScaleRows: number;
-    readonly access: number;
-    readonly modelStart: number;
-    readonly modelEnd: number;
     readonly agent: number;
+    readonly access: number;
 }
 
 export interface DialPaintState {
-    readonly effortPending?: boolean;
     readonly autoAnimation?: {
         readonly progress: number;
         readonly width: number;
@@ -45,34 +35,14 @@ export const AUTO_MODE_ANIMATION_DURATION_MS = 1_450;
 
 const SETTLED_MIX = 0.45;
 
-const LANE_LABELS = ["MODEL", "EFFORT", "AGENT", "ACCESS"] as const;
-
 export function mapDialRows(hudRows: readonly string[]): DialRowMap {
     const rowIndex = (label: string): number =>
         hudRows.findIndex((line) =>
             line.replace(/^[› ]\s*/, "").startsWith(label)
         );
-    const effort = hudRows.findIndex((line) => line.includes("EFFORT"));
-    const effortScaleRows = effort >= 1
-            && hudRows[effort - 1]?.includes("Faster") === true
-        ? 2
-        : 0;
-    const agent = rowIndex("AGENT");
-    const modelStart = rowIndex("MODEL");
     return {
-        effort,
-        effortScaleRows,
+        agent: rowIndex("AGENT"),
         access: rowIndex("ACCESS"),
-        modelStart,
-        modelEnd: modelStart < 0
-            ? -1
-            : hudRows.findIndex((line, at) =>
-                at > modelStart
-                && LANE_LABELS.some((label) =>
-                    line.replace(/^[› ]\s*/, "").startsWith(label)
-                )
-            ),
-        agent,
     };
 }
 
@@ -82,24 +52,10 @@ export function paintDialRow(
     lane: DialLane | undefined,
     theme: DialPaintTheme,
     rows: DialRowMap = mapDialRows(hudRows),
-    state: DialPaintState = {},
 ): readonly DialSpan[] {
-    const line = hudRows[index] ?? "";
-    const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
-    const main = providerParts[0] ?? "";
-    const modelEnd = rows.modelEnd < 0 ? hudRows.length : rows.modelEnd;
-    const isModelRow = rows.modelStart >= 0
-        && index >= rows.modelStart
-        && index < modelEnd;
-    const isEffortRow = rows.effort >= 0
-        && index >= rows.effort - (rows.effortScaleRows > 0 ? 1 : 0)
-        && index <= rows.effort + (rows.effortScaleRows > 0 ? 1 : 0);
-    const activeRow = lane === "model" && isModelRow
-        || lane === "effort" && isEffortRow
-        || lane === "agent" && index === rows.agent
-        || lane === "access" && index === rows.access
-        ? true
-        : false;
+    const main = hudRows[index] ?? "";
+    const activeRow = lane === "agent" && index === rows.agent
+        || lane === "access" && index === rows.access;
     const settled = (hex: string): string =>
         activeRow ? hex : mixHex(theme.background, hex, SETTLED_MIX);
     const accessHue = (part: string): string =>
@@ -124,119 +80,31 @@ export function paintDialRow(
         ...(background === undefined ? {} : { background }),
     });
 
-    const isEffortScale = rows.effortScaleRows > 0
-        && index >= rows.effort - 1
-        && index <= rows.effort + 1;
-    if (isEffortScale) {
-        const parts = main.split(DIAL_DEFAULT_SEPARATOR);
-        const axis = parts.length > 1 ? parts.pop() ?? "" : main;
-        const gutter = parts.length > 1
-            ? parts.map((part, at) =>
-                span(
-                    part,
-                    at % 2 === 0
-                        ? activeRow ? theme.text : theme.muted
-                        : part === "▲"
-                        ? settled(theme.notice)
-                        : part.startsWith("(") || !activeRow
-                        ? theme.muted
-                        : theme.accent,
-                )
-            )
-            : [];
-        return [
-            ...gutter,
-            ...(index === rows.effort - 1
-                ? [span(axis, activeRow ? theme.accent : theme.muted)]
-                : axis.split(/(▲|·+)/u).filter(Boolean).map((part) =>
-                    span(
-                        part,
-                        part === "▲"
-                            ? settled(theme.notice)
-                            : part.startsWith("·") || !activeRow
-                            ? theme.muted
-                            : theme.accent,
-                    )
-                )),
-        ];
-    }
-
-    const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)?.[0];
-    if (isModelRow && /(?:Recent|From Model Library)$/.test(main)) {
-        return [span(laneLabel ?? "", activeRow ? theme.text : theme.muted),
-            span(main.slice(laneLabel?.length ?? 0), activeRow ? theme.accent : theme.muted)];
-    }
-    const pickedRow = isModelRow && main.includes(DIAL_PICK_MARKER, 2);
-    const cursorColor = activeRow ? theme.accent : settled(theme.text);
-    const body: DialSpan[] = [];
-    if (isModelRow) {
-        const selected = pickedRow && lane === "model";
-        if (selected) {
-            const pickAt = main.indexOf(DIAL_PICK_MARKER, 2);
-            const prefixLength = pickAt < 0 ? 0 : pickAt;
-            body.push(
-                span(
-                    main.slice(0, prefixLength),
-                    index === rows.modelStart ? theme.text : theme.muted,
-                ),
-                span(
-                    main.slice(prefixLength).replace(DIAL_PICK_MARKER, " "),
-                    theme.background,
-                    theme.accent,
-                ),
-            );
-        } else if (index === rows.modelStart) {
-            const prefixLength = laneLabel?.length ?? 2;
-            body.push(
-                span(
-                    main.slice(0, prefixLength),
-                    activeRow ? theme.text : theme.muted,
-                ),
-                span(
-                    main.slice(prefixLength).replace(DIAL_PICK_MARKER, " "),
-                    pickedRow ? cursorColor : theme.muted,
-                ),
-            );
-        } else {
-            body.push(span(main.replace(DIAL_PICK_MARKER, " "), pickedRow ? cursorColor : theme.muted));
-        }
-    } else {
-        const prefix = laneLabel ?? main.slice(0, 2);
-        body.push(span(prefix, activeRow ? theme.text : theme.muted));
-        for (
-            const part of main.slice(prefix.length)
-                .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)* ?)`, "u"))
-                .filter(Boolean)
-        ) {
-            const picked = part.startsWith(DIAL_PICK_MARKER);
-            const highlightedChoice = picked && activeRow;
-            body.push(
-                span(
-                    picked ? part.replace(DIAL_PICK_MARKER, " ") : part,
-                    highlightedChoice
-                        ? theme.background
-                        : picked
-                        ? selectedColor(part)
-                        : theme.muted,
-                    highlightedChoice ? index === rows.access ? accessHue(part) : theme.accent : undefined,
-                ),
-            );
-        }
-    }
-    return [
-        ...body,
-        ...providerParts.slice(1).map((part, at) =>
-            span(
-                part,
-                at === 0
-                    ? selectedModelColor(pickedRow, lane, theme)
-                    : pickedRow
-                    ? cursorColor
-                    : theme.muted,
-                pickedRow && lane === "model" ? theme.accent : undefined,
-            )
-        ),
+    const laneLabel = main.match(/^[› ] (?:AGENT|ACCESS)\s*/)?.[0];
+    const prefix = laneLabel ?? main.slice(0, 2);
+    const body: DialSpan[] = [
+        span(prefix, activeRow ? theme.text : theme.muted),
     ];
+    for (
+        const part of main.slice(prefix.length)
+            .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)* ?)`, "u"))
+            .filter(Boolean)
+    ) {
+        const picked = part.startsWith(DIAL_PICK_MARKER);
+        const highlightedChoice = picked && activeRow;
+        body.push(
+            span(
+                picked ? part.replace(DIAL_PICK_MARKER, " ") : part,
+                highlightedChoice
+                    ? theme.background
+                    : picked
+                    ? selectedColor(part)
+                    : theme.muted,
+                highlightedChoice ? index === rows.access ? accessHue(part) : theme.accent : undefined,
+            ),
+        );
+    }
+    return body;
 }
 
 export function autoModeEdgeIntensity(
@@ -273,14 +141,6 @@ function easeInOutCubic(value: number): number {
         : 1 - (-2 * value + 2) ** 3 / 2;
 }
 
-function selectedModelColor(
-    picked: boolean,
-    lane: DialLane | undefined,
-    theme: DialPaintTheme,
-): string {
-    return picked && lane === "model" ? theme.background : theme.muted;
-}
-
 export function paintDialHud(
     hudRows: readonly string[],
     lane: DialLane | undefined,
@@ -289,7 +149,7 @@ export function paintDialHud(
 ): readonly (readonly DialSpan[])[] {
     const rows = mapDialRows(hudRows);
     const painted = hudRows.map((_, index) =>
-        paintDialRow(hudRows, index, lane, theme, rows, state)
+        paintDialRow(hudRows, index, lane, theme, rows)
     );
     const animation = state.autoAnimation;
     if (animation === undefined) return painted;

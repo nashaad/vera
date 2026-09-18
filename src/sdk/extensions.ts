@@ -25,8 +25,56 @@ export interface VeraExtensionApi {
     readonly agents: VeraExtensionAgents;
     readonly hooks: VeraExtensionHooks;
     readonly sessions: VeraExtensionSessions;
+    readonly search: VeraExtensionSearch;
+    readonly requests: VeraExtensionRequests;
     readonly storage: VeraExtensionStorage;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+export interface VeraSearchResult {
+    readonly title: string;
+    readonly url: string;
+    readonly snippet: string;
+}
+
+export interface VeraSearchRequest {
+    readonly query: string;
+    readonly count: number;
+    /** The saved key, or the value of `keyEnv`. Undefined when neither is set. */
+    readonly key: string | undefined;
+    readonly signal: AbortSignal;
+}
+
+export interface VeraSearchProviderInfo {
+    /** Lowercase letters, digits, and dashes. Unique across all extensions. */
+    readonly id: string;
+    readonly label: string;
+    readonly requiresKey: boolean;
+    /** Environment variable read when no key is saved. */
+    readonly keyEnv?: string;
+}
+
+/** A web search backend, registered from `activate`. */
+export interface VeraSearchProvider extends VeraSearchProviderInfo {
+    search(request: VeraSearchRequest): Promise<readonly VeraSearchResult[]>;
+}
+
+export interface VeraExtensionSearch {
+    /** Needs `search.providers.register`. */
+    registerProvider(provider: VeraSearchProvider): VeraExtensionDisposer;
+    /** Needs `search.providers.use`. */
+    providers(): readonly VeraSearchProvider[];
+}
+
+export type VeraExtensionRequestHandler = (
+    payload: JsonValue,
+    context: { readonly signal: AbortSignal },
+) => JsonValue | Promise<JsonValue>;
+
+/** Answers `vera.host.request` calls from this extension's own client code. */
+export interface VeraExtensionRequests {
+    /** Needs `requests.handle`. Register during activation. */
+    handle(name: string, handler: VeraExtensionRequestHandler): VeraExtensionDisposer;
 }
 
 /**
@@ -208,9 +256,16 @@ export interface VeraClientExtensionApi {
     readonly oneshot: VeraClientExtensionOneshot;
     readonly agents: VeraClientExtensionAgents;
     readonly tips: VeraClientExtensionTips;
+    readonly host: VeraClientExtensionHost;
     /** Experimental, TUI-only component host. Not a portable SDK surface. */
     readonly experimentalTui: VeraClientExperimentalTui;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+/** Calls a handler this extension registered with `vera.requests.handle` on the host. */
+export interface VeraClientExtensionHost {
+    /** Needs `client.host.request`. Rejects with the handler's error message. */
+    request(name: string, payload?: JsonValue, signal?: AbortSignal): Promise<JsonValue>;
 }
 
 export interface VeraClientExtensionContext {

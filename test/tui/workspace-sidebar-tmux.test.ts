@@ -208,11 +208,9 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("i returns to chat without hiding t
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the model picker covers the dock like every other dialog", async () => {
-    // The picker used to squeeze into whatever the dock left beside it, which
-    // broke the tab strip (it never truncates, so "Providers" ran off the
-    // narrowed card). It now hides the dock and takes its usual full width,
-    // the same as every dialog that isn't the picker.
+test.skipIf(!tmuxAvailable)("the model switcher covers the dock like every other dialog", async () => {
+    // A dialog narrowed to the space the dock leaves clips its own footer,
+    // which is where every key it answers to is named.
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -223,16 +221,14 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the model picker covers the dock l
         await tui.paneWhere((value) => value.includes("/model"));
         tui.key("Enter");
         return await tui.paneWhere((value) =>
-            value.includes("Select model")
+            value.includes("Switch model")
             && !value.includes("VERA ·")
         );
     }, 120, 34);
 
-    expect(pane).toContain("Select model");
+    expect(pane).toContain("Switch model");
     expect(pane).not.toContain("VERA ·");
-    // Full width again: every tab stop is on screen, not clipped by a card
-    // narrowed to fit beside the dock.
-    expect(pane).toContain("Providers ^e");
+    expect(pane).toContain("esc close");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the scrim behind a dialog reaches the last row", async () => {
@@ -245,8 +241,8 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the scrim behind a dialog reaches 
         tui.text("/model");
         await tui.paneWhere((value) => value.includes("/model"));
         tui.key("Enter");
-        await tui.paneWhere((value) => value.includes("Select model"));
-        return await tui.coloredWhere((value) => value.includes("Select model"));
+        await tui.paneWhere((value) => value.includes("Switch model"));
+        return await tui.coloredWhere((value) => value.includes("Switch model"));
     }, 120, 40);
 
     // The card is centred, so the row under it and the last row of the screen

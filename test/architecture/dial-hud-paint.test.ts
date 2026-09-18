@@ -11,11 +11,6 @@ test("the dial HUD is coloured in one place, not inside the renderer", async () 
     const sources = await Promise.all(files.map((path) => source(path)));
     expect(sources.some((text) => text.includes("paintDialHud"))).toBe(true);
     const main = sources.join("\n");
-    // The sentinels split spans apart, so anything reading one is deciding
-    // colour. That decision belongs in dial-paint.ts, where it can be asserted.
-    for (const sentinel of ["DIAL_PROVIDER_SEPARATOR", "DIAL_DEFAULT_SEPARATOR"]) {
-        expect(main).not.toContain(sentinel);
-    }
     expect(main).not.toContain("#c586c0");
 });
 

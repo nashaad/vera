@@ -7,6 +7,10 @@ import { effectiveCatalog } from "../model/catalog.ts";
 import type { ModelPricing } from "../model/catalog-shape.ts";
 import type { ModelUsage } from "../model/types.ts";
 import {
+    readWorkflowSpans,
+    type WorkflowSpan,
+} from "../sdk/workflow-journal.ts";
+import {
     readSessionIndexMetadata,
     sessionIsSubagent,
     type SessionHeader,
@@ -73,7 +77,8 @@ export type UsageCallKind =
     | "compaction"
     | "reviewer"
     | "oneshot"
-    | "probe";
+    | "probe"
+    | "workflow";
 
 export interface UsageCallRow {
     readonly timestamp: string;
@@ -137,6 +142,8 @@ export interface FoldUsageReportOptions {
     readonly now?: Date;
     readonly catalogCacheDir?: string;
     readonly reviewLogPath?: string;
+    /** Halcyon file journals, whose model calls count toward the totals only. */
+    readonly workflowDirectory?: string;
 }
 
 interface IndexedSession {
@@ -226,6 +233,16 @@ export async function foldUsageReport(
         );
         calls.push(...reviewed.current);
         priorCalls.push(...reviewed.prior);
+    }
+    if (options.workflowDirectory !== undefined) {
+        const ran = await readWorkflowCalls(
+            options.workflowDirectory,
+            bounds,
+            priorRange,
+            rates,
+        );
+        calls.push(...ran.current);
+        priorCalls.push(...ran.prior);
     }
     await indexMissingParents(indexed, options.sessionDirectory, calls.map((call) => call.sessionId));
     const totals = totalsFrom(calls);
@@ -633,7 +650,7 @@ export function estimateUsd(
         + numeric(usage.outputTokens) / 1e6 * pricing.output;
 }
 
-function numeric(value: number | undefined): number {
+function numeric(value: unknown): number {
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
@@ -1038,4 +1055,87 @@ async function readReviewLogCalls(
         return { current: [], prior: [] };
     }
     return { current: currentCalls, prior: priorCalls };
+}
+
+async function readWorkflowCalls(
+    workflowDirectory: string,
+    current: { readonly start: Date; readonly end: Date },
+    prior: { readonly start: Date; readonly end: Date } | undefined,
+    rates: ReadonlyMap<string, ModelPricing>,
+): Promise<{ current: PricedCall[]; prior: PricedCall[] }> {
+    const currentCalls: PricedCall[] = [];
+    const priorCalls: PricedCall[] = [];
+    const earliestMs = prior?.start.getTime() ?? current.start.getTime();
+    let names: string[];
+    try {
+        names = await readdir(workflowDirectory);
+    } catch {
+        return { current: [], prior: [] };
+    }
+    for (const name of names) {
+        if (!/^wf_[0-9a-f]{16}$/.test(name)) continue;
+        const runDir = join(workflowDirectory, name);
+        try {
+            // A run last written before the window has no calls inside it.
+            const written = await stat(join(runDir, "spans.ndjson"));
+            if (written.mtimeMs < earliestMs) continue;
+            for (const span of readWorkflowSpans(runDir)) {
+                const call = workflowCall(span, rates);
+                if (call === undefined) continue;
+                const at = Date.parse(call.timestamp);
+                if (at >= current.start.getTime() && at <= current.end.getTime()) {
+                    currentCalls.push(call);
+                } else if (
+                    prior !== undefined
+                    && at >= prior.start.getTime()
+                    && at <= prior.end.getTime()
+                ) {
+                    priorCalls.push(call);
+                }
+            }
+        } catch {
+            continue;
+        }
+    }
+    return { current: currentCalls, prior: priorCalls };
+}
+
+function workflowCall(
+    span: WorkflowSpan,
+    rates: ReadonlyMap<string, ModelPricing>,
+): PricedCall | undefined {
+    const attributes = span.attributes;
+    const model = attributes["llm.model_name"];
+    // Usage arrives on the end line, so an open span has nothing to count.
+    if (
+        attributes["openinference.span.kind"] !== "LLM"
+        || typeof model !== "string"
+        || span.end_time === undefined
+        || typeof attributes["llm.token_count.total"] !== "number"
+    ) {
+        return undefined;
+    }
+    const inputTokens = numeric(attributes["llm.token_count.prompt"]);
+    const outputTokens = numeric(attributes["llm.token_count.completion"]);
+    const cost = attributes["llm.cost.total"];
+    const usage: ModelUsage = {
+        inputTokens,
+        outputTokens,
+        cachedInputTokens: numeric(
+            attributes["llm.token_count.prompt_details.cache_read"],
+        ),
+        reasoningTokens: 0,
+        totalTokens: numeric(attributes["llm.token_count.total"]),
+        ...(typeof cost === "number" ? { cost } : {}),
+    };
+    const provider = attributes["llm.provider"];
+    return priceCall(
+        "",
+        span.end_time,
+        typeof provider === "string" ? provider : "unknown",
+        model,
+        usage,
+        rates,
+        "workflow",
+    );
 }

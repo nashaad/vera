@@ -60,3 +60,16 @@ export function coarsenOneStep(
 
     return { level: chosen, providerEffort: efforts[chosen] as string };
 }
+
+/**
+ * Whether a newly chosen model has left the current effort with nothing to
+ * mean. Only then is there a question to ask: re-offering a level the model
+ * already supports makes the user say "high" twice.
+ */
+export function effortWentStale(
+    available: readonly string[],
+    current: string | undefined,
+): boolean {
+    if (current === undefined) return false;
+    return !available.includes(current);
+}

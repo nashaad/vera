@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -211,6 +212,127 @@ def close_attempt(header: dict[str, object], status: str) -> None:
         attempt["error"] = dict(error)
 
 
+SPAN_STATUS = {
+    "ok": "OK",
+    "failed": "ERROR",
+    "suspended": "UNSET",
+    "cancelled": "UNSET",
+}
+
+
+def span_start(
+    header: dict[str, object],
+    count: int,
+    key: str,
+    step_name: str,
+    parent: str | None = None,
+    kind: str = "CHAIN",
+    attributes: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """The line that opens a span: one try of one step, or a call inside one.
+
+    Field names follow OpenTelemetry, and the kind follows OpenInference, so a
+    reader that speaks either needs a mapping of ids rather than of shapes.
+    """
+    attempts = header.get("attempts")
+    attempt = len(attempts) if type(attempts) is list and attempts else 1
+    run_id = header.get("run_id")
+    parent_id = parent if parent is not None else f"a{attempt}"
+    carried = {
+        "openinference.span.kind": kind,
+        "halcyon.attempt": attempt,
+        "halcyon.step.key": key,
+    }
+    if attributes is not None:
+        carried.update(attributes)
+    return {
+        "trace_id": run_id if type(run_id) is str else "",
+        "span_id": f"{parent_id}.{count}",
+        "parent_id": parent_id,
+        "name": step_name,
+        "start_time": _now(),
+        "attributes": carried,
+    }
+
+
+def span_end(
+    span_id: str,
+    ms: int,
+    outcome: str,
+    message: str | None = None,
+    attributes: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """The line that settles a span.
+
+    `status_code` is what OpenTelemetry can say about any span, so the word
+    Halcyon uses rides along beside it rather than being flattened into it.
+    """
+    settled: dict[str, object] = {
+        "halcyon.outcome": outcome,
+        "halcyon.duration_ms": ms,
+    }
+    if attributes is not None:
+        settled.update(attributes)
+    line: dict[str, object] = {
+        "span_id": span_id,
+        "end_time": _now(),
+        "status_code": SPAN_STATUS.get(outcome, "UNSET"),
+        "attributes": settled,
+    }
+    if message is not None:
+        line["status_message"] = message
+    return line
+
+
+def read_span_lines(run_dir: Path) -> list[dict[str, object]]:
+    path = run_dir / "spans.ndjson"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        raise _journal_error(f"cannot read {path}") from error
+    lines: list[dict[str, object]] = []
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        line = _parse_json_text(raw, str(path))
+        if type(line) is not dict:
+            raise _journal_error(f"workflow span must be an object in {path}")
+        lines.append(line)
+    return lines
+
+
+def fold_spans(lines: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+    """One entry per span, in the order they opened.
+
+    A span with no `end_time` is a try whose process died in it, so the gap is
+    the reading, not a defect in the file. Attributes merge across the two
+    lines; every other field is taken from whichever line carries it.
+    """
+    spans: dict[str, dict[str, object]] = {}
+    for line in lines:
+        span_id = line.get("span_id")
+        if type(span_id) is not str:
+            continue
+        if "start_time" in line:
+            spans[span_id] = dict(line)
+            continue
+        found = spans.get(span_id)
+        if found is None:
+            continue
+        attributes = dict(_attributes_of(found))
+        attributes.update(_attributes_of(line))
+        found.update(line)
+        found["attributes"] = attributes
+    return list(spans.values())
+
+
+def _attributes_of(line: dict[str, object]) -> dict[str, object]:
+    attributes = line.get("attributes")
+    return attributes if type(attributes) is dict else {}
+
+
 class Journal:
     def __init__(
         self,
@@ -227,6 +349,7 @@ class Journal:
         self.records = records
         self.timings = timings if timings is not None else {}
         self._next_seq = next_seq
+        self._span_count = 0
 
     @classmethod
     def create(
@@ -423,6 +546,59 @@ class Journal:
         open_attempt(self.header)
         self._write_header_during_run()
 
+    def open_span(
+        self,
+        key: str,
+        step_name: str,
+        parent: str | None = None,
+        kind: str = "CHAIN",
+        attributes: dict[str, object] | None = None,
+    ) -> str:
+        line = span_start(
+            self.header, self._span_count, key, step_name, parent, kind, attributes
+        )
+        self._span_count += 1
+        self._append_span(line)
+        return str(line["span_id"])
+
+    def close_span(
+        self,
+        span_id: str,
+        ms: int,
+        outcome: str,
+        message: str | None = None,
+        attributes: dict[str, object] | None = None,
+    ) -> None:
+        self._append_span(span_end(span_id, ms, outcome, message, attributes))
+
+    def spans(self) -> list[dict[str, object]]:
+        return fold_spans(read_span_lines(self.run_dir))
+
+    def put_blob(self, encoded: bytes) -> str:
+        """Store bytes under their digest in the run's blobs and return it."""
+        reference = hashlib.sha256(encoded).hexdigest()
+        _write_blob(self.run_dir, encoded, reference)
+        return reference
+
+    def _append_span(self, line: dict[str, object]) -> None:
+        try:
+            text = json.dumps(
+                line,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            )
+            with (self.run_dir / "spans.ndjson").open(
+                "a",
+                encoding="utf-8",
+                newline="\n",
+            ) as span_file:
+                span_file.write(text + "\n")
+                span_file.flush()
+                os.fsync(span_file.fileno())
+        except (OSError, TypeError, ValueError) as error:
+            raise _journal_error("cannot append workflow span") from error
+
     def mark_step_started(self, key: str, step_name: str) -> None:
         """Name the step now in flight, so a crashed run says where it stopped."""
         self.header["active"] = {"key": key, "step": step_name, "at": _now()}
@@ -442,6 +618,7 @@ class Journal:
     def mark_running(self) -> None:
         self.header["status"] = "running"
         self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header.pop("cancel_requested", None)
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -466,10 +643,16 @@ class Journal:
         close_attempt(self.header, "failed")
         self.write_header()
 
-    def mark_suspended(self, reason: str) -> None:
+    def mark_suspended(
+        self, reason: str, asking: dict[str, object] | None = None
+    ) -> None:
         self.header["status"] = "suspended"
         self.header.pop("active", None)
         self.header["reason"] = reason
+        if asking is None:
+            self.header.pop("asking", None)
+        else:
+            self.header["asking"] = asking
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
         close_attempt(self.header, "suspended")
@@ -487,6 +670,7 @@ class Journal:
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
         self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -503,6 +687,15 @@ class Journal:
 
     def request_cancel(self, reason: str) -> None:
         self.header["cancel_requested"] = reason
+        self.write_header()
+
+    def put_inbox(self, key: str, value: object) -> None:
+        """Leave a value for the run to read from `current.run.inbox`."""
+        self.reload_inbox()
+        inbox = self.header["inbox"]
+        if type(inbox) is not dict:
+            raise _journal_error("header field inbox must be an object")
+        inbox[key] = value
         self.write_header()
 
     def cancel_requested(self) -> str | None:

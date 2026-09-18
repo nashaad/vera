@@ -9,9 +9,11 @@ import type {
     ReasoningLevel,
 } from "./catalog-shape.ts";
 import {
-    loadRecommendedModels,
-    type RecommendedModel,
-} from "./recommended-models.ts";
+    curatedKeys,
+    curatedModels,
+    curatedSelection,
+    type CuratedModel,
+} from "./curated-models.ts";
 import {
     joinSettingsOverlay,
     overlayCatalogLevels,
@@ -43,7 +45,8 @@ interface SourceCatalog {
 
 export interface EffectiveCatalogOptions {
     readonly cacheDir?: string;
-    readonly recommended?: readonly RecommendedModel[];
+    /** The curated picks, which name a model without naming a provider. */
+    readonly curated?: readonly CuratedModel[];
     /** Test seam. Absent reads the shipped overlay file. */
     readonly overlay?: SettingsOverlay;
 }
@@ -61,18 +64,19 @@ export function effectiveCatalog(
     options: EffectiveCatalogOptions = {},
 ): ProviderCatalog {
     const discovery = loadDiscoverySource(provider, options.cacheDir);
-    const recommended = recommendationsFor(
-        provider,
-        options.recommended ?? shippedRecommendations(),
+    const listed = (discovery?.models ?? [])
+        .map(toCatalogModel)
+        .filter((model): model is CatalogModel => model !== undefined)
+        .map((model) => withSettingsOverlay(provider, model, options.overlay));
+    const curated = curatedSelection(
+        listed.map((model) => model.id),
+        curatedKeys(options.curated ?? curatedModels()),
     );
     return {
         schema_version: 2,
         provider,
-        models: (discovery?.models ?? [])
-            .map(toCatalogModel)
-            .filter((model): model is CatalogModel => model !== undefined)
-            .map((model) => withSettingsOverlay(provider, model, options.overlay))
-            .map((model) => withRecommendation(model, recommended))
+        models: listed
+            .map((model) => withCuration(model, curated))
             .sort(compareModels),
     };
 }
@@ -96,46 +100,11 @@ function withSettingsOverlay(
     };
 }
 
-/** A missing recommendation file must not cost the user the model list. */
-let shipped: readonly RecommendedModel[] | undefined;
-
-function shippedRecommendations(): readonly RecommendedModel[] {
-    if (shipped === undefined) {
-        try {
-            shipped = loadRecommendedModels();
-        } catch {
-            shipped = [];
-        }
-    }
-    return shipped;
-}
-
-function recommendationsFor(
-    provider: string,
-    recommended: readonly RecommendedModel[],
-): Map<string, RecommendedModel> {
-    return new Map(
-        recommended
-            .filter((entry) => entry.provider === provider)
-            .map((entry) => [entry.model, entry] as const),
-    );
-}
-
-function withRecommendation(
+function withCuration(
     model: CatalogModel,
-    recommended: Map<string, RecommendedModel>,
+    curated: ReadonlySet<string>,
 ): CatalogModel {
-    const entry = recommended.get(model.id);
-    if (entry === undefined) {
-        return model;
-    }
-    return {
-        ...model,
-        recommended: true,
-        ...(entry.reasoning_effort === undefined
-            ? {}
-            : { recommended_level: entry.reasoning_effort }),
-    };
+    return curated.has(model.id) ? { ...model, recommended: true } : model;
 }
 
 function loadDiscoverySource(

@@ -33,6 +33,7 @@ interface SessionSpec {
     readonly cwd?: string;
     readonly name?: string;
     readonly entries?: readonly Record<string, unknown>[];
+    readonly importedFrom?: Record<string, unknown>;
     /** Seconds of age, so newest-first ordering is deterministic. */
     readonly age?: number;
 }
@@ -45,6 +46,7 @@ function writeSession(directory: string, spec: SessionSpec): string {
         id: spec.id,
         timestamp: "2026-08-01T00:00:00.000Z",
         cwd: spec.cwd ?? "/work/one",
+        ...(spec.importedFrom === undefined ? {} : { importedFrom: spec.importedFrom }),
     })];
     if (spec.name !== undefined) {
         lines.push(JSON.stringify({ type: "session_name", name: spec.name }));
@@ -86,6 +88,34 @@ test("an empty query finds nothing rather than everything", async () => {
 
     expect(await searchSessions(directory, { query: "   " }))
         .toEqual({ results: [], truncated: false });
+});
+
+test("an imported session's result names its source tool", async () => {
+    const directory = root();
+    writeSession(directory, {
+        id: "imported",
+        importedFrom: {
+            tool: "codex",
+            sourceSessionId: "src",
+            sourcePath: "/old/rollout.jsonl",
+            sourceSha256: "a".repeat(64),
+            sourceStartedAt: "2026-07-01T00:00:00.000Z",
+            importedAt: "2026-08-01T00:00:00.000Z",
+            messageCount: 1,
+            lastMessageId: "m1",
+        },
+        entries: [message("m1", "user", [text("provider fallback")])],
+    });
+    writeSession(directory, {
+        id: "native",
+        entries: [message("m1", "user", [text("provider fallback")])],
+    });
+
+    const found = await searchSessions(directory, { query: "fallback" });
+    const tools = Object.fromEntries(
+        found.results.map((result) => [result.session_id, result.imported_tool]),
+    );
+    expect(tools).toEqual({ imported: "codex", native: undefined });
 });
 
 test("results group by session with the hit kind on each snippet", async () => {

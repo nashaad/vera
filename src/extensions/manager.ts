@@ -15,20 +15,18 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import type { VeraExtensionConfig } from "../config.ts";
+import {
+    updateVeraConfigDefaults,
+    type LoadVeraConfigOptions,
+    type VeraExtensionConfig,
+} from "../config.ts";
+import { includedExtensionIds } from "./included.ts";
 import { loadExtensionManifest } from "./manifest.ts";
-import { veraProfileDirectory } from "../profile-paths.ts";
+import { installedExtensionIdsIn, veraProfileDirectory } from "../profile-paths.ts";
 
 export const EXTENSION_REGISTRY_SCHEMA_VERSION = 1;
 const MANAGED_STATE_DIRECTORY = ".managed";
 const EXTENSION_ID_PATTERN = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
-
-export type ExtensionManagerScope = "profile" | "project";
-
-export interface ExtensionManagerTarget {
-    readonly scope: ExtensionManagerScope;
-    readonly projectRoot?: string;
-}
 
 export interface ManagedExtensionSource {
     readonly kind: "local";
@@ -51,8 +49,6 @@ export interface ExtensionRegistryDocument {
 }
 
 export interface ExtensionInstallPreview {
-    readonly scope: ExtensionManagerScope;
-    readonly projectRoot?: string;
     readonly id: string;
     readonly version: string;
     readonly source: string;
@@ -68,8 +64,8 @@ export interface ExtensionInstallResult {
 }
 
 export interface ExtensionListEntry {
-    readonly bundled?: boolean;
-    readonly scope: ExtensionManagerScope;
+    readonly included?: boolean;
+    readonly core?: boolean;
     readonly id: string;
     readonly version?: string;
     readonly enabled: boolean;
@@ -85,15 +81,10 @@ export interface ExtensionManagerOptions {
     readonly home?: string;
 }
 
-export interface ExtensionListOptions extends ExtensionManagerOptions {
-    readonly projectRoot?: string;
-    readonly scope?: ExtensionManagerScope;
-}
-
 export interface ExtensionManagerOperations {
     readonly install: typeof installExtension;
     readonly list: typeof listExtensions;
-    readonly setEnabled: typeof setExtensionEnabled;
+    readonly setEnabled: typeof setAnyExtensionEnabled;
     readonly remove: typeof removeExtension;
 }
 
@@ -104,24 +95,16 @@ export class ExtensionManagerError extends Error {
     }
 }
 
-export function projectExtensionDirectory(projectRoot: string): string {
-    return join(canonicalProjectRoot(projectRoot), ".vera", "extensions");
-}
-
 export function extensionDirectoryFor(
-    target: ExtensionManagerTarget,
     options: ExtensionManagerOptions = {},
 ): string {
-    return target.scope === "profile"
-        ? join(veraProfileDirectory(process.env, options.home), "extensions")
-        : projectExtensionDirectory(requireProjectRoot(target));
+    return join(veraProfileDirectory(process.env, options.home), "extensions");
 }
 
 export function extensionRegistryPathFor(
-    target: ExtensionManagerTarget,
     options: ExtensionManagerOptions = {},
 ): string {
-    return join(dirname(extensionDirectoryFor(target, options)), "extensions.json");
+    return join(dirname(extensionDirectoryFor(options)), "extensions.json");
 }
 
 export function assertSafeExtensionDirectory(directory: string): void {
@@ -200,20 +183,19 @@ export function managedExtensionConfigs(
 
 export function installExtension(
     source: string,
-    target: ExtensionManagerTarget,
     options: ExtensionManagerOptions & { readonly dryRun?: boolean } = {},
 ): ExtensionInstallResult {
-    const directory = extensionDirectoryFor(target, options);
-    const registryPath = extensionRegistryPathFor(target, options);
+    const directory = extensionDirectoryFor(options);
+    const registryPath = extensionRegistryPathFor(options);
     assertSafeExtensionDirectory(directory);
     const sourcePath = resolve(source);
 
     if (options.dryRun === true) {
         const prepared = stableSource(sourcePath);
         const records = readManagedExtensionRecords(directory, registryPath);
-        assertInstallSlot(directory, target, prepared.loaded.manifest.id, records);
+        assertInstallSlot(directory, prepared.loaded.manifest.id, records);
         return {
-            preview: installPreview(target, directory, sourcePath, prepared, true),
+            preview: installPreview(directory, sourcePath, prepared, true),
         };
     }
 
@@ -224,7 +206,6 @@ export function installExtension(
         const activeRecords = repairMissingRecords(directory, registryPath, records);
         assertInstallSlot(
             directory,
-            target,
             prepared.loaded.manifest.id,
             activeRecords,
         );
@@ -298,7 +279,6 @@ export function installExtension(
             );
         }
         const preview = installPreview(
-            target,
             directory,
             sourcePath,
             {
@@ -314,18 +294,17 @@ export function installExtension(
 export function setExtensionEnabled(
     id: string,
     enabled: boolean,
-    target: ExtensionManagerTarget,
     options: ExtensionManagerOptions = {},
 ): ManagedExtensionRecord {
-    const directory = extensionDirectoryFor(target, options);
-    const registryPath = extensionRegistryPathFor(target, options);
+    const directory = extensionDirectoryFor(options);
+    const registryPath = extensionRegistryPathFor(options);
     return withRegistryLock(registryPath, () => {
         assertSafeExtensionDirectory(directory);
         const records = readManagedExtensionRecords(directory, registryPath);
         const record = records.find((entry) => entry.id === id);
         if (record === undefined) {
             throw new ExtensionManagerError(
-                `No managed extension named ${id} exists in the ${target.scope} scope`,
+                `No managed extension named ${id} is installed`,
             );
         }
         const path = extensionPath(directory, record);
@@ -347,20 +326,47 @@ export function setExtensionEnabled(
     });
 }
 
+// Included extensions switch in config.json, installed ones in extensions.json.
+export function setAnyExtensionEnabled(
+    id: string,
+    enabled: boolean,
+    options: ExtensionManagerOptions = {},
+): { readonly id: string } {
+    const home = veraProfileDirectory(process.env, options.home);
+    if (installedExtensionIdsIn(home).includes(id) || !includedExtensionIds().includes(id)) {
+        return setExtensionEnabled(id, enabled, options);
+    }
+    return setIncludedExtensionEnabled(id, enabled, { path: join(home, "config.json") });
+}
+
+// Writes `disabled_included_extensions` in config.json.
+export function setIncludedExtensionEnabled(
+    id: string,
+    enabled: boolean,
+    options: LoadVeraConfigOptions = {},
+): { readonly id: string } {
+    if (!includedExtensionIds().includes(id)) {
+        throw new ExtensionManagerError(
+            `No extension named ${id} is included with Vera`,
+        );
+    }
+    updateVeraConfigDefaults({ included_extension: { id, enabled } }, options);
+    return { id };
+}
+
 export function removeExtension(
     id: string,
-    target: ExtensionManagerTarget,
     options: ExtensionManagerOptions = {},
 ): ManagedExtensionRecord {
-    const directory = extensionDirectoryFor(target, options);
-    const registryPath = extensionRegistryPathFor(target, options);
+    const directory = extensionDirectoryFor(options);
+    const registryPath = extensionRegistryPathFor(options);
     return withRegistryLock(registryPath, () => {
         assertSafeExtensionDirectory(directory);
         const records = readManagedExtensionRecords(directory, registryPath);
         const record = records.find((entry) => entry.id === id);
         if (record === undefined) {
             throw new ExtensionManagerError(
-                `No managed extension named ${id} exists in the ${target.scope} scope`,
+                `No managed extension named ${id} is installed`,
             );
         }
         const path = extensionPath(directory, record);
@@ -387,33 +393,10 @@ export function removeExtension(
 }
 
 export function listExtensions(
-    options: ExtensionListOptions = {},
+    options: ExtensionManagerOptions = {},
 ): readonly ExtensionListEntry[] {
-    const targets: ExtensionManagerTarget[] = [];
-    if (options.scope === undefined || options.scope === "profile") {
-        targets.push({ scope: "profile" });
-    }
-    if (
-        options.projectRoot !== undefined
-        && (options.scope === undefined || options.scope === "project")
-    ) {
-        targets.push({ scope: "project", projectRoot: options.projectRoot });
-    }
-    return targets.flatMap((target) => listScopeExtensions(target, options));
-}
-
-export function digestExtensionDirectory(directory: string): string {
-    const hash = createHash("sha256");
-    hashDirectory(hash, directory, "");
-    return `sha256:${hash.digest("hex")}`;
-}
-
-function listScopeExtensions(
-    target: ExtensionManagerTarget,
-    options: ExtensionManagerOptions,
-): readonly ExtensionListEntry[] {
-    const directory = extensionDirectoryFor(target, options);
-    const registryPath = extensionRegistryPathFor(target, options);
+    const directory = extensionDirectoryFor(options);
+    const registryPath = extensionRegistryPathFor(options);
     assertSafeExtensionDirectory(directory);
     const records = readManagedExtensionRecords(directory, registryPath);
     const managedPaths = new Set<string>();
@@ -424,7 +407,6 @@ function listScopeExtensions(
         try {
             const manifest = loadExtensionManifest(path).manifest;
             entries.push({
-                scope: target.scope,
                 id: record.id,
                 version: manifest.version,
                 enabled: record.enabled,
@@ -436,7 +418,6 @@ function listScopeExtensions(
             });
         } catch (error) {
             entries.push({
-                scope: target.scope,
                 id: record.id,
                 version: record.version,
                 enabled: record.enabled,
@@ -455,7 +436,6 @@ function listScopeExtensions(
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
             entries.push({
-                scope: target.scope,
                 id: "<directory>",
                 enabled: false,
                 managed: false,
@@ -471,7 +451,6 @@ function listScopeExtensions(
         try {
             const manifest = loadExtensionManifest(path).manifest;
             entries.push({
-                scope: target.scope,
                 id: manifest.id,
                 version: manifest.version,
                 enabled: true,
@@ -482,9 +461,13 @@ function listScopeExtensions(
         } catch {
         }
     }
-    return entries.toSorted((left, right) =>
-        `${left.scope}:${left.id}`.localeCompare(`${right.scope}:${right.id}`)
-    );
+    return entries.toSorted((left, right) => left.id.localeCompare(right.id));
+}
+
+export function digestExtensionDirectory(directory: string): string {
+    const hash = createHash("sha256");
+    hashDirectory(hash, directory, "");
+    return `sha256:${hash.digest("hex")}`;
 }
 
 function writeExtensionRegistry(
@@ -730,14 +713,13 @@ function repairMissingRecords(
 
 function assertInstallSlot(
     directory: string,
-    target: ExtensionManagerTarget,
     id: string,
     records: readonly ManagedExtensionRecord[],
 ): void {
     const existing = records.find((record) => record.id === id);
     if (existing !== undefined) {
         throw new ExtensionManagerError(
-            `Extension ${id} is already installed in the ${target.scope} scope`,
+            `Extension ${id} is already installed. To replace it, run /extension remove ${id}, then install again.`,
         );
     }
     const destination = join(directory, id);
@@ -809,17 +791,12 @@ interface PreparedSource {
 }
 
 function installPreview(
-    target: ExtensionManagerTarget,
     directory: string,
     sourcePath: string,
     prepared: PreparedSource,
     dryRun: boolean,
 ): ExtensionInstallPreview {
     return {
-        scope: target.scope,
-        ...(target.scope === "project"
-            ? { projectRoot: requireProjectRoot(target) }
-            : {}),
         id: prepared.loaded.manifest.id,
         version: prepared.loaded.manifest.version,
         source: sourcePath,
@@ -846,43 +823,6 @@ function emptyRegistry(): ExtensionRegistryDocument {
         schema_version: EXTENSION_REGISTRY_SCHEMA_VERSION,
         extensions: [],
     };
-}
-
-function requireProjectRoot(target: ExtensionManagerTarget): string {
-    if (target.scope !== "project" || target.projectRoot === undefined) {
-        throw new ExtensionManagerError(
-            "Project-scoped extension operations require a project root",
-        );
-    }
-    const root = resolve(target.projectRoot);
-    try {
-        if (lstatSync(root).isSymbolicLink()) {
-            throw new ExtensionManagerError(
-                `Project root is a symlink; use its real path: ${root}`,
-            );
-        }
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    return canonicalProjectRoot(root);
-}
-
-function canonicalProjectRoot(projectRoot: string): string {
-    let current = resolve(projectRoot);
-    const missing: string[] = [];
-    while (true) {
-        try {
-            return join(realpathSync(current), ...missing.reverse());
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-                return resolve(projectRoot);
-            }
-            const parent = dirname(current);
-            if (parent === current) return resolve(projectRoot);
-            missing.push(current.slice(parent.length + 1));
-            current = parent;
-        }
-    }
 }
 
 function isDirectory(path: string): boolean {

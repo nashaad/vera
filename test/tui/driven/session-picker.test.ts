@@ -84,7 +84,9 @@ test("space previews a conversation and escape returns to the picker", async () 
     });
 
     try {
-        await session.waitForVisiblePane("Start a conversation");
+        // The empty-transcript placeholder can give way to an extension
+        // notice on a second in-process start, so wait on the composer.
+        await session.waitForVisiblePane("Message Vera");
         session.sendText("/resume");
         session.sendKey("Enter");
         await session.waitForVisiblePane("The one already open");

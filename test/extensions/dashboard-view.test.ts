@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 
-import { buildDashboardReport } from "../../extensions/context/dashboard-report.ts";
+import { buildDashboardReport } from "../../src/core-extensions/context/dashboard-report.ts";
 import {
     dashboardWidth,
     renderDashboard,
-} from "../../extensions/context/dashboard-view.ts";
+} from "../../src/core-extensions/context/dashboard-view.ts";
 import {
     renderTuiExperimentalView,
     validateTuiExperimentalNode,

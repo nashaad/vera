@@ -4,7 +4,7 @@ import type {
     VeraClientSessionFacts,
     VeraClientSessionUsageRow,
 } from "../../src/sdk/extensions.ts";
-import { buildDashboardReport } from "../../extensions/context/dashboard-report.ts";
+import { buildDashboardReport } from "../../src/core-extensions/context/dashboard-report.ts";
 
 function usageRow(
     overrides: Partial<VeraClientSessionUsageRow> = {},

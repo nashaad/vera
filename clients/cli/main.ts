@@ -21,6 +21,16 @@ import {
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
+    describeImportRejection,
+    importSessionThroughHost,
+    listImportableSessionsThroughHost,
+} from "../../src/host/session-import-client.ts";
+import type {
+    ImportableSessionListing,
+    SessionImportOutcome,
+    SessionImportSucceeded,
+} from "../../src/host/session-import-service.ts";
+import {
     createHostLockfile,
     HostBuildMismatchError,
     HostProtocolMismatchError,
@@ -144,11 +154,10 @@ import {
     installExtension,
     listExtensions,
     removeExtension,
-    setExtensionEnabled,
+    setAnyExtensionEnabled,
     type ExtensionManagerOperations,
 } from "../../src/extensions/manager.ts";
 import {
-    extensionTarget,
     parseExtensionManagerCommand,
     renderExtensionInstallPreview,
     renderExtensionList,
@@ -236,6 +245,10 @@ export interface CliDependencies {
         format: SessionExportFormat,
     ) => Promise<string>;
     readonly inspectModelRequest?: (sessionPath: string) => Promise<string>;
+    readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
+    readonly listImportableSessions?: (
+        workspace: string | undefined,
+    ) => Promise<ImportableSessionListing | undefined>;
     readonly openConfigure?: () => Promise<void>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
@@ -474,29 +487,22 @@ export async function runCli(
             install: dependencies.extensionManager?.install ?? installExtension,
             list: dependencies.extensionManager?.list ?? listExtensions,
             setEnabled: dependencies.extensionManager?.setEnabled
-                ?? setExtensionEnabled,
+                ?? setAnyExtensionEnabled,
             remove: dependencies.extensionManager?.remove ?? removeExtension,
         };
-        const target = extensionTarget(command, process.cwd());
         try {
             if (command.operation === "list") {
-                output.write(renderExtensionList(manager.list({
-                    ...(command.scope === "project"
-                        ? { projectRoot: process.cwd() }
-                        : {}),
-                    scope: command.scope,
-                })));
+                output.write(renderExtensionList(manager.list()));
                 return 0;
             }
             if (command.operation === "install") {
-                const result = manager.install(command.source, target, {
+                const result = manager.install(command.source, {
                     dryRun: command.dryRun,
                 });
                 output.write(renderExtensionInstallPreview(result.preview));
                 if (!command.dryRun) {
                     output.write(
-                        `Installed ${result.record?.id ?? result.preview.id}`
-                            + ` in the ${result.preview.scope} scope.\n`,
+                        `Installed ${result.record?.id ?? result.preview.id}.\n`,
                     );
                     output.write(
                         "Restart the resident host to apply host-side capabilities.\n",
@@ -508,20 +514,15 @@ export async function runCli(
                 const record = manager.setEnabled(
                     command.id,
                     command.operation === "enable",
-                    target,
                 );
-                output.write(renderExtensionMutation(
-                    command.operation,
-                    record,
-                    command.scope,
-                ));
+                output.write(renderExtensionMutation(command.operation, record));
                 output.write(
                     "Restart the resident host to apply host-side capabilities.\n",
                 );
                 return 0;
             }
-            const record = manager.remove(command.id, target);
-            output.write(renderExtensionMutation("remove", record, command.scope));
+            const record = manager.remove(command.id);
+            output.write(renderExtensionMutation("remove", record));
             output.write(
                 "Restart the resident host to apply host-side capabilities.\n",
             );
@@ -547,6 +548,39 @@ export async function runCli(
                 ),
             { all },
         ));
+        return 0;
+    }
+
+    if (
+        args[0] === "import"
+        && (args.length === 1 || (args.length === 2 && args[1] === "--all"))
+    ) {
+        const all = args.length === 2;
+        const listing = await (dependencies.listImportableSessions ?? listImportableSessionsFromCli)(
+            all ? undefined : process.cwd(),
+        );
+        if (listing === undefined) {
+            errorOutput.write("Could not list sessions. Check that the Vera host is running.\n");
+            return 1;
+        }
+        output.write(renderImportableSessions(listing, { all }));
+        return 0;
+    }
+
+    if (
+        args.length === 2
+        && args[0] === "import"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        const outcome = await (dependencies.importSession ?? importSessionFromCli)(
+            args[1],
+        );
+        if (outcome.status === "rejected") {
+            errorOutput.write(`${describeImportRejection(args[1], outcome.reason)}\n`);
+            return 1;
+        }
+        output.write(renderImportOutcome(args[1], outcome));
         return 0;
     }
 
@@ -1026,6 +1060,70 @@ async function scheduleOperationOnResidentHost(
     const { findOrStartResidentHost } = await import("../host/launch.ts");
     const host = await findOrStartResidentHost();
     return runScheduleOperationThroughHost(host.socket_path, operation);
+}
+
+async function importSessionFromCli(path: string): Promise<SessionImportOutcome> {
+    const { findOrStartResidentHost } = await import("../host/launch.ts");
+    const host = await findOrStartResidentHost();
+    return importSessionThroughHost(host.socket_path, path);
+}
+
+async function listImportableSessionsFromCli(
+    workspace: string | undefined,
+): Promise<ImportableSessionListing | undefined> {
+    const { findOrStartResidentHost } = await import("../host/launch.ts");
+    const host = await findOrStartResidentHost();
+    return listImportableSessionsThroughHost(host.socket_path, workspace);
+}
+
+export function renderImportableSessions(
+    listing: ImportableSessionListing,
+    options: { readonly all?: boolean; readonly now?: Date } = {},
+): string {
+    if (listing.sessions.length === 0) {
+        return options.all === true
+            ? "No Claude Code or Codex sessions found.\n"
+            : "No Claude Code or Codex sessions in this folder. Use --all to see every one.\n";
+    }
+    const now = options.now ?? new Date();
+    const headings = options.all === true
+        ? ["TOOL", "CHANGED", "TITLE", "IMPORTED", "WORKSPACE", "PATH"]
+        : ["TOOL", "CHANGED", "TITLE", "IMPORTED", "PATH"];
+    const rows = listing.sessions.map((session) => {
+        const title = (session.title ?? session.first_message ?? "").replaceAll(/\s+/g, " ").trim();
+        const row = [
+            session.tool === "claude-code" ? "Claude Code" : "Codex",
+            relativeTime(session.updated_at, now, "-"),
+            truncate(title, 48),
+            session.imported_session_id === undefined ? "" : "yes",
+        ];
+        return options.all === true
+            ? [...row, session.workspace, session.path]
+            : [...row, session.path];
+    });
+    const widths = headings.map((heading, index) =>
+        Math.max(heading.length, ...rows.map((row) => row[index]?.length ?? 0))
+    );
+    const table = [headings, ...rows]
+        .map((row) => row
+            .map((cell, index) => cell.padEnd(widths[index] ?? cell.length))
+            .join("  ")
+            .trimEnd())
+        .join("\n");
+    const more = listing.truncated
+        ? `Showing the newest ${listing.sessions.length}.\n`
+        : "";
+    return `${table}\n${more}Import one with: vera import <path>\n`;
+}
+
+export function renderImportOutcome(
+    path: string,
+    outcome: SessionImportSucceeded,
+): string {
+    const lead = outcome.existing
+        ? `${path} was already imported as ${outcome.sessionId}.`
+        : `Imported ${path} as ${outcome.sessionId}.`;
+    return `${lead}\nResume it with: vera resume ${outcome.sessionId}\n`;
 }
 
 function parseExportRequest(

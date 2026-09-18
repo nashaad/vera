@@ -8,6 +8,8 @@ export interface OutriderPresence {
     readonly endpoint?: string;
     /** The profile the running gateway is serving. */
     readonly profile?: string;
+    /** An Outrider command inside an app bundle that no install registered, found only while `absent`. The app carries a working CLI, so this is a machine one command away from present. */
+    readonly unregistered?: string;
 }
 
 /**
@@ -43,6 +45,20 @@ export function outriderServeCommand(
     return [binary, "--json", "serve", profile];
 }
 
+/** Bring the gateway up on whatever profile it last served, without naming one. A gateway that is already up is left alone. */
+export function outriderStartCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "start"];
+}
+
+/** Take the gateway down. The checkpoint it writes on the way out is what makes the next start quick, so it is never skipped here. */
+export function outriderStopCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "stop"];
+}
+
 /** Does this profile fit this machine, in Outrider's own reckoning rather than ours. */
 export function outriderCheckCommand(
     profile: string,
@@ -58,7 +74,7 @@ export function outriderListCommand(
     return [binary, "ls", "--json"];
 }
 
-export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/outrider";
+export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/install.sh";
 
 /** Where the installer is fetched from. `OUTRIDER_INSTALL_URL` points it at a local server, which is what makes the install path drivable before anything is published. */
 export function outriderInstallUrl(): string {
@@ -100,6 +116,22 @@ export function outriderMarkerPaths(home: string): readonly string[] {
     return home === ""
         ? [SYSTEM_MARKER]
         : [`${home}/${USER_MARKER_RELATIVE}`, SYSTEM_MARKER];
+}
+
+/** The desktop app ships the same command the installer places. Mirrors the bundle layout `scripts/install.sh` builds. */
+const APP_BINARY_RELATIVE = "Outrider.app/Contents/MacOS/outrider";
+
+/** Both places the app lands, per-user first, matching the installer's own `OUTRIDER_APPLICATIONS_DIR` default. */
+export function outriderAppBinaryPaths(home: string): readonly string[] {
+    const shared = `/Applications/${APP_BINARY_RELATIVE}`;
+    return home === ""
+        ? [shared]
+        : [`${home}/Applications/${APP_BINARY_RELATIVE}`, shared];
+}
+
+/** Registers a binary Vera found but no install owns. `--link` points the install target at it rather than copying, so upgrading the app upgrades the command, and uninstall removes the link and never reaches into the bundle. */
+export function outriderRegisterCommand(binary: string): readonly string[] {
+    return [binary, "install", "--link"];
 }
 
 /** The binary a marker file points at. Mirrors `Marker` in `internal/installer/installer.go`. */
@@ -301,4 +333,211 @@ export function awaitingRuntime(verdict: OutriderVerdict): boolean {
 /** This machine is under the memory the profile was qualified on. Unlike the runtime warning, nothing Vera does next clears it. */
 export function shortOfMemory(verdict: OutriderVerdict): boolean {
     return warned(verdict, MEMORY_CHECK);
+}
+
+/**
+ * One process as Outrider reports it. Mirrors `Status` in
+ * `internal/process/process.go`. `healthy` is absent when the gateway never
+ * answered, which is not the same as answering unhealthy.
+ */
+export interface OutriderProcess {
+    readonly kind: string;
+    readonly endpoint?: string;
+    readonly profile?: string;
+    readonly healthy?: boolean;
+    readonly pid?: number;
+    readonly detail?: string;
+    readonly logFile?: string;
+    readonly startedAt?: string;
+    readonly residentBytes?: number;
+    readonly timeToHealthMs?: number;
+}
+
+/** The gateway and the model it is serving. `status` reports both; they move independently, so a gateway can be up with no model loaded. */
+export interface OutriderService {
+    readonly gateway: OutriderProcess;
+    readonly model: OutriderProcess;
+}
+
+/** The weights for one profile, as they sit on this machine. */
+export interface OutriderCache {
+    readonly state: string;
+    readonly path?: string;
+    readonly sizeBytes?: number;
+}
+
+/**
+ * What `show` said about one profile: the tested recipe, plus whether its
+ * weights are here. `show` prints `manifest.Profile` itself, so the field
+ * names are the manifest's, not the shorter ones `ls` and `plan` project.
+ */
+export interface OutriderProfileDetail {
+    readonly id: string;
+    readonly description?: string;
+    /** The window the profile runs at, which is not the window it was trained for. */
+    readonly context?: number;
+    readonly trainingContext?: number;
+    readonly quant?: string;
+    readonly repository?: string;
+    readonly file?: string;
+    readonly sizeBytes?: number;
+    readonly kvKeyType?: string;
+    readonly kvValueType?: string;
+    /** The memory the profile was qualified on, in MiB. Absent means it was never pinned to a machine size. */
+    readonly validatedMemoryMiB?: number;
+    readonly cache: OutriderCache;
+}
+
+export interface OutriderLog {
+    readonly logFile?: string;
+    readonly lines: readonly string[];
+}
+
+/** Both processes, richer than `ps` and without starting anything. */
+export function outriderServiceCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "status"];
+}
+
+/** One profile in full, including whether its weights are already on disk. */
+export function outriderShowCommand(
+    profile: string,
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "show", profile];
+}
+
+/** Point the running gateway at another profile. Unlike `serve` this does not bring a gateway up. */
+export function outriderUseCommand(
+    profile: string,
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "use", profile];
+}
+
+/** The tail of whichever log the active process is writing. Outrider refuses a count outside its own range rather than clamping, so clamp here. */
+export function outriderLogsCommand(
+    lines: number,
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    const count = Math.min(10_000, Math.max(1, Math.trunc(lines)));
+    return [binary, "--json", "logs", "--lines", String(count)];
+}
+
+function record(value: unknown): Record<string, unknown> {
+    return typeof value === "object" && value !== null
+        ? value as Record<string, unknown>
+        : {};
+}
+
+function flag(value: unknown): boolean | undefined {
+    return typeof value === "boolean" ? value : undefined;
+}
+
+function parseJson(stdout: string): Record<string, unknown> {
+    try {
+        return record(JSON.parse(stdout));
+    } catch {
+        return {};
+    }
+}
+
+/** One process out of whatever payload carries it. An absent `kind` reads as stopped, which is what a caller does with a process it cannot see. */
+function readProcess(value: unknown): OutriderProcess {
+    const payload = record(value);
+    const timings = record(payload.timings);
+    const kind = text(payload.kind) ?? "stopped";
+    const endpoint = text(payload.endpoint);
+    const profile = text(payload.preset);
+    const detail = text(payload.detail);
+    const logFile = text(payload.logFile);
+    const startedAt = text(payload.startedAt);
+    const healthy = flag(payload.health);
+    const pid = count(payload.pid);
+    const residentBytes = count(payload.residentBytes);
+    const timeToHealthMs = count(timings.timeToHealthMs);
+    return {
+        kind,
+        ...(endpoint === undefined ? {} : { endpoint }),
+        ...(profile === undefined ? {} : { profile }),
+        ...(healthy === undefined ? {} : { healthy }),
+        ...(pid === undefined ? {} : { pid }),
+        ...(detail === undefined ? {} : { detail }),
+        ...(logFile === undefined ? {} : { logFile }),
+        ...(startedAt === undefined ? {} : { startedAt }),
+        ...(residentBytes === undefined ? {} : { residentBytes }),
+        ...(timeToHealthMs === undefined ? {} : { timeToHealthMs }),
+    };
+}
+
+export function readOutriderService(stdout: string): OutriderService {
+    const payload = parseJson(stdout);
+    return {
+        gateway: readProcess(payload.gateway),
+        model: readProcess(payload.model),
+    };
+}
+
+/** Where `use` left the gateway. The model status is the one that says whether the swap actually took. */
+export function readOutriderUse(stdout: string): OutriderProcess {
+    const payload = parseJson(stdout);
+    return readProcess(payload.model);
+}
+
+function readCache(value: unknown): OutriderCache {
+    const payload = record(value);
+    const path = text(payload.path);
+    const sizeBytes = count(payload.sizeBytes);
+    return {
+        state: text(payload.state) ?? "missing",
+        ...(path === undefined ? {} : { path }),
+        ...(sizeBytes === undefined ? {} : { sizeBytes }),
+    };
+}
+
+export function readOutriderProfileDetail(
+    stdout: string,
+): OutriderProfileDetail | undefined {
+    const payload = parseJson(stdout);
+    const profile = record(payload.profile);
+    const id = text(profile.id);
+    if (id === undefined) return undefined;
+    const model = record(profile.model);
+    const context = record(profile.context);
+    const kv = record(profile.kvCache);
+    const admission = record(profile.admission);
+    const description = text(profile.description);
+    const size = count(context.size);
+    const original = count(context.original);
+    const quant = text(model.quant);
+    const repository = text(model.repo);
+    const file = text(model.file);
+    const sizeBytes = count(model.sizeBytes);
+    const kvKeyType = text(kv.keyType);
+    const kvValueType = text(kv.valueType);
+    const validatedMemoryMiB = count(admission.validatedPhysicalMemoryMiB);
+    return {
+        id,
+        ...(description === undefined ? {} : { description }),
+        ...(size === undefined ? {} : { context: size }),
+        ...(original === undefined ? {} : { trainingContext: original }),
+        ...(quant === undefined ? {} : { quant }),
+        ...(repository === undefined ? {} : { repository }),
+        ...(file === undefined ? {} : { file }),
+        ...(sizeBytes === undefined ? {} : { sizeBytes }),
+        ...(kvKeyType === undefined ? {} : { kvKeyType }),
+        ...(kvValueType === undefined ? {} : { kvValueType }),
+        ...(validatedMemoryMiB === undefined ? {} : { validatedMemoryMiB }),
+        cache: readCache(payload.cache),
+    };
+}
+
+export function readOutriderLog(stdout: string): OutriderLog {
+    const payload = parseJson(stdout);
+    const logFile = text(payload.logFile);
+    const lines = Array.isArray(payload.lines)
+        ? payload.lines.filter((line): line is string => typeof line === "string")
+        : [];
+    return { ...(logFile === undefined ? {} : { logFile }), lines };
 }

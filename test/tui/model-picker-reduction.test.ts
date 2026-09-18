@@ -112,13 +112,13 @@ test("a closed heading counts what it is hiding", () => {
 
 test("the footer names the reveal key, and names it as an instruction", () => {
     const opened = picker();
-    expect(pickerFooter(opened)).toContain("^a show all");
+    expect(pickerFooter(opened)).toContain("Ctrl+A show all");
 
     const revealed = handleTuiSettingsPickerKey(opened, {
         name: "a",
         ctrl: true,
     });
-    expect(pickerFooter(revealed.state!)).toContain("^a show fewer");
+    expect(pickerFooter(revealed.state!)).toContain("Ctrl+A show fewer");
 });
 
 test("a pane with nothing folded does not offer to reveal", () => {
@@ -131,5 +131,5 @@ test("a pane with nothing folded does not offer to reveal", () => {
         "default",
         "openrouter",
     );
-    expect(pickerFooter(open)).not.toContain("^a");
+    expect(pickerFooter(open)).not.toContain("Ctrl+A");
 });

@@ -137,14 +137,14 @@ export function summarizeProviderHealth(options: {
             kind: "ready",
             tone: "red",
             summary: "no provider configured",
-            next: "/providers to connect one",
+            next: "/models then Providers to connect one",
         };
     }
     if (results.length === 0) {
         return {
             kind: "ready",
             tone: "red",
-            summary: "no model in the library",
+            summary: "no model in your favorites",
             next: "/model to add one",
         };
     }
@@ -154,7 +154,7 @@ export function summarizeProviderHealth(options: {
             kind: "ready",
             tone: "red",
             summary: "nothing answered",
-            next: "/providers to connect one",
+            next: "/models then Providers to connect one",
         };
     }
     const first = answered[0]!;
@@ -184,7 +184,7 @@ export function summarizeProviderHealth(options: {
     return {
         kind: "ready",
         tone: "yellow",
-        summary: `only the last library model answered (${rungLabel(first.rung)})`,
+        summary: `only the last favorite answered (${rungLabel(first.rung)})`,
         next,
         ...extra,
     };

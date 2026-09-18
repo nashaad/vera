@@ -91,6 +91,7 @@ const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
 const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
 const CLIENT_ONESHOT_CAPABILITY = "client.oneshot";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
+const CLIENT_HOST_REQUEST_CAPABILITY = "client.host.request";
 const CLIENT_CONTEXT_CAPABILITY = "client.context.read";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
@@ -211,6 +212,13 @@ export interface ClientExtensionTranscriptAdapter {
     append(extensionId: string, block: VeraClientTranscriptBlock): void;
 }
 
+export type ClientExtensionHostRequest = (
+    extensionId: string,
+    name: string,
+    payload: JsonValue,
+    signal: AbortSignal,
+) => Promise<JsonValue>;
+
 export interface ClientExtensionContextAdapter {
     sources?(signal: AbortSignal): Promise<import("../customize/types.ts").CustomizationCatalog>;
     current(): VeraClientContextSnapshot;
@@ -322,6 +330,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly oneshot?: ClientExtensionOneshotAdapter;
     readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly context?: ClientExtensionContextAdapter;
+    readonly hostRequest?: ClientExtensionHostRequest;
     readonly compose?: ClientExtensionComposeAdapter;
     readonly sidebar?: ClientExtensionSidebarAdapter;
     readonly mentions?: ClientExtensionMentionsAdapter;
@@ -509,6 +518,7 @@ export async function startClientExtensionRegistry(
                 oneshot: options.oneshot,
                 transcript: options.transcript,
                 context: options.context,
+                hostRequest: options.hostRequest,
                 compose: options.compose,
                 sidebar: options.sidebar,
                 mentions: options.mentions,
@@ -900,6 +910,7 @@ interface ActivateClientExtensionOptions {
     readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
     readonly context: ClientExtensionContextAdapter | undefined;
+    readonly hostRequest: ClientExtensionHostRequest | undefined;
     readonly compose: ClientExtensionComposeAdapter | undefined;
     readonly activationTimeoutMs: number;
     readonly signal?: AbortSignal;
@@ -1617,6 +1628,16 @@ async function activateClientExtension(
                     );
                 }
                 messageInterceptor = handler;
+            },
+        }),
+        host: Object.freeze({
+            async request(name: string, payload: JsonValue = null, signal?: AbortSignal): Promise<JsonValue> {
+                requireAvailable();
+                requireCapability(CLIENT_HOST_REQUEST_CAPABILITY);
+                if (options.hostRequest === undefined) throw new Error("This client cannot reach the host");
+                const value = await options.hostRequest(options.id, name, structuredClone(payload),
+                    signal ?? invocationSignal.getStore() ?? new AbortController().signal);
+                return structuredClone(value);
             },
         }),
         context: Object.freeze({

@@ -55,7 +55,9 @@ test("prefix cancellation preserves the draft and caret, and Enter cannot submit
         expect(commands).not.toContain("prompt");
         session.sendKey("C-x"); await session.waitForVisiblePane(hint);
         session.sendText("m"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Escape"); await session.waitForVisiblePane("drafXt");
+        session.sendKey("Escape"); await session.settle();
+        await session.waitForVisiblePane("drafXt");
+        expect(session.captureVisiblePane()).not.toContain("Switch model");
         expect(session.captureVisiblePane()).not.toContain(hint);
         session.sendKey("C-x"); await session.waitForVisiblePane(hint);
         session.sendText("q"); session.sendText("m"); await session.settle();

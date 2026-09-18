@@ -41,6 +41,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.commandPalette !== undefined) {
         return () => rt.commandPaletteView.focus();
     }
+    if (rt.modelSwitcher !== undefined) {
+        return () => rt.modelSwitcherView.focus();
+    }
     if (rt.workTab !== undefined) {
         return () => rt.workTabView.box.focus();
     }
@@ -505,6 +508,7 @@ export function settleLostHost(rt: TuiRuntime, reason: string): void {
     rt.providerForm = undefined;
     rt.requestOptionsEditor = undefined;
     rt.commandPalette = undefined;
+    rt.modelSwitcher = undefined;
     rt.help = undefined;
     rt.confirmingFullAccess = false;
     rt.admissionDialog = undefined;

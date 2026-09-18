@@ -21,6 +21,7 @@ import {
     type SessionSort,
     type SessionSortKey,
 } from "./sessions-table.ts";
+import { money } from "./money.ts";
 
 const WINDOWS: readonly { readonly id: UsageWindowId; readonly label: string }[] = [
     { id: "today", label: "Today" },
@@ -36,7 +37,24 @@ const PRIOR_LABEL: Readonly<Record<UsageWindowId, string>> = {
     all: "vs prior",
 };
 
-function AnnexChrome({ onHome }: { readonly onHome: () => void }) {
+export const ANNEX_PAGES: readonly {
+    readonly id: AnnexPageId;
+    readonly label: string;
+    readonly href: string;
+}[] = [
+    { id: "usage", label: "Usage", href: "/usage" },
+    { id: "runs", label: "Runs", href: "/runs" },
+];
+
+export type AnnexPageId = "usage" | "runs";
+
+export function AnnexChrome({
+    page,
+    onHome,
+}: {
+    readonly page: AnnexPageId;
+    readonly onHome: () => void;
+}) {
     const [open, setOpen] = useState(false);
     const toggleRef = useRef<HTMLButtonElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
@@ -75,7 +93,9 @@ function AnnexChrome({ onHome }: { readonly onHome: () => void }) {
                 >
                     ≡
                 </button>
-                <div className="brand">Vera <span>· Usage</span></div>
+                <div className="brand">
+                    Vera <span>· {labelOf(page)}</span>
+                </div>
             </div>
             {open
                 ? (
@@ -101,23 +121,42 @@ function AnnexChrome({ onHome }: { readonly onHome: () => void }) {
                                     ×
                                 </button>
                             </div>
-                            <button
-                                role="menuitem"
-                                type="button"
-                                aria-current="page"
-                                onClick={() => {
-                                    close();
-                                    onHome();
-                                }}
-                            >
-                                › Usage
-                            </button>
+                            {ANNEX_PAGES.map((entry) => (
+                                entry.id === page
+                                    ? (
+                                        <button
+                                            key={entry.id}
+                                            role="menuitem"
+                                            type="button"
+                                            aria-current="page"
+                                            onClick={() => {
+                                                close();
+                                                onHome();
+                                            }}
+                                        >
+                                            › {entry.label}
+                                        </button>
+                                    )
+                                    : (
+                                        <a
+                                            key={entry.id}
+                                            role="menuitem"
+                                            href={entry.href}
+                                        >
+                                            › {entry.label}
+                                        </a>
+                                    )
+                            ))}
                         </aside>
                     </>
                 )
                 : undefined}
         </>
     );
+}
+
+function labelOf(page: AnnexPageId): string {
+    return ANNEX_PAGES.find((entry) => entry.id === page)?.label ?? "Vera";
 }
 
 function ModelFilter({
@@ -319,7 +358,7 @@ export function UsageApp() {
 
     return (
         <div className="page">
-            <AnnexChrome onHome={() => setSessionId(undefined)} />
+            <AnnexChrome page="usage" onHome={() => setSessionId(undefined)} />
             <div className="toolbar">
                 <div className="seg">
                     {WINDOWS.map((entry) => (
@@ -680,7 +719,7 @@ function SessionDetailPage({
     const session = detail?.session;
     return (
         <div className="page">
-            <AnnexChrome onHome={onHome} />
+            <AnnexChrome page="usage" onHome={onHome} />
             <button className="back" type="button" onClick={onBack}>
                 ← Usage
             </button>
@@ -1085,9 +1124,6 @@ function spendSub(reported: number, unpriced: number): string {
     return bits.join(" · ");
 }
 
-function money(n: number): string {
-    return `$${n.toFixed(2)}`;
-}
 
 function formatCount(n: number): string {
     return n.toLocaleString();

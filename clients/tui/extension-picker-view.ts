@@ -68,17 +68,23 @@ export function renderExtensionPicker(
     const visible = listWindowSlice(rows, cursor, bodyRoom);
     const bodyHeight = Math.max(1, Math.min(bodyRoom, Math.max(visible.length, split ? detailLines.length : 0)));
     const body = new BoxRenderable(renderer, { width: "100%", height: bodyHeight, flexDirection: "row", flexShrink: 0 });
-    const list = new BoxRenderable(renderer, { width: split ? contentWidth - detailWidth - 3 : contentWidth, height: bodyHeight, flexDirection: "column", flexShrink: 0, paddingRight: split ? 2 : 0 });
+    const listWidth = split ? contentWidth - detailWidth - 3 : contentWidth;
+    const list = new BoxRenderable(renderer, { width: listWidth, height: bodyHeight, flexDirection: "column", flexShrink: 0, paddingRight: split ? 2 : 0 });
     body.add(list);
     add(body);
     if (!visible.length) list.add(text("No matching providers"));
     for (const { index, row } of visible) {
-        if (index < 0) { list.add(text("")); continue; }
+        if (index < 0) {
+            const divider = text(` ${"╌".repeat(Math.max(1, listWidth - (split ? 4 : 2)))}`);
+            divider.fg = mixHex(TUI_PANEL, TUI_TEXT, 0.30);
+            list.add(divider);
+            continue;
+        }
         list.add(dialogOptionRow(renderer, {
             label: row.label, meta: row.meta,
             active: index === state.selectedIndex,
             dimmed: state.searchFocused || state.focusedButton !== undefined,
-            leading: " › ", leadingTone: "muted",
+            leading: " ",
             ...dialogRowPointer(pointer, index),
         }));
     }

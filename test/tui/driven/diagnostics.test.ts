@@ -27,7 +27,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         await session.waitForVisiblePane("Start a conversation");
         // In-process input is faster than tmux keystrokes were, so give the
         // settings row the beat it needs before the overlay covers it.
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("test · high");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("This conversation");
@@ -52,7 +52,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         expect(pane).toContain("press v");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
-        expect(pane).toContain("test · HIGH");
+        expect(pane).toContain("test · high");
 
         session.sendKey("C-p");
         await session.settle(100);
@@ -279,7 +279,7 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
         session.sendText("/reload-extensions");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
-            "Client extensions reloaded with failures: none",
+            "Extensions reloaded in the TUI with failures: none",
         );
 
         session.sendText("/diagnostics");
@@ -315,7 +315,7 @@ test("partial reload names the extensions that stayed active", async () => {
         session.sendText("/reload-extensions");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
-            "Client extensions reloaded with failures: some",
+            "Extensions reloaded in the TUI with failures: some",
         );
 
         session.sendText("/diagnostics");
@@ -351,7 +351,7 @@ test("inspect health stays idle until v and reports red with no selected model",
     });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("test · high");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         await session.waitForVisiblePane("This conversation");
@@ -360,7 +360,7 @@ test("inspect health stays idle until v and reports red with no selected model",
         expect(pane).toContain("press v");
         expect(probed).toBe(0);
         session.sendKey("v");
-        pane = await session.waitForVisiblePane("no model in the library");
+        pane = await session.waitForVisiblePane("no model in your favorites");
         expect(pane).toContain("red");
         expect(pane).toContain("/model");
         expect(probed).toBe(0);

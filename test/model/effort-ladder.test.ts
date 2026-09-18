@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
     coarsenOneStep,
     EFFORT_LADDER,
+    effortWentStale,
     supportedLevels,
 } from "../../src/model/effort-ladder.ts";
 
@@ -77,4 +78,22 @@ test("a model with only the requested level has nowhere to coarsen", () => {
 
 test("a level outside the ladder never guesses a neighbour", () => {
     expect(coarsenOneStep("ultra", FULL)).toBeUndefined();
+});
+
+describe("effortWentStale", () => {
+    test("an unset effort asks nothing", () => {
+        expect(effortWentStale(["low", "high"], undefined)).toBe(false);
+    });
+
+    test("an effort the new model still offers asks nothing", () => {
+        expect(effortWentStale(["low", "medium", "high"], "high")).toBe(false);
+    });
+
+    test("an effort the new model dropped has to be asked again", () => {
+        expect(effortWentStale(["low", "medium"], "max")).toBe(true);
+    });
+
+    test("a model with no levels leaves any effort stale", () => {
+        expect(effortWentStale([], "high")).toBe(true);
+    });
 });

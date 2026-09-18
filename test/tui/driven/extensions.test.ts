@@ -107,7 +107,7 @@ test("a client extension can return text to its invoking composer", async () => 
         home,
         dependencies: () => ({
             ...createTuiExtensionCommandDependencies(home),
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],

@@ -1,7 +1,7 @@
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { invokeDirectClientExtensionCommand } from "../../../src/extensions/client.ts";
-import { extensionTarget, renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
-import { installExtension, removeExtension, setExtensionEnabled } from "../../../src/extensions/manager.ts";
+import { renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
+import { installExtension, removeExtension, setAnyExtensionEnabled } from "../../../src/extensions/manager.ts";
 import { diagnoseVeraProcesses, renderVeraDoctor } from "../../process-doctor.ts";
 import { diagnoseProviders, renderProviderDoctor } from "../../provider-doctor.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
@@ -9,8 +9,9 @@ import { clientExtensionReloadFailed, clientExtensionReloadStarted, clientExtens
 import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
-import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
+import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
+import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
@@ -150,40 +151,34 @@ export function submitPrompt(rt: TuiRuntime,
         if (command.operation === "reload") {
             rt.state = appendTuiNotice(
                 rt.state,
-                "Client extensions reload now; restart the resident host for host-side capabilities.",
+                "The TUI side reloads now; restart the host for the host side.",
             );
             renderState(rt);
             submitPrompt(rt, "/reload-extensions");
             return;
         }
         try {
-            const target = extensionTarget(command, process.cwd());
             let text: string;
             if (command.operation === "install") {
-                const result = installExtension(command.source, target, {
+                const result = installExtension(command.source, {
                     dryRun: command.dryRun,
                 });
                 text = renderExtensionInstallPreview(result.preview)
                     + (result.record === undefined
                         ? ""
-                        : `\nInstalled ${result.record.id} in the ${result.preview.scope} scope.\n`);
+                        : `\nInstalled ${result.record.id}.\n`);
             } else if (command.operation === "enable" || command.operation === "disable") {
-                const record = setExtensionEnabled(
+                const record = setAnyExtensionEnabled(
                     command.id,
                     command.operation === "enable",
-                    target,
                 );
-                text = renderExtensionMutation(
-                    command.operation,
-                    record,
-                    command.scope,
-                );
+                text = renderExtensionMutation(command.operation, record);
             } else {
-                const record = removeExtension(command.id, target);
-                text = renderExtensionMutation("remove", record, command.scope);
+                const record = removeExtension(command.id);
+                text = renderExtensionMutation("remove", record);
             }
             if (command.operation !== "install" || !command.dryRun) {
-                text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
+                text += "\nThe TUI side reloads now; restart the host for the host side.\n";
             }
             if (command.operation === "install") {
                 rt.extensionsDialog = { text, copyReady: true };
@@ -214,7 +209,7 @@ export function submitPrompt(rt: TuiRuntime,
         if (rt.clientExtensionReloadPending) {
             rt.state = appendTuiNotice(
                 rt.state,
-                "Client extensions are already reloading",
+                "Extensions are already reloading in the TUI",
             );
             renderState(rt);
             return;
@@ -232,14 +227,14 @@ export function submitPrompt(rt: TuiRuntime,
         }
         void reloadTuiClientExtensions({
             configuration: {
-                disabledBuiltinExtensions: rt.disabledBuiltinExtensions,
+                disabledIncludedExtensions: rt.disabledIncludedExtensions,
                 clientExtensions: rt.configuredClientExtensions,
             },
             refreshConfiguration:
                 rt.dependencies.loadClientExtensionConfiguration,
             applyConfiguration(configuration) {
-                rt.disabledBuiltinExtensions =
-                    configuration.disabledBuiltinExtensions;
+                rt.disabledIncludedExtensions =
+                    configuration.disabledIncludedExtensions;
                 rt.configuredClientExtensions = configuration.clientExtensions;
             },
             host: rt.clientExtensionHost,
@@ -263,7 +258,7 @@ export function submitPrompt(rt: TuiRuntime,
                     }),
                 };
             }
-            rt.state = appendTuiNotice(rt.state, "Client extensions reloaded");
+            rt.state = appendTuiNotice(rt.state, "Extensions reloaded in the TUI");
             refreshOpenExtensionsList(rt);
             renderState(rt);
             focusActiveSurface(rt);
@@ -378,6 +373,21 @@ export function submitPrompt(rt: TuiRuntime,
                 renderState(rt);
             });
         }
+        return;
+    }
+    if (commandAction?.type === "import_session") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        importSessionFromTui(rt, commandAction.path);
+        renderState(rt);
+        return;
+    }
+    if (commandAction?.type === "open_import_picker") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        openImportPicker(rt, "folder");
         return;
     }
     if (commandAction?.type === "open_usage") {
@@ -497,6 +507,13 @@ export function submitPrompt(rt: TuiRuntime,
         void writeFailureReportFile(rt);
         return;
     }
+    if (commandAction?.type === "open_model_browse") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        openModelPicker(rt);
+        return;
+    }
     if (
         commandAction?.type === "open_settings_destination"
         && tuiCommandScope(commandAction) === "application"
@@ -523,7 +540,7 @@ export function submitPrompt(rt: TuiRuntime,
             return;
         }
         if (isModelShortlisted(rt, targetSettings, provider, model)) {
-            showStatusNotice(rt, `${provider}/${model} is already in your library`);
+            showStatusNotice(rt, `${provider}/${model} is already in your favorites`);
             return;
         }
         requestPoolAdmission(rt, provider, model);

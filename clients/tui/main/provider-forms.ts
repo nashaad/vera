@@ -3,7 +3,7 @@ import { normalizeOpenRouterModels } from "../../../src/model/openrouter-catalog
 import { writeProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
 import { isProviderConnected } from "../../../src/providers/registry.ts";
 import { runModelOperation } from "./model-operations.ts";
-import { modelJourney } from "../model-journeys.ts";
+import { modelBrowse } from "../model-browse.ts";
 import { loadOptionalVeraConfig, updateVeraConfigDefaults } from "../../../src/config.ts";
 import { isConfigurationRequiredUiRequestUpdate, type UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import type { RenameSessionResult } from "../../../src/host/session-rename-client.ts";
@@ -16,6 +16,7 @@ import { focusedAgentClient, focusedAgentState, openAgentPicker, setSidebarFocus
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface, reportConnectionError } from "../main/focus-switch.ts";
+import { openModelSwitcher } from "../main/model-switcher-ops.ts";
 import { currentModelAssignmentRows, homeNeedsProvider, modelRequestOptionsFacts, openModelAssignmentPicker, openModelPicker, openPermissionsPicker, openProviderPicker, openReasoningPicker } from "../main/model-pickers.ts";
 import { enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { renderState } from "../main/render-state.ts";
@@ -280,7 +281,7 @@ async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, subm
         }
         rt.providerForm = undefined;
         const notice = `${provider?.label ?? submitted.id} saved and its catalog read: ${catalog.models.length} models discovered. `
-            + "Discovery decides nothing: none is in your library, verified, or bound.";
+            + "Discovery decides nothing: none is in your favorites, verified, or bound.";
         requestAgentSettings(rt, focusedAgentClient(rt));
         const providerList = form.parent?.kind === "provider_actions" ? form.parent.parent : form.parent;
         openProviderPicker(rt, providerList?.parent, { selected: submitted.id, subtitle: notice });
@@ -353,7 +354,7 @@ export function applySessionRenamePromptTransition(rt: TuiRuntime,
     rt.settingsPicker = prompt.target.kind === "pool"
         ? rt.settingsPicker ?? parent
         : parent;
-    if (transition.submitted !== undefined && prompt.target.kind === "pool" && parent?.modelJourney === "shortlist") {
+    if (transition.submitted !== undefined && prompt.target.kind === "pool" && parent?.modelBrowse === "favorites") {
         runModelOperation(rt, { operation: "rename", displayName: transition.submitted ?? "",
             models: [{ provider: prompt.target.provider, model: prompt.target.model }] });
     } else if (transition.submitted !== undefined && prompt.target.kind === "pool") {
@@ -517,7 +518,11 @@ export function openSettingsDestination(rt: TuiRuntime,
     if (route.type === "settings_menu") {
         openSettingsMenu(rt);
     } else if (route.type === "model_picker") {
-        openModelPicker(rt, options.parent);
+        // Nested inside a picker chain, or answering a configuration request,
+        // the caller needs a pane that can return; elsewhere switching is the job.
+        if (options.parent === undefined && rt.activeConfigurationRequest === undefined) {
+            openModelSwitcher(rt);
+        } else openModelPicker(rt, options.parent);
     } else if (route.type === "reasoning_picker") {
         openReasoningPicker(rt, options.parent);
     } else if (route.type === "permission_mode_picker") {
@@ -545,9 +550,9 @@ export function openSettingsDestination(rt: TuiRuntime,
         });
     } else if (route.type === "model_shortlist") {
         openModelPicker(rt, options.parent);
-        rt.settingsPicker = modelJourney(
+        rt.settingsPicker = modelBrowse(
             rt.settingsPicker as TuiSettingsPickerState,
-            "shortlist",
+            "favorites",
         );
         renderState(rt);
     } else if (route.type === "model_assignments") {
@@ -558,7 +563,7 @@ export function openSettingsDestination(rt: TuiRuntime,
         }));
         rt.settingsPicker = { kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 0,
             allOptions: rows, options: rows, parent: options.parent,
-            subtitle: "Only verified models in your library are eligible. Assigning leaves the conversation model unchanged." };
+            subtitle: "Only verified models in your favorites are eligible. Assigning leaves the conversation model unchanged." };
         renderState(rt);
         focusActiveSurface(rt);
     } else {

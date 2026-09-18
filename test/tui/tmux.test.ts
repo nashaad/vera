@@ -91,7 +91,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "Client extensions reloaded",
+                "Extensions reloaded in the TUI",
             );
             expect(pane).not.toContain("m1 (faux)");
             expect(readFileSync(
@@ -800,7 +800,7 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "test · LOW",
+                "test · low",
             );
 
             sendText(socket, session, "/permissions ask");
@@ -819,10 +819,10 @@ test.skipIf(!tmuxAvailable)(
                 socket,
                 session,
                 (visible) => visible.includes("Vera · auto")
-                    && visible.includes("test · HIGH"),
+                    && visible.includes("test · high"),
                 "the main agent permission mode after focus changes",
             );
-            expect(pane).toContain("test · HIGH");
+            expect(pane).toContain("test · high");
             sendText(socket, session, "main only");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(

@@ -6,7 +6,6 @@ import {
     showsIntelligenceCutoff,
 } from "./settings-picker-model.ts";
 import {
-    pickerPageHasKeys,
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerState,
 } from "./settings-picker-types.ts";
@@ -74,13 +73,12 @@ export function focusedPickerSection(
         : pickerSections(state)[0] ?? "list";
 }
 
-/** Whether this section holds the keyboard right now. A section keeps its remembered focus while the reader is up on the tab strip, but nothing in the page is lit while they are there. */
+/** Whether this section holds the keyboard right now. */
 export function sectionHasKeys(
     state: TuiAnySettingsPickerState,
     id: TuiPickerSectionId,
 ): boolean {
     if (state.kind !== "model") return false;
-    if (!pickerPageHasKeys(state)) return false;
     return focusedPickerSection(state) === id;
 }
 

@@ -3,6 +3,10 @@ import {
     projectTranscript,
     type TranscriptEntry,
 } from "./engine/protocol.ts";
+import {
+    importToolLabel,
+    type SessionImportTool,
+} from "./store/session-import-provenance.ts";
 import { readSessionSnapshot } from "./store/session-store.ts";
 
 export type SessionExportFormat = "markdown" | "json";
@@ -13,6 +17,7 @@ export interface SessionExport {
         readonly id: string;
         readonly started_at: string;
         readonly workspace: string;
+        readonly imported_from?: ExportedImportProvenance;
     };
     readonly transcript: readonly TranscriptEntry[];
     readonly agent_failure?: {
@@ -22,17 +27,37 @@ export interface SessionExport {
     };
 }
 
+export interface ExportedImportProvenance {
+    readonly tool: SessionImportTool;
+    readonly source_session_id: string;
+    readonly source_started_at: string;
+    readonly imported_at: string;
+    readonly message_count: number;
+    readonly last_message_id: string;
+}
+
 export async function exportSession(
     sessionPath: string,
     format: SessionExportFormat = "markdown",
 ): Promise<string> {
     const snapshot = await readSessionSnapshot(sessionPath);
+    const imported = snapshot.header.importedFrom;
     const exported: SessionExport = {
         format_version: 4,
         session: {
             id: snapshot.header.id,
             started_at: snapshot.header.timestamp,
             workspace: snapshot.header.cwd,
+            ...(imported === undefined ? {} : {
+                imported_from: {
+                    tool: imported.tool,
+                    source_session_id: imported.sourceSessionId,
+                    source_started_at: imported.sourceStartedAt,
+                    imported_at: imported.importedAt,
+                    message_count: imported.messageCount,
+                    last_message_id: imported.lastMessageId,
+                },
+            }),
         },
         transcript: projectTranscript(
             snapshot.messages,
@@ -63,9 +88,23 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         `- Workspace: ${inlineCode(exported.session.workspace)}`,
         `- Started: ${inlineCode(exported.session.started_at)}`,
     ];
+    const imported = exported.session.imported_from;
+    if (imported !== undefined) {
+        lines.push(
+            `- Imported from: ${importToolLabel(imported.tool)} session`
+                + ` ${inlineCode(imported.source_session_id)}, first`
+                + ` ${imported.message_count} messages`,
+        );
+    }
 
-    for (const entry of exported.transcript) {
-        lines.push("", transcriptHeading(entry), "");
+    const importedThrough = lastImportedEntry(exported);
+    for (const [index, entry] of exported.transcript.entries()) {
+        const heading = index <= importedThrough
+                && imported !== undefined
+                && (entry.kind === "assistant" || entry.kind === "empty")
+            ? `## ${importToolLabel(imported.tool)}`
+            : transcriptHeading(entry);
+        lines.push("", heading, "");
         if (entry.kind === "tool") {
             lines.push(indentJson(entry.args));
         } else if (entry.kind === "tool_result") {
@@ -109,6 +148,15 @@ export function renderSessionMarkdown(exported: SessionExport): string {
         );
     }
     return `${lines.join("\n")}\n`;
+}
+
+// Transcript entry ids are `<message id>#<n>`; -1 when no entry is imported.
+function lastImportedEntry(exported: SessionExport): number {
+    const boundary = exported.session.imported_from?.last_message_id;
+    if (boundary === undefined) return -1;
+    return exported.transcript.findLastIndex((entry) =>
+        entry.id?.startsWith(`${boundary}#`) === true
+    );
 }
 
 function markdownFence(content: string): string {

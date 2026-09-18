@@ -44,6 +44,7 @@ your first conversation. For recorded Python workflows, start with
 - [How workflows run](halcyon.md)
 - [Write your first workflow](python-workflows.md)
 - [Control workflow steps](workflow-steps.md)
+- [Watch workflow runs](workflow-runs.md)
 - [Run Vera from Python](python-agents.md)
 
 ## Customize

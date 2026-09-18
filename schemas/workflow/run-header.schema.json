@@ -58,6 +58,16 @@
         "cancel_requested": {
             "type": "string"
         },
+        "asking": {
+            "type": "object",
+            "required": ["key", "question", "at"],
+            "additionalProperties": false,
+            "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "question": { "type": "string" },
+                "at": { "type": "string", "format": "date-time" }
+            }
+        },
         "active": {
             "type": "object",
             "required": ["key", "step", "at"],

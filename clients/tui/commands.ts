@@ -138,6 +138,15 @@ export interface UpdateSessionNameTuiCommandAction {
     readonly name: string | null;
 }
 
+export interface ImportSessionTuiCommandAction {
+    readonly type: "import_session";
+    readonly path: string;
+}
+
+export interface OpenImportPickerTuiCommandAction {
+    readonly type: "open_import_picker";
+}
+
 export interface CloneSessionTuiCommandAction {
     readonly type: "clone_session";
 }
@@ -156,7 +165,6 @@ export interface ShowDiagnosticsTuiCommandAction {
 
 export interface ShowExtensionsTuiCommandAction {
     readonly type: "show_extensions";
-    readonly scope?: "profile" | "project";
 }
 
 export interface ManageExtensionsTuiCommandAction {
@@ -203,12 +211,17 @@ export interface InvokeSkillTuiCommandAction {
     readonly argumentsText: string;
 }
 
+export interface OpenModelBrowseAction {
+    readonly type: "open_model_browse";
+}
+
 export interface OpenModelUtilityAction {
     readonly type: "open_model_utility";
     readonly utility: "dials" | "verify";
 }
 
 export type TuiCommandAction =
+    | OpenModelBrowseAction
     | OpenModelUtilityAction
     | ResumeViewedSessionTuiCommandAction
     | OpenRewindTuiCommandAction
@@ -247,6 +260,8 @@ export type TuiCommandAction =
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | InvokeSkillTuiCommandAction
+    | ImportSessionTuiCommandAction
+    | OpenImportPickerTuiCommandAction
     | TuiCommandErrorAction;
 
 export type TuiCommandScope = "focused_agent" | "main_session" | "application";
@@ -265,9 +280,13 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "go_back":
         case "create_session":
         case "update_session_name":
+        case "import_session":
+        case "open_import_picker":
             return "focused_agent";
         case "open_model_utility":
             return action.utility === "dials" ? "focused_agent" : "application";
+        case "open_model_browse":
+            return "application";
         case "open_settings_destination":
             return action.destination.kind === "provider"
                     || action.destination.kind === "model_shortlist"
@@ -334,6 +353,7 @@ export interface TuiCommandDefinition {
     readonly prefixPriority?: "builtin" | "extension" | "skill";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
+        | OpenModelBrowseAction
         | OpenPreferencesListTuiCommandAction
         | OpenStandingNudgesTuiCommandAction
         | OpenSettingsDestinationTuiCommandAction
@@ -385,7 +405,7 @@ const MODEL_COMMAND = {
 const EFFORT_COMMAND = {
     name: "effort",
     description: "Change reasoning effort for the next turn",
-    usage: "/effort <off|low|medium|high|max>",
+    usage: "/effort [level]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PERMISSIONS_COMMAND = {
@@ -484,6 +504,12 @@ const RENAME_COMMAND = {
     usage: "/rename [name]",
 } as const satisfies TuiCommandCatalogEntry;
 
+const IMPORT_COMMAND = {
+    name: "import",
+    description: "Bring in a Claude Code or Codex conversation",
+    usage: "/import [path]",
+} as const satisfies TuiCommandCatalogEntry;
+
 const CLONE_COMMAND = {
     name: "clone",
     description: "Duplicate this conversation",
@@ -502,22 +528,10 @@ const COMPACT_COMMAND = {
     usage: "/compact",
 } as const satisfies TuiCommandCatalogEntry;
 
-const POOL_COMMAND = {
-    name: "library-model",
-    description: "Open Favorites, or add the running model",
-    usage: "/library-model [add]",
-} as const satisfies TuiCommandCatalogEntry;
-
-const PROVIDERS_COMMAND = {
-    name: "providers",
-    description: "Connect a provider, or add an endpoint of your own",
-    usage: "/providers",
-} as const satisfies TuiCommandCatalogEntry;
-
-const DEFAULTS_COMMAND = {
-    name: "defaults",
-    description: "Show which model runs each job",
-    usage: "/defaults",
+const MODELS_COMMAND = {
+    name: "models",
+    description: "Browse every model, with scores and prices",
+    usage: "/models",
 } as const satisfies TuiCommandCatalogEntry;
 
 const DIAGNOSTICS_COMMAND = {
@@ -558,7 +572,7 @@ const FAILURE_REPORT_COMMAND = {
 
 const RELOAD_EXTENSIONS_COMMAND = {
     name: "reload-extensions",
-    description: "Reload client extensions without restarting Vera",
+    description: "Reload extensions in the TUI without restarting Vera",
     usage: "/reload-extensions",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -582,6 +596,7 @@ export const BUILTIN_COMMANDS = [
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
+    IMPORT_COMMAND,
     CLONE_COMMAND,
     CLOSE_COMMAND,
     COMPACT_COMMAND,
@@ -592,9 +607,7 @@ export const BUILTIN_COMMANDS = [
     USAGE_COMMAND,
     FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
-    POOL_COMMAND,
-    DEFAULTS_COMMAND,
-    PROVIDERS_COMMAND,
+    MODELS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -1442,6 +1455,20 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
     });
     registry.registerCommand({
+        ...IMPORT_COMMAND,
+        parse: (argumentsText) => argumentsText.length === 0
+            ? { type: "open_import_picker" }
+            : { type: "import_session", path: argumentsText },
+        palette: {
+            name: "import",
+            label: "Import conversation",
+            description: "bring in a Claude Code or Codex conversation",
+            group: "Session",
+            slashName: "import",
+            action: { type: "open_import_picker" },
+        },
+    });
+    registry.registerCommand({
         ...CLONE_COMMAND,
         action: { type: "clone_session" },
         palette: {
@@ -1523,7 +1550,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                 return { type: "command_error", message: parsed.error };
             }
             return parsed.command.operation === "list"
-                ? { type: "show_extensions", scope: parsed.command.scope }
+                ? { type: "show_extensions" }
                 : { type: "manage_extensions", command: parsed.command };
         },
         palette: {
@@ -1576,7 +1603,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         action: { type: "reload_client_extensions" },
         palette: {
             name: "reload_extensions",
-            label: "Reload client extensions",
+            label: "Reload extensions in the TUI",
             description: "re-read extension code and client configuration",
             group: "Extensions",
             slashName: "reload-extensions",
@@ -1584,67 +1611,50 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
     });
     registry.registerCommand({
-        ...POOL_COMMAND,
-        aliases: ["library", "shortlist"],
-        parse: (argumentsText) => {
-            const argument = argumentsText.trim();
-            if (argument.length === 0) return { type: "open_settings_destination", destination: { kind: "model_shortlist" } };
-            if (argument === "add") {
-                return { type: "pool_current_model" };
-            }
-            return {
-                type: "command_error",
-                message: `/library-model takes no argument or "add", not "${argument}"`,
-            };
-        },
+        ...MODELS_COMMAND,
+        action: { type: "open_model_browse" },
         palette: {
-            name: "library",
-            slashName: "library-model",
-            label: "Favorites",
-            description: "add or remove models from your favorites",
+            name: "models",
+            label: "Browse models",
+            description: "scores, prices, filters and sort across every model",
+            group: "Settings",
+            slashName: "models",
+            action: { type: "open_model_browse" },
+        },
+    });
+    for (
+        const [name, label, description, destination] of [
+            [
+                "library",
+                "Favorites",
+                "add or remove models from your favorites",
+                "model_shortlist",
+            ],
+            [
+                "defaults",
+                "Assign model defaults",
+                "snappy, eco, extra, and the jobs that inherit them",
+                "model_assignments",
+            ],
+            [
+                "providers",
+                "Configure providers",
+                "sign in, or add an endpoint of your own",
+                "provider",
+            ],
+        ] as const
+    ) {
+        registry.registerPaletteAction({
+            name,
+            label,
+            description,
             group: "Settings",
             action: {
                 type: "open_settings_destination",
-                destination: { kind: "model_shortlist" },
+                destination: { kind: destination },
             },
-        },
-    });
-    registry.registerCommand({
-        ...DEFAULTS_COMMAND,
-        action: {
-            type: "open_settings_destination",
-            destination: { kind: "model_assignments" },
-        },
-        palette: {
-            name: "defaults",
-            label: "Assign model defaults",
-            description: "snappy, eco, extra, and the jobs that inherit them",
-            group: "Settings",
-            slashName: "defaults",
-            action: {
-                type: "open_settings_destination",
-                destination: { kind: "model_assignments" },
-            },
-        },
-    });
-    registry.registerCommand({
-        ...PROVIDERS_COMMAND,
-        action: {
-            type: "open_settings_destination",
-            destination: { kind: "provider" },
-        },
-        palette: {
-            name: "providers",
-            label: "Configure providers",
-            description: "sign in, or add an endpoint of your own",
-            group: "Settings",
-            slashName: "providers",
-            action: {
-                type: "open_settings_destination",
-                destination: { kind: "provider" },
-            },
-        },
-    });
+        });
+    }
     registry.registerPaletteAction({
         name: "help",
         label: "Show keyboard shortcuts",
@@ -1664,8 +1674,8 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         action: { type: "open_preferences_list" },
     });
     for (const [utility, label, description] of [
-        ["dials", "Dial strip", "stage model, effort, access and agent together"],
-        ["verify", "Verify library models", "send real requests to check the models in your favorites"],
+        ["dials", "Dial strip", "stage agent and access together"],
+        ["verify", "Verify favorites", "send real requests to check the models in your favorites"],
     ] as const) registry.registerPaletteAction({ name: utility, label, description, group: "Settings",
         action: { type: "open_model_utility", utility } });
     return registry;

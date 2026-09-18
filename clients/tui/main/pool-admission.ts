@@ -15,6 +15,7 @@ import { resolveTuiTheme } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { refreshProviderPicker } from "./model-pickers.ts";
+import { ensureLocalRuntimeProfile, localRuntimeProvider } from "./outrider-control.ts";
 
 export function requestCatalogRefresh(rt: TuiRuntime, provider: string): void {
     const requestId = randomUUID();
@@ -34,13 +35,21 @@ export function requestPoolAdmission(rt: TuiRuntime,
     rt.poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
     rt.state = beginTuiAdmission(rt.state, requestId, `${provider}/${model}`);
     showVerificationConsole(rt, requestId, `${provider}/${model}`);
-    sendCommand(rt, {
-        type: "pool_add",
-        requestId,
-        provider,
-        model,
-        ...(verify ? { verify: true } : {}),
-    });
+    const send = (): void => {
+        sendCommand(rt, {
+            type: "pool_add",
+            requestId,
+            provider,
+            model,
+            ...(verify ? { verify: true } : {}),
+        });
+        renderState(rt);
+    };
+    // A local runtime answers for whatever profile it has loaded, so the probe
+    // waits for the gateway to be on the one being admitted.
+    if (localRuntimeProvider()?.id === provider) {
+        void ensureLocalRuntimeProfile(rt, model).then(send);
+    } else send();
     renderState(rt);
     return requestId;
 }
@@ -122,7 +131,7 @@ export function advanceCatalogRefreshSweep(rt: TuiRuntime): void {
         const summary = catalogRefreshSummary(rt, sweep.results);
         showStatusNotice(rt, summary);
         refreshProviderPicker(rt, summary);
-        if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelJourney !== undefined) rt.settingsPicker = { ...rt.settingsPicker, journeyNotice: summary };
+        if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelBrowse !== undefined) rt.settingsPicker = { ...rt.settingsPicker, browseNotice: summary };
         renderState(rt);
         return;
     }

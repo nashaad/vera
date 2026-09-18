@@ -3,7 +3,7 @@ import { TextRenderable, parseColor } from "@opentui/core";
 import { TUI_NOTICE, TUI_SUCCESS } from "../../clients/tui/state.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { createTuiSettingsPickerView, startTuiSettingsPicker, syncTuiModelPicker, updateTuiSettingsPickerSearch } from "../../clients/tui/settings-picker.ts";
-import { journeyModels, modelJourney } from "../../clients/tui/model-journeys.ts";
+import { browseModels, modelBrowse } from "../../clients/tui/model-browse.ts";
 import { shortlistOperationFeedback } from "../../clients/tui/model-operation-feedback.ts";
 
 const models = [
@@ -19,7 +19,7 @@ test("membership changes retain the row, provider sections, and feedback space",
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
     view.surface.visible = true;
-    let state = modelJourney(startTuiSettingsPicker("model", "alpha", undefined, "ask", models, undefined, "p", undefined, settings.pooled), "shortlist");
+    let state = modelBrowse(startTuiSettingsPicker("model", "alpha", undefined, "ask", models, undefined, "p", undefined, settings.pooled), "favorites");
     state = { ...state, selectedIndex: 1 };
     const initialOrder = state.options.map((row) => row.value);
     try {
@@ -29,7 +29,7 @@ test("membership changes retain the row, provider sections, and feedback space",
             { status: "success" as const, membership: "removed" as const, message: "Beta removed from favorites" },
             { status: "error" as const, message: "Could not save" }]) {
             if (feedback?.status === "success") state = syncTuiModelPicker(state, { ...settings, pooled: settings.pooled.slice(1) });
-            state = { ...state, journeyFeedback: feedback };
+            state = { ...state, browseFeedback: feedback };
             view.update(state);
             view.animateFeedback(0, true);
             await setup.renderOnce();
@@ -69,9 +69,9 @@ test("membership changes retain the row, provider sections, and feedback space",
 
 test("unkeeping an otherwise hidden model does not remove its row during editing", () => {
     const picker = startTuiSettingsPicker("model", "alpha", undefined, "ask", models, undefined, "p", undefined, settings.pooled);
-    const state = modelJourney({ ...picker, allOptions: picker.allOptions.map((row) => ({ ...row, hiddenByDefault: "old" })) }, "shortlist");
+    const state = modelBrowse({ ...picker, allOptions: picker.allOptions.map((row) => ({ ...row, hiddenByDefault: "old" })) }, "favorites");
     const edited = { ...state, allOptions: state.allOptions.map((row) => ({ ...row, pooledRank: undefined })) };
-    expect(journeyModels(edited).map((row) => row.model)).toEqual(state.options.map((row) => row.model));
+    expect(browseModels(edited).map((row) => row.model)).toEqual(state.options.map((row) => row.model));
 });
 
 test("only confirmed saves show a success tick", () => {

@@ -29,7 +29,7 @@ import {
     agentNameKey,
     mintAgentName,
     parseAgentName,
-} from "../../extensions/session-identity/names.ts";
+} from "../../src/core-extensions/session-identity/names.ts";
 import type { SessionIdentityProvider } from "../../src/sdk/extensions.ts";
 import { reserveSessionIdentity } from "../../src/host/session-identity-reservation.ts";
 import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
@@ -5587,7 +5587,7 @@ test("a worker sync failure after applying readonly keeps the new mode", async (
     }
 });
 
-test("a session loads project extension tools from its own workspace", async () => {
+test("a session ignores extensions inside its workspace", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vera-project-tools-")));
     const workspace = join(root, "app");
     const extension = join(workspace, ".vera", "extensions", "acme.ping");
@@ -5619,7 +5619,7 @@ test("a session loads project extension tools from its own workspace", async () 
             sessionPath: join(root, "session.jsonl"),
             eventLogPath: join(root, "events.jsonl"),
         });
-        expect(await readFile(loaded, "utf8")).toBe("loaded");
+        expect(existsSync(loaded)).toBe(false);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

@@ -173,7 +173,6 @@ import type { OneshotMessage } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { loopCompactionState, type LoopState } from "../../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../../config.ts";
-import { discoverProjectExtensionConfigs } from "../../extensions/discovery.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,

@@ -48,35 +48,35 @@ for (const [width, height] of [[120, 36], [80, 24], [60, 24]] as const) {
             expect(frame).not.toContain("Manage provider");
             expect(frame).toContain("Tab sections");
             expect(frame).toContain("Fallback position: 1");
-            expect(frame).toContain("› Brave");
-            if (width > 60) expect(frame).toContain("› DuckDuckGo");
+            expect(frame).toContain("Brave");
+            expect(frame).not.toContain("› Brave");
+            if (width > 60) expect(frame).toContain("DuckDuckGo");
+            expect(frame).not.toContain("› DuckDuckGo");
             expect(frame).not.toContain("1. Brave");
             if (width === 120) {
                 expect(frame).toContain("│");
                 const lines = frame.split("\n");
-                const braveY = lines.findIndex((line) => line.includes("› Brave"));
-                const duckY = lines.findIndex((line) => line.includes("› DuckDuckGo"));
-                const caretX = lines[braveY]!.indexOf("›");
+                const braveY = lines.findIndex((line) => line.includes("Brave") && line.includes("Enabled"));
+                const duckY = lines.findIndex((line) => line.includes("DuckDuckGo"));
+                const labelX = lines[braveY]!.indexOf("Brave");
                 const cells = (y: number) => setup.captureSpans().lines[y]!.spans.flatMap((span) =>
                     Array.from({ length: span.text.length }, () => ({ fg: span.fg.toInts(), bg: span.bg.toInts() })));
-                expect(lines[duckY]!.indexOf("›")).toBe(caretX);
+                expect(lines[duckY]!.indexOf("DuckDuckGo")).toBe(labelX);
                 const selected = cells(braveY);
-                expect(selected[caretX]!.bg).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
-                expect(selected[caretX - 1]!.bg).toEqual(selected[caretX]!.bg);
-                expect(selected[caretX + 2]!.bg).toEqual(selected[caretX]!.bg);
-                expect(selected[caretX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
-                expect(cells(duckY)[caretX]!.fg).toEqual(RGBA.fromHex(TUI_MUTED).toInts());
+                expect(selected[labelX]!.bg).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
+                expect(selected[labelX - 1]!.bg).toEqual(selected[labelX]!.bg);
+                expect(selected[labelX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
+                expect(cells(duckY)[labelX]!.bg).not.toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
                 view.update({ ...providers(), selectedIndex: 1 });
                 await setup.flush();
-                expect(setup.captureCharFrame()).toContain("› Brave");
-                expect(cells(braveY)[caretX]!.fg).toEqual(RGBA.fromHex(TUI_MUTED).toInts());
-                expect(cells(duckY)[caretX]!.fg).toEqual(RGBA.fromHex(TUI_SELECTION_TEXT).toInts());
+                expect(cells(braveY)[labelX]!.bg).not.toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
+                expect(cells(duckY)[labelX]!.bg).toEqual(RGBA.fromHex(TUI_ACCENT).toInts());
             }
         } finally { setup.renderer.destroy(); }
     });
 }
 
-test("provider actions separate groups with gaps and put verification help below the list", async () => {
+test("provider actions separate groups with dashed rules and put verification help below the list", async () => {
     const setup = await createTestRenderer({ width: 100, height: 36 });
     try {
         const view = createTuiSettingsPickerView(setup.renderer);
@@ -96,10 +96,10 @@ test("provider actions separate groups with gaps and put verification help below
         const lines = frame.split("\n").map((line) => line.trim().replace(/^› /, ""));
         expect(lines[lines.indexOf("Set API key") + 1]).toBe("Verify");
         expect(lines[lines.indexOf("Verify") + 1]).toBe("Remove saved key");
-        expect(lines[lines.indexOf("Remove saved key") + 1]).toBe("");
+        expect(lines[lines.indexOf("Remove saved key") + 1]).toMatch(/^╌+$/);
         expect(lines[lines.indexOf("Disable") + 1]).toBe("Remove provider");
         expect(lines[lines.indexOf("Move up") + 1]).toBe("Move down");
-        expect(lines[lines.indexOf("Move down") + 1]).toBe("");
+        expect(lines[lines.indexOf("Move down") + 1]).toMatch(/^╌+$/);
         expect(frame).toContain("Runs one search for “Vera search test”.");
         expect(frame).toContain("API charges may apply.");
     } finally { setup.renderer.destroy(); }

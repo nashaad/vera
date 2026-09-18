@@ -82,6 +82,12 @@ it is started again.
 Use `vera -c` to continue the most recent session. Use
 `vera resume <session-id|path>` to choose one. `vera export <session-path>`
 exports Markdown by default; add `--format json` for structured output.
+`/import` in the TUI lists Claude Code and Codex sessions found on this
+machine, starting with this folder; ctrl+g shows all folders, and Enter copies
+the one you pick into Vera as a new session you can resume. `vera import`
+lists the same sessions (`--all` for every folder), and `vera import <path>`
+imports one file. Tool calls are flattened to text and nothing from the old
+session runs again.
 
 ## recovery — When Vera is stuck or work is at risk
 

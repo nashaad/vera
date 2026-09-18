@@ -2339,6 +2339,10 @@ function latestMeasurement(
         if (message === undefined || message.role !== "assistant") {
             continue;
         }
+        // Capacity lookups read the catalog; imported replies carry no usage.
+        if (measureReportedUsage(message.usage) === undefined) {
+            continue;
+        }
         const measurement = reportedMeasurement(
             message,
             message.source.model === measuredModel

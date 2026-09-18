@@ -74,7 +74,7 @@ deletion, or changes to real work in a trial without specific approval.
 If the definition is not yet visible, let the turn finish so the catalog can
 refresh, then have the user continue with `/create-agent try <name>`. If the
 launch fails because an assignment is missing or unavailable, report that
-failure and point to `/defaults`; leave configuration changes to the user.
+failure and point to `/models`; leave configuration changes to the user.
 Do not substitute another definition or assignment to claim the trial passed.
 
 Check the result against the agreed task and boundaries. Report the saved path,

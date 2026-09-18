@@ -1,3 +1,4 @@
+import { withImportRows } from "../import-rows.ts";
 import { isConfigurationRequiredUiRequestUpdate, isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { COMPOSER_PLACEHOLDER } from "../composer.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -5,7 +6,7 @@ import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { activityFrame, applyWorkspaceRail, dialogAdmission, liveVerificationConsole, renderCommandSuggestions, renderHeldAddress, renderPendingQuote, renderStatus } from "../main.ts";
 import { focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { markSearchLanding } from "../main/chrome.ts";
-import { modelSwitchTip } from "../model-journeys.ts";
+import { modelBrowseTip } from "../model-browse.ts";
 import { renderDiagnostics } from "../main/diagnostics-ops.ts";
 import { destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindowAround, takeTip } from "../main/transcript-nodes.ts";
 import { searchOverlayViewState } from "../search-overlay.ts";
@@ -106,6 +107,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.namePrompt === undefined
         && rt.requestOptionsEditor === undefined
         && rt.providerForm === undefined
+        && rt.modelSwitcher === undefined
         && rt.settingsPicker !== undefined;
     rt.preferencesListView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
@@ -113,6 +115,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.preferencesList !== undefined;
     rt.standingNudgesView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
@@ -120,6 +123,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.preferencesList === undefined
         && rt.standingNudges !== undefined;
     rt.extensionsListView.box.visible = uiRequest === undefined
@@ -128,6 +132,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.preferencesList === undefined
         && rt.standingNudges === undefined
         && rt.extensionsList !== undefined;
@@ -137,16 +142,29 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.secretPrompt === undefined
         && rt.preferencesList === undefined
         && rt.standingNudges === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette !== undefined;
+    rt.modelSwitcherView.surface.visible = uiRequest === undefined
+        && rt.timelinePicker === undefined
+        && !rt.confirmingFullAccess
+        && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+        && rt.providerForgetCandidate === undefined
+        && rt.secretPrompt === undefined
+        && rt.preferencesList === undefined
+        && rt.standingNudges === undefined
+        && rt.extensionsList === undefined
+        && rt.commandPalette === undefined
+        && rt.modelSwitcher !== undefined;
     rt.workTabView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.standingNudges === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
@@ -161,6 +179,7 @@ export function renderState(rt: TuiRuntime): void {
         && !rt.confirmingFullAccess
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.standingNudges === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
@@ -172,6 +191,7 @@ export function renderState(rt: TuiRuntime): void {
         && !rt.confirmingFullAccess
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.standingNudges === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
@@ -183,6 +203,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.workTab === undefined
@@ -194,6 +215,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
@@ -207,6 +229,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
@@ -220,6 +243,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
@@ -233,6 +257,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
         && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
         && rt.extensionsList === undefined
         && rt.commandPalette === undefined
         && rt.help === undefined
@@ -276,6 +301,7 @@ export function renderState(rt: TuiRuntime): void {
         || rt.standingNudgesView.surface.visible
         || rt.extensionsListView.box.visible
         || rt.commandPaletteView.surface.visible
+        || rt.modelSwitcherView.surface.visible
         || rt.workTabView.surface.visible
         || (rt.workspaceSidebarView.surface.visible && rt.workspaceRail === undefined)
         || rt.searchOverlayView.surface.visible
@@ -329,22 +355,22 @@ export function renderState(rt: TuiRuntime): void {
     if (rt.timelinePicker !== undefined) {
         rt.timelinePickerView.update(rt.timelinePicker);
     }
-    const switching = rt.settingsPicker?.kind === "model"
-        && rt.settingsPicker.modelJourney === "switch";
+    const browsing = rt.settingsPicker?.kind === "model"
+        && rt.settingsPicker.modelBrowse === "browse";
     if (rt.settingsPicker === undefined) {
         rt.pickerTipKind = undefined;
         rt.switchTipShown = false;
         rt.settingsPickerView.tip = undefined;
         rt.settingsPickerView.verification = undefined;
         rt.verificationConsole = undefined;
-    } else if (switching) {
+    } else if (browsing) {
         if (!rt.switchTipShown) {
             rt.switchTipShown = true;
             rt.switchTipTurn += 1;
         }
         rt.pickerTipKind = rt.settingsPicker.kind;
         rt.settingsPickerView.tip = rt.tipsEnabled
-            ? { tone: "tip", text: modelSwitchTip(rt.switchTipTurn) }
+            ? { tone: "tip", text: modelBrowseTip(rt.switchTipTurn) }
             : undefined;
     } else if (rt.tipsEnabled && rt.pickerTipKind !== rt.settingsPicker.kind) {
         rt.pickerTipKind = rt.settingsPicker.kind;
@@ -379,6 +405,9 @@ export function renderState(rt: TuiRuntime): void {
     }
     if (rt.commandPalette !== undefined) {
         rt.commandPaletteView.update(rt.commandPalette);
+    }
+    if (rt.modelSwitcher !== undefined) {
+        rt.modelSwitcherView.update(rt.modelSwitcher);
     }
     if (rt.workTab !== undefined) {
         rt.workTabView.update(
@@ -438,6 +467,11 @@ export function renderState(rt: TuiRuntime): void {
         rt.admissionDialogView.update(rt.admissionDialog, dialogAdmission(rt));
     }
 
+    const imported = rt.importedSession?.agentId === rt.client.agentId
+        ? rt.importedSession?.facts
+        : undefined;
+    const entries = withImportRows(rt.state.entries, imported);
+    if (entries !== rt.state.entries) rt.state = { ...rt.state, entries };
     renderTranscriptEntries(rt, rt.state.entries);
 
     showSearchTarget(rt);
@@ -529,6 +563,7 @@ export function anyOverlayOpen(rt: TuiRuntime): boolean {
         || rt.standingNudges !== undefined
         || rt.extensionsList !== undefined
         || rt.commandPalette !== undefined
+        || rt.modelSwitcher !== undefined
         || rt.workTab !== undefined
         || rt.searchOverlay !== undefined
         || rt.help !== undefined

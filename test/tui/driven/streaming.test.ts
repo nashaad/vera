@@ -19,7 +19,7 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
     let pane = "";
 
     try {
-        pane = await session.waitForVisiblePane("test · HIGH");
+        pane = await session.waitForVisiblePane("test · high");
         expect(pane).toContain("Start a conversation");
         expect(pane).toContain("ready · ctrl+p commands");
         expect(pane).not.toContain("shift+enter newline");
@@ -106,7 +106,7 @@ test("extension insertion edits the live draft without touching the queue", asyn
         height: 31,
         dependencies: () => ({
             ...createTuiChildDependencies(),
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],

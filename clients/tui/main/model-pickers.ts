@@ -3,7 +3,7 @@ import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts"
 import { connectedProviderCatalogs } from "../../../src/providers/catalog-state.ts";
 import { createAuthStorage } from "../../../src/providers/auth-storage.ts";
 import { readProviderCatalogSnapshot } from "../../../src/model/catalog-cache.ts";
-import { modelJourney } from "../model-journeys.ts";
+import { modelBrowse } from "../model-browse.ts";
 import { updateTuiSettingsPickerSearch } from "../settings-picker.ts";
 import { configuredModelAssignments, startingVeraConfig, loadOptionalVeraConfig, updateVeraConfigDefaults, type VeraProviderId } from "../../../src/config.ts";
 import type { ModelAssignmentId, ModelAssignmentRow } from "../../../src/config/model-assignments.ts";
@@ -16,7 +16,7 @@ import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
 import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
-import { configuredProviders, findConfiguredProvider, isProviderConnected } from "../../../src/providers/registry.ts";
+import { configuredProviders, findConfiguredProvider, isProviderConnected, type ProviderDescriptor } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
 import { closeSettingsPickerSurface, defaultLoginProvider } from "../main.ts";
@@ -25,12 +25,13 @@ import { adoptStandingNudgesState } from "../main/chrome.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
+import { refreshLocalRuntimeStatus } from "../main/outrider-control.ts";
 import { renderState } from "../main/render-state.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { renderPermissionInspection } from "../permission-inspection.ts";
 import { startTuiPreferencesList } from "../preferences-list.ts";
 import { startTuiSecretPrompt } from "../secret-prompt.ts";
-import { startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
+import { startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiProviderRow, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { openTuiStandingNudges } from "../standing-nudges.ts";
 import { appendTuiError, appendTuiNotice, type TuiState } from "../state.ts";
 import { tuiThemePreferencePath, loadModelPickerPreferences } from "../theme-preference.ts";
@@ -151,8 +152,8 @@ export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState)
         };
     }
     const preferences = loadModelPickerPreferences();
-    rt.settingsPicker = modelJourney({ ...rt.settingsPicker, tab: preferences.scope,
-        journeyView: preferences.view, journeySort: preferences.sort }, "switch");
+    rt.settingsPicker = modelBrowse({ ...rt.settingsPicker, tab: preferences.scope,
+        browseView: preferences.view, browseSort: preferences.sort }, "browse");
     requestAgentSettings(rt, focusedAgentClient(rt));
     renderState(rt);
     focusActiveSurface(rt);
@@ -657,6 +658,47 @@ export function homeNeedsProvider(rt: TuiRuntime): boolean {
     }
 }
 
+/** The rows the provider screen shows. Pure, so the one thing that matters here can be tested: every provider is offered, whether or not it has answered yet. */
+export function providerPickerRows(
+    providers: readonly ProviderDescriptor[],
+    answers: OnboardingInput,
+    facts: {
+        readonly connected: ReadonlySet<string>;
+        readonly declared: ReadonlySet<string>;
+        readonly refreshable: (provider: ProviderDescriptor) => boolean;
+        readonly hasCredential: (provider: ProviderDescriptor) => boolean;
+        readonly catalog: (id: string) => { readonly fetched_at?: string; readonly models: readonly unknown[] };
+    },
+): readonly TuiProviderRow[] {
+    return providers.map((provider) => {
+        const snapshot = facts.catalog(provider.id);
+        const answerLabel = snapshot.fetched_at === undefined
+            ? providerAnswerLabel(provider, answers) : "connected";
+        // Catalog state is only news about a provider that is connected. On one
+        // that is not, it is the same sentence on every row.
+        const catalogHint = facts.connected.has(provider.id)
+            ? (snapshot.fetched_at === undefined
+                ? " \u00b7 catalog never refreshed"
+                : ` \u00b7 catalog read: ${snapshot.models.length} models`)
+            : "";
+        return {
+            id: provider.id,
+            label: provider.label,
+            group: tuiProviderGroup(
+                provider.access,
+                facts.declared.has(provider.id),
+            ),
+            hint: `${provider.custom || provider.endpointOverridden ? provider.baseUrl : provider.hint ?? provider.baseUrl ?? ""}${catalogHint}`,
+            hasCredential: facts.hasCredential(provider),
+            ...(answerLabel === undefined ? {} : { answerState: answerLabel }),
+            ...(facts.refreshable(provider) ? { refreshable: true } : {}),
+            ...(facts.declared.has(provider.id) ? { declared: true } : {}),
+            ...(provider.fixedEndpoint === true ? {} : { endpointEditable: true }),
+            ...(provider.localRuntime === undefined ? {} : { localRuntime: true }),
+        };
+    });
+}
+
 export function openProviderPicker(rt: TuiRuntime, 
     parent?: TuiSettingsPickerState,
     options: {
@@ -666,44 +708,35 @@ export function openProviderPicker(rt: TuiRuntime,
 ): void {
     const config = loadOptionalVeraConfig();
     const connected = new Set(connectedProviderCatalogs(config, { authStorage: rt.authStorage }).map((row) => row.id));
-    const providers = configuredProviders(config).filter((row) => connected.has(row.id));
-    const answers = onboardingInput(rt, config);
     const declared = new Set(Object.keys(config?.providers ?? {}));
+    const rows = providerPickerRows(
+        configuredProviders(config),
+        onboardingInput(rt, config),
+        {
+            connected,
+            declared,
+            refreshable: (provider) => isRefreshableProvider(provider.id, config) || provider.protocol === "anthropic-messages",
+            hasCredential: (provider) => providerHasCredential(rt, provider),
+            catalog: (id) => readProviderCatalogSnapshot(id),
+        },
+    );
     rt.settingsPicker = withTuiPickerParent(
         startTuiProviderPicker(
-            providers.map((provider) => {
-                const snapshot = readProviderCatalogSnapshot(provider.id);
-                const answerLabel = snapshot.fetched_at === undefined
-                    ? providerAnswerLabel(provider, answers) : "connected";
-                const catalogHint = snapshot.fetched_at === undefined ? "catalog never refreshed" : `catalog read: ${snapshot.models.length} models`;
-                return {
-                    id: provider.id,
-                    label: provider.label,
-                    group: tuiProviderGroup(
-                        provider.access,
-                        declared.has(provider.id),
-                    ),
-                    hint: `${provider.custom || provider.endpointOverridden ? provider.baseUrl : provider.hint ?? provider.baseUrl ?? ""} · ${catalogHint}`,
-                    hasCredential: providerHasCredential(rt, provider),
-                    ...(answerLabel === undefined
-                        ? {}
-                        : { answerState: answerLabel }),
-                    ...(isRefreshableProvider(provider.id, config) || provider.protocol === "anthropic-messages"
-                        ? { refreshable: true }
-                        : {}),
-                    ...(declared.has(provider.id) ? { declared: true } : {}),
-                    ...(provider.fixedEndpoint === true
-                        ? {}
-                        : { endpointEditable: true }),
-                };
-            }),
-            { ...options, subtitle: options.subtitle ?? (providers.length ? undefined : "No provider connected. Add provider to discover models.") },
+            rows,
+            {
+                ...options,
+                subtitle: options.subtitle ?? (connected.size ? undefined : "No provider connected. Choose one below, or add an endpoint of your own."),
+                ...(rt.localRuntime === undefined ? {} : { localRuntime: rt.localRuntime }),
+            },
         ),
         parent,
     );
     rt.composer.blur();
     renderState(rt);
     focusActiveSurface(rt);
+    // The reading is slower than the screen, so it lands into the section once
+    // it arrives rather than holding the screen shut.
+    void refreshLocalRuntimeStatus(rt);
 }
 
 export function refreshProviderPicker(rt: TuiRuntime, notice: string): void {
@@ -766,19 +799,27 @@ export function connectProvider(rt: TuiRuntime,
     rt.connectingProviders.add(provider.id);
     rt.state = appendTuiNotice(
         rt.state,
-        `opening a browser to sign in to ${provider.label}…`,
+        `opening your browser to sign in to ${provider.label}…`,
         "soft",
     );
     renderState(rt);
     void (rt.dependencies.loginProvider ?? ((providerId: string, onAuthorizationUrl: (url: string) => void) => defaultLoginProvider(rt, providerId, onAuthorizationUrl)))(
         provider.id,
         (url) => {
-            rt.state = appendTuiNotice(rt.state, `sign in at ${url}`);
+            rt.state = appendTuiNotice(
+                rt.state,
+                `browser didn't open? sign in here: ${url}`,
+                "soft",
+            );
             renderState(rt);
         },
     ).then(() => {
         rt.connectingProviders.delete(provider.id);
-        rt.state = appendTuiNotice(rt.state, `signed in to ${provider.label}`, "soft");
+        rt.state = appendTuiNotice(
+            rt.state,
+            `✓ signed in to ${provider.label}`,
+            "success",
+        );
         renderState(rt);
     }, (error: unknown) => {
         rt.connectingProviders.delete(provider.id);

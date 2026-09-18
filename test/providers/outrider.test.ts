@@ -4,6 +4,8 @@ import {
     awaitingRuntime,
     downloadSize,
     OUTRIDER_INSTALL_URL_DEFAULT,
+    outriderAppBinaryPaths,
+    outriderRegisterCommand,
     outriderInstallCommand,
     outriderInstallUrl,
     outriderListCommand,
@@ -25,6 +27,12 @@ test("the commands are the ones the CLI actually has", () => {
     expect(outriderServeCommand("qwen35b-mtp"))
         .toEqual(["outrider", "--json", "serve", "qwen35b-mtp"]);
     expect(outriderInstallCommand()[0]).toBe("sh");
+});
+
+test("the default install URL is the path the download host serves", () => {
+    expect(OUTRIDER_INSTALL_URL_DEFAULT).toBe(
+        "https://get.corvines.com/install.sh",
+    );
 });
 
 test("the install URL comes from the environment, and stays an argument", () => {
@@ -285,4 +293,188 @@ test("the roster is whatever the catalog listed, in its order", () => {
     expect(readOutriderProfiles("{}")).toEqual([]);
     expect(readOutriderProfiles(JSON.stringify({ profiles: [{}, { id: "" }] })))
         .toEqual([]);
+});
+
+import {
+    outriderLogsCommand,
+    outriderServiceCommand,
+    outriderShowCommand,
+    outriderUseCommand,
+    readOutriderLog,
+    readOutriderProfileDetail,
+    readOutriderService,
+    readOutriderUse,
+} from "../../src/providers/outrider.ts";
+
+test("the read commands match the CLI's own spelling", () => {
+    expect(outriderServiceCommand()).toEqual(["outrider", "--json", "status"]);
+    expect(outriderShowCommand("qwen35b-mtp"))
+        .toEqual(["outrider", "--json", "show", "qwen35b-mtp"]);
+    expect(outriderUseCommand("qwen35b-mtp"))
+        .toEqual(["outrider", "--json", "use", "qwen35b-mtp"]);
+    expect(outriderLogsCommand(40))
+        .toEqual(["outrider", "--json", "logs", "--lines", "40"]);
+});
+
+test("a line count outside Outrider's range is clamped, not passed through", () => {
+    expect(outriderLogsCommand(0).at(-1)).toBe("1");
+    expect(outriderLogsCommand(50_000).at(-1)).toBe("10000");
+    expect(outriderLogsCommand(12.7).at(-1)).toBe("12");
+});
+
+test("status reports the gateway and the model separately", () => {
+    const service = readOutriderService(JSON.stringify({
+        gateway: {
+            kind: "running",
+            pid: 4120,
+            endpoint: "http://127.0.0.1:11435/v1",
+            health: true,
+            logFile: "/tmp/gateway.log",
+            timings: { timeToHealthMs: 812.5 },
+        },
+        model: {
+            kind: "running",
+            preset: "qwen35b-mtp",
+            residentBytes: 27_530_000_000,
+            health: true,
+        },
+    }));
+    expect(service.gateway.kind).toBe("running");
+    expect(service.gateway.pid).toBe(4120);
+    expect(service.gateway.timeToHealthMs).toBe(812.5);
+    expect(service.model.profile).toBe("qwen35b-mtp");
+    expect(service.model.residentBytes).toBe(27_530_000_000);
+});
+
+test("a gateway that is up with no model loaded reads as exactly that", () => {
+    const service = readOutriderService(JSON.stringify({
+        gateway: { kind: "running", endpoint: "http://127.0.0.1:11435/v1", health: true },
+        model: { kind: "stopped", endpoint: "" },
+    }));
+    expect(service.gateway.kind).toBe("running");
+    expect(service.model.kind).toBe("stopped");
+    expect(service.model.profile).toBeUndefined();
+});
+
+test("a process that never answered is not a process that answered unhealthy", () => {
+    const quiet = readOutriderService(JSON.stringify({ gateway: { kind: "running" } }));
+    expect(quiet.gateway.healthy).toBeUndefined();
+    const failing = readOutriderService(
+        JSON.stringify({ gateway: { kind: "running", health: false } }),
+    );
+    expect(failing.gateway.healthy).toBe(false);
+});
+
+test("unreadable output leaves both processes stopped rather than throwing", () => {
+    const service = readOutriderService("not json");
+    expect(service.gateway.kind).toBe("stopped");
+    expect(service.model.kind).toBe("stopped");
+});
+
+test("show reports the recipe in the manifest's own field names", () => {
+    const detail = readOutriderProfileDetail(JSON.stringify({
+        profile: {
+            id: "qwen35b-mtp",
+            description: "A model that does the work",
+            model: {
+                repo: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+                file: "UD-Q4_K_M.gguf",
+                quant: "UD-Q4_K_M",
+                sizeBytes: 23_000_000_000,
+            },
+            context: { size: 32_768, original: 262_144 },
+            kvCache: { keyType: "q8_0", valueType: "q8_0", unified: true },
+            admission: { validatedPhysicalMemoryMiB: 65_536 },
+        },
+        cache: { state: "present", path: "/Users/x/.outrider/models/q.gguf", sizeBytes: 23_000_000_000 },
+    }));
+    expect(detail?.id).toBe("qwen35b-mtp");
+    expect(detail?.context).toBe(32_768);
+    expect(detail?.trainingContext).toBe(262_144);
+    expect(detail?.repository).toBe("unsloth/Qwen3.6-35B-A3B-MTP-GGUF");
+    expect(detail?.quant).toBe("UD-Q4_K_M");
+    expect(detail?.kvKeyType).toBe("q8_0");
+    expect(detail?.validatedMemoryMiB).toBe(65_536);
+    expect(detail?.cache.state).toBe("present");
+});
+
+test("a profile with no weights on disk still reports its recipe", () => {
+    const detail = readOutriderProfileDetail(JSON.stringify({
+        profile: { id: "qwen35-2b", context: { size: 32_768 } },
+        cache: { state: "missing", path: "/Users/x/.outrider/models/small.gguf" },
+    }));
+    expect(detail?.cache.state).toBe("missing");
+    expect(detail?.cache.sizeBytes).toBeUndefined();
+});
+
+test("show without a profile id is nothing, not an empty profile", () => {
+    expect(readOutriderProfileDetail(JSON.stringify({ cache: {} }))).toBeUndefined();
+    expect(readOutriderProfileDetail("")).toBeUndefined();
+});
+
+test("use answers with the model status, which is what says the swap took", () => {
+    const model = readOutriderUse(JSON.stringify({
+        profile: "qwen35-2b",
+        endpoint: "http://127.0.0.1:11435/v1",
+        model: { kind: "running", preset: "qwen35-2b", health: true },
+    }));
+    expect(model.kind).toBe("running");
+    expect(model.profile).toBe("qwen35-2b");
+});
+
+test("the log tail keeps only lines, and survives a missing log", () => {
+    const log = readOutriderLog(JSON.stringify({
+        logFile: "/tmp/gateway.log",
+        lines: ["loading weights", 42, "ready"],
+    }));
+    expect(log.logFile).toBe("/tmp/gateway.log");
+    expect(log.lines).toEqual(["loading weights", "ready"]);
+    expect(readOutriderLog("{}").lines).toEqual([]);
+});
+
+/** Recorded from the real binary (a6150e7, `--json show|status|ps`) with the home path rewritten. Regenerate these rather than hand-editing them if the CLI changes shape. */
+async function recorded(name: string): Promise<string> {
+    return await Bun.file(
+        new URL(`../fixtures/outrider-${name}.json`, import.meta.url),
+    ).text();
+}
+
+test("the parsers read what the binary actually prints", async () => {
+    const detail = readOutriderProfileDetail(await recorded("show"));
+    expect(detail?.id).toBe("qwen35b-mtp");
+    expect(detail?.context).toBe(32_768);
+    expect(detail?.trainingContext).toBe(131_072);
+    expect(detail?.quant).toBe("UD-Q4_K_M");
+    expect(detail?.repository).toBe("unsloth/Qwen3.6-35B-A3B-MTP-GGUF");
+    expect(detail?.kvKeyType).toBe("q4_0");
+    expect(detail?.validatedMemoryMiB).toBe(32_768);
+    expect(detail?.sizeBytes).toBe(22_663_387_424);
+    expect(detail?.cache.state).toBe("missing");
+
+    const service = readOutriderService(await recorded("status"));
+    expect(service.gateway.kind).toBe("stopped");
+    expect(service.gateway.endpoint).toBe("http://127.0.0.1:11435");
+    expect(service.model.kind).toBe("stopped");
+
+    expect(readOutriderStatus(await recorded("ps")).state).toBe("stopped");
+});
+
+test("the app bundle is looked for per-user first, then shared", () => {
+    expect(outriderAppBinaryPaths("/Users/x")).toEqual([
+        "/Users/x/Applications/Outrider.app/Contents/MacOS/outrider",
+        "/Applications/Outrider.app/Contents/MacOS/outrider",
+    ]);
+    expect(outriderAppBinaryPaths("")).toEqual([
+        "/Applications/Outrider.app/Contents/MacOS/outrider",
+    ]);
+});
+
+test("registering a bundled command links rather than copies", () => {
+    expect(
+        outriderRegisterCommand("/Applications/Outrider.app/Contents/MacOS/outrider"),
+    ).toEqual([
+        "/Applications/Outrider.app/Contents/MacOS/outrider",
+        "install",
+        "--link",
+    ]);
 });

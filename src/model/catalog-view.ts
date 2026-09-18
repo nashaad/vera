@@ -40,7 +40,6 @@ export interface AvailableModel {
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
     readonly recommended?: boolean;
-    readonly recommendedLevel?: ReasoningLevelId;
 }
 
 export interface PooledModel {
@@ -60,21 +59,12 @@ export interface PooledModel {
     readonly levels: readonly ReasoningLevel[];
     readonly defaultLevel?: ReasoningLevelId;
     readonly recommended?: boolean;
-    readonly recommendedLevel?: ReasoningLevelId;
 }
 
 function recommendation(
     model: CatalogModel | undefined,
-): Pick<AvailableModel, "recommended" | "recommendedLevel"> {
-    if (model?.recommended !== true) {
-        return {};
-    }
-    return {
-        recommended: true,
-        ...(model.recommended_level === undefined
-            ? {}
-            : { recommendedLevel: model.recommended_level }),
-    };
+): Pick<AvailableModel, "recommended"> {
+    return model?.recommended === true ? { recommended: true } : {};
 }
 
 export interface CatalogViewOptions

@@ -1,5 +1,11 @@
+import type { ImportableSessionEntry } from "../../src/host/protocol.ts";
+import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
+import {
+    importedSessionLabel,
+    importToolLabel,
+} from "../../src/store/session-import-provenance.ts";
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
-import { journeyModels } from "./model-journeys.ts";
+import { browseModels } from "./model-browse.ts";
 import {
     bg,
     BoxRenderable,
@@ -22,6 +28,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
+import { effortDescription } from "../../src/model/effort-descriptions.ts";
 import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
 import {
     INTELLIGENCE_CUTOFFS,
@@ -125,8 +132,10 @@ import {
     type TuiExtensionPickerAction,
     type TuiExtensionPickerRow,
     type TuiExtensionPickerState,
+    type TuiImportScope,
     type TuiModelPickerTab,
     type TuiPendingModelChoice,
+    type TuiLocalRuntimeStatus,
     type TuiProviderRow,
     type TuiReviewerSlot,
     type TuiSettingsMenuKind,
@@ -288,7 +297,12 @@ export function syncTuiModelPicker(
     } | undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
-        return state;
+        // The verification screen returns to the pane it was opened from, so
+        // that held state has to take the snapshot too.
+        const parent = state.parent;
+        if (parent === undefined) return state;
+        const synced = syncTuiModelPicker(parent, settings);
+        return synced === parent ? state : { ...state, parent: synced };
     }
     const selectedValue = state.options[state.selectedIndex]?.value;
     const rebuilt = startTuiSettingsPicker(
@@ -311,15 +325,15 @@ export function syncTuiModelPicker(
         ...rebuilt,
         allOptions: settings?.providerCatalogs === undefined ? rebuilt.allOptions : rebuilt.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         providerCatalogs: settings?.providerCatalogs ?? state.providerCatalogs,
-        modelJourney: state.modelJourney,
-        journeyView: state.journeyView,
-        journeyProvider: state.journeyProvider,
-        journeyAvailableOnly: state.journeyAvailableOnly,
-        journeyPricedOnly: state.journeyPricedOnly,
-        journeyImagesOnly: state.journeyImagesOnly,
-        journeyNotice: state.journeyNotice,
-        journeyFeedback: state.journeyFeedback,
-        journeyRetainedModels: [...new Set([...(state.journeyRetainedModels ?? []),
+        modelBrowse: state.modelBrowse,
+        browseView: state.browseView,
+        browseProvider: state.browseProvider,
+        browseAvailableOnly: state.browseAvailableOnly,
+        browsePricedOnly: state.browsePricedOnly,
+        browseImagesOnly: state.browseImagesOnly,
+        browseNotice: state.browseNotice,
+        browseFeedback: state.browseFeedback,
+        browseRetainedModels: [...new Set([...(state.browseRetainedModels ?? []),
             ...state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value)])],
         title: state.title,
         tab,
@@ -336,11 +350,11 @@ export function syncTuiModelPicker(
                 || state.intelligenceCutoff === "any"
             ? {}
             : { intelligenceCutoff: state.intelligenceCutoff }),
-        ...(state.journeySort === undefined ? {} : { journeySort: state.journeySort }),
-        // A journey folds its own groups, so it keeps its own set even when
+        ...(state.browseSort === undefined ? {} : { browseSort: state.browseSort }),
+        // A browse page folds its own groups, so it keeps its own set even when
         // empty: the sectioned picker starts some providers closed, and those
-        // must not fold groups the journey shows as open.
-        ...(collapsed.length === 0 && state.modelJourney === undefined
+        // must not fold groups the browse page shows as open.
+        ...(collapsed.length === 0 && state.modelBrowse === undefined
             ? {}
             : { collapsed }),
         ...(settings?.webdevArenaSnapshot === undefined
@@ -362,8 +376,8 @@ export function syncTuiModelPicker(
             state.initialModel,
         ),
     };
-    const options = state.modelJourney !== undefined
-        ? journeyModels({ ...onTab, query: state.query })
+    const options = state.modelBrowse !== undefined
+        ? browseModels({ ...onTab, query: state.query })
         : state.query.length === 0
         ? onTab.options
         : searched(onTab, state.query).state?.options ?? onTab.options;
@@ -380,7 +394,7 @@ export function syncTuiModelPicker(
             ? { canUndoPoolChange: true }
             : {}),
         selectedIndex: selectedIndex === -1
-            ? state.modelJourney === undefined
+            ? state.modelBrowse === undefined
                 ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
                 : Math.max(0, options.findIndex((option) => option.model !== undefined))
             : selectedIndex,
@@ -420,7 +434,9 @@ export function startTuiReasoningPicker(
         query: "",
         ...(pendingModel === undefined ? {} : {
             pendingModel,
-            parent: pendingModel.modelPaneState,
+            ...(pendingModel.modelPaneState === undefined
+                ? {}
+                : { parent: pendingModel.modelPaneState }),
         }),
     };
 }
@@ -429,7 +445,7 @@ export function levelOption(level: ReasoningLevel): TuiSettingsPickerOption {
     return {
         value: level.id,
         label: level.label,
-        description: level.description ?? "",
+        description: effortDescription(level) ?? "",
     };
 }
 
@@ -844,6 +860,7 @@ export function startTuiProviderPicker(
     options: {
         readonly selected?: string;
         readonly subtitle?: string;
+        readonly localRuntime?: TuiLocalRuntimeStatus;
     } = {},
 ): TuiSettingsPickerState {
     const rows: TuiSettingsPickerOption[] = [...providers]
@@ -866,6 +883,7 @@ export function startTuiProviderPicker(
             ...(provider.endpointEditable === true
                 ? { endpointEditable: true }
                 : {}),
+            ...(provider.localRuntime === true ? { localRuntime: true } : {}),
         }));
     const firstUnconnected = rows.findIndex(
         (option) => option.answerState !== "connected",
@@ -893,6 +911,9 @@ export function startTuiProviderPicker(
         ...(options.subtitle === undefined
             ? {}
             : { subtitle: options.subtitle }),
+        ...(options.localRuntime === undefined
+            ? {}
+            : { localRuntime: options.localRuntime }),
     };
 }
 
@@ -1020,7 +1041,7 @@ export function startTuiPoolVerifyScopePicker(
     ];
     return {
         kind: "pool_verify_scope",
-        title: "Verify library models",
+        title: "Verify favorites",
         subtitle: "each model is one live call to its provider",
         allOptions: options,
         options,
@@ -1265,6 +1286,53 @@ export function startTuiSessionPicker(
     };
 }
 
+export interface TuiImportPickerStart {
+    readonly scope: TuiImportScope;
+    readonly workspace: string;
+    // Undefined while the host is still reading.
+    readonly listing?: ImportableSessionListing;
+    readonly now?: Date;
+}
+
+export function startTuiImportPicker(start: TuiImportPickerStart): TuiSettingsPickerState {
+    const now = start.now ?? new Date();
+    const options = (start.listing?.sessions ?? []).map((session) =>
+        importPickerOption(session, now)
+    );
+    const where = start.scope === "folder" ? `This folder: ${start.workspace}` : "All folders";
+    const truncated = start.listing?.truncated === true
+        ? ` · newest ${options.length}`
+        : "";
+    return {
+        kind: "session_import",
+        title: "Import a conversation",
+        subtitle: `${where}${truncated}`,
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        importScope: start.scope,
+        loading: start.listing === undefined,
+    };
+}
+
+function importPickerOption(
+    session: ImportableSessionEntry,
+    now: Date,
+): TuiSettingsPickerOption {
+    const text = session.title ?? session.first_message ?? "(no preview)";
+    const imported = session.imported_session_id === undefined ? "" : " · imported";
+    const workspaceName = session.workspace.split("/").filter(Boolean).at(-1) ?? session.workspace;
+    return {
+        value: session.path,
+        label: `${importToolLabel(session.tool)} · ${sessionTitle(text)}${imported}`,
+        description: "",
+        searchText: `${session.first_message ?? ""} ${session.workspace} ${session.path}`,
+        activity: relativeTime(session.updated_at, now, "-"),
+        workspace: clipToCells(workspaceName, SESSION_WORKSPACE_CELLS),
+    };
+}
+
 function sessionPickerOption(
     agent: RegisteredAgentSummary,
     currentAgentId: string | undefined,
@@ -1272,7 +1340,9 @@ function sessionPickerOption(
 ): TuiSettingsPickerOption {
     return {
         value: agent.session_path,
-        label: sessionTitle(agent.title ?? agent.id),
+        label: agent.imported_from === undefined
+            ? sessionTitle(agent.title ?? agent.id)
+            : `${sessionTitle(agent.title ?? agent.id)} ${importedSessionLabel(agent.imported_from.tool)}`,
         description: "",
         searchText: `${agent.id} ${agent.workspace}`,
         sessionId: agent.id,

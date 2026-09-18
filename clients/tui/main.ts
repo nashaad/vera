@@ -63,9 +63,9 @@ import {
     listExtensions,
     installExtension,
     removeExtension,
-    setExtensionEnabled,
+    setAnyExtensionEnabled,
 } from "../../src/extensions/manager.ts";
-import { extensionTarget, renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
+import { renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -92,6 +92,9 @@ import {
     renameSessionThroughHost,
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
+import { importSessionThroughHost, listImportableSessionsThroughHost } from "../../src/host/session-import-client.ts";
+import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
+import type { SessionImportOutcome } from "../../src/host/session-import-service.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
 import {
@@ -159,6 +162,7 @@ import {
 } from "../provider-doctor.ts";
 import { copyTuiText } from "./clipboard.ts";
 import { createTuiCommandPaletteView, handleTuiCommandPaletteScroll } from "./command-palette.ts";
+import { createTuiModelSwitcherView, handleTuiModelSwitcherScroll } from "./model-switcher.ts";
 import { createTuiHelpView, handleTuiHelpScroll, helpPageSearchable, pointedHelpRow } from "./help.ts";
 import { createConfiguredBuiltinTuiCommandRegistry, registerExtensionTuiCommands, type TuiPaletteEntry } from "./commands.ts";
 import { createTuiComposer, createTuiComposerPanel, TUI_COMPOSER_MIN_TEXT_ROWS } from "./composer.ts";
@@ -191,6 +195,8 @@ import {
     readModelSettingsThroughHost,
     refreshCatalogThroughHost,
 } from "../../src/host/model-settings-client.ts";
+import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
+import type { ClientExtensionHostRequest } from "../../src/extensions/client-registry.ts";
 import {
     readAnnexUrlThroughHost,
     type AnnexUrlResult,
@@ -226,8 +232,7 @@ import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
 import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 
-import { DIAL_HUD_CAP, dialEffortPending, renderDialStrip, DIAL_EXIT_SEPARATOR } from "./dials.ts";
-import { modelJourneyScope, modelJourneySort } from "./model-journeys.ts";
+import { modelBrowseScope, modelBrowseSort } from "./model-browse.ts";
 import {
     AUTO_MODE_ANIMATION_DURATION_MS,
     paintDialHud,
@@ -278,7 +283,7 @@ import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
 import { type PoolChangeUndo, type TuiAgentCatalog, type TuiRuntime } from "./main/runtime.ts";
 import { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, appendPendingSidebarContextNotice, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer } from "./main/chrome.ts";
-import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, dialCatalog, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, composerIsAtLeftBoundary, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
+import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, composerIsAtLeftBoundary, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
 import { hostedAgentAddressing, sidebarTranscriptWidth, mainTranscriptWidth, rememberOpenPaneGroup, forgetPersistedAgentPane, createTuiEntryNode, renderSidebarAgent, repaintSidebarForTheme, handleSidebarAgentUpdate, sidebarTheme } from "./main/sidebar-pane.ts";
 import { applyTranscriptScroll, handleKeypress } from "./main/keypress.ts";
 import { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, isSettingsRetryTrigger, requestSessionSettings, restorePersistedAgentPane, diagnosticsSnapshot, renderDiagnostics, abortProviderHealthCheck, paintDiagnosticsDialog, startProviderHealthCheck, noticeRepeatedModelFailure, writeFailureReportFile } from "./main/diagnostics-ops.ts";
@@ -323,7 +328,7 @@ export { submitPrompt };
 export { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, isSettingsRetryTrigger, requestSessionSettings, restorePersistedAgentPane, diagnosticsSnapshot, renderDiagnostics, abortProviderHealthCheck, paintDiagnosticsDialog, startProviderHealthCheck, noticeRepeatedModelFailure, writeFailureReportFile };
 export { applyTranscriptScroll, handleKeypress };
 export { hostedAgentAddressing, sidebarTranscriptWidth, mainTranscriptWidth, rememberOpenPaneGroup, forgetPersistedAgentPane, createTuiEntryNode, renderSidebarAgent, repaintSidebarForTheme, handleSidebarAgentUpdate, sidebarTheme };
-export { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, dialCatalog, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, composerIsAtLeftBoundary, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions };
+export { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, composerIsAtLeftBoundary, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions };
 export { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, appendPendingSidebarContextNotice, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer };
 
 registerTuiParsers();
@@ -496,6 +501,7 @@ export interface TuiDependencies {
     readonly openConfigurationFile?: (path: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    readonly requestExtension?: ClientExtensionHostRequest;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly operateModels?: (operation: ModelOperation, onResult: (result: ModelOperationResult) => void, workspace?: string) => Promise<ModelTurnSettings | undefined>;
     readonly readHostModelSettings?: (
@@ -560,10 +566,14 @@ export interface TuiDependencies {
         sessionId: string,
         name: string | null,
     ) => Promise<RenameSessionResult>;
-    readonly disabledBuiltinExtensions?: readonly string[];
+    readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
+    readonly listImportableSessions?: (
+        workspace: string | undefined,
+    ) => Promise<ImportableSessionListing | undefined>;
+    readonly disabledIncludedExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
     readonly loadClientExtensionConfiguration?: () => {
-        readonly disabledBuiltinExtensions: readonly string[];
+        readonly disabledIncludedExtensions: readonly string[];
         readonly clientExtensions: readonly VeraExtensionConfig[];
     };
     readonly build?: {
@@ -668,7 +678,7 @@ export async function startConfiguredTui(
     installLiveProcess("tui");
     installTerminalRestoreOnExit();
     // Optional: requiring config made attach fail against an already-running host.
-    const config = loadOptionalVeraConfig({ projectRoot: process.cwd() });
+    const config = loadOptionalVeraConfig();
     let host = await findOrStartResidentHost({
         ...(options.confirmBusyUpgrade === undefined
             ? {}
@@ -743,6 +753,8 @@ export async function startConfiguredTui(
                 readModelSettingsThroughHost(host.socket_path, workspace),
             refreshHostCatalog: (provider, workspace) =>
                 refreshCatalogThroughHost(host.socket_path, provider, workspace),
+            requestExtension: (extensionId, name, payload, signal) =>
+                requestExtensionThroughHost(host.socket_path, extensionId, name, payload, signal),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -798,20 +810,24 @@ export async function startConfiguredTui(
                 trashSessionThroughHost(host.socket_path, sessionId),
             renameSession: (sessionId, name) =>
                 renameSessionThroughHost(host.socket_path, sessionId, name),
-            ...(config?.disabled_builtin_extensions === undefined
+            importSession: (path) =>
+                importSessionThroughHost(host.socket_path, path),
+            listImportableSessions: (workspace) =>
+                listImportableSessionsThroughHost(host.socket_path, workspace),
+            ...(config?.disabled_included_extensions === undefined
                 ? {}
                 : {
-                    disabledBuiltinExtensions:
-                        config.disabled_builtin_extensions,
+                    disabledIncludedExtensions:
+                        config.disabled_included_extensions,
                 }),
             ...(config?.extensions === undefined
                 ? {}
                 : { clientExtensions: config.extensions }),
             loadClientExtensionConfiguration() {
-                const latest = loadOptionalVeraConfig({ projectRoot: process.cwd() });
+                const latest = loadOptionalVeraConfig();
                 return {
-                    disabledBuiltinExtensions:
-                        latest?.disabled_builtin_extensions ?? [],
+                    disabledIncludedExtensions:
+                        latest?.disabled_included_extensions ?? [],
                     clientExtensions: latest?.extensions ?? [],
                 };
             },
@@ -1012,6 +1028,7 @@ export async function startTui(
     rt.clientGeneration = 0;
     rt.composeSurfaceGeneration = 0;
     rt.resumeListVersion = 0;
+    rt.importListVersion = 0;
     rt.promptSubmitting = false;
     rt.sessionSwitchPending = false;
     rt.sessionSwitchActivity = "starting new session…";
@@ -1068,13 +1085,13 @@ export async function startTui(
         }));
     }
     rt.finished = Promise.withResolvers<TuiExit>();
-    rt.disabledBuiltinExtensions =
-        rt.dependencies.disabledBuiltinExtensions ?? [];
+    rt.disabledIncludedExtensions =
+        rt.dependencies.disabledIncludedExtensions ?? [];
     rt.commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
-        rt.disabledBuiltinExtensions,
+        rt.disabledIncludedExtensions,
     );
     rt.configuredClientExtensions = configuredTuiClientExtensions(
-        rt.disabledBuiltinExtensions,
+        rt.disabledIncludedExtensions,
         rt.dependencies.clientExtensions,
     );
     rt.hostedAgentSurface = createTuiHostedAgentSurface({
@@ -1094,6 +1111,7 @@ export async function startTui(
             extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState(rt).modelSettings,
             readSources: (signal) => requestCustomizationSources(rt, signal),
+            requestExtension: rt.dependencies.requestExtension,
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState(rt).context,
                 focusedAgentState(rt).modelSettings,
@@ -1681,6 +1699,7 @@ export async function startTui(
     rt.standingNudgesView = createTuiStandingNudgesView(rt.renderer);
     rt.extensionsListView = createTuiExtensionsListView(rt.renderer);
     rt.commandPaletteView = createTuiCommandPaletteView(rt.renderer);
+    rt.modelSwitcherView = createTuiModelSwitcherView(rt.renderer);
     rt.workTabView = createTuiLinesView(rt.renderer, "work-tab");
     rt.workspaceSidebarView = createTuiLinesView(
         rt.renderer,
@@ -1739,6 +1758,7 @@ export async function startTui(
         rt.standingNudgesView,
         rt.extensionsListView,
         rt.commandPaletteView,
+        rt.modelSwitcherView,
         rt.helpView,
         rt.diagnosticsDialogView,
         rt.extensionsDialogView,
@@ -2071,53 +2091,36 @@ export async function startTui(
         if (rt.settingsPicker === undefined) return;
         rt.settingsPicker = moveTuiSettingsPickerPointer(rt.settingsPicker, index);
     });
-    rt.settingsPickerView.onTab = (tab) => {
-        const pane = rt.settingsPicker?.kind === "provider"
-            ? rt.settingsPicker.parent
-            : rt.settingsPicker;
-        if (pane === undefined || pane.kind !== "model") {
-            return;
-        }
-        // A click on a chip is the same act as tabbing onto it: the reader is
-        // choosing tabs, so they are left on the strip with the page beneath.
-        rt.settingsPicker = { ...switchedModelTab(pane, tab), pickerLevel: "strip" };
-        renderState(rt);
-    };
     rt.settingsPickerView.onCutoff = (cutoff) => {
         if (rt.settingsPicker?.kind !== "model" && rt.settingsPicker?.kind !== "model_menu") return;
         rt.settingsPicker = setTuiSettingsPickerCutoff(rt.settingsPicker, cutoff);
         renderState(rt);
     };
     rt.settingsPickerView.onMore = () => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
         applySettingsPickerTransition(rt, handleTuiSettingsPickerKey(rt.settingsPicker, { name: "k", ctrl: true }));
     };
-    rt.settingsPickerView.onJourneyAction = (modelFocus) => {
+    rt.settingsPickerView.onBrowseAction = (modelFocus) => {
         if (rt.settingsPicker?.kind !== "model") return;
         applySettingsPickerTransition(rt, handleTuiSettingsPickerKey({ ...rt.settingsPicker, modelFocus }, { name: "enter" }));
     };
     rt.settingsPickerView.onScope = () => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
-        rt.settingsPicker = modelJourneyScope({ ...rt.settingsPicker, modelFocus: "scope" });
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
+        rt.settingsPicker = modelBrowseScope({ ...rt.settingsPicker, modelFocus: "scope" });
         renderState(rt);
         focusActiveSurface(rt);
     };
     rt.settingsPickerView.onSort = () => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
-        rt.settingsPicker = modelJourneySort({ ...rt.settingsPicker, modelFocus: "sort" });
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
+        rt.settingsPicker = modelBrowseSort({ ...rt.settingsPicker, modelFocus: "sort" });
         renderState(rt);
         focusActiveSurface(rt);
     };
     rt.settingsPickerView.onSection = (modelFocus) => {
-        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelJourney !== "switch") return;
+        if (rt.settingsPicker?.kind !== "model" || rt.settingsPicker.modelBrowse !== "browse") return;
         rt.settingsPicker = { ...rt.settingsPicker, modelFocus };
         renderState(rt);
         focusActiveSurface(rt);
-    };
-    rt.settingsPickerView.onConfigure = () => {
-        if (rt.settingsPicker?.kind === "provider") return;
-        if (rt.settingsPicker?.kind !== "model") return;
-        openProviderPicker(rt, rt.settingsPicker);
     };
     rt.preferencesListView.pointer = rowPointer(rt, (index) => {
         if (rt.preferencesList === undefined) return;
@@ -2126,6 +2129,10 @@ export async function startTui(
     rt.commandPaletteView.pointer = rowPointer(rt, (index) => {
         if (rt.commandPalette === undefined) return;
         rt.commandPalette = { ...rt.commandPalette, selectedIndex: index };
+    });
+    rt.modelSwitcherView.pointer = rowPointer(rt, (index) => {
+        if (rt.modelSwitcher === undefined) return;
+        rt.modelSwitcher = { ...rt.modelSwitcher, selectedIndex: index };
     });
     rt.helpView.pointer = rowPointer(rt, (index) => {
         if (rt.help === undefined) return;
@@ -2212,6 +2219,15 @@ export async function startTui(
         rt.commandPalette = transition.state;
         renderState(rt);
     };
+    rt.modelSwitcherView.box.onMouseScroll = (event) => {
+        if (rt.modelSwitcher === undefined || event.scroll === undefined) return;
+        const transition = handleTuiModelSwitcherScroll(rt.modelSwitcher, event.scroll);
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        rt.modelSwitcher = transition.state;
+        renderState(rt);
+    };
     rt.helpView.box.onMouseScroll = (event) => {
         if (rt.help === undefined || event.scroll === undefined) return;
         const transition = handleTuiHelpScroll(rt.help, event.scroll);
@@ -2225,6 +2241,7 @@ export async function startTui(
     rt.app.add(rt.standingNudgesView.surface);
     rt.app.add(rt.extensionsListView.box);
     rt.app.add(rt.commandPaletteView.surface);
+    rt.app.add(rt.modelSwitcherView.surface);
     rt.workTabView.pointer = {
         hover: (rowId) => {
             if (rt.workTab === undefined || rt.workTab.selectedId === rowId) return;
@@ -2640,6 +2657,16 @@ export async function startTui(
             }
             return;
         }
+        if (rt.modelSwitcher !== undefined && rt.modelSwitcherView.surface.visible) {
+            event.preventDefault();
+            event.stopPropagation();
+            rt.modelSwitcher = rt.modelSwitcherView.handleEditorPaste(
+                rt.modelSwitcher,
+                pasted(),
+            );
+            renderState(rt);
+            return;
+        }
         if (rt.commandPalette !== undefined && rt.commandPaletteView.surface.visible) {
             event.preventDefault();
             event.stopPropagation();
@@ -2906,6 +2933,9 @@ export async function startTui(
             backgroundColor: "panel",
         }),
         tuiThemeProperties(rt.commandPaletteView.box, {
+            backgroundColor: "panel",
+        }),
+        tuiThemeProperties(rt.modelSwitcherView.box, {
             backgroundColor: "panel",
         }),
         tuiThemeProperties(rt.helpView.box, { backgroundColor: "panel" }),

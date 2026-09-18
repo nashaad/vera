@@ -69,7 +69,7 @@ An existing definition is replaced only with your approval.
 After approval, Vera saves the definition, validates its format and permission
 modes, and runs the agreed trial. Validation and trial results are reported
 separately. If a model assignment is missing, the definition stays saved;
-configure the assignment in `/defaults` before trying again.
+configure the assignment in Defaults, from `/models`, before trying again.
 
 If you need to continue in another turn, invoke `/create-agent` again with your
 decision. `/create-agent save` approves the latest complete draft and displayed
