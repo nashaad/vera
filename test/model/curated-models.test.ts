@@ -8,6 +8,7 @@ import {
     curatedKey,
     curatedKeys,
     curatedModels,
+    curatedSeed,
     parseCuratedList,
     curatedSelection,
     readCuratedCache,
@@ -127,7 +128,7 @@ test("a refused fetch keeps the cached list and says why", async () => {
     expect(result.list?.models).toHaveLength(2);
 });
 
-test("an unreachable address with no cache leaves the picks to the shipped ones", async () => {
+test("an unreachable address with no cache leaves the picks to the shipped seed", async () => {
     const path = tempPath();
     const result = await refreshCuratedModels({
         url: "https://curated.test/list.json",
@@ -138,15 +139,26 @@ test("an unreachable address with no cache leaves the picks to the shipped ones"
 
     expect(result.source).toBe("none");
     expect(result.refusal).toBe("offline");
-    expect(curatedModels(path)).toEqual([]);
+    expect(curatedModels(path)).toEqual(curatedSeed());
 });
 
-test("a damaged cache file reads as no picks at all", () => {
+test("a damaged cache file falls back to the shipped seed", () => {
     const path = tempPath();
     writeFileSync(path, "{ not json");
 
     expect(readCuratedCache(path)).toBeUndefined();
-    expect(curatedModels(path)).toEqual([]);
+    expect(curatedModels(path)).toEqual(curatedSeed());
+});
+
+test("the shipped seed parses and names a make for every pick", () => {
+    const seed = curatedSeed();
+
+    expect(seed.length).toBeGreaterThan(0);
+    expect(seed.every((pick) => pick.make.trim() !== "" && pick.model.trim() !== "")).toBe(true);
+});
+
+test("a missing seed leaves the picks empty", () => {
+    expect(curatedModels(tempPath(), tempPath())).toEqual([]);
 });
 
 test("an empty address makes no request", () => {
@@ -194,7 +206,6 @@ test("a curated pick marks the provider row it matches", () => {
     }));
     const catalog = effectiveCatalog("openrouter", {
         cacheDir,
-        recommended: [],
         curated: [{ make: "Alibaba", model: "qwen3.8-max" }],
     });
 

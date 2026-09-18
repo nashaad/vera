@@ -1,6 +1,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
@@ -61,8 +62,24 @@ export function readCuratedCache(
     }
 }
 
-export function curatedModels(path = curatedCachePath()): readonly CuratedModel[] {
-    return readCuratedCache(path)?.list.models ?? [];
+/** The list shipped with the build, which answers until a fetch lands. */
+const CURATED_SEED_PATH = fileURLToPath(
+    new URL("../../config/curated-models.json", import.meta.url),
+);
+
+export function curatedSeed(path = CURATED_SEED_PATH): readonly CuratedModel[] {
+    try {
+        return parseCuratedList(JSON.parse(readRegularFileTextSync(path)))?.models ?? [];
+    } catch {
+        return [];
+    }
+}
+
+export function curatedModels(
+    path = curatedCachePath(),
+    seedPath = CURATED_SEED_PATH,
+): readonly CuratedModel[] {
+    return readCuratedCache(path)?.list.models ?? curatedSeed(seedPath);
 }
 
 /**

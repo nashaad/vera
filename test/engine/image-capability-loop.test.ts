@@ -75,7 +75,7 @@ function harness(seed?: string): Harness {
         projectPath: join(directory, "absent-project-pool.json"),
         path: poolPath,
         cacheDir: join(directory, "catalog-cache"),
-        recommended: [],
+        curated: [],
     };
     return {
         poolPath,
@@ -147,7 +147,7 @@ function poolBackedAdapter(
         provider: PROVIDER,
         pool: theHarness.pool,
         cacheDir: theHarness.cacheDir,
-        recommended: [],
+        curated: [],
     });
     return {
         requests,

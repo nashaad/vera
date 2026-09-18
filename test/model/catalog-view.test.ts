@@ -359,12 +359,10 @@ function suggested(provider: string, model: string): SuggestedModel {
 // The curation names models, and the catalog carries the flag. Both projections
 // pass it through, so the picker filters one set of rows rather than holding a
 // second list of its own.
-test("a recommended model carries the flag and its level to both projections", () => {
+test("a curated pick carries the recommended flag to both projections", () => {
     const options = {
         ...fixture(),
-        recommended: [
-            { provider: "test", model: "with-levels", reasoning_effort: "high" },
-        ],
+        curated: [{ make: "Test", model: "with-levels" }],
     };
 
     const available = availableModelsWithLevels([
@@ -372,13 +370,11 @@ test("a recommended model carries the flag and its level to both projections", (
         suggested("test", "no-levels"),
     ], options);
     expect(available[0]?.recommended).toBe(true);
-    expect(available[0]?.recommendedLevel).toBe("high");
     expect(available[1]?.recommended).toBeUndefined();
 
     addPoolModel("test/with-levels", {}, { path: options.userPath });
     const pooled = pooledModels([suggested("test", "with-levels")], options);
     expect(pooled[0]?.recommended).toBe(true);
-    expect(pooled[0]?.recommendedLevel).toBe("high");
 });
 
 test("an entry holding only learned facts is not in the pool", () => {

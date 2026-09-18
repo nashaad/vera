@@ -33,7 +33,6 @@ import type { OverrideSettingsPatch } from "./engine/model-settings.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
-import { loadRecommendedModels } from "./model/recommended-models.ts";
 import {
     parseCompactionConfig,
     parseModelCatalogConfig,
@@ -858,26 +857,24 @@ function writeVeraConfigFile(
  * is `loadOrCreateVeraConfig`'s job, so a command that only reports on the
  * config cannot bring one into being as a side effect.
  *
- * The selection is the top row of the shipped recommendations, which is the
- * same pair the getting-started page opens with.
+ * The selection is the starting pair below: a config must name one provider,
+ * so it is stated here rather than read off a list that names none.
  *
  * The approval mode is the parser's own default rather than a decision. The
  * created file omits the key so that a first save settles a model and leaves
  * the permissions posture to whoever chooses one.
  */
+export const STARTING_PROVIDER = "openrouter";
+export const STARTING_MODEL = "openai/gpt-5.6-sol";
+export const STARTING_REASONING_EFFORT = "high";
+
 export function startingVeraConfig(): VeraConfig {
-    const recommended = loadRecommendedModels()[0];
-    if (recommended === undefined) {
-        throw new Error("No recommended model to start a Vera config from.");
-    }
     return {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
-        provider: recommended.provider,
-        model: recommended.model,
+        provider: STARTING_PROVIDER,
+        model: STARTING_MODEL,
         approval_mode: "auto",
-        ...(recommended.reasoning_effort === undefined
-            ? {}
-            : { reasoning_effort: recommended.reasoning_effort }),
+        reasoning_effort: STARTING_REASONING_EFFORT,
     };
 }
 

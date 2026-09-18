@@ -11,11 +11,12 @@ import { join } from "node:path";
 
 import {
     loadVeraConfig,
+    STARTING_MODEL,
+    STARTING_PROVIDER,
     updateVeraConfigDefaults,
     VeraConfigError,
     type VeraCustomProviderConfig,
 } from "../../src/config.ts";
-import { loadRecommendedModels } from "../../src/model/recommended-models.ts";
 
 const LOCAL: VeraCustomProviderConfig = {
     protocol: "openai-chat",
@@ -199,10 +200,9 @@ test("the created config matches the shipped recommendation", () => {
             { custom_provider: { id: "gateway", declaration: LOCAL } },
             { path },
         );
-        const first = loadRecommendedModels()[0]!;
         const config = loadVeraConfig({ path });
-        expect(config.provider).toBe(first.provider);
-        expect(config.model).toBe(first.model);
+        expect(config.provider).toBe(STARTING_PROVIDER);
+        expect(config.model).toBe(STARTING_MODEL);
     } finally {
         rmSync(directory, { recursive: true, force: true });
     }
