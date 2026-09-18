@@ -25,8 +25,8 @@ test("Manage shows Working until save completes, then success or failure below t
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
-        session.sendText("model library"); await session.waitForVisiblePane("Model Library");
-        session.sendKey("Enter"); await session.waitForVisiblePane("not kept ✗");
+        session.sendText("favorites"); await session.waitForVisiblePane("Favorites");
+        session.sendKey("Enter"); await session.waitForVisiblePane("★ kept");
         session.sendKey("C-k"); await session.settle();
         expect(calls).toBe(0);
         expect(session.captureVisiblePane()).not.toContain("keep matches");
@@ -35,13 +35,13 @@ test("Manage shows Working until save completes, then success or failure below t
         expect(calls).toBe(1);
         expect(session.captureVisiblePane()).not.toContain("✓ One added");
         finish();
-        const success = await session.waitForVisiblePane("✓ One added to library");
-        expect(success).toContain("kept ✓");
+        const success = await session.waitForVisiblePane("✓ One added to favorites");
+        expect(success).toContain("Favorites: saved");
         expect(success).not.toContain("default slot");
         session.sendKey("Enter");
         const failed = await session.waitForVisiblePane("✗ Could not save library: disk full");
-        expect(failed).toContain("kept ✓");
+        expect(failed).toContain("Favorites: saved");
         expect(failed).not.toContain("✓ One added");
-        expect(failed).not.toContain("removed from library");
+        expect(failed).not.toContain("removed from favorites");
     } finally { finish(); await session.close(); }
 }, 15_000);
