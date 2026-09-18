@@ -449,8 +449,16 @@ export function createTuiModelSwitcherView(
                 state.queryCursor,
             );
             box.add(header);
+            const caption = new TextRenderable(renderer, {
+                content: `${DIALOG_GUTTER}${switcherCaption(state)}`,
+                fg: TUI_MUTED,
+                width: "100%",
+                height: 1,
+            });
+            box.add(caption);
             box.add(search.box);
             nodes.push(header);
+            nodes.push(caption);
 
             const display = windowedRows(renderer, state);
             if (display.length === 0) {
@@ -551,6 +559,13 @@ function rowMeta(
         ...(modelSwitcherKey(row) === state.current ? ["✓"] : []),
     ];
     return parts.length === 0 ? undefined : parts.join(" · ");
+}
+
+/** Says what the list in front of you is, so the short list does not read as the whole catalog. */
+export function switcherCaption(state: TuiModelSwitcherState): string {
+    return state.query.trim().length === 0
+        ? "Your model, your favorites, then what you used last."
+        : "Every connected model, closest match first.";
 }
 
 /** A search that reached its limit says where the rest of the matches are. */

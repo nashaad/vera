@@ -18,6 +18,17 @@ export function nextBrowseScope(
     return BROWSE_SCOPES[(at + (forward ? 1 : count - 1)) % count]!;
 }
 
+/** What the scope in front of you holds, and what Enter does to a row in it. */
+export function browseScopeCaption(tab: TuiModelPickerTab | undefined): string {
+    if (tab === "all") {
+        return "Every model your connected providers list. \u23ce favorites one.";
+    }
+    if (tab === "recommended") {
+        return "Curated picks for the providers you connected, refreshed daily. \u23ce favorites one.";
+    }
+    return "The models you favorited, in the order you added them. \u23ce removes one.";
+}
+
 export function browseScopeLabel(tab: TuiModelPickerTab | undefined): string {
     return tab === "all" ? "All connected" : tab === "recommended" ? "Recommended" : "Favorites";
 }

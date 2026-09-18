@@ -338,8 +338,11 @@ describe("model switcher rendering", () => {
                 .filter((line) => /^\s*\d\s+\S/.test(line))
                 .map((line) => line.trim().slice(0, 1));
             expect(numbered).toEqual(["1", "2", "3"]);
-            for (const gone of ["favorites", "recent", "Sort", "Cutoff", "WA Score", "All connected"]) {
-                expect(frame).not.toContain(gone);
+            // The caption names what the list is; the old group headings are gone.
+            expect(frame).toContain("Your model, your favorites, then what you used last.");
+            const headings = frame.split("\n").map((line) => line.trim());
+            for (const gone of ["favorites", "recent", "Recommended", "All models"]) {
+                expect(headings).not.toContain(gone);
             }
         } finally {
             setup.renderer.destroy();

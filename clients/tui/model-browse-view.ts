@@ -2,7 +2,7 @@ import { BoxRenderable, TextRenderable, StyledText, fg, type Renderable, type Re
 import { dialogActionRow, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderNode, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
 import { dialogSearchHeight } from "./dialog-search.ts";
 import { modelDetailHeight, modelDetailNode, modelPaneSplit, pickerContentWidth } from "./settings-picker-model.ts";
-import { browseScopeLabel, browseWindow, browseMoreText, emptyModelBrowse } from "./model-browse.ts";
+import { browseScopeCaption, browseScopeLabel, browseWindow, browseMoreText, emptyModelBrowse } from "./model-browse.ts";
 import { formatListedPrice } from "../../src/model/listed-rates.ts";
 import { TUI_ACCENT, TUI_DANGER, TUI_ELEMENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import type { ModelBrowseSection, TuiSettingsPickerOption, TuiSettingsPickerState, TuiPickerTipLine } from "./settings-picker-types.ts";
@@ -49,6 +49,8 @@ export function renderModelBrowse(
 ): void {
     const tipLine = typeof tip === "string" ? { tone: "tip" as const, text: tip } : tip;
     const tipRows = tipLine?.text ? 2 : 0;
+    // The caption takes the gap above the search box, so it costs no list row.
+    const caption = state.query.trim() === "" ? browseScopeCaption(state.tab) : undefined;
     const width = pickerContentWidth(renderer, state, railInset);
     const detailed = state.browseView === "detailed";
     const candidateSplit = detailed ? modelPaneSplit(renderer, state, railInset) : undefined;
@@ -83,9 +85,10 @@ export function renderModelBrowse(
     // ^g is the only way to change scope, so it belongs next to the scope it changes.
     const scopeHint = state.query.trim() ? "esc" : "^g scope · esc";
     add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`, scopeHint));
+    if (caption !== undefined) add(text(caption));
     if (search !== undefined) {
         updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
-        search.box.marginTop = 1;
+        search.box.marginTop = caption === undefined ? 1 : 0;
         search.box.marginBottom = 1;
         box.add(search.box);
     }
