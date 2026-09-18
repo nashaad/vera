@@ -5,7 +5,7 @@ import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 import { shortlistFactsText, shortlistLegendText } from "../../clients/tui/settings-picker-model.ts";
-import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, modelJourneySort, journeySort, journeySections, MODEL_SWITCH_TIPS, modelSwitchTip } from "../../clients/tui/model-journeys.ts";
+import { type JourneyDisplayRow, handleModelJourneyKey, modelJourney, journeyHeader, journeyFooter, journeyModels, journeyMatches, journeyMoreText, journeyWindow, modelJourneyScope, modelJourneySort, journeySort, journeySections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-journeys.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -65,15 +65,15 @@ test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep su
         await setup.renderOnce();
         const sparseHeight = view.box.height;
         const lines = setup.captureCharFrame().split("\n");
-        const scope = lines.findIndex((line) => line.includes("Switch model · Favorites"));
+        const scope = lines.findIndex((line) => line.includes("Browse models · Favorites"));
         const row = lines.findIndex((line) => line.includes("* Item 0"));
         expect(lines.some((line) => line.includes("View:"))).toBe(false);
         expect(lines.some((line) => line.trim() === "Favorites")).toBe(false);
-        expect(lines[scope]!.indexOf("Switch model")).toBe(lines[row]!.indexOf("*"));
+        expect(lines[scope]!.indexOf("Browse models")).toBe(lines[row]!.indexOf("*"));
         if (journeyView === "standard") {
             const price = lines.findIndex((line) => line.includes("Price unavailable"));
             expect(price).toBe(row + 2);
-            expect(lines[scope]!.indexOf("Switch model")).toBe(lines[price]!.indexOf("Price"));
+            expect(lines[scope]!.indexOf("Browse models")).toBe(lines[price]!.indexOf("Price"));
         }
         expect(lines.some((line) => line.includes("* favorite"))).toBe(false);
         view.update({ ...modelJourney({ ...base, allOptions: options }, "switch"), journeyView });
@@ -113,7 +113,7 @@ test.each(["standard", "detailed"] as const)("%s picker aligns labels and reserv
         const blurred = setup.captureCharFrame().split("\n");
         expect(blurred.find((line) => line.includes("Filter and sort"))).toBe(lines.find((line) => line.includes("Filter and sort")));
         const heading = lines.find((line) => line.includes("▼ p"))!;
-        const bodyColumn = lines.find((line) => line.includes("Switch model"))!.indexOf("Switch model");
+        const bodyColumn = lines.find((line) => line.includes("Browse models"))!.indexOf("Browse models");
         expect(heading.indexOf("▼")).toBe(bodyColumn);
         expect(lines.find((line) => line.includes("* Beta"))!.indexOf("*")).toBe(bodyColumn);
         expect(heading.indexOf("p")).toBe(bodyColumn + 2);
@@ -208,14 +208,15 @@ test("scope counts ignore query and cutoff", () => {
 });
 
 
-test("Enter switches in either scope without toggling membership", () => {
+test("Enter favorites in either scope and never switches the model", () => {
     let state = modelJourney(base, "switch");
     expect(state.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["b", "c"]);
     expect(journeyHeader(state)).not.toContain("Cutoff");
-    expect(handleModelJourneyKey(state, { name: "enter" }).selection).toEqual({ kind: "model", provider: "p", model: "b" });
+    expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
+    expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toEqual({ action: "remove", provider: "p", model: "b" });
     state = chooseScope(state);
     expect(journeyMatches(state)).toHaveLength(3);
-    expect(handleModelJourneyKey(state, { name: "enter" }).poolToggle).toBeUndefined();
+    expect(handleModelJourneyKey(state, { name: "enter" }).selection).toBeUndefined();
     expect(handleModelJourneyKey(state, { name: "r", ctrl: true }).refreshAllCatalogs).toBe(true);
 });
 
@@ -518,7 +519,7 @@ test("narrow Switch cards draw nothing outside the card and keep one gap above s
                         expect(current[1]! - geometry[1]!).toBe(1);
                     } else geometry = current;
                     expect(screenY + view.box.height).toBeLessThanOrEqual(height);
-                    expect(lines.find((line) => line.includes("Switch model"))).toContain("esc");
+                    expect(lines.find((line) => line.includes("Browse models"))).toContain("esc");
                     expect(lines.findIndex((line) => line.includes("Search models"))).toBeLessThan(lines.findIndex((line) => line.includes("Filter and sort")));
 
                 }
@@ -681,7 +682,7 @@ test("journey panels stay vertically centred as scope, content, and terminal siz
         expect(Math.abs(2 * view.box.screenY + view.box.height - 24)).toBeLessThanOrEqual(1);
         view.surface.visible = false;
         await setup.renderOnce();
-        expect(setup.captureCharFrame()).not.toContain("Switch model");
+        expect(setup.captureCharFrame()).not.toContain("Browse models");
     } finally { setup.renderer.destroy(); }
 });
 
@@ -823,7 +824,7 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
 
 test("Switch names the half-page keys only while the list has the keys", () => {
     const state = { ...modelJourney(base, "switch"), modelFocus: "list" as const };
-    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ switch model · ^s remove from favorites · Space fold/unfold");
+    expect(journeyFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ / ^s remove from favorites · Space fold/unfold");
     for (const focus of ["scope", "sort", "search", "more"] as const) {
         expect(journeyFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
     }
@@ -924,12 +925,12 @@ test("confirming scope focuses models while cancelling restores Show", () => {
 });
 
 
-test("the switch tip cycles and every line fits one row", () => {
-    for (const tip of MODEL_SWITCH_TIPS) expect(tip.length).toBeLessThanOrEqual(64);
-    const seen = MODEL_SWITCH_TIPS.map((_, turn) => modelSwitchTip(turn));
-    expect(seen).toEqual([...MODEL_SWITCH_TIPS]);
-    expect(modelSwitchTip(MODEL_SWITCH_TIPS.length)).toBe(MODEL_SWITCH_TIPS[0]);
-    expect(modelSwitchTip(-1)).toBe(MODEL_SWITCH_TIPS[MODEL_SWITCH_TIPS.length - 1]);
+test("the browse tip cycles and every line fits one row", () => {
+    for (const tip of MODEL_BROWSE_TIPS) expect(tip.length).toBeLessThanOrEqual(64);
+    const seen = MODEL_BROWSE_TIPS.map((_, turn) => modelBrowseTip(turn));
+    expect(seen).toEqual([...MODEL_BROWSE_TIPS]);
+    expect(modelBrowseTip(MODEL_BROWSE_TIPS.length)).toBe(MODEL_BROWSE_TIPS[0]);
+    expect(modelBrowseTip(-1)).toBe(MODEL_BROWSE_TIPS[MODEL_BROWSE_TIPS.length - 1]);
 });
 
 const priced = [

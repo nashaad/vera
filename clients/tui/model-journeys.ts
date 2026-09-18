@@ -135,7 +135,7 @@ export function modelJourney(state: TuiSettingsPickerState, mode: "switch" | "sh
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         modelJourney: mode,
         journeyRetainedModels: state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value),
-        title: mode === "switch" ? "Switch model" : "Favorites",
+        title: mode === "switch" ? "Browse models" : "Favorites",
         journeyView: state.journeyView ?? "standard",
         tab: mode === "switch" ? state.tab ?? "pool" : "all", modelFocus: mode === "switch" ? "search" : "list", query: "", queryCursor: 0,
         selectedIndex: 0, pickerLevel: "page" };
@@ -164,26 +164,26 @@ export function journeyFooter(state: TuiSettingsPickerState): string {
         : state.modelFocus === "search" ? "Type to search · ←→ move cursor · ↑↓ sections"
         : state.modelFocus === "intelligence" ? "←→ change cutoff · ↑↓ sections"
         : state.modelFocus === "more" ? "⏎ open More · arrows move sections"
-        : `↑↓ ^d^u choose · ⏎ switch model${selected === undefined ? "" : ` · ^s ${
-            selected.pooledRank === undefined ? "add to favorites" : "remove from favorites"}`} · Space fold/unfold`;
+        : `↑↓ ^d^u choose · ⏎ / ^s ${selected === undefined ? "favorite"
+            : selected.pooledRank === undefined ? "add to favorites" : "remove from favorites"} · Space fold/unfold`;
     const libraryNavigation = state.modelFocus === "search" ? "Type to search · ↑↓ sections" : "↑↓ choose · Space fold/unfold";
     return state.modelJourney === "shortlist"
         ? `⏎ / Ctrl+S  ${action}\nCtrl+A  ${reveal}\n${libraryNavigation} · Tab sections\nCtrl+R Rename · Ctrl+Y Verify · Esc Back`
         : `› Ctrl+K More: ${state.tab === "all" ? "library, variants, refresh, defaults" : "library, refresh, defaults"}\n${navigation}\nTab / Shift+Tab sections · Esc back`;
 }
 
-/** The switch dialog always carries one of these, one per open. */
-export const MODEL_SWITCH_TIPS: readonly string[] = [
-    "Switching keeps the thread; the next turn uses the new model.",
+/** The browse page always carries one of these, one per open. */
+export const MODEL_BROWSE_TIPS: readonly string[] = [
+    "Browsing changes nothing that runs; /model switches the model.",
     "Type from any section to search; Tab moves between sections.",
     "Ctrl+G toggles Favorites and All connected models.",
-    "^s adds the highlighted model to your favorites.",
-    "Highlight a model: Ctrl+K manages it; Enter switches to it.",
+    "Enter or ^s favorites the highlighted model.",
+    "Highlight a model and press Ctrl+K to manage it.",
 ];
 
-export function modelSwitchTip(turn: number): string {
-    const count = MODEL_SWITCH_TIPS.length;
-    return MODEL_SWITCH_TIPS[((turn % count) + count) % count]!;
+export function modelBrowseTip(turn: number): string {
+    const count = MODEL_BROWSE_TIPS.length;
+    return MODEL_BROWSE_TIPS[((turn % count) + count) % count]!;
 }
 
 export function journeySections(state: TuiSettingsPickerState): readonly ModelJourneySection[] {
@@ -433,10 +433,9 @@ export function handleModelJourneyKey(state: TuiSettingsPickerState, key: TuiSet
         return toggledJourneyGroup(state, "open");
     }
     if ((key.name === "enter" || key.name === "return") && selected?.provider && selected.model) {
-        if (selected.unavailable && !managing) return same;
-        if (managing) return { ...same, poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",
+        // Neither mode switches the model: this page never changes what runs next.
+        return { ...same, poolToggle: { action: selected.pooledRank === undefined ? "add" : "remove",
             provider: selected.provider, model: selected.model } };
-        return { handled: true, selection: { kind: "model", provider: selected.provider, model: selected.model } };
     }
     return { state, handled: false };
 }

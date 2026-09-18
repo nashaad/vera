@@ -57,9 +57,9 @@ test("cutoff band and printed ticks accept mouse clicks at their rendered positi
 
             // A prior selection elsewhere must clear when operating the cutoff.
             lines = await paint();
-            const titleRow = lines.findIndex((line) => line.includes("Switch model"));
+            const titleRow = lines.findIndex((line) => line.includes("Browse models"));
             if (titleRow >= 0) {
-                const titleColumn = lines[titleRow]!.indexOf("Switch model");
+                const titleColumn = lines[titleRow]!.indexOf("Browse models");
                 await setup.mockMouse.drag(titleColumn, titleRow, titleColumn + 6, titleRow);
                 expect(setup.renderer.getSelection()?.getSelectedText()).toContain("Switch");
                 await setup.mockMouse.click(lines[tickRow]!.indexOf("any"), tickRow);
