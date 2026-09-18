@@ -8,16 +8,49 @@ import { TUI_ACCENT, TUI_DANGER, TUI_ELEMENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } f
 import type { ModelBrowseSection, TuiSettingsPickerOption, TuiSettingsPickerState, TuiPickerTipLine } from "./settings-picker-types.ts";
 import { mixHex } from "./theme.ts";
 
-export function modelPriceColumns(option?: TuiSettingsPickerOption): string {
-    const rate = (value: number | undefined): string => {
-        if (value === undefined) return "?";
-        const rounded = value > 0 && value < 0.01 ? Number(value.toPrecision(2)) : Number(value.toFixed(2));
-        const full = `$${rounded}`;
-        return full.length <= 9 ? full : `$${value.toExponential(2)}`;
-    };
-    const input = option === undefined ? "Input" : rate(option.pricing?.input);
-    const output = option === undefined ? "Output" : rate(option.pricing?.output);
-    return `${input.padStart(9)} ${output.padStart(9)}`;
+function listedRate(value: number | undefined): string {
+    if (value === undefined) return "-";
+    const rounded = value > 0 && value < 0.01 ? Number(value.toPrecision(2)) : Number(value.toFixed(2));
+    const full = `$${rounded}`;
+    return full.length <= 9 ? full : `$${value.toExponential(2)}`;
+}
+
+function modelStatus(option: TuiSettingsPickerOption, initialModel: string | undefined): string {
+    return option.unavailable ? "unavailable" : option.value === initialModel ? "current" : option.hiddenByDefault ? "hidden" : "";
+}
+
+/** One cell per column: WA Score, Input, Output, status letter. */
+function modelColumnCells(option: TuiSettingsPickerOption | undefined, initialModel: string | undefined): string[] {
+    if (option === undefined) return ["WA Score", "Input", "Output", ""];
+    // One letter: U unavailable, C current, H hidden.
+    return [String(option.waScore ?? "-"), listedRate(option.pricing?.input), listedRate(option.pricing?.output),
+        modelStatus(option, initialModel).slice(0, 1).toUpperCase()];
+}
+
+/** Each column is as wide as its widest cell across every model, so widths hold still while scrolling. */
+export function modelColumnWidths(options: readonly TuiSettingsPickerOption[], initialModel?: string): number[] {
+    const rows = options.filter((option) => option.section === undefined).map((option) => modelColumnCells(option, initialModel));
+    const widths = modelColumnCells(undefined, initialModel).map((header, column) =>
+        Math.max(Bun.stringWidth(header), ...rows.map((cells) => Bun.stringWidth(cells[column]!))));
+    // No row has a status, so the column and its header go.
+    if (rows.every((cells) => cells[3] === "")) widths[3] = 0;
+    return widths;
+}
+
+export function modelPriceColumns(option: TuiSettingsPickerOption | undefined, widths: readonly number[], initialModel?: string): string {
+    const cells = modelColumnCells(option, initialModel);
+    const numbers = cells.slice(0, 3).map((cell, column) => cell.padStart(widths[column]!)).join("  ");
+    return widths[3] === 0 ? `  ${numbers}` : `  ${numbers}  ${cells[3]!.padEnd(widths[3]!)}`;
+}
+
+function wrapWords(content: string, width: number): string[] {
+    const lines: string[] = [];
+    for (const word of content.split(" ")) {
+        const last = lines.at(-1);
+        if (last !== undefined && Bun.stringWidth(`${last} ${word}`) <= width) lines[lines.length - 1] = `${last} ${word}`;
+        else lines.push(word);
+    }
+    return lines;
 }
 
 function columnLabel(label: string, width: number): string {
@@ -58,8 +91,10 @@ export function renderModelBrowse(
         ? candidateSplit : undefined;
     const listWidth = split?.listWidth ?? width;
     const columns = detailed && listWidth >= 59 && modelBrowseRows(renderer) >= 3;
+    // A caption too wide for one line wraps, and the list gives up the rows it takes.
+    const captionRows = caption === undefined ? 0 : wrapWords(caption, width).length;
     const maximumRows = Math.max(1, modelBrowseRows(renderer) + (columns ? 2 : 0)
-        - (columns && state.browseNotice !== undefined ? 1 : 0) - tipRows);
+        - (columns && state.browseNotice !== undefined ? 1 : 0) - tipRows - Math.max(0, captionRows - 1));
     const window = browseWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
     // Every scope gets the same height: a short list pads rather than shrinking the dialog.
     const listRows = maximumRows;
@@ -85,7 +120,7 @@ export function renderModelBrowse(
     // Ctrl+G is the only way to change scope, so it belongs next to the scope it changes.
     const scopeHint = state.query.trim() ? "esc" : "Ctrl+G scope · esc";
     add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`, scopeHint));
-    if (caption !== undefined) add(text(caption));
+    if (caption !== undefined) add(text(wrapWords(caption, width).join("\n"), captionRows));
     if (search !== undefined) {
         updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
         search.box.marginTop = caption === undefined ? 1 : 0;
@@ -101,11 +136,8 @@ export function renderModelBrowse(
     list.onMouseDown = () => onSection?.("list");
     body.add(list);
     add(body);
-    const statusWidth = 15;
-    const priceMeta = (option?: TuiSettingsPickerOption, status = "Status") => {
-        const score = option === undefined ? "WA Score" : String(option.waScore ?? "?");
-        return `  ${score.padStart(8)} ${modelPriceColumns(option)} ${status.padEnd(statusWidth)}`;
-    };
+    const widths = modelColumnWidths(state.options, state.initialModel);
+    const priceMeta = (option?: TuiSettingsPickerOption) => modelPriceColumns(option, widths, state.initialModel);
     if (columns) list.add(dialogOptionRow(renderer, { label: "", active: false, meta: priceMeta() }));
     if (scroll !== undefined) scroll.top = window.top;
     if (window.rows.length === 0) list.add(text(emptyModelBrowse(state), 2));
@@ -114,9 +146,9 @@ export function renderModelBrowse(
         if (row.more !== undefined) { list.add(text(browseMoreText(row.more, listWidth))); continue; }
         if (row.option === undefined) { list.add(text("")); continue; }
         const option = row.option;
-        const status = option.unavailable ? "unavailable" : option.value === state.initialModel ? "current" : option.hiddenByDefault ? "hidden" : "";
+        const status = modelStatus(option, state.initialModel);
         const label = `${option.section === undefined ? "" : "▶ "}${option.pooledRank === undefined ? "" : "* "}${option.label}`;
-        const meta = option.section !== undefined ? "" : columns ? priceMeta(option, status) : status;
+        const meta = option.section !== undefined ? "" : columns ? priceMeta(option) : status;
         const content = {
             label: columns && option.section === undefined ? columnLabel(label, listWidth - Bun.stringWidth(meta)) : label,
             active: row.index === state.selectedIndex,

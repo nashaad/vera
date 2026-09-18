@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { modelPriceColumns } from "../../clients/tui/model-browse-view.ts";
+import { modelColumnWidths, modelPriceColumns } from "../../clients/tui/model-browse-view.ts";
 import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
@@ -625,10 +625,12 @@ test("Detailed separates long names from compact prices and retains exact detail
         const state = { ...chooseScope(modelBrowse({ ...base, allOptions: [option] }, "browse")), browseView: "detailed" as const };
         view.update(state); await setup.renderOnce();
         const row = setup.captureCharFrame().split("\n").find((line) => line.includes("$0.09"))!;
-        expect(row).toMatch(/DeepSeek.*…\s+1550\s+\$0\.09\s+\$0\.18/);
+        expect(row).toMatch(/DeepSeek V4 Flash 0423 with a long name\s+1550  \$0\.09   \$0\.18│/);
         expect(modelDetailFacts(state, option)).toContainEqual(["Full price", "0.088606/0.177212"]);
-        expect(modelPriceColumns({ ...option, pricing: { input: 0.00000001234, output: 0 } })).toContain("$1.2e-8");
-        expect(modelPriceColumns({ ...option, pricing: undefined })).toMatch(/\?\s+\?/);
+        const tiny = { ...option, pricing: { input: 0.00000001234, output: 0 } };
+        expect(modelPriceColumns(tiny, modelColumnWidths([tiny]))).toContain("$1.2e-8");
+        const unpriced = { ...option, pricing: undefined };
+        expect(modelPriceColumns(unpriced, modelColumnWidths([unpriced]))).toMatch(/-\s+-/);
     } finally { setup.renderer.destroy(); }
 });
 
@@ -647,15 +649,15 @@ test.each([90, 100, 120, 170])("Detailed aligns WA scores and prices at %s colum
         const lines = setup.captureCharFrame().split("\n");
         const preferred = lines.find((line) => line.includes("$0.07") && line.includes("Preferred"))!;
         const steady = lines.find((line) => line.includes("$2") && line.includes("Steady"))!;
-        expect(preferred).toContain("current");
-        expect(steady).toContain("unavailable");
+        expect(preferred).toMatch(/\$0\.13  C/);
+        expect(steady).toMatch(/  U/);
         const header = lines.find((line) => line.includes("Input") && line.includes("Output"))!;
         const scoreEnd = header.indexOf("WA Score") + "WA Score".length;
         expect(header).toContain("WA Score");
         expect(preferred.indexOf("1550") + 4).toBe(scoreEnd);
         expect(steady.indexOf("980") + 3).toBe(scoreEnd);
         const unknown = lines.find((line) => line.includes("Unknown"))!;
-        expect(unknown.slice(scoreEnd - 8, scoreEnd).trim()).toBe("?");
+        expect(unknown.slice(scoreEnd - 8, scoreEnd).trim()).toBe("-");
         expect(preferred.indexOf("$0.07") + 5).toBe(steady.indexOf("$2") + 2);
         expect(preferred.indexOf("$0.13") + 5).toBe(steady.indexOf("$6") + 2);
         expect(lines.some((line) => line.includes("Input") && line.includes("Output"))).toBe(true);
@@ -1144,4 +1146,19 @@ test("every scope says what it holds, and All points at Recommended", () => {
     expect(browseScopeCaption("recommended")).toContain("picked by hand");
     // All is the long list, so it names the shorter one and the key that reaches it.
     expect(browseScopeCaption("all")).toContain("Ctrl+G to switch to Recommended");
+});
+
+test("Detailed drops an empty Status column and wraps a caption too wide for one line", async () => {
+    const setup = await createTestRenderer({ width: 70, height: 30 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface); view.surface.visible = true;
+    try {
+        const options = [{ ...rows[0]!, label: "anthropic-claude-opus-4.8-long" }];
+        const state = { ...chooseScope(modelBrowse({ ...base, allOptions: options }, "browse")), browseView: "detailed" as const };
+        view.update(state); await setup.renderOnce();
+        const frame = setup.captureCharFrame();
+        expect(frame).not.toMatch(/Output  +[UCH]/);
+        expect(frame).toContain("anthropic-claude-opus-4.8-long");
+        expect(frame).toContain("Recommended, a shorter list.");
+    } finally { setup.renderer.destroy(); }
 });
