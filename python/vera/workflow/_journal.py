@@ -171,11 +171,13 @@ class Journal:
         header: dict[str, object],
         records: dict[str, object],
         next_seq: int,
+        timings: dict[str, dict[str, object]] | None = None,
     ) -> None:
         self.journal_dir = journal_dir
         self.run_dir = run_dir
         self.header = header
         self.records = records
+        self.timings = timings if timings is not None else {}
         self._next_seq = next_seq
 
     @classmethod
@@ -233,8 +235,8 @@ class Journal:
             raise _journal_error(f"cannot read {header_path}") from error
         raw_header = _parse_json(header_text, header_path)
         header = validate_header(raw_header, run_id, workflow_name)
-        records, next_seq = cls._load_records(run_dir / "journal.ndjson")
-        return cls(journal_dir, run_dir, header, records, next_seq)
+        records, timings, next_seq = cls._load_records(run_dir / "journal.ndjson")
+        return cls(journal_dir, run_dir, header, records, next_seq, timings)
 
     @staticmethod
     def _require_journal_dir(journal_dir: Path) -> None:
@@ -242,14 +244,17 @@ class Journal:
             raise _journal_error(f"journal directory does not exist: {journal_dir}")
 
     @staticmethod
-    def _load_records(path: Path) -> tuple[dict[str, object], int]:
+    def _load_records(
+        path: Path,
+    ) -> tuple[dict[str, object], dict[str, dict[str, object]], int]:
         if not path.exists():
-            return {}, 1
+            return {}, {}, 1
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeError) as error:
             raise _journal_error(f"cannot read {path}") from error
         records: dict[str, object] = {}
+        timings: dict[str, dict[str, object]] = {}
         for expected_seq, line in enumerate(lines, start=1):
             if not line:
                 raise _journal_error(f"blank line in {path}")
@@ -258,8 +263,8 @@ class Journal:
                 raise _journal_error("workflow journal record must be an object")
             record: dict[str, object] = raw
             fields = set(record)
-            inline_fields = {"seq", "key", "ok", "value"}
-            blob_fields = {"seq", "key", "ok", "ref", "bytes"}
+            inline_fields = {"seq", "key", "ok", "at", "ms", "value"}
+            blob_fields = {"seq", "key", "ok", "at", "ms", "ref", "bytes"}
             if fields not in (inline_fields, blob_fields):
                 raise _journal_error("workflow journal record has invalid fields")
             if type(record["seq"]) is not int or record["seq"] != expected_seq:
@@ -269,6 +274,10 @@ class Journal:
                 raise _journal_error("workflow journal key must be a non-empty string")
             if record["ok"] is not True:
                 raise _journal_error("workflow journal may contain successes only")
+            if type(record["at"]) is not str or not record["at"]:
+                raise _journal_error("workflow journal at must be a timestamp")
+            if type(record["ms"]) is not int or record["ms"] < 0:
+                raise _journal_error("workflow journal ms must be a whole number")
             if key in records:
                 raise _journal_error(f"duplicate workflow journal key: {key}")
             if fields == inline_fields:
@@ -298,7 +307,8 @@ class Journal:
                     byte_count,
                 )
             records[key] = value
-        return records, len(lines) + 1
+            timings[key] = {"at": record["at"], "ms": record["ms"]}
+        return records, timings, len(lines) + 1
 
     @property
     def run_id(self) -> str:
@@ -321,12 +331,15 @@ class Journal:
             raise _journal_error("workflow header is missing resumable inputs")
         return tuple(args), kwargs
 
-    def append(self, key: str, value: object) -> None:
+    def append(self, key: str, value: object, ms: int = 0) -> None:
         encoded_value = dumps(value).encode("utf-8")
+        at = _now()
         record: dict[str, object] = {
             "seq": self._next_seq,
             "key": key,
             "ok": True,
+            "at": at,
+            "ms": ms,
         }
         if len(encoded_value) > _INLINE_VALUE_MAX_BYTES:
             reference = hashlib.sha256(encoded_value).hexdigest()
@@ -353,10 +366,30 @@ class Journal:
         except (OSError, TypeError, ValueError) as error:
             raise _journal_error("cannot append workflow journal record") from error
         self.records[key] = value
+        self.timings[key] = {"at": at, "ms": ms}
         self._next_seq += 1
+        if self.header.pop("active", None) is not None:
+            self._write_header_during_run()
+
+    def mark_step_started(self, key: str, step_name: str) -> None:
+        """Name the step now in flight, so a crashed run says where it stopped."""
+        self.header["active"] = {"key": key, "step": step_name, "at": _now()}
+        self._write_header_during_run()
+
+    def _write_header_during_run(self) -> None:
+        """Rewrite the header without dropping a cancel another process asked for.
+
+        The header file is the cancel channel, so a write from inside the run
+        has to carry back whatever landed there since it was last read.
+        """
+        requested = self.cancel_requested()
+        if requested is not None:
+            self.header["cancel_requested"] = requested
+        self.write_header()
 
     def mark_running(self) -> None:
         self.header["status"] = "running"
+        self.header.pop("active", None)
         self.header.pop("cancel_requested", None)
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -365,6 +398,7 @@ class Journal:
 
     def mark_ok(self) -> None:
         self.header["status"] = "ok"
+        self.header.pop("active", None)
         self.header["finished_at"] = _now()
         self.header.pop("error", None)
         self.header.pop("reason", None)
@@ -372,6 +406,7 @@ class Journal:
 
     def mark_failed(self, kind: str, message: str) -> None:
         self.header["status"] = "failed"
+        self.header.pop("active", None)
         self.header["error"] = {"kind": kind, "message": message}
         self.header.pop("finished_at", None)
         self.header.pop("reason", None)
@@ -379,6 +414,7 @@ class Journal:
 
     def mark_suspended(self, reason: str) -> None:
         self.header["status"] = "suspended"
+        self.header.pop("active", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -386,6 +422,7 @@ class Journal:
 
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
+        self.header.pop("active", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)

@@ -16,6 +16,7 @@ from ._journal import Journal, _journal_error
 class RunJournal(Protocol):
     header: dict[str, object]
     records: dict[str, object]
+    timings: dict[str, dict[str, object]]
     journal_dir: Path
 
     @property
@@ -26,7 +27,9 @@ class RunJournal(Protocol):
 
     def inputs(self) -> tuple[tuple[object, ...], dict[str, object]]: ...
 
-    def append(self, key: str, value: object) -> None: ...
+    def append(self, key: str, value: object, ms: int = 0) -> None: ...
+
+    def mark_step_started(self, key: str, step_name: str) -> None: ...
 
     def mark_running(self) -> None: ...
 

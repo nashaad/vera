@@ -44,7 +44,12 @@ def _show(journal_dir: Path, run_id: str) -> None:
         print(f"doc    {doc}")
     print("steps")
     for key in journal.records:
-        print(f"  {key}")
+        timing = journal.timings.get(key, {})
+        ms = timing.get("ms")
+        print(f"  {key}" if ms is None else f"  {key}  {ms}ms")
+    active = journal.header.get("active")
+    if type(active) is dict:
+        print(f"active {active['step']}  since {active['at']}")
 
 
 def _cancel(journal_dir: Path, run_id: str) -> int:

@@ -21,7 +21,7 @@
             "minLength": 1
         },
         "status": {
-            "enum": ["ok", "failed", "suspended", "running"]
+            "enum": ["ok", "failed", "suspended", "cancelled", "running"]
         },
         "started_at": {
             "type": "string",
@@ -54,6 +54,19 @@
         },
         "reason": {
             "type": "string"
+        },
+        "cancel_requested": {
+            "type": "string"
+        },
+        "active": {
+            "type": "object",
+            "required": ["key", "step", "at"],
+            "additionalProperties": false,
+            "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "step": { "type": "string", "minLength": 1 },
+                "at": { "type": "string", "format": "date-time" }
+            }
         },
         "entry": {
             "type": "object",
