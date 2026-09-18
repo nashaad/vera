@@ -21,9 +21,11 @@ const PROVIDER_IDS = [
  * listed separately because their existence is not itself a branch.
  */
 const PROVIDER_NAME_BRANCH_FILES = new Set([
+    "src/annex/usage-report.ts",
     "src/engine/model-settings.ts",
     "src/host/runtime.ts",
     "src/model/reasoning-effort.ts",
+    "src/model/settings-overlay.ts",
     "src/providers/openrouter.ts",
 ]);
 
