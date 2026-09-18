@@ -493,6 +493,41 @@ test("--status reports the candidate home without launching", async () => {
     }
 });
 
+test("a reused home labels the launch with the worktree's current build", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-rebuild");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const labels: string[] = [];
+    const launch = () => runDevTui([], worktree, {
+        sourceHome,
+        temporaryRoot,
+        spawnTui: async (_args, env) => {
+            labels.push(env.VERA_DEV_INSTANCE ?? "");
+            return 0;
+        },
+    });
+    try {
+        await launch();
+        writeFileSync(join(worktree, "tracked"), "edited\n");
+        await launch();
+        expect(labels[0]).not.toBe(labels[1]);
+
+        const chunks: string[] = [];
+        await runDevTui(["--status"], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stdout: { write: (text) => chunks.push(String(text)) },
+        });
+        expect(labels[1]).toBe(
+            `ovu-rebuild ${chunks.join("").match(/^Build: (.+)$/m)?.[1]}`,
+        );
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+}, 20_000);
+
 test("--discard without confirmation keeps the instance", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
     const worktree = linkedWorktree("ovu-keep");

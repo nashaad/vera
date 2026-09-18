@@ -227,7 +227,9 @@ export async function runDevTui(
         return 0;
     }
 
-    const stale = await stopOtherBuildHost(destinationHome, candidateBuildId(worktreeRoot), stderr);
+    // A reused home outlives edits to the worktree, so the build is read now.
+    const buildId = candidateBuildId(worktreeRoot);
+    const stale = await stopOtherBuildHost(destinationHome, buildId, stderr);
     if (stale !== 0) return stale;
 
     if (existsSync(destinationHome) && request.fresh) {
@@ -292,7 +294,7 @@ export async function runDevTui(
         }
         writeInstanceMeta(destinationHome, {
             worktree: worktreeRoot,
-            buildId: candidateBuildId(worktreeRoot),
+            buildId,
             sourceHome,
             snapshotAt: new Date().toISOString(),
         });
@@ -300,15 +302,17 @@ export async function runDevTui(
     if (lifted && existed) {
         writeInstanceMeta(destinationHome, {
             worktree: worktreeRoot,
-            buildId: candidateBuildId(worktreeRoot),
+            buildId,
             sourceHome,
             snapshotAt: new Date().toISOString(),
         });
     }
     assertDistinctSockets(destinationHome, sourceHome);
 
-    const buildId = readInstanceMeta(destinationHome)?.buildId
-        ?? candidateBuildId(worktreeRoot);
+    const meta = readInstanceMeta(destinationHome);
+    if (meta !== undefined && meta.buildId !== buildId) {
+        writeInstanceMeta(destinationHome, { ...meta, buildId });
+    }
     const spawn = dependencies.spawnTui ?? spawnWorktreeTui;
     return await spawn(
         request.passthrough,
@@ -382,7 +386,7 @@ function formatStatus(
     const live = pid !== undefined && processIsAlive(pid);
     return [
         `Worktree: ${worktreeRoot}`,
-        `Build: ${meta?.buildId ?? candidateBuildId(worktreeRoot)}`,
+        `Build: ${candidateBuildId(worktreeRoot)}`,
         `Home: ${destinationHome}`,
         `Socket: ${join(destinationHome, "runtime", "host.sock")}`,
         `Host PID: ${live ? String(pid) : "not running"}`,
