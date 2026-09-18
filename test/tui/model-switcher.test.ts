@@ -172,7 +172,7 @@ describe("model switcher keys", () => {
 
     test("the footer names paging once the keys belong to the list", () => {
         const list = handleTuiModelSwitcherKey(started(), { name: "down" }).state!;
-        expect(switcherFooterText(list)).toContain("^u^d page");
+        expect(switcherFooterText(list)).toContain("Ctrl+U/D page");
         expect(switcherFooterText(list)).toContain("←→ sections");
         expect(switcherFooterText(started())).toContain("↓ list");
     });
@@ -252,7 +252,7 @@ describe("model switcher seeded favorites", () => {
 
     test("ctrl+f on a seeded row offers to add it, not to remove it", () => {
         const state = startTuiModelSwitcher(seeded);
-        expect(switcherFooterText(state)).toContain("^f favorite");
+        expect(switcherFooterText(state)).toContain("Ctrl+F favorite");
         expect(handleTuiModelSwitcherKey(state, { name: "f", ctrl: true }).favorite?.label)
             .toBe("Claude Opus 5");
     });
@@ -309,12 +309,12 @@ describe("model switcher favoriting", () => {
 
     test("the footer names the action the highlighted row would take", () => {
         const state = started({ recents: ["openai/gpt-5.6-mini"] });
-        expect(switcherFooterText(state)).toContain("^f unfavorite");
+        expect(switcherFooterText(state)).toContain("Ctrl+F unfavorite");
         const last = handleTuiModelSwitcherKey(
             handleTuiModelSwitcherKey(state, { name: "end" }).state!,
             { name: "up" },
         ).state!;
-        expect(switcherFooterText(last)).toContain("^f favorite");
+        expect(switcherFooterText(last)).toContain("Ctrl+F favorite");
     });
 });
 

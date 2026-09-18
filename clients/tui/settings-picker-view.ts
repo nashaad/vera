@@ -2171,7 +2171,7 @@ export function pickerFooterText(
     if (state.kind === "session_leave") return "↑↓ choose · ⏎ switch · esc back";
     if (state.kind === "session") {
         return [
-            "↑↓ ^d^u move",
+            "↑↓ Ctrl+D/U move",
             state.nothingToLeave === true ? "⏎ open" : "⏎ switch",
             tuiKeyHint("rename_session"),
             tuiKeyHint("trash_session"),
@@ -2316,7 +2316,7 @@ export function pickerFooterText(
                 ? tuiKeyHint("toggle_pooled").replace("favorite", "unfavorite")
                 : tuiKeyHint("toggle_pooled");
         return fittedHints([
-            { text: "↑↓ ^d^u move", drop: 0 },
+            { text: "↑↓ Ctrl+D/U move", drop: 0 },
             { text: "⏎ select", drop: 0 },
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
             ...(state.canUndoPoolChange === true
@@ -2328,8 +2328,8 @@ export function pickerFooterText(
 
             ...(state.tab === "pool" ? [] : [
                 selected?.section === undefined
-                    ? { text: "⇧←→ fold all", drop: 5 }
-                    : { text: "←→ ⇧←→ fold", drop: 1 },
+                    ? { text: "Shift+←→ fold all", drop: 5 }
+                    : { text: "←→ Shift+←→ fold", drop: 1 },
             ]),
             ...(state.tab !== "pool" && hasFoldedRows(state)
                 ? [{

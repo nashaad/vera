@@ -139,7 +139,7 @@ test("the switcher's favorite runs the admission in the transcript", async () =>
         expect(running).toContain("Adding One to favorites");
         expect(running).toContain("⏎ switch");
         await session.waitForVisiblePane("Kept in your favorites");
-        const kept = await session.waitForVisiblePane("^f unfavorite");
+        const kept = await session.waitForVisiblePane("Ctrl+F unfavorite");
         // The row is under Favorites now, and it is still the current model.
         expect(kept).toMatch(/favorites\s+One\s+current/);
         session.sendKey("Escape");

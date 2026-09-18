@@ -41,7 +41,7 @@ export interface TuiModelSwitcherRow {
     readonly label: string;
     readonly providerLabel?: string;
     readonly favorite?: boolean;
-    /** Listed under favorites before anyone has curated; ^f still adds it. */
+    /** Listed under favorites before anyone has curated; Ctrl+F still adds it. */
     readonly seeded?: boolean;
     readonly unavailable?: boolean;
     /** The effort this model last ran with, so the row says what Enter will do. */
@@ -239,7 +239,7 @@ function searchRank(row: TuiModelSwitcherRow, terms: readonly string[]): number 
 /** The row pinned under the list, which leaves for the page `/models` opens. */
 export const MODEL_SWITCHER_BROWSE_LABEL = "Browse models";
 
-/** One press of pageup, pagedown, ^u or ^d covers this many rows. */
+/** One press of pageup, pagedown, Ctrl+U or Ctrl+D covers this many rows. */
 const PAGE_ROWS = 10;
 
 export function handleTuiModelSwitcherKey(
@@ -510,7 +510,7 @@ export function createTuiModelSwitcherView(
             const pointer = dialogRowPointer(view.pointer, state.rows.length);
             const browse = dialogActionRow(
                 renderer, browseRowLabel(state), onSwitcherBrowseRow(state), false,
-                pointer.onSelect, pointer.onHover, "^b",
+                pointer.onSelect, pointer.onHover, "Ctrl+B",
             );
             box.add(browse);
             nodes.push(browse);
@@ -544,11 +544,11 @@ function footerText(state: TuiModelSwitcherState): string {
         return "⏎ browse · ←→ sections · ↑↓ move · esc close";
     }
     const favorite = state.rows[state.selectedIndex]?.favorite === true
-        ? "^f unfavorite"
-        : "^f favorite";
+        ? "Ctrl+F unfavorite"
+        : "Ctrl+F favorite";
     return stop === "search"
         ? `type search · ↓ list · ⏎ switch · ${favorite} · esc close`
-        : `↑↓ move · ←→ sections · ^u^d page · ⏎ switch · ${favorite} · esc`;
+        : `↑↓ move · ←→ sections · Ctrl+U/D page · ⏎ switch · ${favorite} · esc`;
 }
 
 export function switcherEmptyMessage(state: TuiModelSwitcherState): string {

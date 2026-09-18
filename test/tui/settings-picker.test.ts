@@ -1661,11 +1661,11 @@ test("the current library model exposes an inspector and list action", async () 
     // the More page with the rest rather than on a band of its own.
     expect(frame).not.toContain("Verify all");
     expect(frame).toContain("Actions");
-    expect(frame).toMatch(/Verify this model\s+\^v/);
-    expect(frame).toMatch(/Unpin\s+\^f/);
-    expect(frame).toMatch(/Name this model\s+\^n/);
+    expect(frame).toMatch(/Verify this model\s+Ctrl\+V/);
+    expect(frame).toMatch(/Unpin\s+Ctrl\+F/);
+    expect(frame).toMatch(/Name this model\s+Ctrl\+N/);
     expect(frame).not.toContain("Refresh model catalog from providers");
-    expect(pickerFooter(shortlist)).toContain("^v verify");
+    expect(pickerFooter(shortlist)).toContain("Ctrl+V verify");
     // The way into the actions is named once, in the panel beside them, so the
     // footer and the header cannot disagree about which key it is.
     expect(pickerFooter(shortlist)).not.toContain("→ actions");
@@ -2052,13 +2052,13 @@ test("⇧← folds every section and ⇧→ opens every one", () => {
 test("the footer names the fold keys the highlighted row answers to", async () => {
     const state = allTabWithRecommendations();
 
-    expect(await pickerFrame(state)).toContain("←→ ⇧←→ fold");
+    expect(await pickerFrame(state)).toContain("←→ Shift+←→ fold");
     // On a model row only the whole-list keys do anything, and they yield the
     // slot to the row's own keys when the footer runs short.
     expect(await pickerFrame({ ...state, selectedIndex: 1 }, 130))
-        .toContain("⇧←→ fold all");
+        .toContain("Shift+←→ fold all");
     expect(await pickerFrame({ ...state, selectedIndex: 1 }, 80))
-        .not.toContain("⇧←→ fold all");
+        .not.toContain("Shift+←→ fold all");
 });
 
 test("a recommended level is not part of the choice, and not on the row", async () => {
@@ -2276,7 +2276,7 @@ test("ctrl+z asks the caller to undo only when a pool change is available", asyn
         handleTuiSettingsPickerKey(undoable, { name: "z", ctrl: true })
             .undoPoolChange,
     ).toBe(true);
-    expect(await pickerFrame(undoable)).toContain("^z undo");
+    expect(await pickerFrame(undoable)).toContain("Ctrl+Z undo");
 
     const synced = syncTuiModelPicker(undoable, {
         provider: "openai-codex",
@@ -2736,7 +2736,7 @@ test("a trackpad delta below one row still moves a row", () => {
 test("the pane names the half-page keys where it names the others", async () => {
     // ctrl+d and ctrl+u are unfindable otherwise: nothing on screen says a
     // pane responds to them.
-    expect(await pickerFrame(modelPickerWithPool())).toContain("^d^u move");
+    expect(await pickerFrame(modelPickerWithPool())).toContain("Ctrl+D/U move");
 });
 
 test("a level listed twice is offered once", () => {
@@ -2883,7 +2883,7 @@ test("the inspector offers naming on a pooled row only", async () => {
         "gpt-5.6-sol",
         "openai-codex",
     );
-    expect(await pickerFrame(pooled)).toMatch(/Name this model\s+\^n/);
+    expect(await pickerFrame(pooled)).toMatch(/Name this model\s+Ctrl\+N/);
 
     const unpooled = modelPickerWithPool([], "moonshotai/kimi-k3");
     expect(await pickerFrame(unpooled)).not.toContain("Name this model");

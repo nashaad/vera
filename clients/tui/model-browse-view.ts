@@ -82,8 +82,8 @@ export function renderModelBrowse(
     const scope = state.query.trim()
         ? "Search all connected models"
         : state.tab === "all" ? "All connected models" : browseScopeLabel(state.tab);
-    // ^g is the only way to change scope, so it belongs next to the scope it changes.
-    const scopeHint = state.query.trim() ? "esc" : "^g scope · esc";
+    // Ctrl+G is the only way to change scope, so it belongs next to the scope it changes.
+    const scopeHint = state.query.trim() ? "esc" : "Ctrl+G scope · esc";
     add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`, scopeHint));
     if (caption !== undefined) add(text(caption));
     if (search !== undefined) {
@@ -154,10 +154,10 @@ export function renderModelBrowse(
         : `⏎ ${focusedAction}`;
     const navigation = [
         `Ctrl+G scope · Ctrl+K ${selected?.model === undefined ? "manage models" : "manage highlighted model"} · Tab sections · Esc back`,
-        "^g fav/all · ^k manage highlighted · Tab sections · Esc",
-        "^g all · ^k highlighted · Tab sections · Esc",
-        "^g all · ^k model actions · Esc",
-    ].find((line) => Bun.stringWidth(line) <= width) ?? "^g ^k Tab Esc";
+        "Ctrl+G scope · Ctrl+K manage highlighted · Tab sections · Esc",
+        "Ctrl+G scope · Ctrl+K model · Tab sections · Esc",
+        "Ctrl+G · Ctrl+K · Tab sections · Esc",
+    ].find((line) => Bun.stringWidth(line) <= width) ?? "Ctrl+G Ctrl+K Tab Esc";
     const footer = dialogFooterNode(renderer, `${hint}\n${navigation}`);
     footer.height = 2;
     footer.marginTop = 1;

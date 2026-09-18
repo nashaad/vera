@@ -267,7 +267,7 @@ test("the switcher favorites with Ctrl+F and ignores the legacy Ctrl+S", async (
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("^f favorite");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Ctrl+F favorite");
         session.sendKey("C-s"); await session.settle();
         session.sendKey("C-s"); await session.settle();
         expect(operations).toEqual([]);

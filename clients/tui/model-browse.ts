@@ -6,7 +6,7 @@ import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/mode
 import { blendedRate } from "../../src/model/listed-rates.ts";
 import type { ModelBrowseSection, ModelBrowseSort, TuiModelPickerTab, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
 
-/** The three browse scopes, in the order ^g walks them. */
+/** The three browse scopes, in the order Ctrl+G walks them. */
 const BROWSE_SCOPES: readonly TuiModelPickerTab[] = ["pool", "recommended", "all"];
 
 export function nextBrowseScope(
@@ -21,12 +21,12 @@ export function nextBrowseScope(
 /** What the scope in front of you holds, and what Enter does to a row in it. */
 export function browseScopeCaption(tab: TuiModelPickerTab | undefined): string {
     if (tab === "all") {
-        return "Every model your connected providers list. \u23ce favorites one.";
+        return "Every model your providers offer. Press Ctrl+G to switch to Recommended, a shorter list.";
     }
     if (tab === "recommended") {
-        return "Curated picks for the providers you connected, refreshed daily. \u23ce favorites one.";
+        return "A short list, picked by hand and refreshed daily. Press Ctrl+G to see every model.";
     }
-    return "The models you favorited, in the order you added them. \u23ce removes one.";
+    return "Models you saved, in the order you added them. \u23ce removes one.";
 }
 
 export function browseScopeLabel(tab: TuiModelPickerTab | undefined): string {
@@ -199,7 +199,7 @@ export function browseFooter(state: TuiSettingsPickerState): string {
         : state.modelFocus === "search" ? "Type to search · ←→ move cursor · ↑↓ sections"
         : state.modelFocus === "intelligence" ? "←→ change cutoff · ↑↓ sections"
         : state.modelFocus === "more" ? "⏎ open More · arrows move sections"
-        : `↑↓ ^d^u choose · ⏎ / ^s ${selected === undefined ? "favorite"
+        : `↑↓ Ctrl+D/U choose · ⏎ / Ctrl+S ${selected === undefined ? "favorite"
             : selected.pooledRank === undefined ? "add to favorites" : "remove from favorites"} · Space fold/unfold`;
     const libraryNavigation = state.modelFocus === "search" ? "Type to search · ↑↓ sections" : "↑↓ choose · Space fold/unfold";
     return state.modelBrowse === "favorites"
@@ -212,7 +212,7 @@ export const MODEL_BROWSE_TIPS: readonly string[] = [
     "Browsing changes nothing that runs; /model switches the model.",
     "Type from any section to search; Tab moves between sections.",
     "Ctrl+G cycles Favorites, Recommended and All connected models.",
-    "Enter or ^s favorites the highlighted model.",
+    "Enter or Ctrl+S favorites the highlighted model.",
     "Highlight a model and press Ctrl+K to manage it.",
 ];
 
@@ -483,12 +483,12 @@ export function handleModelBrowseKey(state: TuiSettingsPickerState, key: TuiSett
 export function emptyModelBrowse(state: TuiSettingsPickerState): string {
     if (state.providerCatalogs?.length === 0) return "No provider connected. Open Connect provider below.";
     const never = state.providerCatalogs?.filter((provider) => provider.refreshedAt === undefined) ?? [];
-    if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. ^r reads it now.`;
+    if (state.allOptions.length === 0 && never.length) return `${never.map((provider) => provider.label).join(", ")}: catalog never refreshed. Ctrl+R reads it now.`;
     if (state.allOptions.length === 0) return "No models in the connected catalogs. Open Connect provider below.";
     if (state.query) return "No models match your search. Clear the search to see models.";
     if (state.browseProvider || state.browseAvailableOnly || state.browsePricedOnly || state.browseImagesOnly
         || state.intelligenceCutoff && state.intelligenceCutoff !== "any") return "No models match these filters. Open Filter and sort to clear them.";
-    if (state.modelBrowse === "browse" && state.tab === "recommended") return "No recommended models for the connected providers. ^g shows all of them.";
-    if (state.modelBrowse === "browse" && state.tab !== "all") return "No favorites yet. ^g shows the recommended models, then all of them.";
+    if (state.modelBrowse === "browse" && state.tab === "recommended") return "No recommended models for the connected providers. Ctrl+G shows all of them.";
+    if (state.modelBrowse === "browse" && state.tab !== "all") return "No favorites yet. Ctrl+G shows the recommended models, then all of them.";
     return "No models pass this cutoff. Open Filter and sort to change it.";
 }

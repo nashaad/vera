@@ -5,7 +5,7 @@ import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 import { shortlistFactsText, shortlistLegendText } from "../../clients/tui/settings-picker-model.ts";
-import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseModels, browseMatches, browseMoreText, browseWindow, emptyModelBrowse, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
+import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseScopeCaption, browseModels, browseMatches, browseMoreText, browseWindow, emptyModelBrowse, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
@@ -849,7 +849,7 @@ test("Tab cycles interactive sections without changing scope or model; reverse T
 
 test("Switch names the half-page keys only while the list has the keys", () => {
     const state = { ...modelBrowse(base, "browse"), modelFocus: "list" as const };
-    expect(browseFooter(state).split("\n")[1]).toBe("↑↓ ^d^u choose · ⏎ / ^s remove from favorites · Space fold/unfold");
+    expect(browseFooter(state).split("\n")[1]).toBe("↑↓ Ctrl+D/U choose · ⏎ / Ctrl+S remove from favorites · Space fold/unfold");
     for (const focus of ["scope", "sort", "search", "more"] as const) {
         expect(browseFooter({ ...state, modelFocus: focus })).not.toContain("^d^u");
     }
@@ -905,7 +905,7 @@ test("filtered results size the card consistently without losing controls", asyn
                 if (expected.has(count)) expect(geometry).toEqual(expected.get(count)!); else expected.set(count, geometry);
                 expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(height!);
                 expect(frame).not.toContain("fewer models");
-                expect(browseHeader(state)).not.toContain("^a");
+                expect(browseHeader(state)).not.toContain("Ctrl+A");
                 expect(anchors[2]).toBeGreaterThan(anchors[1]!);
                 state = handleTuiSettingsPickerKey(state, { name: "g", ctrl: true }).state!;
             }
@@ -1130,11 +1130,18 @@ test("the header carries the scope toggle next to the scope it changes", async (
         view.update(modelBrowse(base, "browse")); await setup.renderOnce();
         const header = setup.captureCharFrame().split("\n")
             .find((line) => line.includes("Browse models ·"))!;
-        expect(header).toContain("^g scope");
+        expect(header).toContain("Ctrl+G scope");
         view.update({ ...modelBrowse(base, "browse"), query: "alp", queryCursor: 3 });
         await setup.renderOnce();
         const searching = setup.captureCharFrame().split("\n")
             .find((line) => line.includes("Browse models ·"))!;
-        expect(searching).not.toContain("^g scope");
+        expect(searching).not.toContain("Ctrl+G scope");
     } finally { setup.renderer.destroy(); }
+});
+
+test("every scope says what it holds, and All points at Recommended", () => {
+    expect(browseScopeCaption("pool")).toContain("Models you saved");
+    expect(browseScopeCaption("recommended")).toContain("picked by hand");
+    // All is the long list, so it names the shorter one and the key that reaches it.
+    expect(browseScopeCaption("all")).toContain("Ctrl+G to switch to Recommended");
 });

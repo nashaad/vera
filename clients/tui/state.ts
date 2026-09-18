@@ -943,7 +943,7 @@ export function tuiPoolListing(
     pooled: readonly PooledModel[] | undefined,
 ): string {
     if (pooled === undefined || pooled.length === 0) {
-        return "You have no favorites yet. ^s in the model picker keeps one.";
+        return "You have no favorites yet. Ctrl+S in the model picker keeps one.";
     }
     const lines = pooled.map((entry) => {
         const effort = entry.defaultLevel ?? "provider default";
