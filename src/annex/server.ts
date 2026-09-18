@@ -56,6 +56,9 @@ export async function startAnnexServer(
         ...(options.reviewLogPath === undefined
             ? {}
             : { reviewLogPath: options.reviewLogPath }),
+        ...(options.workflowDirectory === undefined
+            ? {}
+            : { workflowDirectory: options.workflowDirectory }),
     }));
     const assets = await readPackedAnnexAssets(webRoot);
     const routes: AnnexRoute[] = [

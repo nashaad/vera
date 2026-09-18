@@ -111,11 +111,12 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
             attempts,
         },
         records,
-        spans: readSpans(runDir),
+        spans: readWorkflowSpans(runDir),
     };
 }
 
-function readSpans(runDir: string): WorkflowSpan[] {
+/** The spans alone, without reading the header or the journal. */
+export function readWorkflowSpans(runDir: string): WorkflowSpan[] {
     const spanPath = join(runDir, "spans.ndjson");
     if (!existsSync(spanPath)) {
         return [];

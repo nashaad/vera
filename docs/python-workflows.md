@@ -275,6 +275,10 @@ Calling `model_call` outside a step runs the block and records nothing, so a
 helper that uses it works whether or not a workflow called it. A second
 `usage()` on the same call replaces the first.
 
+Runs stored under the Vera home also count toward the totals on `/usage`. A
+call without `cost` is estimated from current OpenRouter rates when its
+provider is `openrouter`, and is otherwise left unpriced.
+
 ## Find runs whose process died
 
 A run left `running` by a process that never came back stays `running` until
