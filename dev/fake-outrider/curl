@@ -3,7 +3,7 @@
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 for argument in "$@"; do
     case "$argument" in
-    *get.corvines.com/outrider)
+    *get.corvines.com/install.sh)
         repo=$(CDPATH= cd -- "$here/../.." && pwd)
         sed "s|@REPO@|$repo|g" "$here/install.sh"
         exit 0

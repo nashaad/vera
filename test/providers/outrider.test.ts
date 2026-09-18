@@ -27,6 +27,12 @@ test("the commands are the ones the CLI actually has", () => {
     expect(outriderInstallCommand()[0]).toBe("sh");
 });
 
+test("the default install URL is the path the download host serves", () => {
+    expect(OUTRIDER_INSTALL_URL_DEFAULT).toBe(
+        "https://get.corvines.com/install.sh",
+    );
+});
+
 test("the install URL comes from the environment, and stays an argument", () => {
     const before = process.env.OUTRIDER_INSTALL_URL;
     try {

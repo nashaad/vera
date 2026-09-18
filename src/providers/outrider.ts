@@ -58,7 +58,7 @@ export function outriderListCommand(
     return [binary, "ls", "--json"];
 }
 
-export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/outrider";
+export const OUTRIDER_INSTALL_URL_DEFAULT = "https://get.corvines.com/install.sh";
 
 /** Where the installer is fetched from. `OUTRIDER_INSTALL_URL` points it at a local server, which is what makes the install path drivable before anything is published. */
 export function outriderInstallUrl(): string {
