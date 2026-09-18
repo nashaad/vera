@@ -9,12 +9,20 @@ Vera includes extensions for planning, side conversations, workspace diffs,
 context inspection, and command hooks. They appear in `/extensions` and
 `/customize`; no separate installation is needed.
 
-Vera loads every extension folder in two places:
+Extension code lives in four places in the repository. Vera loads the first
+two on its own:
 
-- `src/core-extensions/` holds core extensions. They can be switched off but
-  are part of Vera.
-- `extensions/` holds optional extensions. They are on by default, and
-  deleting a folder removes that extension.
+```text
+src/core-extensions/   core extensions: part of Vera, can be switched off
+extensions/            optional extensions: on by default, delete a folder to remove one
+examples/extensions/   example extensions: never loaded unless added by path
+src/extensions/        the extension host: discovery, manifests, registry, manager
+```
+
+To use an example, install its folder with `/extension install <path>`, as in
+[Install a local extension](extensions.md#install-a-local-extension).
+
+The core and optional extensions are:
 
 ```text
 core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
