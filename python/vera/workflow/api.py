@@ -20,6 +20,7 @@ from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, 
 
 from ._canonical import digest, dumps
 from ._errors import Cancelled, Run, RunError, StepTimeout, Suspend, WorkflowError
+from ._journal import _now
 from ._hooks import (
     CommandHook,
     PrepareStepHook,
@@ -45,6 +46,7 @@ WorkflowArgs = TypeVarTuple("WorkflowArgs")
 __all__ = [
     "workflow",
     "step",
+    "ask",
     "Cancelled",
     "StepTimeout",
     "Suspend",
@@ -147,6 +149,15 @@ class _UserFailure(BaseException):
         self.error = error
 
 
+class _Asking(Suspend):
+    """The run stopped to wait for an answer to `question`."""
+
+    def __init__(self, key: str, question: str) -> None:
+        super().__init__(question)
+        self.key = key
+        self.question = question
+
+
 class _RuntimeFault(BaseException):
     def __init__(self, error: WorkflowError) -> None:
         super().__init__(str(error))
@@ -180,6 +191,14 @@ class _Runtime:
             inbox=MappingProxyType(inbox),
         )
         self._ordinals: dict[str, int] = {}
+        self._asks: dict[str, int] = {}
+
+    def ask_key(self, step: _StepSpan | None) -> str:
+        """Name the next question, counted within its step or the workflow body."""
+        scope = "" if step is None else step.key
+        ordinal = self._asks.get(scope, 0)
+        self._asks[scope] = ordinal + 1
+        return f"ask#{ordinal}" if step is None else f"{scope}/ask#{ordinal}"
 
     def _attempt(
         self,
@@ -202,6 +221,8 @@ class _Runtime:
         delay = backoff
         remaining = retries
         while True:
+            # A retry asks the same questions again, so it reads the same answers.
+            self._asks.pop(key, None)
             span = self.journal.open_span(key, step_name)
             started = time.monotonic()
             span_token = _step_span.set(_StepSpan(self.journal, span, key))
@@ -430,6 +451,24 @@ def model_call(model: str, *, provider: str = "") -> Iterator[ModelCall]:
     )
 
 
+def ask(question: str) -> str:
+    """Pause the run until someone answers `question`, then return the answer.
+
+    The first time through, the question goes in the journal and the run
+    suspends. `python -m vera.workflow answer <run_id>` records an answer and
+    resumes the run, and on that replay this call returns it. Each call is a
+    separate question, numbered in the order the run reaches them.
+    """
+    runtime = _runtime.get()
+    if runtime is None:
+        raise WorkflowError("ask", "ask() needs a running workflow")
+    key = runtime.ask_key(_step_span.get())
+    answer = runtime.current_run.inbox.get(key)
+    if type(answer) is str:
+        return answer
+    raise _Asking(key, question)
+
+
 def _elapsed(started: float) -> int:
     return max(0, round((time.monotonic() - started) * 1000))
 
@@ -467,7 +506,7 @@ def _invoke(
     def body() -> None:
         try:
             outcome.append((True, function(*args, **kwargs)))
-        except Exception as error:  # noqa: BLE001 - reported through _UserFailure
+        except (Exception, Suspend) as error:  # noqa: BLE001 - reported below
             outcome.append((False, error))
 
     worker = Thread(
@@ -483,6 +522,8 @@ def _invoke(
     succeeded, value = outcome[0]
     if succeeded:
         return cast(R, value)
+    if isinstance(value, Suspend):
+        raise value
     raise _UserFailure(cast(Exception, value))
 
 
@@ -617,7 +658,14 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             )
         except Suspend as suspended:
             journal.reload_inbox()
-            journal.mark_suspended(suspended.reason)
+            asking = None
+            if isinstance(suspended, _Asking):
+                asking = {
+                    "key": suspended.key,
+                    "question": suspended.question,
+                    "at": _now(),
+                }
+            journal.mark_suspended(suspended.reason, asking)
             return Run(
                 journal.run_id,
                 "suspended",

@@ -201,3 +201,38 @@ function spanStart(spanId: string, startTime: string): Record<string, unknown> {
         },
     };
 }
+
+test("readWorkflowRun carries the question a run waits on", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-asking-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({
+            run_id: "wf_00000000000000ad",
+            workflow: "gated",
+            status: "suspended",
+            asking: { key: "ask#0", question: "Ship it?", at: "2026-09-17T12:00:00+00:00" },
+        }),
+    );
+    writeFileSync(join(runDir, "journal.ndjson"), "");
+
+    const run = readWorkflowRun(runDir);
+
+    expect(run.header.asking?.key).toBe("ask#0");
+    expect(run.header.asking?.question).toBe("Ship it?");
+});
+
+test("readWorkflowRun refuses a malformed question", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-asking-bad-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({
+            run_id: "wf_00000000000000ae",
+            workflow: "gated",
+            status: "suspended",
+            asking: { key: "ask#0" },
+        }),
+    );
+    writeFileSync(join(runDir, "journal.ndjson"), "");
+
+    expect(() => readWorkflowRun(runDir)).toThrow("question has invalid fields");
+});

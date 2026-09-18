@@ -612,6 +612,7 @@ class Journal:
     def mark_running(self) -> None:
         self.header["status"] = "running"
         self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header.pop("cancel_requested", None)
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -636,10 +637,16 @@ class Journal:
         close_attempt(self.header, "failed")
         self.write_header()
 
-    def mark_suspended(self, reason: str) -> None:
+    def mark_suspended(
+        self, reason: str, asking: dict[str, object] | None = None
+    ) -> None:
         self.header["status"] = "suspended"
         self.header.pop("active", None)
         self.header["reason"] = reason
+        if asking is None:
+            self.header.pop("asking", None)
+        else:
+            self.header["asking"] = asking
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
         close_attempt(self.header, "suspended")
@@ -657,6 +664,7 @@ class Journal:
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
         self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -673,6 +681,15 @@ class Journal:
 
     def request_cancel(self, reason: str) -> None:
         self.header["cancel_requested"] = reason
+        self.write_header()
+
+    def put_inbox(self, key: str, value: object) -> None:
+        """Leave a value for the run to read from `current.run.inbox`."""
+        self.reload_inbox()
+        inbox = self.header["inbox"]
+        if type(inbox) is not dict:
+            raise _journal_error("header field inbox must be an object")
+        inbox[key] = value
         self.write_header()
 
     def cancel_requested(self) -> str | None:

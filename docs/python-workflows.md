@@ -104,12 +104,49 @@ The command then exits with status 2 and directs you to call the workflow's
 | --- | --- |
 | `ok` | The workflow returned a result. |
 | `failed` | A step or hook failed. Read `run.error.kind` and `run.error.message`. |
-| `suspended` | The workflow paused for input. |
+| `suspended` | The workflow paused for input, such as an `ask`. |
 | `crashed` | The process running it died. A sweep found it and said so. |
 | `running` | The run is active. |
 
 A failed step returns a Run result rather than raising out of `run()`.
 Steps are retried, not rolled back.
+
+## Ask for an answer
+
+`ask` stops the run until someone answers a question, then returns the answer
+as a string:
+
+```python
+from vera.workflow import ask, step, workflow
+
+@workflow
+def publish(topic: str) -> str:
+    text = draft(topic)
+    verdict = ask(f"Ship this?\n\n{text}")
+    return f"{verdict}: {text}"
+```
+
+The first run ends `suspended`, with the question in the header's `asking`
+field. `show` prints it. To answer:
+
+```sh
+PYTHONPATH=python python3 -m vera.workflow answer <run-id> "ship it" --journal-dir /tmp/wf-demo
+```
+
+The answer is stored in the run's inbox and the run resumes. Completed steps
+return their recorded values, so `draft` does not run again.
+
+Without the text, `answer` prints a page address on `127.0.0.1` and waits.
+The page shows the question and takes one answer, then closes, and the run
+resumes in the terminal. The address carries a random path, and any other
+path returns 404. Ctrl-C leaves the run waiting.
+
+Each `ask` gets a key: `ask#0`, `ask#1`, and so on in the workflow body, or
+`<step key>/ask#0` inside a step. A resumed run asks the same questions in
+the same order, so each one reads its own answer. A step retried after a
+failure asks its questions again and reads the same answers.
+
+`ask` outside a running workflow raises `WorkflowError`.
 
 ## Inspect recorded progress
 

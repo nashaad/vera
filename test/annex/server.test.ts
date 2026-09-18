@@ -222,3 +222,42 @@ test("the runs page prices the model calls a step recorded", async () => {
     expect(spans[1]?.tokens).toBe(1510);
     expect(spans[1]?.cost).toBeCloseTo(0.0123, 6);
 });
+
+test("the runs page shows the question a run waits on", async () => {
+    const workflowDirectory = tempDir("vera-annex-ask-");
+    const entry = join(workflowDirectory, "entry.py");
+    writeFileSync(entry, [
+        "from pathlib import Path",
+        "import sys",
+        "from vera.workflow.api import ask, workflow",
+        "",
+        "@workflow",
+        "def gated() -> str:",
+        "    return ask('Ship it?')",
+        "",
+        "if __name__ == '__main__':",
+        "    gated.run(journal_dir=Path(sys.argv[1]))",
+        "",
+    ].join("\n"));
+    const python = Bun.spawnSync(
+        ["python3", entry, workflowDirectory],
+        { env: { ...process.env, PYTHONPATH: resolve(import.meta.dir, "../../python") } },
+    );
+    expect(python.exitCode).toBe(0);
+
+    const server = await startAnnexServer({
+        sessionDirectory: tempDir("vera-annex-ask-sessions-"),
+        workflowDirectory,
+        webRoot: await packedAssets(),
+    });
+    servers.push(server);
+
+    const list = await (await fetch(`${server.url}api/runs`)).json() as {
+        rows: { runId: string; status: string }[];
+    };
+    expect(list.rows[0]?.status).toBe("suspended");
+    const detail = await (
+        await fetch(`${server.url}api/runs/${list.rows[0]?.runId ?? ""}`)
+    ).json() as { asking?: { question: string; at: string } };
+    expect(detail.asking?.question).toBe("Ship it?");
+});

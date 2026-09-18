@@ -55,7 +55,8 @@ class SqlDialect:
                 entry_file TEXT,
                 entry_workflow TEXT,
                 entry_cwd TEXT,
-                cancel_requested TEXT
+                cancel_requested TEXT,
+                asking TEXT
             )
             """,
             """
@@ -109,7 +110,8 @@ class SqlDialect:
         return (
             "SELECT run_id, workflow, status, started_at, finished_at, inbox, "
             "doc, args, kwargs, error, reason, active, attempts, entry_file, "
-            f"entry_workflow, entry_cwd FROM runs WHERE run_id = {self.placeholder}"
+            "entry_workflow, entry_cwd, asking "
+            f"FROM runs WHERE run_id = {self.placeholder}"
         )
 
     def update_run(self) -> str:
@@ -118,7 +120,7 @@ class SqlDialect:
             "finished_at = {p}, inbox = {p}, doc = {p}, args = {p}, "
             "kwargs = {p}, error = {p}, reason = {p}, active = {p}, "
             "attempts = {p}, entry_file = {p}, entry_workflow = {p}, "
-            "entry_cwd = {p} "
+            "entry_cwd = {p}, asking = {p} "
             "WHERE run_id = {p}"
         ).format(p=self.placeholder)
 
@@ -167,6 +169,9 @@ class SqlDialect:
 
     def select_inbox(self) -> str:
         return f"SELECT inbox FROM runs WHERE run_id = {self.placeholder}"
+
+    def update_inbox(self) -> str:
+        return f"UPDATE runs SET inbox = {self.placeholder} WHERE run_id = {self.placeholder}"
 
     def select_cancel_requested(self) -> str:
         return (
@@ -376,6 +381,7 @@ class SqlRunJournal:
     def mark_running(self) -> None:
         self._set_cancel_requested(None)
         self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["status"] = "running"
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -400,10 +406,16 @@ class SqlRunJournal:
         close_attempt(self.header, "failed")
         self.write_header()
 
-    def mark_suspended(self, reason: str) -> None:
+    def mark_suspended(
+        self, reason: str, asking: dict[str, object] | None = None
+    ) -> None:
         self.header["status"] = "suspended"
         self.header.pop("active", None)
         self.header["reason"] = reason
+        if asking is None:
+            self.header.pop("asking", None)
+        else:
+            self.header["asking"] = asking
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
         close_attempt(self.header, "suspended")
@@ -421,6 +433,7 @@ class SqlRunJournal:
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
         self.header.pop("active", None)
+        self.header.pop("asking", None)
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
@@ -465,6 +478,7 @@ class SqlRunJournal:
                 entry_file,
                 entry_workflow,
                 entry_cwd,
+                _asking_text(self.header.get("asking")),
                 self.run_id,
             ),
         )
@@ -472,6 +486,19 @@ class SqlRunJournal:
 
     def request_cancel(self, reason: str) -> None:
         self._set_cancel_requested(reason)
+
+    def put_inbox(self, key: str, value: object) -> None:
+        """Leave a value for the run to read from `current.run.inbox`."""
+        self.reload_inbox()
+        inbox = self.header["inbox"]
+        if type(inbox) is not dict:
+            raise _journal_error("header field inbox must be an object")
+        inbox[key] = value
+        self._store._execute(
+            self._store.dialect.update_inbox(),
+            (dumps(inbox), self.run_id),
+        )
+        self._store._commit()
 
     def cancel_requested(self) -> str | None:
         rows = self._store._query(
@@ -695,6 +722,10 @@ def _attempts_text(attempts: object) -> str | None:
     return dumps(attempts) if type(attempts) is list else None
 
 
+def _asking_text(asking: object) -> str | None:
+    return dumps(asking) if type(asking) is dict else None
+
+
 def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
     (
         run_id,
@@ -713,6 +744,7 @@ def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
         entry_file,
         entry_workflow,
         entry_cwd,
+        asking,
     ) = row
     header: dict[str, object] = {
         "run_id": run_id,
@@ -734,6 +766,8 @@ def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
         header["active"] = _parse_json_text(active, "active")
     if type(attempts) is str:
         header["attempts"] = _parse_json_text(attempts, "attempts")
+    if type(asking) is str:
+        header["asking"] = _parse_json_text(asking, "asking")
     if (
         type(entry_file) is str
         and type(entry_workflow) is str

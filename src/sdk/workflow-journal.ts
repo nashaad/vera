@@ -8,6 +8,8 @@ export interface WorkflowRunHeader {
     readonly status: string;
     // Present only while a step is in flight, and left behind by a crash.
     readonly active?: WorkflowActiveStep;
+    // Present only while the run is suspended waiting on an answer.
+    readonly asking?: WorkflowQuestion;
     readonly attempts: readonly WorkflowAttempt[];
 }
 
@@ -23,6 +25,12 @@ export interface WorkflowAttempt {
 export interface WorkflowActiveStep {
     readonly key: string;
     readonly step: string;
+    readonly at: string;
+}
+
+export interface WorkflowQuestion {
+    readonly key: string;
+    readonly question: string;
     readonly at: string;
 }
 
@@ -85,6 +93,7 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
         throw new Error(`workflow header has invalid fields: ${headerPath}`);
     }
     const active = readActiveStep(headerValue.active, headerPath);
+    const asking = readQuestion(headerValue.asking, headerPath);
     const attempts = readAttempts(headerValue.attempts, headerPath);
 
     const journalPath = join(runDir, "journal.ndjson");
@@ -93,9 +102,14 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
     const records = lines.map((line) => readRecord(line, runDir, journalPath));
 
     return {
-        header: active === undefined
-            ? { run_id: runId, workflow, status, attempts }
-            : { run_id: runId, workflow, status, active, attempts },
+        header: {
+            run_id: runId,
+            workflow,
+            status,
+            ...(active === undefined ? {} : { active }),
+            ...(asking === undefined ? {} : { asking }),
+            attempts,
+        },
         records,
         spans: readSpans(runDir),
     };
@@ -277,6 +291,23 @@ function readActiveStep(
         throw new Error(`workflow header active step has invalid fields: ${headerPath}`);
     }
     return { key, step, at };
+}
+
+function readQuestion(
+    value: unknown,
+    headerPath: string,
+): WorkflowQuestion | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (!isRecord(value)) {
+        throw new Error(`workflow header question must be an object: ${headerPath}`);
+    }
+    const { key, question, at } = value;
+    if (typeof key !== "string" || typeof question !== "string" || typeof at !== "string") {
+        throw new Error(`workflow header question has invalid fields: ${headerPath}`);
+    }
+    return { key, question, at };
 }
 
 function readRecord(

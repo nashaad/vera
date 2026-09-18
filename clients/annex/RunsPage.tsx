@@ -113,6 +113,17 @@ function RunPage({
                             )}
                         </p>
                     </div>
+                    {detail.value.asking === undefined ? undefined : (
+                        <section className="panel">
+                            <h2>Waiting for an answer</h2>
+                            <p className="question">{detail.value.asking.question}</p>
+                            <p className="meta">
+                                {"Asked "}{clock(detail.value.asking.at)}
+                                {". Answer with "}
+                                <code>{`python -m vera.workflow answer ${detail.value.runId}`}</code>
+                            </p>
+                        </section>
+                    )}
                     {detail.value.attempts.map((attempt) => (
                         <Attempt key={attempt.number} attempt={attempt} />
                     ))}

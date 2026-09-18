@@ -13,7 +13,9 @@ from .api import (
     Suspend,
     Ticket,
     WorkflowError,
+    ask,
     current,
+    model_call,
     step,
     workflow,
 )
@@ -22,6 +24,8 @@ from .api import (
 __all__ = [
     "workflow",
     "step",
+    "ask",
+    "model_call",
     "Cancelled",
     "StepTimeout",
     "Suspend",

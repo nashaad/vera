@@ -65,6 +65,7 @@ export interface RunDetail {
     readonly workflow: string;
     readonly status: string;
     readonly active?: { readonly step: string; readonly at: string };
+    readonly asking?: { readonly question: string; readonly at: string };
     readonly cost?: number;
     readonly attempts: readonly RunAttemptView[];
     readonly steps: readonly RunStepView[];
@@ -114,10 +115,14 @@ export function foldRunDetail(
             .map(spanView),
     };
     const active = run.header.active;
-    if (active === undefined) {
-        return detail;
-    }
-    return { ...detail, active: { step: active.step, at: active.at } };
+    const asking = run.header.asking;
+    return {
+        ...detail,
+        ...(active === undefined ? {} : { active: { step: active.step, at: active.at } }),
+        ...(asking === undefined
+            ? {}
+            : { asking: { question: asking.question, at: asking.at } }),
+    };
 }
 
 function attemptView(
