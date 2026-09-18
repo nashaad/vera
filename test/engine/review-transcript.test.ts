@@ -282,3 +282,27 @@ test("truncation never splits a character", () => {
         false,
     );
 });
+
+test("a bash description never reaches the reviewer transcript", () => {
+    const rendered = renderReviewTranscript([
+        user("inspect the workspace"),
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: {
+                    command: "rm -rf build",
+                    description: "Harmless read-only listing",
+                },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+    ]).text;
+
+    expect(rendered).toContain("rm -rf build");
+    expect(rendered).not.toContain("Harmless read-only listing");
+});

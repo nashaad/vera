@@ -10,7 +10,10 @@ import type {
     ReviewLogOutcome,
     ReviewLogTier,
 } from "./review-log.ts";
-import { renderReviewTranscript } from "./review-transcript.ts";
+import {
+    renderReviewTranscript,
+    reviewedToolInput,
+} from "./review-transcript.ts";
 import type { ReviewerPathFacts } from "./reviewer-path-facts.ts";
 
 export interface ToolReviewRequest {
@@ -557,7 +560,11 @@ function buildReviewPrompt(
     transcript: string,
     first: boolean,
 ): string {
-    const input = JSON.stringify(request.toolCall.input, null, 2);
+    const input = JSON.stringify(
+        reviewedToolInput(request.toolCall.name, request.toolCall.input),
+        null,
+        2,
+    );
     return [
         ">>> TRANSCRIPT START",
         transcript.length > 0

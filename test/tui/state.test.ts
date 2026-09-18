@@ -709,6 +709,93 @@ test("a group stays live until every tool in it finishes", () => {
     ]);
 });
 
+test("a running bash call's description replaces the live header", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: {
+            command: "git log --oneline | head -5",
+            description: "  Show the five\nlatest commits ",
+        },
+        seq: 1,
+    });
+
+    expect(state.entries[1]).toMatchObject({
+        header: "Running",
+        text: "Show the five latest commits",
+    });
+    expect(state.entries[2]).toMatchObject({
+        text: "git log --oneline | head -5",
+    });
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "abc123 first",
+        isError: false,
+        seq: 2,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "+ Ran",
+        "  │ git log --oneline | head -5",
+        "  └ abc123 first",
+    ]);
+    expect(state.entries[2]).not.toHaveProperty("activity");
+});
+
+test("a bash call with a blank description keeps the Running header", () => {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "bun test ", description: " \n " },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Running",
+        "  └ bun test",
+    ]);
+});
+
+test("a live group shows the latest running call's description", () => {
+    let state = beginTuiTurn(createTuiState(), "inspect");
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "pwd", description: "Print the directory" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "date", description: "Print the date" },
+        seq: 2,
+    });
+    expect(state.entries[1]).toMatchObject({ text: "Print the date" });
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 3,
+    });
+    expect(state.entries[1]).toMatchObject({ text: "Print the date" });
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        seq: 4,
+    });
+    expect(state.entries.map(entryLine)).toEqual([
+        "inspect",
+        "Ran",
+        "  └ pwd",
+        "    date",
+    ]);
+});
+
 test("TUI clears retry activity when a turn finishes", () => {
     const retrying = applyAgentUpdate(createTuiState(), {
         type: "model_activity",

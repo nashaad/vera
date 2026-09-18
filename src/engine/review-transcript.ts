@@ -23,6 +23,18 @@ export interface ReviewTranscript {
     readonly diverged: boolean;
 }
 
+// A bash description is the model's own summary; the reviewer judges the command.
+export function reviewedToolInput(
+    tool: string,
+    input: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+    if (tool !== "bash" || !("description" in input)) {
+        return input;
+    }
+    const { description: _description, ...rest } = input;
+    return rest;
+}
+
 export function renderReviewTranscript(
     messages: readonly ModelMessage[],
     seen: readonly string[] = [],
@@ -151,7 +163,9 @@ function collectItems(
                     items.push({
                         index: items.length + 1,
                         role: `tool_call ${block.name}`,
-                        text: JSON.stringify(block.input),
+                        text: JSON.stringify(
+                            reviewedToolInput(block.name, block.input),
+                        ),
                         kind: "tool",
                     });
                 }
