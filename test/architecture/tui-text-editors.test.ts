@@ -28,16 +28,15 @@ test("ordinary TUI fields stay on the composer's native editor path", async () =
         "clients/tui/single-line-editor.ts",
     ).text();
     const dialogChrome = await Bun.file("clients/tui/dialog-chrome.ts").text();
+    const dialogSearch = await Bun.file("clients/tui/dialog-search.ts").text();
     const linesView = await Bun.file("clients/tui/lines-view.ts").text();
 
     expect(composer).toContain("extends TextareaRenderable");
     expect(nativeEditor).toContain("new TextareaRenderable(");
     expect(nativeEditor).toContain("readonly placeholder: string;");
     expect(dialogChrome).toContain("createTuiSingleLineTextarea(");
-    expect(dialogChrome).toContain(
-        'return createDialogTextFieldNode(renderer, id, "Search");',
-    );
-    expect(linesView).toContain("createTuiSingleLineTextarea(");
+    expect(dialogSearch).toContain("createTuiSingleLineTextarea(");
+    expect(linesView).toContain("createDialogSearchNode(");
 
     for (const [path, nativePath] of ORDINARY_EDITOR_SURFACES) {
         const source = await Bun.file(path).text();
