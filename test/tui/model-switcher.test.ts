@@ -163,8 +163,8 @@ describe("model switcher keys", () => {
             .toBe(0);
     });
 
-    test("ctrl+b leaves for the browse page", () => {
-        const transition = handleTuiModelSwitcherKey(started(), { name: "b", ctrl: true });
+    test("ctrl+k leaves for the browse page", () => {
+        const transition = handleTuiModelSwitcherKey(started(), { name: "k", ctrl: true });
         expect(transition.browse).toBe(true);
         expect(transition.handled).toBe(true);
         expect(transition.state).toBeUndefined();

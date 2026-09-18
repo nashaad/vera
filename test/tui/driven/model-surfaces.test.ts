@@ -332,7 +332,7 @@ test("tab and the arrows walk search, the list and the browse row", async () => 
     } finally { await session.close(); }
 }, 15_000);
 
-test("ctrl+b leaves the switcher for the browse page", async () => {
+test("ctrl+k leaves the switcher for the browse page", async () => {
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-key-")), width: 130, height: 44,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
     try {
@@ -340,7 +340,7 @@ test("ctrl+b leaves the switcher for the browse page", async () => {
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
-        session.sendKey("C-b");
+        session.sendKey("C-k");
         const browse = await session.waitForVisiblePane("Filter and sort");
         expect(browse).not.toContain("⏎ switch");
     } finally { await session.close(); }

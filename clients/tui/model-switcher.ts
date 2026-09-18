@@ -256,7 +256,7 @@ export function handleTuiModelSwitcherKey(
             ? { state, handled: true }
             : { state, favorite: selected, handled: true };
     }
-    if (key.ctrl === true && key.name === "b") {
+    if (key.ctrl === true && key.name === "k") {
         return { browse: true, handled: true };
     }
     if (key.ctrl === true && key.name === "u") return moved(state, -PAGE_ROWS);
@@ -510,7 +510,7 @@ export function createTuiModelSwitcherView(
             const pointer = dialogRowPointer(view.pointer, state.rows.length);
             const browse = dialogActionRow(
                 renderer, browseRowLabel(state), onSwitcherBrowseRow(state), false,
-                pointer.onSelect, pointer.onHover, "Ctrl+B",
+                pointer.onSelect, pointer.onHover, "Ctrl+K",
             );
             box.add(browse);
             nodes.push(browse);
