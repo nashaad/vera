@@ -21,7 +21,7 @@
             "minLength": 1
         },
         "status": {
-            "enum": ["ok", "failed", "suspended", "cancelled", "running"]
+            "enum": ["ok", "failed", "suspended", "cancelled", "crashed", "running"]
         },
         "started_at": {
             "type": "string",

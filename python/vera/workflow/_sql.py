@@ -282,6 +282,15 @@ class SqlRunJournal:
         close_attempt(self.header, "suspended")
         self.write_header()
 
+    def mark_crashed(self, reason: str) -> None:
+        """Say the process died. The open attempt stays open as the evidence."""
+        self.header["status"] = "crashed"
+        self.header.pop("active", None)
+        self.header["reason"] = reason
+        self.header.pop("finished_at", None)
+        self.header.pop("error", None)
+        self.write_header()
+
     def mark_cancelled(self, reason: str) -> None:
         self.header["status"] = "cancelled"
         self.header.pop("active", None)

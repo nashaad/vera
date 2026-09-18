@@ -105,6 +105,7 @@ The command then exits with status 2 and directs you to call the workflow's
 | `ok` | The workflow returned a result. |
 | `failed` | A step or hook failed. Read `run.error.kind` and `run.error.message`. |
 | `suspended` | The workflow paused for input. |
+| `crashed` | The process running it died. A sweep found it and said so. |
 | `running` | The run is active. |
 
 A failed step returns a Run result rather than raising out of `run()`.
@@ -125,6 +126,26 @@ appears in the report.
 
 If the ID is missing, the error lists up to ten available run IDs and counts
 any remaining ones. In file storage, run IDs are also the directory names.
+
+## Find runs whose process died
+
+A run left `running` by a process that never came back stays `running` until
+someone looks. The sweep does the looking:
+
+```sh
+PYTHONPATH=python python3 -m vera.workflow sweep --journal-dir /tmp/wf-demo
+```
+
+It considers a run only when the last attempt is still open and its `pid` on
+this host is gone. Those runs are marked `crashed` with a `reason`, and the open
+attempt is left open as the evidence. Nothing is run again.
+
+Passing `--resume` resumes each run it just marked, in this process, one after
+the other. A run someone asked to cancel is marked but never resumed.
+
+The sweep reads pids on the machine that recorded them, so it skips runs whose
+attempt names another host, and it skips a pid the operating system has since
+handed to something else. Run it on the machine the workflows ran on.
 
 ### Journal files
 

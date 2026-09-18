@@ -15,7 +15,7 @@ from ._errors import WorkflowError
 
 _RUN_ID = re.compile(r"wf_[0-9a-f]{16}\Z")
 _BLOB_REF = re.compile(r"[0-9a-f]{64}\Z")
-_STATUSES = {"ok", "failed", "suspended", "cancelled", "running"}
+_STATUSES = {"ok", "failed", "suspended", "cancelled", "crashed", "running"}
 _INLINE_VALUE_MAX_BYTES = 8192
 
 
@@ -132,7 +132,9 @@ def validate_header(
             raise _journal_error("failed workflow header must include error")
         if type(error.get("kind")) is not str or type(error.get("message")) is not str:
             raise _journal_error("workflow header error must include kind and message")
-    if status in ("suspended", "cancelled") and type(header.get("reason")) is not str:
+    if status in ("suspended", "cancelled", "crashed") and type(
+        header.get("reason")
+    ) is not str:
         raise _journal_error(f"{status} workflow header must include reason")
     args = header.get("args")
     kwargs = header.get("kwargs")
@@ -471,6 +473,15 @@ class Journal:
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
         close_attempt(self.header, "suspended")
+        self.write_header()
+
+    def mark_crashed(self, reason: str) -> None:
+        """Say the process died. The open attempt stays open as the evidence."""
+        self.header["status"] = "crashed"
+        self.header.pop("active", None)
+        self.header["reason"] = reason
+        self.header.pop("finished_at", None)
+        self.header.pop("error", None)
         self.write_header()
 
     def mark_cancelled(self, reason: str) -> None:
