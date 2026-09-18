@@ -92,7 +92,7 @@ test("More returns to the exact picker, and only its listed actions can run", ()
         const parent = { ...filtered, options: browseModels(filtered) };
         let menu = handleTuiSettingsPickerKey(parent, more).state!;
         expect(menu.kind).toBe("model_menu");
-        expect(menu.options.map((row) => row.label)).toEqual(["Add to favorites", "Show extra variants and older models", "Refresh model catalog", "Add/remove favorites", "Edit model defaults", "Configure providers"]);
+        expect(menu.options.map((row) => row.label)).toEqual(["Add to favorites", "Show extra variants and older models", "Refresh model catalog", "Add/remove favorites", "Verify favorites", "Edit model defaults", "Configure providers"]);
         menu = handleTuiSettingsPickerKey(menu, { name: "down" }).state!;
         expect(handleTuiSettingsPickerKey(menu, { name: "escape" }).state).toBe(parent);
         expect(handleTuiSettingsPickerKey(menu, more).state).toBe(parent);
@@ -112,7 +112,7 @@ test("More returns to the exact picker, and only its listed actions can run", ()
         expect(handleTuiSettingsPickerKey(menu, { name: "enter" })).toEqual({ state: parent, handled: true, refreshAllCatalogs: true });
     }
     const libraryMenu = handleTuiSettingsPickerKey(base, more).state!;
-    expect(libraryMenu.options.map((row) => row.label)).toEqual(["Remove from favorites", "Refresh model catalog", "Add/remove favorites", "Edit model defaults", "Configure providers"]);
+    expect(libraryMenu.options.map((row) => row.label)).toEqual(["Remove from favorites", "Refresh model catalog", "Add/remove favorites", "Verify favorites", "Edit model defaults", "Configure providers"]);
     expect(handleTuiSettingsPickerKey(libraryMenu, { name: "escape" }).state).toBe(base);
 });
 

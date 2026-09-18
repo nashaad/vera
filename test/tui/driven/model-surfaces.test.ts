@@ -51,6 +51,45 @@ test("a favorite keeps through the host operation and verification can be left r
     } finally { finish(); await session.close(); }
 }, 15_000);
 
+test("the manage menu carries verify all, so no chord is the only way in", async () => {
+    const operations: ModelOperation[] = [];
+    const available = [{ provider: "openrouter", model: "one/model", label: "One", description: "", levels: [] }];
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-verify-row-")), width: 120, height: 36,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies({
+            pooled: [{ ...available[0]!, available: true, verified: false }],
+        }),
+            operateModels: async (operation, onResult) => {
+                operations.push(operation);
+                onResult({ ...operation.models[0]!, status: "passed" });
+                return { model: "one/model", provider: "openrouter", availableModels: available,
+                    pooled: [{ ...available[0]!, available: true, verified: true }] };
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/models");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Browse models");
+        session.sendKey("C-k");
+        const menu = await session.waitForVisiblePane("Manage models");
+        const rows = menu.split("\n").map((line) => line.trim());
+        const at = rows.indexOf("Verify favorites");
+        expect(at).toBeGreaterThan(0);
+        const first = rows.findIndex((line) => line === "Remove from favorites");
+        // The card prints a blank line between groups, so count rows, not lines.
+        const steps = rows.slice(first, at).filter((line) => line !== "").length;
+        for (let step = 0; step < steps; step += 1) session.sendKey("Down");
+        await session.settle();
+        session.sendKey("Enter");
+        const scope = await session.waitForVisiblePane("All favorites");
+        expect(scope).toContain("Verify favorites");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Verifying models");
+        expect(operations.map((operation) => operation.operation)).toEqual(["verify"]);
+    } finally { await session.close(); }
+}, 20_000);
+
 test("verification is explicit and all coverage includes only favorites", async () => {
     const { createSettingsAnsweringClient } = await import("../../support/settings-answering-client.ts");
     const operations: ModelOperation[] = [];

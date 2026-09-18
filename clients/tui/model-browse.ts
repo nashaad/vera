@@ -230,6 +230,9 @@ export function modelBrowseMenu(parent: TuiSettingsPickerState): TuiSettingsPick
             ? "Hide extra variants and older models" : "Show extra variants and older models", description: "Change catalog visibility" }] : []),
         { value: "refresh", label: "Refresh model catalog", description: "Reload connected catalogs" },
         { value: "manage_library", label: "Add/remove favorites", description: "Choose your saved models" },
+        ...(parent.allOptions.some((row) => row.pooledRank !== undefined)
+            ? [{ value: "verify", label: "Verify favorites", description: "Check that they still answer" }]
+            : []),
         { value: "defaults", label: "Edit model defaults", description: "Choose models for roles" },
         { value: "providers", label: "Configure providers", description: "Manage provider connections" },
     ];
@@ -285,6 +288,7 @@ export function handleModelBrowseMenuKey(state: TuiSettingsPickerState, key: Tui
         };
         if (state.options[state.selectedIndex]?.value === "refresh") return { state: parent, handled: true, refreshAllCatalogs: true };
         if (value === "manage_library") return { state: parent, handled: true, selection: { kind: "model_shortlist_open" } };
+        if (value === "verify") return { state: parent, handled: true, poolVerifySweep: true };
         if (value === "defaults") return { state: parent, handled: true, selection: { kind: "model_defaults_open" } };
         if (value === "library") {
             const row = parent.options[parent.selectedIndex];
