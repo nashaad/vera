@@ -282,6 +282,27 @@ describe("model switcher provider headings", () => {
         ]);
     });
 
+    test("ungrouped rows stay in the model column under a heading", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            view.update(startTuiModelSwitcher([
+                { provider: "openrouter", model: "z-ai/glm-5.2", label: "GLM-5.2", favorite: true },
+                ...openrouter.slice(1),
+            ]));
+            await setup.renderOnce();
+            const lines = setup.captureCharFrame().split("\n");
+            const at = (label: string): number =>
+                lines.findIndex((line) => line.includes(label));
+            const column = (label: string): number => lines[at(label)]!.indexOf(label);
+            expect(column("GLM-5.2")).toBe(column("Kimi K3"));
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+
     test("a search names the provider only when more than one is connected", async () => {
         const setup = await createTestRenderer({ width: 100, height: 30 });
         const view = createTuiModelSwitcherView(setup.renderer);

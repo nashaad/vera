@@ -608,6 +608,8 @@ function displayRows(
     offset: number,
 ): readonly SwitcherDisplayRow[] {
     const width = Math.max(0, ...state.groups.map((group) => group.length)) + 2;
+    // An ungrouped row still gets the blank gutter, or it slides out of the column.
+    const headed = state.groups.some((group) => group.length > 0);
     return window.map((row, position) => {
         const index = offset + position;
         const group = state.groups[index] ?? "";
@@ -615,9 +617,9 @@ function displayRows(
         return {
             row,
             index,
-            ...(group.length === 0
-                ? {}
-                : { heading: (first ? group.toLowerCase() : "").padEnd(width) }),
+            ...(headed
+                ? { heading: (first ? group.toLowerCase() : "").padEnd(width) }
+                : {}),
             spaced: first && position > 0 && group.length > 0,
         };
     });
