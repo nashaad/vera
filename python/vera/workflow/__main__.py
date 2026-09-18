@@ -159,6 +159,26 @@ def _sweep(journal_dir: Path, resume: bool) -> int:
     return code
 
 
+def _held_by(header: dict[str, object]) -> str | None:
+    """Why this run may not be resumed from here, or None.
+
+    Only the machine that recorded a pid can say whether that process is gone,
+    so a run left by another machine is refused until a sweep there marks it.
+    """
+    if header.get("status") != "running":
+        return None
+    attempt = _open_attempt(header)
+    if attempt is None:
+        return None
+    host = attempt.get("host")
+    pid = attempt.get("pid")
+    if host != socket.gethostname():
+        return f"last ran on {host}; sweep there to mark it crashed"
+    if type(pid) is int and _alive(pid):
+        return f"is still running here as pid {pid}"
+    return None
+
+
 def _dead_pid(header: dict[str, object], here: str) -> int | None:
     """The pid of the process that left this run, when it is gone from here."""
     attempt = _open_attempt(header)
@@ -327,6 +347,10 @@ def _answered_page(run_id: str) -> str:
 def _resume(journal_dir: Path, run_id: str) -> int:
     store = store_from_path(journal_dir)
     journal = store.load(run_id, None)
+    held = _held_by(journal.header)
+    if held is not None:
+        print(f"{run_id} {held}", file=sys.stderr)
+        return 2
     entry = journal.header.get("entry")
     if type(entry) is not dict:
         raise WorkflowError(

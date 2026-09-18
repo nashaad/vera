@@ -119,12 +119,18 @@ step is tried again if it has no successful record.
 For a workflow with a recorded source entry:
 
 ```sh
-PYTHONPATH=python python3 -m vera.workflow resume /tmp/wf-demo <run-id>
+PYTHONPATH=python python3 -m vera.workflow resume <run-id> --journal-dir /tmp/wf-demo
 ```
 
 The command loads the recorded source file and restores the original working
 directory and inputs. Use the database path instead of the directory for a
 SQLite journal.
+
+A run that is still `running` is refused with status 2: resuming it twice would
+run the step in flight in two processes at once. If its process is gone from
+this machine the command goes ahead, and if the run was left by another machine
+it says to sweep there, since only that machine can tell whether the process is
+still alive.
 
 An older journal or a run created through `python -c` may have no source entry.
 The command then exits with status 2 and directs you to call the workflow's
