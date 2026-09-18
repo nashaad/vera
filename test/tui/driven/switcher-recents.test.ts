@@ -49,7 +49,7 @@ test("the switcher lists persisted recents once the history reply lands", async 
         );
         // Newest first, and the live model stays where it already is.
         const listed = pane.split("\n").flatMap((line) =>
-            /^\s+\d\s+(current|spare|older|recent-[ab])\b/.exec(line)?.[1] ?? []
+            /^[\s▌┃│]*(current|spare|older|recent-[ab])\b/.exec(line)?.[1] ?? []
         );
         expect(listed).toEqual(["current", "spare", "recent-b", "recent-a", "older"]);
         session.sendKey("Escape");
