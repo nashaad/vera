@@ -56,12 +56,12 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("ctrl+e opens the side bar and ctrl
     expect(pane).not.toContain("Resume session");
     expect(pane).toContain("≡  +");
     expect(pane).toContain("Move    ↑↓  j/k");
-    expect(pane).toContain("Resume  ctrl+r");
-    expect(pane).toContain("Hide    ctrl+e");
+    expect(pane).toContain("Resume  Ctrl+R");
+    expect(pane).toContain("Hide    Ctrl+E");
     const rows = pane.split("\n");
     const lastSession = rows.findIndex((line) => line.includes("old chat"));
     const footerTop = rows.findIndex((line) => line.includes("Move    ↑↓"));
-    const footerBottom = rows.findIndex((line) => line.includes("Hide    ctrl+e"));
+    const footerBottom = rows.findIndex((line) => line.includes("Hide    Ctrl+E"));
     expect(footerTop).toBeGreaterThan(lastSession);
     expect(rows.slice(lastSession, footerTop).some((line) => line.includes("──")))
         .toBe(true);
@@ -95,7 +95,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the sidebar resume action opens fr
         tui.key("Enter");
         await tui.paneWhere((value) =>
             value.includes("SAVED TRANSCRIPT LOADED")
-            && value.includes("ctrl+n new")
+            && value.includes("Ctrl+N new")
         );
 
         // The sidebar action remains available while a closed file is shown.
@@ -103,7 +103,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the sidebar resume action opens fr
         // it the keyboard.
         tui.key("Left");
         await tui.paneWhere((value) =>
-            value.includes("Resume  ctrl+r")
+            value.includes("Resume  Ctrl+R")
             && !value.includes("Resume session")
         );
         tui.bytes(CTRL_R);
@@ -235,7 +235,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the scrim behind a dialog reaches 
     const colored = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Hide    ctrl+e"));
+        await tui.paneWhere((value) => value.includes("Hide    Ctrl+E"));
         tui.click(80, 6);
         await tui.paneWhere((value) => value.includes("Focus  ←"));
         tui.text("/model");
@@ -330,7 +330,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the selection bar is drawn only wh
         await tui.settled();
         tui.bytes(CTRL_E);
         const litPane = await tui.paneWhere((value) =>
-            value.includes("Hide    ctrl+e")
+            value.includes("Hide    Ctrl+E")
         );
         const focused = await tui.coloredWhere((value) =>
             value.includes("this one")
@@ -365,7 +365,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("arrows hand the keyboard across an
     const { railed, chat, editing, back } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        const railed = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        const railed = await tui.paneWhere((v) => v.includes("Hide    Ctrl+E"));
         // Out of the rail without opening anything. Enter is the other way
         // out and it opens the highlighted row, which is a different
         // conversation whenever the highlight is not the one on screen.
@@ -379,7 +379,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("arrows hand the keyboard across an
         for (let index = 0; index < 6; index += 1) tui.key("BSpace");
         await tui.paneWhere((v) => !v.includes("drafXt"));
         tui.key("Left");
-        const back = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        const back = await tui.paneWhere((v) => v.includes("Hide    Ctrl+E"));
         return { railed, chat, editing, back };
     });
 
@@ -399,7 +399,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("tab completes commands without foc
     const { completed, stayed, moved } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        await tui.paneWhere((v) => v.includes("Hide    Ctrl+E"));
         tui.key("Right");
         await tui.paneWhere((v) => v.includes("Focus  ←"));
         // Half a command in the composer is what the key was pressed for.
@@ -414,7 +414,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("tab completes commands without foc
         await Bun.sleep(100);
         const stayed = await tui.paneWhere((v) => v.includes("Focus  ←"));
         tui.key("Left");
-        const moved = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        const moved = await tui.paneWhere((v) => v.includes("Hide    Ctrl+E"));
         return { completed, stayed, moved };
     });
 
@@ -536,7 +536,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("a click opens the row the mouse la
         // a row read from a half-painted pane clicks the wrong session.
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
-            && value.includes("Hide    ctrl+e")
+            && value.includes("Hide    Ctrl+E")
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
@@ -555,24 +555,24 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the chord block narrows to what th
         await tui.settled();
         tui.bytes(CTRL_E);
         const focused = await tui.paneWhere((value) =>
-            value.includes("Hide    ctrl+e")
+            value.includes("Hide    Ctrl+E")
         );
         // A click in the conversation is the keyboard leaving the rail. The
         // rail stays on screen, and so do the two chords that answer from
         // where the cursor now is.
         tui.click(80, 6);
         const clicked = await tui.paneWhere((value) =>
-            value.includes("VERA") && !value.includes("Hide    ctrl+e")
+            value.includes("VERA") && !value.includes("Hide    Ctrl+E")
         );
         return { focused, clicked };
     });
 
     expect(focused).toContain("Move    ↑↓  j/k");
-    expect(focused).toContain("Cycle   ctrl+shift+← →");
+    expect(focused).toContain("Cycle   Ctrl+Shift+← →");
     expect(clicked).toContain("VERA");
-    expect(clicked).toContain("Cycle  ctrl+shift+← →");
+    expect(clicked).toContain("Cycle  Ctrl+Shift+← →");
     expect(clicked).toContain("Focus  ←");
-    expect(clicked).toContain("Hide   ctrl+e");
+    expect(clicked).toContain("Hide   Ctrl+E");
     expect(clicked).not.toContain("Move    ↑↓  j/k");
     expect(clicked).not.toContain("Pin");
 }, 60_000);
@@ -581,7 +581,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the closed rail is named under the
     const { closed, open } = await withTui(async (tui) => {
         await tui.settled();
         const closed = await tui.paneWhere((value) =>
-            value.includes("ctrl+p commands")
+            value.includes("Ctrl+P commands")
         );
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) => value.includes("VERA"));
@@ -589,10 +589,10 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the closed rail is named under the
     });
 
     // Nothing else on screen says how to reach the rail while it is away.
-    expect(closed).toContain("ctrl+e agent sidebar");
+    expect(closed).toContain("Ctrl+E agent sidebar");
     // Once it is there it carries its own chords, `ctrl+e` among them.
-    expect(open).not.toContain("ctrl+e agent sidebar");
-    expect(open).toContain("Hide    ctrl+e");
+    expect(open).not.toContain("Ctrl+E agent sidebar");
+    expect(open).toContain("Hide    Ctrl+E");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable || !RAIL_LISTING)("digit jumping stays dormant", async () => {
@@ -601,7 +601,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("digit jumping stays dormant", asyn
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
             value.includes("auth-race")
-            && value.includes("Hide    ctrl+e")
+            && value.includes("Hide    Ctrl+E")
         );
         tui.text("2");
         await Bun.sleep(100);

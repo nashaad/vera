@@ -34,9 +34,9 @@ export interface HomeRow {
 const HOME_ROWS: readonly HomeRow[] = [
     { id: "connect", label: "Connect a provider", keyHint: "enter" },
     { id: "new", label: "New conversation", keyHint: "enter" },
-    { id: "all", label: "All conversations", keyHint: "ctrl+r" },
-    { id: "search", label: "Search past work", keyHint: "ctrl+shift+f" },
-    { id: "commands", label: "Commands", keyHint: "ctrl+p" },
+    { id: "all", label: "All conversations", keyHint: "Ctrl+R" },
+    { id: "search", label: "Search past work", keyHint: "Ctrl+Shift+F" },
+    { id: "commands", label: "Commands", keyHint: "Ctrl+P" },
 ];
 
 export const HOME_CONTENT_INDENT = 2;
@@ -181,7 +181,7 @@ export function handleHomeKey(
     if (key.ctrl === true) {
         const chord = rows.find((row) =>
             HOME_OWN_CHORDS.includes(row.id)
-            && row.keyHint === `ctrl+${key.name}`
+            && row.keyHint.toLowerCase() === `ctrl+${key.name}`
         );
         return chord === undefined
             ? { handled: false }

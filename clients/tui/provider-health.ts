@@ -12,7 +12,7 @@ import {
     findConfiguredProvider,
     isProviderConnected,
 } from "../../src/providers/registry.ts";
-import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
+import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
 
 export type ProviderHealthTone = "green" | "yellow" | "red";
 
@@ -202,7 +202,7 @@ export function renderProviderHealth(
     maxWidth = 72,
 ): string[] {
     if (status.kind === "idle") {
-        const chord = tuiKeyChord("check_provider_health") || "v";
+        const chord = tuiKeyChordLabel("check_provider_health") || "v";
         return [ellipsizeHealthTail(`  not checked  press ${chord}`, maxWidth)];
     }
     if (status.kind === "checking") {

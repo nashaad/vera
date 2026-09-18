@@ -7,10 +7,10 @@ import {
     type UpgradedLocal,
 } from "../src/release/upgrade.ts";
 
-export type InstallLocalOptions = InstallReleaseOptions & Pick<
+export type InstallLocalOptions = InstallReleaseOptions & Partial<Pick<
     UpgradeLocalOptions,
     "pack" | "verify" | "drainHost" | "startHost"
->;
+>>;
 
 /**
  * Pack, verify, drain, activate, and restart as one command. Does not write

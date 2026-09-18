@@ -509,7 +509,7 @@ test("a truncated result set says it was truncated", () => {
 
 test("the footer shortens with the terminal", () => {
     expect(searchOverlayFooter(78)).toContain("enter open at match");
-    expect(searchOverlayFooter(42, "results")).toBe("↑↓ ^u^d enter tab ^w esc");
+    expect(searchOverlayFooter(42, "results")).toBe("↑↓ Ctrl+D/U enter tab Ctrl+W esc");
 });
 
 test("the hit marks where the query sits in the line", () => {

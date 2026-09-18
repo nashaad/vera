@@ -51,7 +51,7 @@ for (const width of [80, 120, 160]) {
             expect(frame).toContain("new beta");
             expect(frame).not.toContain("old alpha");
             expect(view.onKey({ name: "c", chord: "ctrl+c", ctrl: true, meta: false, shift: false })).toBe(false);
-            expect(view.onKey({ name: "f", chord: "ctrl+f", ctrl: true, meta: false, shift: false })).toBe(true);
+            expect(view.onKey({ name: "d", chord: "ctrl+d", ctrl: true, meta: false, shift: false })).toBe(true);
             key("escape"); expect(closed).toBe(true);
         } finally { setup.renderer.destroy(); }
     });

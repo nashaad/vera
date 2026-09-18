@@ -680,7 +680,7 @@ export function submitPrompt(rt: TuiRuntime,
         rt.state = appendTuiError(
             rt.state,
             "Disconnected from the host. Run /reconnect to restore this"
-                + " session, or ctrl+c to quit.",
+                + " session, or Ctrl+C to quit.",
         );
         renderState(rt);
         return;

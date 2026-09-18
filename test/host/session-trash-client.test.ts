@@ -66,7 +66,11 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             eventLogDirectory: join(root, "logs"),
             trashSessionArtifacts: (artifacts) =>
                 trashSessionArtifacts(artifacts, {
-                    moveToTrash: async ([bundle]) => {
+                    moveToTrash: async (paths) => {
+                        const [bundle] = paths;
+                        if (bundle === undefined) {
+                            throw new Error("expected a trash bundle path");
+                        }
                         trashed.push(bundle);
                     },
                 }),

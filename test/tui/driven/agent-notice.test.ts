@@ -62,10 +62,10 @@ test("the composer holds its height whatever the session has around it", async (
     expect(parentLines[parent.top - 1]).toContain("editor");
 
     // Ready is said once. The row under the composer reports the children,
-    // the row under that carries `ready · ctrl+p commands` on its right, and
+    // the row under that carries `ready · Ctrl+P commands` on its right, and
     // a session waiting on its children is idle either way.
     const activityRow = parentLines[parent.bottom + 1] ?? "";
     expect(activityRow).toContain("waiting for 2 background agents");
-    expect(activityRow).not.toContain("ctrl+p commands");
-    expect(parentLines[parent.bottom + 2]).toContain("ready · ctrl+p commands");
+    expect(activityRow).not.toContain("Ctrl+P commands");
+    expect(parentLines[parent.bottom + 2]).toContain("ready · Ctrl+P commands");
 }, 30_000);

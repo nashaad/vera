@@ -186,7 +186,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+p"],
         scope: "global",
         description: "Open the command palette",
-        hint: "ctrl+p commands",
+        hint: "Ctrl+P commands",
         anyModifiers: true,
         remappable: true,
     },
@@ -195,7 +195,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+c"],
         scope: "global",
         description: "Clear a draft, stop the current turn, or quit when idle",
-        hint: "ctrl+c stop",
+        hint: "Ctrl+C stop",
         anyModifiers: true,
     },
     {
@@ -203,14 +203,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+o"],
         scope: "global",
         description: "Show or hide the model's reasoning",
-        hint: "ctrl+o reasoning",
+        hint: "Ctrl+O reasoning",
     },
     {
         id: "toggle_session_header",
         keys: ["ctrl+shift+h"],
         scope: "global",
         description: "Show or hide the focused session header",
-        hint: "ctrl+shift+h header",
+        hint: "Ctrl+Shift+H header",
     },
     {
         id: "cycle_agent_layout",
@@ -224,7 +224,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+g"],
         scope: "global",
         description: "Cycle focus between the visible panes",
-        hint: "ctrl+g pane",
+        hint: "Ctrl+G pane",
         extensionId: "switch-agent-pane",
     },
     {
@@ -233,7 +233,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+e"],
         scope: "global",
         description: "Open the conversation list",
-        hint: "ctrl+e conversations",
+        hint: "Ctrl+E conversations",
     },
     {
         // Arrows carry their modifiers through ordinary CSI encoding, so these reach every terminal. The bracket chords stay as aliases for the terminals that report them, but they cannot lead: ctrl+[ is the escape byte, so outside the kitty keyboard protocol the old primary cancelled instead of cycling.
@@ -247,7 +247,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         ],
         scope: "global",
         description: "Switch to the previous live session",
-        hint: "ctrl+shift+← prev session",
+        hint: "Ctrl+Shift+← prev session",
     },
     {
         id: "cycle_live_session_next",
@@ -260,7 +260,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         ],
         scope: "global",
         description: "Switch to the next live session",
-        hint: "ctrl+shift+→ next session",
+        hint: "Ctrl+Shift+→ next session",
     },
     ...WORKSPACE_JUMP_BINDINGS,
     {
@@ -274,7 +274,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+n"],
         scope: "global",
         description: "Start a new conversation",
-        hint: "^n new",
+        hint: "Ctrl+N new",
     },
     {
         id: "workspace_rename_session",
@@ -289,7 +289,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+r"],
         scope: "workspace",
         description: "Open the full list of conversations",
-        hint: "^r all sessions",
+        hint: "Ctrl+R all sessions",
         remappable: true,
     },
     {
@@ -297,7 +297,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+t"],
         scope: "conversation",
         description: "Show or hide tool details",
-        hint: "ctrl+t details",
+        hint: "Ctrl+T details",
     },
     {
         id: "scroll_line_up",
@@ -329,14 +329,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+end", "ctrl+shift+g"],
         scope: "conversation",
         description: "Follow the transcript from the bottom again",
-        hint: "ctrl+end",
+        hint: "Ctrl+End",
     },
     {
         id: "search_conversation",
         keys: ["ctrl+f"],
         scope: "global",
         description: "Find in this conversation",
-        hint: "ctrl+f find",
+        hint: "Ctrl+F find",
         remappable: true,
     },
     {
@@ -344,13 +344,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+shift+f"],
         scope: "global",
         description: "Search every session",
-        hint: "ctrl+shift+f search",
+        hint: "Ctrl+Shift+F search",
         remappable: true,
     },
     {
         id: "open_model_prefix", keys: ["ctrl+x"], scope: "global",
         description: "Show model shortcut: release Ctrl, then M to open Switch model",
-        hint: "ctrl+x models", remappable: true,
+        hint: "Ctrl+X models", remappable: true,
     },
     {
         id: "model_prefix_open", keys: ["m"], scope: "model_prefix",
@@ -361,7 +361,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+shift+m"],
         scope: "global",
         description: "Open the model picker",
-        hint: "ctrl+shift+m model",
+        hint: "Ctrl+Shift+M model",
         remappable: true,
     },
     {
@@ -369,7 +369,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+shift+j"],
         scope: "global",
         description: "Open the jump menu: back, needs you, parent and children",
-        hint: "ctrl+shift+j jump",
+        hint: "Ctrl+Shift+J jump",
         remappable: true,
     },
     {
@@ -377,7 +377,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+y"],
         scope: "global",
         description: "Cycle the current model's reasoning level",
-        hint: "ctrl+y",
+        hint: "Ctrl+Y",
         extensionId: "cycle-reasoning",
     },
     {
@@ -432,7 +432,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+w"],
         scope: "composer",
         description: "Stop this conversation and keep the file",
-        hint: "ctrl+w close",
+        hint: "Ctrl+W close",
     },
     {
         id: "focus_composer",
@@ -466,6 +466,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_assignment_picker",
         description: "Assign the selected model to subagents, or remove it",
         hint: "p assign",
+        overrides: ["toggle_workspace_pin"],
     },
     {
         id: "undo_pool_change",
@@ -579,7 +580,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+r"],
         scope: "session_picker",
         description: "Rename the selected session",
-        hint: "^r rename",
+        hint: "Ctrl+R rename",
     },
     {
         id: "trash_session",
@@ -593,7 +594,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+g"],
         scope: "import_picker",
         description: "Toggle this folder and all folders",
-        hint: "^g folder/all",
+        hint: "Ctrl+G folder/all",
         overrides: ["switch_pane"],
     },
     {
@@ -608,14 +609,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+r"],
         scope: "approval",
         description: "Show the whole call being approved",
-        hint: "ctrl+r expand",
+        hint: "Ctrl+R expand",
     },
     {
         id: "clear_secret",
         keys: ["ctrl+u"],
         scope: "secret_prompt",
         description: "Clear the entered key",
-        hint: "^u clear",
+        hint: "Ctrl+U clear",
     },
     {
         id: "next_form_field",
@@ -665,18 +666,17 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+w"],
         scope: "search",
         description: "Cycle the search scope",
-        hint: "ctrl+w scope",
+        hint: "Ctrl+W scope",
     },
     {
         id: "diff_page_down",
-        keys: ["ctrl+f"],
+        keys: ["ctrl+d"],
         scope: "diff",
         description: "Scroll the diff a page down",
-        overrides: ["search_conversation"],
     },
     {
         id: "diff_page_up",
-        keys: ["ctrl+b"],
+        keys: ["ctrl+u"],
         scope: "diff",
         description: "Scroll the diff a page up",
     },
@@ -782,22 +782,37 @@ const CHORD_SYMBOLS: Readonly<Record<string, string>> = {
     right: "→",
 };
 
-/** A chord as a reader sees it: arrow names become arrows. */
+function chordPartLabel(part: string, modified: boolean): string {
+    const symbol = CHORD_SYMBOLS[part];
+    if (symbol !== undefined || !modified) {
+        return symbol ?? part;
+    }
+    return part.length === 1
+        ? part.toUpperCase()
+        : part.charAt(0).toUpperCase() + part.slice(1);
+}
+
+/** A chord as a reader sees it: `ctrl+shift+left` reads `Ctrl+Shift+←`, a bare `p` stays `p`. */
 export function tuiChordLabel(chord: string): string {
-    return chord
-        .split("+")
-        .map((part) => CHORD_SYMBOLS[part] ?? part)
+    const parts = chord.split("+");
+    return parts
+        .map((part) => chordPartLabel(part, parts.length > 1))
         .join("+");
 }
 
-/** Two chords that differ only in their last key, written once as `ctrl+shift+← →`. A narrow rail has no room to spell both in full, and spelling them by hand is how a legend drifts away from the keys it names. */
+/** The first chord of a binding, written for a reader. */
+export function tuiKeyChordLabel(id: string): string {
+    return tuiChordLabel(tuiKeyChord(id));
+}
+
+/** Two chords that differ only in their last key, written once as `Ctrl+Shift+← →`. A narrow rail has no room to spell both in full, and spelling them by hand is how a legend drifts away from the keys it names. */
 export function tuiChordPairLabel(first: string, second: string): string {
     const tail = second.split("+").at(-1) ?? "";
     const shared = first.split("+").slice(0, -1).join("+");
     if (shared.length === 0 || shared !== second.split("+").slice(0, -1).join("+")) {
         return `${tuiChordLabel(first)} ${tuiChordLabel(second)}`;
     }
-    return `${tuiChordLabel(first)} ${CHORD_SYMBOLS[tail] ?? tail}`;
+    return `${tuiChordLabel(first)} ${chordPartLabel(tail, true)}`;
 }
 
 export function tuiClaimedChords(scope: TuiKeyScope): readonly string[] {

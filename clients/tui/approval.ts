@@ -262,7 +262,7 @@ export function createTuiApprovalView(
             fg(TUI_MUTED)(" deny"),
             ...(capped
                 ? [
-                    fg(TUI_TEXT)("  ctrl+r"),
+                    fg(TUI_TEXT)("  Ctrl+R"),
                     fg(TUI_MUTED)(expanded ? " collapse" : " expand"),
                 ]
                 : []),
@@ -527,8 +527,8 @@ export function tuiApprovalHint(
     update: ToolApprovalUiRequestUpdate,
 ): string {
     return update.request.sourceAgentId === undefined
-        ? "approval required · 1 once · 2 session prefix · 3/esc deny · ctrl+c stop"
-        : "approval required · 1 once · 3/esc deny · ctrl+c stop";
+        ? "approval required · 1 once · 2 session prefix · 3/esc deny · Ctrl+C stop"
+        : "approval required · 1 once · 3/esc deny · Ctrl+C stop";
 }
 
 function visibleApprovalRows(

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-test("ctrl+f inside a conversation searches that conversation first", async () => {
+test("Ctrl+F inside a conversation searches that conversation first", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-search-scope-"));
     const session = await startTuiTestSession({
         home,
@@ -17,7 +17,7 @@ test("ctrl+f inside a conversation searches that conversation first", async () =
     });
 
     try {
-        await session.waitForVisiblePane("ready · ctrl+p commands");
+        await session.waitForVisiblePane("ready · Ctrl+P commands");
         session.sendKey("C-f");
 
         // The conversation on screen is the narrowest thing to ask about, so

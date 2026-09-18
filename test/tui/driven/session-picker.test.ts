@@ -122,7 +122,7 @@ test("session picker renames a conversation it is not attached to", async () => 
         session.sendText("/resume");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("Continue the theme picker");
-        expect(pane).toContain("^r rename");
+        expect(pane).toContain("Ctrl+R rename");
         session.sendKey("Up");
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Rename conversation");
@@ -173,7 +173,7 @@ test("ctrl+e opens the conversation picker and renames its selected row", async 
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
         let pane = await session.waitForVisiblePane("Continue the theme picker");
-        expect(pane).toContain("^r rename");
+        expect(pane).toContain("Ctrl+R rename");
         expect(pane).toContain("Fix the deployment race");
         expect(pane).toContain("Continue the theme picker");
 
@@ -193,7 +193,7 @@ test("ctrl+e opens the conversation picker and renames its selected row", async 
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane("release notes");
-        expect(pane).toContain("^r rename");
+        expect(pane).toContain("Ctrl+R rename");
         session.sendKey("Escape");
         await session.waitForVisiblePane("session renamed: release notes");
         session.sendKey("C-c");
@@ -280,7 +280,7 @@ test("a refused rename says so and leaves the pane open", async () => {
         session.sendText("release notes");
         session.sendKey("Enter");
         // The pane comes back with the row still under its old name.
-        pane = await session.waitForVisiblePane("^r rename");
+        pane = await session.waitForVisiblePane("Ctrl+R rename");
         expect(pane).toContain("Continue the theme picker");
         session.sendKey("Escape");
         pane = await session.waitForVisiblePane("open in another client");

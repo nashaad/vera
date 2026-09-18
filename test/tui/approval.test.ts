@@ -77,7 +77,7 @@ test("child approvals identify their agent and task", () => {
     expect(renderTuiApproval(childRequest)).not.toContain("Session");
     expect(renderTuiApproval(childRequest)).not.toContain("Always");
     expect(tuiApprovalHint(childRequest)).toBe(
-        "approval required · 1 once · 3/esc deny · ctrl+c stop",
+        "approval required · 1 once · 3/esc deny · Ctrl+C stop",
     );
     expect(tuiApprovalHint(request)).toContain("2 session prefix");
     expect(selectableApprovalKeys(childRequest)).toEqual(["1", "3"]);

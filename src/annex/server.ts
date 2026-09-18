@@ -75,7 +75,7 @@ export async function startAnnexServer(
     });
     return {
         url: `http://${hostname}:${server.port}/`,
-        port: server.port,
+        port: server.port ?? 0,
         async close() {
             server.stop(true);
         },

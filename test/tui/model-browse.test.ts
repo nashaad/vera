@@ -956,8 +956,13 @@ test("the browse tip cycles and every line fits one row", () => {
     for (const tip of MODEL_BROWSE_TIPS) expect(tip.length).toBeLessThanOrEqual(64);
     const seen = MODEL_BROWSE_TIPS.map((_, turn) => modelBrowseTip(turn));
     expect(seen).toEqual([...MODEL_BROWSE_TIPS]);
-    expect(modelBrowseTip(MODEL_BROWSE_TIPS.length)).toBe(MODEL_BROWSE_TIPS[0]);
-    expect(modelBrowseTip(-1)).toBe(MODEL_BROWSE_TIPS[MODEL_BROWSE_TIPS.length - 1]);
+    const firstTip = MODEL_BROWSE_TIPS[0];
+    const lastTip = MODEL_BROWSE_TIPS[MODEL_BROWSE_TIPS.length - 1];
+    if (firstTip === undefined || lastTip === undefined) {
+        throw new Error("expected MODEL_BROWSE_TIPS to be non-empty");
+    }
+    expect(modelBrowseTip(MODEL_BROWSE_TIPS.length)).toBe(firstTip);
+    expect(modelBrowseTip(-1)).toBe(lastTip);
 });
 
 const priced = [

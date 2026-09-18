@@ -1073,7 +1073,7 @@ test("vera login is reserved for a Vera account and connects no provider", async
 
     expect(exitCode).toBe(0);
     expect(output).toContain("Vera accounts are not available yet.");
-    expect(output).toContain("ctrl+e");
+    expect(output).toContain("Ctrl+E");
 });
 
 test("vera reports host upgrades without a runtime stack trace", async () => {

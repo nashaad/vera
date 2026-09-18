@@ -34,7 +34,7 @@ test("double escape opens the rewind picker when idle", async () => {
         await session.waitForVisiblePane("FIRST ANSWER");
         // The transcript shows the answer before the turn is fully finished,
         // and rewind only opens once the agent is back to idle.
-        await session.waitForVisiblePane("ready · ctrl+p commands");
+        await session.waitForVisiblePane("ready · Ctrl+P commands");
 
         // A single idle escape stays a no-op: no picker, no transcript change.
         // The settle between the two presses is above the native parser's
@@ -71,7 +71,7 @@ test("a key between the two escapes disarms the double press", async () => {
         session.sendText("first request");
         session.sendKey("Enter");
         await session.waitForVisiblePane("FIRST ANSWER");
-        await session.waitForVisiblePane("ready · ctrl+p commands");
+        await session.waitForVisiblePane("ready · Ctrl+P commands");
 
         // First escape arms. A typed key between the two presses disarms the
         // pair, and the composer ends empty again, so the next escape would
@@ -147,7 +147,7 @@ test("double escape while the agent is working still aborts, never rewinds", asy
         // The aborted turn returns to idle without ever finishing the slow
         // answer, which is the proof the escape was a real abort and not a
         // swallowed keypress.
-        pane = await session.waitForVisiblePane("ready · ctrl+p commands");
+        pane = await session.waitForVisiblePane("ready · Ctrl+P commands");
         expect(pane).not.toContain("SLOW ANSWER");
     } finally {
         await session.close();
