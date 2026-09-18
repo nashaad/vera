@@ -799,19 +799,27 @@ export function connectProvider(rt: TuiRuntime,
     rt.connectingProviders.add(provider.id);
     rt.state = appendTuiNotice(
         rt.state,
-        `opening a browser to sign in to ${provider.label}…`,
+        `opening your browser to sign in to ${provider.label}…`,
         "soft",
     );
     renderState(rt);
     void (rt.dependencies.loginProvider ?? ((providerId: string, onAuthorizationUrl: (url: string) => void) => defaultLoginProvider(rt, providerId, onAuthorizationUrl)))(
         provider.id,
         (url) => {
-            rt.state = appendTuiNotice(rt.state, `sign in at ${url}`);
+            rt.state = appendTuiNotice(
+                rt.state,
+                `browser didn't open? sign in here: ${url}`,
+                "soft",
+            );
             renderState(rt);
         },
     ).then(() => {
         rt.connectingProviders.delete(provider.id);
-        rt.state = appendTuiNotice(rt.state, `signed in to ${provider.label}`, "soft");
+        rt.state = appendTuiNotice(
+            rt.state,
+            `✓ signed in to ${provider.label}`,
+            "success",
+        );
         renderState(rt);
     }, (error: unknown) => {
         rt.connectingProviders.delete(provider.id);

@@ -107,6 +107,18 @@ test("soft harness prose stays visible when history is rebuilt", () => {
         .toBe(TextAttributes.ITALIC);
 });
 
+test("a success notice renders in the success color, upright", () => {
+    const rendered = renderTuiEntry({
+        kind: "notice",
+        text: "✓ signed in to OpenAI Codex",
+        tone: "success",
+    });
+
+    expect(plainText(rendered)).toBe("✓ signed in to OpenAI Codex");
+    expect(rendered.chunks[0]?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(rendered.chunks[0]?.attributes ?? 0).toBe(0);
+});
+
 test("ask_user completion is semantic in live and replayed transcripts", () => {
     const output = JSON.stringify({
         choice_id: "preview-channel",

@@ -100,7 +100,7 @@ export interface TuiTextTranscriptEntry {
     readonly hint?: boolean;
     readonly admission?: string;
     readonly diagnostic?: TuiDiagnostic;
-    readonly tone?: "primary" | "soft" | "error";
+    readonly tone?: "primary" | "soft" | "error" | "success";
     readonly card?: boolean;
     readonly summary?: string;
 }
@@ -1111,7 +1111,7 @@ function substitutionEntry(
 export function appendTuiNotice(
     state: TuiState,
     message: string,
-    tone?: "primary" | "soft" | "error",
+    tone?: "primary" | "soft" | "error" | "success",
     supersedes?: string,
 ): TuiState {
     return placeTuiNotice(state, {
@@ -1367,6 +1367,8 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
                 ? TUI_MUTED
                 : entry.tone === "error"
                 ? TUI_DANGER
+                : entry.tone === "success"
+                ? TUI_SUCCESS
                 : TUI_NOTICE;
             const text = fg(color)(entry.text);
             return new StyledText([
