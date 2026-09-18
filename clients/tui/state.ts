@@ -97,6 +97,7 @@ export interface TuiTextTranscriptEntry {
     readonly detailLines?: number;
     readonly detailPreview?: string;
     readonly command?: string;
+    readonly activity?: string;
     readonly hint?: boolean;
     readonly admission?: string;
     readonly diagnostic?: TuiDiagnostic;
@@ -1588,12 +1589,6 @@ function renderTuiToolRowChunks(
     if (entry.result === true) {
         return [fg(TUI_MUTED)(text)];
     }
-    if (entry.command !== undefined) {
-        return [
-            fg(TUI_MUTED)(text),
-            fg(TUI_MUTED)(`\n$ ${entry.command}`),
-        ];
-    }
 
     const action = /^(Read|List|Search|Edit|Write)(?=\s|$)/.exec(text);
     if (action === null) {
@@ -1808,13 +1803,9 @@ function toolRowText(
         }
     }
     if (tool === "bash") {
-        const description = bashDescription(args);
-        if (description !== undefined) {
-            return bounded(description);
-        }
         const command = stringArg(args, "command");
         if (command !== undefined) {
-            return bounded(bashCommandText(command));
+            return bounded(command.replaceAll(/[ \t]+$/gm, "").trim());
         }
     }
     if ((tool === "edit" || tool === "write") && path !== undefined) {
@@ -1829,30 +1820,17 @@ function toolRowText(
     return formatToolCall(tool, args);
 }
 
-function bashDescription(
+// A bash description is present tense, so it only labels a running call.
+function toolActivity(
+    tool: string,
     args: Readonly<Record<string, unknown>>,
 ): string | undefined {
+    if (tool !== "bash") return undefined;
     const description = stringArg(args, "description")
         ?.replaceAll(/\s+/g, " ").trim();
     return description === undefined || description.length === 0
         ? undefined
-        : description;
-}
-
-function bashCommandText(command: string): string {
-    return command.replaceAll(/[ \t]+$/gm, "").trim();
-}
-
-// A described bash row keeps its full command for the expanded details.
-function toolRowCommand(
-    tool: string,
-    args: Readonly<Record<string, unknown>>,
-): string | undefined {
-    if (tool !== "bash" || bashDescription(args) === undefined) {
-        return undefined;
-    }
-    const command = stringArg(args, "command");
-    return command === undefined ? undefined : bashCommandText(command);
+        : bounded(description);
 }
 
 function withToolEntry(
@@ -1868,13 +1846,12 @@ function withToolEntry(
     const previous = entries[previousIndex];
     const header = toolHeader(tool, active);
     const row = toolRowText(tool, args);
-    const command = toolRowCommand(tool, args);
+    const activity = active ? toolActivity(tool, args) : undefined;
     if (
         !active
         && previous?.kind === "tool"
         && previous.header === header
         && previous.text === row
-        && previous.command === command
     ) {
         const repeated: TuiTranscriptEntry = {
             ...previous,
@@ -1894,7 +1871,7 @@ function withToolEntry(
             ...(active ? { tool, active: true } : {}),
             prefix: previous?.kind === "tool_header" ? "  └ " : "    ",
             text: row,
-            ...(command === undefined ? {} : { command }),
+            ...(activity === undefined ? {} : { activity }),
         } satisfies TuiTranscriptEntry];
         if (!active) {
             return joined;
@@ -1933,7 +1910,7 @@ function withToolEntry(
             ...(active ? { tool, active: true } : {}),
             prefix: "  └ ",
             text: row,
-            ...(command === undefined ? {} : { command }),
+            ...(activity === undefined ? {} : { activity }),
         },
     ];
 }
@@ -1984,7 +1961,12 @@ function finishToolEntry(
 
     const completed = entries.map((entry, index) => {
         if (index === toolIndex && entry.kind === "tool") {
-            const { active: _active, tool: _tool, ...completed } = entry;
+            const {
+                active: _active,
+                tool: _tool,
+                activity: _activity,
+                ...completed
+            } = entry;
             return {
                 ...completed,
                 ...(output === undefined ? {} : { prefix: "  │ " }),
@@ -2099,6 +2081,11 @@ function applyToolDetailPreference(
             ? liveToolSummary(calls)
             : compactToolSummary(rows, calls);
         const base = header.header ?? header.text.replace(/^[+-] /, "");
+        const activity = active
+            ? rows.findLast((entry) =>
+                entry.active === true && entry.activity !== undefined
+            )?.activity
+            : undefined;
         const {
             detailLines: _detailLines,
             detailPreview: _detailPreview,
@@ -2113,7 +2100,9 @@ function applyToolDetailPreference(
         next[headerIndex] = foldable
             ? {
                 ...plainHeader,
-                text: active ? base : `${expanded ? "-" : "+"} ${base}`,
+                text: active
+                    ? activity ?? base
+                    : `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
                 ...(!expanded && calls.length === 1 && calls[0] !== undefined
                     ? { command: compactToolLine(calls[0]) }
