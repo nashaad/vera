@@ -254,7 +254,8 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
     background: var(--fill-2);
     border-radius: 2px;
 }
-.wf-bar { position: absolute; top: 0; height: 100%; border-radius: 2px; background: var(--m2); }
+.wf-bar { position: absolute; top: 0; height: 100%; border-radius: 2px; background: var(--m0); }
+.wf-bar.call { background: var(--m1); }
 .wf-bar.failed { background: var(--bad); }
 .wf-bar.suspended, .wf-bar.cancelled { background: var(--est); }
 .wf-bar.open { background: repeating-linear-gradient(90deg, var(--m1) 0 4px, transparent 4px 8px); }

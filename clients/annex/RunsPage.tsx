@@ -284,7 +284,9 @@ function Waterfall({
                             )}
                         <span className="wf-track">
                             <i
-                                className={`wf-bar ${unfinished ? "open" : span.outcome ?? ""}`}
+                                className={`wf-bar ${unfinished ? "open" : span.outcome ?? ""}${
+                                    span.model === undefined ? "" : " call"
+                                }`}
                                 style={{
                                     left: `${from * 100}%`,
                                     width: `${Math.max(width * 100, 1.5)}%`,
