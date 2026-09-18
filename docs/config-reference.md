@@ -43,6 +43,22 @@ These paths are inside `~/.vera`:
 Use a validating settings screen when one is available. The file editor is
 useful for settings without a dedicated control.
 
+## Files in a project
+
+These paths are relative to the project root:
+
+| Path | Purpose |
+| --- | --- |
+| `AGENTS.md` | Project instructions, included in every request. |
+| `AGENTS.local.md` | Your own project instructions, loaded the same way. Keep it out of git. |
+| `.vera/config.json` | Project configuration. |
+| `.vera/agents/` | Agent definitions for this project. |
+| `.vera/skills/` | Skills for this project. A project skill wins over a home skill with the same name. |
+| `.vera/context-routes.yaml` | [Context routes](context-routes.md), with their instruction files in `.vera/context-routes/`. |
+
+Vera reads `AGENTS.md` and `AGENTS.local.md` from the project root only. It
+does not look for them in parent directories.
+
 ## Data Vera manages
 
 These files support the application and its saved work. Use the corresponding
