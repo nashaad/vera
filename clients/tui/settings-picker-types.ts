@@ -74,6 +74,7 @@ export type TuiSettingsPickerKind =
     | "overrides_settings"
     | "override_value"
     | "session"
+    | "session_import"
     | "session_leave"
     | "session_create_leave"
     | "configure"
@@ -278,8 +279,11 @@ export type ModelJourneySection = "scope" | "sort" | "search" | "intelligence" |
 /** How Switch model orders the models inside each provider group. */
 export type ModelJourneySort = "library" | "az" | "price";
 
+export type TuiImportScope = "folder" | "all";
+
 export interface TuiSettingsPickerState {
     readonly kind: TuiSettingsPickerKind;
+    readonly importScope?: TuiImportScope;
     readonly allOptions: readonly TuiSettingsPickerOption[];
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
@@ -417,6 +421,7 @@ export type TuiSettingsPickerSelection =
         readonly kind: "session_create_leave";
         readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
+    | { readonly kind: "session_import"; readonly path: string }
     | { readonly kind: "configure"; readonly file: TuiConfigureFile }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget }
     | {
@@ -505,6 +510,8 @@ export interface TuiSettingsPickerTransition {
         readonly sessionId: string;
         readonly label: string;
     };
+    // Asks for the import list again, for this folder or for every folder.
+    readonly importScope?: TuiImportScope;
     readonly renameCandidate?: {
         readonly sessionId: string;
         readonly label: string;

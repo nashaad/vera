@@ -118,6 +118,29 @@ test("pickers centre their cards while the session browser stays at the top", as
     } finally { setup.renderer.destroy(); }
 });
 
+test("session picker labels an imported conversation with its source", async () => {
+    const state = startTuiSessionPicker([{
+        id: "33333333-imported",
+        workspace: "/work/alpha",
+        session_path: "/sessions/imported.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Port the parser",
+        has_user_content: true,
+        updated_at: "2026-07-20T20:00:00.000Z",
+        imported_from: {
+            tool: "codex",
+            source_session_id: "src",
+            source_started_at: "2026-07-19T10:00:00.000Z",
+            message_count: 6,
+            last_message_id: "m6",
+        },
+    }], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    expect(await pickerFrame(state)).toContain("Port the parser [imported · Codex]");
+});
+
 test("session picker filters titled durable conversations and selects an agent", async () => {
     const state = startTuiSessionPicker([
         {

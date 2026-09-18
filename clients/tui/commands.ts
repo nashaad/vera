@@ -138,6 +138,15 @@ export interface UpdateSessionNameTuiCommandAction {
     readonly name: string | null;
 }
 
+export interface ImportSessionTuiCommandAction {
+    readonly type: "import_session";
+    readonly path: string;
+}
+
+export interface OpenImportPickerTuiCommandAction {
+    readonly type: "open_import_picker";
+}
+
 export interface CloneSessionTuiCommandAction {
     readonly type: "clone_session";
 }
@@ -247,6 +256,8 @@ export type TuiCommandAction =
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | InvokeSkillTuiCommandAction
+    | ImportSessionTuiCommandAction
+    | OpenImportPickerTuiCommandAction
     | TuiCommandErrorAction;
 
 export type TuiCommandScope = "focused_agent" | "main_session" | "application";
@@ -265,6 +276,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "go_back":
         case "create_session":
         case "update_session_name":
+        case "import_session":
+        case "open_import_picker":
             return "focused_agent";
         case "open_model_utility":
             return action.utility === "dials" ? "focused_agent" : "application";
@@ -484,6 +497,12 @@ const RENAME_COMMAND = {
     usage: "/rename [name]",
 } as const satisfies TuiCommandCatalogEntry;
 
+const IMPORT_COMMAND = {
+    name: "import",
+    description: "Bring in a Claude Code or Codex conversation",
+    usage: "/import [path]",
+} as const satisfies TuiCommandCatalogEntry;
+
 const CLONE_COMMAND = {
     name: "clone",
     description: "Duplicate this conversation",
@@ -582,6 +601,7 @@ export const BUILTIN_COMMANDS = [
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
+    IMPORT_COMMAND,
     CLONE_COMMAND,
     CLOSE_COMMAND,
     COMPACT_COMMAND,
@@ -1439,6 +1459,20 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "rename",
             action: { type: "prefill_composer", text: "/rename " },
+        },
+    });
+    registry.registerCommand({
+        ...IMPORT_COMMAND,
+        parse: (argumentsText) => argumentsText.length === 0
+            ? { type: "open_import_picker" }
+            : { type: "import_session", path: argumentsText },
+        palette: {
+            name: "import",
+            label: "Import conversation",
+            description: "bring in a Claude Code or Codex conversation",
+            group: "Session",
+            slashName: "import",
+            action: { type: "open_import_picker" },
         },
     });
     registry.registerCommand({

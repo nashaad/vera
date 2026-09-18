@@ -92,6 +92,9 @@ import {
     renameSessionThroughHost,
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
+import { importSessionThroughHost, listImportableSessionsThroughHost } from "../../src/host/session-import-client.ts";
+import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
+import type { SessionImportOutcome } from "../../src/host/session-import-service.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
 import {
@@ -560,6 +563,10 @@ export interface TuiDependencies {
         sessionId: string,
         name: string | null,
     ) => Promise<RenameSessionResult>;
+    readonly importSession?: (path: string) => Promise<SessionImportOutcome>;
+    readonly listImportableSessions?: (
+        workspace: string | undefined,
+    ) => Promise<ImportableSessionListing | undefined>;
     readonly disabledBuiltinExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
     readonly loadClientExtensionConfiguration?: () => {
@@ -798,6 +805,10 @@ export async function startConfiguredTui(
                 trashSessionThroughHost(host.socket_path, sessionId),
             renameSession: (sessionId, name) =>
                 renameSessionThroughHost(host.socket_path, sessionId, name),
+            importSession: (path) =>
+                importSessionThroughHost(host.socket_path, path),
+            listImportableSessions: (workspace) =>
+                listImportableSessionsThroughHost(host.socket_path, workspace),
             ...(config?.disabled_builtin_extensions === undefined
                 ? {}
                 : {
@@ -1012,6 +1023,7 @@ export async function startTui(
     rt.clientGeneration = 0;
     rt.composeSurfaceGeneration = 0;
     rt.resumeListVersion = 0;
+    rt.importListVersion = 0;
     rt.promptSubmitting = false;
     rt.sessionSwitchPending = false;
     rt.sessionSwitchActivity = "starting new session…";

@@ -13,6 +13,7 @@ export type TuiKeyScope =
     | "model_picker"
     | "model_assignment_picker"
     | "session_picker"
+    | "import_picker"
     | "secret_prompt"
     | "provider_form"
     | "preferences_list"
@@ -39,6 +40,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "verification_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
     "secret_prompt",
     "provider_form",
     "preferences_list",
@@ -65,6 +67,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "verification_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
     "secret_prompt",
     "provider_form",
     "preferences_list",
@@ -83,6 +86,7 @@ const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "model_picker",
     "model_assignment_picker",
     "session_picker",
+    "import_picker",
 ];
 
 const HALF_PAGE_IDS: ReadonlySet<string> = new Set([
@@ -576,6 +580,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "session_picker",
         description: "Move the selected session to the trash",
         hint: "del trash",
+    },
+    {
+        id: "import_scope",
+        keys: ["ctrl+g"],
+        scope: "import_picker",
+        description: "Toggle this folder and all folders",
+        hint: "^g folder/all",
+        overrides: ["switch_pane"],
     },
     {
         id: "write_notes",

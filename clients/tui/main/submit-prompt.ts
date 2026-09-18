@@ -11,6 +11,7 @@ import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
+import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
 import { openOnboardingWizard } from "./onboarding-wizard-ops.ts";
 import { focusedAgentClient, focusedAgentState, hostOwnsPromptQueue, releaseFocusedQueuedPrompts, selectAgent } from "./agents-dials.ts";
@@ -378,6 +379,21 @@ export function submitPrompt(rt: TuiRuntime,
                 renderState(rt);
             });
         }
+        return;
+    }
+    if (commandAction?.type === "import_session") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        importSessionFromTui(rt, commandAction.path);
+        renderState(rt);
+        return;
+    }
+    if (commandAction?.type === "open_import_picker") {
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        openImportPicker(rt, "folder");
         return;
     }
     if (commandAction?.type === "open_usage") {

@@ -1,3 +1,4 @@
+import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
 import type { ModelSettingsPatch, ModelTurnSettings } from "../../../src/engine/model-settings.ts";
 import type { AgentCatalogUpdate, AgentUpdate, UiRequestUpdate } from "../../../src/engine/protocol.ts";
@@ -80,6 +81,11 @@ export interface PoolChangeUndo {
     readonly poolName?: string;
 }
 
+export interface TuiImportedSession {
+    readonly agentId: string;
+    readonly facts: ImportedSessionSummary;
+}
+
 export interface TuiRuntime {
     dependencies: TuiDependencies;
     client: TuiAgentClient;
@@ -93,6 +99,7 @@ export interface TuiRuntime {
     entrySpacing: { message: number; toolGroup: number; };
     copyText: (text: string) => Promise<void>;
     sessionTitle: string | undefined;
+    importedSession: TuiImportedSession | undefined;
     mainHeaderVisible: boolean;
     sidebarSessionTitle: string | undefined;
     sidebarHeaderVisible: boolean;
@@ -290,6 +297,7 @@ export interface TuiRuntime {
     clientGeneration: number;
     composeSurfaceGeneration: number;
     resumeListVersion: number;
+    importListVersion: number;
     promptSubmitting: boolean;
     sessionSwitchPending: boolean;
     sessionSwitchActivity: string;

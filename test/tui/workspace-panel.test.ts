@@ -566,3 +566,15 @@ describe("monochrome render", () => {
         }
     });
 });
+
+describe("imported sessions", () => {
+    test("clip the title and keep the import label whole", () => {
+        const rows = sessionRows(layout([session({
+            id: "imp",
+            title: "a long title about porting the old parser to the new store",
+            importLabel: "[imported · Claude Code]",
+        })], 50));
+        expect(rows[0]?.title.endsWith(" [imported · Claude Code]")).toBe(true);
+        expect(rows[0]?.title.startsWith("a long")).toBe(true);
+    });
+});

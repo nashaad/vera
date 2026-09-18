@@ -52,6 +52,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "reconnect" },
         { type: "create_session" },
         { type: "update_session_name", name: "name" },
+        { type: "import_session", path: "/tmp/a.jsonl" },
         { type: "clone_session" },
         { type: "compact_session" },
         { type: "close_session" },
@@ -108,6 +109,7 @@ test("every slash action has an explicit pane scope", () => {
             ["reconnect", "main_session"],
             ["create_session", "focused_agent"],
             ["update_session_name", "focused_agent"],
+            ["import_session", "focused_agent"],
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],
             ["close_session", "main_session"],
@@ -607,6 +609,11 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "update_session_name",
         name: null,
     });
+    expect(registry.dispatch("/import ~/old session.jsonl")).toEqual({
+        type: "import_session",
+        path: "~/old session.jsonl",
+    });
+    expect(registry.dispatch("/import")).toEqual({ type: "open_import_picker" });
     expect(registry.dispatch("/clone")).toEqual({
         type: "clone_session",
     });

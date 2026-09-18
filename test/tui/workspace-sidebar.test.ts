@@ -147,6 +147,27 @@ describe("the registry listing", () => {
         }]);
     });
 
+    test("labels an imported session with its source tool", () => {
+        const agents: readonly RegisteredAgentSummary[] = [{
+            id: "imp",
+            workspace: "/w/one",
+            session_path: "/sessions/imp.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: false,
+            title: "old work",
+            imported_from: {
+                tool: "claude-code",
+                source_session_id: "src",
+                source_started_at: "2026-09-01T10:00:00.000Z",
+                message_count: 4,
+                last_message_id: "m4",
+            },
+        }];
+        expect(workspaceSidebarSessions(agents)[0]?.importLabel)
+            .toBe("[imported · Claude Code]");
+    });
+
     test("a parked worker is active even when live is false", () => {
         const agents: readonly RegisteredAgentSummary[] = [{
             id: "parked",

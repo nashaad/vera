@@ -268,6 +268,20 @@ test("results group by session with a prefix naming each hit kind", () => {
     expect(text).toContain("ran: bun test tests/unit/fallback");
 });
 
+test("an imported session's result carries its import label", () => {
+    const found = results();
+    const state = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        {
+            ...found,
+            results: [{ ...found.results[0]!, imported_tool: "claude-code" }],
+        },
+    );
+    expect(searchOverlayText(state, { width: 78, now: NOW }))
+        .toContain("relay-gui [imported · Claude Code]");
+});
+
 test("a file hit is prefixed as an edit", () => {
     const state = applySearchResults(
         typing("ladder"),

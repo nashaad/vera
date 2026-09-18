@@ -1,3 +1,9 @@
+import type { ImportableSessionEntry } from "../../src/host/protocol.ts";
+import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
+import {
+    importedSessionLabel,
+    importToolLabel,
+} from "../../src/store/session-import-provenance.ts";
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
 import { journeyModels } from "./model-journeys.ts";
 import {
@@ -125,6 +131,7 @@ import {
     type TuiExtensionPickerAction,
     type TuiExtensionPickerRow,
     type TuiExtensionPickerState,
+    type TuiImportScope,
     type TuiModelPickerTab,
     type TuiPendingModelChoice,
     type TuiProviderRow,
@@ -1265,6 +1272,53 @@ export function startTuiSessionPicker(
     };
 }
 
+export interface TuiImportPickerStart {
+    readonly scope: TuiImportScope;
+    readonly workspace: string;
+    // Undefined while the host is still reading.
+    readonly listing?: ImportableSessionListing;
+    readonly now?: Date;
+}
+
+export function startTuiImportPicker(start: TuiImportPickerStart): TuiSettingsPickerState {
+    const now = start.now ?? new Date();
+    const options = (start.listing?.sessions ?? []).map((session) =>
+        importPickerOption(session, now)
+    );
+    const where = start.scope === "folder" ? `This folder: ${start.workspace}` : "All folders";
+    const truncated = start.listing?.truncated === true
+        ? ` · newest ${options.length}`
+        : "";
+    return {
+        kind: "session_import",
+        title: "Import a conversation",
+        subtitle: `${where}${truncated}`,
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        importScope: start.scope,
+        loading: start.listing === undefined,
+    };
+}
+
+function importPickerOption(
+    session: ImportableSessionEntry,
+    now: Date,
+): TuiSettingsPickerOption {
+    const text = session.title ?? session.first_message ?? "(no preview)";
+    const imported = session.imported_session_id === undefined ? "" : " · imported";
+    const workspaceName = session.workspace.split("/").filter(Boolean).at(-1) ?? session.workspace;
+    return {
+        value: session.path,
+        label: `${importToolLabel(session.tool)} · ${sessionTitle(text)}${imported}`,
+        description: "",
+        searchText: `${session.first_message ?? ""} ${session.workspace} ${session.path}`,
+        activity: relativeTime(session.updated_at, now, "-"),
+        workspace: clipToCells(workspaceName, SESSION_WORKSPACE_CELLS),
+    };
+}
+
 function sessionPickerOption(
     agent: RegisteredAgentSummary,
     currentAgentId: string | undefined,
@@ -1272,7 +1326,9 @@ function sessionPickerOption(
 ): TuiSettingsPickerOption {
     return {
         value: agent.session_path,
-        label: sessionTitle(agent.title ?? agent.id),
+        label: agent.imported_from === undefined
+            ? sessionTitle(agent.title ?? agent.id)
+            : `${sessionTitle(agent.title ?? agent.id)} ${importedSessionLabel(agent.imported_from.tool)}`,
         description: "",
         searchText: `${agent.id} ${agent.workspace}`,
         sessionId: agent.id,

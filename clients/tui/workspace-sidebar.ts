@@ -1,3 +1,4 @@
+import { importedSessionLabel } from "../../src/store/session-import-provenance.ts";
 import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
 import { halfPageCursor } from "./list-window.ts";
 import {
@@ -116,6 +117,9 @@ export function workspaceSidebarSessions(
             status: agent.status,
             live: agent.live,
             ...(agent.title === undefined ? {} : { title: agent.title }),
+            ...(agent.imported_from === undefined
+                ? {}
+                : { importLabel: importedSessionLabel(agent.imported_from.tool) }),
             ...(agent.updated_at === undefined
                 ? {}
                 : { updatedAt: agent.updated_at }),

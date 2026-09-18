@@ -202,7 +202,7 @@ export function pickerCardWidth(
     railInset = 0,
 ): number {
     const usableWidth = Math.max(0, renderer.width - railInset);
-    const cardWidth = state.kind === "session"
+    const cardWidth = state.kind === "session" || state.kind === "session_import"
         ? usableWidth
         : state.kind === "model" || (state.kind === "extension" && state.layout === "list-detail")
         ? Math.floor(usableWidth * 0.96)
@@ -1710,6 +1710,7 @@ export function optionMeta(
     detailed = false,
     listedPrefixWidth = 0,
 ): DialogMeta | undefined {
+    if (state.kind === "session_import") return option.workspace;
     if (state.kind === "session") {
         if (option.sizeBytes === undefined) {
             return option.workspace;
@@ -2459,6 +2460,7 @@ export function pickerSelection(
             ? { kind: "overrides", patch: null }
             : { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
+    if (kind === "session_import") return { kind, path: value };
     if (kind === "session") {
         return {
             kind,

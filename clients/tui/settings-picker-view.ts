@@ -399,6 +399,16 @@ export function handleTuiSettingsPickerKey(
         }
         return unchanged(state, true);
     }
+    if (
+        state.kind === "session_import"
+        && tuiBindingId("import_picker", key) === "import_scope"
+    ) {
+        return {
+            state,
+            importScope: state.importScope === "all" ? "folder" : "all",
+            handled: true,
+        };
+    }
     if (state.kind === "session" && isTuiDialTabKey(key)) {
         return unchanged(state, true);
     }
@@ -1159,6 +1169,8 @@ export function createTuiSettingsPickerView(
                     && tuiBindingId("model_picker", key) !== undefined)
                 || (state.kind === "session"
                     && tuiBindingId("session_picker", key) !== undefined)
+                || (state.kind === "session_import"
+                    && tuiBindingId("import_picker", key) !== undefined)
                 || (state.query.length === 0 && state.modelJourney === undefined
                     && (key.name === "left" || key.name === "right"))
                 || (digitQuickSelect(state) && state.query === ""
@@ -1205,7 +1217,9 @@ export function createTuiSettingsPickerView(
                 ? () => { view.onSection?.("search"); search.editor.focus(); }
                 : () => search.editor.focus();
             box.title = undefined;
-            surface.justifyContent = state.kind === "session" ? "flex-start" : "center";
+            surface.justifyContent = state.kind === "session" || state.kind === "session_import"
+                ? "flex-start"
+                : "center";
             box.paddingTop = state.kind === "model" && state.modelJourney !== undefined
                 && renderer.height < 30 ? 0 : 2;
             if (state.kind === "theme") {
@@ -1223,7 +1237,7 @@ export function createTuiSettingsPickerView(
                 );
                 return;
             }
-            box.width = state.kind === "session"
+            box.width = state.kind === "session" || state.kind === "session_import"
                 ? "100%"
                 : state.kind === "model" || state.kind === "extension" && state.layout === "list-detail"
                 ? Math.max(1, Math.floor((renderer.width - railInset) * 0.96))
@@ -1938,7 +1952,7 @@ export function renderListPickerRows(
                     row.option.sharedGroup !== undefined
                         && sharedOnScreen.get(row.option.sharedGroup) === 2,
                 ),
-                ...(state.kind === "session"
+                ...(state.kind === "session" || state.kind === "session_import"
                     ? { tint: (tinted = !tinted) }
                     : {}),
                 // One row of air between the providers a reader picks from and
@@ -1948,7 +1962,7 @@ export function renderListPickerRows(
                     : {}),
                 // The detail pane carries the prose when there is one.
                 ...(state.kind === "model" || state.kind === "session"
-                        || detailed
+                        || state.kind === "session_import" || detailed
                     ? {}
                     : { description: row.option.description }),
                 meta: row.option.rowMeta
@@ -2382,6 +2396,9 @@ export function pickerFooterText(
             "esc close",
         ].join(" · ");
     }
+    if (state.kind === "session_import") {
+        return ["↑↓ ^d^u move", "⏎ import", tuiKeyHint("import_scope"), "esc close"].join(" · ");
+    }
     if (state.kind === "extension") {
         const actions = (state.extensionActions ?? []).map((action) =>
             `${extensionPickerKeyLabel(action.key)} ${action.label}`
@@ -2702,6 +2719,7 @@ export function optionLeading(
     if (option.section !== undefined || state.kind === "provider") {
         return "";
     }
+    if (state.kind === "session_import") return `${(option.activity ?? "").padEnd(activityWidth)}  `;
     if (state.kind !== "session") {
         return "";
     }
@@ -2724,6 +2742,15 @@ export function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     }
     if (state.kind === "model_assignment") {
         return "No models in your favorites. Add one to the library to assign it here.";
+    }
+    if (state.kind === "session_import") {
+        return state.loading === true
+            ? "Looking for Claude Code and Codex sessions…"
+            : state.query.length > 0
+            ? "No matches found"
+            : state.importScope === "folder"
+            ? "No Claude Code or Codex sessions in this folder. Press ctrl+g for all folders."
+            : "No Claude Code or Codex sessions found.";
     }
     if (state.kind !== "session") {
         return "No matches found";
@@ -2841,6 +2868,8 @@ export function pickerTitle(
                 ? "Permission mode"
                 : kind === "session"
                     ? "Resume"
+                    : kind === "session_import"
+                    ? "Import a conversation"
                     : kind === "session_create_leave"
                     ? "New conversation"
                     : kind === "settings"

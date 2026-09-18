@@ -12,6 +12,7 @@ import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
+import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
@@ -98,6 +99,13 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         && transition.trashCandidate !== undefined
     ) {
         rt.sessionTrashCandidate = transition.trashCandidate;
+    }
+    if (
+        "importScope" in transition
+        && transition.importScope !== undefined
+    ) {
+        openImportPicker(rt, transition.importScope);
+        return;
     }
     if (
         "renameCandidate" in transition
@@ -684,6 +692,11 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 selection.sourceDisposition,
                 "attach",
             );
+            return;
+        } else if (selection.kind === "session_import") {
+            closeSettingsPickerSurface(rt);
+            importSessionFromTui(rt, selection.path);
+            renderState(rt);
             return;
         } else if (selection.kind === "session_create_leave") {
             closeSettingsPickerSurface(rt);
