@@ -168,10 +168,19 @@ describe("model switcher favoriting", () => {
         const promoted = rows.map((row) =>
             modelSwitcherKey(row) === modelSwitcherKey(held) ? { ...row, favorite: true } : row
         );
-        const next = refreshedTuiModelSwitcher(state, promoted, "Added to favorites");
+        const next = refreshedTuiModelSwitcher(state, promoted, state.recents, "Added to favorites");
         expect(next.rows[next.selectedIndex]?.label).toBe("GPT-5.6 mini");
         expect(next.groups[next.selectedIndex]).toBe(FAVORITES_GROUP);
         expect(next.notice).toBe("Added to favorites");
+    });
+
+    test("a late recents reply fills the recents group without moving the cursor", () => {
+        const state = started();
+        const held = state.rows[state.selectedIndex]!;
+        const next = refreshedTuiModelSwitcher(state, state.allRows, ["ollama/qwen3:32b"]);
+        expect(next.recents).toEqual(["ollama/qwen3:32b"]);
+        expect(next.groups).toContain(RECENT_GROUP);
+        expect(next.rows[next.selectedIndex]?.label).toBe(held.label);
     });
 
     test("the footer names the action the highlighted row would take", () => {

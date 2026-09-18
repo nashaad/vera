@@ -67,7 +67,8 @@ function lastEfforts(state: TuiState): ReadonlyMap<string, string> {
 
 function switcherRecents(rt: TuiRuntime): readonly string[] {
     const seen: string[] = [];
-    for (const { settings } of focusedAgentState(rt).modelSettingsHistory ?? []) {
+    const history = [...focusedAgentState(rt).modelSettingsHistory ?? []].reverse();
+    for (const { settings } of history) {
         if (settings.provider === undefined) continue;
         const key = `${settings.provider}/${settings.model}`;
         if (!seen.includes(key)) seen.push(key);
@@ -117,6 +118,7 @@ export function refreshModelSwitcher(rt: TuiRuntime, notice?: string): void {
     rt.modelSwitcher = refreshedTuiModelSwitcher(
         rt.modelSwitcher,
         modelSwitcherRows(rt),
+        switcherRecents(rt),
         notice,
     );
 }

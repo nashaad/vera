@@ -111,15 +111,17 @@ export function startTuiModelSwitcher(
 export function refreshedTuiModelSwitcher(
     state: TuiModelSwitcherState,
     allRows: readonly TuiModelSwitcherRow[],
+    recents: readonly string[],
     notice?: string,
 ): TuiModelSwitcherState {
     const held = state.rows[state.selectedIndex];
-    const ordered = orderedRows(allRows, state.recents, state.query);
+    const ordered = orderedRows(allRows, recents, state.query);
     const at = held === undefined ? -1 : ordered.rows
         .findIndex((row) => modelSwitcherKey(row) === modelSwitcherKey(held));
     return {
         ...state,
         allRows,
+        recents,
         ...ordered,
         selectedIndex: at >= 0
             ? at
