@@ -83,6 +83,7 @@ export interface TuiModelSwitcherTransition {
     readonly selection?: TuiModelSwitcherRow;
     readonly favorite?: TuiModelSwitcherRow;
     readonly providers?: true;
+    readonly browse?: true;
     readonly handled: boolean;
 }
 
@@ -220,6 +221,9 @@ function searchRank(row: TuiModelSwitcherRow, terms: readonly string[]): number 
         + (row.favorite === true || row.seeded === true ? 1 : 0);
 }
 
+/** One press of pageup, pagedown, ^u or ^d covers this many rows. */
+const PAGE_ROWS = 10;
+
 export function handleTuiModelSwitcherKey(
     state: TuiModelSwitcherState,
     key: TuiModelSwitcherKey,
@@ -233,6 +237,11 @@ export function handleTuiModelSwitcherKey(
             ? { state, handled: true }
             : { state, favorite: selected, handled: true };
     }
+    if (key.ctrl === true && key.name === "b") {
+        return { browse: true, handled: true };
+    }
+    if (key.ctrl === true && key.name === "u") return moved(state, -PAGE_ROWS);
+    if (key.ctrl === true && key.name === "d") return moved(state, PAGE_ROWS);
     if (key.ctrl === true || key.meta === true || key.super === true
         || key.hyper === true || key.shift === true) {
         return { state, handled: false };
@@ -240,8 +249,8 @@ export function handleTuiModelSwitcherKey(
     if (key.name === "escape") return { handled: true };
     if (key.name === "up") return moved(state, -1);
     if (key.name === "down") return moved(state, 1);
-    if (key.name === "pageup") return moved(state, -10);
-    if (key.name === "pagedown") return moved(state, 10);
+    if (key.name === "pageup") return moved(state, -PAGE_ROWS);
+    if (key.name === "pagedown") return moved(state, PAGE_ROWS);
     if (key.name === "home") return moved(state, -state.rows.length);
     if (key.name === "end") return moved(state, state.rows.length);
     if (key.name === "return" || key.name === "enter" || key.name === "kpenter") {
@@ -430,7 +439,7 @@ function footerText(state: TuiModelSwitcherState): string {
     const favorite = state.rows[state.selectedIndex]?.favorite === true
         ? "^f unfavorite"
         : "^f favorite";
-    return `↑↓ move · ⏎ switch · ${favorite} · esc close`;
+    return `↑↓ move · ^u^d page · ⏎ switch · ${favorite} · ^b browse all · esc close`;
 }
 
 export function switcherEmptyMessage(state: TuiModelSwitcherState): string {

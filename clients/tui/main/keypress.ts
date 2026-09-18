@@ -3,7 +3,7 @@ import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "..
 import { handleTuiAdmissionDialogKey } from "../admission-dialog.ts";
 import { handleTuiCommandPaletteKey } from "../command-palette.ts";
 import { handleTuiModelSwitcherKey } from "../model-switcher.ts";
-import { applyModelSwitcherSelection, openModelSwitcher, switcherNeedsProviders, toggleModelSwitcherFavorite } from "../main/model-switcher-ops.ts";
+import { applyModelSwitcherSelection, openBrowseFromSwitcher, openModelSwitcher, switcherNeedsProviders, toggleModelSwitcherFavorite } from "../main/model-switcher-ops.ts";
 import { tuiArgumentCompletion, tuiWithArgument } from "../commands.ts";
 import { composeSuggesterDismissalKey } from "../compose-suggester.ts";
 import { DIAGNOSTICS_SCOPES, handleTuiDiagnosticsDialogKey } from "../diagnostics-dialog.ts";
@@ -890,6 +890,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             rt.modelSwitcher = transition.state;
             if (transition.providers === true) {
                 switcherNeedsProviders(rt);
+            } else if (transition.browse === true) {
+                openBrowseFromSwitcher(rt);
             } else if (transition.selection !== undefined) {
                 applyModelSwitcherSelection(rt, transition.selection);
             } else if (transition.favorite !== undefined) {

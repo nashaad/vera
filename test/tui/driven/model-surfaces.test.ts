@@ -206,7 +206,7 @@ test("Home stages access without creating a session, then the switcher applies t
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("↑↓ move · ⏎ switch");
+        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
         expect(created).toBe(1);
@@ -236,7 +236,7 @@ test("the switcher asks for effort whenever the model has levels", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("↑↓ move · ⏎ switch");
+        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
         session.sendText("two"); await session.waitForVisiblePane("1/1");
         session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
         // The cursor opens on the model's own default, so the switch is not
@@ -278,6 +278,20 @@ test("the switcher favorites with Ctrl+F and ignores the legacy Ctrl+S", async (
         expect(commands).toContain("pool_add");
         expect(operations).toEqual([]);
         expect(session.captureVisiblePane()).toContain("Switch model");
+    } finally { await session.close(); }
+}, 15_000);
+
+test("ctrl+b leaves the switcher for the browse page", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("^b browse all");
+        session.sendKey("C-b");
+        const browse = await session.waitForVisiblePane("Browse models");
+        expect(browse).not.toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);
 

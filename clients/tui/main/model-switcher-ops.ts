@@ -13,7 +13,7 @@ import { focusedAgentClient, focusedAgentState } from "./agents-dials.ts";
 import { requestAgentSettings } from "./diagnostics-ops.ts";
 import { sendCommand } from "./extension-bridge.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
-import { modelLevelFacts, openProviderPicker } from "./model-pickers.ts";
+import { modelLevelFacts, openModelPicker, openProviderPicker } from "./model-pickers.ts";
 import { renderState } from "./render-state.ts";
 import { beginCreateSession, currentDraft } from "./session-ops.ts";
 import { startTuiReasoningPicker } from "../settings-picker.ts";
@@ -156,6 +156,15 @@ export function toggleModelSwitcherFavorite(
 export function switcherNeedsProviders(rt: TuiRuntime): void {
     closeModelSwitcher(rt);
     openProviderPicker(rt);
+}
+
+/** The switcher hands off to the browse page, which is what `/models` opens. */
+export function openBrowseFromSwitcher(rt: TuiRuntime): void {
+    closeModelSwitcher(rt);
+    openModelPicker(rt);
+    rt.composer.blur();
+    renderState(rt);
+    focusActiveSurface(rt);
 }
 
 export function applyModelSwitcherSelection(

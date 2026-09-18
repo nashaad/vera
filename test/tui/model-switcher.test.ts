@@ -125,6 +125,31 @@ describe("model switcher keys", () => {
             .toBe(rows.length - 1);
     });
 
+    test("ctrl+u and ctrl+d page the list", () => {
+        const many = Array.from({ length: 30 }, (_, index) => ({
+            provider: "openai",
+            model: `m${index}`,
+            label: `M${index}`,
+        }));
+        const state = startTuiModelSwitcher(many);
+        const down = handleTuiModelSwitcherKey(state, { name: "d", ctrl: true }).state!;
+        expect(down.selectedIndex).toBe(10);
+        expect(handleTuiModelSwitcherKey(down, { name: "u", ctrl: true }).state?.selectedIndex)
+            .toBe(0);
+    });
+
+    test("ctrl+b leaves for the browse page", () => {
+        const transition = handleTuiModelSwitcherKey(started(), { name: "b", ctrl: true });
+        expect(transition.browse).toBe(true);
+        expect(transition.handled).toBe(true);
+        expect(transition.state).toBeUndefined();
+    });
+
+    test("the footer names paging and the way out to browse", () => {
+        expect(switcherFooterText(started())).toContain("^u^d page");
+        expect(switcherFooterText(started())).toContain("^b browse all");
+    });
+
     test("no browse control is bound: scope, sort and cutoff keys fall through", () => {
         for (const key of [{ name: "g", ctrl: true }, { name: "s", ctrl: true }, { name: "left" }, { name: "right" }]) {
             expect(handleTuiModelSwitcherKey(started(), key).handled).toBe(false);
