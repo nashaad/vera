@@ -655,7 +655,7 @@ test("All keeps its price band and footer inside a short terminal with cutoff an
         view.update({ ...state, intelligenceCutoff: "1400", browseNotice: "Catalog refreshed." });
         await setup.renderOnce();
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(23);
-        expect(setup.captureCharFrame()).toContain("switch model");
+        expect(setup.captureCharFrame()).toContain("⏎ unfavorite");
     } finally { setup.renderer.destroy(); }
 });
 
