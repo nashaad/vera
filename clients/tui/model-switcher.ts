@@ -508,7 +508,7 @@ export function createTuiModelSwitcherView(
                 const node of dialogOptionRows(renderer, display.map((entry) => {
                     const meta = rowMeta(state, entry.row);
                     return {
-                        label: entry.row.label,
+                        label: switcherRowLabel(state, entry.row),
                         ...(meta === undefined ? {} : { meta }),
                         active: entry.index === state.selectedIndex,
                         current: modelSwitcherKey(entry.row) === state.current,
@@ -588,6 +588,16 @@ function emptyMessage(state: TuiModelSwitcherState): string {
     return state.query.trim().length === 0
         ? "Type to pick any model, or favorite one to see favorites here."
         : "No models match that search. /models adds a provider.";
+}
+
+/** Two providers can serve a model under one name; the provider tells them apart. */
+export function switcherRowLabel(
+    state: TuiModelSwitcherState,
+    row: TuiModelSwitcherRow,
+): string {
+    const shared = state.allRows.some((other) =>
+        other.label === row.label && other.provider !== row.provider);
+    return shared ? `${row.label} (${row.providerLabel ?? row.provider})` : row.label;
 }
 
 /** The bar marks the cursor, so the check has to mark the current model on its own. */

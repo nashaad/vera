@@ -13,6 +13,7 @@ import {
     switcherEmptyMessage,
     searchedTuiModelSwitcher,
     switcherFooterText,
+    switcherRowLabel,
     switcherStop,
     type TuiModelSwitcherRow,
 } from "../../clients/tui/model-switcher.ts";
@@ -415,4 +416,18 @@ describe("model switcher rendering", () => {
             setup.renderer.destroy();
         }
     });
+});
+
+test("rows that share a name show their provider, and only those", () => {
+    const state = startTuiModelSwitcher([
+        ...rows,
+        { provider: "local", model: "tiny", label: "tiny" },
+        { provider: "local_t1", model: "tiny", label: "tiny" },
+    ]);
+    const label = (provider: string, model: string): string =>
+        switcherRowLabel(state, state.allRows.find((row) =>
+            row.provider === provider && row.model === model)!);
+    expect(label("local", "tiny")).toBe("tiny (local)");
+    expect(label("local_t1", "tiny")).toBe("tiny (local_t1)");
+    expect(label("openai", "gpt-5.6")).toBe("GPT-5.6");
 });

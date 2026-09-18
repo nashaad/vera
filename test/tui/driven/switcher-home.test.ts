@@ -46,6 +46,15 @@ async function openSwitcherOnHome(operations: ModelOperation[], fail = false) {
     return session;
 }
 
+test("two providers serving one name are told apart", async () => {
+    const session = await openSwitcherOnHome([]);
+    try {
+        const pane = session.captureVisiblePane();
+        expect(pane).toContain("tiny (local)");
+        expect(pane).toContain("tiny (local_t1)");
+    } finally { await session.close(); }
+}, 15_000);
+
 test("unfavoriting from the switcher on home lands through the host", async () => {
     const operations: ModelOperation[] = [];
     const session = await openSwitcherOnHome(operations);
