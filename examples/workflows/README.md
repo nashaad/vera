@@ -10,6 +10,15 @@ covers the API.
   merges the summaries into a report.
 - `counter.workflow.py` shows a step that runs again when the process dies
   before its result is recorded.
+- `trip.workflow.py` researches each destination, asks which one you want,
+  and writes a day-by-day plan for it.
+- `dinner.workflow.py` plans a course at a time around each guest's
+  allergies, asks you to approve the menu, and writes a shopping list by aisle.
+- `survey.workflow.py` proposes themes for a file of survey answers, lets you
+  edit them, then tags the answers in batches of five and counts them.
+
+The last three take `--offline` to run on canned replies without a key, and
+`STOP_AFTER=N` to exit once N steps have started, so you can try `resume`.
 
 ## Stop the writer and resume it
 
