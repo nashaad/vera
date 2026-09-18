@@ -263,6 +263,12 @@ export interface VeraConfig {
      */
     readonly model_feed_url?: string;
     /**
+     * Where the curated model list is fetched from. Absent uses the shipped
+     * address; an empty string turns the fetch off and leaves the picks to
+     * the recommendations shipped with the build.
+     */
+    readonly curated_models_url?: string;
+    /**
      * How old a model may be and still be listed in the picker by default,
      * counted from when the provider first listed it. Absent means the built-in
      * cutoff. `0` disables the age rule and lists every model whatever its age.
@@ -1163,6 +1169,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
+    const curatedModelsUrl = config.curated_models_url === ""
+        ? ""
+        : parseModelFeedUrl(config.curated_models_url);
     const maxAgeMonths = parseNonNegativeCount(config.model_picker_max_age_months);
     const collapseVersions = config.model_picker_collapse_versions;
     const catalogMaxAgeDays = parseNonNegativeCount(
@@ -1195,6 +1204,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || eventLog === undefined
         || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
+        || (config.curated_models_url !== undefined
+            && curatedModelsUrl === undefined)
         || (config.model_picker_max_age_months !== undefined
             && maxAgeMonths === undefined)
         || (collapseVersions !== undefined
@@ -1281,6 +1292,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.tips === undefined ? {} : { tips }),
         ...(config.tui === undefined ? {} : { tui }),
         ...(modelFeedUrl === undefined ? {} : { model_feed_url: modelFeedUrl }),
+        ...(curatedModelsUrl === undefined
+            ? {}
+            : { curated_models_url: curatedModelsUrl }),
         ...(maxAgeMonths === undefined
             ? {}
             : { model_picker_max_age_months: maxAgeMonths }),

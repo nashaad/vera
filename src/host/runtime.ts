@@ -103,6 +103,7 @@ import { poolReachability } from "../model/assignment-reachability.ts";
 import { poolNameRefusal } from "../model/pool-names.ts";
 import { admitToPool } from "../model/pool-admission.ts";
 import { createFeedRowReader } from "../model/feed-cache.ts";
+import { startCuratedRefresh } from "../model/curated-models.ts";
 import {
     refreshDeepSeekCatalog,
 } from "../model/deepseek-catalog.ts";
@@ -440,6 +441,7 @@ export async function startResidentHost(
         }),
     });
     const closeSidecars = async (): Promise<void> => {
+        curatedRefresh.close();
         await workspaceSidecars.close();
         await sidecars?.close();
         sidecars = null;
@@ -451,6 +453,11 @@ export async function startResidentHost(
         inboxDelivery?.close();
         inbox?.close();
     };
+    const curatedRefresh = startCuratedRefresh(
+        options.config.curated_models_url === undefined
+            ? {}
+            : { url: options.config.curated_models_url },
+    );
     const readFeedRow = createFeedRowReader(
         options.config.model_feed_url === undefined
             ? {}

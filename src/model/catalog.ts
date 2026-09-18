@@ -9,6 +9,12 @@ import type {
     ReasoningLevel,
 } from "./catalog-shape.ts";
 import {
+    curatedKeys,
+    curatedModels,
+    curatedSelection,
+    type CuratedModel,
+} from "./curated-models.ts";
+import {
     loadRecommendedModels,
     type RecommendedModel,
 } from "./recommended-models.ts";
@@ -44,6 +50,8 @@ interface SourceCatalog {
 export interface EffectiveCatalogOptions {
     readonly cacheDir?: string;
     readonly recommended?: readonly RecommendedModel[];
+    /** The curated picks, which name a model without naming a provider. */
+    readonly curated?: readonly CuratedModel[];
     /** Test seam. Absent reads the shipped overlay file. */
     readonly overlay?: SettingsOverlay;
 }
@@ -65,14 +73,20 @@ export function effectiveCatalog(
         provider,
         options.recommended ?? shippedRecommendations(),
     );
+    const listed = (discovery?.models ?? [])
+        .map(toCatalogModel)
+        .filter((model): model is CatalogModel => model !== undefined)
+        .map((model) => withSettingsOverlay(provider, model, options.overlay))
+        .map((model) => withRecommendation(model, recommended));
+    const curated = curatedSelection(
+        listed.map((model) => model.id),
+        curatedKeys(options.curated ?? curatedModels()),
+    );
     return {
         schema_version: 2,
         provider,
-        models: (discovery?.models ?? [])
-            .map(toCatalogModel)
-            .filter((model): model is CatalogModel => model !== undefined)
-            .map((model) => withSettingsOverlay(provider, model, options.overlay))
-            .map((model) => withRecommendation(model, recommended))
+        models: listed
+            .map((model) => withCuration(model, curated))
             .sort(compareModels),
     };
 }
@@ -119,6 +133,15 @@ function recommendationsFor(
             .filter((entry) => entry.provider === provider)
             .map((entry) => [entry.model, entry] as const),
     );
+}
+
+function withCuration(
+    model: CatalogModel,
+    curated: ReadonlySet<string>,
+): CatalogModel {
+    return model.recommended === true || !curated.has(model.id)
+        ? model
+        : { ...model, recommended: true };
 }
 
 function withRecommendation(
