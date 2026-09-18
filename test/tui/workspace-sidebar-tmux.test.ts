@@ -208,7 +208,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("i returns to chat without hiding t
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the model switcher covers the dock like every other dialog", async () => {
+test.skipIf(!tmuxAvailable || !RAIL_LISTING)("the model switcher covers the dock like every other dialog", async () => {
     // A dialog narrowed to the space the dock leaves clips its own footer,
     // which is where every key it answers to is named.
     const pane = await withTui(async (tui) => {

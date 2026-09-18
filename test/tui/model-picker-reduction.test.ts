@@ -5,6 +5,7 @@ import {
     handleTuiSettingsPickerKey,
     pickerFooter,
     startTuiSettingsPicker,
+    updateTuiSettingsPickerSearch,
 } from "../../clients/tui/settings-picker.ts";
 
 const MODELS: readonly SuggestedModel[] = [
@@ -80,7 +81,7 @@ test("the reveal key adds the folded rows and takes them away again", () => {
 });
 
 test("a search reaches a folded row without revealing the pane", () => {
-    const searched = handleTuiSettingsPickerKey(picker(), { name: "3" });
+    const searched = updateTuiSettingsPickerSearch(picker(), "3");
     expect(modelValues(searched.state!)).toContain("openai/gpt-3.5-turbo");
     expect(searched.state?.revealAll).toBeUndefined();
 });
