@@ -8,6 +8,7 @@ import type {
     RunSpanView,
 } from "../../src/annex/runs-report.ts";
 import { AnnexChrome } from "./App.tsx";
+import { money as formatMoney } from "./money.ts";
 
 export function RunsApp() {
     const [runId, setRunId] = useState<string | undefined>();
@@ -364,7 +365,7 @@ function duration(ms: number): string {
 
 function money(usd: number | undefined): string {
     if (usd === undefined) return "\u2014";
-    return usd < 0.01 && usd > 0 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
+    return formatMoney(usd);
 }
 
 function clock(at: string): string {

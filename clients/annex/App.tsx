@@ -21,6 +21,7 @@ import {
     type SessionSort,
     type SessionSortKey,
 } from "./sessions-table.ts";
+import { money } from "./money.ts";
 
 const WINDOWS: readonly { readonly id: UsageWindowId; readonly label: string }[] = [
     { id: "today", label: "Today" },
@@ -1123,9 +1124,6 @@ function spendSub(reported: number, unpriced: number): string {
     return bits.join(" · ");
 }
 
-function money(n: number): string {
-    return `$${n.toFixed(2)}`;
-}
 
 function formatCount(n: number): string {
     return n.toLocaleString();
