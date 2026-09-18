@@ -215,11 +215,10 @@ export class Vera {
         const workspace = options.workspace ?? process.cwd();
         const profileDirectory = veraProfileDirectory();
         const config = options.config
-            ?? homeConfig(profileDirectory, workspace);
+            ?? homeConfig(profileDirectory);
         const readRequestOptionsConfig = options.config === undefined
             ? createLiveVeraConfigReader(config, {
                 path: join(profileDirectory, "config.json"),
-                projectRoot: workspace,
             })
             : () => config;
         const runtimePosture = options.posture ?? config.approval_mode;
@@ -247,7 +246,7 @@ export class Vera {
         const workspace = options.workspace ?? process.cwd();
         const profileDirectory = veraProfileDirectory();
         const config = options.config
-            ?? homeConfig(profileDirectory, workspace);
+            ?? homeConfig(profileDirectory);
         const runtimePosture = options.posture ?? config.approval_mode;
         requirePermissionMode(runtimePosture, config);
         const vera = new Vera(
@@ -763,10 +762,9 @@ function builtInPostureRank(name: string): number | undefined {
 }
 
 // Without config.json the agent names its own route, and posture stays readonly.
-function homeConfig(profileDirectory: string, workspace: string): VeraConfig {
+function homeConfig(profileDirectory: string): VeraConfig {
     return loadOptionalVeraConfig({
         path: join(profileDirectory, "config.json"),
-        projectRoot: workspace,
     }) ?? {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
         provider: "",

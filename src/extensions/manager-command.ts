@@ -1,23 +1,18 @@
 import type {
     ExtensionInstallPreview,
     ExtensionListEntry,
-    ExtensionManagerScope,
-    ExtensionManagerTarget,
-    ManagedExtensionRecord,
 } from "./manager.ts";
 
 export type ExtensionManagerCommand =
-    | { readonly operation: "list"; readonly scope: ExtensionManagerScope }
+    | { readonly operation: "list" }
     | {
         readonly operation: "install";
         readonly source: string;
-        readonly scope: ExtensionManagerScope;
         readonly dryRun: boolean;
     }
     | {
         readonly operation: "enable" | "disable" | "remove";
         readonly id: string;
-        readonly scope: ExtensionManagerScope;
     }
     | { readonly operation: "reload" };
 
@@ -82,35 +77,32 @@ export function parseExtensionManagerCommand(
     }
 
     const words = args.slice(2);
-    const project = words.includes("--project");
     const dryRun = words.includes("--dry-run");
-    const positional = words.filter((word) => word !== "--project" && word !== "--dry-run");
-    const scope: ExtensionManagerScope = project ? "project" : "profile";
+    const positional = words.filter((word) => word !== "--dry-run");
 
     if (operation === "list") {
         if (dryRun || positional.length > 0) {
-            return { error: `Usage: vera extension list [--project]` };
+            return { error: "Usage: vera extension list" };
         }
-        return { command: { operation: "list", scope } };
+        return { command: { operation: "list" } };
     }
     if (operation === "install") {
         if (positional.length !== 1) {
-            return { error: "Usage: vera extension install <path> [--project] [--dry-run]" };
+            return { error: "Usage: vera extension install <path> [--dry-run]" };
         }
         return {
             command: {
                 operation: "install",
                 source: positional[0]!,
-                scope,
                 dryRun,
             },
         };
     }
     if (operation === "enable" || operation === "disable" || operation === "remove") {
         if (dryRun || positional.length !== 1) {
-            return { error: `Usage: vera extension ${operation} <id> [--project]` };
+            return { error: `Usage: vera extension ${operation} <id>` };
         }
-        return { command: { operation, id: positional[0]!, scope } };
+        return { command: { operation, id: positional[0]! } };
     }
     if (operation === "reload" && words.length === 0) {
         return { command: { operation: "reload" } };
@@ -119,19 +111,7 @@ export function parseExtensionManagerCommand(
 }
 
 export function extensionManagerUsage(): string {
-    return "Usage: vera extension list|install|enable|disable|remove <…> [--project]";
-}
-
-export function extensionTarget(
-    command: ExtensionManagerCommand,
-    projectRoot: string,
-): ExtensionManagerTarget {
-    if (command.operation === "reload") {
-        throw new Error("Reload does not have an extension manager target");
-    }
-    return command.scope === "project"
-        ? { scope: "project", projectRoot }
-        : { scope: "profile" };
+    return "Usage: vera extension list|install|enable|disable|remove <…>";
 }
 
 export function renderExtensionList(entries: readonly ExtensionListEntry[]): string {
@@ -144,7 +124,7 @@ export function renderExtensionList(entries: readonly ExtensionListEntry[]): str
         const version = entry.version === undefined ? "?" : `v${entry.version}`;
         const capabilities = entry.capabilities?.join(",") ?? "?";
         lines.push(
-            `${entry.scope.padEnd(7)} ${entry.id.padEnd(24)} ${version.padEnd(12)} `
+            `${entry.id.padEnd(24)} ${version.padEnd(12)} `
                 + `${state.padEnd(10)} ${capabilities}`,
         );
         lines.push(`  path: ${entry.path}`);
@@ -163,8 +143,6 @@ export function renderExtensionInstallPreview(
         "",
         `id:          ${preview.id}`,
         `version:     ${preview.version}`,
-        `scope:       ${preview.scope}`,
-        ...(preview.projectRoot === undefined ? [] : [`project:     ${preview.projectRoot}`]),
         `source:      ${preview.source}`,
         `destination: ${preview.destination}`,
         `digest:      ${preview.digest}`,
@@ -175,11 +153,10 @@ export function renderExtensionInstallPreview(
 
 export function renderExtensionMutation(
     operation: "enable" | "disable" | "remove",
-    record: ManagedExtensionRecord,
-    scope: ExtensionManagerScope,
+    record: { readonly id: string },
 ): string {
     if (operation === "remove") {
-        return `Removed ${record.id} from the ${scope} scope.\n`;
+        return `Removed ${record.id}.\n`;
     }
-    return `${operation === "enable" ? "Enabled" : "Disabled"} ${record.id} in the ${scope} scope.\n`;
+    return `${operation === "enable" ? "Enabled" : "Disabled"} ${record.id}.\n`;
 }

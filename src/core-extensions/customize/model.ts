@@ -1,5 +1,5 @@
-import type { CustomizationSource, SourceCategory } from "../../src/customize/types.ts";
-import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
+import type { CustomizationSource, SourceCategory } from "../../customize/types.ts";
+import type { VeraClientContextSnapshot } from "../../sdk/context.ts";
 
 export const CATEGORIES: readonly { id: SourceCategory; name: string }[] = [
     { id: "agents", name: "Agents" },

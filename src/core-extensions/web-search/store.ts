@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createAuthStorage, type AuthStorage } from "../../src/providers/auth-storage.ts";
+import { createAuthStorage, type AuthStorage } from "../../providers/auth-storage.ts";
 import { PROVIDER_ENV, SEARCH_PROVIDERS, type SearchProvider } from "./providers.ts";
 import type { ProviderChoice } from "./search.ts";
 

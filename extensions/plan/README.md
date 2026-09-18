@@ -5,7 +5,7 @@ Plan ships as an included extension. Select it with `/agent plan`; return with
 in read-only access. Composer suggestions and skill scripts are off by default.
 
 To configure it, add an entry in the home's `config.json` using the absolute
-path shown in `/customize` under Extensions for `example.plan`:
+path shown in `/customize` under Extensions for `vera.plan`:
 
 ```json
 {
@@ -33,7 +33,7 @@ moves to `readonly`. Explicitly choosing either posture later switches back
 to the default definition and explains the change in the transcript.
 A home or project `plan.md` shadows the included definition.
 
-To disable the included extension, add `example.plan` to
-`disabled_builtin_extensions`. An explicit copy with that ID replaces the
-included copy, including when disabled. Restart the host and client after
-changing its configuration. The ID is retained for existing configurations.
+To disable it, run `/extension disable vera.plan`, which adds the ID to
+`disabled_included_extensions`. An `extensions` entry in `config.json` whose
+path is this directory replaces the included copy, including when that entry is
+disabled. Restart the host and client after changing its configuration.

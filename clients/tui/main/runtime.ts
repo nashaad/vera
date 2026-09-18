@@ -340,7 +340,7 @@ export interface TuiRuntime {
     }>;
     droppedImageReleases: Map<string, () => Promise<void>>;
     finished: { promise: Promise<TuiExit>; resolve: (value?: TuiExit | PromiseLike<TuiExit> | undefined) => void; reject: (reason?: any) => void; };
-    disabledBuiltinExtensions: readonly string[];
+    disabledIncludedExtensions: readonly string[];
     commandRegistry: TuiCommandRegistry;
     configuredClientExtensions: readonly VeraExtensionConfig[];
     hostedAgentSurface: TuiHostedAgentSurface;

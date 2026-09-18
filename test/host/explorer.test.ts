@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defaultHostExtensionConfigs } from "../../src/extensions/bundled-host.ts";
+import { includedExtensionConfigs } from "../../src/extensions/included.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { ModelMessage, ModelTool } from "../../src/model/types.ts";
@@ -25,7 +25,7 @@ for (const worker of [false, true]) {
         const source = "Appointment update\nThe appointment moved to Friday.\nRaw appendix that should stay out of the parent.\n";
         await writeFile(join(root, "record.txt"), source);
         const extensions = await startExtensionRegistry({
-            extensions: defaultHostExtensionConfigs([]),
+            extensions: includedExtensionConfigs([]),
         });
         const registry = new AgentRegistry({
             createAdapter: () => explorerAdapter({ requestsPath }),

@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import { join } from "node:path";
 
-import { defaultHostExtensionConfigs } from "../../src/extensions/bundled-host.ts";
-import { bundledClientExtensionConfigs } from "../../src/extensions/bundled-client.ts";
+import { includedExtensionConfigs, includedExtensions } from "../../src/extensions/included.ts";
 import { startExtensionRegistry } from "../../src/extensions/registry.ts";
 import { startClientExtensionRegistry } from "../../src/extensions/client-registry.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
@@ -11,12 +9,13 @@ import { configuredTuiClientExtensions } from "../../clients/tui/client-extensio
 import type { VeraExtensionConfig } from "../../src/config.ts";
 import { planExtensionConfig } from "../../extensions/plan/extension.ts";
 
-const root = join(import.meta.dir, "../..");
 const ids = (entries: readonly VeraExtensionConfig[]): string[] =>
     entries.map((entry) => loadExtensionManifest(entry.path).manifest.id);
 
 function copy(name: string, config = {}, enabled = true): VeraExtensionConfig {
-    return { path: join(root, "extensions", name), enabled, config };
+    const path = includedExtensions().find((extension) => extension.path.endsWith(`/${name}`))?.path;
+    if (path === undefined) throw new Error(`No included extension folder named ${name}`);
+    return { path, enabled, config };
 }
 
 test("Plan options require explicit opt-in and preserve the skill allow-list", () => {
@@ -77,7 +76,7 @@ async function client(extensions: readonly VeraExtensionConfig[]) {
 test("included host extensions start with a bounded Plan and no command hooks", async () => {
     const failures: string[] = [];
     const registry = await startExtensionRegistry({
-        extensions: defaultHostExtensionConfigs([]),
+        extensions: includedExtensionConfigs([]),
         onFailure: (failure) => failures.push(failure.message),
     });
     try {
@@ -96,16 +95,16 @@ test("included host extensions start with a bounded Plan and no command hooks", 
 });
 
 test("included client extensions register commands without starting work", async () => {
-    const { registry, failures } = await client(bundledClientExtensionConfigs([]));
+    const { registry, failures } = await client(includedExtensionConfigs([]));
     try {
         expect(failures).toEqual([]);
         expect(registry.loadedExtensionIds()).toContain("vera.btw");
-        expect(registry.loadedExtensionIds()).toContain("example.context");
+        expect(registry.loadedExtensionIds()).toContain("vera.context");
         for (const name of ["context", "dashboard"]) {
             expect(registry.commands().filter((entry) => entry.name === name)).toHaveLength(1);
         }
         expect(registry.commands().find((entry) => entry.name === "diff")).toBeDefined();
-        expect(registry.loadedExtensionIds()).toContain("example.plan");
+        expect(registry.loadedExtensionIds()).toContain("vera.plan");
         expect(registry.commands().filter((entry) => ["btw", "pair"].includes(entry.name)))
             .toHaveLength(2);
         expect(registry.composeSuggesters()).toEqual([]);
@@ -114,20 +113,19 @@ test("included client extensions register commands without starting work", async
     }
 });
 
-test("each included battery can be disabled on both applicable sides", () => {
-    const disabled = ["example.command-hooks", "example.plan", "vera.btw", "vera.diff", "example.context"];
+test("each included extension can be disabled", () => {
+    const disabled = ["vera.command-hooks", "vera.plan", "vera.btw", "vera.diff", "vera.context"];
     for (const id of disabled) {
-        expect(ids(defaultHostExtensionConfigs(disabled))).not.toContain(id);
-        expect(ids(bundledClientExtensionConfigs(disabled))).not.toContain(id);
+        expect(ids(includedExtensionConfigs(disabled))).not.toContain(id);
     }
 });
 
 test("explicit legacy paths replace included copies and retain Plan options", async () => {
     const explicit = [copy("plan", { allow_skill_scripts: true, compose_suggestion: true }), copy("btw")];
-    const hostEntries = mergeExtensionScopes(defaultHostExtensionConfigs([]), explicit);
+    const hostEntries = mergeExtensionScopes(includedExtensionConfigs([]), explicit);
     const clientEntries = configuredTuiClientExtensions([], explicit);
     for (const entries of [hostEntries, clientEntries]) {
-        expect(ids(entries).filter((id) => id === "example.plan")).toHaveLength(1);
+        expect(ids(entries).filter((id) => id === "vera.plan")).toHaveLength(1);
         expect(ids(entries).filter((id) => id === "vera.btw")).toHaveLength(1);
     }
     const hostFailures: string[] = [];
@@ -154,12 +152,12 @@ test("a disabled explicit copy suppresses the included copy", async () => {
     const explicit = [copy("plan", {}, false), copy("btw", {}, false)];
     const { registry, failures } = await client(configuredTuiClientExtensions([], explicit));
     const host = await startExtensionRegistry({
-        extensions: mergeExtensionScopes(defaultHostExtensionConfigs([]), explicit),
+        extensions: mergeExtensionScopes(includedExtensionConfigs([]), explicit),
     });
     try {
         expect(failures).toEqual([]);
         expect(registry.loadedExtensionIds()).not.toContain("vera.btw");
-        expect(registry.loadedExtensionIds()).not.toContain("example.plan");
+        expect(registry.loadedExtensionIds()).not.toContain("vera.plan");
         expect(host.agents().some((entry) => entry.name === "plan")).toBe(false);
     } finally {
         await registry.close();
@@ -185,14 +183,14 @@ test("malformed supplied hook configuration still fails activation", async () =>
 for (const mode of ["override", "disabled-copy", "disabled-builtin"] as const) {
     test(`Context ${mode} retains ID-based command ownership`, async () => {
         const explicit = mode === "disabled-builtin" ? [] : [{
-            path: join(root, "extensions/context"),
+            path: copy("context").path,
             enabled: mode === "override",
             config: { retained: true },
         }];
         const entries = configuredTuiClientExtensions(
-            mode === "disabled-builtin" ? ["example.context"] : [], explicit,
+            mode === "disabled-builtin" ? ["vera.context"] : [], explicit,
         );
-        const context = entries.filter((entry) => loadExtensionManifest(entry.path).manifest.id === "example.context");
+        const context = entries.filter((entry) => loadExtensionManifest(entry.path).manifest.id === "vera.context");
         expect(context).toHaveLength(mode === "disabled-builtin" ? 0 : 1);
         if (mode !== "disabled-builtin") expect(context[0]).toEqual(explicit[0]);
         const { registry, failures } = await client(entries);
@@ -207,3 +205,13 @@ for (const mode of ["override", "disabled-copy", "disabled-builtin"] as const) {
         }
     });
 }
+
+test("core and shipped extensions load from their own folders", () => {
+    const core = includedExtensions().filter((extension) => extension.core).map((extension) => extension.id);
+    const shipped = includedExtensions().filter((extension) => !extension.core).map((extension) => extension.id);
+    expect(core).toContain("vera.customize");
+    expect(core).toContain("vera.session-identity");
+    expect(shipped).toContain("vera.plan");
+    expect(shipped).toContain("vera.mcp");
+    expect(core.filter((id) => shipped.includes(id))).toEqual([]);
+});

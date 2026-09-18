@@ -1,6 +1,6 @@
 import type {
     VeraExperimentalTuiNode,
-} from "../../src/sdk/experimental-tui.ts";
+} from "../../sdk/experimental-tui.ts";
 import type {
     DashboardFailureGroup,
     DashboardReport,

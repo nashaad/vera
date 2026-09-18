@@ -6,8 +6,7 @@ import { loadProjectInstructions } from "../engine/project-instructions.ts";
 import { loadMemory, MEMORY_ENABLED, type InstructionRoot } from "../engine/memory.ts";
 import { listExtensions } from "../extensions/manager.ts";
 import { loadOptionalVeraConfig } from "../config.ts";
-import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
-import { bundledClientExtensionConfigs } from "../extensions/bundled-client.ts";
+import { includedExtensionConfigs } from "../extensions/included.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
 import type { CustomizationCatalog, CustomizationSource } from "./types.ts";
 
@@ -102,15 +101,14 @@ export async function loadCustomizationCatalog(options: {
         }
     }
     const config = loadOptionalVeraConfig();
-    const disabled = config?.disabled_builtin_extensions ?? [];
-    const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions({ projectRoot: options.workspace }).map((row) => ({
-        path: row.path, enabled: row.enabled, scope: row.scope, id: row.id,
+    const disabled = config?.disabled_included_extensions ?? [];
+    const entries: { path: string; enabled: boolean; scope: string; id: string }[] = listExtensions().map((row) => ({
+        path: row.path, enabled: row.enabled, scope: "user", id: row.id,
     }));
     const paths = new Set(entries.map((row) => row.path));
     for (const row of [
         ...(config?.extensions ?? []).map((value) => ({ ...value, scope: "user" })),
-        ...defaultHostExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
-        ...bundledClientExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
+        ...includedExtensionConfigs([]).map((value) => ({ ...value, scope: "bundled" })),
     ]) {
         if (paths.has(row.path)) continue;
         paths.add(row.path);

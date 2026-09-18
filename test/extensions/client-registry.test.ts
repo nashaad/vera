@@ -877,7 +877,7 @@ test("compose suggesters reject an empty current-agent scope", async () => {
 test("bundled reasoning cycle uses the same public seams as a user extension", async () => {
     const extension = join(
         import.meta.dir,
-        "../../extensions/reasoning-cycle",
+        "../../src/core-extensions/reasoning-cycle",
     );
     const availableModels = [
         {

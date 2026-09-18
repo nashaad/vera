@@ -39,5 +39,5 @@ or include changes in other worktrees.
 ## Disable the viewer
 
 The viewer is the included `vera.diff` client extension. Add `"vera.diff"`
-to `disabled_builtin_extensions`, then reload client extensions or restart
+to `disabled_included_extensions`, then reload client extensions or restart
 the TUI.

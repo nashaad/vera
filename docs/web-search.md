@@ -59,5 +59,5 @@ The tool accepts a query and 1 to 10 results, defaulting to 5. Queries are
 limited to 600 characters and 75 words. A search has a 15-second deadline,
 with at most 5 seconds for each provider.
 
-Disable an older installed `nash.web-search` example before using the included
+Disable an older installed `example.web-search` example before using the included
 extension, because both register the same tool name.

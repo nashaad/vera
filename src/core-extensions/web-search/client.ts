@@ -1,4 +1,4 @@
-import type { VeraClientExtensionApi, VeraClientPickerRow } from "../../src/sdk/extensions.ts";
+import type { VeraClientExtensionApi, VeraClientPickerRow } from "../../sdk/extensions.ts";
 import { PROVIDER_NAMES, SEARCH_PROVIDERS, type SearchProvider } from "./providers.ts";
 import { SearchStore } from "./store.ts";
 import { searchWeb } from "./search.ts";

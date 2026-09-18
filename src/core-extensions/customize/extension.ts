@@ -1,4 +1,4 @@
-import type { VeraClientExtensionApi } from "../../src/sdk/extensions.ts";
+import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
 import { registerSourceBrowser } from "./view.ts";
 
 export function activateClient(vera: VeraClientExtensionApi): void {

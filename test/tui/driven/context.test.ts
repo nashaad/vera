@@ -129,12 +129,12 @@ for (const enabled of [false, true]) {
             dependencies: () => ({
                 ...createTuiChildDependencies({
                     clientExtensions: [{
-                        path: join(import.meta.dir, "../../../extensions/context"),
+                        path: join(import.meta.dir, "../../../src/core-extensions/context"),
                         enabled,
                         config: {},
                     }],
                 }),
-                disabledBuiltinExtensions: enabled ? ["example.context"] : [],
+                disabledIncludedExtensions: enabled ? ["vera.context"] : [],
             }),
         });
         try {
@@ -143,7 +143,7 @@ for (const enabled of [false, true]) {
             session.sendKey("Enter");
             await session.waitForVisiblePaneWhere(
                 (pane) => pane.split("\n").some((line) =>
-                    line.includes("example.context")
+                    line.includes("vera.context")
                     && line.includes(enabled ? "enabled" : "disabled")),
                 "effective Context enabled state",
             );
@@ -177,7 +177,7 @@ test("closing Dashboard returns every following character to the composer", asyn
         const pane = await session.waitForVisiblePane("│ /extensions");
         expect(pane).not.toContain("│ ons");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("example.context");
+        await session.waitForVisiblePane("vera.context");
     } finally {
         await session.close();
     }

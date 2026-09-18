@@ -6,7 +6,6 @@ import type { RunHeadlessLoopData, RunHeadlessLoopServices } from "../../engine/
 import { isOneshotReplyUpdate, isSessionNameReplyUpdate, isTimelineReplyUpdate, isToolApprovalUiRequestUpdate, type ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
 import { resolveSpawnModelChoice, subagentModelBoundary, type MissingSubagentConfigurationRequest, type SpawnModelResolution, type SubagentPoolPolicy } from "../../engine/subagent.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
-import { discoverProjectExtensionConfigs } from "../../extensions/discovery.ts";
 import { SessionStore } from "../../store/session-store.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import type { ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../../tools/types.ts";
@@ -29,12 +28,11 @@ export function workerAdapterSpecFor(reg: AgentRegistry, store: SessionStore, en
         });
     }
 
-export function workerExtensions(reg: AgentRegistry, workspace: string): readonly VeraExtensionConfig[] | undefined {
+export function workerExtensions(reg: AgentRegistry): readonly VeraExtensionConfig[] | undefined {
         if ((process.env[WORKER_EXTENSIONS_ENV] ?? "") !== "1") {
             return undefined;
         }
-        const configured = reg.options.workerExtensions?.(workspace)
-            ?? discoverProjectExtensionConfigs(workspace);
+        const configured = reg.options.workerExtensions?.() ?? [];
         return configured.length === 0 ? undefined : configured;
     }
 
@@ -72,7 +70,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
         if (reg.liveWorkerCount() >= cap) {
             throw new WorkerCapReachedError(cap);
         }
-        const workerExtensions = reg.workerExtensions(store.header.cwd);
+        const workerExtensions = reg.workerExtensions();
         const handle = await startWorker({
             store,
             session: await readSessionSeed(store.path),

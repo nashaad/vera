@@ -63,7 +63,6 @@ test("every slash action has an explicit pane scope", () => {
             command: {
                 operation: "install",
                 source: "./extension",
-                scope: "profile",
                 dryRun: true,
             },
         },
@@ -277,17 +276,16 @@ test("extension manager slash commands are application-owned actions", () => {
         command: {
             operation: "install",
             source: "./local",
-            scope: "profile",
             dryRun: true,
         },
     });
-    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+    expect(registry.dispatch("/extension disable sample")).toEqual({
         type: "manage_extensions",
-        command: {
-            operation: "disable",
-            id: "sample",
-            scope: "project",
-        },
+        command: { operation: "disable", id: "sample" },
+    });
+    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+        type: "command_error",
+        message: "Usage: vera extension disable <id>",
     });
     expect(registry.dispatch(
         `/extension install "/tmp/My Local Extension" --dry-run`,
@@ -296,13 +294,11 @@ test("extension manager slash commands are application-owned actions", () => {
         command: {
             operation: "install",
             source: "/tmp/My Local Extension",
-            scope: "profile",
             dryRun: true,
         },
     });
-    expect(registry.dispatch("/extension list --project")).toEqual({
+    expect(registry.dispatch("/extension list")).toEqual({
         type: "show_extensions",
-        scope: "project",
     });
     expect(registry.dispatch("/extension reload")).toEqual({
         type: "manage_extensions",
@@ -443,7 +439,7 @@ test("slash context lists the name and ghosts [all] after a space", () => {
         name: "context",
         description: "Show context usage",
         usage: "/context [all]",
-        source: "example.context",
+        source: "vera.context",
     }]);
     const listed = tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/context"),

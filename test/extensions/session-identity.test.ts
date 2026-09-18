@@ -7,18 +7,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-    defaultHostExtensionConfigs,
-    EXPLORER_EXTENSION_ID,
-    SESSION_IDENTITY_EXTENSION_ID,
-    WEB_SEARCH_EXTENSION_ID,
-} from "../../src/extensions/bundled-host.ts";
+import { includedExtensionConfigs, includedExtensionIds } from "../../src/extensions/included.ts";
 import { loadExtensionManifest } from "../../src/extensions/manifest.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
-import { agentNameKey, parseAgentName } from "../../extensions/session-identity/names.ts";
+import { agentNameKey, parseAgentName } from "../../src/core-extensions/session-identity/names.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -28,21 +23,18 @@ afterEach(() => {
     }
 });
 
-test("session identity is a default bundled host extension", () => {
-    const [config] = defaultHostExtensionConfigs([]);
-    expect(config?.enabled).toBe(true);
-    expect(loadExtensionManifest(config!.path).manifest.id)
-        .toBe(SESSION_IDENTITY_EXTENSION_ID);
-    expect(defaultHostExtensionConfigs([
-        SESSION_IDENTITY_EXTENSION_ID, EXPLORER_EXTENSION_ID, "vera.budget",
-        "example.command-hooks", "example.plan",
-        WEB_SEARCH_EXTENSION_ID,
-    ]))
-        .toEqual([]);
+function sessionIdentityConfig() {
+    return includedExtensionConfigs([]).find((config) =>
+        loadExtensionManifest(config.path).manifest.id === "vera.session-identity");
+}
+
+test("session identity is a default included extension", () => {
+    expect(sessionIdentityConfig()?.enabled).toBe(true);
+    expect(includedExtensionConfigs(includedExtensionIds())).toEqual([]);
 });
 
 test("the bundled namer uses the public sessions.identity seam", async () => {
-    const [config] = defaultHostExtensionConfigs([]);
+    const config = sessionIdentityConfig();
     const registry = await startExtensionRegistry({
         extensions: [config!],
     });

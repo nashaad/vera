@@ -1,4 +1,4 @@
-import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
+import type { VeraExtensionApi } from "../../sdk/extensions.ts";
 
 export function activate(vera: VeraExtensionApi): void {
     vera.agents.register({

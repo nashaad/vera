@@ -1,5 +1,5 @@
-import type { VeraClientExtensionApi } from "../../src/sdk/extensions.ts";
-import type { CustomizationSource, SourceCategory } from "../../src/customize/types.ts";
+import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
+import type { CustomizationSource, SourceCategory } from "../../customize/types.ts";
 import { CATEGORIES, sourceStatus, sourceWasLoaded } from "./model.ts";
 
 export function registerSourceBrowser(vera: VeraClientExtensionApi): {
