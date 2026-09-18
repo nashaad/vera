@@ -45,6 +45,20 @@ export function outriderServeCommand(
     return [binary, "--json", "serve", profile];
 }
 
+/** Bring the gateway up on whatever profile it last served, without naming one. A gateway that is already up is left alone. */
+export function outriderStartCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "start"];
+}
+
+/** Take the gateway down. The checkpoint it writes on the way out is what makes the next start quick, so it is never skipped here. */
+export function outriderStopCommand(
+    binary: string = OUTRIDER_BINARY,
+): readonly string[] {
+    return [binary, "--json", "stop"];
+}
+
 /** Does this profile fit this machine, in Outrider's own reckoning rather than ours. */
 export function outriderCheckCommand(
     profile: string,

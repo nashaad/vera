@@ -52,7 +52,7 @@ import type { SearchOverlayState } from "../search-overlay.ts";
 import type { TuiSecretPromptState, TuiSecretPromptView } from "../secret-prompt.ts";
 import type { TuiSessionCloseConfirmView } from "../session-close-confirm.ts";
 import type { TuiSessionTrashConfirmView } from "../session-trash-confirm.ts";
-import type { TuiAnySettingsPickerState, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
+import type { TuiAnySettingsPickerState, TuiLocalRuntimeStatus, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
 import type { TuiSidebar } from "../sidebar.ts";
 import type { TuiExtensionsListState, TuiExtensionsListView } from "../extensions-list.ts";
 import type { TuiStandingNudgesState, TuiStandingNudgesView } from "../standing-nudges.ts";
@@ -484,5 +484,11 @@ export interface TuiRuntime {
     onboardingVerification: { readonly requestId: string; readonly provider: string; readonly model: string; } | undefined;
     /** The install or start the wizard has out, held so a key can stop it. */
     onboardingRuntimeCommand: RuntimeCommand | undefined;
+    /** What the local runtime was last seen doing. Read when the provider screen opens and after anything Vera asks of it. */
+    localRuntime: TuiLocalRuntimeStatus | undefined;
+    /** The lifecycle command Vera has out against the local runtime. One at a time, so a second press cannot stack another on it. */
+    localRuntimeCommand: { stop(): void } | undefined;
+    /** The last line a lifecycle command put in the status area, so the same one is not said twice. */
+    localRuntimeNotice: string | undefined;
     themeBindings: readonly TuiThemeBinding[];
 }

@@ -6,6 +6,7 @@ import { extensionPickerButtons, renderExtensionPicker } from "./extension-picke
 import { handleVerificationKey } from "./model-verification.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
+import { localRuntimeStatusLines } from "./local-runtime-status.ts";
 import { SESSION_LEAVE_OPTIONS, TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import { emptyModelJourney, handleModelJourneyKey, handleModelJourneyMenuKey, journeyHeader, journeyFooter, journeyMoreText, journeyWindow, journeyModels, journeyScopeOptions, journeySort, journeySortOptions } from "./model-journeys.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
@@ -2176,6 +2177,26 @@ export function renderListPickerRows(
         const consoleBox = verificationConsoleNode(renderer, verification);
         box.add(consoleBox);
         nodes.push(consoleBox);
+    }
+
+    if (state.kind === "provider" && state.localRuntime !== undefined) {
+        localRuntimeStatusLines(state.localRuntime).forEach((line, index) => {
+            const node = new TextRenderable(renderer, {
+                content: new StyledText([
+                    fg(TUI_MUTED)(DIALOG_GUTTER),
+                    fg(index === 0
+                        ? TUI_ACCENT
+                        : line.startsWith("!")
+                        ? TUI_DANGER
+                        : TUI_MUTED)(line),
+                ]),
+                width: "100%",
+                height: 1,
+                ...(index === 0 ? { marginTop: 1 } : {}),
+            });
+            box.add(node);
+            nodes.push(node);
+        });
     }
 
     const footer = dialogFooterNode(

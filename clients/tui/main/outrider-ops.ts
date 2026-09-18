@@ -8,9 +8,12 @@ import {
     outriderLogsCommand,
     outriderMarkerPaths,
     outriderServeCommand,
+    outriderStartCommand,
+    outriderStopCommand,
     outriderServiceCommand,
     outriderShowCommand,
     outriderAppBinaryPaths,
+    outriderRegisterCommand,
     outriderStatusCommand,
     outriderUseCommand,
     parseOutriderProgress,
@@ -165,6 +168,15 @@ export function installOutrider(
 }
 
 /** One command fetches what is missing and brings the gateway up on that profile. */
+/** Points the install target at a binary that is already on the machine, rather than fetching another copy. */
+export function registerOutrider(
+    binary: string,
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): RuntimeCommand {
+    return driver.run(outriderRegisterCommand(binary), onProgress);
+}
+
 export function serveOutrider(
     profile: string,
     onProgress: (line: OutriderProgress) => void,
@@ -172,6 +184,28 @@ export function serveOutrider(
 ): RuntimeCommand {
     return driver.run(
         outriderServeCommand(profile, driver.binary() ?? OUTRIDER_BINARY),
+        onProgress,
+    );
+}
+
+/** Bring the gateway back up on the profile it last served. Nothing is fetched, so this is the quick path after a reboot. */
+export function startOutrider(
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): RuntimeCommand {
+    return driver.run(
+        outriderStartCommand(driver.binary() ?? OUTRIDER_BINARY),
+        onProgress,
+    );
+}
+
+/** Take the gateway down. Nothing to stop is not a failure, so a refusal is read as the state it leaves behind rather than an error to show. */
+export function stopOutrider(
+    onProgress: (line: OutriderProgress) => void,
+    driver: OutriderDriver = defaultOutriderDriver,
+): RuntimeCommand {
+    return driver.run(
+        outriderStopCommand(driver.binary() ?? OUTRIDER_BINARY),
         onProgress,
     );
 }

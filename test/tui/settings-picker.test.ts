@@ -3925,25 +3925,28 @@ test("a keyless declaration submits without a key", () => {
 });
 
 
-test("provider Enter offers edit and refresh without starting either", async () => {
+test("provider Enter offers its actions without starting any of them", async () => {
     for (const provider of ["gemini", "openrouter", "ollama"]) {
+        // Only a provider that has answered is past the point of connecting.
+        const connected = provider === "ollama";
         const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: provider });
         const opened = handleTuiSettingsPickerKey(pane, { name: "enter" });
         const actions = opened.state as TuiSettingsPickerState;
         expect(actions.kind).toBe("provider_actions");
-        expect(actions.options.map((row) => row.label)).toEqual(["Edit", "Refresh"]);
+        expect(actions.options.map((row) => row.label)).toEqual(
+            connected ? ["Edit", "Refresh"] : ["Connect", "Edit", "Refresh"],
+        );
         expect(opened.selection).toBeUndefined();
         expect(opened).not.toHaveProperty("refreshCatalog");
         expect(pickerFooter(pane)).toContain("⏎ actions");
         expect(handleTuiSettingsPickerKey(actions, { name: "escape" }).state).toBe(pane);
-        const edit = handleTuiSettingsPickerKey(actions, { name: "enter" });
+        const at = (index: number): TuiSettingsPickerState => ({ ...actions, selectedIndex: index });
+        const editIndex = connected ? 0 : 1;
+        const edit = handleTuiSettingsPickerKey(at(editIndex), { name: "enter" });
         expect(edit).toMatchObject(provider === "gemini"
             ? { editProvider: provider, state: pane }
             : { editEndpoint: provider, state: pane });
-        const refresh = handleTuiSettingsPickerKey(
-            handleTuiSettingsPickerKey(actions, { name: "down" }).state!,
-            { name: "enter" },
-        );
+        const refresh = handleTuiSettingsPickerKey(at(editIndex + 1), { name: "enter" });
         expect(refresh).toMatchObject({ refreshCatalog: provider, state: pane });
         expect(refresh.selection).toBeUndefined();
         const frame = await pickerFrame(actions, 100, 30);
@@ -3951,6 +3954,17 @@ test("provider Enter offers edit and refresh without starting either", async () 
         expect(frame).toContain("Refresh");
         expect(frame).toContain("esc back");
     }
+});
+
+test("a provider that has never answered is connected from its actions, not its endpoint form", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "openrouter" });
+    const actions = handleTuiSettingsPickerKey(pane, { name: "enter" }).state!;
+
+    expect(actions.options[0]?.label).toBe("Connect");
+    expect(handleTuiSettingsPickerKey(actions, { name: "enter" })).toMatchObject({
+        selection: { kind: "provider", providerId: "openrouter" },
+        state: pane,
+    });
 });
 
 test("fixed subscription endpoints retain reconnect without unsupported actions", () => {
