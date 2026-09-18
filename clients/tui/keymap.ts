@@ -153,7 +153,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "journey_scope", keys: ["ctrl+g", "ctrl+shift+g"], scope: "switch_model_picker",
-        description: "Toggle Favorites and All connected models", hint: "^g favorites/all",
+        description: "Cycle Favorites, Recommended and All connected models", hint: "^g scope",
         remappable: true,
         overrides: ["switch_pane"],
     },

@@ -40,16 +40,16 @@ test("the switcher lists persisted recents once the history reply lands", async 
         await session.waitForVisiblePane("demo/current");
         session.sendText("/model"); session.sendKey("Enter");
         await session.waitForVisiblePane("Switch model");
-        expect(session.captureVisiblePane()).not.toContain("Recent");
+        expect(session.captureVisiblePane()).not.toContain("recent-b");
         expect(replies).toHaveLength(1);
         replies[0]!();
         const pane = await session.waitForVisiblePaneWhere(
-            (text) => /recent\s+recent-b/.test(text),
-            "the recents group",
+            (text) => text.includes("recent-b"),
+            "the recents to join the list",
         );
         // Newest first, and the live model stays where it already is.
         const listed = pane.split("\n").flatMap((line) =>
-            /^\s+(?:favorites|recent)?\s+(current|spare|older|recent-[ab])\b/.exec(line)?.[1] ?? []
+            /^\s+\d\s+(current|spare|older|recent-[ab])\b/.exec(line)?.[1] ?? []
         );
         expect(listed).toEqual(["current", "spare", "recent-b", "recent-a", "older"]);
         session.sendKey("Escape");

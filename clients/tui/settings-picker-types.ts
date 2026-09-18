@@ -223,6 +223,7 @@ export function tuiProviderGroup(
 export type TuiModelPickerTab =
     | "all"
     | "pool"
+    | "recommended"
     | "actions"
     | "defaults"
     | "help";

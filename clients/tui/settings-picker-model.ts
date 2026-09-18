@@ -1689,6 +1689,11 @@ export function modelTabRows(
     if (tab === "defaults") {
         return assignmentOptions;
     }
+    if (tab === "recommended") {
+        return allOptions.filter((option) =>
+            option.recommended === true && option.unavailable !== true
+        );
+    }
     if (tab === "all") {
         return allOptions.filter((option) =>
             option.unavailable !== true

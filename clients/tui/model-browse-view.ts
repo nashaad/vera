@@ -2,7 +2,7 @@ import { BoxRenderable, TextRenderable, StyledText, fg, type Renderable, type Re
 import { dialogActionRow, dialogHeaderNode, dialogFooterNode, dialogGroupHeaderNode, dialogOptionRow, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode } from "./dialog-chrome.ts";
 import { dialogSearchHeight } from "./dialog-search.ts";
 import { modelDetailHeight, modelDetailNode, modelPaneSplit, pickerContentWidth } from "./settings-picker-model.ts";
-import { browseWindow, browseMoreText, emptyModelBrowse } from "./model-browse.ts";
+import { browseScopeLabel, browseWindow, browseMoreText, emptyModelBrowse } from "./model-browse.ts";
 import { formatListedPrice } from "../../src/model/listed-rates.ts";
 import { TUI_ACCENT, TUI_DANGER, TUI_ELEMENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import type { ModelBrowseSection, TuiSettingsPickerOption, TuiSettingsPickerState, TuiPickerTipLine } from "./settings-picker-types.ts";
@@ -77,7 +77,9 @@ export function renderModelBrowse(
         const active = state.modelFocus === section;
         add(dialogActionRow(renderer, label, active, section === "view", () => onAction?.(section)));
     };
-    const scope = state.query.trim() ? "Search all connected models" : state.tab === "all" ? "All connected models" : "Favorites";
+    const scope = state.query.trim()
+        ? "Search all connected models"
+        : state.tab === "all" ? "All connected models" : browseScopeLabel(state.tab);
     // ^g is the only way to change scope, so it belongs next to the scope it changes.
     const scopeHint = state.query.trim() ? "esc" : "^g scope · esc";
     add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`, scopeHint));
@@ -148,7 +150,7 @@ export function renderModelBrowse(
         ? `↑↓ choose · ⏎ ${selected?.pooledRank === undefined ? "favorite" : "unfavorite"} · Space fold/unfold`
         : `⏎ ${focusedAction}`;
     const navigation = [
-        `Ctrl+G favorites/all · Ctrl+K ${selected?.model === undefined ? "manage models" : "manage highlighted model"} · Tab sections · Esc back`,
+        `Ctrl+G scope · Ctrl+K ${selected?.model === undefined ? "manage models" : "manage highlighted model"} · Tab sections · Esc back`,
         "^g fav/all · ^k manage highlighted · Tab sections · Esc",
         "^g all · ^k highlighted · Tab sections · Esc",
         "^g all · ^k model actions · Esc",

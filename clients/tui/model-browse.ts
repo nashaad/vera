@@ -4,12 +4,28 @@ import { tuiBindingId } from "./keymap.ts";
 import { arrowMovesForward, sectionArrow, steppedSection } from "./section-keys.ts";
 import { passesIntelligenceCutoff, stepIntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import { blendedRate } from "../../src/model/listed-rates.ts";
-import type { ModelBrowseSection, ModelBrowseSort, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
+import type { ModelBrowseSection, ModelBrowseSort, TuiModelPickerTab, TuiSettingsPickerKey, TuiSettingsPickerOption, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
+
+/** The three browse scopes, in the order ^g walks them. */
+const BROWSE_SCOPES: readonly TuiModelPickerTab[] = ["pool", "recommended", "all"];
+
+export function nextBrowseScope(
+    tab: TuiModelPickerTab | undefined,
+    forward = true,
+): TuiModelPickerTab {
+    const count = BROWSE_SCOPES.length;
+    const at = Math.max(0, BROWSE_SCOPES.indexOf(tab ?? "pool"));
+    return BROWSE_SCOPES[(at + (forward ? 1 : count - 1)) % count]!;
+}
+
+export function browseScopeLabel(tab: TuiModelPickerTab | undefined): string {
+    return tab === "all" ? "All connected" : tab === "recommended" ? "Recommended" : "Favorites";
+}
 
 export function browseMatches(state: TuiSettingsPickerState, revealAll = state.revealAll === true): readonly TuiSettingsPickerOption[] {
     const terms = state.query.toLowerCase().trim().split(/\s+/).filter(Boolean);
     return state.allOptions.filter((row) => (state.providerCatalogs === undefined || row.description !== "current model" || row.pooledRank !== undefined) && row.model !== undefined && row.provider !== undefined
-        && (state.modelBrowse === "favorites" || terms.length > 0 || state.tab === "all" || row.pooledRank !== undefined)
+        && (state.modelBrowse === "favorites" || terms.length > 0 || inBrowseScope(state, row))
         && (state.browseProvider === undefined || row.provider === state.browseProvider)
         && (!state.browseAvailableOnly || !row.unavailable)
         && (!state.browsePricedOnly || row.pricing !== undefined)
@@ -24,6 +40,13 @@ export function browseMatches(state: TuiSettingsPickerState, revealAll = state.r
             : 0);
 }
 
+/** A search always reaches the whole catalog, so scope only governs the resting list. */
+function inBrowseScope(state: TuiSettingsPickerState, row: TuiSettingsPickerOption): boolean {
+    if (state.tab === "all") return true;
+    if (state.tab === "recommended") return row.recommended === true;
+    return row.pooledRank !== undefined;
+}
+
 function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption): string {
     const bucket = state.modelBrowse === "favorites" ? "shortlist" : state.tab;
     return `${bucket}:${row.provider}`;
@@ -31,8 +54,9 @@ function sectionKey(state: TuiSettingsPickerState, row: TuiSettingsPickerOption)
 
 /** Library order exists only in Library models; Provider catalog falls back to A to Z. */
 export function browseSort(state: TuiSettingsPickerState): ModelBrowseSort {
-    const sort = state.browseSort ?? (state.tab === "all" ? "az" : "library");
-    return sort === "library" && state.tab === "all" ? "az" : sort;
+    const pooled = (state.tab ?? "pool") === "pool";
+    const sort = state.browseSort ?? (pooled ? "library" : "az");
+    return sort === "library" && !pooled ? "az" : sort;
 }
 
 function sortedWithinGroup(state: TuiSettingsPickerState, rows: readonly TuiSettingsPickerOption[]): readonly TuiSettingsPickerOption[] {
@@ -176,7 +200,7 @@ export function browseFooter(state: TuiSettingsPickerState): string {
 export const MODEL_BROWSE_TIPS: readonly string[] = [
     "Browsing changes nothing that runs; /model switches the model.",
     "Type from any section to search; Tab moves between sections.",
-    "Ctrl+G toggles Favorites and All connected models.",
+    "Ctrl+G cycles Favorites, Recommended and All connected models.",
     "Enter or ^s favorites the highlighted model.",
     "Highlight a model and press Ctrl+K to manage it.",
 ];
@@ -193,7 +217,7 @@ export function browseSections(state: TuiSettingsPickerState): readonly ModelBro
 
 export function browseSortOptions(state: TuiSettingsPickerState): readonly TuiSettingsPickerOption[] {
     return [
-        ...(state.tab === "all" ? [] : [{ value: "sort:library", label: "Favorite order", description: "" }]),
+        ...((state.tab ?? "pool") === "pool" ? [{ value: "sort:library", label: "Favorite order", description: "" }] : []),
         { value: "sort:az", label: "A to Z", description: "" },
         { value: "sort:price", label: "Cheapest first", description: "" },
     ];
@@ -209,6 +233,7 @@ export function browseScopeOptions(state: TuiSettingsPickerState): readonly TuiS
     const counts = { ...state, query: "", intelligenceCutoff: "any" as const };
     return [
         { value: "scope:pool", label: `Favorites (${state.allOptions.filter((row) => row.pooledRank !== undefined).length})`, description: "" },
+        { value: "scope:recommended", label: `Recommended (${state.allOptions.filter((row) => row.recommended === true).length})`, description: "" },
         { value: "scope:all", label: `All connected (${browseMatches({ ...counts, tab: "all" }).filter((row) => !row.unavailable).length})`, description: "" },
     ];
 }
@@ -216,7 +241,7 @@ export function browseScopeOptions(state: TuiSettingsPickerState): readonly TuiS
 export function modelBrowseScope(parent: TuiSettingsPickerState): TuiSettingsPickerState {
     const options = browseScopeOptions(parent);
     return { kind: "model_menu", title: "Show models", options, allOptions: options,
-        selectedIndex: parent.tab === "all" ? 1 : 0, query: "", parent };
+        selectedIndex: Math.max(0, options.findIndex((row) => row.value === `scope:${parent.tab ?? "pool"}`)), query: "", parent };
 }
 
 export function modelBrowseMenu(parent: TuiSettingsPickerState): TuiSettingsPickerState {
@@ -277,8 +302,8 @@ export function handleModelBrowseMenuKey(state: TuiSettingsPickerState, key: Tui
         if (value === "images_filter") return { state: rebuiltBrowse({ ...parent, browseImagesOnly: !parent.browseImagesOnly }), handled: true };
         if (value === "clear_filters") return { state: rebuiltBrowse({ ...parent, intelligenceCutoff: "any", revealAll: false, browseProvider: undefined, browseAvailableOnly: false, browsePricedOnly: false, browseImagesOnly: false }), handled: true };
         if (value === "providers") return { state: parent, handled: true, openProviders: true };
-        if (value === "scope:pool" || value === "scope:all") return {
-            state: rebuiltBrowse({ ...parent, modelFocus: "list", tab: value === "scope:all" ? "all" : "pool" }, parent.options[parent.selectedIndex]?.value), handled: true,
+        if (value?.startsWith("scope:") === true) return {
+            state: rebuiltBrowse({ ...parent, modelFocus: "list", tab: value.slice("scope:".length) as TuiModelPickerTab }, parent.options[parent.selectedIndex]?.value), handled: true,
         };
         if (value === "sort:library" || value === "sort:az" || value === "sort:price") return {
             state: rebuiltBrowse({ ...parent, modelFocus: "list", browseSort: value.slice("sort:".length) as ModelBrowseSort }, parent.options[parent.selectedIndex]?.value), handled: true,
@@ -340,7 +365,7 @@ function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | un
         { value: "view:detailed", label: "Detailed", description: "" },
     ]);
     if (state.modelFocus === "filters") return browseChoiceMenu(state, "Filter and sort", [
-        { value: "show", label: `Show: ${state.tab === "all" ? "All connected" : "Favorites"}`, description: "" },
+        { value: "show", label: `Show: ${browseScopeLabel(state.tab)}`, description: "" },
         { value: "view_toggle", label: `View: ${state.browseView === "detailed" ? "Detailed" : "Standard"}`, description: "" },
         { value: "sort", label: `Sort: ${browseSortOptions(state).find((option) => option.value === `sort:${browseSort(state)}`)!.label}`, description: "" },
         { value: "provider_filter", label: `Provider: ${state.browseProvider ?? "Any"}`, description: "" },
@@ -416,7 +441,7 @@ export function handleModelBrowseKey(state: TuiSettingsPickerState, key: TuiSett
         if (binding === "shortlist_providers") return { ...same, openProviders: true };
         if (binding === "journey_refresh") return { ...same, refreshAllCatalogs: true };
         if (binding === "journey_scope") {
-            return { state: rebuiltBrowse({ ...state, tab: state.tab === "all" ? "pool" : "all" }, selected?.value), handled: true };
+            return { state: rebuiltBrowse({ ...state, tab: nextBrowseScope(state.tab, key.shift !== true) }, selected?.value), handled: true };
         }
         if (managing && selected?.provider && selected.model) {
             if (binding === "shortlist_rename") return { ...same, poolName: { provider: selected.provider, model: selected.model, label: selected.label } };
@@ -452,6 +477,7 @@ export function emptyModelBrowse(state: TuiSettingsPickerState): string {
     if (state.query) return "No models match your search. Clear the search to see models.";
     if (state.browseProvider || state.browseAvailableOnly || state.browsePricedOnly || state.browseImagesOnly
         || state.intelligenceCutoff && state.intelligenceCutoff !== "any") return "No models match these filters. Open Filter and sort to clear them.";
-    if (state.modelBrowse === "browse" && state.tab !== "all") return "No favorites yet. Search connected models, or choose All connected in Filter and sort.";
+    if (state.modelBrowse === "browse" && state.tab === "recommended") return "No recommended models for the connected providers. ^g shows all of them.";
+    if (state.modelBrowse === "browse" && state.tab !== "all") return "No favorites yet. ^g shows the recommended models, then all of them.";
     return "No models pass this cutoff. Open Filter and sort to change it.";
 }

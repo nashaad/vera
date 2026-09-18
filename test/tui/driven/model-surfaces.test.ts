@@ -381,6 +381,7 @@ test("Ctrl+K opens the manage menu and Escape restores the browse page untouched
         // With no row highlighted the menu offers nothing model specific.
         expect(session.captureVisiblePane()).not.toContain("extra variants");
         session.sendKey("Escape"); await session.waitForVisiblePane("No favorites yet");
+        session.sendKey("C-g"); await session.waitForVisiblePane("Browse models · Recommended");
         session.sendKey("C-g"); await session.waitForVisiblePane("All connected models");
         session.sendText("open"); await session.settle();
         const before = session.captureVisiblePane();

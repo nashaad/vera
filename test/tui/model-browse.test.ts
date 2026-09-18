@@ -5,11 +5,11 @@ import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
 import { shortlistFactsText, shortlistLegendText } from "../../clients/tui/settings-picker-model.ts";
-import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseModels, browseMatches, browseMoreText, browseWindow, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
+import { type BrowseDisplayRow, handleModelBrowseKey, modelBrowse, browseHeader, browseFooter, browseModels, browseMatches, browseMoreText, browseWindow, emptyModelBrowse, modelBrowseScope, modelBrowseSort, browseSort, browseSections, MODEL_BROWSE_TIPS, modelBrowseTip } from "../../clients/tui/model-browse.ts";
 import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, startTuiProviderPicker, withTuiPickerParent, syncTuiModelPicker, updateTuiSettingsPickerSearch, type TuiSettingsPickerState } from "../../clients/tui/settings-picker.ts";
 
 const rows = [
-    { value: "p/a", provider: "p", model: "a", label: "Alpha", description: "", waScore: 1550 },
+    { value: "p/a", provider: "p", model: "a", label: "Alpha", description: "", waScore: 1550, recommended: true },
     { value: "p/b", provider: "p", model: "b", label: "Beta", description: "", pooledRank: 0, unverified: true },
     { value: "q/c", provider: "q", model: "c", label: "Gamma", description: "", pooledRank: 1 },
 ];
@@ -158,23 +158,29 @@ test("search crosses favorites but retains explicit filters", () => {
     expect(browseMatches({ ...parent, tab: "all", browseImagesOnly: true }).map((row) => row.model)).toEqual(["a"]);
 });
 
-function chooseScope(state: TuiSettingsPickerState, tab: "pool" | "all" = "all"): TuiSettingsPickerState {
+function chooseScope(
+    state: TuiSettingsPickerState,
+    tab: "pool" | "recommended" | "all" = "all",
+): TuiSettingsPickerState {
     const menu = modelBrowseScope({ ...state, modelFocus: "scope" });
-    const result = handleTuiSettingsPickerKey({ ...menu, selectedIndex: tab === "all" ? 1 : 0 }, { name: "enter" });
+    const at = menu.options.findIndex((row) => row.value === `scope:${tab}`);
+    const result = handleTuiSettingsPickerKey({ ...menu, selectedIndex: at }, { name: "enter" });
     return { ...result.state!, modelFocus: "list" };
 }
 
-test("Ctrl+G toggles scope from every Switch section without changing cutoff or favorites", () => {
+test("Ctrl+G cycles the three scopes from every Switch section without changing cutoff or favorites", () => {
     const options = rows.map((row) => ({ ...row, waScore: 1550 }));
     for (const browseView of ["standard", "detailed"] as const) {
         const start = modelBrowse({ ...base, allOptions: options, browseView, intelligenceCutoff: "1500" }, "browse");
         for (const modelFocus of browseSections(start)) {
             const favorites = { ...start, modelFocus };
-            const all = handleTuiSettingsPickerKey(favorites, { name: "g", ctrl: true });
-            expect(all.handled).toBe(true);
+            const recommended = handleTuiSettingsPickerKey(favorites, { name: "g", ctrl: true });
+            expect(recommended.handled).toBe(true);
+            expect(recommended.state?.tab).toBe("recommended");
+            expect(recommended.state?.options.map((row) => row.model)).toEqual(["a"]);
+            const all = handleTuiSettingsPickerKey(recommended.state!, { name: "g", ctrl: true });
             expect(all.state?.tab).toBe("all");
             expect(all.state?.options.map((row) => row.model)).toEqual(["a", "b", "c"]);
-            expect(all.state?.options[all.state.selectedIndex]?.value).toBe(favorites.options[favorites.selectedIndex]?.value);
             expect(all.poolToggle).toBeUndefined();
             expect(all.state?.modelFocus).toBe(modelFocus);
             expect(all.state?.intelligenceCutoff).toBe("1500");
@@ -187,7 +193,7 @@ test("Ctrl+G toggles scope from every Switch section without changing cutoff or 
 
 test("Ctrl+G retains query, explicit filters and search across connected models", () => {
     const start = { ...updateTuiSettingsPickerSearch(modelBrowse(base, "browse"), "alpha").state!, browseProvider: "p", browseAvailableOnly: true };
-    const all = handleTuiSettingsPickerKey(start, { name: "g", ctrl: true }).state!;
+    const all = handleTuiSettingsPickerKey(start, { name: "g", ctrl: true, shift: true }).state!;
     const favorites = handleTuiSettingsPickerKey(all, { name: "g", ctrl: true }).state!;
     expect(favorites.query).toBe("alpha");
     expect(favorites.queryCursor).toBe(start.queryCursor);
@@ -200,18 +206,30 @@ test("Ctrl+G retains query, explicit filters and search across connected models"
 test("Ctrl+G handles empty favorites and a selected model outside favorites", () => {
     const start = modelBrowse({ ...base, allOptions: [rows[0]!] }, "browse");
     expect(start.options).toHaveLength(0);
-    const all = handleTuiSettingsPickerKey(start, { name: "g", ctrl: true }).state!;
+    const recommended = handleTuiSettingsPickerKey(start, { name: "g", ctrl: true }).state!;
+    expect(recommended.options).toHaveLength(1);
+    const all = handleTuiSettingsPickerKey(recommended, { name: "g", ctrl: true }).state!;
     expect(all.options).toHaveLength(1);
-    const back = handleTuiSettingsPickerKey(all, { name: "g", ctrl: true, shift: true }).state!;
+    const back = handleTuiSettingsPickerKey(all, { name: "g", ctrl: true }).state!;
     expect(back.tab).toBe("pool");
     expect(back.options).toHaveLength(0);
     expect(back.selectedIndex).toBe(0);
 });
 
 
+test("the recommended scope names itself, lists the shipped picks and says so when empty", () => {
+    const state = chooseScope(modelBrowse(base, "browse"), "recommended");
+    expect(state.options.map((row) => row.model)).toEqual(["a"]);
+    expect(browseMatches(state).map((row) => row.model)).toEqual(["a"]);
+    const bare = chooseScope(modelBrowse({ ...base, allOptions: [rows[1]!] }, "browse"), "recommended");
+    expect(bare.options).toHaveLength(0);
+    expect(emptyModelBrowse(bare)).toContain("No recommended models");
+});
+
 test("scope counts ignore query and cutoff", () => {
     const state = { ...modelBrowse(base, "browse"), query: "missing", intelligenceCutoff: "1600" as const };
-    expect(modelBrowseScope(state).options.map((row) => row.label)).toEqual(["Favorites (2)", "All connected (3)"]);
+    expect(modelBrowseScope(state).options.map((row) => row.label))
+        .toEqual(["Favorites (2)", "Recommended (1)", "All connected (3)"]);
 });
 
 
@@ -922,10 +940,10 @@ test("confirming scope focuses models while cancelling restores Show", () => {
     const parent = { ...chooseScope(modelBrowse(base, "browse")), modelFocus: "scope" as const };
     const menu = modelBrowseScope(parent);
     expect(handleTuiSettingsPickerKey(menu, { name: "escape" }).state).toBe(parent);
-    for (const selectedIndex of [0, 1]) {
+    for (const [selectedIndex, tab] of [[0, "pool"], [1, "recommended"], [2, "all"]] as const) {
         const selected = handleTuiSettingsPickerKey({ ...menu, selectedIndex }, { name: "enter" }).state!;
         expect(selected.modelFocus).toBe("list");
-        expect(selected.tab).toBe(selectedIndex === 0 ? "pool" : "all");
+        expect(selected.tab).toBe(tab);
         expect(selected.query).toBe(parent.query);
         expect(selected.intelligenceCutoff).toBe(parent.intelligenceCutoff);
     }
