@@ -4,6 +4,7 @@ import contextlib
 import io
 from pathlib import Path
 import os
+import sys
 import tempfile
 import unittest
 
@@ -75,6 +76,23 @@ class TestWorkflowCli(unittest.TestCase):
         code, out, _ = self._run("list")
         self.assertEqual(code, 0)
         self.assertIn("no workflow runs", out)
+
+    def test_resume_imports_an_entry_that_lives_in_a_package(self) -> None:
+        fixtures = Path(__file__).parent / "fixtures"
+        sys.path.insert(0, str(fixtures))
+        self.addCleanup(sys.path.remove, str(fixtures))
+        for name in [n for n in sys.modules if n.startswith("wf_package")]:
+            del sys.modules[name]
+        from wf_package.entry import packaged
+
+        marker = self.home / "marker"
+        first = packaged.run(str(marker))
+        self.assertEqual(first.status, "failed")
+
+        code, out, err = self._run("resume", first.id)
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("second attempt", out)
 
     def test_a_bad_command_prints_usage(self) -> None:
         code, _, err = self._run("bogus")
