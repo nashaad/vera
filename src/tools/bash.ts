@@ -15,6 +15,11 @@ export const bashTool: RegisteredTool = {
             type: "object",
             properties: {
                 command: { type: "string" },
+                description: {
+                    type: "string",
+                    description:
+                        "What the command does, in about 5 to 10 plain words. Not the command itself.",
+                },
                 yield_after: {
                     type: "number",
                     minimum: 0,

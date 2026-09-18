@@ -272,3 +272,13 @@ test("a set of predicates is written out rather than summarized", () => {
     // The tool name is implied by the executable, so it is not repeated.
     expect(tuiApprovalBodyText(many)).toContain("- wget");
 });
+
+test("a described bash call is approved by its command alone", () => {
+    const body = tuiApprovalBodyText(approval("bash", {
+        command: "rm -rf build",
+        description: "Tidy up a little",
+    }));
+
+    expect(body).toContain("rm -rf build");
+    expect(body).not.toContain("Tidy up a little");
+});

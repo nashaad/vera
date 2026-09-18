@@ -49,6 +49,39 @@ test("bash still runs ordinary commands", async () => {
     }
 });
 
+test("bash runs a described command and ignores the description", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
+
+    try {
+        const result = await bashTool.execute(
+            {
+                command: "printf 'described command'",
+                description: "Print a short greeting",
+            },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+
+        expect(result).toEqual({
+            kind: "output",
+            output: "described command",
+            isError: false,
+        });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("bash offers description as an optional schema field", () => {
+    const schema = bashTool.definition.inputSchema as {
+        readonly properties: Readonly<Record<string, { readonly type?: string }>>;
+        readonly required: readonly string[];
+    };
+
+    expect(schema.properties.description?.type).toBe("string");
+    expect(schema.required).toEqual(["command"]);
+});
+
 test("bash gives commands EOF instead of inheriting terminal input", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-bash-stdin-"));
     try {

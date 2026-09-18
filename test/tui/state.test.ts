@@ -709,6 +709,104 @@ test("a group stays live until every tool in it finishes", () => {
     ]);
 });
 
+test("a described bash call shows its description as the row", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: {
+            command: "git log --oneline | head -5",
+            description: "  Show the five\nlatest commits ",
+        },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Running",
+        "  └ Show the five latest commits",
+    ]);
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "abc123 first",
+        isError: false,
+        seq: 2,
+    });
+
+    expect(plainText(renderTuiEntry(state.entries[1]!)))
+        .toBe([
+            "  Ran  Show the five latest commits  ctrl+t details",
+            "  └ abc123 first",
+        ].join("\n"));
+});
+
+test("a bash call with a blank description shows the command", () => {
+    const state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "bun test ", description: " \n " },
+        seq: 1,
+    });
+
+    expect(state.entries.map(entryLine)).toEqual([
+        "run it",
+        "Running",
+        "  └ bun test",
+    ]);
+    expect(state.entries[2]).not.toHaveProperty("command");
+});
+
+test("expanded details show the full command under a described bash row", () => {
+    let state = applyAgentUpdate(beginTuiTurn(createTuiState(), "run it"), {
+        type: "tool_started",
+        tool: "bash",
+        args: {
+            command: "git log --oneline | head -5  ",
+            description: "Show the five latest commits",
+        },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: "abc123 first",
+        isError: false,
+        seq: 2,
+    });
+
+    expect(state.entries[2]).toMatchObject({ hidden: true });
+    state = toggleTuiToolDetails(state);
+
+    const row = state.entries[2]!;
+    expect(row).not.toHaveProperty("hidden");
+    expect(plainText(renderTuiEntry(row))).toBe([
+        "  │ Show the five latest commits",
+        "$ git log --oneline | head -5",
+    ].join("\n"));
+});
+
+test("described bash calls with different commands do not merge", () => {
+    let state = beginTuiTurn(createTuiState(), "inspect");
+    for (const [command, seq] of [["ls a", 1], ["ls b", 3]] as const) {
+        state = applyAgentUpdate(state, {
+            type: "tool_started",
+            tool: "bash",
+            args: { command, description: "List a folder" },
+            seq,
+        });
+        state = applyAgentUpdate(state, {
+            type: "tool_finished",
+            tool: "bash",
+            seq: seq + 1,
+        });
+    }
+
+    expect(state.entries.filter((entry) =>
+        entry.kind === "tool" && entry.text === "List a folder"
+    )).toHaveLength(2);
+});
+
 test("TUI clears retry activity when a turn finishes", () => {
     const retrying = applyAgentUpdate(createTuiState(), {
         type: "model_activity",

@@ -1588,6 +1588,12 @@ function renderTuiToolRowChunks(
     if (entry.result === true) {
         return [fg(TUI_MUTED)(text)];
     }
+    if (entry.command !== undefined) {
+        return [
+            fg(TUI_MUTED)(text),
+            fg(TUI_MUTED)(`\n$ ${entry.command}`),
+        ];
+    }
 
     const action = /^(Read|List|Search|Edit|Write)(?=\s|$)/.exec(text);
     if (action === null) {
@@ -1802,9 +1808,13 @@ function toolRowText(
         }
     }
     if (tool === "bash") {
+        const description = bashDescription(args);
+        if (description !== undefined) {
+            return bounded(description);
+        }
         const command = stringArg(args, "command");
         if (command !== undefined) {
-            return bounded(command.replaceAll(/[ \t]+$/gm, "").trim());
+            return bounded(bashCommandText(command));
         }
     }
     if ((tool === "edit" || tool === "write") && path !== undefined) {
@@ -1817,6 +1827,32 @@ function toolRowText(
         }
     }
     return formatToolCall(tool, args);
+}
+
+function bashDescription(
+    args: Readonly<Record<string, unknown>>,
+): string | undefined {
+    const description = stringArg(args, "description")
+        ?.replaceAll(/\s+/g, " ").trim();
+    return description === undefined || description.length === 0
+        ? undefined
+        : description;
+}
+
+function bashCommandText(command: string): string {
+    return command.replaceAll(/[ \t]+$/gm, "").trim();
+}
+
+// A described bash row keeps its full command for the expanded details.
+function toolRowCommand(
+    tool: string,
+    args: Readonly<Record<string, unknown>>,
+): string | undefined {
+    if (tool !== "bash" || bashDescription(args) === undefined) {
+        return undefined;
+    }
+    const command = stringArg(args, "command");
+    return command === undefined ? undefined : bashCommandText(command);
 }
 
 function withToolEntry(
@@ -1832,11 +1868,13 @@ function withToolEntry(
     const previous = entries[previousIndex];
     const header = toolHeader(tool, active);
     const row = toolRowText(tool, args);
+    const command = toolRowCommand(tool, args);
     if (
         !active
         && previous?.kind === "tool"
         && previous.header === header
         && previous.text === row
+        && previous.command === command
     ) {
         const repeated: TuiTranscriptEntry = {
             ...previous,
@@ -1856,6 +1894,7 @@ function withToolEntry(
             ...(active ? { tool, active: true } : {}),
             prefix: previous?.kind === "tool_header" ? "  └ " : "    ",
             text: row,
+            ...(command === undefined ? {} : { command }),
         } satisfies TuiTranscriptEntry];
         if (!active) {
             return joined;
@@ -1894,6 +1933,7 @@ function withToolEntry(
             ...(active ? { tool, active: true } : {}),
             prefix: "  └ ",
             text: row,
+            ...(command === undefined ? {} : { command }),
         },
     ];
 }
