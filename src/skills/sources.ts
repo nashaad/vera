@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import { relative, resolve, isAbsolute } from "node:path";
 
 import { loadOptionalVeraConfig, type VeraConfig } from "../config.ts";
-import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
+import { includedExtensionConfigs } from "../extensions/included.ts";
 import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { loadExtensionManifest } from "../extensions/manifest.ts";
 
@@ -41,8 +41,8 @@ export function resolveSkillSources(): SkillSources {
     let extensions;
     try {
         extensions = mergeExtensionScopes(
-            defaultHostExtensionConfigs(
-                config?.disabled_builtin_extensions ?? [],
+            includedExtensionConfigs(
+                config?.disabled_included_extensions ?? [],
             ),
             config?.extensions ?? [],
         );

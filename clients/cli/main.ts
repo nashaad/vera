@@ -154,7 +154,7 @@ import {
     installExtension,
     listExtensions,
     removeExtension,
-    setExtensionEnabled,
+    setAnyExtensionEnabled,
     type ExtensionManagerOperations,
 } from "../../src/extensions/manager.ts";
 import {
@@ -487,7 +487,7 @@ export async function runCli(
             install: dependencies.extensionManager?.install ?? installExtension,
             list: dependencies.extensionManager?.list ?? listExtensions,
             setEnabled: dependencies.extensionManager?.setEnabled
-                ?? setExtensionEnabled,
+                ?? setAnyExtensionEnabled,
             remove: dependencies.extensionManager?.remove ?? removeExtension,
         };
         try {

@@ -1,4 +1,4 @@
-import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
+import type { VeraExtensionApi } from "../../sdk/extensions.ts";
 import { formatSearchResults, searchWeb } from "./search.ts";
 
 import { SearchStore } from "./store.ts";

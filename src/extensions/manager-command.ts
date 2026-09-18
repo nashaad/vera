@@ -1,7 +1,6 @@
 import type {
     ExtensionInstallPreview,
     ExtensionListEntry,
-    ManagedExtensionRecord,
 } from "./manager.ts";
 
 export type ExtensionManagerCommand =
@@ -154,7 +153,7 @@ export function renderExtensionInstallPreview(
 
 export function renderExtensionMutation(
     operation: "enable" | "disable" | "remove",
-    record: ManagedExtensionRecord,
+    record: { readonly id: string },
 ): string {
     if (operation === "remove") {
         return `Removed ${record.id}.\n`;

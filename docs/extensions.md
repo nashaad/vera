@@ -28,11 +28,13 @@ opens the same manager.
 
 Use Up/Down to choose an extension and Enter to open details. The detail
 screen shows its version, group, status, contributed capabilities, path, and
-source when recorded.
+source when recorded. Rows are grouped as Installed, Included, and Core.
 
-Space enables or disables a managed copy. **Remove** opens a confirmation;
-it deletes the managed copy and leaves the source untouched. Unmanaged copies
-have no enable/disable shortcut.
+Space enables or disables a managed or included copy. For an included copy
+this edits `disabled_included_extensions` in `config.json`. **Remove** opens a
+confirmation; it deletes the managed copy and leaves the source untouched.
+Included copies cannot be removed. Unmanaged copies have no enable/disable
+shortcut.
 
 ### Understand status
 

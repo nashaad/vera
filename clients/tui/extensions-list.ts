@@ -48,7 +48,7 @@ import {
 
 const LIST_CHROME_ROWS = DIALOG_HEADER_HEIGHT + 6;
 const EXTENSION_ROW_HEIGHT = 3;
-const GROUP_ORDER = ["installed", "included"] as const;
+const GROUP_ORDER = ["installed", "included", "core"] as const;
 
 const CAPABILITY_LABELS: Readonly<Record<string, string>> = {
     "agents.register": "agents",
@@ -92,7 +92,7 @@ export interface TuiExtensionSettingsCommand {
 
 export interface TuiExtensionListRow {
     readonly settingsCommands?: readonly TuiExtensionSettingsCommand[];
-    readonly group: "installed" | "included";
+    readonly group: "installed" | "included" | "core";
     readonly id: string;
     readonly version: string;
     readonly status: TuiExtensionStatus;
@@ -473,7 +473,7 @@ function toRow(
 ): TuiExtensionListRow {
     const capabilities = entry.capabilities ?? [];
     return {
-        group: entry.bundled === true ? "included" : "installed",
+        group: entry.bundled !== true ? "installed" : entry.core === true ? "core" : "included",
         id: entry.id,
         version: entry.version === undefined ? "?" : `v${entry.version}`,
         status: rowStatus(entry),
@@ -516,7 +516,7 @@ function selectedIndexOf(
 function toggleMutation(
     entry: TuiExtensionListRow,
 ): TuiExtensionsListMutation | undefined {
-    if (!entry.managed) return undefined;
+    if (!entry.managed && entry.group === "installed") return undefined;
     return {
         operation: entry.status === "disabled" ? "enable" : "disable",
         entry,
@@ -527,7 +527,7 @@ function detailActions(
     entry: TuiExtensionListRow | undefined,
 ): readonly string[] {
     if (!entry) return [];
-    return [...(entry.settingsCommands ?? []).map((command) => `command:${command.name}`), ...(entry.managed ? ["toggle", "remove"] : [])];
+    return [...(entry.settingsCommands ?? []).map((command) => `command:${command.name}`), ...(entry.managed ? ["toggle", "remove"] : entry.group !== "installed" ? ["toggle"] : [])];
 }
 
 function lastCapabilitySegment(capability: string): string {
@@ -615,7 +615,7 @@ function listBody(
 
 function listFooter(row: TuiExtensionListRow | undefined, compact = false): string {
     if (row === undefined) return "esc close";
-    if (!row.managed) return "↑↓ move · ⏎ details · esc close";
+    if (!row.managed && row.group === "installed") return "↑↓ move · ⏎ details · esc close";
     const toggle = row.status === "disabled" ? "Space enable" : "Space disable";
     return compact
         ? `↑↓ · ⏎ details · ${toggle} · esc`
@@ -681,7 +681,7 @@ function toggleLabel(row: TuiExtensionListRow): string {
 }
 
 function groupLabel(group: TuiExtensionListRow["group"]): string {
-    return group === "included" ? "Included" : "Installed";
+    return group === "core" ? "Core" : group === "included" ? "Included" : "Installed";
 }
 
 function visibleRowIndices(

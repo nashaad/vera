@@ -51,14 +51,14 @@ export function createTuiSidebarDependencies(home: string): TuiDependencies {
         enabled: true,
         config: null,
     }] as const;
-    const disabledBuiltinExtensions = [
+    const disabledIncludedExtensions = [
         "vera.model-presets",
         "vera.reasoning-cycle",
     ] as const;
 
     return {
         client,
-        disabledBuiltinExtensions,
+        disabledIncludedExtensions,
         clientExtensions: extensions,
         loadClientExtensionConfiguration() {
             writeFileSync(
@@ -66,7 +66,7 @@ export function createTuiSidebarDependencies(home: string): TuiDependencies {
                 "reloaded",
             );
             return {
-                disabledBuiltinExtensions,
+                disabledIncludedExtensions,
                 clientExtensions: extensions,
             };
         },

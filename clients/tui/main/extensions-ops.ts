@@ -1,10 +1,9 @@
-import { defaultHostExtensionConfigs } from "../../../src/extensions/bundled-host.ts";
-import { bundledClientExtensionConfigs } from "../../../src/extensions/bundled-client.ts";
+import { includedExtensions } from "../../../src/extensions/included.ts";
 import { loadExtensionManifest } from "../../../src/extensions/manifest.ts";
 import {
     listExtensions,
     removeExtension,
-    setExtensionEnabled,
+    setAnyExtensionEnabled,
     type ExtensionListEntry,
 } from "../../../src/extensions/manager.ts";
 import { renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
@@ -116,7 +115,7 @@ function applyExtensionsListMutation(
     try {
         const record = operation === "remove"
             ? removeExtension(entry.id)
-            : setExtensionEnabled(entry.id, operation === "enable");
+            : setAnyExtensionEnabled(entry.id, operation === "enable");
         const line = renderExtensionMutation(operation, record).trimEnd();
         const changes = [
             ...tuiNoticeCardLines(
@@ -165,12 +164,12 @@ function reloadClientExtensionsForList(rt: TuiRuntime): void {
     rt.clientExtensionReload = clientExtensionReloadStarted();
     void reloadTuiClientExtensions({
         configuration: {
-            disabledBuiltinExtensions: rt.disabledBuiltinExtensions,
+            disabledIncludedExtensions: rt.disabledIncludedExtensions,
             clientExtensions: rt.configuredClientExtensions,
         },
         refreshConfiguration: rt.dependencies.loadClientExtensionConfiguration,
         applyConfiguration(configuration) {
-            rt.disabledBuiltinExtensions = configuration.disabledBuiltinExtensions;
+            rt.disabledIncludedExtensions = configuration.disabledIncludedExtensions;
             rt.configuredClientExtensions = configuration.clientExtensions;
         },
         host: rt.clientExtensionHost,
@@ -214,14 +213,21 @@ function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
             // Activation reports invalid configured paths separately.
         }
     }
-    const paths = [...defaultHostExtensionConfigs([]), ...bundledClientExtensionConfigs([])];
-    for (const config of paths) {
-        const { manifest } = loadExtensionManifest(config.path);
+    for (const included of includedExtensions()) {
+        let manifest;
+        try {
+            manifest = loadExtensionManifest(included.path).manifest;
+        } catch (error) {
+            entries.push({ id: included.path, bundled: true, core: included.core, enabled: false,
+                managed: false, path: included.path, source: "Bundled",
+                error: error instanceof Error ? error.message : String(error) });
+            continue;
+        }
         if (entries.some((entry) => entry.id === manifest.id)) continue;
-        entries.push({ id: manifest.id, version: manifest.version, bundled: true,
+        entries.push({ id: manifest.id, version: manifest.version, bundled: true, core: included.core,
             enabled: clientEnabled.get(manifest.id)
-                ?? !rt.disabledBuiltinExtensions.includes(manifest.id), managed: false,
-            path: config.path, source: "Bundled", capabilities: manifest.capabilities });
+                ?? !rt.disabledIncludedExtensions.includes(manifest.id), managed: false,
+            path: included.path, source: "Bundled", capabilities: manifest.capabilities });
     }
     return entries;
 }

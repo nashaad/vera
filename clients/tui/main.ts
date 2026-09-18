@@ -63,7 +63,7 @@ import {
     listExtensions,
     installExtension,
     removeExtension,
-    setExtensionEnabled,
+    setAnyExtensionEnabled,
 } from "../../src/extensions/manager.ts";
 import { renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
 import type {
@@ -567,10 +567,10 @@ export interface TuiDependencies {
     readonly listImportableSessions?: (
         workspace: string | undefined,
     ) => Promise<ImportableSessionListing | undefined>;
-    readonly disabledBuiltinExtensions?: readonly string[];
+    readonly disabledIncludedExtensions?: readonly string[];
     readonly clientExtensions?: readonly VeraExtensionConfig[];
     readonly loadClientExtensionConfiguration?: () => {
-        readonly disabledBuiltinExtensions: readonly string[];
+        readonly disabledIncludedExtensions: readonly string[];
         readonly clientExtensions: readonly VeraExtensionConfig[];
     };
     readonly build?: {
@@ -809,11 +809,11 @@ export async function startConfiguredTui(
                 importSessionThroughHost(host.socket_path, path),
             listImportableSessions: (workspace) =>
                 listImportableSessionsThroughHost(host.socket_path, workspace),
-            ...(config?.disabled_builtin_extensions === undefined
+            ...(config?.disabled_included_extensions === undefined
                 ? {}
                 : {
-                    disabledBuiltinExtensions:
-                        config.disabled_builtin_extensions,
+                    disabledIncludedExtensions:
+                        config.disabled_included_extensions,
                 }),
             ...(config?.extensions === undefined
                 ? {}
@@ -821,8 +821,8 @@ export async function startConfiguredTui(
             loadClientExtensionConfiguration() {
                 const latest = loadOptionalVeraConfig();
                 return {
-                    disabledBuiltinExtensions:
-                        latest?.disabled_builtin_extensions ?? [],
+                    disabledIncludedExtensions:
+                        latest?.disabled_included_extensions ?? [],
                     clientExtensions: latest?.extensions ?? [],
                 };
             },
@@ -1080,13 +1080,13 @@ export async function startTui(
         }));
     }
     rt.finished = Promise.withResolvers<TuiExit>();
-    rt.disabledBuiltinExtensions =
-        rt.dependencies.disabledBuiltinExtensions ?? [];
+    rt.disabledIncludedExtensions =
+        rt.dependencies.disabledIncludedExtensions ?? [];
     rt.commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
-        rt.disabledBuiltinExtensions,
+        rt.disabledIncludedExtensions,
     );
     rt.configuredClientExtensions = configuredTuiClientExtensions(
-        rt.disabledBuiltinExtensions,
+        rt.disabledIncludedExtensions,
         rt.dependencies.clientExtensions,
     );
     rt.hostedAgentSurface = createTuiHostedAgentSurface({

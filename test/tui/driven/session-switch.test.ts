@@ -295,7 +295,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
         home,
         dependencies: () => ({
             ...scenario.dependencies,
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],

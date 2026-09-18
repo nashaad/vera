@@ -29,7 +29,7 @@ import {
     agentNameKey,
     mintAgentName,
     parseAgentName,
-} from "../../extensions/session-identity/names.ts";
+} from "../../src/core-extensions/session-identity/names.ts";
 import type { SessionIdentityProvider } from "../../src/sdk/extensions.ts";
 import { reserveSessionIdentity } from "../../src/host/session-identity-reservation.ts";
 import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";

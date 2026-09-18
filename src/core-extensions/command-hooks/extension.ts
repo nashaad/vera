@@ -1,8 +1,8 @@
 import type {
     VeraExtensionApi,
     VeraExtensionCommandHookSpec,
-} from "../../src/sdk/extensions.ts";
-import type { JsonValue } from "../../src/sdk/hooks.ts";
+} from "../../sdk/extensions.ts";
+import type { JsonValue } from "../../sdk/hooks.ts";
 
 interface CommandHookConfig {
     readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";

@@ -22,8 +22,10 @@ import {
     ExtensionManagerError,
     extensionRegistryPathFor,
     removeExtension,
+    setAnyExtensionEnabled,
     setExtensionEnabled,
 } from "../../src/extensions/manager.ts";
+import { includedExtensionIds } from "../../src/extensions/included.ts";
 
 function temporaryExtension(id = "sample-extension"): {
     readonly root: string;
@@ -261,5 +263,34 @@ test("extension digest is deterministic and includes file content", () => {
         expect(digestExtensionDirectory(source)).not.toBe(first);
     } finally {
         rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("included extensions switch through the disabled list in config.json", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-extension-manager-"));
+    const home = join(root, "home");
+    mkdirSync(join(home, ".vera"), { recursive: true });
+    const configPath = join(home, ".vera", "config.json");
+    try {
+        expect(setAnyExtensionEnabled("vera.btw", false, { home })).toEqual({ id: "vera.btw" });
+        expect(loadVeraConfig({ path: configPath }).disabled_included_extensions).toEqual(["vera.btw"]);
+        setAnyExtensionEnabled("vera.btw", false, { home });
+        expect(loadVeraConfig({ path: configPath }).disabled_included_extensions).toEqual(["vera.btw"]);
+        setAnyExtensionEnabled("vera.btw", true, { home });
+        expect(loadVeraConfig({ path: configPath }).disabled_included_extensions).toEqual([]);
+        expect(() => setAnyExtensionEnabled("vera.nothing", false, { home })).toThrow(
+            "No managed extension named vera.nothing is installed",
+        );
+        expect(() => setAnyExtensionEnabled("acme.missing", false, { home })).toThrow(
+            "No managed extension named acme.missing is installed",
+        );
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("every included extension uses the vera. prefix", () => {
+    for (const id of includedExtensionIds()) {
+        expect(id.startsWith("vera.")).toBe(true);
     }
 });

@@ -66,10 +66,11 @@ permission, attachment, and compaction semantics.
 ## Configuration
 
 This extension ships with Vera. No separate installation is needed.
-To disable the included copy, add `vera.btw` to `disabled_builtin_extensions`
-in the home's `config.json`, then restart the client.
-An explicitly configured or installed copy with the same ID replaces the
-included copy, including when that explicit copy is disabled.
+To disable it, run `/extension disable vera.btw` or press Space on it in
+`/extensions`. Either one adds `vera.btw` to `disabled_included_extensions` in
+the home's `config.json`.
+An `extensions` entry in `config.json` whose path is this directory replaces
+the included copy, including when that entry is disabled.
 
 ## Capabilities it uses
 

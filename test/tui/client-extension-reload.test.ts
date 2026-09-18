@@ -89,14 +89,14 @@ test("client extension reload applies refreshed config before activation", async
 
     const loaded = await reloadTuiClientExtensions({
         configuration: {
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],
             clientExtensions: [],
         },
         refreshConfiguration: () => ({
-            disabledBuiltinExtensions: [
+            disabledIncludedExtensions: [
                 "vera.model-presets",
                 "vera.reasoning-cycle",
             ],
@@ -126,7 +126,7 @@ test("client extension reload reports loaded IDs when activation partially fails
 
     await expect(reloadTuiClientExtensions({
         configuration: {
-            disabledBuiltinExtensions: [],
+            disabledIncludedExtensions: [],
             clientExtensions: [],
         },
         applyConfiguration() {},

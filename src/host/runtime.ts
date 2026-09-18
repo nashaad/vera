@@ -34,7 +34,7 @@ import {
     mergeModelRequestBody,
 } from "../providers/routing.ts";
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
-import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
+import { includedExtensionConfigs } from "../extensions/included.ts";
 import { mergeExtensionScopes } from "../extensions/discovery.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
@@ -334,8 +334,8 @@ export async function startResidentHost(
         "extension_registry",
         () => startExtensionRegistry({
             extensions: mergeExtensionScopes(
-                defaultHostExtensionConfigs(
-                    options.config.disabled_builtin_extensions ?? [],
+                includedExtensionConfigs(
+                    options.config.disabled_included_extensions ?? [],
                 ),
                 options.config.extensions ?? [],
             ),

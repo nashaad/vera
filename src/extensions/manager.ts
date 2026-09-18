@@ -15,9 +15,14 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import type { VeraExtensionConfig } from "../config.ts";
+import {
+    updateVeraConfigDefaults,
+    type LoadVeraConfigOptions,
+    type VeraExtensionConfig,
+} from "../config.ts";
+import { includedExtensionIds } from "./included.ts";
 import { loadExtensionManifest } from "./manifest.ts";
-import { veraProfileDirectory } from "../profile-paths.ts";
+import { installedExtensionIdsIn, veraProfileDirectory } from "../profile-paths.ts";
 
 export const EXTENSION_REGISTRY_SCHEMA_VERSION = 1;
 const MANAGED_STATE_DIRECTORY = ".managed";
@@ -60,6 +65,7 @@ export interface ExtensionInstallResult {
 
 export interface ExtensionListEntry {
     readonly bundled?: boolean;
+    readonly core?: boolean;
     readonly id: string;
     readonly version?: string;
     readonly enabled: boolean;
@@ -78,7 +84,7 @@ export interface ExtensionManagerOptions {
 export interface ExtensionManagerOperations {
     readonly install: typeof installExtension;
     readonly list: typeof listExtensions;
-    readonly setEnabled: typeof setExtensionEnabled;
+    readonly setEnabled: typeof setAnyExtensionEnabled;
     readonly remove: typeof removeExtension;
 }
 
@@ -318,6 +324,34 @@ export function setExtensionEnabled(
         if (enabled) writeManagedMarker(directory, updated);
         return updated;
     });
+}
+
+// Included extensions switch in config.json, installed ones in extensions.json.
+export function setAnyExtensionEnabled(
+    id: string,
+    enabled: boolean,
+    options: ExtensionManagerOptions = {},
+): { readonly id: string } {
+    const home = veraProfileDirectory(process.env, options.home);
+    if (installedExtensionIdsIn(home).includes(id) || !includedExtensionIds().includes(id)) {
+        return setExtensionEnabled(id, enabled, options);
+    }
+    return setIncludedExtensionEnabled(id, enabled, { path: join(home, "config.json") });
+}
+
+// Writes `disabled_included_extensions` in config.json.
+export function setIncludedExtensionEnabled(
+    id: string,
+    enabled: boolean,
+    options: LoadVeraConfigOptions = {},
+): { readonly id: string } {
+    if (!includedExtensionIds().includes(id)) {
+        throw new ExtensionManagerError(
+            `No extension named ${id} is included with Vera`,
+        );
+    }
+    updateVeraConfigDefaults({ included_extension: { id, enabled } }, options);
+    return { id };
 }
 
 export function removeExtension(

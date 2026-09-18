@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { mintAgentName } from "../../extensions/session-identity/names.ts";
+import { mintAgentName } from "../../src/core-extensions/session-identity/names.ts";
 import { runBash } from "../../src/tools/bash.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import {

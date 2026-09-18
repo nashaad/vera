@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { registerSourceBrowser } from "../../extensions/customize/view.ts";
+import { registerSourceBrowser } from "../../src/core-extensions/customize/view.ts";
 import type { VeraClientExtensionApi, VeraClientPickerRequest } from "../../src/sdk/extensions.ts";
 import type { VeraExperimentalTuiDocument } from "../../src/sdk/experimental-tui.ts";
 

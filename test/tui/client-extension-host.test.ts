@@ -15,11 +15,11 @@ const DISABLED_BUILTINS = [
     "vera.reasoning-cycle",
     "vera.customize",
     "vera.budget",
-    "example.plan",
+    "vera.plan",
     "vera.btw",
     "vera.diff",
     "vera.web-search",
-    "example.context",
+    "vera.context",
 ] as const;
 
 function fakeRegistry(

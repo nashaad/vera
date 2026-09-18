@@ -439,7 +439,7 @@ test("slash context lists the name and ghosts [all] after a space", () => {
         name: "context",
         description: "Show context usage",
         usage: "/context [all]",
-        source: "example.context",
+        source: "vera.context",
     }]);
     const listed = tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/context"),

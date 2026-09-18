@@ -49,7 +49,6 @@ import type { HostLogEntry } from "../../src/host/host-log.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
-import { SESSION_IDENTITY_EXTENSION_ID } from "../../src/extensions/bundled-host.ts";
 
 test("the resident host fails closed without an identity provider", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-host-no-identity-"));
@@ -60,7 +59,7 @@ test("the resident host fails closed without an identity provider", async () => 
                 provider: "openrouter",
                 model: "faux/test",
                 approval_mode: "auto",
-                disabled_builtin_extensions: [SESSION_IDENTITY_EXTENSION_ID],
+                disabled_included_extensions: ["vera.session-identity"],
             },
             createAdapter: () => new FauxAdapter([]),
             socketPath: join(root, "host.sock"),

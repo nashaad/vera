@@ -63,11 +63,12 @@ test("the empty list is explicit and still names install", () => {
     ].join("\n"));
 });
 
-test("the list groups installed above included and carries status in words", () => {
+test("the list groups installed, included, then core, with status in words", () => {
     let state = openTuiExtensionsList([
         entry({
             id: "vera.context",
             bundled: true,
+            core: true,
             managed: false,
             capabilities: [
                 "client.commands.register",
@@ -105,6 +106,8 @@ test("the list groups installed above included and carries status in words", () 
         "Included",
         "  vera.btw      v1.2.0  enabled",
         "  commands · agents · sidebar · mentions · keys",
+        "",
+        "Core",
         "  vera.context  v0.1.0  enabled",
         "  commands · context · tui · sessions",
         "",
@@ -153,11 +156,11 @@ test("failed and unmanaged rows keep the status word without a toggle", () => {
 
 test("Enter opens details, Space from the list asks to disable, Escape closes", () => {
     let state = openTuiExtensionsList([
-        entry({ id: "example.context" }),
-    ], new Set(["example.context"]));
+        entry({ id: "acme.context" }),
+    ], new Set(["acme.context"]));
     state = key(state, "enter");
     const rendered = renderTuiExtensionsList(state);
-    expect(rendered).toContain("example.context");
+    expect(rendered).toContain("acme.context");
     expect(rendered).toContain("v0.1.0 · enabled · installed");
     expect(rendered).toContain("loaded on this client");
     expect(rendered).toContain("commands · tui");
@@ -168,22 +171,22 @@ test("Enter opens details, Space from the list asks to disable, Escape closes", 
     expect(rendered).toContain("↑↓ move · ⏎ disable · esc back");
 
     const toggle = handleTuiExtensionsListKey(openTuiExtensionsList([
-        entry({ id: "example.context" }),
+        entry({ id: "acme.context" }),
     ]), { name: "space", sequence: " " });
     expect(toggle.mutate).toEqual({
         operation: "disable",
-        entry: expect.objectContaining({ id: "example.context" }),
+        entry: expect.objectContaining({ id: "acme.context" }),
     });
 
     expect(handleTuiExtensionsListKey(
-        openTuiExtensionsList([entry({ id: "example.context" })]),
+        openTuiExtensionsList([entry({ id: "acme.context" })]),
         { name: "escape" },
     )).toEqual({ handled: true });
 });
 
 test("left and right are consumed on the list and the detail screen", () => {
     let state = openTuiExtensionsList([
-        entry({ id: "example.context" }),
+        entry({ id: "acme.context" }),
         entry({ id: "example.tools" }),
     ]);
     state = key(state, "down");
@@ -196,7 +199,7 @@ test("left and right are consumed on the list and the detail screen", () => {
 
 test("disabled managed rows offer enable, and Remove uses a second screen", () => {
     let state = openTuiExtensionsList([
-        entry({ id: "example.context", enabled: false }),
+        entry({ id: "acme.context", enabled: false }),
     ]);
     expect(renderTuiExtensionsList(state)).toContain("Space enable");
     expect(
@@ -208,7 +211,7 @@ test("disabled managed rows offer enable, and Remove uses a second screen", () =
     expect(renderTuiExtensionsList(state)).toContain("› Remove");
     state = key(state, "enter");
     expect(renderTuiExtensionsList(state)).toBe([
-        "Remove example.context?",
+        "Remove acme.context?",
         "",
         "This deletes the managed copy. The source is untouched.",
         "",
@@ -217,7 +220,7 @@ test("disabled managed rows offer enable, and Remove uses a second screen", () =
     const remove = handleTuiExtensionsListKey(state, { name: "enter" });
     expect(remove.mutate).toEqual({
         operation: "remove",
-        entry: expect.objectContaining({ id: "example.context" }),
+        entry: expect.objectContaining({ id: "acme.context" }),
     });
     state = key(state, "escape");
     expect(state.screen).toBe("detail");
@@ -239,12 +242,12 @@ test("a load error is its own screen and Escape closes it", () => {
 
 test("sync keeps the selected id after a reload and drops a removed copy", () => {
     const original = openTuiExtensionsList([
-        entry({ id: "example.context" }),
+        entry({ id: "acme.context" }),
         entry({ id: "vera.btw", version: "1.2.0" }),
     ]);
     const moved = key(original, "down");
     const synced = syncTuiExtensionsList(moved, [
-        entry({ id: "example.context", enabled: false }),
+        entry({ id: "acme.context", enabled: false }),
         entry({ id: "vera.btw", version: "1.2.0" }),
     ], new Set(["vera.btw"]));
     expect(synced.rows[synced.selectedIndex]?.id).toBe("vera.btw");
@@ -253,7 +256,7 @@ test("sync keeps the selected id after a reload and drops a removed copy", () =>
 
     const afterRemove = syncTuiExtensionsList(
         { ...moved, screen: "detail" },
-        [entry({ id: "example.context" })],
+        [entry({ id: "acme.context" })],
     );
     expect(afterRemove.screen).toBe("list");
     expect(afterRemove.rows).toHaveLength(1);
@@ -264,7 +267,7 @@ test("the OpenTUI card paints the selected row", async () => {
     try {
         const view = createTuiExtensionsListView(harness.renderer);
         view.update(openTuiExtensionsList([
-            entry({ id: "example.context" }),
+            entry({ id: "acme.context" }),
             entry({ id: "vera.btw", version: "1.2.0" }),
         ]));
         expect(view.box.visible).toBe(false);
@@ -273,7 +276,7 @@ test("the OpenTUI card paints the selected row", async () => {
         await harness.flush();
         const frame = harness.captureCharFrame();
         expect(frame).toContain("Extensions");
-        expect(frame).toContain("› example.context");
+        expect(frame).toContain("› acme.context");
         expect(frame).toContain("enabled");
         expect(frame).toContain("commands");
     } finally {
@@ -281,7 +284,7 @@ test("the OpenTUI card paints the selected row", async () => {
     }
 });
 
-test("bundled extension details expose their settings command without install mutations", () => {
+test("included extension details offer settings and disable, but not remove", () => {
     const opened = openTuiExtensionsList([entry({ id: "vera.web-search", managed: false, bundled: true })], new Set(["vera.web-search"]));
     const state: TuiExtensionsListState = { ...opened, screen: "detail", rows: opened.rows.map((row) => ({ ...row,
         settingsCommands: [{ name: "search-providers", label: "Search providers" }],
@@ -293,7 +296,7 @@ test("bundled extension details expose their settings command without install mu
     expect(handleTuiExtensionsListKey(state, { name: "escape" }).state?.screen).toBe("list");
 });
 
-test("the rendered bundled settings action uses its command label", async () => {
+test("the rendered included settings action uses its command label", async () => {
     const setup = await createTestRenderer({ width: 100, height: 30 });
     const view = createTuiExtensionsListView(setup.renderer);
     setup.renderer.root.add(view.box);
@@ -306,7 +309,8 @@ test("the rendered bundled settings action uses its command label", async () => 
         view.update(state);
         await setup.flush();
         expect(setup.captureCharFrame()).toContain("Search providers");
-        expect(setup.captureCharFrame()).not.toContain("Disable");
+        expect(setup.captureCharFrame()).toContain("Disable");
+        expect(setup.captureCharFrame()).not.toContain("Remove");
         expect(setup.captureCharFrame()).toContain("› Search providers");
     } finally { setup.renderer.destroy(); }
 });
@@ -382,4 +386,24 @@ test("narrow extension rows clip long names and contributions while keeping stat
         expect(key(state, "return").screen).toBe("detail");
         expect(renderTuiExtensionsList(key(state, "return"))).toContain("example.extension-with-a-long-name");
     } finally { setup.renderer.destroy(); }
+});
+
+test("space disables and enables an included extension", () => {
+    const opened = openTuiExtensionsList([
+        entry({ id: "vera.btw", managed: false, bundled: true }),
+    ]);
+    expect(renderTuiExtensionsList(opened)).toContain("Space disable");
+    expect(handleTuiExtensionsListKey(opened, { name: "space" }).mutate).toMatchObject({
+        operation: "disable",
+        entry: expect.objectContaining({ id: "vera.btw" }),
+    });
+    const disabled = openTuiExtensionsList([
+        entry({ id: "vera.btw", managed: false, bundled: true, enabled: false }),
+    ]);
+    expect(handleTuiExtensionsListKey(disabled, { name: "space" }).mutate).toMatchObject({
+        operation: "enable",
+    });
+    const detail: TuiExtensionsListState = { ...opened, screen: "detail" };
+    expect(renderTuiExtensionsList(detail)).toContain("Disable");
+    expect(renderTuiExtensionsList(detail)).not.toContain("Remove");
 });

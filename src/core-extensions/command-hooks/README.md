@@ -5,14 +5,14 @@ Vera's public extension API. It runs nothing until hooks are configured.
 An omitted `hooks` array is empty; an invalid supplied value fails activation.
 
 Add an entry to the home's `config.json`. Use the absolute extension path shown
-in `/customize` under Extensions for `example.command-hooks`, and an absolute
+in `/customize` under Extensions for `vera.command-hooks`, and an absolute
 executable path:
 
 ```json
 {
   "extensions": [
     {
-      "path": "/absolute/path/to/extensions/command-hooks",
+      "path": "/absolute/path/to/src/core-extensions/command-hooks",
       "enabled": true,
       "config": {
         "hooks": [
@@ -59,7 +59,7 @@ A timeout, non-zero exit, malformed response, or unsupported response is isolate
 as a failed extension hook. Vera continues the hook chain and tool call, so do not
 use a command hook as the only enforcement layer for a security boundary.
 
-To disable the included extension, add `example.command-hooks` to
-`disabled_builtin_extensions`. An explicit copy with the same ID replaces it,
-including when disabled. Restart the host after configuration changes.
-The ID is retained for existing configurations.
+To disable it, run `/extension disable vera.command-hooks`, which adds the ID
+to `disabled_included_extensions`. An `extensions` entry in `config.json` whose
+path is this directory replaces the included copy, including when that entry is
+disabled. Restart the host after configuration changes.

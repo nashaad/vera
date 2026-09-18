@@ -1,7 +1,7 @@
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { invokeDirectClientExtensionCommand } from "../../../src/extensions/client.ts";
 import { renderExtensionInstallPreview, renderExtensionMutation } from "../../../src/extensions/manager-command.ts";
-import { installExtension, removeExtension, setExtensionEnabled } from "../../../src/extensions/manager.ts";
+import { installExtension, removeExtension, setAnyExtensionEnabled } from "../../../src/extensions/manager.ts";
 import { diagnoseVeraProcesses, renderVeraDoctor } from "../../process-doctor.ts";
 import { diagnoseProviders, renderProviderDoctor } from "../../provider-doctor.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
@@ -168,7 +168,7 @@ export function submitPrompt(rt: TuiRuntime,
                         ? ""
                         : `\nInstalled ${result.record.id}.\n`);
             } else if (command.operation === "enable" || command.operation === "disable") {
-                const record = setExtensionEnabled(
+                const record = setAnyExtensionEnabled(
                     command.id,
                     command.operation === "enable",
                 );
@@ -227,14 +227,14 @@ export function submitPrompt(rt: TuiRuntime,
         }
         void reloadTuiClientExtensions({
             configuration: {
-                disabledBuiltinExtensions: rt.disabledBuiltinExtensions,
+                disabledIncludedExtensions: rt.disabledIncludedExtensions,
                 clientExtensions: rt.configuredClientExtensions,
             },
             refreshConfiguration:
                 rt.dependencies.loadClientExtensionConfiguration,
             applyConfiguration(configuration) {
-                rt.disabledBuiltinExtensions =
-                    configuration.disabledBuiltinExtensions;
+                rt.disabledIncludedExtensions =
+                    configuration.disabledIncludedExtensions;
                 rt.configuredClientExtensions = configuration.clientExtensions;
             },
             host: rt.clientExtensionHost,

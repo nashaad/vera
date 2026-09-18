@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { filterSources, sourceStatus, sourceWasLoaded } from "../../extensions/customize/model.ts";
+import { filterSources, sourceStatus, sourceWasLoaded } from "../../src/core-extensions/customize/model.ts";
 import type { CustomizationSource } from "../../src/customize/types.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 

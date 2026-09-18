@@ -3,10 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createAuthStorage } from "../../src/providers/auth-storage.ts";
-import { SearchStore } from "../../extensions/web-search/store.ts";
-import { searchWeb, formatSearchResults } from "../../extensions/web-search/search.ts";
-import { parseDuckDuckGo } from "../../extensions/web-search/providers.ts";
-import { openSearchProviders } from "../../extensions/web-search/client.ts";
+import { SearchStore } from "../../src/core-extensions/web-search/store.ts";
+import { searchWeb, formatSearchResults } from "../../src/core-extensions/web-search/search.ts";
+import { parseDuckDuckGo } from "../../src/core-extensions/web-search/providers.ts";
+import { openSearchProviders } from "../../src/core-extensions/web-search/client.ts";
 import type { VeraClientExtensionApi, VeraClientPickerRequest } from "../../src/sdk/extensions.ts";
 
 const signal = new AbortController().signal;
