@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface WorkflowRunHeader {
@@ -36,9 +36,24 @@ export interface WorkflowJournalRecord {
     readonly ref?: string;
 }
 
+export interface WorkflowSpan {
+    readonly span: string;
+    readonly attempt: number;
+    readonly key: string;
+    readonly step: string;
+    readonly start: string;
+    // Missing together on the try whose process died inside it.
+    readonly end?: string;
+    readonly ms?: number;
+    readonly status?: string;
+    readonly message?: string;
+}
+
 export interface WorkflowRun {
     readonly header: WorkflowRunHeader;
     readonly records: readonly WorkflowJournalRecord[];
+    // One entry per try of a step, including the tries the journal never records.
+    readonly spans: readonly WorkflowSpan[];
 }
 
 export function readWorkflowRun(runDir: string): WorkflowRun {
@@ -68,7 +83,86 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
             ? { run_id: runId, workflow, status, attempts }
             : { run_id: runId, workflow, status, active, attempts },
         records,
+        spans: readSpans(runDir),
     };
+}
+
+function readSpans(runDir: string): WorkflowSpan[] {
+    const spanPath = join(runDir, "spans.ndjson");
+    if (!existsSync(spanPath)) {
+        return [];
+    }
+    const open = new Map<string, WorkflowSpan>();
+    const order: string[] = [];
+    for (const line of journalLines(readFileSync(spanPath, "utf8"), spanPath)) {
+        const value = parseJson(line, spanPath);
+        if (!isRecord(value) || typeof value.span !== "string") {
+            throw new Error(`workflow span line has no span id: ${spanPath}`);
+        }
+        const id = value.span;
+        if (Object.hasOwn(value, "start")) {
+            open.set(id, readSpanStart(id, value, spanPath));
+            order.push(id);
+            continue;
+        }
+        const started = open.get(id);
+        if (started === undefined) {
+            throw new Error(`workflow span ends before it starts: ${spanPath}`);
+        }
+        open.set(id, { ...started, ...readSpanEnd(value, spanPath) });
+    }
+    return order.map((id) => {
+        const span = open.get(id);
+        if (span === undefined) {
+            throw new Error(`workflow span went missing: ${spanPath}`);
+        }
+        return span;
+    });
+}
+
+function readSpanStart(
+    id: string,
+    value: Record<string, unknown>,
+    spanPath: string,
+): WorkflowSpan {
+    const { attempt, key, step, start } = value;
+    if (
+        typeof attempt !== "number"
+        || !Number.isInteger(attempt)
+        || attempt < 1
+        || typeof key !== "string"
+        || typeof step !== "string"
+        || typeof start !== "string"
+        || start === ""
+    ) {
+        throw new Error(`workflow span start has invalid fields: ${spanPath}`);
+    }
+    return { span: id, attempt, key, step, start };
+}
+
+function readSpanEnd(
+    value: Record<string, unknown>,
+    spanPath: string,
+): { end: string; ms: number; status: string; message?: string } {
+    const { end, ms, status, message } = value;
+    if (
+        typeof end !== "string"
+        || end === ""
+        || typeof ms !== "number"
+        || !Number.isInteger(ms)
+        || ms < 0
+        || typeof status !== "string"
+        || status === ""
+    ) {
+        throw new Error(`workflow span end has invalid fields: ${spanPath}`);
+    }
+    if (message === undefined) {
+        return { end, ms, status };
+    }
+    if (typeof message !== "string") {
+        throw new Error(`workflow span message must be a string: ${spanPath}`);
+    }
+    return { end, ms, status, message };
 }
 
 function readAttempts(value: unknown, headerPath: string): WorkflowAttempt[] {

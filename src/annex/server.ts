@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import { packedAnnexRoot } from "../release/layout.ts";
+import { foldRunDetail, foldRunRows } from "./runs-report.ts";
 import {
     dispatchAnnexRoute,
     exactRoute,
@@ -25,6 +26,8 @@ export interface StartAnnexServerOptions {
     readonly sessionDirectory: string;
     readonly catalogCacheDir?: string;
     readonly reviewLogPath?: string;
+    /** Halcyon file journals. Without it the runs page lists nothing. */
+    readonly workflowDirectory?: string;
     readonly webRoot?: string;
     readonly hostname?: string;
     readonly port?: number;
@@ -57,6 +60,7 @@ export async function startAnnexServer(
     const assets = await readPackedAnnexAssets(webRoot);
     const routes: AnnexRoute[] = [
         ...usageRoutes(options, assets, fold),
+        ...runRoutes(options, assets),
         ...(options.extraRoutes ?? []),
     ];
     const server = Bun.serve({
@@ -133,6 +137,38 @@ function usageRoutes(
                     { error: "unknown session" },
                     { status: 404 },
                 );
+            }
+            return Response.json(detail, {
+                headers: { "cache-control": "no-store" },
+            });
+        }),
+    ];
+}
+
+function runRoutes(
+    options: StartAnnexServerOptions,
+    assets: PackedAnnexAssets,
+): readonly AnnexRoute[] {
+    const directory = options.workflowDirectory;
+    return [
+        exactRoute("/runs", () => new Response(assets.html, {
+            headers: { "content-type": "text/html; charset=utf-8" },
+        })),
+        exactRoute("/api/runs", () => Response.json(
+            { rows: directory === undefined ? [] : foldRunRows(directory) },
+            { headers: { "cache-control": "no-store" } },
+        )),
+        prefixRoute("/api/runs/", ({ url }) => {
+            const match = /^\/api\/runs\/([^/]+)$/.exec(url.pathname);
+            if (match === null || directory === undefined) {
+                return new Response("Not found", { status: 404 });
+            }
+            const detail = foldRunDetail(
+                directory,
+                decodeURIComponent(match[1] ?? ""),
+            );
+            if (detail === undefined) {
+                return Response.json({ error: "unknown run" }, { status: 404 });
             }
             return Response.json(detail, {
                 headers: { "cache-control": "no-store" },

@@ -209,3 +209,32 @@ th:not(:first-child) .th-sort { justify-content: flex-end; width: 100%; }
     .page { padding: 16px 14px 48px; }
     td.title { max-width: 12rem; }
 }
+
+.nav-sidebar a[role="menuitem"] { text-decoration: none; display: block; }
+.status { font-size: 12px; }
+.status.ok { color: var(--m2); }
+.status.failed, .status.crashed, .status.unreadable { color: #fca5a5; }
+.status.running { color: var(--m1); }
+.status.suspended, .status.cancelled { color: var(--est); }
+.wf { list-style: none; margin: 0; padding: 0; }
+.wf li {
+    display: grid;
+    grid-template-columns: 12rem 1fr 5rem;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+}
+.wf li + li { border-top: 1px solid var(--line); }
+.wf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-track {
+    position: relative;
+    height: 8px;
+    background: var(--fill-2);
+    border-radius: 2px;
+}
+.wf-bar { position: absolute; top: 0; height: 100%; border-radius: 2px; background: var(--m2); }
+.wf-bar.failed { background: #fca5a5; }
+.wf-bar.suspended, .wf-bar.cancelled { background: var(--est); }
+.wf-bar.open { background: repeating-linear-gradient(90deg, var(--m1) 0 4px, transparent 4px 8px); }
+.wf-ms { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.wf-note { grid-column: 1 / -1; color: var(--faint); font-size: 12px; }

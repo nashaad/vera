@@ -100,3 +100,72 @@ test("readWorkflowRun carries attempts, open and closed", () => {
     expect(run.header.attempts[0]?.finished_at).toBeUndefined();
     expect(run.header.attempts[1]?.status).toBe("ok");
 });
+
+test("readWorkflowRun folds span lines into one entry per try", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-spans-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({
+            run_id: "wf_00000000000000bb",
+            workflow: "shaky",
+            status: "ok",
+            attempts: [],
+        }),
+    );
+    writeFileSync(join(runDir, "journal.ndjson"), "");
+    writeFileSync(
+        join(runDir, "spans.ndjson"),
+        [
+            { span: "a1.0", attempt: 1, key: "shaky/try#0:abcd1234", step: "try", start: "2026-09-17T12:00:00+00:00" },
+            { span: "a1.0", end: "2026-09-17T12:00:01+00:00", ms: 1000, status: "failed", message: "upstream said no" },
+            { span: "a1.1", attempt: 1, key: "shaky/try#0:abcd1234", step: "try", start: "2026-09-17T12:00:01+00:00" },
+            { span: "a1.1", end: "2026-09-17T12:00:02+00:00", ms: 900, status: "ok" },
+        ].map((line) => JSON.stringify(line)).join("\n") + "\n",
+    );
+
+    const run = readWorkflowRun(runDir);
+
+    expect(run.spans).toHaveLength(2);
+    expect(run.spans[0]?.status).toBe("failed");
+    expect(run.spans[0]?.message).toBe("upstream said no");
+    expect(run.spans[1]?.ms).toBe(900);
+});
+
+test("readWorkflowRun leaves the span a crash died in open", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-open-span-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({
+            run_id: "wf_00000000000000cc",
+            workflow: "crashy",
+            status: "crashed",
+            attempts: [],
+        }),
+    );
+    writeFileSync(join(runDir, "journal.ndjson"), "");
+    writeFileSync(
+        join(runDir, "spans.ndjson"),
+        `${JSON.stringify({
+            span: "a1.0",
+            attempt: 1,
+            key: "crashy/slow#0:abcd1234",
+            step: "slow",
+            start: "2026-09-17T12:00:00+00:00",
+        })}\n`,
+    );
+
+    const run = readWorkflowRun(runDir);
+
+    expect(run.spans[0]?.step).toBe("slow");
+    expect(run.spans[0]?.end).toBeUndefined();
+    expect(run.spans[0]?.status).toBeUndefined();
+});
+
+test("readWorkflowRun reads a run written before spans existed", () => {
+    const runDir = join(
+        import.meta.dir,
+        "../../python/tests/fixtures/wf_blob_run",
+    );
+
+    expect(readWorkflowRun(runDir).spans).toEqual([]);
+});
