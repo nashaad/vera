@@ -8,6 +8,16 @@ export interface WorkflowRunHeader {
     readonly status: string;
     // Present only while a step is in flight, and left behind by a crash.
     readonly active?: WorkflowActiveStep;
+    readonly attempts: readonly WorkflowAttempt[];
+}
+
+export interface WorkflowAttempt {
+    readonly started_at: string;
+    readonly pid: number;
+    readonly host: string;
+    // Missing on an attempt whose process never came back.
+    readonly finished_at?: string;
+    readonly status?: string;
 }
 
 export interface WorkflowActiveStep {
@@ -46,6 +56,7 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
         throw new Error(`workflow header has invalid fields: ${headerPath}`);
     }
     const active = readActiveStep(headerValue.active, headerPath);
+    const attempts = readAttempts(headerValue.attempts, headerPath);
 
     const journalPath = join(runDir, "journal.ndjson");
     const journalText = readFileSync(journalPath, "utf8");
@@ -54,10 +65,41 @@ export function readWorkflowRun(runDir: string): WorkflowRun {
 
     return {
         header: active === undefined
-            ? { run_id: runId, workflow, status }
-            : { run_id: runId, workflow, status, active },
+            ? { run_id: runId, workflow, status, attempts }
+            : { run_id: runId, workflow, status, active, attempts },
         records,
     };
+}
+
+function readAttempts(value: unknown, headerPath: string): WorkflowAttempt[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        throw new Error(`workflow header attempts must be an array: ${headerPath}`);
+    }
+    return value.map((entry: unknown): WorkflowAttempt => {
+        if (!isRecord(entry)) {
+            throw new Error(`workflow attempt must be an object: ${headerPath}`);
+        }
+        const { started_at: startedAt, pid, host, finished_at: finishedAt, status } = entry;
+        if (
+            typeof startedAt !== "string"
+            || typeof pid !== "number"
+            || !Number.isInteger(pid)
+            || typeof host !== "string"
+        ) {
+            throw new Error(`workflow attempt has invalid fields: ${headerPath}`);
+        }
+        const attempt: WorkflowAttempt = { started_at: startedAt, pid, host };
+        if (finishedAt === undefined) {
+            return attempt;
+        }
+        if (typeof finishedAt !== "string" || typeof status !== "string") {
+            throw new Error(`finished workflow attempt has invalid fields: ${headerPath}`);
+        }
+        return { ...attempt, finished_at: finishedAt, status };
+    });
 }
 
 function readActiveStep(

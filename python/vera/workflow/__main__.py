@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import importlib.util
 import os
+import socket
 import sys
 
 from ._errors import WorkflowError
@@ -14,7 +15,8 @@ USAGE = (
     "usage: python -m vera.workflow list [--journal-dir DIR]\n"
     "       python -m vera.workflow show <run_id> [--journal-dir DIR]\n"
     "       python -m vera.workflow resume <run_id> [--journal-dir DIR]\n"
-    "       python -m vera.workflow cancel <run_id> [--journal-dir DIR]"
+    "       python -m vera.workflow cancel <run_id> [--journal-dir DIR]\n"
+    "       python -m vera.workflow sweep [--resume] [--journal-dir DIR]"
 )
 
 CANCEL_REASON = "cancelled from the command line"
@@ -50,6 +52,79 @@ def _show(journal_dir: Path, run_id: str) -> None:
     active = journal.header.get("active")
     if type(active) is dict:
         print(f"active {active['step']}  since {active['at']}")
+    attempts = journal.header.get("attempts")
+    if type(attempts) is list and attempts:
+        print("attempts")
+        for number, attempt in enumerate(attempts, start=1):
+            print(f"  {number}  {_attempt_line(attempt)}")
+
+
+def _attempt_line(attempt: object) -> str:
+    if type(attempt) is not dict:
+        return "unreadable"
+    where = f"{attempt.get('host')} pid {attempt.get('pid')}"
+    outcome = attempt.get("status")
+    if outcome is None:
+        return f"{attempt.get('started_at')}  {where}  did not finish"
+    error = attempt.get("error")
+    detail = f": {error['message']}" if type(error) is dict else ""
+    return f"{attempt.get('started_at')}  {where}  {outcome}{detail}"
+
+
+def _sweep(journal_dir: Path, resume: bool) -> int:
+    store = store_from_path(journal_dir)
+    here = socket.gethostname()
+    found = 0
+    code = 0
+    for summary in store.runs():
+        if summary.status != "running":
+            continue
+        journal = store.load(summary.run_id, None)
+        attempt = _open_attempt(journal.header)
+        if attempt is None or attempt.get("host") != here:
+            continue
+        pid = attempt.get("pid")
+        if type(pid) is not int or _alive(pid):
+            continue
+        found += 1
+        journal.mark_crashed(f"process {pid} on {here} did not come back")
+        print(f"{summary.run_id} crashed  {summary.workflow}  pid {pid}")
+        if not resume:
+            continue
+        if journal.cancel_requested() is not None:
+            print(f"{summary.run_id} not resumed; a cancel was asked for")
+            continue
+        code = max(code, _resume(journal_dir, summary.run_id))
+    if found == 0:
+        print(f"no crashed workflow runs in {journal_dir}")
+    elif not resume:
+        print("pass --resume to run them again")
+    return code
+
+
+def _open_attempt(header: dict[str, object]) -> dict[str, object] | None:
+    attempts = header.get("attempts")
+    if type(attempts) is not list or not attempts:
+        return None
+    attempt = attempts[-1]
+    if type(attempt) is not dict or "finished_at" in attempt:
+        return None
+    return attempt
+
+
+def _alive(pid: int) -> bool:
+    """Whether this machine still has that process.
+
+    A pid the operating system has handed out again reads as alive, which keeps
+    a crashed run listed as running rather than resuming something twice.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _cancel(journal_dir: Path, run_id: str) -> int:
@@ -153,8 +228,9 @@ def _package_entry(source: Path) -> tuple[Path, str] | None:
     return directory, ".".join(reversed(parts))
 
 
-def _parse(arguments: list[str]) -> tuple[str, str, Path] | None:
-    if not arguments or arguments[0] not in {"list", "show", "resume", "cancel"}:
+def _parse(arguments: list[str]) -> tuple[str, str, Path, bool] | None:
+    commands = {"list", "show", "resume", "cancel", "sweep"}
+    if not arguments or arguments[0] not in commands:
         return None
     command = arguments[0]
     rest = arguments[1:]
@@ -162,11 +238,19 @@ def _parse(arguments: list[str]) -> tuple[str, str, Path] | None:
     if len(rest) >= 2 and rest[-2] == "--journal-dir":
         directory = Path(rest[-1])
         rest = rest[:-2]
-    wanted = 0 if command == "list" else 1
+    resume = command == "sweep" and "--resume" in rest
+    if resume:
+        rest = [argument for argument in rest if argument != "--resume"]
+    wanted = 0 if command in ("list", "sweep") else 1
     if len(rest) != wanted:
         return None
     run_id = rest[0] if wanted else ""
-    return command, run_id, directory if directory is not None else default_journal_dir()
+    return (
+        command,
+        run_id,
+        directory if directory is not None else default_journal_dir(),
+        resume,
+    )
 
 
 def _main(argv: list[str] | None = None) -> int:
@@ -175,11 +259,13 @@ def _main(argv: list[str] | None = None) -> int:
     if parsed is None:
         print(USAGE, file=sys.stderr)
         return 2
-    command, run_id, path = parsed
+    command, run_id, path, resume = parsed
     try:
         if command == "list":
             _list(path)
             return 0
+        if command == "sweep":
+            return _sweep(path, resume)
         if command == "show":
             _show(path, run_id)
             return 0
