@@ -35,6 +35,7 @@ import {
 
 export const FAVORITES_GROUP = "Favorites";
 export const RECENT_GROUP = "Recent";
+export const RECOMMENDED_GROUP = "Recommended";
 
 export interface TuiModelSwitcherRow {
     readonly provider: string;
@@ -205,8 +206,14 @@ function orderedRows(
         rows.push(row);
         groups.push(group);
     };
+    // Two passes: a group's rows have to be contiguous for its heading to hold.
     for (const row of allRows) {
-        if (row.favorite === true || row.seeded === true) take(row, FAVORITES_GROUP);
+        if (row.favorite === true) take(row, FAVORITES_GROUP);
+    }
+    for (const row of allRows) {
+        if (row.seeded === true && !taken.has(modelSwitcherKey(row))) {
+            take(row, RECOMMENDED_GROUP);
+        }
     }
     for (const key of recents) {
         const row = allRows.find((candidate) => modelSwitcherKey(candidate) === key);

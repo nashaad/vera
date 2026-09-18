@@ -56,11 +56,11 @@ Open Switch model, type to search the connected models, then press Enter on one 
 ## Models and providers [lines=21]
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
-The list is Favorites, then Recent, then every connected model grouped by provider. Typing collapses all of it into one fuzzy-ranked list; clearing Search restores the groups.
+The list is Favorites, then Recommended, then Recent, then every connected model grouped by provider. Typing collapses all of it into one fuzzy-ranked list; clearing Search restores the groups.
 Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. Favoriting is the only thing Switch model writes that outlives the session.
 Its sections are Search, the model list, and a Browse models row pinned under the list. Tab and Left/Right move between them; Ctrl+B reaches Browse models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. Browse models opens the Models page, which is where `/models` opens.
 Switch model has no scope, sort, score, or price controls and no detail pane. Those are the Models page.
-Favorites ship pre-populated with the recommended models of every connected provider, so the list works before anyone curates it.
+Until you favorite anything, the list opens with a Recommended group: Vera's shipped picks for the providers you have connected, so it works before anyone curates it. Favoriting a model starts a Favorites group above it; Recommended stays until the switcher has favorites of your own.
 Switching to a model with effort levels always asks which level to run, with the carried level highlighted when the new model has it. A model without levels switches straight away.
 `/models` opens the Models page: Library, Catalog, Actions, Defaults, and Help, with Providers on Ctrl+E. Ctrl+P also reaches Favorites, Assign model defaults, and Configure providers directly.
 View in Filter and sort toggles Standard/Detailed. Standard shows names and status with selected-model pricing below. Detailed adds independently aligned WA Score and input/output price columns and a detail pane when space permits. Unknown scores and prices show ?. Unknown prices are not zero. Rates are dollars per million tokens.

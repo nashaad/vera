@@ -3,6 +3,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import {
     FAVORITES_GROUP,
     RECENT_GROUP,
+    RECOMMENDED_GROUP,
     createTuiModelSwitcherView,
     handleTuiModelSwitcherKey,
     modelSwitcherKey,
@@ -221,14 +222,31 @@ describe("model switcher seeded favorites", () => {
         { provider: "openai", model: "gpt-5.6", label: "GPT-5.6", seeded: true },
     ];
 
-    test("a seeded row is listed under favorites", () => {
+    test("a seeded row is listed under recommended, not favorites", () => {
         const state = startTuiModelSwitcher(seeded);
         expect(state.rows.map((row) => row.label)).toEqual([
             "Claude Opus 5",
             "GPT-5.6",
             "Claude Sonnet 5",
         ]);
-        expect(state.groups).toEqual([FAVORITES_GROUP, FAVORITES_GROUP, "anthropic"]);
+        expect(state.groups).toEqual([
+            RECOMMENDED_GROUP,
+            RECOMMENDED_GROUP,
+            "anthropic",
+        ]);
+    });
+
+    test("a chosen favorite outranks a seeded row and keeps its own heading", () => {
+        const state = startTuiModelSwitcher([
+            ...seeded,
+            { provider: "openai", model: "gpt-5.6-mini", label: "GPT-5.6 mini", favorite: true },
+        ]);
+        expect(state.groups.slice(0, 3)).toEqual([
+            FAVORITES_GROUP,
+            RECOMMENDED_GROUP,
+            RECOMMENDED_GROUP,
+        ]);
+        expect(state.rows[0]?.label).toBe("GPT-5.6 mini");
     });
 
     test("ctrl+f on a seeded row offers to add it, not to remove it", () => {
