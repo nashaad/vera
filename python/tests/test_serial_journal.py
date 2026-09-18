@@ -211,6 +211,8 @@ class TestSerialJournal(unittest.TestCase):
             run_dir = run_dirs[0]
             header = json.loads((run_dir / "header.json").read_text())
             self.assertEqual(header["status"], "running")
+            self.assertEqual(len(header["attempts"]), 1)
+            self.assertNotIn("finished_at", header["attempts"][0])
             lines = (run_dir / "journal.ndjson").read_text().splitlines()
             self.assertEqual(len(lines), 1)
             self.assertIn("/a#", json.loads(lines[0])["key"])
@@ -235,6 +237,11 @@ class TestSerialJournal(unittest.TestCase):
             self.assertEqual((journal_dir / "result.txt").read_text(), "3")
             self.assertEqual((journal_dir / "a.txt").read_text(), "a")
             self.assertEqual((journal_dir / "b.txt").read_text(), "b")
+            attempts = json.loads((run_dir / "header.json").read_text())["attempts"]
+            self.assertEqual(len(attempts), 2)
+            self.assertNotIn("finished_at", attempts[0])
+            self.assertEqual(attempts[1]["status"], "ok")
+            self.assertNotEqual(attempts[0]["pid"], attempts[1]["pid"])
 
 
 if __name__ == "__main__":

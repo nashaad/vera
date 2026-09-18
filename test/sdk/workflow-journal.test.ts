@@ -71,3 +71,32 @@ test("readWorkflowRun refuses a record with no timing", () => {
 
     expect(() => readWorkflowRun(runDir)).toThrow("invalid fields");
 });
+
+test("readWorkflowRun carries attempts, open and closed", () => {
+    const runDir = mkdtempSync(join(tmpdir(), "wf-attempts-"));
+    writeFileSync(
+        join(runDir, "header.json"),
+        JSON.stringify({
+            run_id: "wf_00000000000000ac",
+            workflow: "crashy",
+            status: "ok",
+            attempts: [
+                { started_at: "2026-09-17T12:00:00+00:00", pid: 10, host: "box" },
+                {
+                    started_at: "2026-09-17T12:00:05+00:00",
+                    pid: 11,
+                    host: "box",
+                    finished_at: "2026-09-17T12:00:06+00:00",
+                    status: "ok",
+                },
+            ],
+        }),
+    );
+    writeFileSync(join(runDir, "journal.ndjson"), "");
+
+    const run = readWorkflowRun(runDir);
+
+    expect(run.header.attempts).toHaveLength(2);
+    expect(run.header.attempts[0]?.finished_at).toBeUndefined();
+    expect(run.header.attempts[1]?.status).toBe("ok");
+});

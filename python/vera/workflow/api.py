@@ -407,6 +407,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
     ) -> Run:
         if mark_running:
             journal.mark_running()
+        journal.start_attempt()
         inbox = clone_json(journal.inbox)
         if type(inbox) is not dict:
             raise WorkflowError("journal", "header field inbox must be an object")

@@ -50,6 +50,23 @@ def _show(journal_dir: Path, run_id: str) -> None:
     active = journal.header.get("active")
     if type(active) is dict:
         print(f"active {active['step']}  since {active['at']}")
+    attempts = journal.header.get("attempts")
+    if type(attempts) is list and attempts:
+        print("attempts")
+        for number, attempt in enumerate(attempts, start=1):
+            print(f"  {number}  {_attempt_line(attempt)}")
+
+
+def _attempt_line(attempt: object) -> str:
+    if type(attempt) is not dict:
+        return "unreadable"
+    where = f"{attempt.get('host')} pid {attempt.get('pid')}"
+    outcome = attempt.get("status")
+    if outcome is None:
+        return f"{attempt.get('started_at')}  {where}  did not finish"
+    error = attempt.get("error")
+    detail = f": {error['message']}" if type(error) is dict else ""
+    return f"{attempt.get('started_at')}  {where}  {outcome}{detail}"
 
 
 def _cancel(journal_dir: Path, run_id: str) -> int:

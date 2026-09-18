@@ -16,6 +16,8 @@ from ._journal import (
     _journal_error,
     _now,
     _parse_json_text,
+    close_attempt,
+    open_attempt,
     validate_header,
 )
 from ._store import RunSummary
@@ -47,6 +49,7 @@ class SqlDialect:
                 error TEXT,
                 reason TEXT,
                 active TEXT,
+                attempts TEXT,
                 entry_file TEXT,
                 entry_workflow TEXT,
                 entry_cwd TEXT,
@@ -80,15 +83,15 @@ class SqlDialect:
         return (
             "INSERT INTO runs ("
             "run_id, workflow, status, started_at, finished_at, inbox, doc, "
-            "args, kwargs, error, reason, active, entry_file, entry_workflow, "
-            "entry_cwd"
-            f") VALUES ({self.values(15)})"
+            "args, kwargs, error, reason, active, attempts, entry_file, "
+            "entry_workflow, entry_cwd"
+            f") VALUES ({self.values(16)})"
         )
 
     def select_run(self) -> str:
         return (
             "SELECT run_id, workflow, status, started_at, finished_at, inbox, "
-            "doc, args, kwargs, error, reason, active, entry_file, "
+            "doc, args, kwargs, error, reason, active, attempts, entry_file, "
             f"entry_workflow, entry_cwd FROM runs WHERE run_id = {self.placeholder}"
         )
 
@@ -97,7 +100,8 @@ class SqlDialect:
             "UPDATE runs SET workflow = {p}, status = {p}, started_at = {p}, "
             "finished_at = {p}, inbox = {p}, doc = {p}, args = {p}, "
             "kwargs = {p}, error = {p}, reason = {p}, active = {p}, "
-            "entry_file = {p}, entry_workflow = {p}, entry_cwd = {p} "
+            "attempts = {p}, entry_file = {p}, entry_workflow = {p}, "
+            "entry_cwd = {p} "
             "WHERE run_id = {p}"
         ).format(p=self.placeholder)
 
@@ -233,6 +237,10 @@ class SqlRunJournal:
         if self.header.pop("active", None) is not None:
             self.write_header()
 
+    def start_attempt(self) -> None:
+        open_attempt(self.header)
+        self.write_header()
+
     def mark_step_started(self, key: str, step_name: str) -> None:
         """Name the step now in flight, so a crashed run says where it stopped."""
         self.header["active"] = {"key": key, "step": step_name, "at": _now()}
@@ -253,6 +261,7 @@ class SqlRunJournal:
         self.header["finished_at"] = _now()
         self.header.pop("error", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "ok")
         self.write_header()
 
     def mark_failed(self, kind: str, message: str) -> None:
@@ -261,6 +270,7 @@ class SqlRunJournal:
         self.header["error"] = {"kind": kind, "message": message}
         self.header.pop("finished_at", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "failed")
         self.write_header()
 
     def mark_suspended(self, reason: str) -> None:
@@ -269,6 +279,7 @@ class SqlRunJournal:
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
+        close_attempt(self.header, "suspended")
         self.write_header()
 
     def mark_cancelled(self, reason: str) -> None:
@@ -277,6 +288,7 @@ class SqlRunJournal:
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
+        close_attempt(self.header, "cancelled")
         self.write_header()
 
     def write_header(self) -> None:
@@ -313,6 +325,7 @@ class SqlRunJournal:
                 error_text,
                 self.header.get("reason"),
                 _active_text(self.header.get("active")),
+                _attempts_text(self.header.get("attempts")),
                 entry_file,
                 entry_workflow,
                 entry_cwd,
@@ -431,6 +444,7 @@ class SqlJournalStore:
                 None,
                 None,
                 None,
+                None,
                 entry["file"],
                 entry["workflow"],
                 entry["cwd"],
@@ -541,6 +555,10 @@ def _active_text(active: object) -> str | None:
     return dumps(active) if type(active) is dict else None
 
 
+def _attempts_text(attempts: object) -> str | None:
+    return dumps(attempts) if type(attempts) is list else None
+
+
 def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
     (
         run_id,
@@ -555,6 +573,7 @@ def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
         error,
         reason,
         active,
+        attempts,
         entry_file,
         entry_workflow,
         entry_cwd,
@@ -577,6 +596,8 @@ def _header_from_row(row: tuple[object, ...]) -> dict[str, object]:
         header["reason"] = reason
     if type(active) is str:
         header["active"] = _parse_json_text(active, "active")
+    if type(attempts) is str:
+        header["attempts"] = _parse_json_text(attempts, "attempts")
     if (
         type(entry_file) is str
         and type(entry_workflow) is str

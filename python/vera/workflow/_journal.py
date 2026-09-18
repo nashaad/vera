@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import uuid
 
 from ._canonical import dumps
@@ -142,6 +143,7 @@ def validate_header(
     except WorkflowError as error:
         raise _journal_error("workflow header contains invalid inputs") from error
     _validate_entry(header.get("entry"))
+    _validate_attempts(header.get("attempts"))
     return header
 
 
@@ -161,6 +163,50 @@ def _validate_entry(entry: object) -> None:
         raise _journal_error(
             f"header field entry has unknown keys: {', '.join(extra)}"
         )
+
+
+def _validate_attempts(attempts: object) -> None:
+    if attempts is None:
+        return
+    if type(attempts) is not list:
+        raise _journal_error("header field attempts must be an array")
+    for attempt in attempts:
+        if type(attempt) is not dict:
+            raise _journal_error("each workflow attempt must be an object")
+        _validate_timestamp(attempt.get("started_at"), "attempts.started_at")
+        if type(attempt.get("pid")) is not int:
+            raise _journal_error("header field attempts.pid must be an integer")
+        if type(attempt.get("host")) is not str:
+            raise _journal_error("header field attempts.host must be a string")
+
+
+def open_attempt(header: dict[str, object]) -> None:
+    """Record the process about to run this workflow."""
+    attempts = header.get("attempts")
+    if type(attempts) is not list:
+        attempts = []
+        header["attempts"] = attempts
+    attempts.append(
+        {"started_at": _now(), "pid": os.getpid(), "host": socket.gethostname()}
+    )
+
+
+def close_attempt(header: dict[str, object], status: str) -> None:
+    """Close the attempt this process opened.
+
+    An attempt with no `finished_at` belongs to a process that never came back.
+    """
+    attempts = header.get("attempts")
+    if type(attempts) is not list or not attempts:
+        return
+    attempt = attempts[-1]
+    if type(attempt) is not dict or "finished_at" in attempt:
+        return
+    attempt["finished_at"] = _now()
+    attempt["status"] = status
+    error = header.get("error")
+    if status == "failed" and type(error) is dict:
+        attempt["error"] = dict(error)
 
 
 class Journal:
@@ -371,6 +417,10 @@ class Journal:
         if self.header.pop("active", None) is not None:
             self._write_header_during_run()
 
+    def start_attempt(self) -> None:
+        open_attempt(self.header)
+        self._write_header_during_run()
+
     def mark_step_started(self, key: str, step_name: str) -> None:
         """Name the step now in flight, so a crashed run says where it stopped."""
         self.header["active"] = {"key": key, "step": step_name, "at": _now()}
@@ -402,6 +452,7 @@ class Journal:
         self.header["finished_at"] = _now()
         self.header.pop("error", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "ok")
         self.write_header()
 
     def mark_failed(self, kind: str, message: str) -> None:
@@ -410,6 +461,7 @@ class Journal:
         self.header["error"] = {"kind": kind, "message": message}
         self.header.pop("finished_at", None)
         self.header.pop("reason", None)
+        close_attempt(self.header, "failed")
         self.write_header()
 
     def mark_suspended(self, reason: str) -> None:
@@ -418,6 +470,7 @@ class Journal:
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
+        close_attempt(self.header, "suspended")
         self.write_header()
 
     def mark_cancelled(self, reason: str) -> None:
@@ -426,6 +479,7 @@ class Journal:
         self.header["reason"] = reason
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
+        close_attempt(self.header, "cancelled")
         self.write_header()
 
     def reload_inbox(self) -> None:

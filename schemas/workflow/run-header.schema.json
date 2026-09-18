@@ -68,6 +68,32 @@
                 "at": { "type": "string", "format": "date-time" }
             }
         },
+        "attempts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["started_at", "pid", "host"],
+                "additionalProperties": false,
+                "properties": {
+                    "started_at": { "type": "string", "format": "date-time" },
+                    "pid": { "type": "integer", "minimum": 0 },
+                    "host": { "type": "string" },
+                    "finished_at": { "type": "string", "format": "date-time" },
+                    "status": {
+                        "enum": ["ok", "failed", "suspended", "cancelled"]
+                    },
+                    "error": {
+                        "type": "object",
+                        "required": ["kind", "message"],
+                        "additionalProperties": false,
+                        "properties": {
+                            "kind": { "type": "string" },
+                            "message": { "type": "string" }
+                        }
+                    }
+                }
+            }
+        },
         "entry": {
             "type": "object",
             "required": ["file", "workflow", "cwd"],

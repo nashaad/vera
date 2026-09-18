@@ -118,8 +118,10 @@ PYTHONPATH=python python3 -m vera.workflow show <run-id> --journal-dir /tmp/wf-d
 
 The output includes the run ID, workflow name, status, and completed step keys
 with how long each step took. While a step is running, and after a crash, the
-report also names the step in flight. A workflow docstring also appears in the
-report.
+report also names the step in flight. It then lists one line per attempt: the
+process that ran the workflow, when it started, and how it ended. An attempt
+with no ending is one whose process never came back. A workflow docstring also
+appears in the report.
 
 If the ID is missing, the error lists up to ten available run IDs and counts
 any remaining ones. In file storage, run IDs are also the directory names.
@@ -134,7 +136,9 @@ any remaining ones. In file storage, run IDs are also the directory names.
 ```
 
 The header stores run metadata and inputs, and while a step is running it also
-names that step under `active`. The journal has one record per successful step,
+names that step under `active`. `attempts` holds one entry per run or resume,
+each with `started_at`, `pid`, and `host`, and gaining `finished_at`, `status`,
+and, on a failure, `error` when that attempt ends. The journal has one record per successful step,
 each with the time it finished (`at`) and how many milliseconds it took (`ms`). Values larger than 8192 bytes are stored in `blobs/` with a
 hash reference. SQLite stores the same facts in `runs`, `records`, and `blobs`
 tables in one database file.
