@@ -54,7 +54,7 @@ test("Detailed gives a 30-row terminal at least six model rows without duplicate
     } finally { setup.renderer.destroy(); }
 });
 
-test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep summary and headings on the body margin", async (browseView) => {
+test.each(["standard", "detailed"] as const)("a sparse %s list holds the full height and keeps summary and headings on the body margin", async (browseView) => {
     const setup = await createTestRenderer({ width: 110, height: 44 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface);
@@ -70,15 +70,22 @@ test.each(["standard", "detailed"] as const)("sparse %s lists shrink and keep su
         expect(lines.some((line) => line.includes("View:"))).toBe(false);
         expect(lines.some((line) => line.trim() === "Favorites")).toBe(false);
         expect(lines[scope]!.indexOf("Browse models")).toBe(lines[row]!.indexOf("*"));
+        const priceLine = (frame: string): number =>
+            frame.split("\n").findIndex((line) => line.includes("Price unavailable"));
+        const sparsePrice = priceLine(setup.captureCharFrame());
         if (browseView === "standard") {
-            const price = lines.findIndex((line) => line.includes("Price unavailable"));
-            expect(price).toBe(row + 2);
-            expect(lines[scope]!.indexOf("Browse models")).toBe(lines[price]!.indexOf("Price"));
+            expect(sparsePrice).toBeGreaterThan(row);
+            expect(lines[scope]!.indexOf("Browse models"))
+                .toBe(lines[sparsePrice]!.indexOf("Price"));
         }
         expect(lines.some((line) => line.includes("* favorite"))).toBe(false);
         view.update({ ...modelBrowse({ ...base, allOptions: options }, "browse"), browseView });
         await setup.renderOnce();
-        expect(view.box.height).toBeGreaterThan(sparseHeight);
+        // One model or thirty, the dialog is the same size: switching scope must not resize it.
+        expect(view.box.height).toBe(sparseHeight);
+        if (browseView === "standard") {
+            expect(priceLine(setup.captureCharFrame())).toBe(sparsePrice);
+        }
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(44);
         expect(setup.captureCharFrame()).toContain("more models below");
     } finally { setup.renderer.destroy(); }

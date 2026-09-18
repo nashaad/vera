@@ -59,7 +59,8 @@ export function renderModelBrowse(
     const maximumRows = Math.max(1, modelBrowseRows(renderer) + (columns ? 2 : 0)
         - (columns && state.browseNotice !== undefined ? 1 : 0) - tipRows);
     const window = browseWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
-    const listRows = Math.max(2, window.rows.length) + (columns ? 1 : 0);
+    // Every scope gets the same height: a short list pads rather than shrinking the dialog.
+    const listRows = maximumRows;
     const detailRows = split === undefined || listRows >= maximumRows ? 0
         : Math.max(modelDetailHeight(state, split.detailWidth), ...state.options.map((_, selectedIndex) =>
             modelDetailHeight({ ...state, selectedIndex }, split.detailWidth)));
