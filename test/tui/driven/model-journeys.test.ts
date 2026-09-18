@@ -40,10 +40,10 @@ test("live library keeps through the host operation and verification can be left
         await session.waitForVisiblePane("Model Library");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not kept ✗");
-        expect(session.captureVisiblePane()).toContain("Model Library (0)");
+        expect(session.captureVisiblePane()).toContain("Favorites (0)");
         session.sendKey("C-s");
         await session.waitForVisiblePane("✓ One added to library");
-        expect(session.captureVisiblePane()).toContain("Model Library (1)");
+        expect(session.captureVisiblePane()).toContain("Favorites (1)");
         expect(operations[0]?.operation).toBe("keep");
         session.sendKey("C-y");
         await session.waitForVisiblePane("Verifying models");
@@ -94,7 +94,7 @@ test("verification is explicit and all coverage includes only library models", a
     } finally { await session.close(); }
 }, 15_000);
 
-test("model switching and Model Library have separate slash completion prefixes", async () => {
+test("the switcher has a slash command and favorites is palette only", async () => {
     const commands: string[] = [];
     const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-model-slash-")), width: 120, height: 36,
         dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [], onCommand: (command) => commands.push(command.type) }),
@@ -108,8 +108,14 @@ test("model switching and Model Library have separate slash completion prefixes"
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere((pane) => !pane.includes("Switch model"), "Switch model to close");
         session.sendText("/lib"); session.sendKey("Tab");
-        await session.waitForVisiblePane("│ /library-model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Model Library (0)");
+        await session.waitForVisiblePane("│ /lib");
+        expect(session.captureVisiblePane()).not.toContain("/library-model");
+        for (const _ of "/lib") session.sendKey("BSpace");
+        session.sendKey("C-p");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("favorites");
+        await session.waitForVisiblePane("Favorites");
+        session.sendKey("Enter"); await session.waitForVisiblePane("Favorites (0)");
         expect(commands).not.toContain("prompt");
         expect(commands).not.toContain("pool_add");
     } finally { await session.close(); }

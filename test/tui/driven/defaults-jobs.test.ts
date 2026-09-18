@@ -65,10 +65,10 @@ test("the palette opens Library with a visible current-model action", async () =
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
-        session.sendText("shortlist");
-        await session.waitForVisiblePane("Open your library");
+        session.sendText("favorites");
+        await session.waitForVisiblePane("Favorites");
         session.sendKey("Enter");
-        const opened = await session.waitForVisiblePane("Library (0)");
+        const opened = await session.waitForVisiblePane("Favorites (0)");
         // An empty shortlist is not a dead end: More is the row above it.
         expect(opened).toContain("More");
         expect(opened).not.toContain("Add current model to shortl");
@@ -78,14 +78,14 @@ test("the palette opens Library with a visible current-model action", async () =
         const pane = await session.waitForVisiblePane(
             "Add current model",
         );
-        expect(pane).toContain("Library (0)");
+        expect(pane).toContain("Favorites (0)");
         expect(pane).not.toContain("^s pin");
     } finally {
         await session.close();
     }
 }, 15_000);
 
-test("library is idempotent when the current model is already kept", async () => {
+test("opening favorites on an already-kept model adds nothing", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-library-idempotent-"));
     const commands: Array<{ readonly type: string }> = [];
     const session = await startTuiTestSession({
@@ -106,20 +106,12 @@ test("library is idempotent when the current model is already kept", async () =>
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        session.sendText("/library-model");
-        await session.waitForVisiblePaneWhere(
-            (pane) => pane.split("\n").some((line) =>
-                line.includes("│ /library-model")
-            ),
-            "the complete /library-model command in the composer",
-        );
+        session.sendKey("C-p");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("favorites");
+        await session.waitForVisiblePane("Favorites");
         session.sendKey("Enter");
-        await session.waitForVisiblePaneWhere(
-            (pane) => !pane.split("\n").some((line) =>
-                line.includes("│ /library-model")
-            ),
-            "the idempotent /library-model command to clear the composer",
-        );
+        await session.waitForVisiblePane("Favorites (1)");
         expect(commands.filter((command) => command.type === "pool_add"))
             .toHaveLength(0);
     } finally {
@@ -142,10 +134,10 @@ test("library verification runs in a console inside the model dialog", async () 
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
-        session.sendText("shortlist");
-        await session.waitForVisiblePane("Open your library");
+        session.sendText("favorites");
+        await session.waitForVisiblePane("Favorites");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Library (0)");
+        await session.waitForVisiblePane("Favorites (0)");
         // Shift+tab climbs from the list onto More; enter opens what it holds.
         session.sendKey("BTab");
         session.sendKey("Enter");

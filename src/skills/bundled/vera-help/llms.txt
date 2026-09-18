@@ -51,25 +51,28 @@ Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add 
 Enter the provider name, endpoint, and API key. Known API providers prefill the endpoint; custom endpoints also expose protocol and credential choices.
 Save reads the catalog immediately. It discovers models without keeping, verifying, assigning, or selecting them.
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
-Open Switch model, search connected models or use Filter and sort to show All connected, then press Enter on a model to open a conversation.
+Open Switch model, type to search the connected models, then press Enter on one to open a conversation.
 
-## Models and providers [lines=17]
-Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first. The initial list is Favorites unless you saved All connected under Filter and sort.
-Search reaches connected models outside Favorites. Clearing Search returns to the chosen scope. Provider, availability, known-price, image-support, and intelligence filters still apply. Older variants are hidden unless favorited, revealed, or matched by search.
-Tab and Shift+Tab cycle Search, Models, Filter and sort, Connect provider, and Manage models. Up/Down choose inside Models; Left/Right edit Search. Unused arrows move between sections. Typing or pasting focuses Search at its saved caret. Space types in Search and folds/unfolds provider groups in Models. The current collection appears beside Switch model in the title.
+## Models and providers [lines=20]
+Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
+Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
+The list is Favorites, then Recent, then every connected model grouped by provider. Typing collapses all of it into one fuzzy-ranked list; clearing Search restores the groups.
+Up/Down move, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. Favoriting is the only thing Switch model writes that outlives the session.
+Switch model has no scope, sort, score, or price controls and no detail pane. Those are the Models page.
+Favorites ship pre-populated with the recommended models of every connected provider, so the list works before anyone curates it.
+A model with effort levels asks for one only when the carried effort is not a level the new model has. Otherwise the carried level survives the switch.
+`/models` opens the Models page: Library, Catalog, Actions, Defaults, and Help, with Providers on Ctrl+E. Ctrl+P also reaches Favorites, Assign model defaults, and Configure providers directly.
 View in Filter and sort toggles Standard/Detailed. Standard shows names and status with selected-model pricing below. Detailed adds independently aligned WA Score and input/output price columns and a detail pane when space permits. Unknown scores and prices show ?. Unknown prices are not zero. Rates are dollars per million tokens.
-View, initial scope, and sort persist in the home's `tui.json` under `model_picker`. Changing view preserves search and selection. Ctrl+G toggles Favorites and All connected models without changing the intelligence cutoff. Filter and sort contains provider, availability, known price, images, the intelligence slider, variants, and Clear filters. Sort is within provider groups: favorite order, A to Z, or cheapest first (3:1 input/output weighted rate, unknown last).
-Connect provider opens the existing Configure providers screen. Highlight a model, then Ctrl+K opens Manage models for it; Enter switches models instead. Manage models offers Add/remove favorites, defaults, refresh, and provider configuration. It names the selected model and provider above its actions and explains the highlighted action below them. Add/remove favorites opens the favorites editor. Escape returns to the previous picker.
-Enter selects a model for the conversation without favoriting it or changing defaults. Models with effort levels open an effort step first. From Home, selection opens a conversation.
-`/library-model` opens Favorites; `/library` and `/shortlist` remain aliases. Enter or Ctrl+S adds or removes immediately without switching or verifying. Ctrl+S also toggles the highlighted favorite in Switch model.
+View, initial scope, and sort persist in the home's `tui.json` under `model_picker`. Ctrl+G toggles Favorites and All connected models without changing the intelligence cutoff. Filter and sort contains provider, availability, known price, images, the intelligence slider, variants, and Clear filters. Sort is within provider groups: favorite order, A to Z, or cheapest first (3:1 input/output weighted rate, unknown last).
+Providers opens the existing Configure providers screen. Highlight a model, then Ctrl+K opens Manage models for it. Manage models offers Add/remove favorites, defaults, refresh, and provider configuration. It names the selected model and provider above its actions and explains the highlighted action below them.
 Favorites retains the existing saved collection and order. Search and Models are its two sections. Ctrl+R renames; Ctrl+Y verifies the highlighted connected model without requiring favorite membership. Ctrl+D/Ctrl+U page the model list.
 Bulk verification covers Favorites. Tab toggles unverified-only/all; Enter starts real requests. Escape leaves checks running while returning to the caller. Failures leave assignments unchanged.
-Assign model defaults (`/defaults`) offers any connected model. New assignments need successful verification and must be permitted by policy, but need not be favorites. The screen discloses that verification can cost money. A failed or canceled assignment keeps the previous value; Escape cancels assignment, not an already-started verification request.
+Assign model defaults offers any connected model. New assignments need successful verification and must be permitted by policy, but need not be favorites. The screen discloses that verification can cost money. A failed or canceled assignment keeps the previous value; Escape cancels assignment, not an already-started verification request.
 Removing a favorite preserves verification evidence and all default assignments. An empty Favorites list does not invalidate explicit subagent defaults. Subagents still use only their assigned list and the separately enabled spawning-session fallback.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
-Shift+Tab opens the HUD. Tab cycles Effort, Access, Model, and Agent; arrows change values within their control. Enter applies; Escape cancels. The HUD lists current, up to five recent models, then Favorites, with a default cap of ten models. All models · add/remove favorites opens Switch model without applying staged edits; its Enter hint says open picker.
-`model_picker.hudModels` (1 to 20, default 10) and `model_picker.hudRecents` (0 to 20, default 5) configure HUD limits. The All models action is separate from the model cap.
-The built-in composer status reports the focused conversation's model and effort. Headers show the conversation name and access, adding model and effort when two conversation panes are visible side by side. Reasoning effort is model-dependent; `off` is explicit, never inferred for a model without an off mapping.
+`/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has.
+Shift+Tab opens the HUD, which holds Agent and Access. Tab or Up/Down move between the two; Left/Right change values. Enter applies; Escape cancels. Model and effort are not in the HUD.
+The composer footer always carries all four: agent and access on the left, provider/model and effort on the right.
 
 ## Conversations and background work [lines=9]
 `/resume` opens another conversation. Enter asks how to leave the one on screen: Stop & switch, or Switch, keep running.

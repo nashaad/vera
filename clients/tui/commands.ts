@@ -393,7 +393,7 @@ const MODEL_COMMAND = {
 const EFFORT_COMMAND = {
     name: "effort",
     description: "Change reasoning effort for the next turn",
-    usage: "/effort <off|low|medium|high|max>",
+    usage: "/effort [level]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const PERMISSIONS_COMMAND = {
@@ -522,24 +522,6 @@ const MODELS_COMMAND = {
     usage: "/models",
 } as const satisfies TuiCommandCatalogEntry;
 
-const POOL_COMMAND = {
-    name: "library-model",
-    description: "Open Favorites, or add the running model",
-    usage: "/library-model [add]",
-} as const satisfies TuiCommandCatalogEntry;
-
-const PROVIDERS_COMMAND = {
-    name: "providers",
-    description: "Connect a provider, or add an endpoint of your own",
-    usage: "/providers",
-} as const satisfies TuiCommandCatalogEntry;
-
-const DEFAULTS_COMMAND = {
-    name: "defaults",
-    description: "Show which model runs each job",
-    usage: "/defaults",
-} as const satisfies TuiCommandCatalogEntry;
-
 const DIAGNOSTICS_COMMAND = {
     name: "diagnostics",
     description: "Show live turn and model activity",
@@ -614,9 +596,6 @@ export const BUILTIN_COMMANDS = [
     FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     MODELS_COMMAND,
-    POOL_COMMAND,
-    DEFAULTS_COMMAND,
-    PROVIDERS_COMMAND,
     PALETTE_COMMAND,
 ] as const satisfies readonly TuiCommandCatalogEntry[];
 
@@ -1634,68 +1613,39 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             action: { type: "open_model_browse" },
         },
     });
-    registry.registerCommand({
-        ...POOL_COMMAND,
-        aliases: ["library", "shortlist"],
-        parse: (argumentsText) => {
-            const argument = argumentsText.trim();
-            if (argument.length === 0) return { type: "open_settings_destination", destination: { kind: "model_shortlist" } };
-            if (argument === "add") {
-                return { type: "pool_current_model" };
-            }
-            return {
-                type: "command_error",
-                message: `/library-model takes no argument or "add", not "${argument}"`,
-            };
-        },
-        palette: {
-            name: "library",
-            slashName: "library-model",
-            label: "Favorites",
-            description: "add or remove models from your favorites",
+    for (
+        const [name, label, description, destination] of [
+            [
+                "library",
+                "Favorites",
+                "add or remove models from your favorites",
+                "model_shortlist",
+            ],
+            [
+                "defaults",
+                "Assign model defaults",
+                "snappy, eco, extra, and the jobs that inherit them",
+                "model_assignments",
+            ],
+            [
+                "providers",
+                "Configure providers",
+                "sign in, or add an endpoint of your own",
+                "provider",
+            ],
+        ] as const
+    ) {
+        registry.registerPaletteAction({
+            name,
+            label,
+            description,
             group: "Settings",
             action: {
                 type: "open_settings_destination",
-                destination: { kind: "model_shortlist" },
+                destination: { kind: destination },
             },
-        },
-    });
-    registry.registerCommand({
-        ...DEFAULTS_COMMAND,
-        action: {
-            type: "open_settings_destination",
-            destination: { kind: "model_assignments" },
-        },
-        palette: {
-            name: "defaults",
-            label: "Assign model defaults",
-            description: "snappy, eco, extra, and the jobs that inherit them",
-            group: "Settings",
-            slashName: "defaults",
-            action: {
-                type: "open_settings_destination",
-                destination: { kind: "model_assignments" },
-            },
-        },
-    });
-    registry.registerCommand({
-        ...PROVIDERS_COMMAND,
-        action: {
-            type: "open_settings_destination",
-            destination: { kind: "provider" },
-        },
-        palette: {
-            name: "providers",
-            label: "Configure providers",
-            description: "sign in, or add an endpoint of your own",
-            group: "Settings",
-            slashName: "providers",
-            action: {
-                type: "open_settings_destination",
-                destination: { kind: "provider" },
-            },
-        },
-    });
+        });
+    }
     registry.registerPaletteAction({
         name: "help",
         label: "Show keyboard shortcuts",
@@ -1715,7 +1665,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         action: { type: "open_preferences_list" },
     });
     for (const [utility, label, description] of [
-        ["dials", "Dial strip", "stage model, effort, access and agent together"],
+        ["dials", "Dial strip", "stage agent and access together"],
         ["verify", "Verify library models", "send real requests to check the models in your favorites"],
     ] as const) registry.registerPaletteAction({ name: utility, label, description, group: "Settings",
         action: { type: "open_model_utility", utility } });

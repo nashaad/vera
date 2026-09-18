@@ -18,7 +18,7 @@ Explorer is an included role for investigating questions. It reads, searches,
 and lists material, then returns findings with references. It cannot edit
 files, run shell commands, or invoke skills.
 
-1. Open `/defaults` and assign a model to **eco**.
+1. Open `/models`, choose Defaults, and assign a model to **eco**.
 2. Ask Vera to use explorer for a question and name the material to inspect.
 3. Read the returned findings. The result also identifies the definition,
    model, and reasoning effort used.
@@ -31,7 +31,7 @@ instructions and tools. It leaves the conversation model unchanged.
 
 ## Allow models for subagents
 
-Open `/defaults` and choose **Subagents**. Add the models delegated tasks may
+Open Defaults from `/models` and choose **Subagents**. Add the models delegated tasks may
 use, in fallback order. Models can come from different connected providers.
 
 **Spawning session model** is a separate option. Turn it on to allow the

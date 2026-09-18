@@ -12,9 +12,14 @@ choose models for jobs such as compaction and delegated work.
 | To do this | Open |
 | --- | --- |
 | Change this conversation's model | `/model` |
-| Save models for quick access | `/library-model` |
-| Assign models to other jobs | `/defaults` |
-| Connect a provider | Configure providers from Ctrl+P |
+| Browse every model, with prices and scores | `/models` |
+| Save models for quick access | Favorites, in `/models` |
+| Assign models to other jobs | Defaults, in `/models` |
+| Connect a provider | Providers, in `/models`, or Ctrl+E there |
+
+Switch model changes what runs next and writes nothing that outlives the
+conversation, except a favorite. `/models` is the opposite: it browses,
+favorites, assigns, and connects, and never changes what runs next.
 
 These choices are independent. Selecting a model does not favorite it, and
 removing a favorite does not clear a default assignment.
@@ -26,15 +31,29 @@ removing a favorite does not clear a default assignment.
 3. Use Up/Down to highlight a model, then press Enter.
 4. If the model offers reasoning effort levels, choose one to finish.
 
+The list opens as Favorites, then Recent from this conversation, then every
+connected model grouped by provider. Typing drops the grouping and ranks one
+list by how well each name matches. Ctrl+F adds or removes the highlighted
+favorite; that is the only thing this dialog writes to disk.
+
+Switch model has no filters, sort, scores, prices, or details panel. Those are
+in `/models`.
+
 In a conversation, the selection applies to its next request. From Home, it
-opens a conversation. The composer status shows the current model and effort.
+opens a conversation. The composer footer shows the current model and effort.
 
 You can also open Switch model from Ctrl+P, or press Ctrl+X, release Ctrl,
 and press M. Escape cancels that shortcut without changing your draft.
 
-### Browse and filter
+## Browse every model
 
-The picker starts with Favorites unless you saved another collection. To see
+`/models` opens the model page: Library, Catalog, Actions, Defaults, and Help,
+with Ctrl+E for providers. Nothing here changes the model for your next
+request.
+
+### Filter and sort
+
+The Catalog starts with Favorites unless you saved another collection. To see
 every connected model, open **Filter and sort** and choose **All connected**.
 Ctrl+G switches between these two collections.
 
@@ -65,9 +84,12 @@ Vera saves the collection, view, and sort for the next time you open the picker.
 
 ## Save favorites
 
-Open `/library-model`, highlight a model, and press Enter to add or remove it.
-You can also press Ctrl+S on a highlighted model in either Favorites or
-Switch model.
+Open Favorites from `/models`, highlight a model, and press Enter to add or
+remove it. Ctrl+S does the same on a highlighted model anywhere in the model
+page, and Ctrl+F does it in Switch model.
+
+Connected providers start with a few favorites already saved, so the list is
+not empty before you curate it.
 
 Favoriting saves a shortcut. It does not switch the conversation or make a
 verification request. Removing a favorite keeps its verification results and
@@ -89,7 +111,7 @@ while those checks continue.
 
 ## Assign defaults
 
-Open `/defaults` to assign connected models to snappy, eco, extra, classifier,
+Open Defaults from `/models` to assign connected models to snappy, eco, extra, classifier,
 compaction, and subagents. A model does not have to be a favorite to appear here.
 
 New assignments require successful verification and permission to use the
@@ -101,30 +123,36 @@ Assigning a default leaves your conversation model unchanged. Subagents use
 an ordered list of allowed models and an optional fallback to the spawning
 conversation's model. See [Agents and delegated work](agents.md).
 
-## Adjust model, effort, and access together
+## Adjust agent and access together
 
 Press Shift+Tab from the composer, or choose **Dial strip** from Ctrl+P, to
 open the quick controls.
 
 | Key | Action |
 | --- | --- |
-| Tab or Shift+Tab | Move between Effort, Access, Model, and Agent. |
-| Up/Down in Model | Choose a model. |
-| Left/Right in other controls | Choose a value. |
-| Enter | Apply the selected values together. |
+| Tab or Shift+Tab | Move between Agent and Access. |
+| Up/Down | Move between the two. |
+| Left/Right | Choose a value. |
+| Enter | Apply both values together. |
 | Escape | Cancel the changes. |
 
-The model list contains the current model, recent models from this
-conversation, and favorites. Choose **All models** for the full picker. That
-opens Switch model without applying changes made in the quick controls.
-
 Access offers readonly, ask, and auto. Unavailable choices are skipped.
-Reasoning effort depends on the model; not every model supports the same
-levels or an off setting.
+
+Model and effort are not here. Use `/model` and `/effort`. The composer footer
+shows all four values whether or not the quick controls are open.
+
+## Set reasoning effort
+
+`/effort` lists the levels the current model supports, each with a line saying
+what it is for. `/effort <level>` sets one directly. Levels differ by model,
+and not every model has an off setting.
+
+Switching models keeps your effort level when the new model also supports it.
+You are asked to choose again only when it does not.
 
 ## Refresh or recover a connection
 
-Press Ctrl+R in Switch model to refresh connected catalogs. A model that has
+Choose **Refresh** from the model page's Actions to reload connected catalogs. A model that has
 disappeared from its provider is marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
@@ -167,22 +195,25 @@ effort levels.
 The footer shows the action for the focused control. Typing or pasting from
 any picker control moves into Search.
 
-| Key | In Switch model | In Favorites |
+| Key | In Switch model | In the model page |
 | --- | --- | --- |
 | Enter on a model | Select it for the conversation. | Add or remove the favorite. |
-| Ctrl+S | Add or remove the favorite. | Add or remove the favorite. |
-| Ctrl+R | Refresh connected catalogs. | Rename the highlighted model. |
+| Ctrl+F | Add or remove the favorite. | |
+| Ctrl+S | | Add or remove the favorite. |
+| Ctrl+R | | Rename the highlighted model. |
 | Ctrl+Y | | Verify the highlighted model. |
-| Ctrl+K | Open Manage models for the highlighted model. | |
-| Ctrl+G | Toggle Favorites / All connected. | |
+| Ctrl+E | | Configure providers. |
+| Ctrl+K | | Open Manage models for the highlighted model. |
+| Ctrl+G | | Toggle Favorites / All connected. |
 | Ctrl+D / Ctrl+U | Move half a page down / up. | Move half a page down / up. |
-| Space in the list | Fold or unfold a provider group. | Fold or unfold a provider group. |
-| Ctrl+A outside Search | Show or hide extra variants. | Show or hide extra variants. |
-| Tab / Shift+Tab | Move between controls. | Move between Search and the list. |
+| Space in the list | | Fold or unfold a provider group. |
+| Ctrl+A outside Search | | Show or hide extra variants. |
+| Tab / Shift+Tab | | Move between controls. |
 
-In Search, Left/Right move the caret and Space enters a space. In the model
-list, Up/Down move between models. Arrows that have no action in the current
-control move focus to another control.
+Switch model has no controls to move between: type to search, Up/Down to move,
+Enter to switch. In the model page's Search, Left/Right move the caret and
+Space enters a space. Arrows that have no action in the current control move
+focus to another control.
 
 Manage models includes **Add/remove favorites**, defaults, refresh, and provider
 configuration. Opening its favorites editor does not change membership until
@@ -204,8 +235,6 @@ Refreshing updates a running host's catalog, or the cache for the next host.
 No TUI restart is needed.
 
 The older `vera shortlist` spelling remains an alias for `vera library`.
-The TUI accepts `/library` and `/shortlist` as aliases for `/library-model`.
 
-Quick-control limits live under `model_picker` in the home's `tui.json`:
-`hudModels` accepts 1 to 20 (default 10), and `hudRecents` accepts 0 to 20
-(default 5). The All models action does not count toward the limit.
+The model page's collection, view, and sort persist under `model_picker` in
+the home's `tui.json`.

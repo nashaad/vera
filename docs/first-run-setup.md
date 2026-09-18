@@ -23,9 +23,10 @@ available; it does not select, favorite, verify, or assign a default model.
 
 ### Choose a model
 
-Open **Switch model** with `/model`. Search the connected catalog, or open
-**Filter and sort** and choose **All connected**. Highlight a model and press
-Enter. If it offers effort levels, choose one to start the conversation.
+Open **Switch model** with `/model`. It lists your favorites, then recent
+models, then every connected model. Type to search the whole catalog, highlight
+a model, and press Enter. If it offers effort levels, choose one to start the
+conversation.
 
 Favorites save models for quick access. You do not need to favorite a model
 before selecting it, verifying it, or assigning it as a default. Assigning a

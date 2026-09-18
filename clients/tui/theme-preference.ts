@@ -46,23 +46,15 @@ export interface ModelPickerPreferences {
     readonly view: "standard" | "detailed";
     readonly scope: "pool" | "all";
     readonly sort: "library" | "az" | "price";
-    readonly hudModels?: number;
-    readonly hudRecents?: number;
 }
 
 function parseModelPickerPreferences(value: unknown): ModelPickerPreferences {
     const row = typeof value === "object" && value !== null ? value : {};
     const sort = Reflect.get(row, "sort");
-    const count = (key: string, fallback: number, minimum: number) => {
-        const value = Reflect.get(row, key);
-        return typeof value === "number" && Number.isInteger(value) ? Math.max(minimum, Math.min(20, value)) : fallback;
-    };
     return {
         view: Reflect.get(row, "view") === "detailed" ? "detailed" : "standard",
         scope: Reflect.get(row, "scope") === "all" ? "all" : "pool",
         sort: sort === "az" || sort === "price" ? sort : "library",
-        hudModels: count("hudModels", 10, 1),
-        hudRecents: count("hudRecents", 5, 0),
     };
 }
 

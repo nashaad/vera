@@ -427,8 +427,10 @@ test("typing slash exposes the built-in rewind command", () => {
     expect(registry.completion("/rew")).toBe("/rewind");
     expect(registry.completion("/mod")).toBe("/model");
     expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model", "models"]);
-    expect(registry.completion("/lib")).toBe("/library-model");
-    expect(registry.suggestions("/library").map((command) => command.name)).toEqual(["library-model"]);
+    // Favorites, defaults and providers are sections of /models, reachable from
+    // the palette by name, so they have no slash command of their own.
+    expect(registry.completion("/lib")).toBeUndefined();
+    expect(registry.suggestions("/library")).toEqual([]);
     expect(registry.completion("  /rew")).toBe("  /rewind");
     expect(registry.completion("/rewind")).toBeUndefined();
     expect(registry.completion("/wat")).toBeUndefined();
@@ -473,9 +475,7 @@ test("slash context lists the name and ghosts [all] after a space", () => {
     expect(tuiCommandArgumentHint(commands, "/context all")).toBeUndefined();
     expect(tuiCommandArgumentHint(commands, "/context  ")).toBeUndefined();
     expect(tuiCommandArgumentHint(commands, "/contex ")).toBeUndefined();
-    expect(tuiCommandArgumentHint(commands, "/effort ")).toBe(
-        "<off|low|medium|high|max>",
-    );
+    expect(tuiCommandArgumentHint(commands, "/effort ")).toBe("[level]");
     expect(tuiCommandArgumentHint(commands, "/rewind ")).toBeUndefined();
     expect(tuiCommandArgumentHint(commands, "/model ")).toBe("<model-id>");
 });
@@ -555,16 +555,8 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         destination: { kind: "model" },
     });
     expect(registry.dispatch("/models")).toEqual({ type: "open_model_browse" });
-    expect(registry.dispatch("/library-model")).toEqual({
-        type: "open_settings_destination", destination: { kind: "model_shortlist" },
-    });
-    expect(registry.dispatch("/library-model add")).toEqual({
-        type: "pool_current_model",
-    });
-    for (const alias of ["library", "shortlist"]) {
-        expect(registry.dispatch(`/${alias}`)).toEqual(registry.dispatch("/library-model"));
-        expect(registry.dispatch(`/${alias} add`)).toEqual(registry.dispatch("/library-model add"));
-        expect(registry.registeredCommands().some((command) => command.name === alias)).toBe(false);
+    for (const retired of ["/library-model", "/library", "/shortlist", "/providers", "/defaults"]) {
+        expect(registry.dispatch(retired)).toBeUndefined();
     }
     expect(registry.dispatch("/effort")).toEqual({
         type: "open_settings_destination",

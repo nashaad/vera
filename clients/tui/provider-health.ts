@@ -137,7 +137,7 @@ export function summarizeProviderHealth(options: {
             kind: "ready",
             tone: "red",
             summary: "no provider configured",
-            next: "/providers to connect one",
+            next: "/models then Providers to connect one",
         };
     }
     if (results.length === 0) {
@@ -154,7 +154,7 @@ export function summarizeProviderHealth(options: {
             kind: "ready",
             tone: "red",
             summary: "nothing answered",
-            next: "/providers to connect one",
+            next: "/models then Providers to connect one",
         };
     }
     const first = answered[0]!;
