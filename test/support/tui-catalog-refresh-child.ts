@@ -31,6 +31,8 @@ export function createTuiCatalogRefreshDependencies(
             readonly detail?: string;
         }[];
         readonly onCommand?: (command: ClientCommand) => void;
+        /** Browse's favorite and unfavorite land in the pool the host reports. */
+        readonly keepsModels?: true;
     } = {},
 ): TuiDependencies {
     let pooled = options.pooled ?? [];
@@ -138,7 +140,28 @@ export function createTuiCatalogRefreshDependencies(
         close(): void {},
     };
 
-    return { client };
+    if (options.keepsModels === undefined) return { client };
+    return {
+        client,
+        operateModels: async (operation, onResult) => {
+            for (const entry of operation.models) {
+                const others = pooled.filter((candidate) =>
+                    candidate.provider !== entry.provider
+                    || candidate.model !== entry.model
+                );
+                const model = availableModels.find((candidate) =>
+                    candidate.provider === entry.provider
+                    && candidate.model === entry.model
+                );
+                if (operation.operation === "keep" && model !== undefined) {
+                    pooled = [{ ...model, available: true, verified: false }, ...others];
+                }
+                if (operation.operation === "unkeep") pooled = others;
+                onResult({ ...entry, status: "passed" });
+            }
+            return settings();
+        },
+    };
 }
 
 if (import.meta.main) {

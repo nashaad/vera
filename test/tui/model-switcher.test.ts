@@ -59,11 +59,23 @@ describe("model switcher ordering", () => {
             provider: "openrouter",
             model: `m${at}`,
             label: `Model ${at}`,
-            favorite: true,
+            ...(at === 0 ? { favorite: true } : {}),
         }));
-        const state = startTuiModelSwitcher(many);
+        const state = startTuiModelSwitcher(many, { recents: many.map(modelSwitcherKey) });
         expect(state.rows.length).toBe(MODEL_SWITCHER_SHORTLIST);
         expect(state.hidden).toBe(many.length - MODEL_SWITCHER_SHORTLIST);
+    });
+
+    test("every favorite is listed, even past the shortlist", () => {
+        const many = Array.from({ length: MODEL_SWITCHER_SHORTLIST + 5 }, (_, at) => ({
+            provider: "openrouter",
+            model: `m${at}`,
+            label: `Model ${at}`,
+            favorite: true,
+        }));
+        const state = startTuiModelSwitcher(many, { recents: ["openrouter/m0"] });
+        expect(state.rows.length).toBe(many.length);
+        expect(state.hidden).toBe(0);
     });
 
     test("the cursor opens on the current model", () => {
@@ -151,7 +163,7 @@ describe("model switcher keys", () => {
     });
 
     test("a shortlist shorter than a page clamps ctrl+d to the browse row", () => {
-        const many = Array.from({ length: 30 }, (_, index) => ({
+        const many = Array.from({ length: 5 }, (_, index) => ({
             provider: "openai",
             model: `m${index}`,
             label: `M${index}`,
@@ -230,31 +242,26 @@ describe("model switcher keys", () => {
     });
 });
 
-describe("model switcher seeded favorites", () => {
-    const seeded: readonly TuiModelSwitcherRow[] = [
-        { provider: "anthropic", model: "claude-opus-5", label: "Claude Opus 5", seeded: true },
-        { provider: "anthropic", model: "claude-sonnet-5", label: "Claude Sonnet 5" },
-        { provider: "openai", model: "gpt-5.6", label: "GPT-5.6", seeded: true },
+describe("model switcher with no favorites", () => {
+    const none: readonly TuiModelSwitcherRow[] = [
+        { provider: "anthropic", model: "claude-opus-5", label: "Claude Opus 5" },
+        { provider: "openai", model: "gpt-5.6", label: "GPT-5.6" },
     ];
 
-    test("a seeded row fills the list when nothing else has been chosen", () => {
-        const state = startTuiModelSwitcher(seeded);
-        expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5", "GPT-5.6"]);
+    test("the list stays empty and says how to fill it", () => {
+        const state = startTuiModelSwitcher(none, {
+            current: "openai/gpt-5.6",
+            recents: ["anthropic/claude-opus-5"],
+        });
+        expect(state.rows).toEqual([]);
+        expect(switcherEmptyMessage(state))
+            .toBe("Type to pick any model, or favorite one to see favorites here.");
+        expect(switcherFooterText(state)).toBe("type search · ⏎ browse · esc close");
     });
 
-    test("a chosen favorite outranks a seeded row", () => {
-        const state = startTuiModelSwitcher([
-            ...seeded,
-            { provider: "openai", model: "gpt-5.6-mini", label: "GPT-5.6 mini", favorite: true },
-        ]);
-        expect(state.rows[0]?.label).toBe("GPT-5.6 mini");
-    });
-
-    test("ctrl+f on a seeded row offers to add it, not to remove it", () => {
-        const state = startTuiModelSwitcher(seeded);
-        expect(switcherFooterText(state)).toContain("Ctrl+F favorite");
-        expect(handleTuiModelSwitcherKey(state, { name: "f", ctrl: true }).favorite?.label)
-            .toBe("Claude Opus 5");
+    test("typing still finds every model", () => {
+        const state = searchedTuiModelSwitcher(startTuiModelSwitcher(none), "opus");
+        expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5"]);
     });
 });
 
@@ -334,10 +341,8 @@ describe("model switcher rendering", () => {
             expect(frame).toContain("Switch model");
             expect(frame).toContain("Claude Opus 5");
             expect(frame).toContain("qwen3:32b");
-            const numbered = frame.split("\n")
-                .filter((line) => /^\s*\d\s+\S/.test(line))
-                .map((line) => line.trim().slice(0, 1));
-            expect(numbered).toEqual(["1", "2", "3"]);
+            // Rows are bare: no number column, since no key picks a row by number.
+            expect(frame.split("\n").filter((line) => /^\s*\d\s+\S/.test(line))).toEqual([]);
             // The caption names what the list is; the old group headings are gone.
             expect(frame).toContain("Your model, your favorites, then what you used last.");
             const headings = frame.split("\n").map((line) => line.trim());
@@ -359,7 +364,7 @@ describe("model switcher rendering", () => {
             await setup.renderOnce();
             const frame = setup.captureCharFrame();
             const lines = frame.split("\n").map((line) => line.trim()).filter(Boolean);
-            // The caret marks it as the one button among the numbered rows.
+            // The caret marks it as the one button among the model rows.
             const at = lines.findIndex((line) => line.startsWith("\u203a Browse models"));
             expect(at).toBeGreaterThan(0);
             // A rule separates it from the models, and the footer follows it.
@@ -380,6 +385,32 @@ describe("model switcher rendering", () => {
             view.update(started({ recents: ["ollama/qwen3:32b"] }));
             await setup.renderOnce();
             expect(setup.captureCharFrame()).toContain("unavailable");
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+
+    test("a list taller than the card says how many rows sit above and below", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        const many = Array.from({ length: 30 }, (_, at) => ({
+            provider: "openrouter", model: `m${at}`, label: `Model ${at}`, favorite: true,
+        }));
+        try {
+            const state = startTuiModelSwitcher(many);
+            view.update(state);
+            await setup.renderOnce();
+            const top = setup.captureCharFrame();
+            expect(top).toMatch(/\d+ more below/);
+            expect(top).not.toMatch(/\d+ more above/);
+            view.update({ ...state, focus: "list", selectedIndex: 15 });
+            await setup.renderOnce();
+            const middle = setup.captureCharFrame();
+            expect(middle).toMatch(/\d+ more above/);
+            expect(middle).toMatch(/\d+ more below/);
+            expect(middle).toContain("Model 15");
         } finally {
             setup.renderer.destroy();
         }

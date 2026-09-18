@@ -24,7 +24,7 @@ import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile 
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
-import { applyModelSwitch } from "../main/model-switcher-ops.ts";
+import { applyModelSwitch, openModelSwitcher } from "../main/model-switcher-ops.ts";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
     transition:
@@ -768,6 +768,10 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.overridesResetConfirmView.box.focus();
     } else if (rt.settingsPicker === undefined) {
         closeSettingsPickerSurface(rt);
+        if (previousPicker?.kind === "model" && previousPicker.returnToSwitcher === true
+            && transition.selection === undefined) {
+            openModelSwitcher(rt);
+        }
     } else {
         rt.composer.blur();
         rt.settingsPickerView.update(rt.settingsPicker);

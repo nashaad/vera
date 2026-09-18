@@ -324,6 +324,8 @@ export interface TuiSettingsPickerState {
     readonly initialModel?: string;
     readonly providerCatalogs?: readonly ProviderCatalogState[];
     readonly modelBrowse?: "browse" | "favorites";
+    /** Opened from the model switcher, so closing it without a pick goes back there. */
+    readonly returnToSwitcher?: true;
     readonly browseNotice?: string;
     readonly browseRetainedModels?: readonly string[];
     readonly browseFeedback?: {

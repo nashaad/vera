@@ -390,6 +390,7 @@ export function syncTuiModelPicker(
         query: state.query,
         // The pane it was opened from survives a snapshot. A rebuild is the host answering an edit made inside this pane, not a fresh way in, so adding a model must not turn escape into "…
         ...(state.parent === undefined ? {} : { parent: state.parent }),
+        ...(state.returnToSwitcher === true ? { returnToSwitcher: true } : {}),
         ...(state.canUndoPoolChange === true
             ? { canUndoPoolChange: true }
             : {}),

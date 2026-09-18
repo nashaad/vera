@@ -129,7 +129,9 @@ test("the switcher's favorite runs the admission in the transcript", async () =>
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/model");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Switch model");
+        await session.waitForVisiblePane("favorites here");
+        session.sendText("one");
+        await session.waitForVisiblePane("Ctrl+F favorite");
         session.sendKey("C-f");
         // The check runs in the transcript, so the switcher stays usable while
         // the host works.
@@ -140,8 +142,8 @@ test("the switcher's favorite runs the admission in the transcript", async () =>
         expect(running).toContain("⏎ switch");
         await session.waitForVisiblePane("Kept in your favorites");
         const kept = await session.waitForVisiblePane("Ctrl+F unfavorite");
-        // The row is under Favorites now, and it is still the current model.
-        expect(kept).toMatch(/favorites\s+One\s+current/);
+        // The row is a favorite now, and it is still the current model.
+        expect(kept).toMatch(/One\s+✓/);
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
             (pane) => !pane.includes("Switch model"),

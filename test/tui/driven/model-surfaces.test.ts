@@ -206,7 +206,8 @@ test("Home stages access without creating a session, then the switcher applies t
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
+        session.sendText("one"); await session.waitForVisiblePane("⏎ switch");
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
         expect(created).toBe(1);
@@ -236,7 +237,7 @@ test("the switcher asks for effort whenever the model has levels", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
         session.sendText("two"); await session.waitForVisiblePane("Two");
         session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
         // The cursor opens on the model's own default, so the switch is not
@@ -267,7 +268,8 @@ test("the switcher favorites with Ctrl+F and ignores the legacy Ctrl+S", async (
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Ctrl+F favorite");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
+        session.sendText("one"); await session.waitForVisiblePane("Ctrl+F favorite");
         session.sendKey("C-s"); await session.settle();
         session.sendKey("C-s"); await session.settle();
         expect(operations).toEqual([]);
@@ -288,7 +290,7 @@ test("the pinned browse row opens the browse page", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
         expect(session.captureVisiblePane()).toContain("Browse models");
         // The pinned row is the last thing the cursor reaches, and it opens the page.
         session.sendKey("NPage"); session.sendKey("Enter");
@@ -305,7 +307,7 @@ test("clicking the pinned browse row opens the browse page", async () => {
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("⏎ switch");
+        const pane = await session.waitForVisiblePane("favorites here");
         const lines = pane.split("\n");
         const row = lines.findIndex((line) => line.includes("Browse models"));
         // The hit grid lags the dialog by a frame, so settle before clicking.
@@ -323,7 +325,8 @@ test("tab and the arrows walk search, the list and the browse row", async () => 
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("↓ list");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
+        session.sendText("one"); await session.waitForVisiblePane("↓ list");
         session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ move");
         session.sendKey("Left"); await session.waitForVisiblePane("↓ list");
         session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ move");
@@ -339,10 +342,46 @@ test("ctrl+k leaves the switcher for the browse page", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
-        session.sendKey("Enter"); await session.waitForVisiblePane("⏎ switch");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
         session.sendKey("C-k");
         const browse = await session.waitForVisiblePane("Filter and sort");
         expect(browse).not.toContain("⏎ switch");
+    } finally { await session.close(); }
+}, 15_000);
+
+test("escape from a browse page the switcher opened goes back to the switcher, even after a favorite", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-switch-browse-back-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [], keepsModels: true }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
+        session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
+        session.sendKey("Enter"); await session.waitForVisiblePane("favorites here");
+        session.sendKey("C-k"); await session.waitForVisiblePane("Filter and sort");
+        session.sendKey("C-g"); await session.waitForVisiblePane("Browse models · Recommended");
+        session.sendKey("C-g"); await session.waitForVisiblePane("Browse models · All connected");
+        session.sendKey("Down"); await session.waitForVisiblePane("⏎ favorite");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("⏎ unfavorite");
+        session.sendKey("Escape");
+        const back = await session.waitForVisiblePane("⏎ switch");
+        expect(back).toContain("Switch model");
+        expect(back).not.toContain("favorites here");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("Start a conversation");
+    } finally { await session.close(); }
+}, 20_000);
+
+test("/models opened on its own still closes to where you were", async () => {
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-browse-close-")), width: 130, height: 44,
+        dependencies: () => createTuiCatalogRefreshDependencies({ pooled: [] }) });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/models"); session.sendKey("Enter");
+        await session.waitForVisiblePane("Filter and sort");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("Start a conversation");
+        expect(session.captureVisiblePane()).not.toContain("Switch model");
     } finally { await session.close(); }
 }, 15_000);
 
