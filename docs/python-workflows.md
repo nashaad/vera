@@ -46,7 +46,9 @@ The run is stored under the Vera home, so `/runs` in the annex lists it with
 its steps, the model calls under them, and the charge OpenRouter reported for
 each call. Stop the script during a step and run
 `python3 -m vera.workflow resume <run-id>`: finished steps return their
-recorded replies and are not sent again.
+recorded replies and are not sent again. A call cut off by the stop records no
+usage, so its charge is missing from the total.
+`examples/workflows/README.md` walks through one stopped and resumed run.
 
 `--offline` replaces the model with canned replies and needs no key. Offline
 calls record tokens but no cost.
