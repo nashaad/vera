@@ -20,6 +20,7 @@ import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
+import { effortWentStale } from "../../../src/model/effort-ladder.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 
 export function applySettingsPickerTransition(rt: TuiRuntime, 
@@ -396,7 +397,10 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             const levels = selection.reasoningEffort === undefined
                 ? modelLevelFacts(rt, selection.provider, selection.model)
                 : undefined;
-            if (levels !== undefined && levels.levels.length > 0) {
+            const carriedEffort = rt.state.modelSettings?.reasoningEffort;
+            const mustAsk = levels !== undefined
+                && effortWentStale(levels.levels.map((level) => level.id), carriedEffort);
+            if (levels !== undefined && levels.levels.length > 0 && mustAsk) {
                 rt.settingsPicker = startTuiReasoningPicker(levels.levels, levels.defaultLevel,
                     rt.state.modelSettings?.reasoningEffort,
                     { provider: selection.provider, model: selection.model, modelPaneState: switchPane });
@@ -407,12 +411,17 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 return;
             }
             const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
+            // Reaching here means the effort was not asked for, so a level the
+            // new model still supports has to survive the switch rather than
+            // be cleared by the patch.
+            const keptEffort = selection.reasoningEffort
+                ?? (levels !== undefined && levels.levels.length > 0 ? carriedEffort : undefined);
             const apply = () => {
                 const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
                 void client.send({ type: "update_session_model_settings", requestId: randomUUID(),
-                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: selection.reasoningEffort ?? null } })
+                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: keptEffort ?? null } })
                     .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
-                const chosen = selection.reasoningEffort === undefined ? selection.model : `${selection.model} (${selection.reasoningEffort})`;
+                const chosen = keptEffort === undefined ? selection.model : `${selection.model} (${keptEffort})`;
                 showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to the library.`);
                 renderState(rt);
             };

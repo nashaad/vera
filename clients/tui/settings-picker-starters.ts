@@ -22,6 +22,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
+import { effortDescription } from "../../src/model/effort-descriptions.ts";
 import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
 import {
     INTELLIGENCE_CUTOFFS,
@@ -420,7 +421,7 @@ export function levelOption(level: ReasoningLevel): TuiSettingsPickerOption {
     return {
         value: level.id,
         label: level.label,
-        description: level.description ?? "",
+        description: effortDescription(level) ?? "",
     };
 }
 
