@@ -79,7 +79,7 @@ test("/context after resume still names the stored request recipe", async () => 
 
     try {
         await session.waitForVisiblePane("hello from before resume");
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("test · high");
         session.sendText("/context");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("BREAKDOWN");

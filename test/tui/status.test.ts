@@ -22,7 +22,7 @@ test("TUI status line shows host-reported model and reasoning", () => {
         capacity: 258_000,
         estimated: false,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · HIGH · ctx 64.5k/258k [██░░░░░░] 25% · auto\n/workspace",
+        "default · auto · ctx 64.5k/258k [██░░░░░░] 25% · gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -31,7 +31,7 @@ test("pane status can own permissions without repeating them in details", () => 
         model: "qwen3:1.7b",
         reasoningEffort: "low",
     }, "ask", undefined, "/workspace", 0, undefined, false)).toBe(
-        "qwen3:1.7b · LOW\n/workspace",
+        "default · qwen3:1.7b · low\n/workspace",
     );
 });
 
@@ -41,7 +41,7 @@ test("TUI status stands the coerced level beside the one asked for", () => {
         reasoningEffort: "medium",
         requestedReasoningEffort: "xhigh",
     }, "auto", undefined, "/workspace")).toBe(
-        "z-ai/glm-5.2 · MEDIUM (ASKED XHIGH) · auto\n/workspace",
+        "default · auto · z-ai/glm-5.2 · medium (asked xhigh)\n/workspace",
     );
 });
 
@@ -50,7 +50,7 @@ test("TUI status drops the note once the host publishes no requested level", () 
         model: "z-ai/glm-5.2",
         reasoningEffort: "low",
     }, "auto", undefined, "/workspace")).toBe(
-        "z-ai/glm-5.2 · LOW · auto\n/workspace",
+        "default · auto · z-ai/glm-5.2 · low\n/workspace",
     );
 });
 
@@ -64,7 +64,7 @@ test("TUI status marks a character-counted measurement as approximate", () => {
         capacity: 258_000,
         estimated: true,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · HIGH · ctx ~64.5k/258k [██░░░░░░] 25% · auto\n/workspace",
+        "default · auto · ctx ~64.5k/258k [██░░░░░░] 25% · gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -78,7 +78,7 @@ test("TUI status context max follows the selected model before the next turn", (
         capacity: 258_000,
         estimated: true,
     }, "/workspace")).toBe(
-        "gpt-5.6-sol · HIGH · ctx ~64.5k/204.8k [██░░░░░░] 31% · auto\n/workspace",
+        "default · auto · ctx ~64.5k/204.8k [██░░░░░░] 31% · gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -87,7 +87,7 @@ test("TUI status line shows host-reported reasoning off", () => {
         model: "gpt-5.6-sol",
         reasoningEffort: "off",
     }, "ask", undefined, "/workspace")).toBe(
-        "gpt-5.6-sol · OFF · ask\n/workspace",
+        "default · ask · gpt-5.6-sol · off\n/workspace",
     );
 });
 
@@ -99,7 +99,7 @@ test("TUI status shows no context share before anything is measured", () => {
         reasoningEffort: "low",
         contextWindow: 131_072,
     }, "auto", undefined, "/workspace")).toBe(
-        "gemma4:26b · LOW · auto\n/workspace",
+        "default · auto · gemma4:26b · low\n/workspace",
     );
 });
 
@@ -108,7 +108,7 @@ test("TUI status shows no context share for a model with no known window", () =>
         model: "gemma4:26b",
         reasoningEffort: "low",
     }, "auto", { tokens: 40_000, estimated: true }, "/workspace")).toBe(
-        "gemma4:26b · LOW · auto\n/workspace",
+        "default · auto · gemma4:26b · low\n/workspace",
     );
 });
 
@@ -121,7 +121,7 @@ test("TUI status does not present the user ceiling as an unknown model's max", (
         capacity: 204_800,
         estimated: true,
     }, "/workspace")).toBe(
-        "unsloth/Qwen3.6-35B-A3B-MTP-GGUF · DEFAULT · auto\n/workspace",
+        "default · auto · unsloth/Qwen3.6-35B-A3B-MTP-GGUF · default\n/workspace",
     );
 });
 
@@ -135,7 +135,7 @@ test("TUI status caps a known window by the user ceiling", () => {
         capacity: 204_800,
         estimated: true,
     }, "/workspace")).toBe(
-        "qwen-local · DEFAULT · ctx ~20k/32.8k [█████░░░] 61% · auto\n/workspace",
+        "default · auto · ctx ~20k/32.8k [█████░░░] 61% · qwen-local · default\n/workspace",
     );
     expect(renderTuiStatusDetailsLine({
         model: "qwen-local",
@@ -145,7 +145,7 @@ test("TUI status caps a known window by the user ceiling", () => {
         tokens: 4_000,
         estimated: false,
     }, "/workspace")).toBe(
-        "qwen-local · DEFAULT · ctx 4k/8.2k [████░░░░] 49% · auto\n/workspace",
+        "default · auto · ctx 4k/8.2k [████░░░░] 49% · qwen-local · default\n/workspace",
     );
 });
 
@@ -159,13 +159,13 @@ test("TUI status drops the previous model's max when the next window is unknown"
         model: "qwen-local",
         contextWindow: 32_768,
     }, "auto", lastMeasurement, "/workspace")).toBe(
-        "qwen-local · DEFAULT · ctx ~20k/32.8k [█████░░░] 61% · auto\n/workspace",
+        "default · auto · ctx ~20k/32.8k [█████░░░] 61% · qwen-local · default\n/workspace",
     );
     expect(renderTuiStatusDetailsLine({
         model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
         contextLimit: 204_800,
     }, "auto", lastMeasurement, "/workspace")).toBe(
-        "unsloth/Qwen3.6-35B-A3B-MTP-GGUF · DEFAULT · auto\n/workspace",
+        "default · auto · unsloth/Qwen3.6-35B-A3B-MTP-GGUF · default\n/workspace",
     );
 });
 
@@ -176,7 +176,7 @@ test("TUI status line identifies host-reported provider-default reasoning", () =
         undefined,
         "/workspace",
     )).toBe(
-        "gpt-5.6-sol · DEFAULT · FULL ACCESS · RED ZONE\n/workspace",
+        "default · FULL ACCESS · RED ZONE · gpt-5.6-sol · default\n/workspace",
     );
 });
 
@@ -187,7 +187,7 @@ test("TUI status line prefixes the model with a compact provider label", () => {
         undefined,
         "/workspace",
     )).toBe(
-        "cerebras/gpt-5.6-sol · HIGH · auto\n/workspace",
+        "default · auto · cerebras/gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -198,7 +198,7 @@ test("TUI status line prefixes a declared provider with the name it was given", 
         undefined,
         "/workspace",
     )).toBe(
-        "gemini/gemini-2.5-flash · HIGH · auto\n/workspace",
+        "default · auto · gemini/gemini-2.5-flash · high\n/workspace",
     );
 });
 
@@ -209,7 +209,7 @@ test("TUI status does not guess settings while the host query is pending", () =>
         undefined,
         "/workspace",
     )).toBe(
-        "loading · LOADING · permissions loading\n/workspace",
+        "default · permissions loading · loading · loading\n/workspace",
     );
 });
 
@@ -221,7 +221,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         1,
     )).toBe(
-        "1 async subagent running · test · LOW · ask\n/workspace",
+        "1 async subagent running · default · ask · test · low\n/workspace",
     );
     expect(renderTuiStatusDetailsLine(
         { model: "test", reasoningEffort: "low" },
@@ -230,7 +230,7 @@ test("TUI splits activity from persistent details across both footer lines", () 
         "/workspace",
         2,
     )).toBe(
-        "2 async subagents running · test · LOW · ask\n/workspace",
+        "2 async subagents running · default · ask · test · low\n/workspace",
     );
 });
 
@@ -449,7 +449,7 @@ test("the attention hint is the caller's, so it can name the jump chord", () => 
     expect(needsYouChipColumns(chord, 1))
         .toBe("1 need you · ctrl+shift+j".length);
     // An empty hint leaves the count alone rather than a dangling separator.
-    expect(text(rows(""))).toContain("1 need you · test");
+    expect(text(rows(""))).toContain("1 need you · default · auto · test");
     expect(needsYouChipColumns(rows(""), 1)).toBe("1 need you".length);
 });
 
@@ -462,4 +462,69 @@ test("a file view status names the place and not a loading host", () => {
     expect(renderTuiFileViewStatusRows("/workspace").map((row) =>
         row.map((chunk) => chunk.text).join("")
     )).toEqual(["", "/workspace"]);
+});
+
+test("the footer carries agent, access, model and effort whether or not a dial was touched", () => {
+    const line = renderTuiStatusDetailsLine(
+        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
+        "ask",
+        undefined,
+        "/workspace",
+    );
+    expect(line.split("\n")[0]).toBe(
+        "default · ask · anthropic/claude-opus-5 · high",
+    );
+    const named = renderTuiStatusDetailsLine(
+        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
+        "ask",
+        undefined,
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        { agent: "build" },
+    );
+    expect(named.split("\n")[0]).toBe(
+        "build · ask · anthropic/claude-opus-5 · high",
+    );
+});
+
+test("agent and access sit left, model and effort right, padded to the width", () => {
+    const row = renderTuiStatusDetailsRows(
+        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
+        "ask",
+        undefined,
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        { agent: "build" },
+        0,
+        60,
+    )[0] ?? [];
+    const text = row.map((chunk) => chunk.text).join("");
+    expect(text.length).toBe(60);
+    expect(text.startsWith("build · ask ")).toBe(true);
+    expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
+});
+
+test("too narrow to pad, the two ends read as one row rather than wrap", () => {
+    const row = renderTuiStatusDetailsRows(
+        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
+        "ask",
+        undefined,
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        { agent: "build" },
+        0,
+        20,
+    )[0] ?? [];
+    expect(row.map((chunk) => chunk.text).join("")).toBe(
+        "build · ask · anthropic/claude-opus-5 · high",
+    );
 });

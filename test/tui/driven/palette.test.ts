@@ -18,7 +18,7 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
 
     try {
         await session.waitForVisiblePane("Start a conversation");
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("test · high");
         session.sendText("/help");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
@@ -58,23 +58,23 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         pane = await session.waitForVisiblePane("Commands");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
-        expect(pane).toContain("test · HIGH");
+        expect(pane).toContain("test · high");
         expect(pane).toContain("settings    Switch model");
         expect(pane).not.toContain("Rewind the active conversation");
         session.sendText("switch model");
         pane = await session.waitForVisiblePane("switch model");
         expect(pane).toContain("Switch model");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("Select model");
+        pane = await session.waitForVisiblePane("⏎ switch");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
-        expect(pane).toContain("test · HIGH");
+        expect(pane).toContain("test · high");
         expect(pane).not.toContain("switch model");
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
             (visible) => visible.includes("Message Vera")
-                && !visible.includes("Select model"),
-            "model picker to close",
+                && !visible.includes("⏎ switch"),
+            "the switcher to close",
         );
         session.sendText("/palette");
         session.sendKey("Enter");

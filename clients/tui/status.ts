@@ -212,17 +212,24 @@ export function renderTuiStatusDetailsRows(
             ),
             separator,
         ];
-    const afterAttention: TuiStatusChunk[] = [
+    const left: TuiStatusChunk[] = [
         ...background,
-        ...(dials.agent === undefined ? [] : [
-            {
-                text: `${dials.agent}${
-                    dials.postureOverridden === true ? "!" : ""
-                }`,
-                tone: "accent",
-            } as TuiStatusChunk,
-            separator,
-        ]),
+        {
+            text: `${dials.agent ?? "default"}${
+                dials.postureOverridden === true ? "!" : ""
+            }`,
+            tone: "accent",
+        },
+        ...(includePermissions
+            ? [separator, {
+                text: permissions,
+                tone: permissionsTone(approvalMode),
+            } as TuiStatusChunk]
+            : []),
+    ];
+    const ctxChunks = contextChunks(context, settings);
+    const right: TuiStatusChunk[] = [
+        ...(ctxChunks.length === 0 ? [] : [...ctxChunks.slice(1), separator]),
         {
             text: dials.fallbackTo === undefined
                 ? model
@@ -233,20 +240,24 @@ export function renderTuiStatusDetailsRows(
             ? [{ text: "*", tone: "accent" } as TuiStatusChunk]
             : []),
         separator,
-        muted(thinking.toUpperCase()),
-        ...contextChunks(context, settings),
-        ...(includePermissions
-            ? [separator, {
-                text: permissions,
-                tone: permissionsTone(approvalMode),
-            } as TuiStatusChunk]
-            : []),
+        muted(thinking),
     ];
     const rowWidth = (chunks: readonly TuiStatusChunk[]): number =>
         chunks.reduce((total, chunk) => total + chunk.text.length, 0);
-    let first: TuiStatusChunk[] = [...attention(true), ...afterAttention];
+    // Without a width there is no room to pad against, so the two ends read as
+    // one sentence instead.
+    const gap = (lead: readonly TuiStatusChunk[]): TuiStatusChunk[] => {
+        if (width === undefined) return [separator];
+        const room = width - rowWidth(lead) - rowWidth(right);
+        return room < 3 ? [separator] : [muted(" ".repeat(room))];
+    };
+    const row = (hint: boolean): TuiStatusChunk[] => {
+        const lead = [...attention(hint), ...left];
+        return [...lead, ...gap(lead), ...right];
+    };
+    let first = row(true);
     if (width !== undefined && needsYou > 0 && rowWidth(first) > width) {
-        first = [...attention(false), ...afterAttention];
+        first = row(false);
     }
     const second: TuiStatusChunk[] = [
         muted(compactWorkspace(workspace)),

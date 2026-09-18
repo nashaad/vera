@@ -27,7 +27,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         await session.waitForVisiblePane("Start a conversation");
         // In-process input is faster than tmux keystrokes were, so give the
         // settings row the beat it needs before the overlay covers it.
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("test · high");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("This conversation");
@@ -52,7 +52,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         expect(pane).toContain("press v");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
-        expect(pane).toContain("test · HIGH");
+        expect(pane).toContain("test · high");
 
         session.sendKey("C-p");
         await session.settle(100);
@@ -351,7 +351,7 @@ test("inspect health stays idle until v and reports red with no selected model",
     });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("test · high");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         await session.waitForVisiblePane("This conversation");

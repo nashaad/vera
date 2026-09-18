@@ -2591,7 +2591,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         state.effortSubstitution,
-    )).toContain("HIGH (ASKED LOW)");
+    )).toContain("high (asked low)");
 
     // The stored setting is untouched: the line reports, it does not change.
     expect(state.modelSettings?.reasoningEffort).toBe("low");
@@ -2608,7 +2608,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         none.effortSubstitution,
-    )).toContain("NONE (ASKED LOW)");
+    )).toContain("none (asked low)");
 
     // A different model is a different question, so the evidence is dropped.
     const moved = applyAgentUpdate(state, settingsUpdate({
@@ -2623,7 +2623,7 @@ test("the status line reports the level a turn ran at beside the one asked for",
         "/workspace",
         0,
         moved.effortSubstitution,
-    )).toContain("LOW ·");
+    )).toContain("· low");
 });
 
 test("the same substitution is announced once, and again when it changes", () => {
