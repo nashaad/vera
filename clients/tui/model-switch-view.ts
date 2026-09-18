@@ -141,7 +141,8 @@ export function renderModelSwitch(
     const focusedAction = state.modelFocus === "filters" ? "filter and sort"
         : state.modelFocus === "providers" ? "connect provider" : "manage models";
     const hint = state.modelFocus === "search" ? "Type to search · ←→ cursor"
-        : state.modelFocus === "list" ? "↑↓ choose · ⏎ switch model · Space fold/unfold"
+        : state.modelFocus === "list"
+        ? `↑↓ choose · ⏎ ${selected?.pooledRank === undefined ? "favorite" : "unfavorite"} · Space fold/unfold`
         : `⏎ ${focusedAction}`;
     const navigation = [
         `Ctrl+G favorites/all · Ctrl+K ${selected?.model === undefined ? "manage models" : "manage highlighted model"} · Tab sections · Esc back`,
