@@ -1096,3 +1096,20 @@ test.each([24, 36])("filter dialog explains the score beside its slider at %s ro
         expect(view.box.screenY + view.box.height).toBeLessThanOrEqual(height);
     } finally { setup.renderer.destroy(); }
 });
+
+test("the header carries the scope toggle next to the scope it changes", async () => {
+    const setup = await createTestRenderer({ width: 120, height: 30 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface); view.surface.visible = true;
+    try {
+        view.update(modelBrowse(base, "browse")); await setup.renderOnce();
+        const header = setup.captureCharFrame().split("\n")
+            .find((line) => line.includes("Browse models ·"))!;
+        expect(header).toContain("^g scope");
+        view.update({ ...modelBrowse(base, "browse"), query: "alp", queryCursor: 3 });
+        await setup.renderOnce();
+        const searching = setup.captureCharFrame().split("\n")
+            .find((line) => line.includes("Browse models ·"))!;
+        expect(searching).not.toContain("^g scope");
+    } finally { setup.renderer.destroy(); }
+});

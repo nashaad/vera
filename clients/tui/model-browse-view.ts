@@ -77,7 +77,9 @@ export function renderModelBrowse(
         add(dialogActionRow(renderer, label, active, section === "view", () => onAction?.(section)));
     };
     const scope = state.query.trim() ? "Search all connected models" : state.tab === "all" ? "All connected models" : "Favorites";
-    add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`));
+    // ^g is the only way to change scope, so it belongs next to the scope it changes.
+    const scopeHint = state.query.trim() ? "esc" : "^g scope · esc";
+    add(dialogHeaderNode(renderer, `${state.title ?? "Switch model"} · ${scope}`, scopeHint));
     if (search !== undefined) {
         updateDialogSearchNode(search, state.query, "Search models", true, state.queryCursor);
         search.box.marginTop = 1;
