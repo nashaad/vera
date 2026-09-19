@@ -1,4 +1,3 @@
-export const MAX_AGENT_DEPTH = 1;
 export const DEFAULT_MAX_CONCURRENT_CHILD_AGENTS = 4;
 
 export function validChildAgentLimit(value: number): number {
