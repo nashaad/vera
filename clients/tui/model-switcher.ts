@@ -590,14 +590,22 @@ function emptyMessage(state: TuiModelSwitcherState): string {
         : "No models match that search. /models adds a provider.";
 }
 
-/** Two providers can serve a model under one name; the provider tells them apart. */
+/** Two providers can serve one model under different spellings; the provider tells them apart. */
 export function switcherRowLabel(
     state: TuiModelSwitcherState,
     row: TuiModelSwitcherRow,
 ): string {
+    const name = comparableModelName(row.label);
     const shared = state.allRows.some((other) =>
-        other.label === row.label && other.provider !== row.provider);
+        other.provider !== row.provider && comparableModelName(other.label) === name);
     return shared ? `${row.label} (${row.providerLabel ?? row.provider})` : row.label;
+}
+
+/** "OpenAI: GPT-5.6 Luna" and "GPT-5.6-Luna" compare equal. */
+function comparableModelName(label: string): string {
+    const vendor = label.indexOf(": ");
+    const name = vendor === -1 ? label : label.slice(vendor + 2);
+    return name.toLowerCase().replace(/[\s_-]+/g, "");
 }
 
 /** The bar marks the cursor, so the check has to mark the current model on its own. */
