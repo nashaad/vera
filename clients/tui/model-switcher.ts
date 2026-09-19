@@ -507,8 +507,10 @@ export function createTuiModelSwitcherView(
             for (
                 const node of dialogOptionRows(renderer, display.map((entry) => {
                     const meta = rowMeta(state, entry.row);
+                    const provider = switcherRowProvider(state, entry.row);
                     return {
-                        label: switcherRowLabel(entry.row),
+                        label: entry.row.label,
+                        ...(provider === undefined ? {} : { description: `· ${provider}` }),
                         ...(meta === undefined ? {} : { meta }),
                         active: entry.index === state.selectedIndex,
                         current: modelSwitcherKey(entry.row) === state.current,
@@ -590,9 +592,20 @@ function emptyMessage(state: TuiModelSwitcherState): string {
         : "No models match that search. /models adds a provider.";
 }
 
-/** Every row names its provider, so a subscription and a paid route never look alike. */
-export function switcherRowLabel(row: TuiModelSwitcherRow): string {
-    return `${row.label} (${row.providerLabel ?? row.provider})`;
+/** A model listed twice names its provider on each row; catalogs spell names differently, so compare ids. */
+export function switcherRowProvider(
+    state: TuiModelSwitcherState,
+    row: TuiModelSwitcherRow,
+): string | undefined {
+    const id = bareModelId(row.model);
+    const listedTwice = state.rows.some((other) =>
+        other.provider !== row.provider && bareModelId(other.model) === id);
+    return listedTwice ? row.providerLabel ?? row.provider : undefined;
+}
+
+/** "openai/gpt-5.6-luna" and "gpt-5.6-luna" are one model. */
+function bareModelId(model: string): string {
+    return (model.split("/").pop() ?? model).toLowerCase();
 }
 
 /** The bar marks the cursor, so the check has to mark the current model on its own. */
