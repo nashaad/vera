@@ -13,7 +13,7 @@ import {
     switcherEmptyMessage,
     searchedTuiModelSwitcher,
     switcherFooterText,
-    switcherRowLabel,
+    switcherRowProvider,
     switcherStop,
     type TuiModelSwitcherRow,
 } from "../../clients/tui/model-switcher.ts";
@@ -418,15 +418,22 @@ describe("model switcher rendering", () => {
     });
 });
 
-test("every row names its provider", () => {
-    const state = startTuiModelSwitcher([
+test("only a model listed more than once names its provider", () => {
+    const allRows = [
         { provider: "openai-codex", model: "gpt-5.6-luna", label: "GPT-5.6-Luna" },
         { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna" },
-        { provider: "digitalocean", model: "kimi-k3", label: "kimi-k3" },
-    ]);
-    expect(state.allRows.map(switcherRowLabel)).toEqual([
-        "GPT-5.6-Luna (openai-codex)",
-        "OpenAI: GPT-5.6 Luna (openrouter)",
-        "kimi-k3 (digitalocean)",
-    ]);
+        { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    ];
+    const state = { ...startTuiModelSwitcher(allRows), rows: allRows };
+    expect(allRows.map((row) => switcherRowProvider(state, row)))
+        .toEqual(["openai-codex", "openrouter", undefined]);
+});
+
+test("a twin left off the list does not count", () => {
+    const allRows = [
+        { provider: "deepseek", model: "deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+        { provider: "openrouter", model: "deepseek/deepseek-v4-pro", label: "DeepSeek: DeepSeek V4 Pro" },
+    ];
+    const state = { ...startTuiModelSwitcher(allRows), rows: allRows.slice(0, 1) };
+    expect(switcherRowProvider(state, allRows[0]!)).toBeUndefined();
 });
