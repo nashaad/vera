@@ -143,7 +143,7 @@ test("the switcher's favorite runs the admission in the transcript", async () =>
         await session.waitForVisiblePane("Kept in your favorites");
         const kept = await session.waitForVisiblePane("Ctrl+F unfavorite");
         // The row is a favorite now, and it is still the current model.
-        expect(kept).toMatch(/One\s+✓/);
+        expect(kept).toMatch(/One \(openrouter\)\s+✓/);
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(
             (pane) => !pane.includes("Switch model"),
