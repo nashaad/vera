@@ -50,8 +50,8 @@ test("two providers serving one name are told apart", async () => {
     const session = await openSwitcherOnHome([]);
     try {
         const pane = session.captureVisiblePane();
-        expect(pane).toMatch(/tiny\s+· local\s/);
-        expect(pane).toMatch(/tiny\s+· local_t1/);
+        expect(pane).toContain("tiny · local ");
+        expect(pane).toContain("tiny · local_t1");
     } finally { await session.close(); }
 }, 15_000);
 

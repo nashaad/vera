@@ -510,7 +510,7 @@ export function createTuiModelSwitcherView(
                     const provider = switcherRowProvider(state, entry.row);
                     return {
                         label: entry.row.label,
-                        ...(provider === undefined ? {} : { description: `· ${provider}` }),
+                        ...(provider === undefined ? {} : { note: `· ${provider}` }),
                         ...(meta === undefined ? {} : { meta }),
                         active: entry.index === state.selectedIndex,
                         current: modelSwitcherKey(entry.row) === state.current,

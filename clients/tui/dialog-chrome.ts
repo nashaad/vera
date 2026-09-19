@@ -315,6 +315,8 @@ export interface DialogRowContent {
     readonly spaced?: boolean;
     readonly marker?: string;
     readonly description?: string;
+    /** Muted text right after the label, inside the label column rather than aligned past it. */
+    readonly note?: string;
     readonly emphasis?: { readonly start: number; readonly length: number };
     readonly meta?: DialogMeta;
     readonly active: boolean;
@@ -425,7 +427,7 @@ export function dialogOptionRows(
     const inline = contents.filter((content) => content.card !== true);
     const widestLabel = Math.max(
         0,
-        ...inline.map((content) => content.label.length),
+        ...inline.map((content) => labelWithNote(content).length),
     );
     const widestMeta = Math.max(
         0,
@@ -465,9 +467,13 @@ export function dialogOptionRows(
                     }),
             });
         }
+        const fitted = clipped(labelWithNote(content), labelWidth).padEnd(labelWidth);
+        const labelEnd = Math.min(content.label.length, fitted.length);
+        const notePart = fitted.slice(labelEnd);
         return dialogOptionRow(renderer, {
             ...content,
-            label: clipped(content.label, labelWidth).padEnd(labelWidth),
+            label: content.note === undefined ? fitted : fitted.slice(0, labelEnd),
+            ...(content.note === undefined ? {} : { note: notePart }),
             ...(budget === undefined || budget < DESCRIPTION_MINIMUM
                     || content.description === undefined
                 ? {}
@@ -477,6 +483,10 @@ export function dialogOptionRows(
             }),
         });
     });
+}
+
+function labelWithNote(content: DialogRowContent): string {
+    return content.note === undefined ? content.label : `${content.label} ${content.note}`;
 }
 
 function clippedMeta(
@@ -614,6 +624,9 @@ export function dialogOptionRow(
         label,
         content.emphasis,
     );
+    if (content.note !== undefined) {
+        labelChunks.push(fg(detail)(content.note));
+    }
     if (content.description !== undefined) {
         labelChunks.push(fg(detail)(`  ${content.description}`));
     }
