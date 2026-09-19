@@ -1,8 +1,0 @@
-{
-    "id": "example.reminders",
-    "version": "0.1.0",
-    "sdk": "1",
-    "entrypoint": "extension.ts",
-    "capabilities": ["hooks.post_tool_use"],
-    "contributes": {}
-}
