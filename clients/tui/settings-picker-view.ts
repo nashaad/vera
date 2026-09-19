@@ -4,17 +4,16 @@ import { setModelFilterCutoff } from "./model-browse.ts";
 import { renderModelBrowse, modelBrowseRows } from "./model-browse-view.ts";
 import { extensionPickerButtons, renderExtensionPicker } from "./extension-picker-view.ts";
 import { handleVerificationKey } from "./model-verification.ts";
+import { screenPickerKey } from "./settings-picker-keys.ts";
 import { renderTuiActivityAnimation } from "./activity-pulse.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { localRuntimeStatusLines } from "./local-runtime-status.ts";
-import { SESSION_LEAVE_OPTIONS, TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
+import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
 import {
     handleSessionPreviewKey,
-    isSessionSpaceKey,
     scrolledSessionPreview,
     sessionPickerOwnsKey,
     sessionPreviewWindow,
-    startSessionPreview,
 } from "./session-preview.ts";
 import { emptyModelBrowse, handleModelBrowseKey, handleModelBrowseMenuKey, browseHeader, browseFooter, browseMoreText, browseWindow, browseModels, browseScopeOptions, browseSort, browseSortOptions } from "./model-browse.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
@@ -32,7 +31,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { formatBlendedRate, formatListedPrice, formatListedRates } from "../../src/model/listed-rates.ts";
-import { INTELLIGENCE_CUTOFFS, stepIntelligenceCutoff, type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
+import { INTELLIGENCE_CUTOFFS, type IntelligenceCutoff } from "../../src/model/intelligence-cutoff.ts";
 import {
     isVeraProviderId,
     type VeraCustomProviderConfig,
@@ -118,14 +117,12 @@ import {
     modelActionCursor,
     modelActionLineChunks,
     modelActionTransition,
-    modelDetailActionTransition,
     modelDetailActions,
     modelDetailHeight,
     modelDetailNode,
     modelEmptyMessage,
     modelListAction,
     modelListActionLineChunks,
-    modelListActionTransition,
     modelListFor,
     modelOptionCanVerify,
     modelPageActions,
@@ -139,9 +136,7 @@ import {
     pickerContentWidth,
     pickerIsSearchable,
     pickerSelection,
-    restoredCursor,
     searched,
-    sectionLabels,
     showsAllModelsPrices,
     showsIntelligenceCutoff,
     showsListedFactsHeader,
@@ -282,41 +277,6 @@ export function handleTuiSettingsPickerKey(
             return handleTuiSettingsPickerKey(repaired, key, viewportRows);
         }
     }
-    if (
-        state.kind === "session"
-        && tuiBindingId("session_picker", key) === "rename_session"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        return selected?.sessionId === undefined
-            ? unchanged(state, true)
-            : {
-                state,
-                renameCandidate: {
-                    sessionId: selected.sessionId,
-                    label: selected.label,
-                    ...(selected.sessionName === undefined
-                        ? {}
-                        : { value: selected.sessionName }),
-                },
-                handled: true,
-            };
-    }
-    if (
-        state.kind === "session"
-        && tuiBindingId("session_picker", key) === "trash_session"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        return selected?.sessionId === undefined
-            ? unchanged(state, true)
-            : {
-                state,
-                trashCandidate: {
-                    sessionId: selected.sessionId,
-                    label: selected.label,
-                },
-                handled: true,
-            };
-    }
     const previewKey = handleSessionPreviewKey(state, key, viewportRows);
     if (state.kind === "session_preview") {
         if (previewKey !== undefined) return previewKey;
@@ -331,504 +291,8 @@ export function handleTuiSettingsPickerKey(
             );
         }
     }
-    if (state.kind === "session_leave") {
-        if (key.ctrl || key.meta || key.super || key.hyper) {
-            return unchanged(state, false);
-        }
-        if (key.name === "escape") {
-            return { state: state.parent, handled: true };
-        }
-        if (key.name === "up" || key.name === "down") {
-            return {
-                state: {
-                    ...state,
-                    selectedIndex: Math.max(0, Math.min(
-                        state.options.length - 1,
-                        state.selectedIndex + (key.name === "up" ? -1 : 1),
-                    )),
-                },
-                handled: true,
-            };
-        }
-        const choice = state.options[state.selectedIndex];
-        const target = state.parent?.options[state.parent.selectedIndex];
-        if (
-            (key.name === "return" || key.name === "enter")
-            && choice !== undefined
-            && target !== undefined
-        ) {
-            return {
-                selection: {
-                    kind: "session",
-                    sessionPath: target.value,
-                    sourceDisposition: choice.value === "keep_running"
-                        ? "keep_running"
-                        : "stop",
-                    ...(target.sessionId === undefined
-                        ? {}
-                        : { sessionId: target.sessionId }),
-                },
-                handled: true,
-            };
-        }
-        return unchanged(state, true);
-    }
-    if (state.kind === "session_create_leave") {
-        if (key.ctrl || key.meta || key.super || key.hyper) {
-            return unchanged(state, false);
-        }
-        if (key.name === "escape") {
-            return { handled: true };
-        }
-        if (key.name === "up" || key.name === "down") {
-            return {
-                state: {
-                    ...state,
-                    ignoreEnter: false,
-                    selectedIndex: Math.max(0, Math.min(
-                        state.options.length - 1,
-                        state.selectedIndex + (key.name === "up" ? -1 : 1),
-                    )),
-                },
-                handled: true,
-            };
-        }
-        const choice = state.options[state.selectedIndex];
-        if (
-            (key.name === "return" || key.name === "enter")
-            && choice !== undefined
-        ) {
-            if (state.ignoreEnter === true) {
-                return {
-                    state: { ...state, ignoreEnter: false },
-                    handled: true,
-                };
-            }
-            return {
-                selection: {
-                    kind: "session_create_leave",
-                    sourceDisposition: choice.value === "keep_running"
-                        ? "keep_running"
-                        : "stop",
-                },
-                handled: true,
-            };
-        }
-        return unchanged(state, true);
-    }
-    if (
-        state.kind === "session_import"
-        && tuiBindingId("import_picker", key) === "import_scope"
-    ) {
-        return {
-            state,
-            importScope: state.importScope === "all" ? "folder" : "all",
-            handled: true,
-        };
-    }
-    if (state.kind === "session" && isTuiDialTabKey(key)) {
-        return unchanged(state, true);
-    }
-    if (
-        state.kind === "session"
-        && (key.name === "return" || key.name === "enter")
-        && !key.ctrl && !key.meta
-        && state.nothingToLeave !== true
-        && state.enterDisposition !== "keep_running"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (
-            selected !== undefined
-            && selected.section === undefined
-            && selected.current !== true
-        ) {
-            return {
-                state: {
-                    kind: "session_leave",
-                    title: `Switch to ${selected.label}`,
-                    allOptions: SESSION_LEAVE_OPTIONS,
-                    options: SESSION_LEAVE_OPTIONS,
-                    selectedIndex: 0,
-                    query: "",
-                    parent: state,
-                },
-                handled: true,
-            };
-        }
-    }
-    if (
-        state.kind === "session"
-        && sessionPickerOwnsKey(state, key)
-        && isSessionSpaceKey(key)
-    ) {
-        const selected = state.options[state.selectedIndex];
-        return selected?.sessionId === undefined
-            ? unchanged(state, true)
-            : startSessionPreview(state, selected);
-    }
-    if (
-        state.kind === "model_assignment"
-        && state.modelAssignment === "subagents"
-        && tuiBindingId("model_assignment_picker", key)
-            === "toggle_subagent_assignment"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (
-            selected === undefined
-            || selected.value === REVIEWER_CLEAR_VALUE
-            || selected.value === MODEL_ASSIGNMENT_BROWSE_VALUE
-        ) {
-            return unchanged(state, true);
-        }
-        return {
-            state,
-            selection: {
-                ...pickerSelection(state, selected),
-                ...(state.assignedModels?.includes(selected.value) === true
-                    || selected.value === MODEL_ASSIGNMENT_SELF_VALUE
-                    ? {}
-                    : { acceptDefaultReasoning: true as const }),
-            },
-            handled: true,
-        };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "toggle_pooled"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (selected?.provider === undefined || selected.model === undefined) {
-            return unchanged(state, true);
-        }
-        return {
-            state,
-            handled: true,
-            poolToggle: {
-                action: isPooled(state, selected) ? "remove" : "add",
-                provider: selected.provider,
-                model: selected.model,
-            },
-        };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "undo_pool_change"
-    ) {
-        return state.canUndoPoolChange === true
-            ? { state, handled: true, undoPoolChange: true }
-            : unchanged(state, true);
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "name_pooled"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (
-            selected?.provider === undefined || selected.model === undefined
-            || !isPooled(state, selected)
-        ) {
-            return unchanged(state, true);
-        }
-        return {
-            state,
-            handled: true,
-            poolName: {
-                provider: selected.provider,
-                model: selected.model,
-                label: selected.label,
-            },
-        };
-    }
-    if (
-        state.kind === "model"
-        && (tuiBindingId("model_picker", key) === "move_pooled_up"
-            || tuiBindingId("model_picker", key) === "move_pooled_down")
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (
-            selected?.provider === undefined || selected.model === undefined
-            || !isPooled(state, selected)
-        ) {
-            return unchanged(state, true);
-        }
-        return {
-            state,
-            handled: true,
-            poolMove: {
-                provider: selected.provider,
-                model: selected.model,
-                delta: tuiBindingId("model_picker", key) === "move_pooled_up"
-                    ? -1
-                    : 1,
-            },
-        };
-    }
-    if (
-        (state.kind === "model" || state.kind === "provider")
-        && tuiBindingId("model_picker", key) === "refresh_catalog"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        const provider = state.kind === "provider"
-            ? (selected?.action === true ? undefined : selected?.value)
-            : selected?.provider;
-        if (provider === undefined || selected?.refreshable !== true) {
-            return unchanged(state, true);
-        }
-        return { state, handled: true, refreshCatalog: provider };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "verify_pool"
-    ) {
-        return { state, handled: true, poolVerifySweep: true };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "verify_model"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (selected?.provider === undefined || selected.model === undefined) {
-            return unchanged(state, true);
-        }
-        return {
-            state,
-            handled: true,
-            poolVerify: {
-                provider: selected.provider,
-                model: selected.model,
-            },
-        };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "reveal_all_models"
-    ) {
-        const modelState = state as TuiSettingsPickerState;
-        const revealAll = modelState.revealAll !== true;
-        const options = modelListFor(modelState, { revealAll });
-        const selectedValue = modelState.options[modelState.selectedIndex]
-            ?.value;
-        return {
-            state: {
-                ...modelState,
-                revealAll,
-                options,
-                selectedIndex: restoredCursor(
-                    options,
-                    selectedValue,
-                    modelState.initialModel,
-                ),
-            },
-            handled: true,
-        };
-    }
-    if (
-        state.kind === "model"
-        && tuiBindingId("model_picker", key) === "open_providers"
-    ) {
-        return { state, handled: true, openProviders: true };
-    }
-    if (
-        state.kind === "provider"
-        && tuiBindingId("model_picker", key) === "declare_provider"
-    ) {
-        return { state, handled: true, declareProvider: true };
-    }
-    if (
-        state.kind === "provider"
-        && tuiBindingId("model_picker", key) === "edit_endpoint"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (selected?.endpointEditable !== true) {
-            return unchanged(state, true);
-        }
-        return selected.declared === true
-            ? { state, handled: true, editProvider: selected.value }
-            : { state, handled: true, editEndpoint: selected.value };
-    }
-    if (
-        state.kind === "provider"
-        && tuiBindingId("model_picker", key) === "forget_provider"
-    ) {
-        const selected = state.options[state.selectedIndex];
-        if (selected === undefined || selected.action === true) {
-            return unchanged(state, true);
-        }
-        return { state, handled: true, forgetProvider: selected.value };
-    }
-    if (state.kind === "model" && state.modelFocus === "page") {
-        const actions = modelPageActions(state);
-        const selected = Math.min(
-            state.modelPageIndex ?? 0,
-            Math.max(0, actions.length - 1),
-        );
-        if (key.name === "left" || key.name === "escape") {
-            return {
-                state: { ...state, modelFocus: "page_entry" },
-                handled: true,
-            };
-        }
-        if (key.name === "up" || key.name === "down") {
-            const delta = key.name === "up" ? -1 : 1;
-            return {
-                state: {
-                    ...state,
-                    modelPageIndex: Math.max(
-                        0,
-                        Math.min(actions.length - 1, selected + delta),
-                    ),
-                },
-                handled: true,
-            };
-        }
-        if (key.name === "return" || key.name === "enter") {
-            const transition = modelActionTransition(state, actions[selected]!);
-            return transition ?? unchanged(state, true);
-        }
-        if (key.name === "right") {
-            return unchanged(state, true);
-        }
-        if ((key.name.length === 1 || key.name === "space") && !key.ctrl) {
-            return unchanged(state, true);
-        }
-    }
-    if (state.kind === "model" && state.modelFocus === "page_entry") {
-        if (
-            key.name === "right" || key.name === "return"
-            || key.name === "enter"
-        ) {
-            return modelPageActions(state).length === 0
-                ? unchanged(state, true)
-                : {
-                    state: { ...state, modelFocus: "page", modelPageIndex: 0 },
-                    handled: true,
-                };
-        }
-        if (key.name === "up" || key.name === "down" || key.name === "left") {
-            // The More button is a section of its own; tab is what leaves it.
-            return unchanged(state, true);
-        }
-    }
-    if (state.kind === "model" && state.modelFocus === "intelligence") {
-        if (key.name === "left" || key.name === "right") {
-            const intelligenceCutoff = stepIntelligenceCutoff(
-                state.intelligenceCutoff ?? "any",
-                key.name === "right" ? 1 : -1,
-            );
-            const options = modelListFor(state, { intelligenceCutoff });
-            return {
-                state: {
-                    ...state,
-                    intelligenceCutoff,
-                    options,
-                    selectedIndex: restoredCursor(
-                        options,
-                        state.options[state.selectedIndex]?.value,
-                        state.initialModel,
-                    ),
-                },
-                handled: true,
-            };
-        }
-        if (key.name === "up" || key.name === "down") {
-            // Left and right are the cutoff's own keys; up and down would be
-            // leaving the section, which is tab's job.
-            return unchanged(state, true);
-        }
-    }
-    if (state.kind === "model" && state.modelFocus === "detail") {
-        const actions = modelDetailActions(
-            state,
-            state.options[state.selectedIndex],
-        );
-        const selectedAction = modelActionCursor(state, actions);
-        if (key.name === "left") {
-            return {
-                state: { ...state, modelFocus: "list" },
-                handled: true,
-            };
-        }
-        if (key.name === "right") {
-            return unchanged(state, true);
-        }
-        if (key.name === "up" || key.name === "down") {
-            const delta = key.name === "up" ? -1 : 1;
-            return {
-                state: {
-                    ...state,
-                    modelActionIndex: Math.max(
-                        0,
-                        Math.min(actions.length - 1, selectedAction + delta),
-                    ),
-                },
-                handled: true,
-            };
-        }
-        if (key.name === "return" || key.name === "enter") {
-            return modelDetailActionTransition(state, actions[selectedAction]);
-        }
-        if ((key.name.length === 1 || key.name === "space") && !key.ctrl) {
-            return unchanged(state, true);
-        }
-    }
-    if (state.kind === "model" && state.modelFocus === "list_action") {
-        if (key.name === "up") {
-            return {
-                state: { ...state, modelFocus: "list" },
-                handled: true,
-            };
-        }
-        if (key.name === "down" || key.name === "left") {
-            return unchanged(state, true);
-        }
-        if (key.name === "right") {
-            const actions = modelDetailActions(
-                state,
-                state.options[state.selectedIndex],
-            );
-            return actions.length === 0
-                ? unchanged(state, true)
-                : {
-                    state: {
-                        ...state,
-                        modelFocus: "detail",
-                        modelActionIndex: 0,
-                    },
-                    handled: true,
-                };
-        }
-        if (key.name === "return" || key.name === "enter") {
-            return modelListActionTransition(state, modelListAction(state));
-        }
-        if ((key.name.length === 1 || key.name === "space") && !key.ctrl) {
-            return unchanged(state, true);
-        }
-    }
-    const foldAll = state.kind !== "model"
-        ? undefined
-        : tuiBindingId("model_picker", key);
-    if (foldAll === "collapse_all" || foldAll === "expand_all") {
-        const collapsed = foldAll === "collapse_all"
-            ? sectionLabels(state as TuiSettingsPickerState)
-            : [];
-        const modelState = state as TuiSettingsPickerState;
-        const options = modelListFor(modelState, { collapsed });
-        const selectedValue = modelState.options[modelState.selectedIndex]
-            ?.value;
-        return {
-            state: {
-                ...modelState,
-                collapsed,
-                options,
-                selectedIndex: restoredCursor(
-                    options,
-                    selectedValue,
-                    modelState.initialModel,
-                ),
-            },
-            handled: true,
-        };
-    }
+    const screen = screenPickerKey(state, key);
+    if (screen !== undefined) return screen;
     const halfPage = tuiBindingId("picker", key);
     if (halfPage === "half_page_down" || halfPage === "half_page_up") {
         const next = {
@@ -870,13 +334,6 @@ export function handleTuiSettingsPickerKey(
             selection: pickerSelection(state, selected),
             handled: true,
         };
-    }
-    if (
-        state.kind === "model_assignment"
-        && state.modelAssignment === "subagents"
-        && (key.name.length === 1 || key.name === "space")
-    ) {
-        return unchanged(state, true);
     }
     if (key.name.length === 1 || key.name === "space") {
         return unchanged(state, true);
@@ -1422,6 +879,72 @@ function renderSessionPreview(
     box.height = "auto";
 }
 
+function renderModelMenu(
+    renderer: RenderContext,
+    box: BoxRenderable,
+    state: TuiSettingsPickerState,
+    nodes: Renderable[],
+    pointer?: DialogRowPointer,
+    onCutoff?: (cutoff?: IntelligenceCutoff) => void,
+): void {
+    const add = (node: Renderable) => { box.add(node); nodes.push(node); };
+    const menuWidth = Math.min(64, Math.max(1, renderer.width - 4));
+    box.width = menuWidth;
+    box.height = "auto";
+    add(dialogHeaderNode(renderer, state.title ?? "More"));
+    const contentWidth = Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2);
+    const subtitle = state.subtitle ? clippedToWidth(state.subtitle, contentWidth * 3) : "";
+    const subtitleRows = Math.ceil(Bun.stringWidth(subtitle) / contentWidth);
+    if (subtitle) add(new TextRenderable(renderer, {
+        content: subtitle, width: "100%", height: subtitleRows, wrapMode: "char",
+        selectable: false, fg: TUI_TEXT, marginTop: 1,
+    }));
+    const helper = state.title === "Manage models" ? state.options[state.selectedIndex]?.description : undefined;
+    const helperRows = helper ? 2 : 0;
+    const rowHeight = renderer.width < 64 ? 2 : 1;
+    const hasSlider = state.options.some((option) => option.value === "cutoff");
+    const hasClear = state.options.some((option) => option.value === "clear_filters");
+    const scoreHelp = hasSlider ? wrappedTo(
+        "WA Score: WebDev Arena (LMArena) Elo rating from blind votes on generated web apps. Higher is better. A cutoff hides lower and unscored models.",
+        contentWidth,
+    ) : [];
+    const menuRows = Math.max(1, Math.floor((renderer.height - 13 - (hasSlider ? 3 : 0) - (hasClear ? 1 : 0)
+        - (subtitleRows ? subtitleRows + 1 : 0) - helperRows - scoreHelp.length - (hasSlider ? 1 : 0)) / rowHeight));
+    const visible = listWindowSlice(state.options.map((option, index) => ({ option, index })), state.selectedIndex, menuRows);
+    visible.forEach(({ option, index }, position) => {
+        const active = state.selectedIndex === index;
+        const separator = state.title === "Filter and sort" ? option.label.indexOf(": ") : -1;
+        const content = !active && separator >= 0 ? new StyledText([
+            fg(TUI_MUTED)(option.label.slice(0, separator + 2)),
+            fg(TUI_TEXT)(option.label.slice(separator + 2)),
+        ]) : option.label;
+        const targetAction = state.title === "Manage models" && option.value === "library" && subtitleRows > 0;
+        const afterTarget = state.title === "Manage models" && visible[position - 1]?.option.value === "library";
+        const marginTop = targetAction ? 0 : position === 0 || option.value === "clear_filters" || afterTarget ? 1 : 0;
+        const row = new TextRenderable(renderer, {
+            content, width: "100%", height: rowHeight, overflow: "hidden", marginTop,
+            selectable: false, fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
+            bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
+        });
+        attachDialogRowPointer(row, pointer, index);
+        add(row);
+        if (option.value === "cutoff") {
+            for (const node of intelligenceScaleNodes(renderer, Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2),
+                state.parent?.intelligenceCutoff ?? "any", active, onCutoff)) add(node);
+            add(new TextRenderable(renderer, {
+                content: scoreHelp.join("\n"), width: "100%", height: scoreHelp.length,
+                selectable: true, fg: TUI_MUTED, marginTop: 1,
+            }));
+        }
+    });
+    if (helper) add(new TextRenderable(renderer, {
+        content: clippedToWidth(helper, contentWidth), width: "100%", height: 1,
+        selectable: false, fg: TUI_MUTED, marginTop: 1,
+    }));
+    add(dialogFooterNode(renderer, state.options[state.selectedIndex]?.value === "cutoff"
+        ? "←→ cutoff · ↑↓ choose · esc back" : "↑↓ choose · ⏎ select · esc back"));
+}
+
 export function renderListPickerRows(
     renderer: RenderContext,
     box: BoxRenderable,
@@ -1453,62 +976,7 @@ export function renderListPickerRows(
         return;
     }
     if (state.kind === "model_menu") {
-        const add = (node: Renderable) => { box.add(node); nodes.push(node); };
-        const menuWidth = Math.min(64, Math.max(1, renderer.width - 4));
-        box.width = menuWidth;
-        box.height = "auto";
-        add(dialogHeaderNode(renderer, state.title ?? "More"));
-        const contentWidth = Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2);
-        const subtitle = state.subtitle ? clippedToWidth(state.subtitle, contentWidth * 3) : "";
-        const subtitleRows = Math.ceil(Bun.stringWidth(subtitle) / contentWidth);
-        if (subtitle) add(new TextRenderable(renderer, {
-            content: subtitle, width: "100%", height: subtitleRows, wrapMode: "char",
-            selectable: false, fg: TUI_TEXT, marginTop: 1,
-        }));
-        const helper = state.title === "Manage models" ? state.options[state.selectedIndex]?.description : undefined;
-        const helperRows = helper ? 2 : 0;
-        const rowHeight = renderer.width < 64 ? 2 : 1;
-        const hasSlider = state.options.some((option) => option.value === "cutoff");
-        const hasClear = state.options.some((option) => option.value === "clear_filters");
-        const scoreHelp = hasSlider ? wrappedTo(
-            "WA Score: WebDev Arena (LMArena) Elo rating from blind votes on generated web apps. Higher is better. A cutoff hides lower and unscored models.",
-            contentWidth,
-        ) : [];
-        const menuRows = Math.max(1, Math.floor((renderer.height - 13 - (hasSlider ? 3 : 0) - (hasClear ? 1 : 0)
-            - (subtitleRows ? subtitleRows + 1 : 0) - helperRows - scoreHelp.length - (hasSlider ? 1 : 0)) / rowHeight));
-        const visible = listWindowSlice(state.options.map((option, index) => ({ option, index })), state.selectedIndex, menuRows);
-        visible.forEach(({ option, index }, position) => {
-            const active = state.selectedIndex === index;
-            const separator = state.title === "Filter and sort" ? option.label.indexOf(": ") : -1;
-            const content = !active && separator >= 0 ? new StyledText([
-                fg(TUI_MUTED)(option.label.slice(0, separator + 2)),
-                fg(TUI_TEXT)(option.label.slice(separator + 2)),
-            ]) : option.label;
-            const targetAction = state.title === "Manage models" && option.value === "library" && subtitleRows > 0;
-            const afterTarget = state.title === "Manage models" && visible[position - 1]?.option.value === "library";
-            const marginTop = targetAction ? 0 : position === 0 || option.value === "clear_filters" || afterTarget ? 1 : 0;
-            const row = new TextRenderable(renderer, {
-                content, width: "100%", height: rowHeight, overflow: "hidden", marginTop,
-                selectable: false, fg: active ? TUI_SELECTION_TEXT : TUI_TEXT,
-                bg: active ? TUI_ACCENT : TUI_PANEL, attributes: active ? 1 : 0,
-            });
-            attachDialogRowPointer(row, pointer, index);
-            add(row);
-            if (option.value === "cutoff") {
-                for (const node of intelligenceScaleNodes(renderer, Math.max(1, menuWidth - DIALOG_CARD_PADDING * 2),
-                    state.parent?.intelligenceCutoff ?? "any", active, onCutoff)) add(node);
-                add(new TextRenderable(renderer, {
-                    content: scoreHelp.join("\n"), width: "100%", height: scoreHelp.length,
-                    selectable: true, fg: TUI_MUTED, marginTop: 1,
-                }));
-            }
-        });
-        if (helper) add(new TextRenderable(renderer, {
-            content: clippedToWidth(helper, contentWidth), width: "100%", height: 1,
-            selectable: false, fg: TUI_MUTED, marginTop: 1,
-        }));
-        add(dialogFooterNode(renderer, state.options[state.selectedIndex]?.value === "cutoff"
-            ? "←→ cutoff · ↑↓ choose · esc back" : "↑↓ choose · ⏎ select · esc back"));
+        renderModelMenu(renderer, box, state, nodes, pointer, onCutoff);
         return;
     }
     if (state.kind === "model" && state.modelBrowse !== undefined) {
