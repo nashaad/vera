@@ -10,6 +10,7 @@ import {
 } from "../../src/dev-instances.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
+import { waitForCheckoutRemoval } from "./checkout-watch.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
 import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
@@ -53,22 +54,31 @@ try {
 
 clearBootFailures();
 installLiveProcess("host");
-noteDevelopmentInstance();
+const developmentSource = noteDevelopmentInstance();
 const removeCrashGuard = installHostCrashGuard();
 await runResidentHostProcess(host, {
     stopAbsorbingFaults: removeCrashGuard,
+    waitForCheckoutRemoval: developmentSource === undefined
+        ? undefined
+        : () => waitForCheckoutRemoval(developmentSource),
 });
 
 /**
  * A candidate build gets its own home, so the homes outnumber the checkouts and
  * outlive them. The pointer is what a sweep reads to find them.
  */
-function noteDevelopmentInstance(): void {
+function noteDevelopmentInstance(): string | undefined {
+    let source: string;
     try {
-        const source = fileURLToPath(import.meta.url);
-        if (!processIsDevelopmentInstance(source)) return;
+        source = fileURLToPath(import.meta.url);
+        if (!processIsDevelopmentInstance(source)) return undefined;
+    } catch {
+        return undefined;
+    }
+    try {
         registerDevInstance({ source });
     } catch {
         // A home that cannot be pointed at still has to serve.
     }
+    return source;
 }

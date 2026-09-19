@@ -1,12 +1,13 @@
 import type { ResidentHost } from "../../src/host/runtime.ts";
 
-interface ShutdownSignalWait {
+export interface ShutdownSignalWait {
     readonly promise: Promise<void>;
     dispose(): void;
 }
 
 export interface ResidentHostProcessOptions {
     readonly waitForSignal?: () => ShutdownSignalWait;
+    readonly waitForCheckoutRemoval?: () => ShutdownSignalWait;
     readonly exit?: (code: number) => void;
     readonly stopAbsorbingFaults?: () => void;
 }
@@ -18,10 +19,16 @@ export async function runResidentHostProcess(
     options: ResidentHostProcessOptions = {},
 ): Promise<void> {
     const signal = (options.waitForSignal ?? waitForShutdownSignal)();
+    const checkout = options.waitForCheckoutRemoval?.();
     try {
-        await Promise.race([signal.promise, host.shutdownRequested]);
+        await Promise.race([
+            signal.promise,
+            host.shutdownRequested,
+            ...(checkout === undefined ? [] : [checkout.promise]),
+        ]);
     } finally {
         signal.dispose();
+        checkout?.dispose();
         options.stopAbsorbingFaults?.();
         try {
             await host.close();

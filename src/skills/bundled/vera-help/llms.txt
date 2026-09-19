@@ -32,7 +32,7 @@ Product behavior is defined by Vera's manual and feature contracts. Source code 
 
 ## Start, development, and upgrades [lines=8]
 Run `vera` for the installed daily Vera using `~/.vera`.
-Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host.
+Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted.
 Restarting the TUI does not run edited checkout code. Neither does `/reconnect` or `vera host stop`; they restart or replace processes and install nothing.
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.

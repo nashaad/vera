@@ -60,6 +60,37 @@ test("an OS shutdown signal closes before exiting the dedicated process", async 
     expect(order).toEqual(["disposed", "closed", "exited"]);
 });
 
+test("a removed checkout closes and exits a development host", async () => {
+    const removed = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: async () => {
+            order.push("closed");
+        },
+    }, {
+        waitForSignal: () => ({
+            promise: new Promise<void>(() => {}),
+            dispose: () => order.push("signal disposed"),
+        }),
+        waitForCheckoutRemoval: () => ({
+            promise: removed.promise,
+            dispose: () => order.push("watch disposed"),
+        }),
+        exit: (code) => order.push(`exited ${code}`),
+    });
+
+    removed.resolve();
+    await running;
+
+    expect(order).toEqual([
+        "signal disposed",
+        "watch disposed",
+        "closed",
+        "exited 0",
+    ]);
+});
+
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "protocol shutdown terminates the dedicated host process",
     async () => {
