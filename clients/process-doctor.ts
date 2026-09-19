@@ -263,27 +263,6 @@ export function stopStrayVeraProcesses(
     return stopped;
 }
 
-/** Unattended SIGKILL of leftovers. Launch must not call this. */
-export async function sweepStrayVeraProcesses(
-    options: Pick<
-        VeraDoctorOptions,
-        "runtimeDir" | "sampleIntervalMs" | "doctorPid"
-    > = {},
-): Promise<number> {
-    const report = await diagnoseVeraProcesses({
-        ...options,
-        sampleIntervalMs: options.sampleIntervalMs ?? 0,
-    });
-    const strays = report.processes.filter((process) => process.stray);
-    const stopped = strays.length === 0 ? 0 : stopStrayVeraProcesses(strays);
-    try {
-        await sweepStaleTmuxSockets();
-    } catch {
-        // Leftover socket files must not block a client from starting.
-    }
-    return stopped;
-}
-
 function killProcessAndGroup(pid: number, pgid: number): boolean {
     let signaled = false;
     if (pgid === pid) {

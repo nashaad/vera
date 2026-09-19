@@ -220,12 +220,6 @@ export function syncTuiExtensionsList(
     };
 }
 
-export function selectedExtensionRow(
-    state: TuiExtensionsListState,
-): TuiExtensionListRow | undefined {
-    return state.rows[state.selectedIndex];
-}
-
 export function handleTuiExtensionsListKey(
     state: TuiExtensionsListState,
     key: TuiExtensionsListKey,

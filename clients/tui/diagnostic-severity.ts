@@ -1,5 +1,3 @@
-export type TuiDiagnosticSeverity = "notice" | "error" | "fatal";
-
 export type TuiFatalState = "stopped" | "ended";
 
 export type TuiDiagnosticCode =

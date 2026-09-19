@@ -156,11 +156,6 @@ export function homeCardLines(state: HomeState): readonly HomeLine[] {
     ];
 }
 
-/** The line the caret sits on, which exists only while there is somewhere to send a prompt. */
-export function homeHint(state: HomeState): string | undefined {
-    return state.needsProvider ? undefined : HOME_TYPING_HINT;
-}
-
 export function handleHomeKey(
     state: HomeState,
     key: {

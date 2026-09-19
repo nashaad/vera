@@ -64,10 +64,6 @@ function providerLabel(id: string): string {
     return findConfiguredProvider(id, loadOptionalVeraConfig())?.label ?? id;
 }
 
-export function wizardIsOpen(rt: TuiRuntime): boolean {
-    return rt.onboardingWizard !== undefined;
-}
-
 /** Paints whatever the session now says. Every mutation below ends here. */
 export function renderOnboardingWizard(rt: TuiRuntime): void {
     const session = rt.onboardingWizard;
