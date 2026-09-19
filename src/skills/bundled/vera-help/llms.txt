@@ -60,7 +60,7 @@ The list shows your favorites, your current model, and what you used recently. W
 Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. Favoriting is the only thing Switch model writes that outlives the session.
 Its sections are Search, the model list, and a Browse models row pinned under the list. Tab and Left/Right move between them; Ctrl+K reaches Browse models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. Browse models opens the Models page, which is where `/models` opens. Escape from there returns to Switch model.
 Switch model has no scope, sort, score, or price controls and no detail pane. Those are the Models page.
-When more than one provider serves the same model, even under different spellings, each of its Switch model rows names its provider.
+Every Switch model row names its provider, so a subscription route and a paid route to one model never look alike.
 Until you favorite anything, the shortlist is Vera's shipped picks for the providers you have connected, so it works before anyone curates it. Favorites take the rows ahead of them as you add them. When a search holds more matches than it shows, the Browse models row counts the rest.
 Switching to a model with effort levels always asks which level to run, with the carried level highlighted when the new model has it. A model without levels switches straight away.
 `/models` opens the Models page: Library, Catalog, Actions, Defaults, and Help, with Providers on Ctrl+E. Ctrl+P also reaches Favorites, Assign model defaults, and Configure providers directly.

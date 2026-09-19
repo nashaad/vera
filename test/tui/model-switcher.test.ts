@@ -418,32 +418,15 @@ describe("model switcher rendering", () => {
     });
 });
 
-test("rows that share a name show their provider, and only those", () => {
-    const state = startTuiModelSwitcher([
-        ...rows,
-        { provider: "local", model: "tiny", label: "tiny" },
-        { provider: "local_t1", model: "tiny", label: "tiny" },
-    ]);
-    const label = (provider: string, model: string): string =>
-        switcherRowLabel(state, state.allRows.find((row) =>
-            row.provider === provider && row.model === model)!);
-    expect(label("local", "tiny")).toBe("tiny (local)");
-    expect(label("local_t1", "tiny")).toBe("tiny (local_t1)");
-    expect(label("openai", "gpt-5.6")).toBe("GPT-5.6");
-});
-
-test("one model spelled differently by each provider still shows its provider", () => {
+test("every row names its provider", () => {
     const state = startTuiModelSwitcher([
         { provider: "openai-codex", model: "gpt-5.6-luna", label: "GPT-5.6-Luna" },
         { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna" },
-        { provider: "openai", model: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-        { provider: "openrouter", model: "moonshot/kimi-k3", label: "MoonshotAI: Kimi K3" },
+        { provider: "digitalocean", model: "kimi-k3", label: "kimi-k3" },
     ]);
-    const labels = state.allRows.map((row) => switcherRowLabel(state, row));
-    expect(labels).toEqual([
+    expect(state.allRows.map(switcherRowLabel)).toEqual([
         "GPT-5.6-Luna (openai-codex)",
         "OpenAI: GPT-5.6 Luna (openrouter)",
-        "GPT-5.6 Luna (openai)",
-        "MoonshotAI: Kimi K3",
+        "kimi-k3 (digitalocean)",
     ]);
 });
