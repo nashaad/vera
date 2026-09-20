@@ -111,6 +111,7 @@ import {
     renderLlmHelp,
     type HelpCorpus,
 } from "./help-corpus.ts";
+import { runRulesCli } from "./rules.ts";
 import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
@@ -758,6 +759,15 @@ export async function runCli(
         )({ checkNetwork });
         output.write(`\n${renderProviderDoctor(providers)}`);
         return report.healthy && sockets.healthy ? 0 : 1;
+    }
+
+    if (args[0] === "rules") {
+        return await runRulesCli(
+            args.slice(1),
+            process.cwd(),
+            output,
+            errorOutput,
+        );
     }
 
     if (args[0] === "schedule") {
