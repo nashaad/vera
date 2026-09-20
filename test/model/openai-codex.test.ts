@@ -657,6 +657,120 @@ describe("OpenAI Codex adapter", () => {
         expect(message.content).toEqual([{ type: "text", text: "Recovered." }]);
     });
 
+    test("a rejected token is refreshed once and the request retried", async () => {
+        const stored = {
+            schema_version: 1,
+            access_token: "stale-token",
+            refresh_token: "refresh-1",
+            // Far in the future: the server drops the token before this, which is the whole point.
+            expires_at: 9_000_000,
+        };
+        let saved = JSON.stringify(stored);
+        const calls: { url: string; authorization: string | null }[] = [];
+        const adapter = createOpenAICodexAdapter({
+            authStorage: {
+                getCredential: () => ({ type: "oauth" as const, token: saved }),
+                setCredential(_provider, credential) {
+                    saved = credential.type === "oauth"
+                        ? credential.token
+                        : saved;
+                },
+                deleteCredential() {},
+            },
+            now: () => 0,
+            fetch: (async (input: string, init: RequestInit) => {
+                const url = String(input);
+                const headers = new Headers(init.headers);
+                calls.push({
+                    url,
+                    authorization: headers.get("Authorization"),
+                });
+                if (url.endsWith("/oauth/token")) {
+                    return Response.json({
+                        access_token: "fresh-token",
+                        refresh_token: "refresh-2",
+                        expires_in: 3600,
+                    });
+                }
+                if (headers.get("Authorization") === "Bearer stale-token") {
+                    return new Response(
+                        '{"error":{"code":"token_expired"}}',
+                        { status: 401 },
+                    );
+                }
+                return new Response(
+                    'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message"}}\n\n'
+                    + 'data: {"type":"response.output_item.done","output_index":0,"item":{"type":"message","content":[{"type":"output_text","text":"Back."}]}}\n\n'
+                    + 'data: {"type":"response.completed","response":{}}\n\n'
+                    + "data: [DONE]\n\n",
+                    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+                );
+            }) as unknown as typeof fetch,
+        });
+        const stream = adapter.stream({ model: "gpt-5.6-sol", messages: [] });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+        const message = await stream.result();
+
+        expect(calls.map((call) => call.url)).toEqual([
+            "https://chatgpt.com/backend-api/codex/responses",
+            "https://auth.openai.com/oauth/token",
+            "https://chatgpt.com/backend-api/codex/responses",
+        ]);
+        expect(calls.at(-1)?.authorization).toBe("Bearer fresh-token");
+        expect(JSON.parse(saved).refresh_token).toBe("refresh-2");
+        expect(message.stopReason).not.toBe("error");
+        expect(message.content).toEqual([{ type: "text", text: "Back." }]);
+    });
+
+    test("a 401 the refresh cannot clear stays an authentication failure", async () => {
+        let requests = 0;
+        const adapter = createOpenAICodexAdapter({
+            authStorage: {
+                getCredential: () => ({
+                    type: "oauth" as const,
+                    token: JSON.stringify({
+                        schema_version: 1,
+                        access_token: "stale-token",
+                        refresh_token: "refresh-1",
+                        expires_at: 9_000_000,
+                    }),
+                }),
+                setCredential() {},
+                deleteCredential() {},
+            },
+            now: () => 0,
+            fetch: (async (input: string) => {
+                if (String(input).endsWith("/oauth/token")) {
+                    return new Response("invalid_grant", { status: 400 });
+                }
+                requests += 1;
+                return new Response("token_expired", { status: 401 });
+            }) as unknown as typeof fetch,
+        });
+        const stream = adapter.stream({ model: "gpt-5.6-sol", messages: [] });
+        const observed: ModelStreamEvent[] = [];
+
+        for await (const event of stream) {
+            observed.push(event);
+        }
+
+        expect(requests).toBe(1);
+        const error = observed.at(-1);
+        expect(error?.type).toBe("error");
+        if (error?.type === "error") {
+            expect(error.error).toMatchObject({
+                failure: {
+                    kind: "authentication",
+                    resolution: "user_action",
+                    statusCode: 401,
+                },
+            });
+        }
+    });
+
     test("classifies HTTP 408 as timeout rather than server overload", async () => {
         const adapter = createOpenAICodexAdapter({
             authStorage: {

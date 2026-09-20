@@ -30,7 +30,9 @@ import {
     createAuthStorage,
 } from "./auth-storage.ts";
 import {
+    refreshRejectedOpenAICodexAuthorization,
     resolveOpenAICodexAuthorization,
+    type OpenAICodexAuthorization,
     type OpenAICodexAuthorizationOptions,
 } from "./openai-codex-oauth.ts";
 
@@ -202,10 +204,11 @@ export function createOpenAICodexAdapter(
         ...(options.now === undefined ? {} : { now: options.now }),
     };
 
-    return new OpenAICodexAdapter(async (request, signal) => {
-        const authorization = await resolveOpenAICodexAuthorization(
-            authorizationOptions,
-        );
+    const send = async (
+        authorization: OpenAICodexAuthorization,
+        request: OpenAICodexRequest,
+        signal: AbortSignal | undefined,
+    ): Promise<Response> => {
         const headers: Record<string, string> = {
             Authorization: `Bearer ${authorization.accessToken}`,
             Accept: "text/event-stream",
@@ -216,13 +219,34 @@ export function createOpenAICodexAdapter(
         if (authorization.accountId !== undefined) {
             headers["chatgpt-account-id"] = authorization.accountId;
         }
-
-        const response = await fetchRequest(`${baseUrl}/responses`, {
+        return fetchRequest(`${baseUrl}/responses`, {
             method: "POST",
             headers,
             body: JSON.stringify(request),
             signal,
         });
+    };
+
+    return new OpenAICodexAdapter(async (request, signal) => {
+        const authorization = await resolveOpenAICodexAuthorization(
+            authorizationOptions,
+        );
+        let response = await send(authorization, request, signal);
+        if (response.status === 401) {
+            // The server drops these tokens well before the expiry they carry,
+            // so one 401 buys one refresh and one retry.
+            const rejected = await response.text();
+            let refreshed: OpenAICodexAuthorization;
+            try {
+                refreshed = await refreshRejectedOpenAICodexAuthorization(
+                    authorization.accessToken,
+                    authorizationOptions,
+                );
+            } catch {
+                throw new OpenAICodexHttpError(401, rejected);
+            }
+            response = await send(refreshed, request, signal);
+        }
         if (!response.ok) {
             throw new OpenAICodexHttpError(
                 response.status,

@@ -8,6 +8,7 @@ import { createAuthStorage } from "../../src/providers/auth-storage.ts";
 import {
     loginOpenAICodex,
     readOpenAICodexCredentials,
+    refreshRejectedOpenAICodexAuthorization,
     resolveOpenAICodexAuthorization,
 } from "../../src/providers/openai-codex-oauth.ts";
 
@@ -107,6 +108,71 @@ describe("OpenAI Codex OAuth", () => {
         expect(readOpenAICodexCredentials(authStorage)?.refresh_token).toBe(
             "refresh-1",
         );
+    });
+
+    test("refreshes a rejected token the stored expiry still calls valid", async () => {
+        const path = temporaryAuthPath();
+        const authStorage = createAuthStorage({ path });
+        authStorage.setCredential("openai-codex", {
+            type: "oauth",
+            token: JSON.stringify({
+                schema_version: 1,
+                access_token: "stale",
+                refresh_token: "refresh-1",
+                expires_at: 9_000_000,
+                account_id: "account-1",
+            }),
+        });
+        const refreshedAccess = fakeJwt({ exp: 10_000 });
+
+        const authorization = await refreshRejectedOpenAICodexAuthorization(
+            "stale",
+            {
+                authStorage,
+                now: () => 2_000_000,
+                fetch: (async () => Response.json({
+                    access_token: refreshedAccess,
+                    refresh_token: "refresh-2",
+                })) as unknown as typeof fetch,
+            },
+        );
+
+        expect(authorization).toEqual({
+            accessToken: refreshedAccess,
+            accountId: "account-1",
+        });
+        expect(readOpenAICodexCredentials(authStorage)?.refresh_token).toBe(
+            "refresh-2",
+        );
+    });
+
+    test("a token another request already replaced is not refreshed again", async () => {
+        const authStorage = createAuthStorage({ path: temporaryAuthPath() });
+        authStorage.setCredential("openai-codex", {
+            type: "oauth",
+            token: JSON.stringify({
+                schema_version: 1,
+                access_token: "already-fresh",
+                refresh_token: "refresh-2",
+                expires_at: 9_000_000,
+            }),
+        });
+        let refreshCount = 0;
+
+        const authorization = await refreshRejectedOpenAICodexAuthorization(
+            "stale",
+            {
+                authStorage,
+                now: () => 2_000_000,
+                fetch: (async () => {
+                    refreshCount += 1;
+                    return Response.json({ access_token: "unused" });
+                }) as unknown as typeof fetch,
+            },
+        );
+
+        expect(refreshCount).toBe(0);
+        expect(authorization.accessToken).toBe("already-fresh");
     });
 
     test("shares one rotating-token refresh between concurrent requests", async () => {

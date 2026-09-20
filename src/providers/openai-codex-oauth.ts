@@ -122,72 +122,94 @@ export async function resolveOpenAICodexAuthorization(
     const authStorage = options.authStorage ?? createAuthStorage();
     const fetchRequest = options.fetch ?? globalThis.fetch;
     const now = options.now ?? Date.now;
-    let credentials = readCredentials(authStorage);
+    let credentials = requireCredentials(authStorage);
 
+    if (credentials.expires_at <= now() + REFRESH_SKEW_MS) {
+        credentials = await queueRefresh(authStorage, async () => {
+            const latest = requireCredentials(authStorage);
+            const currentTime = now();
+            if (latest.expires_at > currentTime + REFRESH_SKEW_MS) {
+                return latest;
+            }
+            return storeRefreshed(
+                authStorage,
+                fetchRequest,
+                latest,
+                currentTime,
+            );
+        });
+    }
+
+    return authorizationOf(credentials);
+}
+
+// Pass the access token the server rejected. A concurrent request may have already
+// replaced it, in which case its token is returned and no refresh is spent.
+export async function refreshRejectedOpenAICodexAuthorization(
+    rejectedAccessToken: string,
+    options: OpenAICodexAuthorizationOptions = {},
+): Promise<OpenAICodexAuthorization> {
+    const authStorage = options.authStorage ?? createAuthStorage();
+    const fetchRequest = options.fetch ?? globalThis.fetch;
+    const now = options.now ?? Date.now;
+
+    const credentials = await queueRefresh(authStorage, async () => {
+        const latest = requireCredentials(authStorage);
+        if (latest.access_token !== rejectedAccessToken) {
+            return latest;
+        }
+        return storeRefreshed(authStorage, fetchRequest, latest, now());
+    });
+    return authorizationOf(credentials);
+}
+
+// Each refresh rotates the refresh token, so two in flight at once invalidate each
+// other. Refreshes for one storage run one at a time, failed ones included.
+function queueRefresh(
+    authStorage: AuthStorage,
+    run: () => Promise<OpenAICodexCredentials>,
+): Promise<OpenAICodexCredentials> {
+    const previous = refreshes.get(authStorage);
+    const next = previous === undefined ? run() : previous.then(run, run);
+    refreshes.set(authStorage, next);
+    return next;
+}
+
+async function storeRefreshed(
+    authStorage: AuthStorage,
+    fetchRequest: typeof globalThis.fetch,
+    current: OpenAICodexCredentials,
+    now: number,
+): Promise<OpenAICodexCredentials> {
+    const refreshed = await refreshCredentials(fetchRequest, current, now);
+    authStorage.setCredential(OPENAI_CODEX_PROVIDER_ID, {
+        type: "oauth",
+        token: JSON.stringify(refreshed),
+    });
+    return refreshed;
+}
+
+function requireCredentials(
+    authStorage: AuthStorage,
+): OpenAICodexCredentials {
+    const credentials = readCredentials(authStorage);
     if (credentials === undefined) {
         throw new UserFacingError(
             "OpenAI Codex is not authenticated. Connect it from the model pane (ctrl+e).",
         );
     }
+    return credentials;
+}
 
-    if (credentials.expires_at <= now() + REFRESH_SKEW_MS) {
-        credentials = await refreshExpiredCredentials(
-            authStorage,
-            fetchRequest,
-            now,
-        );
-    }
-
+function authorizationOf(
+    credentials: OpenAICodexCredentials,
+): OpenAICodexAuthorization {
     return {
         accessToken: credentials.access_token,
         ...(credentials.account_id === undefined
             ? {}
             : { accountId: credentials.account_id }),
     };
-}
-
-async function refreshExpiredCredentials(
-    authStorage: AuthStorage,
-    fetchRequest: typeof globalThis.fetch,
-    now: () => number,
-): Promise<OpenAICodexCredentials> {
-    const activeRefresh = refreshes.get(authStorage);
-    if (activeRefresh !== undefined) {
-        return activeRefresh;
-    }
-
-    const refresh = (async () => {
-        const latest = readCredentials(authStorage);
-        if (latest === undefined) {
-            throw new UserFacingError(
-                "OpenAI Codex is not authenticated. Connect it from the model pane (ctrl+e).",
-            );
-        }
-        const currentTime = now();
-        if (latest.expires_at > currentTime + REFRESH_SKEW_MS) {
-            return latest;
-        }
-
-        const refreshed = await refreshCredentials(
-            fetchRequest,
-            latest,
-            currentTime,
-        );
-        authStorage.setCredential(OPENAI_CODEX_PROVIDER_ID, {
-            type: "oauth",
-            token: JSON.stringify(refreshed),
-        });
-        return refreshed;
-    })();
-    refreshes.set(authStorage, refresh);
-
-    try {
-        return await refresh;
-    } finally {
-        if (refreshes.get(authStorage) === refresh) {
-            refreshes.delete(authStorage);
-        }
-    }
 }
 
 export function readOpenAICodexCredentials(
