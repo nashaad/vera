@@ -850,6 +850,9 @@ export async function startResidentHost(
         get disabledPromptContributions() {
             return currentConfig().disabled_prompt_contributions;
         },
+        get promptContributionOrder() {
+            return currentConfig().prompt_contribution_order;
+        },
         ...(inboxDelivery === undefined ? {} : {
             inboxDelivery,
             inboxActorForSession: () => readArcNodeId(options.arcConfigPath),

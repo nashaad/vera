@@ -24,6 +24,7 @@ import {
 } from "./engine/tool-result-history.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "./tools/tool-result-limit.ts";
 import type { CompactionOverrides } from "./engine/compaction-binding.ts";
+import { validatePromptContributionOrder } from "./engine/prompt-contributions.ts";
 import {
     OVERRIDE_KEYS,
     type ConfiguredOverrides,
@@ -249,6 +250,12 @@ export interface VeraConfig {
     // Skill names; a trailing `*` matches a prefix, so `["*"]` turns skills off.
     readonly disabled_skills?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
+    /**
+     * Which pieces of the system prompt render, and in what order. Absent
+     * uses the order the build ships. Every piece must be named exactly once;
+     * to drop one, list it in `disabled_prompt_contributions` as well.
+     */
+    readonly prompt_contribution_order?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
     readonly tool_results?: VeraToolResultsConfig;
     readonly event_log?: VeraEventLogConfig;
@@ -515,6 +522,16 @@ export function loadVeraConfig(
                 + " ask, auto, or full_access, and optional fallback with a"
                 + " different model and after_failures from 1 to 3.",
         );
+    }
+    if (config.prompt_contribution_order !== undefined) {
+        try {
+            validatePromptContributionOrder(config.prompt_contribution_order);
+        } catch (error) {
+            throw new VeraConfigError(
+                path,
+                error instanceof Error ? error.message : String(error),
+            );
+        }
     }
     const hooks = config.hooks === undefined ? undefined : resolveHookCommands(
         config.hooks,
@@ -1164,6 +1181,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const disabledPromptContributions = parseStringList(
         config.disabled_prompt_contributions,
     );
+    const promptContributionOrder = parseStringList(
+        config.prompt_contribution_order,
+    );
     const disabledSkills = parseSkillPatterns(config.disabled_skills);
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
@@ -1200,6 +1220,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || hooks === undefined
         || disabledIncludedExtensions === undefined
         || disabledPromptContributions === undefined
+        || promptContributionOrder === undefined
         || disabledSkills === undefined
         || experimental === undefined
         || inbox === undefined
@@ -1283,6 +1304,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : {
                 disabled_prompt_contributions: disabledPromptContributions,
             }),
+        ...(config.prompt_contribution_order === undefined
+            ? {}
+            : { prompt_contribution_order: promptContributionOrder }),
         ...(config.disabled_skills === undefined
             ? {}
             : { disabled_skills: disabledSkills }),

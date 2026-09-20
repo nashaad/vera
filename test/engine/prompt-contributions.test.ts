@@ -1,8 +1,26 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
+    ResidentAgent,
+    ResidentAgentClosedError,
+} from "../../src/host/resident-agent.ts";
+import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelRequest,
+} from "../../src/model/types.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
 
 import {
     collectBuiltInPromptContributions,
+    DEFAULT_PROMPT_CONTRIBUTION_ORDER,
     promptContributionMetadata,
+    validatePromptContributionOrder,
 } from "../../src/engine/prompt-contributions.ts";
 
 test("built-in prompt contributors return attributed plain data in order", () => {
@@ -213,4 +231,160 @@ test("owner-provided contributions cannot collide or enter the stable prefix", (
             content: "bad",
         }],
     })).toThrow("attributed contextual text");
+});
+
+test("a configured order renders the contributions in that order", () => {
+    const reordered = [...DEFAULT_PROMPT_CONTRIBUTION_ORDER];
+    const memory = reordered.indexOf("core.memory");
+    const instructions = reordered.indexOf("core.project-instructions");
+    reordered[memory] = "core.project-instructions";
+    reordered[instructions] = "core.memory";
+
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: {
+            files: [{
+                path: "/work/vera/AGENTS.md",
+                name: "AGENTS.md",
+                content: "Keep changes small.",
+                bytes: 19,
+                sha256: "abc123",
+            }],
+            warnings: [],
+        },
+        memory: {
+            files: [],
+            warnings: [],
+            loadedTopics: [],
+            recommendations: [],
+        },
+        contributionOrder: reordered,
+    });
+
+    const ids = contributions.map((contribution) => contribution.id);
+    expect(ids.indexOf("core.memory")).toBeLessThan(
+        ids.indexOf("core.project-instructions"),
+    );
+});
+
+test("an order that leaves a contribution out is refused", () => {
+    expect(() =>
+        validatePromptContributionOrder(
+            DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) =>
+                id !== "core.memory"
+            ),
+        )
+    ).toThrow(/leaves out: core\.memory/);
+});
+
+test("an order naming a contribution that does not exist is refused", () => {
+    expect(() =>
+        validatePromptContributionOrder([
+            ...DEFAULT_PROMPT_CONTRIBUTION_ORDER,
+            "core.invented",
+        ])
+    ).toThrow(/do not exist: core\.invented/);
+});
+
+test("an order repeating a contribution is refused", () => {
+    expect(() =>
+        validatePromptContributionOrder([
+            ...DEFAULT_PROMPT_CONTRIBUTION_ORDER,
+            "core.memory",
+        ])
+    ).toThrow(/repeats: core\.memory/);
+});
+
+test("an order not starting with the identity is refused", () => {
+    const moved = DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) =>
+        id !== "core.identity"
+    );
+    expect(() =>
+        validatePromptContributionOrder([moved[0]!, "core.identity", ...moved.slice(1)])
+    ).toThrow(/must start with core\.identity/);
+});
+
+test("an order putting a stable contribution after a contextual one is refused", () => {
+    const withoutWorkspace = DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) =>
+        id !== "core.workspace"
+    );
+    expect(() =>
+        validatePromptContributionOrder([...withoutWorkspace, "core.workspace"])
+    ).toThrow(/every stable contribution renders before every contextual one/);
+});
+
+test("the default order is the order the build ships", () => {
+    expect(validatePromptContributionOrder(DEFAULT_PROMPT_CONTRIBUTION_ORDER))
+        .toBeUndefined();
+    const withOrder = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        contributionOrder: DEFAULT_PROMPT_CONTRIBUTION_ORDER,
+    });
+    const without = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+    });
+    expect(withOrder).toEqual(without);
+});
+
+test("the loop policy decides the order a real turn sends", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-prompt-order-"));
+    const store = await SessionStore.create(join(root, "session.jsonl"), {
+        sessionId: "order-session",
+        cwd: root,
+    });
+    const requests: ModelRequest[] = [];
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "test", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const scripted = new FauxAdapter([response]);
+    const resident = new ResidentAgent("order-session", root);
+    const attachment = resident.attach();
+    const loop = runHeadlessLoop(
+        resident.engine,
+        {
+            stream(request) {
+                requests.push(request);
+                return scripted.stream(request);
+            },
+        },
+        "test",
+        undefined,
+        {},
+        {
+            sessionStore: store,
+            readPolicy: () => ({
+                promptContributionOrder: [
+                    ...DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) =>
+                        id !== "core.tools"
+                    ),
+                ].toSpliced(1, 0, "core.tools"),
+            }),
+        },
+    );
+    try {
+        resident.sendPrompt("measure");
+        while ((await attachment.receive()).type !== "turn_finished") {
+            // Drain one bounded turn.
+        }
+        const prompt = requests[0]?.systemPrompt ?? "";
+        expect(prompt.indexOf("## Tools"))
+            .toBeLessThan(prompt.indexOf("## Narration"));
+    } finally {
+        attachment.detach();
+        resident.close();
+        await expect(loop).rejects.toBeInstanceOf(ResidentAgentClosedError);
+        await rm(root, { recursive: true, force: true });
+    }
 });

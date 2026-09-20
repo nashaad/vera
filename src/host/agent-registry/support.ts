@@ -395,6 +395,7 @@ export interface AgentRegistryOptions {
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
+    readonly promptContributionOrder?: readonly string[];
     readonly createToolHooks?: () => ToolHooks;
     readonly prepareModelRequest?: (
         context: { readonly sessionId: string; readonly workspace: string },

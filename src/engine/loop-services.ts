@@ -50,6 +50,7 @@ export interface LoopPolicy {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly disabledPromptContributions?: readonly string[];
+    readonly promptContributionOrder?: readonly string[];
     readonly subagentPolicy?: SubagentPoolPolicy;
 }
 

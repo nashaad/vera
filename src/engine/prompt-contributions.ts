@@ -39,6 +39,11 @@ export interface PromptContributionInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    /**
+     * Which contributions render, and in what order. Absent uses the built-in
+     * order. Every built-in contribution must be named exactly once.
+     */
+    readonly contributionOrder?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
     readonly agentInstructions?: string;
 }
@@ -48,6 +53,11 @@ export interface StablePromptContributionInput {
     readonly workspace: string;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
+    /**
+     * Which contributions render, and in what order. Absent uses the built-in
+     * order. Every built-in contribution must be named exactly once.
+     */
+    readonly contributionOrder?: readonly string[];
     readonly agentInstructions?: string;
 }
 
@@ -57,6 +67,11 @@ export interface ContextualPromptContributionInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    /**
+     * Which contributions render, and in what order. Absent uses the built-in
+     * order. Every built-in contribution must be named exactly once.
+     */
+    readonly contributionOrder?: readonly string[];
     readonly additionalContributions?: readonly PromptContribution[];
 }
 
@@ -246,6 +261,98 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
     },
 ];
 
+export const DEFAULT_PROMPT_CONTRIBUTION_ORDER: readonly string[] = Object
+    .freeze(
+        BUILT_IN_PROMPT_CONTRIBUTORS.map((contributor) => contributor.id),
+    );
+
+/**
+ * The first contribution is pinned: every later one is read against the
+ * identity it establishes.
+ */
+const PINNED_FIRST_CONTRIBUTION = "core.identity";
+
+/**
+ * Rejects an order that cannot be rendered as written. A stable contribution
+ * is part of the cached prefix and a contextual one is rebuilt each turn, so
+ * the two bands render separately whatever the list says; requiring every
+ * stable id ahead of every contextual one keeps the list readable as the
+ * prompt it produces.
+ */
+export function validatePromptContributionOrder(
+    order: readonly string[],
+): void {
+    const known = new Map(
+        BUILT_IN_PROMPT_CONTRIBUTORS.map((contributor) => [
+            contributor.id,
+            contributor.target,
+        ]),
+    );
+    const unknown = order.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+        throw new Error(
+            `Prompt contribution order names contributions that do not exist: ${
+                unknown.join(", ")
+            }`,
+        );
+    }
+    const seen = new Set<string>();
+    const duplicated = order.filter((id) => {
+        const repeat = seen.has(id);
+        seen.add(id);
+        return repeat;
+    });
+    if (duplicated.length > 0) {
+        throw new Error(
+            `Prompt contribution order repeats: ${duplicated.join(", ")}`,
+        );
+    }
+    const missing = [...known.keys()].filter((id) => !seen.has(id));
+    if (missing.length > 0) {
+        throw new Error(
+            `Prompt contribution order leaves out: ${
+                missing.join(", ")
+            }. An order names every contribution; turning one off is separate.`,
+        );
+    }
+    if (order[0] !== PINNED_FIRST_CONTRIBUTION) {
+        throw new Error(
+            `Prompt contribution order must start with ${PINNED_FIRST_CONTRIBUTION}`,
+        );
+    }
+    const firstContextual = order.findIndex((id) =>
+        known.get(id) === "contextual"
+    );
+    if (firstContextual >= 0) {
+        const strayStable = order
+            .slice(firstContextual)
+            .filter((id) => known.get(id) === "stable");
+        if (strayStable.length > 0) {
+            throw new Error(
+                `Prompt contribution order puts ${
+                    strayStable.join(", ")
+                } after ${order[firstContextual]}, but every stable contribution renders before every contextual one`,
+            );
+        }
+    }
+}
+
+function orderedContributors(
+    order: readonly string[] | undefined,
+): readonly BuiltInPromptContributor[] {
+    if (order === undefined) {
+        return BUILT_IN_PROMPT_CONTRIBUTORS;
+    }
+    validatePromptContributionOrder(order);
+    const byId = new Map(
+        BUILT_IN_PROMPT_CONTRIBUTORS.map((contributor) => [
+            contributor.id,
+            contributor,
+        ]),
+    );
+    return order.map((id) => byId.get(id)!);
+}
+
 export function collectBuiltInPromptContributions(
     input: PromptContributionInput,
 ): readonly PromptContribution[] {
@@ -287,7 +394,7 @@ export function renderPromptContribution(
 export function collectStablePromptContributions(
     input: StablePromptContributionInput,
 ): readonly PromptContribution[] {
-    return BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
+    return orderedContributors(input.contributionOrder).flatMap((contributor) =>
         contributor.target === "stable"
             && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))
@@ -298,7 +405,9 @@ export function collectStablePromptContributions(
 export function collectContextualPromptContributions(
     input: ContextualPromptContributionInput,
 ): readonly PromptContribution[] {
-    const builtIn = BUILT_IN_PROMPT_CONTRIBUTORS.flatMap((contributor) =>
+    const builtIn = orderedContributors(input.contributionOrder).flatMap((
+        contributor,
+    ) =>
         contributor.target === "contextual"
             && !isDisabled(contributor.id, input.disabledContributions)
             ? collectContribution(contributor, contributor.contribute(input))

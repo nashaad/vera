@@ -774,6 +774,9 @@ export class AgentRegistry {
             get disabledPromptContributions() {
                 return disabledPromptContributions();
             },
+            get promptContributionOrder() {
+                return registry.options.promptContributionOrder;
+            },
             extensionTools,
             ...(startupProfile !== "default"
                 || this.options.loadContextualContributions === undefined
@@ -1002,6 +1005,13 @@ export class AgentRegistry {
                         }),
                         disabledPromptContributions:
                             disabledPromptContributions(),
+                        ...(registry.options.promptContributionOrder
+                                === undefined
+                            ? {}
+                            : {
+                                promptContributionOrder:
+                                    registry.options.promptContributionOrder,
+                            }),
                         subagentPolicy: delegatedSubagentPolicy(
                             this.options.readPolicy === undefined
                                 ? { allowSelf: true }
