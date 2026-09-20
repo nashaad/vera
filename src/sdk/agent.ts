@@ -506,6 +506,19 @@ async function runResolvedTurn<Output>(
                             permissionModes:
                                 resolved.config.permission_modes,
                         }),
+                    ...(resolved.config.disabled_prompt_contributions
+                            === undefined
+                        ? {}
+                        : {
+                            disabledPromptContributions:
+                                resolved.config.disabled_prompt_contributions,
+                        }),
+                    ...(resolved.config.prompt_contribution_order === undefined
+                        ? {}
+                        : {
+                            promptContributionOrder:
+                                resolved.config.prompt_contribution_order,
+                        }),
                 }),
                 readSelectedAgent: () => selected,
                 ...(options.prepareTurn === undefined ? {} : { hooks }),

@@ -21,6 +21,8 @@ import {
     Vera,
     type AgentOutputSchema,
 } from "../../src/sdk/agent.ts";
+import { DEFAULT_PROMPT_CONTRIBUTION_ORDER } from
+    "../../src/engine/prompt-contributions.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import {
     emptyUsage,
@@ -215,6 +217,28 @@ test("an SDK instance reads later request options from its home", async () => {
         else process.env.VERA_HOME = previousHome;
         rmSync(home, { recursive: true, force: true });
     }
+});
+
+test("an SDK config decides which prompt contributions render, and where", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("ordered")], requests, {
+        config: {
+            ...baseConfig(),
+            disabled_prompt_contributions: ["core.narration"],
+            prompt_contribution_order: [
+                ...DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) =>
+                    id !== "core.workspace"
+                ),
+            ].toSpliced(1, 0, "core.workspace"),
+        },
+    });
+
+    await vera.agent(basicDefinition()).run("review");
+
+    const prompt = requests[0]?.systemPrompt ?? "";
+    expect(prompt).not.toContain("## Narration");
+    expect(prompt.indexOf("## Workspace"))
+        .toBeLessThan(prompt.indexOf("## Tools"));
 });
 
 test("B1 an SDK agent does not run at full access", async () => {
