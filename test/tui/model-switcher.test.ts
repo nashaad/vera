@@ -15,6 +15,7 @@ import {
     switcherFooterText,
     switcherRowProvider,
     switcherStop,
+    switcherUnlistedHint,
     type TuiModelSwitcherRow,
 } from "../../clients/tui/model-switcher.ts";
 
@@ -256,13 +257,66 @@ describe("model switcher with no favorites", () => {
         });
         expect(state.rows).toEqual([]);
         expect(switcherEmptyMessage(state))
-            .toBe("Type to pick any model, or favorite one to see favorites here.");
+            .toBe("Ctrl+K lists every model. Ctrl+F on one keeps it here.");
         expect(switcherFooterText(state)).toBe("type search · ⏎ browse · esc close");
     });
 
     test("typing still finds every model", () => {
         const state = searchedTuiModelSwitcher(startTuiModelSwitcher(none), "opus");
         expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5"]);
+    });
+});
+
+describe("model switcher unlisted providers", () => {
+    const connected: readonly TuiModelSwitcherRow[] = [
+        { provider: "openrouter", model: "openai/gpt-5.6-luna", label: "OpenAI: GPT-5.6 Luna", providerLabel: "OpenRouter", favorite: true },
+        { provider: "openai-codex", model: "gpt-5.6-luna", label: "GPT-5.6 Luna", providerLabel: "OpenAI Codex" },
+    ];
+
+    test("a provider with no row in the resting list is named under it", () => {
+        expect(switcherUnlistedHint(startTuiModelSwitcher(connected)))
+            .toBe("OpenAI Codex is connected. Ctrl+K lists its models.");
+    });
+
+    test("two of them share one line", () => {
+        const state = startTuiModelSwitcher([
+            ...connected,
+            { provider: "anthropic", model: "claude-opus-5", label: "Claude Opus 5", providerLabel: "Anthropic" },
+        ]);
+        expect(switcherUnlistedHint(state))
+            .toBe("OpenAI Codex and Anthropic are connected. Ctrl+K lists their models.");
+    });
+
+    test("a provider already in the list says nothing", () => {
+        const state = startTuiModelSwitcher(connected, {
+            recents: ["openai-codex/gpt-5.6-luna"],
+        });
+        expect(switcherUnlistedHint(state)).toBeUndefined();
+    });
+
+    test("a search answers for itself", () => {
+        const state = searchedTuiModelSwitcher(startTuiModelSwitcher(connected), "luna");
+        expect(switcherUnlistedHint(state)).toBeUndefined();
+    });
+
+    test("the line is drawn between the list and the rule", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 30 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            view.update(startTuiModelSwitcher(connected));
+            await setup.renderOnce();
+            const lines = setup.captureCharFrame().split("\n")
+                .map((line) => line.trim()).filter(Boolean);
+            const at = lines.findIndex((line) =>
+                line === "OpenAI Codex is connected. Ctrl+K lists its models.");
+            expect(at).toBeGreaterThan(0);
+            expect(lines[at - 1]).toContain("GPT-5.6 Luna");
+            expect(lines[at + 1]).toMatch(/^\u2500+$/);
+        } finally {
+            setup.renderer.destroy();
+        }
     });
 });
 
@@ -370,7 +424,7 @@ describe("model switcher rendering", () => {
             expect(at).toBeGreaterThan(0);
             // A rule separates it from the models, and the footer follows it.
             expect(lines[at - 1]).toMatch(/^\u2500+$/);
-            expect(lines[at - 2]).toContain("GPT-5.6");
+            expect(lines.slice(0, at - 1).join(" ")).toContain("GPT-5.6");
             expect(lines.slice(at + 1).join(" ")).toContain("esc close");
         } finally {
             setup.renderer.destroy();

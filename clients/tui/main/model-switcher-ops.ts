@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { loadOptionalVeraConfig } from "../../../src/config.ts";
+import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { isHomeClient } from "../home-client.ts";
 import {
     modelSwitcherKey,
@@ -30,6 +32,7 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
     const pooled = settings?.pooled ?? [];
     const favorites = new Set(pooled.map(modelSwitcherKey));
     const efforts = lastEfforts(focusedAgentState(rt));
+    const config = loadOptionalVeraConfig();
     return (settings?.availableModels ?? [])
         .filter((model) => model.hiddenByDefault === undefined)
         .map((model) => {
@@ -39,7 +42,8 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
                 provider: model.provider,
                 model: model.model,
                 label: model.label,
-                providerLabel: model.provider,
+                providerLabel: findConfiguredProvider(model.provider, config)?.label
+                    ?? model.provider,
                 ...(favorites.has(key) ? { favorite: true } : {}),
                 ...(model.verificationError === undefined ? {} : { unavailable: true }),
                 ...(effort === undefined ? {} : { effort }),

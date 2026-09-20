@@ -523,6 +523,19 @@ export function createTuiModelSwitcherView(
             }
             if (scrolling) scrollHint(below, "below");
 
+            const unlisted = switcherUnlistedHint(state);
+            if (unlisted !== undefined) {
+                const note = new TextRenderable(renderer, {
+                    content: `${DIALOG_GUTTER}${unlisted}`,
+                    fg: TUI_MUTED,
+                    width: "100%",
+                    height: 1,
+                    marginTop: 1,
+                });
+                box.add(note);
+                nodes.push(note);
+            }
+
             // Buttons sit under a rule, in their own band, the way every other dialog draws them.
             const rule = new TextRenderable(renderer, {
                 content: "\u2500".repeat(switcherContentWidth(renderer)),
@@ -588,8 +601,40 @@ export function switcherEmptyMessage(state: TuiModelSwitcherState): string {
 function emptyMessage(state: TuiModelSwitcherState): string {
     if (state.allRows.length === 0) return "No models. ⏎ connects a provider.";
     return state.query.trim().length === 0
-        ? "Type to pick any model, or favorite one to see favorites here."
+        ? "Ctrl+K lists every model. Ctrl+F on one keeps it here."
         : "No models match that search. /models adds a provider.";
+}
+
+/**
+ * At rest the list is favorites and recents, so a provider connected a minute
+ * ago can have nothing in it. Name the provider instead of letting it read as
+ * missing.
+ */
+export function switcherUnlistedProviders(
+    state: TuiModelSwitcherState,
+): readonly string[] {
+    if (state.query.trim().length !== 0 || state.rows.length === 0) return [];
+    const listed = new Set(state.rows.map((row) => row.provider));
+    const names: string[] = [];
+    for (const row of state.allRows) {
+        if (listed.has(row.provider)) continue;
+        const name = row.providerLabel ?? row.provider;
+        if (!names.includes(name)) names.push(name);
+    }
+    return names;
+}
+
+/** The line under the list, when a connected provider has no row in it. */
+export function switcherUnlistedHint(
+    state: TuiModelSwitcherState,
+): string | undefined {
+    const names = switcherUnlistedProviders(state);
+    if (names.length === 0) return undefined;
+    if (names.length === 1) {
+        return `${names[0]} is connected. Ctrl+K lists its models.`;
+    }
+    const named = `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+    return `${named} are connected. Ctrl+K lists their models.`;
 }
 
 /** A model listed twice names its provider on each row; catalogs spell names differently, so compare ids. */
