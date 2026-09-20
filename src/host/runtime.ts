@@ -4,6 +4,7 @@ import { readModelCatalog } from "../providers/read-model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
 import { applyModelOperation } from "../model/model-operations.ts";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
+import { configuredTurnPolicy } from "../turn-policy.ts";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -853,6 +854,7 @@ export async function startResidentHost(
         get promptContributionOrder() {
             return currentConfig().prompt_contribution_order;
         },
+        readConfiguredTurnPolicy: () => configuredTurnPolicy(currentConfig()),
         ...(inboxDelivery === undefined ? {} : {
             inboxDelivery,
             inboxActorForSession: () => readArcNodeId(options.arcConfigPath),

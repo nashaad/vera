@@ -16,6 +16,7 @@ import {
 import { tmpdir, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
+import type { ConfiguredTurnPolicy } from "../../turn-policy.ts";
 import { AsyncQueue } from "../../engine/async-queue.ts";
 import { EngineEventBus } from "../../engine/events.ts";
 import type { SessionFacts } from "../../store/session-facts.ts";
@@ -396,6 +397,11 @@ export interface AgentRegistryOptions {
     ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
     readonly promptContributionOrder?: readonly string[];
+    /**
+     * The turn-shaping settings the config decides on its own. Spread into
+     * every session policy, so a new one needs no further wiring here.
+     */
+    readonly readConfiguredTurnPolicy?: () => ConfiguredTurnPolicy;
     readonly createToolHooks?: () => ToolHooks;
     readonly prepareModelRequest?: (
         context: { readonly sessionId: string; readonly workspace: string },

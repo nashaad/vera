@@ -13,8 +13,8 @@ import {
     loadAgentCatalog,
 } from "../agents/catalog.ts";
 import { resolveAgentSnapshot } from "../agents/snapshot.ts";
+import { configuredTurnPolicy } from "../turn-policy.ts";
 import {
-    configuredModelFallback,
     createLiveVeraConfigReader,
     loadOptionalVeraConfig,
     VERA_CONFIG_SCHEMA_VERSION,
@@ -498,28 +498,7 @@ async function runResolvedTurn<Output>(
                         ? {}
                         : { reasoningEffort: resolved.reasoningEffort }),
                 }),
-                readPolicy: () => ({
-                    modelFallback: configuredModelFallback(resolved.config),
-                    ...(resolved.config.permission_modes === undefined
-                        ? {}
-                        : {
-                            permissionModes:
-                                resolved.config.permission_modes,
-                        }),
-                    ...(resolved.config.disabled_prompt_contributions
-                            === undefined
-                        ? {}
-                        : {
-                            disabledPromptContributions:
-                                resolved.config.disabled_prompt_contributions,
-                        }),
-                    ...(resolved.config.prompt_contribution_order === undefined
-                        ? {}
-                        : {
-                            promptContributionOrder:
-                                resolved.config.prompt_contribution_order,
-                        }),
-                }),
+                readPolicy: () => configuredTurnPolicy(resolved.config),
                 readSelectedAgent: () => selected,
                 ...(options.prepareTurn === undefined ? {} : { hooks }),
                 sessionStore,
