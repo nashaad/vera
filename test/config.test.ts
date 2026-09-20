@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { catalogMaxAgeMs } from "../src/host/runtime.ts";
 import { DEFAULT_CATALOG_MAX_AGE_MS } from "../src/model/catalog-cache.ts";
 import { OVERRIDE_KEYS } from "../src/engine/override-rows.ts";
+import { DEFAULT_PROMPT_CONTRIBUTION_ORDER } from "../src/engine/prompt-contributions.ts";
 
 import {
     configuredCompaction,
@@ -1249,6 +1250,35 @@ test("Vera config rejects malformed disabled prompt contribution lists", () => {
             "not a Vera config",
         );
     }
+});
+
+test("Vera config loads a prompt contribution order", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        prompt_contribution_order: [...DEFAULT_PROMPT_CONTRIBUTION_ORDER],
+    }));
+
+    expect(loadVeraConfig({ path }).prompt_contribution_order).toEqual([
+        ...DEFAULT_PROMPT_CONTRIBUTION_ORDER,
+    ]);
+});
+
+test("a prompt contribution order naming an unknown id says which one", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        prompt_contribution_order: [
+            ...DEFAULT_PROMPT_CONTRIBUTION_ORDER,
+            "core.invented",
+        ],
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow(
+        "do not exist: core.invented",
+    );
 });
 
 test("a damaged config names the file and the parse problem", () => {

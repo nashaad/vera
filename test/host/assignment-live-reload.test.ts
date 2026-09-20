@@ -10,7 +10,13 @@ import {
     type AssistantMessage,
     type ModelRequest,
 } from "../../src/model/types.ts";
+import { DEFAULT_PROMPT_CONTRIBUTION_ORDER } from
+    "../../src/engine/prompt-contributions.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+
+const REORDERED_CONTRIBUTIONS = [
+    ...DEFAULT_PROMPT_CONTRIBUTION_ORDER.filter((id) => id !== "core.tools"),
+].toSpliced(1, 0, "core.tools");
 
 function config(assigned: string, extra: Record<string, unknown> = {}) {
     return {
@@ -111,6 +117,7 @@ test("a setting changed on disk reaches the registry with no restart", async () 
         expect(options.subagentModel).toBeUndefined();
         expect(options.permissionModes).toBeUndefined();
         expect(options.disabledPromptContributions).toBeUndefined();
+        expect(options.promptContributionOrder).toBeUndefined();
         expect(options.modelFallback).toBeUndefined();
         await writeFile(
             configPath,
@@ -118,6 +125,7 @@ test("a setting changed on disk reaches the registry with no restart", async () 
                 subagent: { model: "faux/two", provider: "openrouter" },
                 permission_modes: { careful: { default: "ask", rules: [] } },
                 disabled_prompt_contributions: ["environment"],
+                prompt_contribution_order: [...REORDERED_CONTRIBUTIONS],
                 fallback: { model: "faux/two", after_failures: 1 },
             })),
         );
@@ -126,6 +134,8 @@ test("a setting changed on disk reaches the registry with no restart", async () 
         expect(Object.keys(options.permissionModes as object))
             .toEqual(["careful"]);
         expect(options.disabledPromptContributions).toEqual(["environment"]);
+        expect(options.promptContributionOrder)
+            .toEqual(REORDERED_CONTRIBUTIONS);
         expect(options.modelFallback).toBeDefined();
     } finally {
         await host.close();
