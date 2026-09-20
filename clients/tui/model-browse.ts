@@ -127,15 +127,23 @@ export function browseWindow(state: TuiSettingsPickerState, maxLines: number, pr
     // The bottom lines are a gap and the count of models outside the window.
     const size = Math.max(1, maxLines - (maxLines > 2 ? 2 : 1));
     const cursor = Math.max(0, display.findIndex((row) => row.index === state.selectedIndex));
-    // A model row on the top line gives way to its group heading, unless it is the group's last row.
-    const pinned = (at: number) => size > 1 && display[at]?.option !== undefined && display[at]?.option?.section === undefined
-        && display[at + 1]?.heading === undefined;
-    let top = Math.min(previousTop, display.length - size);
-    if (cursor < top || (cursor === top && pinned(top))) top = pinned(cursor) ? cursor - 1 : cursor;
-    if (cursor > top + size - 1) top = cursor - size + 1;
-    top = Math.max(0, Math.min(top, display.length - size));
-    const visible = display.slice(top, top + size);
-    if (pinned(top)) visible[0] = { heading: visible[0]!.option!.group, index: -1 };
+    // A model row on the top line keeps its group heading above it, wherever
+    // that heading has scrolled to. The line it costs comes off the bottom.
+    const stuckHeading = (at: number): string | undefined => {
+        const row = size > 1 ? display[at] : undefined;
+        return row?.option === undefined || row.option.section !== undefined
+            ? undefined
+            : row.option.group;
+    };
+    const body = (at: number) => size - (stuckHeading(at) === undefined ? 0 : 1);
+    let top = Math.max(0, Math.min(previousTop, cursor));
+    top = Math.min(top, Math.max(0, display.length - body(top)));
+    for (let step = 0; step < display.length && cursor > top + body(top) - 1; step += 1) {
+        top += 1;
+    }
+    const stuck = stuckHeading(top);
+    const visible = display.slice(top, top + body(top));
+    if (stuck !== undefined) visible.unshift({ heading: stuck, index: -1 });
     const shown = visible.flatMap((row) => row.option === undefined ? [] : [row.index]);
     if (maxLines < 2 || shown.length === 0) return { rows: visible, top };
     const models = (from: number, to: number) => state.options.slice(from, to).filter((row) => row.section === undefined).length;
@@ -266,6 +274,9 @@ export function modelBrowseMenu(parent: TuiSettingsPickerState): TuiSettingsPick
             ? "Hide extra variants and older models" : "Show extra variants and older models", description: "Change catalog visibility" }] : []),
         { value: "refresh", label: "Refresh model catalog", description: "Reload connected catalogs" },
         { value: "manage_library", label: "Add/remove favorites", description: "Choose your saved models" },
+        ...(selected?.provider !== undefined && selected.model !== undefined
+            ? [{ value: "verify_selected", label: "Verify this model", description: "Check that it still answers" }]
+            : []),
         ...(parent.allOptions.some((row) => row.pooledRank !== undefined)
             ? [{ value: "verify", label: "Verify favorites", description: "Check that they still answer" }]
             : []),
@@ -325,6 +336,11 @@ export function handleModelBrowseMenuKey(state: TuiSettingsPickerState, key: Tui
         if (state.options[state.selectedIndex]?.value === "refresh") return { state: parent, handled: true, refreshAllCatalogs: true };
         if (value === "manage_library") return { state: parent, handled: true, selection: { kind: "model_shortlist_open" } };
         if (value === "verify") return { state: parent, handled: true, poolVerifySweep: true };
+        if (value === "verify_selected") {
+            const row = parent.options[parent.selectedIndex];
+            if (row?.provider === undefined || row.model === undefined) return { state, handled: true };
+            return { state: parent, handled: true, poolVerify: { provider: row.provider, model: row.model } };
+        }
         if (value === "defaults") return { state: parent, handled: true, selection: { kind: "model_defaults_open" } };
         if (value === "library") {
             const row = parent.options[parent.selectedIndex];
