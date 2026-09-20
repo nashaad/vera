@@ -99,12 +99,14 @@ The included explorer investigates questions using read, search, and listing too
 Explorer uses Defaults then eco when called through the subagent tool. Its eco model does not also need to be assigned under Subagents. If eco is unset or unavailable, the launch fails with the assignment named; it does not use the parent or the Subagents list. Selecting explorer directly with `/agent` leaves the conversation model unchanged.
 The subagent tool lists available agent names and descriptions so the parent can choose a definition. You can ask for explorer by name. Custom definitions can bind delegated launches to a named assignment with `subagent_assignment`; definitions without this field keep the ordinary Subagents rules.
 
-## Skills and standing instructions [lines=9]
+## Skills, rules, and standing instructions [lines=11]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
 The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
 Skills come from Vera, enabled extensions (`contributes.skills` in the manifest), the home, then the project; later wins. `disabled_skills` in `config.json` turns skills off by name, a trailing `*` matches a prefix, and `/customize` still lists them as disabled.
 Project instruction files, selected-agent instructions, imports, and standing nudges may contribute context. Memory loading and writing are disabled; saved files may still appear in Customize.
+Rules are markdown files kept in the home and in the project. A rule with no frontmatter applies for the whole session; a rule with a `paths:` list arrives when Vera reads a file one of its globs matches, at most once until the conversation compacts.
+`vera rules which <path>` reports which rules a read of that path would bring in. It reads and reports; it changes nothing.
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 `/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled skills and included extensions have no edit action.
 Context is included by default. `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.

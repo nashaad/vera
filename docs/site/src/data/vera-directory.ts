@@ -170,6 +170,17 @@ disable-model-invocation: true
         documentedIn: 'llms.txt',
     },
     {
+        name: 'rules/',
+        path: 'rules/',
+        kind: 'directory',
+        writer: 'you',
+        placement: 'home',
+        summary: 'Rules that apply in every project, one markdown file each.',
+        loads: 'A rule with no frontmatter joins the system prompt. A rule with a `paths:` list arrives when Vera reads a matching file.',
+        detail: 'A project rule does not replace a home rule; both apply. Home rules render before `AGENTS.md`.',
+        documentedIn: 'rules',
+    },
+    {
         name: 'memory/',
         path: 'memory/',
         kind: 'directory',
@@ -351,32 +362,21 @@ posture: readonly
                 documentedIn: 'config-reference',
             },
             {
-                name: 'context-routes.yaml',
-                path: '.vera/context-routes.yaml',
-                kind: 'file',
-                writer: 'you',
-                placement: 'committed',
-                summary: 'Routes from file patterns to instructions.',
-                loads: 'Checked after each successful file read.',
-                detail: 'When Vera reads a matching file, the named payload joins the next request in that turn. Each payload loads at most once until the conversation compacts.',
-                example: `version: 1
-routes:
-  - trigger:
-      read: src/api/**
-    consequence:
-      inject: context-routes/api.md`,
-                documentedIn: 'context-routes',
-            },
-            {
-                name: 'context-routes/',
-                path: '.vera/context-routes/',
+                name: 'rules/',
+                path: '.vera/rules/',
                 kind: 'directory',
                 writer: 'you',
                 placement: 'committed',
-                summary: 'Instruction files that routes load.',
-                loads: 'A file loads when a route that names it fires.',
-                detail: 'Payload paths are relative to `.vera/` and must stay inside this directory.',
-                documentedIn: 'config-reference',
+                summary: 'Rules for this project, one markdown file each.',
+                loads: 'A rule with no frontmatter joins the system prompt. A rule with a `paths:` list arrives when Vera reads a matching file.',
+                detail: 'The directory is flat. A scoped rule arrives at most once until the conversation compacts. `vera rules which <path>` reports what applies.',
+                example: `---
+paths:
+  - "src/api/**"
+---
+
+Every handler validates its input before touching the database.`,
+                documentedIn: 'rules',
             },
         ],
     },

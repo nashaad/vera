@@ -93,22 +93,13 @@ async function backupFiles(): Promise<BackupFile[]> {
         });
     }
 
-    const routesFile = join(PROJECT_ROOT, ".vera", "context-routes.yaml");
-    if (await isFile(routesFile)) {
-        files.push({
-            source: routesFile,
-            destination: join(backupRoot, ".vera", "context-routes.yaml"),
-            label: join(".vera", "context-routes.yaml"),
-        });
-    }
-
-    const routesRoot = join(PROJECT_ROOT, ".vera", "context-routes");
-    for (const source of await findFiles(routesRoot)) {
-        const routePath = relative(routesRoot, source);
+    const rulesRoot = join(PROJECT_ROOT, ".vera", "rules");
+    for (const source of await findFiles(rulesRoot)) {
+        const rulePath = relative(rulesRoot, source);
         files.push({
             source,
-            destination: join(backupRoot, ".vera", "context-routes", routePath),
-            label: join(".vera", "context-routes", routePath),
+            destination: join(backupRoot, ".vera", "rules", rulePath),
+            label: join(".vera", "rules", rulePath),
         });
     }
 
