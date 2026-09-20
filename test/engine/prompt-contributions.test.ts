@@ -22,6 +22,7 @@ import {
     promptContributionMetadata,
     validatePromptContributionOrder,
 } from "../../src/engine/prompt-contributions.ts";
+import type { RuleSnapshot } from "../../src/engine/rules.ts";
 
 test("built-in prompt contributors return attributed plain data in order", () => {
     const contributions = collectBuiltInPromptContributions({
@@ -387,4 +388,109 @@ test("the loop policy decides the order a real turn sends", async () => {
         await expect(loop).rejects.toBeInstanceOf(ResidentAgentClosedError);
         await rm(root, { recursive: true, force: true });
     }
+});
+
+function ruleSnapshot(): RuleSnapshot {
+    return {
+        rules: [
+            {
+                scope: "user",
+                path: "/home/.vera/rules/tone.md",
+                displayPath: "<home>/rules/tone.md",
+                paths: [],
+                body: "Write plainly.\n",
+            },
+            {
+                scope: "project",
+                path: "/work/vera/.vera/rules/engine.md",
+                displayPath: ".vera/rules/engine.md",
+                paths: [],
+                body: "The engine never imports UI.\n",
+            },
+            {
+                scope: "project",
+                path: "/work/vera/.vera/rules/tui.md",
+                displayPath: ".vera/rules/tui.md",
+                paths: ["clients/tui/**"],
+                body: "Pad the layout.\n",
+            },
+        ],
+        warnings: [{ scope: "user", message: "<home>/rules/huge.md is larger than 128 KB, so it was skipped" }],
+    };
+}
+
+test("always-on rules render either side of the project instructions", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: {
+            files: [{
+                path: "/work/vera/AGENTS.md",
+                name: "AGENTS.md",
+                content: "Keep changes small.",
+                bytes: 19,
+                sha256: "abc123",
+            }],
+            warnings: [],
+        },
+        rules: ruleSnapshot(),
+    });
+
+    expect(contributions.map((contribution) => contribution.id)).toEqual([
+        "core.identity",
+        "core.narration",
+        "core.tools",
+        "core.workspace",
+        "core.date",
+        "core.user-rules",
+        "core.project-instructions",
+        "core.project-rules",
+    ]);
+});
+
+test("a path-scoped rule stays out of the system prompt", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        rules: ruleSnapshot(),
+    });
+    const project = contributions.find((contribution) =>
+        contribution.id === "core.project-rules"
+    );
+    expect(project?.content).toBe(
+        "### .vera/rules/engine.md\nThe engine never imports UI.",
+    );
+    expect(project?.content).not.toContain("Pad the layout.");
+});
+
+test("a rule loading warning reaches the scope it came from", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        rules: ruleSnapshot(),
+    });
+    const user = contributions.find((contribution) =>
+        contribution.id === "core.user-rules"
+    );
+    expect(user?.content).toBe(
+        "### <home>/rules/tone.md\nWrite plainly.\n\n"
+            + "### Loading diagnostics\n"
+            + "- <home>/rules/huge.md is larger than 128 KB, so it was skipped",
+    );
+});
+
+test("no rules at all leaves both contributions out", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        rules: { rules: [], warnings: [] },
+    });
+    expect(contributions.map((contribution) => contribution.id))
+        .not.toContain("core.user-rules");
+    expect(contributions.map((contribution) => contribution.id))
+        .not.toContain("core.project-rules");
 });

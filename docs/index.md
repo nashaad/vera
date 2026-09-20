@@ -53,7 +53,7 @@ your first conversation. For recorded Python workflows, start with
 - [Agents and delegated work](agents.md)
 - [Use and create skills](skills.md)
 - [Standing instructions](standing-nudges.md)
-- [Load instructions for specific files](context-routes.md)
+- [Rules](rules.md)
 - [Inspect context usage](context-usage.md)
 - [Context limits and compaction](context-levers.md)
 - [Manage extensions](extensions.md)

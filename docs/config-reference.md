@@ -39,6 +39,7 @@ These paths are inside `~/.vera`:
 | `tui.json` | Display preferences and keybindings. |
 | `skills/` | Installed skills. |
 | `agents/` | Reusable definitions. |
+| `rules/` | [Rules](rules.md) that apply in every project. |
 | `extensions/` | Installed extensions. |
 | `standing-nudges.json` | Preferences managed through `/nudges`. |
 
@@ -56,7 +57,7 @@ These paths are relative to the project root:
 | `.vera/config.json` | Project configuration. |
 | `.vera/agents/` | Agent definitions for this project. |
 | `.vera/skills/` | Skills for this project. A project skill wins over a home skill with the same name. |
-| `.vera/context-routes.yaml` | [Context routes](context-routes.md), with their instruction files in `.vera/context-routes/`. |
+| `.vera/rules/` | [Rules](rules.md) for this project. |
 
 Vera reads `AGENTS.md` and `AGENTS.local.md` from the project root only. It
 does not look for them in parent directories.

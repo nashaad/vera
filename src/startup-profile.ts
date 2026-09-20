@@ -21,7 +21,9 @@ export const storedStartupProfile = storedContextAssemblyMode;
 const BARE_DISABLED_CONTRIBUTIONS = [
     "core.scratchpad",
     "core.scratchpad-state",
+    "core.user-rules",
     "core.project-instructions",
+    "core.project-rules",
     "core.memory",
 ] as const;
 
@@ -32,7 +34,9 @@ const PROMPT_ONLY_DISABLED_CONTRIBUTIONS = [
     "core.scratchpad",
     "core.date",
     "core.scratchpad-state",
+    "core.user-rules",
     "core.project-instructions",
+    "core.project-rules",
     "core.memory",
 ] as const;
 

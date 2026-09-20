@@ -29,6 +29,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera library list", description: "List the models you keep" },
     { usage: "vera library add <provider/model> [--verify]", description: "Add a model to your library" },
     { usage: "vera library remove <name|id>", description: "Remove a model from your library" },
+    { usage: "vera rules which <path>", description: "Show which home and project rules apply when that file is read" },
     { usage: "vera schedule add ID --cron EXPR --to ID --text TEXT [--timezone TZ]", description: "Create a cron schedule" },
     { usage: "vera schedule list", description: "List schedules" },
     { usage: "vera schedule show ID", description: "Inspect a schedule and its runs" },
