@@ -1,5 +1,5 @@
 import type { JsonValue } from "../sdk/hooks.ts";
-import type { ModelOperation, ModelOperationResult } from "../model/model-operations.ts";
+import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import { createConnection, type Socket } from "node:net";
 import { isAbsolute } from "node:path";
 
@@ -632,6 +632,10 @@ export interface ModelOperationProgressResponse {
     readonly type: "model_operation_result";
     readonly result: ModelOperationResult;
 }
+export interface ModelOperationStepResponse {
+    readonly type: "model_operation_step";
+    readonly step: ModelOperationStep;
+}
 export interface ModelOperationCompleteResponse {
     readonly type: "model_operation_complete";
     readonly settings?: ModelTurnSettings;
@@ -674,6 +678,7 @@ export type AttachedClientMessage =
     | RunExtensionCommandRequest;
 export type HostResponse =
     | ModelOperationProgressResponse
+    | ModelOperationStepResponse
     | ModelOperationCompleteResponse
     | HostIdentityResponse
     | ModelSettingsResponse

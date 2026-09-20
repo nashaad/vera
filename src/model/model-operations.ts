@@ -1,4 +1,4 @@
-import { admitModel } from "./admission.ts";
+import { admitModel, type AdmissionStep } from "./admission.ts";
 import type { CatalogModel } from "./catalog-shape.ts";
 import { isVerifiedPoolEntry, type PoolFile } from "./pool-file.ts";
 import { isSelectable } from "./pool-policy.ts";
@@ -10,6 +10,10 @@ export interface ModelOperation {
     readonly operation: "keep" | "unkeep" | "verify" | "rename";
     readonly models: readonly ModelReference[];
     readonly displayName?: string;
+}
+export interface ModelOperationStep extends AdmissionStep {
+    readonly provider: string;
+    readonly model: string;
 }
 export interface ModelOperationResult {
     readonly provider: string;
@@ -24,6 +28,7 @@ export interface ModelOperationOptions extends PoolStoreOptions {
     readonly catalog?: (provider: string, model: string) => CatalogModel | undefined;
     readonly isCurrent?: (model: ModelReference) => boolean;
     readonly onResult?: (result: ModelOperationResult) => void;
+    readonly onStep?: (step: ModelOperationStep) => void;
 }
 const ref = (model: ModelReference): string => `${model.provider}/${model.model}`;
 
@@ -72,7 +77,8 @@ export async function applyModelOperation(operation: ModelOperation, options: Mo
         try {
             const verdict = await admitModel({ provider: model.provider, model: model.model,
                 adapter: options.createAdapter(model.provider),
-                catalogModel: options.catalog?.(model.provider, model.model) });
+                catalogModel: options.catalog?.(model.provider, model.model),
+                onStep: (step) => options.onStep?.({ ...model, ...step }) });
             if (obsolete(model)) continue;
             if (verdict.status === "added") {
                 recordModelVerification(ref(model), verdict.learned, options);

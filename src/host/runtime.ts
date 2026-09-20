@@ -1017,7 +1017,7 @@ export async function startResidentHost(
                 }
                 return registry.readHostModelSettings(workspace);
             },
-            operateModels: async (request, onResult) => {
+            operateModels: async (request, onResult, onStep) => {
                 const generations = new Map(request.models.map(({ provider }) =>
                     [provider, providerGenerations.get(provider) ?? 0]));
                 await applyModelOperation(request, {
@@ -1027,6 +1027,7 @@ export async function startResidentHost(
                     createAdapter: (provider) => createAdapter(provider),
                     catalog: (provider, model) => effectiveCatalog(provider).models.find((row) => row.id === model),
                     onResult,
+                    onStep,
                 });
                 return registry.readHostModelSettings(request.workspace);
             },

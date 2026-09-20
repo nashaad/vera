@@ -2,7 +2,7 @@ import { providerCatalogsOf } from "../../../src/host/model-catalog-settings.ts"
 import type { ModelOperation, ModelOperationResult } from "../../../src/model/model-operations.ts";
 import { replaceBrowseFeedback, shortlistOperationFeedback } from "../model-operation-feedback.ts";
 import type { TuiSettingsPickerState } from "../settings-picker-types.ts";
-import { verificationResults } from "../model-verification.ts";
+import { verificationResults, withVerificationStep } from "../model-verification.ts";
 import { mergeTuiModelPickerSettings, syncTuiModelPicker } from "../settings-picker.ts";
 import { focusedAgentClient } from "./agents-dials.ts";
 import { focusActiveSurface } from "./focus-switch.ts";
@@ -45,7 +45,7 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation, onS
         renderState(rt); focusActiveSurface(rt); return;
     }
     if (verifying) {
-        rt.modelVerification = { targets: operation.models, results: [], running: true };
+        rt.modelVerification = { targets: operation.models, results: [], steps: [], running: true };
         rt.settingsPicker = verificationResults(rt.modelVerification, rt.settingsPicker?.kind === "extension" ? undefined : rt.settingsPicker);
         renderState(rt); focusActiveSurface(rt);
     }
@@ -59,7 +59,12 @@ export function runModelOperation(rt: TuiRuntime, operation: ModelOperation, onS
             if (!membership && rt.settingsPicker?.kind === "model") rt.settingsPicker = { ...rt.settingsPicker, browseNotice: result.reason };
         }
         renderState(rt);
-    }, focusedAgentClient(rt).workspace).then((settings) => {
+    }, focusedAgentClient(rt).workspace, (step) => {
+        if (!verifying || rt.modelVerification === undefined) return;
+        rt.modelVerification = withVerificationStep(rt.modelVerification, step);
+        if (rt.settingsPicker?.kind === "model_verification") rt.settingsPicker = verificationResults(rt.modelVerification, rt.settingsPicker);
+        renderState(rt);
+    }).then((settings) => {
         if (settings !== undefined) {
             // Home settings carry host defaults; retain the live conversation's pair.
             rt.state = { ...rt.state, modelSettings: mergeTuiModelPickerSettings(rt.state.modelSettings, settings) };

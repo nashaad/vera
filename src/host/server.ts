@@ -1,6 +1,6 @@
 import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperationRequest } from "./protocol.ts";
-import type { ModelOperationResult } from "../model/model-operations.ts";
+import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmod, mkdir, stat, unlink } from "node:fs/promises";
@@ -142,7 +142,7 @@ export interface StartHostServerOptions {
     readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly handleExtensionRequest?: ExtensionRequestHandler;
     readonly forgetProvider?: (provider: string, workspace?: string) => Promise<ModelTurnSettings | undefined>;
-    readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void) => Promise<ModelTurnSettings | undefined>;
+    readonly operateModels?: (request: ModelOperationRequest, onResult: (result: ModelOperationResult) => void, onStep: (step: ModelOperationStep) => void) => Promise<ModelTurnSettings | undefined>;
     readonly readAnnex?: () =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -1111,10 +1111,13 @@ function receiveConnection(
             const onResult = (result: ModelOperationResult) => {
                 sending = sending.then(() => send({ type: "model_operation_result", result })).catch(() => {});
             };
+            const onStep = (step: ModelOperationStep) => {
+                sending = sending.then(() => send({ type: "model_operation_step", step })).catch(() => {});
+            };
             void (async () => {
                 try {
                     if (operateModels === undefined) throw new Error("This host does not support model operations.");
-                    const settings = await operateModels(request, onResult);
+                    const settings = await operateModels(request, onResult, onStep);
                     await sending;
                     await send({ type: "model_operation_complete", settings });
                 } catch (error) {

@@ -1,12 +1,25 @@
 import { tuiBindingId } from "./keymap.ts";
-import type { ModelOperationResult, ModelReference } from "../../src/model/model-operations.ts";
+import type { ModelOperationResult, ModelOperationStep, ModelReference } from "../../src/model/model-operations.ts";
+import { admissionStepMark } from "./state.ts";
 import type { TuiSettingsPickerKey, TuiSettingsPickerState, TuiSettingsPickerTransition } from "./settings-picker-types.ts";
 
 export interface VerificationTarget extends ModelReference { readonly verified: boolean; }
 export interface VerificationRun {
     readonly targets: readonly ModelReference[];
     readonly results: readonly ModelOperationResult[];
+    readonly steps: readonly ModelOperationStep[];
     readonly running: boolean;
+}
+
+// The probe reports a step twice, running then settled, so the later report
+// replaces the earlier one instead of stacking under it.
+export function withVerificationStep(run: VerificationRun, step: ModelOperationStep): VerificationRun {
+    const same = (row: ModelOperationStep) =>
+        row.provider === step.provider && row.model === step.model && row.step === step.step;
+    const at = run.steps.findIndex(same);
+    return { ...run, steps: at === -1
+        ? [...run.steps, step]
+        : run.steps.map((row, index) => index === at ? step : row) };
 }
 
 export function verificationPicker(models: readonly VerificationTarget[], onlyUnverified = true, selectedIndex = 0): TuiSettingsPickerState {
@@ -40,10 +53,17 @@ export function handleVerificationKey(state: TuiSettingsPickerState, key: TuiSet
 }
 
 export function verificationResults(run: VerificationRun, from?: TuiSettingsPickerState): TuiSettingsPickerState {
-    const options = run.targets.map((target) => {
+    const options = run.targets.flatMap((target) => {
+        const id = `${target.provider}/${target.model}`;
         const result = run.results.find((row) => row.provider === target.provider && row.model === target.model);
-        return { value: `${target.provider}/${target.model}`, label: `${target.provider}/${target.model}`,
-            description: `${result?.status ?? "waiting"}${result?.reason ? `: ${result.reason}` : ""}` };
+        const steps = run.steps.filter((row) => row.provider === target.provider && row.model === target.model);
+        return [
+            { value: id, label: id,
+                description: `${result?.status ?? (steps.length > 0 ? "checking" : "waiting")}${result?.reason ? `: ${result.reason}` : ""}` },
+            ...steps.map((step) => ({ value: `${id}#${step.step}`,
+                label: `  ${admissionStepMark(step.status)} ${step.label}${step.status === "skipped" ? " (skipped)" : ""}`,
+                description: step.detail ?? "" })),
+        ];
     });
     return { kind: "model_verification", title: run.running ? "Verifying models" : "Verification results",
         subtitle: "Leaving this screen does not stop the checks.\nA failure changes no existing assignment.",

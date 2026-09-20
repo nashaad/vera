@@ -1,5 +1,5 @@
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
-import type { ModelOperation, ModelOperationResult } from "../model/model-operations.ts";
+import type { ModelOperation, ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import { connectHost } from "./connection.ts";
 
 export async function operateModelsThroughHost(
@@ -7,6 +7,7 @@ export async function operateModelsThroughHost(
     operation: ModelOperation,
     onResult: (result: ModelOperationResult) => void,
     workspace?: string,
+    onStep: (step: ModelOperationStep) => void = () => {},
     responseTimeoutMs = 180_000,
 ): Promise<ModelTurnSettings | undefined> {
     const connection = await connectHost({ socketPath });
@@ -24,6 +25,10 @@ export async function operateModelsThroughHost(
             const record = response as Record<string, unknown> | undefined;
             if (record?.type === "model_operation_result") {
                 onResult(record.result as ModelOperationResult);
+                continue;
+            }
+            if (record?.type === "model_operation_step") {
+                onStep(record.step as ModelOperationStep);
                 continue;
             }
             if (record?.type !== "model_operation_complete") throw new Error("This host does not support model operations.");

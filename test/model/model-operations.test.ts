@@ -73,12 +73,17 @@ test("verification makes real adapter requests and does not keep a model", async
             result: () => Promise.resolve(message) };
     } };
     const streamed: string[] = [];
+    const steps: string[] = [];
     const results = await applyModelOperation({ operation: "verify", models: [model] }, {
         ...opts, createAdapter: () => adapter, onResult: (row) => streamed.push(row.status),
+        onStep: (step) => steps.push(`${step.provider}/${step.model} ${step.step} ${step.status}`),
     });
     expect(results[0]?.status).toBe("passed");
     expect(calls.length).toBeGreaterThan(0);
     expect(streamed).toEqual(["passed"]);
+    expect(steps[0]).toBe("test/one response running");
+    expect(steps).toContain("test/one response passed");
+    expect(new Set(steps.map((line) => line.split(" ")[1]))).toEqual(new Set(["response", "tool_call", "image"]));
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
     expect(isCuratedPoolEntry(entry(opts))).toBe(false);
 });

@@ -925,7 +925,7 @@ function finishAdmissionFromSnapshot(
     return withAdmissionEntry({ ...state, admission: finished }, finished);
 }
 
-function admissionStepMark(status: TuiAdmissionStep["status"]): string {
+export function admissionStepMark(status: TuiAdmissionStep["status"]): string {
     if (status === "running") return "…";
     if (status === "passed") return "✓";
     if (status === "failed") return "✗";

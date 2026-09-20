@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handleVerificationKey, verificationPicker, verificationResults } from "../../clients/tui/model-verification.ts";
+import { handleVerificationKey, verificationPicker, verificationResults, withVerificationStep, type VerificationRun } from "../../clients/tui/model-verification.ts";
 import { modelBrowse } from "../../clients/tui/model-browse.ts";
 import { startTuiSettingsPicker, syncTuiModelPicker } from "../../clients/tui/settings-picker.ts";
 const models = [
@@ -16,7 +16,7 @@ test("one verification screen combines provider scope and coverage with disabled
         .toEqual({ kind: "pool_verify_scope", onlyUnverified: false, provider: "q" });
 });
 test("results retain waiting, passed and failed rows with failure reasons", () => {
-    const state = verificationResults({ running: true, targets: models, results: [
+    const state = verificationResults({ running: true, targets: models, steps: [], results: [
         { provider: "p", model: "one", status: "failed", reason: "No response" },
     ] });
     expect(state.options.map((row) => row.description)).toEqual(["failed: No response", "waiting"]);
@@ -29,7 +29,7 @@ test("verification progress and completion preserve the caller and results curso
     const parent = { ...verificationPicker(models), selectedIndex: 1, onlyUnverified: false };
     const started = handleVerificationKey(parent, { name: "enter" });
     expect(started.state).toBe(parent);
-    const run = { running: true, targets: models, results: [] };
+    const run = { running: true, targets: models, results: [], steps: [] };
     const results = { ...verificationResults(run, parent), selectedIndex: 1 };
     const progress = verificationResults({ ...run, results: [{ ...models[0]!, status: "passed" }] }, results);
     expect(progress.selectedIndex).toBe(1);
@@ -50,7 +50,7 @@ test("a snapshot during a run reaches the pane the screen returns to", () => {
         "p",
     ), "favorites");
     expect(parent.allOptions.filter((row) => row.pooledRank !== undefined)).toHaveLength(0);
-    const results = verificationResults({ running: true, targets: models, results: [] }, parent);
+    const results = verificationResults({ running: true, targets: models, results: [], steps: [] }, parent);
     const synced = syncTuiModelPicker(results, {
         provider: "p",
         model: "one",
@@ -60,4 +60,17 @@ test("a snapshot during a run reaches the pane the screen returns to", () => {
     const returned = handleVerificationKey(synced, { name: "escape" }).state!;
     expect(returned.kind).toBe("model");
     expect(returned.allOptions.filter((row) => row.pooledRank !== undefined)).toHaveLength(1);
+});
+
+test("each step of a check is a row under the model, and a settled step replaces its running row", () => {
+    const one = { provider: "p", model: "one" };
+    let run: VerificationRun = { running: true, targets: [one], results: [], steps: [] };
+    run = withVerificationStep(run, { ...one, step: "response", label: "Model responds", status: "running" });
+    run = withVerificationStep(run, { ...one, step: "response", label: "Model responds", status: "passed" });
+    run = withVerificationStep(run, { ...one, step: "image", label: "Accepts an image", status: "skipped", detail: "no image support" });
+    expect(verificationResults(run).options.map((row) => [row.label, row.description])).toEqual([
+        ["p/one", "checking"],
+        ["  \u2713 Model responds", ""],
+        ["  \u2212 Accepts an image (skipped)", "no image support"],
+    ]);
 });
