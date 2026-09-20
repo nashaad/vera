@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
-import { modelColumnWidths, modelPriceColumns } from "../../clients/tui/model-browse-view.ts";
+import { modelColumnLegend, modelColumnWidths, modelPriceColumns } from "../../clients/tui/model-browse-view.ts";
+import type { TuiSettingsPickerOption } from "../../clients/tui/settings-picker-types.ts";
 import { modelDetailFacts } from "../../clients/tui/settings-picker-model.ts";
 import { createTestRenderer } from "@opentui/core/testing";
 import { TUI_ACCENT, TUI_ELEMENT } from "../../clients/tui/palette.ts";
@@ -35,7 +36,7 @@ test.each(["standard", "detailed"] as const)("%s restores tips and separates con
     } finally { setup.renderer.destroy(); }
 });
 
-test("Detailed gives a 30-row terminal at least six model rows without duplicate legends", async () => {
+test("Detailed gives a 30-row terminal at least five model rows without duplicate legends", async () => {
     const setup = await createTestRenderer({ width: 120, height: 30 });
     const view = createTuiSettingsPickerView(setup.renderer);
     setup.renderer.root.add(view.surface); view.surface.visible = true;
@@ -44,7 +45,8 @@ test("Detailed gives a 30-row terminal at least six model rows without duplicate
         const state = { ...chooseScope(modelBrowse({ ...base, allOptions: options }, "browse")), browseView: "detailed" as const };
         view.update(state); await setup.renderOnce();
         const frame = setup.captureCharFrame();
-        expect(frame.split("\n").filter((line) => /^\s+Entry \d/.test(line)).length).toBeGreaterThanOrEqual(6);
+        expect(frame.split("\n").filter((line) => /^\s+Entry \d/.test(line)).length).toBeGreaterThanOrEqual(5);
+        expect(frame).toContain("\u2713 verified");
         expect(frame).toContain("Favorites: not saved");
         expect(frame).not.toContain("Library:");
         expect(frame).not.toContain("* favorite");
@@ -441,6 +443,7 @@ test("stepping through an overflowing window moves the list by one line, or two 
     const state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
     const walk = [...state.options.keys(), ...[...state.options.keys()].reverse()];
     let top = 0;
+    let firstRow = 0;
     let previous = 0;
     let lines: readonly BrowseDisplayRow[] | undefined;
     for (const selectedIndex of walk) {
@@ -450,7 +453,12 @@ test("stepping through an overflowing window moves the list by one line, or two 
         expect(window.rows[0]?.heading !== undefined && window.rows[1]?.heading !== undefined).toBe(false);
         const last = (index: number) => state.options[index + 1]?.group !== state.options[index]?.group;
         const nearHeading = last(selectedIndex) || last(previous);
-        expect(Math.abs(window.top - top)).toBeLessThanOrEqual(nearHeading ? 2 : 1);
+        // A stuck heading sits above the first row, so what moved is the first
+        // row on screen, not the index the window starts at.
+        const first = (rows: readonly BrowseDisplayRow[]) =>
+            rows.find((row) => row.option !== undefined)?.index ?? 0;
+        expect(Math.abs(first(window.rows) - firstRow)).toBeLessThanOrEqual(nearHeading ? 2 : 1);
+        firstRow = first(window.rows);
         previous = selectedIndex;
         if (lines !== undefined && window.top === top) {
             expect(window.rows.slice(0, 10).map((row) => row.option?.value ?? row.heading))
@@ -458,6 +466,20 @@ test("stepping through an overflowing window moves the list by one line, or two 
         }
         top = window.top;
         lines = window.rows;
+    }
+});
+
+test("the top row always has its group heading above it, wherever the list has scrolled", () => {
+    const options = Array.from({ length: 30 }, (_, index) => ({
+        ...rows[0]!, provider: `p${Math.floor(index / 4)}`, value: `p/${index}`, model: `${index}`, label: `Model ${index}`,
+    }));
+    const state = chooseScope(modelBrowse({ ...base, allOptions: options }, "browse"));
+    let top = 0;
+    for (const selectedIndex of [...state.options.keys(), ...[...state.options.keys()].reverse()]) {
+        const window = browseWindow({ ...state, selectedIndex }, 12, top);
+        const first = window.rows.find((row) => row.option !== undefined);
+        expect(window.rows[0]?.heading).toBe(first?.option?.group);
+        top = window.top;
     }
 });
 
@@ -616,6 +638,23 @@ test("highlighted model details follow the row and distinguish verified, failed,
     } finally { setup.renderer.destroy(); }
 });
 
+test("the verified column reads as a glyph the legend explains", () => {
+    const option: TuiSettingsPickerOption = { ...rows[0]!, pricing: { input: 1, output: 2 } };
+    const probed: TuiSettingsPickerOption = { ...option, unverified: false };
+    const failed: TuiSettingsPickerOption = { ...option, verificationError: "No response" };
+    const cells = (row: TuiSettingsPickerOption) => modelPriceColumns(row, modelColumnWidths([row], "p/a"), "p/a").trim().split(/\s+/);
+    expect(cells(probed).at(-2)).toBe("\u2713");
+    expect(cells(failed).at(-2)).toBe("\u2717");
+    expect(cells(option).at(-2)).toBe("-");
+    // The status letter still only appears for a row that has one.
+    expect(cells(option).at(-1)).toBe("C");
+    expect(modelPriceColumns({ ...option, value: "p/b" }, modelColumnWidths([{ ...option, value: "p/b" }], "p/a"), "p/a").trim().split(/\s+/).at(-1)).toBe("-");
+    expect(modelColumnLegend(120)).toHaveLength(1);
+    expect(modelColumnLegend(40)).toHaveLength(2);
+    expect(modelColumnLegend(120)[0]).toContain("\u2713 verified");
+    expect(modelColumnLegend(120)[0]).toContain("C current");
+});
+
 test("Detailed separates long names from compact prices and retains exact detail rates", async () => {
     const setup = await createTestRenderer({ width: 120, height: 30 });
     const view = createTuiSettingsPickerView(setup.renderer);
@@ -625,7 +664,7 @@ test("Detailed separates long names from compact prices and retains exact detail
         const state = { ...chooseScope(modelBrowse({ ...base, allOptions: [option] }, "browse")), browseView: "detailed" as const };
         view.update(state); await setup.renderOnce();
         const row = setup.captureCharFrame().split("\n").find((line) => line.includes("$0.09"))!;
-        expect(row).toMatch(/DeepSeek V4 Flash 0423 with a long name\s+1550  \$0\.09   \$0\.18│/);
+        expect(row).toMatch(/DeepSeek V4 Flash 0423 with a long name\s+1550  \$0\.09   \$0\.18   -│/);
         expect(modelDetailFacts(state, option)).toContainEqual(["Full price", "0.088606/0.177212"]);
         const tiny = { ...option, pricing: { input: 0.00000001234, output: 0 } };
         expect(modelPriceColumns(tiny, modelColumnWidths([tiny]))).toContain("$1.2e-8");
@@ -649,8 +688,11 @@ test.each([90, 100, 120, 170])("Detailed aligns WA scores and prices at %s colum
         const lines = setup.captureCharFrame().split("\n");
         const preferred = lines.find((line) => line.includes("$0.07") && line.includes("Preferred"))!;
         const steady = lines.find((line) => line.includes("$2") && line.includes("Steady"))!;
-        expect(preferred).toMatch(/\$0\.13  C/);
+        expect(preferred).toMatch(/\$0\.13   -  C/);
         expect(steady).toMatch(/  U/);
+        expect(lines.some((line) => line.includes("Vf") && line.includes("St"))).toBe(true);
+        expect(lines.some((line) => line.includes("\u2713 verified") && line.includes("\u2717 probe failed"))).toBe(true);
+        expect(lines.some((line) => line.includes("C current") && line.includes("H hidden"))).toBe(true);
         const header = lines.find((line) => line.includes("Input") && line.includes("Output"))!;
         const scoreEnd = header.indexOf("WA Score") + "WA Score".length;
         expect(header).toContain("WA Score");

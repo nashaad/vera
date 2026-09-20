@@ -19,12 +19,19 @@ function modelStatus(option: TuiSettingsPickerOption, initialModel: string | und
     return option.unavailable ? "unavailable" : option.value === initialModel ? "current" : option.hiddenByDefault ? "hidden" : "";
 }
 
-/** One cell per column: WA Score, Input, Output, status letter. */
+/** Same glyphs as the favorites rows: \u2713 verified, - not probed, \u2717 probe failed. */
+function modelVerifiedMark(option: TuiSettingsPickerOption): string {
+    if (option.verificationError !== undefined) return "\u2717";
+    if (option.unverified === false || option.pooledRank !== undefined && option.unverified !== true) return "\u2713";
+    return "-";
+}
+
+/** One cell per column: WA Score, Input, Output, verified glyph, status letter. */
 function modelColumnCells(option: TuiSettingsPickerOption | undefined, initialModel: string | undefined): string[] {
-    if (option === undefined) return ["WA Score", "Input", "Output", ""];
+    if (option === undefined) return ["WA Score", "Input", "Output", "Vf", "St"];
     // One letter: U unavailable, C current, H hidden.
     return [String(option.waScore ?? "-"), listedRate(option.pricing?.input), listedRate(option.pricing?.output),
-        modelStatus(option, initialModel).slice(0, 1).toUpperCase()];
+        modelVerifiedMark(option), modelStatus(option, initialModel).slice(0, 1).toUpperCase()];
 }
 
 /** Each column is as wide as its widest cell across every model, so widths hold still while scrolling. */
@@ -33,14 +40,26 @@ export function modelColumnWidths(options: readonly TuiSettingsPickerOption[], i
     const widths = modelColumnCells(undefined, initialModel).map((header, column) =>
         Math.max(Bun.stringWidth(header), ...rows.map((cells) => Bun.stringWidth(cells[column]!))));
     // No row has a status, so the column and its header go.
-    if (rows.every((cells) => cells[3] === "")) widths[3] = 0;
+    if (rows.every((cells) => cells[4] === "")) widths[4] = 0;
     return widths;
 }
 
 export function modelPriceColumns(option: TuiSettingsPickerOption | undefined, widths: readonly number[], initialModel?: string): string {
     const cells = modelColumnCells(option, initialModel);
     const numbers = cells.slice(0, 3).map((cell, column) => cell.padStart(widths[column]!)).join("  ");
-    return widths[3] === 0 ? `  ${numbers}` : `  ${numbers}  ${cells[3]!.padEnd(widths[3]!)}`;
+    const verified = `${numbers}  ${cells[3]!.padStart(widths[3]!)}`;
+    return widths[4] === 0 ? `  ${verified}` : `  ${verified}  ${cells[4]!.padEnd(widths[4]!)}`;
+}
+
+const MODEL_COLUMN_LEGENDS = [
+    "Vf  \u2713 verified  - not probed  \u2717 probe failed",
+    "St  C current  U unavailable  H hidden",
+];
+
+/** The two lines join into one where the width allows it, so the list keeps a row. */
+export function modelColumnLegend(width: number): string[] {
+    const joined = MODEL_COLUMN_LEGENDS.join("   ");
+    return Bun.stringWidth(joined) <= width ? [joined] : MODEL_COLUMN_LEGENDS;
 }
 
 function wrapWords(content: string, width: number): string[] {
@@ -62,6 +81,9 @@ function columnLabel(label: string, width: number): string {
     }
     return `${clipped.trimEnd()}…`;
 }
+
+/** The label keeps about twenty columns once the number columns take their share. */
+const BROWSE_SPLIT_MIN_LIST_WIDTH = 50;
 
 export function modelBrowseRows(renderer: RenderContext): number {
     return Math.max(1, renderer.height - dialogSearchHeight(renderer) - 19);
@@ -87,14 +109,20 @@ export function renderModelBrowse(
     const width = pickerContentWidth(renderer, state, railInset);
     const detailed = state.browseView === "detailed";
     const candidateSplit = detailed ? modelPaneSplit(renderer, state, railInset) : undefined;
-    const split = candidateSplit !== undefined && candidateSplit.listWidth >= 59
+    const split = candidateSplit !== undefined && candidateSplit.listWidth >= BROWSE_SPLIT_MIN_LIST_WIDTH
         ? candidateSplit : undefined;
     const listWidth = split?.listWidth ?? width;
-    const columns = detailed && listWidth >= 59 && modelBrowseRows(renderer) >= 3;
+    const columns = detailed && listWidth >= BROWSE_SPLIT_MIN_LIST_WIDTH && modelBrowseRows(renderer) >= 3;
     // A caption too wide for one line wraps, and the list gives up the rows it takes.
     const captionRows = caption === undefined ? 0 : wrapWords(caption, width).length;
-    const maximumRows = Math.max(1, modelBrowseRows(renderer) + (columns ? 2 : 0)
+    // Columns without their legend are unreadable, so the legend always comes
+    // with them; only the gap above it gives way when the list is short.
+    const legend = columns ? modelColumnLegend(width) : [];
+    const rowsWithoutLegend = Math.max(1, modelBrowseRows(renderer) + (columns ? 2 : 0)
         - (columns && state.browseNotice !== undefined ? 1 : 0) - tipRows - Math.max(0, captionRows - 1));
+    const legendGap = rowsWithoutLegend - legend.length - 1 >= 10;
+    const legendRows = legend.length + (legendGap ? 1 : 0);
+    const maximumRows = Math.max(1, rowsWithoutLegend - legendRows);
     const window = browseWindow(state, maximumRows - (columns ? 1 : 0), scroll?.top);
     // Every scope gets the same height: a short list pads rather than shrinking the dialog.
     const listRows = maximumRows;
@@ -170,6 +198,11 @@ export function renderModelBrowse(
         addSummary(price);
     } else if (state.browseNotice !== undefined) {
         add(text(state.browseNotice));
+    }
+    if (legend.length > 0) {
+        const node = text(legend.map((line) => columnLabel(line, width)).join("\n"), legend.length);
+        node.marginTop = legendGap ? 1 : 0;
+        add(node);
     }
     add(new TextRenderable(renderer, {
         content: "─".repeat(width), height: 1, width: "100%", selectable: false,
