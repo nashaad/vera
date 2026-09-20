@@ -18,9 +18,14 @@ export interface Rule {
     readonly body: string;
 }
 
+export interface RuleWarning {
+    readonly scope: RuleScope;
+    readonly message: string;
+}
+
 export interface RuleSnapshot {
     readonly rules: readonly Rule[];
-    readonly warnings: readonly string[];
+    readonly warnings: readonly RuleWarning[];
 }
 
 /** Defaulted from the home; passed explicitly by callers that must not read the real home. */
@@ -45,7 +50,7 @@ export async function loadRules(
     directories: RuleDirectories,
 ): Promise<RuleSnapshot> {
     const rules: Rule[] = [];
-    const warnings: string[] = [];
+    const warnings: RuleWarning[] = [];
     for (const scope of ["user", "project"] as const) {
         const loaded = await loadScope(scope, directories[scope], warnings);
         rules.push(...loaded);
@@ -126,14 +131,17 @@ export function workspaceRelativePath(
 async function loadScope(
     scope: RuleScope,
     dir: string,
-    warnings: string[],
+    warnings: RuleWarning[],
 ): Promise<readonly Rule[]> {
     let names: string[];
     try {
         names = await readdir(dir);
     } catch (error) {
         if (!isMissingFile(error)) {
-            warnings.push(`${dir} could not be read, so no ${scope} rules were loaded`);
+            warnings.push({
+                scope,
+                message: `${dir} could not be read, so no ${scope} rules were loaded`,
+            });
         }
         return [];
     }
@@ -154,7 +162,7 @@ async function loadRule(
     scope: RuleScope,
     dir: string,
     name: string,
-    warnings: string[],
+    warnings: RuleWarning[],
 ): Promise<Rule | undefined> {
     const path = join(dir, name);
     let text: string;
@@ -164,20 +172,28 @@ async function loadRule(
             return undefined;
         }
         if (details.size > MAX_RULE_BYTES) {
-            warnings.push(`${displayPathFor(scope, name)} is larger than 128 KB, so it was skipped`);
+            warnings.push({
+                scope,
+                message: `${displayPathFor(scope, name)} is larger than 128 KB, so it was skipped`,
+            });
             return undefined;
         }
         const bytes = await readFile(path);
         text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     } catch {
-        warnings.push(`${displayPathFor(scope, name)} could not be read, so it was skipped`);
+        warnings.push({
+            scope,
+            message: `${displayPathFor(scope, name)} could not be read, so it was skipped`,
+        });
         return undefined;
     }
     const parsed = parseRule(text);
     if (parsed === undefined) {
-        warnings.push(
-            `${displayPathFor(scope, name)} has frontmatter that is not a paths list, so it was skipped`,
-        );
+        warnings.push({
+            scope,
+            message:
+                `${displayPathFor(scope, name)} has frontmatter that is not a paths list, so it was skipped`,
+        });
         return undefined;
     }
     return {

@@ -1457,6 +1457,9 @@ export async function runTurn(
             const projectInstructions = state.loadOptionalContext !== false
                 ? await loadProjectInstructions(state.toolRuntime.workspace)
                 : { files: [], warnings: [] };
+            const rules = state.loadOptionalContext !== false
+                ? await loadRules(ruleDirectories(state.toolRuntime.workspace))
+                : undefined;
             const memory = MEMORY_ENABLED
                     && state.loadOptionalContext !== false
                 ? await loadMemory(
@@ -1532,6 +1535,7 @@ export async function runTurn(
                     : { scratchDir: state.scratchDir }),
                 date: requestDate,
                 projectInstructions,
+                ...(rules === undefined ? {} : { rules }),
                 memory,
                 ...(scratchState === undefined ? {} : { scratchState }),
                 ...(state.disabledPromptContributions === undefined ? {} : {
@@ -1586,6 +1590,7 @@ export async function runTurn(
                     ),
                     contributionParts: contextContributionParts({
                         projectInstructions,
+                        ...(rules === undefined ? {} : { rules }),
                         ...(memory === undefined ? {} : { memory }),
                         ...(selected?.name === undefined ? {} : { agentName: selected.name }),
                         ...(selected?.instructions === undefined

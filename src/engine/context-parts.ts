@@ -3,6 +3,7 @@ import { basename } from "node:path";
 import { PROJECT_INSTRUCTION_FILENAMES } from "./project-instructions.ts";
 import type { MemorySnapshot } from "./memory.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
+import { alwaysOnRules, type RuleScope, type RuleSnapshot } from "./rules.ts";
 
 export type ContextPartScope =
     | "project"
@@ -30,6 +31,7 @@ export interface ContextProjectionPart {
 
 export function contextContributionParts(input: {
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
     readonly agentName?: string;
     readonly agentInstructions?: string;
@@ -38,6 +40,12 @@ export function contextContributionParts(input: {
     const project = projectInstructionParts(input.projectInstructions);
     if (project.length > 0) {
         parts["core.project-instructions"] = project;
+    }
+    for (const scope of ["user", "project"] as const) {
+        const seeds = ruleParts(input.rules, scope);
+        if (seeds.length > 0) {
+            parts[`core.${scope}-rules`] = seeds;
+        }
     }
     const memory = memoryParts(input.memory);
     if (memory.length > 0) {
@@ -85,6 +93,19 @@ function projectInstructionParts(
         scope: "project",
         bytes: file.bytes,
         ...(isRootInstructionName(file.name) ? {} : { imported: true }),
+    }));
+}
+
+function ruleParts(
+    snapshot: RuleSnapshot | undefined,
+    scope: RuleScope,
+): readonly ContextPartSeed[] {
+    if (snapshot === undefined) return [];
+    return alwaysOnRules(snapshot.rules, scope).map((rule) => ({
+        id: rule.path,
+        displayName: rule.displayPath,
+        scope,
+        bytes: Buffer.byteLength(rule.body, "utf8"),
     }));
 }
 

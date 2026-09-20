@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { ModelTool } from "../model/types.ts";
 import type { MemorySnapshot } from "./memory.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
+import { alwaysOnRules, type RuleScope, type RuleSnapshot } from "./rules.ts";
 import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 export type PromptContributionTarget = "stable" | "contextual";
@@ -36,6 +37,7 @@ export interface PromptContributionInput {
     readonly scratchDir?: string;
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
@@ -64,6 +66,7 @@ export interface StablePromptContributionInput {
 export interface ContextualPromptContributionInput {
     readonly date: Date;
     readonly projectInstructions?: ProjectInstructionSnapshot;
+    readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
@@ -224,6 +227,12 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         },
     },
     {
+        id: "core.user-rules",
+        owner: "core",
+        target: "contextual",
+        contribute: (input) => renderRules(input.rules, "user", "User rules"),
+    },
+    {
         id: "core.project-instructions",
         owner: "core",
         target: "contextual",
@@ -240,6 +249,12 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
                 content: renderProjectInstructions(snapshot),
             };
         },
+    },
+    {
+        id: "core.project-rules",
+        owner: "core",
+        target: "contextual",
+        contribute: (input) => renderRules(input.rules, "project", "Project rules"),
     },
     {
         id: "core.memory",
@@ -518,6 +533,33 @@ function renderMemory(snapshot: MemorySnapshot): string {
         ].join("\n"));
     }
     return sections.join("\n\n");
+}
+
+function renderRules(
+    snapshot: RuleSnapshot | undefined,
+    scope: RuleScope,
+    title: string,
+): Omit<PromptContribution, "id" | "owner" | "target"> | null {
+    if (snapshot === undefined) {
+        return null;
+    }
+    const rules = alwaysOnRules(snapshot.rules, scope);
+    const warnings = snapshot.warnings.filter((warning) =>
+        warning.scope === scope
+    );
+    if (rules.length === 0 && warnings.length === 0) {
+        return null;
+    }
+    const sections = rules.map((rule) =>
+        [`### ${rule.displayPath}`, rule.body.replace(/\n+$/, "")].join("\n")
+    );
+    if (warnings.length > 0) {
+        sections.push([
+            "### Loading diagnostics",
+            ...warnings.map((warning) => `- ${warning.message}`),
+        ].join("\n"));
+    }
+    return { title, content: sections.join("\n\n") };
 }
 
 function renderProjectInstructions(

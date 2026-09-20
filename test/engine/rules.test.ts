@@ -136,7 +136,8 @@ test("a rule whose frontmatter is not a paths list is skipped with a warning", a
         const { rules, warnings } = await loadRules(directories);
         expect(rules.map((rule) => rule.displayPath)).toEqual([".vera/rules/good.md"]);
         expect(warnings).toHaveLength(1);
-        expect(warnings[0]).toContain(".vera/rules/bad.md");
+        expect(warnings[0]!.scope).toBe("project");
+        expect(warnings[0]!.message).toContain(".vera/rules/bad.md");
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

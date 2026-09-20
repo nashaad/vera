@@ -70,6 +70,7 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "hooks",
     "memory",
     "agents",
+    "rules",
 ] as const;
 
 /**
