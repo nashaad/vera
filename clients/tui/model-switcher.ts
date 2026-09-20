@@ -26,7 +26,7 @@ import {
     updateDialogSearchNode,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
-import { isTuiDialTabKey } from "./keymap.ts";
+import { isTuiDialTabKey, tuiBindingId } from "./keymap.ts";
 import { steppedSection } from "./section-keys.ts";
 import { TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import { mixHex } from "./theme.ts";
@@ -61,7 +61,14 @@ export interface TuiModelSwitcherState {
     readonly pending?: TuiModelSwitcherPending;
     /** Which section the keys belong to. The browse row is a stop inside the list. */
     readonly focus?: TuiModelSwitcherFocus;
+    /** What the resting list holds. Ctrl+G swaps between them. */
+    readonly scope?: TuiModelSwitcherScope;
+    /** The heading to draw above each row, aligned with `rows`. */
+    readonly headings?: readonly (string | undefined)[];
 }
+
+/** The short list, or every connected model under its provider. */
+export type TuiModelSwitcherScope = "favorites" | "all";
 
 export type TuiModelSwitcherFocus = "search" | "list";
 
@@ -107,7 +114,7 @@ export function startTuiModelSwitcher(
     } = {},
 ): TuiModelSwitcherState {
     const recents = context.recents ?? [];
-    const ordered = orderedRows(allRows, recents, "", context.current);
+    const ordered = orderedRows(allRows, recents, "", context.current, "favorites");
     return {
         allRows,
         recents,
@@ -130,7 +137,7 @@ export function refreshedTuiModelSwitcher(
     pending?: TuiModelSwitcherPending,
 ): TuiModelSwitcherState {
     const held = state.rows[state.selectedIndex];
-    const ordered = orderedRows(allRows, recents, state.query, state.current);
+    const ordered = orderedRows(allRows, recents, state.query, state.current, switcherScope(state));
     const at = held === undefined ? -1 : ordered.rows
         .findIndex((row) => modelSwitcherKey(row) === modelSwitcherKey(held));
     const { notice: _notice, pending: _pending, ...carried } = state;
@@ -191,9 +198,11 @@ function orderedRows(
     recents: readonly string[],
     query: string,
     current?: string,
+    scope: TuiModelSwitcherScope = "favorites",
 ): {
     readonly rows: readonly TuiModelSwitcherRow[];
     readonly hidden: number;
+    readonly headings: readonly (string | undefined)[];
 } {
     const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
     if (terms.length > 0) {
@@ -201,25 +210,60 @@ function orderedRows(
             .filter((row) => terms.every((term) => searchable(row).includes(term)))
             .toSorted((left, right) => searchRank(right, terms) - searchRank(left, terms));
         const shown = matched.slice(0, MODEL_SWITCHER_MATCHES);
-        return { rows: shown, hidden: matched.length - shown.length };
+        return {
+            rows: shown,
+            hidden: matched.length - shown.length,
+            headings: shown.map(() => undefined),
+        };
     }
     const rows: TuiModelSwitcherRow[] = [];
+    const headings: (string | undefined)[] = [];
     const taken = new Set<string>();
+    const capped = scope === "favorites";
     const take = (row: TuiModelSwitcherRow | undefined, always = false): void => {
         if (row === undefined || taken.has(modelSwitcherKey(row))) return;
-        if (!always && rows.length >= MODEL_SWITCHER_SHORTLIST) return;
+        if (capped && !always && rows.length >= MODEL_SWITCHER_SHORTLIST) return;
         taken.add(modelSwitcherKey(row));
         rows.push(row);
+        headings.push(undefined);
     };
     const find = (key: string): TuiModelSwitcherRow | undefined =>
         allRows.find((candidate) => modelSwitcherKey(candidate) === key);
-    if (!allRows.some((row) => row.favorite === true)) {
-        return { rows, hidden: allRows.length };
+    // Only the expanded list carries headings; the short one is too small to need them.
+    const group = (at: number, heading: string): void => {
+        if (scope === "all" && rows.length > at) headings[at] = heading;
+    };
+    if (capped && !allRows.some((row) => row.favorite === true)) {
+        return { rows, hidden: allRows.length, headings };
     }
-    if (current !== undefined) take(find(current), true);
+    const currentRow = current === undefined ? undefined : find(current);
+    take(currentRow, true);
+    // The model in use leads the list whether or not it is a favorite, so it only
+    // sits under that heading when it is one.
+    if (currentRow !== undefined && currentRow.favorite !== true) group(0, "Current");
+    const favoritesAt = rows.length;
     for (const row of allRows) if (row.favorite === true) take(row, true);
+    group(headings[0] === undefined ? 0 : favoritesAt, "Favorites");
+    const recentsAt = rows.length;
     for (const key of recents) take(find(key));
-    return { rows, hidden: allRows.length - rows.length };
+    group(recentsAt, "Recent");
+    if (scope === "all") {
+        for (const provider of providerOrder(allRows)) {
+            const at = rows.length;
+            for (const row of allRows) if (row.provider === provider) take(row);
+            if (rows.length > at) {
+                group(at, rows[at]!.providerLabel ?? provider);
+            }
+        }
+    }
+    return { rows, hidden: allRows.length - rows.length, headings };
+}
+
+/** Providers in the order the catalog first names them, so the groups do not shuffle. */
+function providerOrder(allRows: readonly TuiModelSwitcherRow[]): readonly string[] {
+    const seen: string[] = [];
+    for (const row of allRows) if (!seen.includes(row.provider)) seen.push(row.provider);
+    return seen;
 }
 
 function searchable(row: TuiModelSwitcherRow): string {
@@ -256,6 +300,10 @@ export function handleTuiModelSwitcherKey(
     }
     if (key.ctrl === true && key.name === "k") {
         return { browse: true, handled: true };
+    }
+    // Ctrl+G means the same here as on the Browse page: change what the list holds.
+    if (tuiBindingId("switch_model_picker", key) === "journey_scope") {
+        return { state: scopedSwitcher(state), handled: true };
     }
     if (key.ctrl === true && key.name === "u") return moved(state, -PAGE_ROWS);
     if (key.ctrl === true && key.name === "d") return moved(state, PAGE_ROWS);
@@ -294,6 +342,33 @@ export function onSwitcherBrowseRow(state: TuiModelSwitcherState): boolean {
 
 export function switcherFocus(state: TuiModelSwitcherState): TuiModelSwitcherFocus {
     return state.focus ?? "search";
+}
+
+export function switcherScope(state: TuiModelSwitcherState): TuiModelSwitcherScope {
+    return state.scope ?? "favorites";
+}
+
+/** Ctrl+G swaps the short list for every connected model, and back. */
+function scopedSwitcher(state: TuiModelSwitcherState): TuiModelSwitcherState {
+    const scope: TuiModelSwitcherScope = switcherScope(state) === "all"
+        ? "favorites"
+        : "all";
+    const held = state.rows[state.selectedIndex];
+    const ordered = orderedRows(
+        state.allRows,
+        state.recents,
+        state.query,
+        state.current,
+        scope,
+    );
+    const at = held === undefined ? -1 : ordered.rows
+        .findIndex((row) => modelSwitcherKey(row) === modelSwitcherKey(held));
+    return {
+        ...state,
+        scope,
+        ...ordered,
+        selectedIndex: at >= 0 ? at : 0,
+    };
 }
 
 /** Search, the list, and the browse row, in the order Tab walks them. */
@@ -397,7 +472,7 @@ export function createTuiModelSwitcherView(
         border: false,
         backgroundColor: TUI_PANEL,
         width: switcherCardWidth(renderer),
-        height: 8,
+        height: switcherCardHeight(renderer),
         paddingLeft: DIALOG_CARD_PADDING,
         paddingRight: DIALOG_CARD_PADDING,
         paddingTop: 2,
@@ -405,6 +480,8 @@ export function createTuiModelSwitcherView(
         focusable: true,
     });
     const surface = centeredDialogSurface(renderer, "model-switcher-surface", box);
+    // The card keeps its top so growing the list does not move what is above it.
+    surface.justifyContent = "flex-start";
 
     const view: TuiModelSwitcherView = {
         box,
@@ -450,8 +527,8 @@ export function createTuiModelSwitcherView(
 
             const header = dialogHeaderNode(
                 renderer,
-                "Switch model",
-                "esc",
+                `Switch model · ${switcherScopeLabel(state)}`,
+                state.query.trim().length === 0 ? "Ctrl+G scope · esc" : "esc",
             );
             updateDialogSearchNode(
                 search,
@@ -474,23 +551,26 @@ export function createTuiModelSwitcherView(
 
             const { display, above, below } = windowedRows(renderer, state);
             if (display.length === 0) {
-                const message = emptyMessage(state);
+                const lines = switcherEmptyLines(state);
                 const resting = state.allRows.length > 0 && state.query.trim().length === 0;
-                const indent = Math.max(
-                    0,
-                    Math.floor((switcherContentWidth(renderer) - message.length) / 2),
-                );
-                const empty = new TextRenderable(renderer, {
-                    content: resting
-                        ? `${" ".repeat(indent)}${message}`
-                        : `${DIALOG_GUTTER}${message}`,
-                    fg: TUI_MUTED,
-                    width: "100%",
-                    height: 1,
-                    ...(resting ? { marginTop: 2, marginBottom: 1 } : {}),
-                });
-                box.add(empty);
-                nodes.push(empty);
+                for (const [at, line] of lines.entries()) {
+                    const indent = Math.max(
+                        0,
+                        Math.floor((switcherContentWidth(renderer) - line.length) / 2),
+                    );
+                    const empty = new TextRenderable(renderer, {
+                        content: resting
+                            ? `${" ".repeat(indent)}${line}`
+                            : `${DIALOG_GUTTER}${line}`,
+                        fg: TUI_MUTED,
+                        width: "100%",
+                        height: 1,
+                        ...(resting && at === 0 ? { marginTop: 2 } : {}),
+                        ...(resting && at === lines.length - 1 ? { marginBottom: 1 } : {}),
+                    });
+                    box.add(empty);
+                    nodes.push(empty);
+                }
             }
             const scrollHint = (count: number, where: string): void => {
                 const hint = new TextRenderable(renderer, {
@@ -504,23 +584,45 @@ export function createTuiModelSwitcherView(
             };
             const scrolling = above + below > 0;
             if (scrolling) scrollHint(above, "above");
-            for (
-                const node of dialogOptionRows(renderer, display.map((entry) => {
-                    const meta = rowMeta(state, entry.row);
-                    const provider = switcherRowProvider(state, entry.row);
-                    return {
-                        label: entry.row.label,
-                        ...(provider === undefined ? {} : { note: `· ${provider}` }),
-                        ...(meta === undefined ? {} : { meta }),
-                        active: entry.index === state.selectedIndex,
-                        current: modelSwitcherKey(entry.row) === state.current,
-                        ...dialogRowPointer(view.pointer, entry.index),
-                    };
-                }))
-            ) {
-                box.add(node);
-                nodes.push(node);
+            const optionRow = (entry: SwitcherDisplayRow) => {
+                const meta = rowMeta(state, entry.row);
+                const provider = switcherRowProvider(state, entry.row);
+                return {
+                    label: entry.row.label,
+                    ...(provider === undefined ? {} : { note: `· ${provider}` }),
+                    ...(meta === undefined ? {} : { meta }),
+                    active: entry.index === state.selectedIndex,
+                    current: modelSwitcherKey(entry.row) === state.current,
+                    ...dialogRowPointer(view.pointer, entry.index),
+                };
+            };
+            // A group's rows are drawn in one batch so its heading can precede them.
+            let batch: SwitcherDisplayRow[] = [];
+            const flush = (): void => {
+                if (batch.length === 0) return;
+                for (const node of dialogOptionRows(renderer, batch.map(optionRow))) {
+                    box.add(node);
+                    nodes.push(node);
+                }
+                batch = [];
+            };
+            for (const entry of display) {
+                const heading = state.headings?.[entry.index];
+                if (heading !== undefined) {
+                    flush();
+                    const node = new TextRenderable(renderer, {
+                        content: `${DIALOG_GUTTER}${heading}`,
+                        fg: TUI_MUTED,
+                        width: "100%",
+                        height: 1,
+                        marginTop: 1,
+                    });
+                    box.add(node);
+                    nodes.push(node);
+                }
+                batch.push(entry);
             }
+            flush();
             if (scrolling) scrollHint(below, "below");
 
             const unlisted = switcherUnlistedHint(state);
@@ -535,6 +637,17 @@ export function createTuiModelSwitcherView(
                 box.add(note);
                 nodes.push(note);
             }
+
+            // The card is a fixed size, so this takes up whatever the list does not
+            // and the band below stays put as the list grows.
+            const spacer = new BoxRenderable(renderer, {
+                width: "100%",
+                flexGrow: 1,
+                flexShrink: 1,
+                border: false,
+            });
+            box.add(spacer);
+            nodes.push(spacer);
 
             // Buttons sit under a rule, in their own band, the way every other dialog draws them.
             const rule = new TextRenderable(renderer, {
@@ -568,7 +681,8 @@ export function createTuiModelSwitcherView(
             const footer = dialogFooterNode(renderer, footerText(state));
             box.add(footer);
             nodes.push(footer);
-            box.height = "auto";
+            box.height = switcherCardHeight(renderer);
+            surface.paddingTop = switcherTop(renderer);
         },
     };
     return view;
@@ -595,14 +709,21 @@ function footerText(state: TuiModelSwitcherState): string {
 }
 
 export function switcherEmptyMessage(state: TuiModelSwitcherState): string {
-    return emptyMessage(state);
+    return switcherEmptyLines(state).join(" ");
 }
 
-function emptyMessage(state: TuiModelSwitcherState): string {
-    if (state.allRows.length === 0) return "No models. ⏎ connects a provider.";
-    return state.query.trim().length === 0
-        ? "Ctrl+K lists every model. Ctrl+F on one keeps it here."
-        : "No models match that search. /models adds a provider.";
+/** An empty list says so on its own lines, centered in the space it leaves. */
+export function switcherEmptyLines(
+    state: TuiModelSwitcherState,
+): readonly string[] {
+    if (state.allRows.length === 0) return ["No models. ⏎ connects a provider."];
+    if (state.query.trim().length !== 0) {
+        return ["No models match that search. /models adds a provider."];
+    }
+    return [
+        "Your favorite models land here.",
+        "Ctrl+K to go get some, or type a name if you know one.",
+    ];
 }
 
 /**
@@ -668,9 +789,18 @@ function rowMeta(
 
 /** Says what the list in front of you is, so the short list does not read as the whole catalog. */
 export function switcherCaption(state: TuiModelSwitcherState): string {
-    return state.query.trim().length === 0
-        ? "Your model, your favorites, then what you used last."
-        : "Every connected model, closest match first.";
+    if (state.query.trim().length !== 0) {
+        return "Closest match first.";
+    }
+    return switcherScope(state) === "all"
+        ? "Grouped by provider. Ctrl+G returns the short list."
+        : "Your model, your favorites, then what you used last.";
+}
+
+/** What the header says the list holds, in the browse page's words. */
+export function switcherScopeLabel(state: TuiModelSwitcherState): string {
+    if (state.query.trim().length !== 0) return "Search all connected models";
+    return switcherScope(state) === "all" ? "All connected models" : "Favorites";
 }
 
 /** A search that reached its limit says where the rest of the matches are. */
@@ -696,7 +826,13 @@ function searched(
     if (query === state.query) {
         return { state: { ...state, queryCursor, focus: "search" }, handled: true };
     }
-    const ordered = orderedRows(state.allRows, state.recents, query, state.current);
+    const ordered = orderedRows(
+        state.allRows,
+        state.recents,
+        query,
+        state.current,
+        switcherScope(state),
+    );
     return {
         state: { ...state, ...ordered, query, queryCursor, selectedIndex: 0, focus: "search" },
         handled: true,
@@ -721,14 +857,25 @@ function windowedRows(
     state: TuiModelSwitcherState,
 ): SwitcherWindow {
     if (state.rows.length === 0) return { display: [], above: 0, below: 0 };
-    const fits = switcherMaxRows(renderer);
-    // An overflowing list gives up two rows to the "more above" and "more below" lines.
-    const maxRows = state.rows.length <= fits ? fits : Math.max(1, fits - 2);
-    const window = listWindowSlice(
-        state.rows,
-        Math.min(state.selectedIndex, state.rows.length - 1),
-        maxRows,
-    );
+    const fits = switcherMaxRows(renderer)
+        - (switcherUnlistedHint(state) === undefined ? 0 : 2);
+    const cursor = Math.min(state.selectedIndex, state.rows.length - 1);
+    // A heading costs two lines, its own and the blank above it, and only the
+    // headings inside the window are drawn. Shrink until the card fits.
+    let maxRows = fits;
+    let window = state.rows;
+    for (let pass = 0; pass < fits; pass += 1) {
+        window = listWindowSlice(state.rows, cursor, maxRows);
+        const at = Math.max(0, state.rows.indexOf(window[0]!));
+        let lines = window.length;
+        for (let row = at; row < at + window.length; row += 1) {
+            if (state.headings?.[row] !== undefined) lines += 2;
+        }
+        if (at > 0) lines += 1;
+        if (at + window.length < state.rows.length) lines += 1;
+        if (lines <= fits || maxRows <= 1) break;
+        maxRows -= 1;
+    }
     const start = Math.max(0, state.rows.indexOf(window[0]!));
     return {
         display: displayRows(window, start),
@@ -737,9 +884,23 @@ function windowedRows(
     };
 }
 
+
+/** Where the card sits, and the room the list is given below it. */
+function switcherTop(renderer: RenderContext): number {
+    return Math.max(1, Math.floor(renderer.height / 8));
+}
+
+/** One size, whatever the list holds, so changing scope moves nothing. */
+function switcherCardHeight(renderer: RenderContext): number {
+    return Math.max(8, Math.floor(dialogBoxHeight(renderer, switcherTop(renderer))));
+}
+
+/** The card's own chrome: the shared dialog's, plus the caption and the band. */
+const SWITCHER_CHROME = DIALOG_CHROME_HEIGHT + 6;
+
 function switcherMaxRows(renderer: RenderContext): number {
     return listWindowRows(
-        dialogBoxHeight(renderer, renderer.height / 8),
-        DIALOG_CHROME_HEIGHT - DIALOG_SEARCH_HEIGHT + dialogSearchHeight(renderer),
+        switcherCardHeight(renderer),
+        SWITCHER_CHROME - DIALOG_SEARCH_HEIGHT + dialogSearchHeight(renderer),
     );
 }

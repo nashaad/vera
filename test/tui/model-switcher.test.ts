@@ -14,9 +14,12 @@ import {
     searchedTuiModelSwitcher,
     switcherFooterText,
     switcherRowProvider,
+    switcherScope,
+    switcherScopeLabel,
     switcherStop,
     switcherUnlistedHint,
     type TuiModelSwitcherRow,
+    type TuiModelSwitcherState,
 } from "../../clients/tui/model-switcher.ts";
 
 const rows: readonly TuiModelSwitcherRow[] = [
@@ -237,9 +240,91 @@ describe("model switcher keys", () => {
             .toBe(last.selectedIndex);
     });
 
-    test("no browse control is bound: scope and sort keys fall through", () => {
-        for (const key of [{ name: "g", ctrl: true }, { name: "s", ctrl: true }]) {
-            expect(handleTuiModelSwitcherKey(started(), key).handled).toBe(false);
+    test("the sort key falls through: the switcher does not order the list", () => {
+        expect(handleTuiModelSwitcherKey(started(), { name: "s", ctrl: true }).handled)
+            .toBe(false);
+    });
+});
+
+describe("model switcher scope", () => {
+    const resting = (): TuiModelSwitcherState =>
+        started({ current: "openai/gpt-5.6", recents: ["anthropic/claude-sonnet-5"] });
+    const scoped = (state: TuiModelSwitcherState): TuiModelSwitcherState =>
+        handleTuiModelSwitcherKey(state, { name: "g", ctrl: true }).state!;
+
+    test("ctrl+g opens every connected model, grouped by where it comes from", () => {
+        const all = scoped(resting());
+        expect(switcherScope(all)).toBe("all");
+        expect(all.rows.map((row) => row.label)).toEqual([
+            "GPT-5.6",
+            "Claude Opus 5",
+            "Claude Sonnet 5",
+            "GPT-5.6 mini",
+            "qwen3:32b",
+        ]);
+        expect(all.headings?.filter((heading) => heading !== undefined))
+            .toEqual(["Favorites", "Recent", "openai", "ollama"]);
+        expect(switcherScopeLabel(all)).toBe("All connected models");
+        expect(switcherScopeLabel(resting())).toBe("Favorites");
+    });
+
+    test("nothing is left over once the list holds everything", () => {
+        expect(resting().hidden).toBeGreaterThan(0);
+        expect(scoped(resting()).hidden).toBe(0);
+    });
+
+    test("ctrl+g again returns the short list", () => {
+        const back = scoped(scoped(resting()));
+        expect(switcherScope(back)).toBe("favorites");
+        expect(back.rows).toEqual(resting().rows);
+        expect(back.headings?.every((heading) => heading === undefined)).toBe(true);
+    });
+
+    test("the selected model is held across the toggle", () => {
+        const list = handleTuiModelSwitcherKey(resting(), { name: "down" }).state!;
+        const held = list.rows[list.selectedIndex]!;
+        const all = scoped(list);
+        expect(all.rows[all.selectedIndex]).toEqual(held);
+    });
+
+    test("a search shows its matches ungrouped whatever the scope", () => {
+        const found = searchedTuiModelSwitcher(scoped(resting()), "opus");
+        expect(found.rows.map((row) => row.label)).toEqual(["Claude Opus 5"]);
+        expect(found.headings).toEqual([undefined]);
+    });
+});
+
+describe("model switcher card", () => {
+    test("the card keeps its place when ctrl+g fills the list", async () => {
+        const setup = await createTestRenderer({ width: 100, height: 40 });
+        const view = createTuiModelSwitcherView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        try {
+            // The card is one size: the title and the band below it never move.
+            const edges = async (
+                state: TuiModelSwitcherState,
+            ): Promise<readonly number[]> => {
+                view.update(state);
+                await setup.renderOnce();
+                const lines = setup.captureCharFrame().split("\n");
+                return [
+                    lines.findIndex((line) => line.includes("Switch model")),
+                    lines.findIndex((line) => line.includes("Browse models")),
+                ];
+            };
+            const resting = startTuiModelSwitcher(rows, {
+                current: "openai/gpt-5.6",
+                recents: ["anthropic/claude-sonnet-5"],
+            });
+            const at = await edges(resting);
+            expect(at[0]).toBeGreaterThan(0);
+            expect(at[1]).toBeGreaterThan(at[0]!);
+            const all = handleTuiModelSwitcherKey(resting, { name: "g", ctrl: true }).state!;
+            expect(await edges(all)).toEqual(at);
+            expect(await edges(searchedTuiModelSwitcher(resting, "claude"))).toEqual(at);
+        } finally {
+            setup.renderer.destroy();
         }
     });
 });
@@ -256,8 +341,10 @@ describe("model switcher with no favorites", () => {
             recents: ["anthropic/claude-opus-5"],
         });
         expect(state.rows).toEqual([]);
-        expect(switcherEmptyMessage(state))
-            .toBe("Ctrl+K lists every model. Ctrl+F on one keeps it here.");
+        expect(switcherEmptyMessage(state)).toBe(
+            "Your favorite models land here."
+                + " Ctrl+K to go get some, or type a name if you know one.",
+        );
         expect(switcherFooterText(state)).toBe("type search · ⏎ browse · esc close");
     });
 
