@@ -110,6 +110,7 @@ import {
     refreshCodexCatalog,
     type CodexCatalogRefreshOptions,
 } from "../model/codex-catalog.ts";
+import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-codex-oauth.ts";
 import {
     normalizeOpenRouterModels,
     refreshOpenRouterCatalog,
@@ -532,6 +533,17 @@ export async function startResidentHost(
                         if (catalog === undefined) return undefined;
                         writeProviderCatalogSnapshot(catalog);
                         models = modelsFromConnectedCatalogs(config, models, { authStorage });
+                        return models;
+                    }
+                    // Codex has no models endpoint: its list is the cache file
+                    // the Codex CLI writes, so a refresh is a re-read.
+                    if (provider === OPENAI_CODEX_PROVIDER_ID) {
+                        const rows = discoveredCodexModels(config, { authStorage });
+                        if (rows.length === 0) return undefined;
+                        models = withProviderRefreshability(
+                            replaceProviderRows(models, provider, rows),
+                            config,
+                        );
                         return models;
                     }
                     if (!isRefreshableProvider(provider, config)) return undefined;

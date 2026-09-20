@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
     loadVeraConfig,
@@ -603,4 +604,84 @@ const adapter: ModelAdapter = {
             await rm(root, { recursive: true, force: true });
         }
     }, 15_000,
+);
+
+test(
+    "a Codex credential that arrives after startup brings its models in on a refresh",
+    async () => {
+        const root = await realpath(
+            await mkdtemp(join(tmpdir(), "vera-codex-refresh-")),
+        );
+        const previousHome = process.env.VERA_HOME;
+        const previousUserHome = process.env.HOME;
+        process.env.VERA_HOME = root;
+        await mkdir(join(root, ".codex"), { recursive: true });
+        await copyFile(
+            fileURLToPath(
+                new URL("../fixtures/codex-models-cache.json", import.meta.url),
+            ),
+            join(root, ".codex", "models_cache.json"),
+        );
+
+        let token: string | undefined;
+        const authStorage = {
+            getCredential: (provider: string) =>
+                provider === "openai-codex" && token !== undefined
+                    ? { type: "oauth" as const, token }
+                    : undefined,
+            setCredential: () => {},
+            deleteCredential: () => {},
+        } satisfies AuthStorage;
+        const configPath = join(root, "config.json");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "one/model",
+            approval_mode: "ask",
+        }));
+
+        const host = await startResidentHost({
+            config: loadVeraConfig({ path: configPath }),
+            createAdapter: () => adapter,
+            authStorage,
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+
+        try {
+            const agent = await host.registry.create({
+                workspace: root,
+                sessionPath: join(root, "sessions", "agent.jsonl"),
+            });
+            const before = await host.registry.readHostModelSettings(root);
+            expect(before?.availableModels?.some(
+                (model) => model.provider === "openai-codex",
+            )).toBe(false);
+
+            // The cache Codex writes sits in the user's home, and the release
+            // stamp the host reads at startup sits there too.
+            process.env.HOME = root;
+            token = "signed-in-just-now";
+            const refreshed = await host.registry.refreshCatalog(
+                agent.id,
+                "openai-codex",
+            );
+            expect(refreshed?.availableModels).toContainEqual(
+                expect.objectContaining({
+                    provider: "openai-codex",
+                    model: "gpt-5.6-sol",
+                }),
+            );
+        } finally {
+            await host.close();
+            if (previousHome === undefined) delete process.env.VERA_HOME;
+            else process.env.VERA_HOME = previousHome;
+            if (previousUserHome === undefined) delete process.env.HOME;
+            else process.env.HOME = previousUserHome;
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+    15_000,
 );

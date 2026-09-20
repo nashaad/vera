@@ -19,7 +19,7 @@ import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../sr
 import { configuredProviders, findConfiguredProvider, isProviderConnected, type ProviderDescriptor } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
-import { closeSettingsPickerSurface, defaultLoginProvider } from "../main.ts";
+import { closeSettingsPickerSurface, defaultLoginProvider, requestCatalogRefresh } from "../main.ts";
 import { focusedAgentClient, focusedAgentState } from "../main/agents-dials.ts";
 import { adoptStandingNudgesState } from "../main/chrome.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
@@ -820,7 +820,9 @@ export function connectProvider(rt: TuiRuntime,
             `✓ signed in to ${provider.label}`,
             "success",
         );
-        renderState(rt);
+        // The credential alone changes no list: the host only learns the
+        // provider's models when it is asked to read them again.
+        requestCatalogRefresh(rt, provider.id);
     }, (error: unknown) => {
         rt.connectingProviders.delete(provider.id);
         rt.state = appendTuiError(
