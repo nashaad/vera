@@ -22,11 +22,11 @@ import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 
-const API_REMINDER = "Contents of .vera/context-routes/api.md:\n\n"
+const API_REMINDER = "Contents of .vera/rules/api.md:\n\n"
     + "Use the shared error helper.";
-const BOTH_REMINDER = "Contents of .vera/context-routes/api.md:\n\n"
+const BOTH_REMINDER = "Contents of .vera/rules/api.md:\n\n"
     + "Use the shared error helper.\n\n"
-    + "Contents of .vera/context-routes/web.md:\n\n"
+    + "Contents of .vera/rules/web.md:\n\n"
     + "Keep the web client a sibling.";
 
 const temporaryWorkspaces: string[] = [];
@@ -39,10 +39,7 @@ afterAll(() => {
 
 test("a matching read injects one internal reminder before the next model request", async () => {
     const workspace = seedWorkspace();
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/api.md"),
-    ]);
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
     const requests: ModelRequest[] = [];
     const { channel, state, start } = setupTurn(
         workspace,
@@ -61,8 +58,8 @@ test("a matching read injects one internal reminder before the next model reques
     expect(requests).toHaveLength(2);
     expect(internalReminders(requests[0]?.messages ?? [])).toEqual([]);
     expect(internalReminders(requests[1]?.messages ?? [])).toEqual([API_REMINDER]);
-    expect(state.injectedContextRoutePaths).toEqual(
-        new Set(["context-routes/api.md"]),
+    expect(state.injectedRulePaths).toEqual(
+        new Set([join(workspace, ".vera", "rules", "api.md")]),
     );
     expect(internalReminders(state.messages)).toHaveLength(1);
 });
@@ -71,12 +68,8 @@ test("two matching reads in one assistant message share one reminder", async () 
     const workspace = seedWorkspace();
     mkdirSync(join(workspace, "src", "web"), { recursive: true });
     writeFileSync(join(workspace, "src", "web", "app.ts"), "export {};\n");
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/api.md"),
-        readRoute("src/web/**", "context-routes/web.md"),
-    ]);
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
-    writePayload(workspace, "web.md", "Keep the web client a sibling.\n");
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
+    writeRule(workspace, "web.md", ["src/web/**"], "Keep the web client a sibling.\n");
     const requests: ModelRequest[] = [];
     const { channel, start } = setupTurn(
         workspace,
@@ -117,10 +110,7 @@ test("two matching reads in one assistant message share one reminder", async () 
 test("a second read of the same tree does not inject again until compact", async () => {
     const workspace = seedWorkspace();
     writeFileSync(join(workspace, "src", "api", "nested.ts"), "export {};\n");
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/api.md"),
-    ]);
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
     const requests: ModelRequest[] = [];
     const { channel, state, start } = setupTurn(
         workspace,
@@ -145,10 +135,7 @@ test("a missed glob, a write, and a failed read do not inject", async () => {
     const workspace = seedWorkspace();
     mkdirSync(join(workspace, "src", "web"), { recursive: true });
     writeFileSync(join(workspace, "src", "web", "app.ts"), "export {};\n");
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/api.md"),
-    ]);
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
 
     await expectNoReminder(workspace, [
         toolCall("call_web", "read", { path: "src/web/app.ts" }),
@@ -167,45 +154,34 @@ test("a missed glob, a write, and a failed read do not inject", async () => {
     ]);
 });
 
-test("about_to_run, a missing payload, and corrupt yaml do not inject", async () => {
+test("an unknown frontmatter key alone is always on, so a read does not inject", async () => {
     const workspace = seedWorkspace();
-    writePayload(workspace, "tui-tests.md", "TUI test trap.\n");
-    writeRoutes(workspace, [
-        [
-            "  - trigger:",
-            "      about_to_run: bun test",
-            "      in: test/tui/**",
-            "    consequence:",
-            "      inject: context-routes/tui-tests.md",
-        ].join("\n"),
-    ]);
-    await expectNoReminder(workspace, [
-        toolCall("call_read", "read", { path: "src/api/handler.ts" }),
-        assistantText("done"),
-    ]);
-
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/missing.md"),
-    ]);
-    await expectNoReminder(workspace, [
-        toolCall("call_read", "read", { path: "src/api/handler.ts" }),
-        assistantText("done"),
-    ]);
-
-    writeFileSync(join(workspace, ".vera", "context-routes.yaml"), "routes: [\n");
+    writeFileSync(
+        join(workspace, ".vera", "rules", "later.md"),
+        "---\ncommands:\n  - \"bun test\"\n---\n\nTUI test trap.\n",
+    );
     await expectNoReminder(workspace, [
         toolCall("call_read", "read", { path: "src/api/handler.ts" }),
         assistantText("done"),
     ]);
 });
 
-test("an unsupported router version does not inject after a matching read", async () => {
+test("a rule with malformed frontmatter does not inject", async () => {
     const workspace = seedWorkspace();
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
     writeFileSync(
-        join(workspace, ".vera", "context-routes.yaml"),
-        `version: 2\nroutes:\n${readRoute("src/api/**", "context-routes/api.md")}\n`,
+        join(workspace, ".vera", "rules", "api.md"),
+        "---\npaths: 17\n---\n\nUse the shared error helper.\n",
     );
+    await expectNoReminder(workspace, [
+        toolCall("call_read", "read", { path: "src/api/handler.ts" }),
+        assistantText("done"),
+    ]);
+});
+
+test("an empty rules directory does not inject", async () => {
+    const workspace = seedWorkspace();
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
+    removeRule(workspace, "api.md");
     await expectNoReminder(workspace, [
         toolCall("call_read", "read", { path: "src/api/handler.ts" }),
         assistantText("done"),
@@ -214,10 +190,7 @@ test("an unsupported router version does not inject after a matching read", asyn
 
 test("a hand-built turn without the inject set does not inject", async () => {
     const workspace = seedWorkspace();
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/api.md"),
-    ]);
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
     const requests: ModelRequest[] = [];
     const { channel, start } = setupTurn(
         workspace,
@@ -239,10 +212,7 @@ test("a hand-built turn without the inject set does not inject", async () => {
 
 test("loadOptionalContext false skips inject even with the set present", async () => {
     const workspace = seedWorkspace();
-    writeRoutes(workspace, [
-        readRoute("src/api/**", "context-routes/api.md"),
-    ]);
-    writePayload(workspace, "api.md", "Use the shared error helper.\n");
+    writeRule(workspace, "api.md", ["src/api/**"], "Use the shared error helper.\n");
     const requests: ModelRequest[] = [];
     const { channel, start } = setupTurn(
         workspace,
@@ -263,32 +233,28 @@ test("loadOptionalContext false skips inject even with the set present", async (
 });
 
 function seedWorkspace(): string {
-    const workspace = mkdtempSync(join(tmpdir(), "vera-routes-turn-"));
+    const workspace = mkdtempSync(join(tmpdir(), "vera-rules-turn-"));
     temporaryWorkspaces.push(workspace);
     mkdirSync(join(workspace, "src", "api"), { recursive: true });
-    mkdirSync(join(workspace, ".vera", "context-routes"), { recursive: true });
+    mkdirSync(join(workspace, ".vera", "rules"), { recursive: true });
     writeFileSync(join(workspace, "src", "api", "handler.ts"), "export {};\n");
     return workspace;
 }
 
-function writeRoutes(workspace: string, routes: readonly string[]): void {
-    writeFileSync(
-        join(workspace, ".vera", "context-routes.yaml"),
-        `version: 1\nroutes:\n${routes.join("\n")}\n`,
-    );
+function writeRule(
+    workspace: string,
+    name: string,
+    globs: readonly string[],
+    body: string,
+): void {
+    const frontmatter = globs.length === 0
+        ? ""
+        : `---\npaths:\n${globs.map((glob) => `  - "${glob}"`).join("\n")}\n---\n\n`;
+    writeFileSync(join(workspace, ".vera", "rules", name), frontmatter + body);
 }
 
-function readRoute(glob: string, inject: string): string {
-    return [
-        "  - trigger:",
-        `      read: ${glob}`,
-        "    consequence:",
-        `      inject: ${inject}`,
-    ].join("\n");
-}
-
-function writePayload(workspace: string, name: string, content: string): void {
-    writeFileSync(join(workspace, ".vera", "context-routes", name), content);
+function removeRule(workspace: string, name: string): void {
+    rmSync(join(workspace, ".vera", "rules", name), { force: true });
 }
 
 function setupTurn(
@@ -324,7 +290,7 @@ function setupTurn(
         approvalMode: "auto",
         ...(options.omitInjectSet === true
             ? {}
-            : { injectedContextRoutePaths: new Set<string>() }),
+            : { injectedRulePaths: new Set<string>() }),
         ...(options.loadOptionalContext === undefined
             ? {}
             : { loadOptionalContext: options.loadOptionalContext }),

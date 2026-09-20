@@ -81,9 +81,11 @@ import {
     MEMORY_ENABLED,
 } from "./memory.ts";
 import {
-    formatContextRouteReminder,
-    payloadsForSuccessfulReads,
-} from "./context-routes.ts";
+    formatRuleReminder,
+    loadRules,
+    ruleDirectories,
+    rulesForReadPaths,
+} from "./rules.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
 import {
     type ContextualContributionContext,
@@ -287,7 +289,7 @@ export interface RunTurnState {
     readonly loadAgents?: () => Promise<readonly AgentDefinition[]>;
     readonly clampPermissionMode?: ApprovalMode;
     readonly firedNudges?: Set<string>;
-    readonly injectedContextRoutePaths?: Set<string>;
+    readonly injectedRulePaths?: Set<string>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
@@ -553,7 +555,7 @@ export async function runHeadlessLoop(
         }));
     }
     const messages = [...store.messages()];
-    const injectedContextRoutePaths = new Set<string>();
+    const injectedRulePaths = new Set<string>();
     let sessionStartReady: Promise<boolean> = Promise.resolve(false);
     let inbound: InboundCommandRouter;
     let compactOnRequest: (
@@ -1014,7 +1016,7 @@ export async function runHeadlessLoop(
                 latchedAssignmentKey = assignmentKey;
             }
             if (result.outcome === "compacted") {
-                injectedContextRoutePaths.clear();
+                injectedRulePaths.clear();
                 const contextAdded = await injectSessionStartContext(state, "compacted");
                 if (contextAdded) {
                     protocol.checkpoint(messages, store.activeMessageIds());
@@ -1111,7 +1113,7 @@ export async function runHeadlessLoop(
             loadAgents: boundary.loadAgents,
         }),
         firedNudges: new Set<string>(),
-        injectedContextRoutePaths,
+        injectedRulePaths,
         readApprovalMode,
         readPermissionGrants,
         readPermissionPreferences,
@@ -1936,7 +1938,7 @@ export async function runTurn(
             }
             await appendToolImages(state, batchCompleted, turn.signal);
             // After this assistant message's tools, not inside each serial finishToolCalls.
-            await injectContextRouteReminders(state, batchCompleted);
+            await injectRuleReminders(state, batchCompleted);
             if (interrupt !== undefined) {
                 assistantMessage = reviewInterruptedMessage(
                     activeModel,
@@ -3024,13 +3026,13 @@ async function injectSessionStartContext(
     return true;
 }
 
-async function injectContextRouteReminders(
+async function injectRuleReminders(
     state: RunTurnState,
     completed: readonly CompletedToolCall[],
 ): Promise<void> {
-    const injected = state.injectedContextRoutePaths;
+    const injected = state.injectedRulePaths;
     // Missing Set skips inject. Hand-built RunTurnState against process.cwd()
-    // must not pick up a workspace YAML.
+    // must not pick up a workspace's rules.
     if (injected === undefined || state.loadOptionalContext === false) {
         return;
     }
@@ -3040,12 +3042,15 @@ async function injectContextRouteReminders(
     if (readPaths.length === 0) {
         return;
     }
-    const payloads = await payloadsForSuccessfulReads(
-        state.toolRuntime.workspace,
+    const workspace = state.toolRuntime.workspace;
+    const snapshot = await loadRules(ruleDirectories(workspace));
+    const matched = rulesForReadPaths(
+        snapshot.rules,
+        workspace,
         readPaths,
         injected,
     );
-    if (payloads === undefined || payloads.length === 0) {
+    if (matched.length === 0) {
         return;
     }
     await commitMessage(state, {
@@ -3053,11 +3058,11 @@ async function injectContextRouteReminders(
         internal: true,
         content: [{
             type: "text",
-            text: formatContextRouteReminder(payloads),
+            text: formatRuleReminder(matched),
         }],
     });
-    for (const payload of payloads) {
-        injected.add(payload.injectPath);
+    for (const rule of matched) {
+        injected.add(rule.path);
     }
 }
 

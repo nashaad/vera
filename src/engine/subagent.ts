@@ -714,7 +714,7 @@ export async function runSubagent(
                 ? {}
                 : { clampPermissionMode: options.clampPermissionMode }),
             firedNudges: new Set<string>(),
-            injectedContextRoutePaths: new Set<string>(),
+            injectedRulePaths: new Set<string>(),
             extensionTools: options.extensionTools,
             ...(options.loadContextualContributions === undefined ? {} : {
                 loadContextualContributions:
