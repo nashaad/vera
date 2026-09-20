@@ -617,7 +617,9 @@ export class AgentRegistry {
         const disabledPromptContributions = () =>
             disabledContributionsForProfile(
                 startupProfile,
-                registry.options.disabledPromptContributions,
+                registry.options.disabledPromptContributions
+                    ?? registry.options.readConfiguredTurnPolicy?.()
+                        .disabledPromptContributions,
             );
         const storedFailure = store.agentFailure();
         const captureFailedRequest = (
@@ -773,6 +775,11 @@ export class AgentRegistry {
             processRegistry: this.processRegistry,
             get disabledPromptContributions() {
                 return disabledPromptContributions();
+            },
+            get promptContributionOrder() {
+                return registry.options.promptContributionOrder
+                    ?? registry.options.readConfiguredTurnPolicy?.()
+                        .promptContributionOrder;
             },
             extensionTools,
             ...(startupProfile !== "default"
@@ -983,13 +990,19 @@ export class AgentRegistry {
                     }),
                 readPolicy: () => {
                     const reviewer = this.readReviewer();
+                    const {
+                        modelFallback: configuredFallback,
+                        ...configured
+                    } = registry.options.readConfiguredTurnPolicy?.() ?? {};
+                    // A delegated session never falls back to another model.
+                    const modelFallback = registry.options.modelFallback
+                        ?? configuredFallback;
                     return {
+                        ...configured,
                         ...(store.header.delegation !== undefined
-                                || registry.options.modelFallback === undefined
+                                || modelFallback === undefined
                             ? {}
-                            : {
-                            modelFallback: registry.options.modelFallback,
-                        }),
+                            : { modelFallback }),
                         ...(registry.options.permissionModes === undefined
                             ? {}
                             : {
@@ -1002,6 +1015,13 @@ export class AgentRegistry {
                         }),
                         disabledPromptContributions:
                             disabledPromptContributions(),
+                        ...(registry.options.promptContributionOrder
+                                === undefined
+                            ? {}
+                            : {
+                                promptContributionOrder:
+                                    registry.options.promptContributionOrder,
+                            }),
                         subagentPolicy: delegatedSubagentPolicy(
                             this.options.readPolicy === undefined
                                 ? { allowSelf: true }

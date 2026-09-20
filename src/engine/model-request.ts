@@ -32,6 +32,7 @@ export interface ModelRequestSnapshot {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
+    readonly promptContributionOrder?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
     readonly agentInstructions?: string;
     readonly signal: AbortSignal;
@@ -91,6 +92,11 @@ export function projectModelRequest(
             ? {}
             : {
                 disabledContributions: snapshot.disabledPromptContributions,
+            }),
+        ...(snapshot.promptContributionOrder === undefined
+            ? {}
+            : {
+                contributionOrder: snapshot.promptContributionOrder,
             }),
         ...(snapshot.additionalContextualContributions === undefined
             ? {}

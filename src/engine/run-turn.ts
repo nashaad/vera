@@ -305,6 +305,7 @@ export interface RunTurnState {
     readonly toolResultSpill?: ToolResultSpill;
     readonly toolResults?: ToolResultLimits;
     readonly disabledPromptContributions?: readonly string[];
+    readonly promptContributionOrder?: readonly string[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
@@ -693,6 +694,9 @@ export async function runHeadlessLoop(
             parentSessionId: store.header.id,
             get disabledPromptContributions() {
                 return policy().disabledPromptContributions;
+            },
+            get promptContributionOrder() {
+                return policy().promptContributionOrder;
             },
             get modelFallback() { return policy().modelFallback; },
             get reviewer() { return policy().reviewer; },
@@ -1131,6 +1135,9 @@ export async function runHeadlessLoop(
         get disabledPromptContributions() {
             return policy().disabledPromptContributions;
         },
+        get promptContributionOrder() {
+            return policy().promptContributionOrder;
+        },
         ...(boundary.loadContextualContributions === undefined ? {} : {
             loadContextualContributions: boundary.loadContextualContributions,
         }),
@@ -1528,6 +1535,9 @@ export async function runTurn(
                 ...(state.disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions:
                         state.disabledPromptContributions,
+                }),
+                ...(state.promptContributionOrder === undefined ? {} : {
+                    promptContributionOrder: state.promptContributionOrder,
                 }),
                 ...(additionalContextualContributions === undefined ? {} : {
                     additionalContextualContributions,

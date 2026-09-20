@@ -19,6 +19,8 @@ export interface AssembleSystemPromptInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    /** Which contributions render, and in what order. Absent uses the built-in order. */
+    readonly contributionOrder?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
     readonly agentInstructions?: string;
 }
@@ -28,6 +30,8 @@ export interface AssembleStableSystemPromptInput {
     readonly workspace: string;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
+    /** Which contributions render, and in what order. Absent uses the built-in order. */
+    readonly contributionOrder?: readonly string[];
     readonly agentInstructions?: string;
 }
 
@@ -37,6 +41,8 @@ export interface AssembleContextualSystemPromptInput {
     readonly memory?: MemorySnapshot;
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
+    /** Which contributions render, and in what order. Absent uses the built-in order. */
+    readonly contributionOrder?: readonly string[];
     readonly additionalContributions?: readonly PromptContribution[];
 }
 
