@@ -10,7 +10,7 @@ export interface ModelSwitchChoice {
 }
 
 // A switch is also the default for new conversations, so this must stay
-// `update_model_settings`; test/host/model-switch-carries.test.ts restarts a real host to prove it.
+// `update_model_settings`; test/locked/model-switch-carries.test.ts restarts a real host to prove it.
 export function modelSwitchCommand(choice: ModelSwitchChoice): UpdateModelSettingsCommand {
     return {
         type: "update_model_settings",

@@ -1,6 +1,9 @@
 #!/bin/sh
 #
-# Keep the engine frozen unless a maintainer approved the exact staged change.
+# Keep the engine frozen and locked journeys unchanged unless a maintainer
+# approved the exact staged change. Adding a new locked journey needs no approval.
+
+refused=0
 
 if ! protected_paths=$(git diff --cached --name-only --no-renames -- \
     'src/engine/**' 'test/engine/**'); then
@@ -8,30 +11,64 @@ if ! protected_paths=$(git diff --cached --name-only --no-renames -- \
     exit 1
 fi
 
-[ -n "$protected_paths" ] || exit 0
+if [ -n "$protected_paths" ]; then
+    if ! protected_state=$(git diff --cached --raw --no-abbrev --no-renames -- \
+        'src/engine/**' 'test/engine/**'); then
+        printf 'pre-commit: could not fingerprint staged engine changes; refusing commit\n' >&2
+        exit 1
+    fi
 
-if ! protected_state=$(git diff --cached --raw --no-abbrev --no-renames -- \
-    'src/engine/**' 'test/engine/**'); then
-    printf 'pre-commit: could not fingerprint staged engine changes; refusing commit\n' >&2
+    if ! approval=$(printf '%s\n' "$protected_state" | git hash-object --stdin); then
+        printf 'pre-commit: could not fingerprint staged engine changes; refusing commit\n' >&2
+        exit 1
+    fi
+
+    if [ "${VERA_ENGINE_CHANGE_APPROVAL:-}" != "$approval" ]; then
+        printf 'pre-commit: engine changes require explicit maintainer approval\n\n' >&2
+        printf '%s\n' "$protected_paths" | sed 's/^/  /' >&2
+        printf '\nNew capabilities belong in extensions by default. Show a maintainer the\n' >&2
+        printf 'exact staged engine diff with:\n\n' >&2
+        printf '  git diff --cached -- src/engine test/engine\n\n' >&2
+        printf 'Generic approval such as "continue" does not count. After a maintainer approves\n' >&2
+        printf 'that diff, retry once with:\n\n' >&2
+        printf '  VERA_ENGINE_CHANGE_APPROVAL=%s git commit ...\n\n' "$approval" >&2
+        printf 'Any staged engine change produces a different approval value.\n\n' >&2
+        refused=1
+    fi
+fi
+
+# --no-renames turns a move out of test/locked into a deletion, which is refused.
+if ! locked_paths=$(git diff --cached --name-only --no-renames --diff-filter=MDT -- \
+    'test/locked/**'); then
+    printf 'pre-commit: could not inspect staged locked journey changes; refusing commit\n' >&2
     exit 1
 fi
 
-if ! approval=$(printf '%s\n' "$protected_state" | git hash-object --stdin); then
-    printf 'pre-commit: could not fingerprint staged engine changes; refusing commit\n' >&2
-    exit 1
+if [ -n "$locked_paths" ]; then
+    if ! locked_state=$(git diff --cached --raw --no-abbrev --no-renames --diff-filter=MDT -- \
+        'test/locked/**'); then
+        printf 'pre-commit: could not fingerprint staged locked journey changes; refusing commit\n' >&2
+        exit 1
+    fi
+
+    if ! locked_approval=$(printf '%s\n' "$locked_state" | git hash-object --stdin); then
+        printf 'pre-commit: could not fingerprint staged locked journey changes; refusing commit\n' >&2
+        exit 1
+    fi
+
+    if [ "${VERA_LOCKED_CHANGE_APPROVAL:-}" != "$locked_approval" ]; then
+        printf 'pre-commit: locked journeys hold decided product behavior and cannot change\n' >&2
+        printf 'without explicit maintainer approval\n\n' >&2
+        printf '%s\n' "$locked_paths" | sed 's/^/  /' >&2
+        printf '\nIf code now fails a locked journey, the code is the bug. Fix the code.\n' >&2
+        printf 'To change the decided behavior itself, show a maintainer the exact diff with:\n\n' >&2
+        printf '  git diff --cached -- test/locked\n\n' >&2
+        printf 'Generic approval such as "continue" or "fix it" does not count. After a\n' >&2
+        printf 'maintainer approves that diff, retry once with:\n\n' >&2
+        printf '  VERA_LOCKED_CHANGE_APPROVAL=%s git commit ...\n\n' "$locked_approval" >&2
+        printf 'Any staged locked journey change produces a different approval value.\n\n' >&2
+        refused=1
+    fi
 fi
 
-if [ "${VERA_ENGINE_CHANGE_APPROVAL:-}" = "$approval" ]; then
-    exit 0
-fi
-
-printf 'pre-commit: engine changes require explicit maintainer approval\n\n' >&2
-printf '%s\n' "$protected_paths" | sed 's/^/  /' >&2
-printf '\nNew capabilities belong in extensions by default. Show a maintainer the\n' >&2
-printf 'exact staged engine diff with:\n\n' >&2
-printf '  git diff --cached -- src/engine test/engine\n\n' >&2
-printf 'Generic approval such as "continue" does not count. After a maintainer approves\n' >&2
-printf 'that diff, retry once with:\n\n' >&2
-printf '  VERA_ENGINE_CHANGE_APPROVAL=%s git commit ...\n\n' "$approval" >&2
-printf 'Any staged engine change produces a different approval value.\n\n' >&2
-exit 1
+exit "$refused"
