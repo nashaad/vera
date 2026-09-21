@@ -54,6 +54,6 @@ test("the switcher lists persisted recents once the history reply lands", async 
         expect(listed).toEqual(["current", "spare", "recent-b", "recent-a", "older"]);
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere((text) => !text.includes("Switch model"), "the switcher to close");
-        expect(commands.some((command) => command.type === "update_session_model_settings")).toBe(false);
+        expect(commands.some((command) => command.type === "update_model_settings")).toBe(false);
     } finally { await session.close(); }
 }, 20_000);
