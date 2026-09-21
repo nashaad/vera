@@ -11,7 +11,7 @@ import { renderState } from "../main/render-state.ts";
 import { startTuiCatalogRefreshScopePicker, startTuiPoolVerifyScopePicker, withTuiPickerParent } from "../settings-picker.ts";
 import { appendTuiNotice, beginTuiAdmission } from "../state.ts";
 import { applyTuiThemeBindings } from "../theme-bindings.ts";
-import { resolveTuiTheme } from "../theme.ts";
+import { resolveTuiTheme } from "../theme-catalog.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
 import { refreshProviderPicker } from "./model-pickers.ts";

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { JsonValue } from "../../src/sdk/hooks.ts";
-import type { TuiThemeName } from "./theme.ts";
+import { isTuiThemeName, type TuiThemeName } from "./theme.ts";
 import type { TuiActivityAnimation } from "./activity-pulse.ts";
 import { DEFAULT_ANIMATION_LEVEL, isTuiAnimationLevel, type TuiAnimationLevel } from "./activity-bar.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
@@ -560,22 +560,6 @@ function boundedInteger(
             && value <= maximum
         ? value
         : undefined;
-}
-
-export function isTuiThemeName(value: unknown): value is TuiThemeName {
-    return value === "default"
-        || value === "system"
-        || value === "muted-blue"
-        || value === "orng"
-        || value === "palenight"
-        || value === "synthwave"
-        || value === "nightowl"
-        || value === "github"
-        || value === "midnight-blue"
-        || value === "midnight-blue-ii"
-        || value === "norton-commander"
-        || value === "nc-navy"
-        || value === "windows-31";
 }
 
 export function isTuiActivityAnimation(

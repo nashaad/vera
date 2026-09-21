@@ -275,7 +275,8 @@ export type {
 } from "./session-target.ts";
 import { createTuiTimelinePickerView } from "./timeline-picker.ts";
 import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, createTuiState, setTuiWorkspaceRoot, type TuiState, type TuiTranscriptEntry } from "./state.ts";
-import { resolveTuiTheme, tuiRecessColor } from "./theme.ts";
+import { tuiRecessColor } from "./theme.ts";
+import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
 import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
@@ -904,6 +905,7 @@ export async function startTui(
     rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
     rt.sidebarWidth = loadTuiSidebarWidth();
     rt.hostedPanePersistence = new TuiHostedPanePersistence();
+    const themeCatalog = reloadTuiThemeCatalog();
     rt.theme = await resolveTuiTheme(rt.renderer, rt.themeName);
     applyTuiTheme(rt.theme);
 
@@ -914,6 +916,9 @@ export async function startTui(
     rt.openInspectDocument = () => {};
     for (const notice of rt.dependencies.startupNotices ?? []) {
         rt.state = appendTuiNotice(rt.state, notice);
+    }
+    for (const problem of themeCatalog.problems) {
+        rt.state = appendTuiError(rt.state, problem);
     }
     rt.shuttingDown = false;
     rt.clientSurfaceReady = false;

@@ -55,7 +55,8 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_CARD_Z_INDEX, DIALOG_CARD_PADDING, DIALOG_CHROME_HEIGHT, DIALOG_BUTTON_LINES, dialogButtonNode, DIALOG_GUTTER, dialogFooterNode, dialogGroupHeaderNode, dialogGroupHeaderRow, dialogHeaderNode, dialogInsetBottomOffset, dialogInsetTop, attachDialogRowPointer, dialogMetaRoom, dialogOptionRows, dialogRowPointer, type DialogRowPointer, createDialogSearchNode, updateDialogSearchNode, centeredDialogSurface } from "./dialog-chrome.ts";
-import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
+import type { TuiThemeName } from "./theme.ts";
+import { tuiThemeSwatch } from "./theme-catalog.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,

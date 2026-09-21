@@ -1,20 +1,21 @@
 import type { CliRenderer, TerminalColors } from "@opentui/core";
-import themeCatalog from "../../config/tui-themes.json" with { type: "json" };
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-export type TuiThemeName =
-    | "default"
-    | "system"
-    | "muted-blue"
-    | "orng"
-    | "palenight"
-    | "synthwave"
-    | "nightowl"
-    | "github"
-    | "midnight-blue"
-    | "midnight-blue-ii"
-    | "norton-commander"
-    | "nc-navy"
-    | "windows-31";
+/** "system", a built-in theme, or a theme from the home's tui-themes.json. */
+export type TuiThemeName = string;
+
+export interface TuiThemeEntry {
+    readonly name: TuiThemeName;
+    readonly label: string;
+    readonly description: string;
+    readonly theme: TuiTheme;
+}
+
+// Unknown names are allowed: a saved theme may come from a home file that has since changed.
+export function isTuiThemeName(value: unknown): value is TuiThemeName {
+    return typeof value === "string" && value.length > 0;
+}
 
 export interface TuiThemeHud {
     readonly background?: string;
@@ -88,44 +89,206 @@ const TUI_THEME_ROLES_ARE_EXHAUSTIVE:
     MissingRequiredTuiThemeRole extends never ? true : never = true;
 void TUI_THEME_ROLES_ARE_EXHAUSTIVE;
 
-function catalogTheme(name: keyof typeof themeCatalog.themes): TuiTheme {
-    const candidate: Record<string, unknown> = themeCatalog.themes[name];
+export const TUI_THEME_HUD_ROLES = [
+    "background",
+    "border",
+    "text",
+    "muted",
+    "accent",
+    "notice",
+    "success",
+    "auto",
+] as const satisfies readonly (keyof TuiThemeHud)[];
+
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** What is wrong with a complete set of theme roles, or undefined when it is usable. */
+export function tuiThemeProblem(
+    candidate: Readonly<Record<string, unknown>>,
+): string | undefined {
     for (const role of TUI_THEME_REQUIRED_ROLES) {
         const value = candidate[role];
-        if (
-            typeof value !== "string"
-            || (role === "chrome" && value !== "plain" && value !== "norton")
-        ) {
-            throw new TypeError(`TUI theme ${name} has no valid ${role} role`);
+        if (value === undefined) {
+            return `${role} is missing`;
+        }
+        if (role === "chrome") {
+            if (value !== "plain" && value !== "norton") {
+                return `chrome must be "plain" or "norton"`;
+            }
+        } else if (typeof value !== "string" || !HEX_COLOR.test(value)) {
+            return `${role} must be a color like #A1B2C3`;
         }
     }
-    return candidate as unknown as TuiTheme;
-}
-
-export const VERA_TUI_THEME = catalogTheme("vera");
-
-export function tuiThemeSwatch(name: TuiThemeName): readonly string[] | undefined {
-    if (name === "system") {
+    const hud = candidate["hud"];
+    if (hud === undefined) {
         return undefined;
     }
-    const theme = name === "default" ? VERA_TUI_THEME : themeCatalog.themes[name];
-    return [theme.accent, theme.notice, theme.success, theme.text];
+    if (typeof hud !== "object" || hud === null || Array.isArray(hud)) {
+        return "hud must be an object";
+    }
+    for (const [role, value] of Object.entries(hud)) {
+        if (!(TUI_THEME_HUD_ROLES as readonly string[]).includes(role)) {
+            return `hud has no ${role} role`;
+        }
+        if (typeof value !== "string" || !HEX_COLOR.test(value)) {
+            return `hud.${role} must be a color like #A1B2C3`;
+        }
+    }
+    return undefined;
 }
+
+const ENTRY_FIELDS: readonly string[] = ["label", "description", "extends", "hud", ...TUI_THEME_REQUIRED_ROLES];
+
+/**
+ * One catalog entry, or what is wrong with it. `extends` resolves against `known`,
+ * which holds only entries defined before this one, so a chain cannot loop.
+ */
+export function parseTuiThemeEntry(
+    name: string,
+    value: unknown,
+    known: readonly TuiThemeEntry[],
+): TuiThemeEntry | string {
+    if (name === "system") {
+        return `"system" is reserved for terminal colors`;
+    }
+    if (name === FALLBACK_TUI_THEME_NAME) {
+        return `"${FALLBACK_TUI_THEME_NAME}" is the fallback theme and cannot be replaced`;
+    }
+    if (!isRecord(value)) {
+        return "expected an object";
+    }
+    const unknownField = Object.keys(value).find((key) => !ENTRY_FIELDS.includes(key));
+    if (unknownField !== undefined) {
+        return `unknown field "${unknownField}"`;
+    }
+    const { label, description, extends: base, ...roles } = value;
+    if (label !== undefined && typeof label !== "string") {
+        return "label must be text";
+    }
+    if (description !== undefined && typeof description !== "string") {
+        return "description must be text";
+    }
+    let inherited: TuiTheme | undefined;
+    if (base !== undefined) {
+        if (typeof base !== "string") {
+            return "extends must be a theme name";
+        }
+        inherited = known.find((entry) => entry.name === base)?.theme;
+        if (inherited === undefined) {
+            return `extends unknown theme "${base}"`;
+        }
+    }
+    const merged: Record<string, unknown> = { ...inherited, ...roles };
+    if (inherited?.hud !== undefined && isRecord(roles["hud"])) {
+        merged["hud"] = { ...inherited.hud, ...roles["hud"] };
+    }
+    const problem = tuiThemeProblem(merged);
+    if (problem !== undefined) {
+        return problem;
+    }
+    return {
+        name,
+        label: label ?? name,
+        description: description ?? "",
+        theme: merged as unknown as TuiTheme,
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export const FALLBACK_TUI_THEME_NAME = "orng";
+
+// Lives in code, not config/tui-themes.json, so no edit to a themes file can break it.
+export const FALLBACK_TUI_THEME: TuiTheme = Object.freeze({
+    accent: "#EC5B2B",
+    text: "#c6c6c6",
+    muted: "#808080",
+    notice: "#E8A33D",
+    danger: "#FF5F56",
+    success: "#8CC265",
+    critical: "#ff3b30",
+    secondary: "#c586c0",
+    focus: "#22c55e",
+    inactive: "#4b5563",
+    activityTrail: "#B8B6D9",
+    dangerSurface: "#210b0b",
+    diffAdded: "#2F8F46",
+    diffRemoved: "#B94A48",
+    code: "#6ba1e6",
+    background: "#111111",
+    panel: "#181818",
+    element: "#222222",
+    input: "#111111",
+    menu: "#181818",
+    chrome: "plain",
+    selectionText: "#111111",
+});
+
+const FALLBACK_TUI_THEME_ENTRY: TuiThemeEntry = {
+    name: FALLBACK_TUI_THEME_NAME,
+    label: "Orng",
+    description: "warm orange on charcoal",
+    theme: FALLBACK_TUI_THEME,
+};
+
+interface BuiltInTuiThemes {
+    readonly entries: readonly TuiThemeEntry[];
+    readonly problems: readonly string[];
+}
+
+const BUILT_IN_TUI_THEMES_PATH = fileURLToPath(
+    new URL("../../config/tui-themes.json", import.meta.url),
+);
+
+/** An unreadable or invalid file yields Orng alone plus a problem, never a throw. */
+export function loadBuiltInTuiThemes(path = BUILT_IN_TUI_THEMES_PATH): BuiltInTuiThemes {
+    let raw: unknown;
+    try {
+        raw = JSON.parse(readFileSync(path, "utf8"));
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return parseBuiltInTuiThemes({}, path, [`${path} could not be loaded: ${reason}`]);
+    }
+    const themes = isRecord(raw) ? raw["themes"] : undefined;
+    if (!isRecord(themes)) {
+        return parseBuiltInTuiThemes({}, path, [`${path}: expected {"themes": {...}}`]);
+    }
+    return parseBuiltInTuiThemes(themes, path);
+}
+
+/** A broken built-in is left out with a problem, like a broken home theme. Orng follows the default. */
+export function parseBuiltInTuiThemes(
+    themes: Readonly<Record<string, unknown>>,
+    source: string,
+    fileProblems: readonly string[] = [],
+): BuiltInTuiThemes {
+    const entries: TuiThemeEntry[] = [];
+    const problems: string[] = [...fileProblems];
+    for (const [name, value] of Object.entries(themes)) {
+        const parsed = parseTuiThemeEntry(name, value, [FALLBACK_TUI_THEME_ENTRY, ...entries]);
+        if (typeof parsed === "string") {
+            problems.push(`${source}: theme "${name}" skipped: ${parsed}`);
+            continue;
+        }
+        entries.push(parsed);
+    }
+    const defaultIndex = entries.findIndex((entry) => entry.name === "default");
+    entries.splice(defaultIndex + 1, 0, FALLBACK_TUI_THEME_ENTRY);
+    return { entries, problems };
+}
+
+const builtIns = loadBuiltInTuiThemes();
+
+/** Built-in themes in picker order: config/tui-themes.json plus the fallback. */
+export const BUILT_IN_TUI_THEMES: readonly TuiThemeEntry[] = builtIns.entries;
+export const BUILT_IN_TUI_THEME_PROBLEMS: readonly string[] = builtIns.problems;
+
+export const VERA_TUI_THEME: TuiTheme = BUILT_IN_TUI_THEMES
+    .find((entry) => entry.name === "default")?.theme ?? FALLBACK_TUI_THEME;
 
 // Dark-mode role colors adapted from OpenCode's MIT-licensed themes. Palette detection follows OpenCode's system-theme mechanism (MIT, © 2025 opencode): ask OpenTUI for the.
-export async function resolveTuiTheme(
-    renderer: Pick<CliRenderer, "getPalette">,
-    name: TuiThemeName = "default",
-): Promise<TuiTheme> {
-    if (name === "default") {
-        return VERA_TUI_THEME;
-    }
-    if (name === "system") {
-        return resolveSystemTuiTheme(renderer);
-    }
-    return catalogTheme(name);
-}
-
 export async function resolveSystemTuiTheme(
     renderer: Pick<CliRenderer, "getPalette">,
 ): Promise<TuiTheme> {

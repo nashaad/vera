@@ -41,12 +41,13 @@ Use development instances to test a branch. Install only when intentionally prom
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
 Manual: `docs/installation.md`.
 
-## Finding a command [lines=6]
+## Finding a command [lines=7]
 Run `vera --help` for the command and flag reference. Run `vera <command> --help` for one command: its usage, what it does, and the manual page that covers it. `-h` is the same flag.
 CLI help needs no TUI, no resident host, no provider, no network request, and no model call. It is safe to run anywhere.
 In the TUI, `/palette` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes. Help opens on a menu of pages: General, Keys, Slash commands, and Extensions. ↑↓ choose, Enter opens, Esc goes back to the menu. General is text. The other pages have Search and a list; Tab moves between them. ↑↓ move through the list and enter it from Search; ←→ move the caret in Search and return to Search from the list. Typing from the list goes to Search.
 A mistyped slash command, such as `/modle`, is not sent to the model; the TUI names the command you probably meant.
-Manual: `docs/commands.md`.
+`/theme` picks the TUI theme. Add your own themes in the home's `tui-themes.json`; `extends` starts one from an existing theme so you set only the colors you change.
+Manual: `docs/commands.md`, `docs/themes.md`.
 
 ## First-run setup [lines=7]
 Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add provider.

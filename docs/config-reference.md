@@ -42,6 +42,7 @@ These paths are inside `~/.vera`:
 | `rules/` | [Rules](rules.md) that apply in every project. |
 | `extensions/` | Installed extensions. |
 | `standing-nudges.json` | Preferences managed through `/nudges`. |
+| `tui-themes.json` | Your own [themes](themes.md) for the TUI. |
 
 Use a validating settings screen when one is available. The file editor is
 useful for settings without a dedicated control.
