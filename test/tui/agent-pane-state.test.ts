@@ -222,11 +222,34 @@ test("every request that goes out restarts the quiet clock", () => {
     expect(pane.quietSince).toBeUndefined();
 });
 
+test("a back-to-back delivery turn reports only its own thinking time", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({ type: "user_prompt", content: "first", seq: 1 }, 1_000);
+    pane.apply({ type: "assistant_delta", text: "done", seq: 2 }, 2_000);
+    pane.apply({ type: "turn_finished", seq: 3 }, 3_000);
+    pane.apply({ type: "status", state: "working", seq: 4 }, 60_000);
+    pane.apply({ type: "assistant_thinking", text: "hm", seq: 5 }, 61_000);
+    pane.apply({ type: "assistant_delta", text: "second", seq: 6 }, 64_000);
+
+    expect(pane.state.entries.map((entry) => entry.text)).toContain("Reasoning: 4.0s");
+});
+
 test("thought timing still runs from the phase start, not the quiet clock", () => {
     const pane = new TuiAgentPaneState();
 
     pane.apply({ type: "user_prompt", content: "go", seq: 1 }, 1_000);
-    pane.apply({ type: "status", state: "working", seq: 2 }, 2_500);
+    pane.apply({
+        type: "model_activity",
+        phase: "retrying",
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 0,
+        retryAt: "2026-08-30T22:00:00.000Z",
+        failure: { kind: "unknown" },
+        seq: 2,
+    }, 2_500);
     pane.apply({ type: "assistant_thinking", text: "hm", seq: 3 }, 3_000);
     pane.apply({ type: "assistant_delta", text: "answer", seq: 4 }, 5_000);
 
