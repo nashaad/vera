@@ -9,7 +9,7 @@ import { openPreferencesList, openReviewerMenu, openReviewerPicker, openThemePic
 import { openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
-import { startTuiContextLimitPicker, startTuiOverridesMenu, startTuiOverrideValuePicker, startTuiSettingsMenu, withTuiPickerParent, type TuiSettingsMenuTarget, type TuiSettingsPickerState } from "../settings-picker.ts";
+import { startTuiAnimationPicker, startTuiContextLimitPicker, startTuiOverridesMenu, startTuiOverrideValuePicker, startTuiSettingsMenu, withTuiPickerParent, type TuiSettingsMenuTarget, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, fg } from "@opentui/core";
@@ -27,6 +27,12 @@ export function openSettingsMenuTarget(rt: TuiRuntime,
         return;
     }
     if (target === "theme") return openThemePicker(rt, parent);
+    if (target === "animation") {
+        rt.settingsPicker = withTuiPickerParent(startTuiAnimationPicker(rt.animationLevel), parent);
+        renderState(rt);
+        focusActiveSurface(rt);
+        return;
+    }
     if (target === "context_limit") {
         rt.settingsPicker = withTuiPickerParent(
             startTuiContextLimitPicker(rt.state.modelSettings?.contextLimit),

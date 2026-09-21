@@ -86,34 +86,42 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
         rt.workingSince ??= Date.now();
         rt.phaseSince = undefined;
         rt.activity = "waiting";
+        rt.reasoning = false;
     } else if (update.type === "status" && update.state === "idle") {
         rt.workingSince = undefined;
         rt.phaseSince = undefined;
         rt.activity = "ready";
+        rt.reasoning = false;
     } else if (update.type === "model_activity") {
         rt.workingSince ??= Date.now();
         if (update.replacesPartialAttempt === true) {
             rt.phaseSince = undefined;
         }
         rt.activity = `retrying ${update.model}`;
+        rt.reasoning = false;
     } else if (update.type === "user_prompt") {
         rt.workingSince ??= Date.now();
         rt.phaseSince = Date.now();
         rt.activity = "thinking";
+        rt.reasoning = false;
     } else if (update.type === "assistant_thinking") {
         rt.workingSince ??= Date.now();
         rt.phaseSince ??= Date.now();
         rt.activity = "thinking";
+        rt.reasoning = true;
     } else if (update.type === "assistant_delta") {
         finishThoughtPhase(rt);
         rt.workingSince ??= Date.now();
         rt.activity = "responding";
+        rt.reasoning = false;
     } else if (update.type === "tool_started") {
         finishThoughtPhase(rt);
         rt.workingSince ??= Date.now();
         rt.activity = `running ${update.tool}`;
+        rt.reasoning = false;
     } else if (update.type === "tool_finished") {
         rt.activity = "thinking";
+        rt.reasoning = false;
         rt.phaseSince = Date.now();
     } else if (
         update.type === "turn_finished"

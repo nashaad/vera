@@ -510,6 +510,28 @@ test("agent and access sit left, model and effort right, padded to the width", (
     expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
 });
 
+test("the activity strip sits in the gap after agent and access", () => {
+    const row = renderTuiStatusDetailsRows(
+        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
+        "ask",
+        undefined,
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        { agent: "build" },
+        0,
+        60,
+        undefined,
+        [{ text: "▒▓█", tone: "accent", color: "#e0703e" }],
+    )[0] ?? [];
+    const text = row.map((chunk) => chunk.text).join("");
+    expect(text.length).toBe(60);
+    expect(text.startsWith("build · ask  ▒▓█ ")).toBe(true);
+    expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
+});
+
 test("too narrow to pad, the two ends read as one row rather than wrap", () => {
     const row = renderTuiStatusDetailsRows(
         { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },

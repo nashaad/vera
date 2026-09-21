@@ -1,3 +1,4 @@
+import type { TuiAnimationLevel } from "./activity-bar.ts";
 import type { ImportableSessionEntry } from "../../src/host/protocol.ts";
 import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
 import {
@@ -494,7 +495,30 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         searchText: "approval auto review failsafe",
     },
     { value: "theme", label: "Theme", description: "TUI colors" },
+    { value: "animation", label: "Animation", description: "the activity strip in the composer" },
 ];
+
+export const ANIMATION_LEVEL_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    { value: "0", label: "Off", description: "a still glyph" },
+    { value: "1", label: "1 Subtle", description: "the activity glyph fades in and out" },
+    { value: "2", label: "2 Normal", description: "a short activity strip in the composer" },
+    { value: "3", label: "3 Full", description: "a wider, faster strip" },
+];
+
+export function startTuiAnimationPicker(
+    current: TuiAnimationLevel,
+): TuiSettingsPickerState {
+    return {
+        kind: "animation",
+        allOptions: ANIMATION_LEVEL_OPTIONS,
+        options: ANIMATION_LEVEL_OPTIONS,
+        selectedIndex: Math.max(
+            0,
+            ANIMATION_LEVEL_OPTIONS.findIndex((option) => option.value === String(current)),
+        ),
+        query: "",
+    };
+}
 
 export const CONTEXT_LIMIT_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "auto", label: "Auto", description: "use each model's maximum" },

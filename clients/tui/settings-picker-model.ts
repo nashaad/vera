@@ -1,3 +1,4 @@
+import { isTuiAnimationLevel } from "./activity-bar.ts";
 import { browseModels } from "./model-browse.ts";
 import { providerCatalogsOf, type HostModelCatalogSettings } from "../../src/host/model-catalog-settings.ts";
 import { bg, BoxRenderable, fg, StyledText, TextRenderable, type MouseEvent, type RenderContext, type TextChunk } from "@opentui/core";
@@ -2069,6 +2070,13 @@ export function pickerSelection(
             kind,
             limit: value === "auto" ? null : Number(value),
         };
+    }
+    if (kind === "animation") {
+        const level = Number(value);
+        if (!isTuiAnimationLevel(level)) {
+            throw new Error(`animation picker option has no level: ${value}`);
+        }
+        return { kind, level };
     }
     if (kind === "override_value") {
         const key = state.overrideKey;

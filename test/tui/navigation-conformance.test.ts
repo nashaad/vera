@@ -80,6 +80,7 @@ const PICKERS: Record<TuiSettingsPickerKind, PickerCase> = {
     reasoning: {},
     permissions: {},
     theme: {},
+    animation: {},
     context_limit: {},
     overrides_settings: {},
     override_value: {},

@@ -2389,5 +2389,7 @@ export function pickerTitle(
                                     ? "Select classifier"
                                     : kind === "model_assignment"
                                         ? "Assign a model"
+                                        : kind === "animation"
+                                        ? "Animation"
                                         : "Theme";
 }

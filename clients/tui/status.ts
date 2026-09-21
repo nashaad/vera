@@ -117,6 +117,8 @@ export type TuiStatusTone =
 export interface TuiStatusChunk {
     readonly text: string;
     readonly tone: TuiStatusTone;
+    // Overrides the tone, for chunks that animate cell by cell.
+    readonly color?: string;
 }
 
 export interface TuiStatusDials {
@@ -170,6 +172,7 @@ export function renderTuiStatusDetailsRows(
     needsYou = 0,
     width: number | undefined = undefined,
     needsYouHint = "/work",
+    activity: readonly TuiStatusChunk[] = [],
 ): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -225,6 +228,7 @@ export function renderTuiStatusDetailsRows(
                 tone: permissionsTone(approvalMode),
             } as TuiStatusChunk]
             : []),
+        ...(activity.length === 0 ? [] : [muted("  "), ...activity]),
     ];
     const ctxChunks = contextChunks(context, settings);
     const right: TuiStatusChunk[] = [
@@ -289,6 +293,10 @@ export function needsYouChipColumns(
         columns += (row[1]?.text.length ?? 0) + row[2].text.length;
     }
     return columns;
+}
+
+export function statusChunkColor(chunk: TuiStatusChunk): string {
+    return chunk.color ?? statusToneColor(chunk.tone);
 }
 
 export function statusToneColor(tone: TuiStatusTone): string {

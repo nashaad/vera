@@ -11,6 +11,7 @@ import type { VeraExperimentalTuiDocument } from "../../../src/sdk/experimental-
 import type { VeraClientModelSettingsUpdateResult, VeraClientOneshotResult, VeraClientPickerResult, VeraExtensionDisposer } from "../../../src/sdk/extensions.ts";
 import type { StandingNudge } from "../../../src/standing-nudges.ts";
 import type { SessionSearchQuery } from "../../../src/store/session-search.ts";
+import type { TuiAnimationLevel } from "../activity-bar.ts";
 import type { TuiActivityAnimation } from "../activity-pulse.ts";
 import type { TuiAdmissionDialogState, TuiAdmissionDialogView } from "../admission-dialog.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
@@ -106,6 +107,7 @@ export interface TuiRuntime {
     sidebarHeaderVisible: boolean;
     themeName: TuiThemeName;
     activityAnimation: TuiActivityAnimation;
+    animationLevel: TuiAnimationLevel;
     activityAnimationInterval: number | undefined;
     activityAnimationWidth: number | undefined;
     sidebarWidth: number | undefined;
@@ -293,6 +295,8 @@ export interface TuiRuntime {
     workingSince: number | undefined;
     phaseSince: number | undefined;
     activity: string;
+    // True once reasoning tokens arrive; until then "thinking" means waiting on the model.
+    reasoning: boolean;
     themeApplicationVersion: number;
     pendingThemePreview: ReturnType<typeof setTimeout> | undefined;
     clientGeneration: number;
