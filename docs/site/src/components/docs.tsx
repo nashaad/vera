@@ -12,6 +12,7 @@ const OUTBOUND_LINKS = [
     { text: 'Vera home', url: '/' },
     { text: 'Corvine Systems', url: 'https://corvines.com', external: true },
     { text: 'nashaad.com', url: 'https://nashaad.com', external: true },
+    { text: 'Source', url: 'https://github.com/nashaad/vera', external: true },
 ];
 
 interface ManualProps {

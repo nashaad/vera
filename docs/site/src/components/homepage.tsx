@@ -67,6 +67,7 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                     <nav aria-label="Site">
                         <a href="/manual/">Manual</a>
                         <a href="#install">Install</a>
+                        <a href="https://github.com/nashaad/vera">Source</a>
                     </nav>
                 </header>
                 <main className="home-grid">
