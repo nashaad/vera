@@ -32,6 +32,9 @@ export function renderStatus(rt: TuiRuntime): void {
     if (rt.settingsPicker?.kind === "session") {
         rt.settingsPickerView.animateSessionTitles(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
     }
+    if (rt.animationsPreviewOpen) {
+        rt.animationsPreviewView.update(rt.animationLevel, Date.now());
+    }
     rt.transcriptWorking.visible = rt.state.working && !isWorkerFreeClient(rt.client);
     if (rt.transcriptWorking.visible) {
         setTextContent(rt.transcriptWorking, renderTuiActivityAnimation(
@@ -335,7 +338,8 @@ export function renderStatus(rt: TuiRuntime): void {
                 Math.max(1, rt.renderer.width - rt.composerHorizontalInset - railInset),
                 undefined,
                 activityBarChunks(rt, statusState.working || statusState.compactingSince !== undefined,
-                    focusedAbort, focusedActivity, focusedSide?.state.reasoning ?? rt.reasoning),
+                    focusedAbort, focusedActivity, focusedSide?.state.reasoning ?? rt.reasoning,
+                    focusedSide === undefined ? rt.quietSince : focusedSide.state.quietSince),
             )
         : [[{
                 tone: "muted",
@@ -493,9 +497,12 @@ function activityBarChunks(
     stopping: boolean,
     activity: string,
     reasoning: boolean,
+    quietSince: number | undefined,
 ): TuiStatusChunk[] {
     if (stopping || !working || isWorkerFreeClient(rt.client)) return [];
-    const kind = tuiActivityKind(activity, reasoning);
-    const cells = renderTuiActivityBar(kind, rt.animationLevel, Date.now(), { active: TUI_ACCENT, dim: TUI_ELEMENT });
+    const now = Date.now();
+    const quietMs = quietSince === undefined ? 0 : Math.max(0, now - quietSince);
+    const kind = tuiActivityKind(activity, reasoning, quietMs);
+    const cells = renderTuiActivityBar(kind, rt.animationLevel, now, { active: TUI_ACCENT, dim: TUI_ELEMENT });
     return cells.map((cell): TuiStatusChunk => ({ text: cell.glyph, tone: "accent", color: cell.color }));
 }

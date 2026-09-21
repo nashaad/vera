@@ -313,10 +313,12 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
         if (pane.state.state.working) {
             pane.state.workingSince = Date.now();
             pane.state.phaseSince = pane.state.workingSince;
+            pane.state.quietSince = pane.state.workingSince;
             pane.state.activity = "thinking";
         } else {
             pane.state.workingSince = undefined;
             pane.state.phaseSince = undefined;
+            pane.state.quietSince = undefined;
             pane.state.activity = "ready";
         }
     }

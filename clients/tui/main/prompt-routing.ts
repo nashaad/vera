@@ -142,6 +142,7 @@ export function routeVisibleAgentPrompt(rt: TuiRuntime, prompt: string): boolean
                 if (!queueing) {
                     side.state.workingSince ??= Date.now();
                     side.state.phaseSince ??= side.state.workingSince;
+                    side.state.quietSince = Date.now();
                     side.state.activity = "thinking";
                 }
                 if (sendsToMain) {
@@ -168,6 +169,7 @@ export function routeVisibleAgentPrompt(rt: TuiRuntime, prompt: string): boolean
                 };
                 side.state.workingSince = undefined;
                 side.state.phaseSince = undefined;
+                side.state.quietSince = undefined;
                 rt.state = appendTuiNotice(
                     rt.state,
                     error instanceof Error ? error.message : String(error),

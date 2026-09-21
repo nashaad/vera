@@ -97,6 +97,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;
+    rt.quietSince = undefined;
     rt.pendingUiRequest = undefined;
     rt.queuedUiRequests.length = 0;
     rt.activeConfigurationRequest = undefined;

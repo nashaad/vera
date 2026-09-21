@@ -54,6 +54,7 @@ import { createTuiResumeOverlayView } from "../resume-overlay.ts";
 import type { SearchOverlayState } from "../search-overlay.ts";
 import type { TuiSecretPromptState, TuiSecretPromptView } from "../secret-prompt.ts";
 import type { TuiSessionCloseConfirmView } from "../session-close-confirm.ts";
+import type { TuiAnimationsPreviewView } from "../animations-preview.ts";
 import type { TuiSessionTrashConfirmView } from "../session-trash-confirm.ts";
 import type { TuiAnySettingsPickerState, TuiLocalRuntimeStatus, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
 import type { TuiSidebar } from "../sidebar.ts";
@@ -280,6 +281,7 @@ export interface TuiRuntime {
     } | undefined;
     sessionTrashPending: boolean;
     sessionCloseConfirm: boolean;
+    animationsPreviewOpen: boolean;
     providerForgetCandidate: {
         readonly providerId: string;
         readonly label: string;
@@ -294,8 +296,10 @@ export interface TuiRuntime {
     extensionAddressee: string | undefined;
     workingSince: number | undefined;
     phaseSince: number | undefined;
+    // Restarts each time a request goes out; the strip reads it, thought timing does not.
+    quietSince: number | undefined;
     activity: string;
-    // True once reasoning tokens arrive; until then "thinking" means waiting on the model.
+    // True once reasoning tokens arrive; until then a short "thinking" phase means waiting on the model.
     reasoning: boolean;
     themeApplicationVersion: number;
     pendingThemePreview: ReturnType<typeof setTimeout> | undefined;
@@ -435,6 +439,7 @@ export interface TuiRuntime {
     admissionDialogView: TuiAdmissionDialogView;
     sessionTrashConfirmView: TuiSessionTrashConfirmView;
     sessionCloseConfirmView: TuiSessionCloseConfirmView;
+    animationsPreviewView: TuiAnimationsPreviewView;
     providerForgetConfirmView: TuiProviderForgetConfirmView;
     overridesResetConfirmView: TuiOverridesResetConfirmView;
     approvalView: TuiApprovalView;

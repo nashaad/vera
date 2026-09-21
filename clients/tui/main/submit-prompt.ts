@@ -681,6 +681,7 @@ export function submitPrompt(rt: TuiRuntime,
         rt.connectionFailed
         && commandAction?.type !== "open_resume_picker"
         && commandAction?.type !== "open_theme_picker"
+        && commandAction?.type !== "open_animations_preview"
         && commandAction?.type !== "create_session"
         && commandAction?.type !== "close_session"
         && commandAction?.type !== "reconnect"
@@ -806,6 +807,14 @@ export function submitPrompt(rt: TuiRuntime,
     if (commandAction?.type === "open_theme_picker") {
         rt.composer.clearComposer();
         openThemePicker(rt);
+        return;
+    }
+    if (commandAction?.type === "open_animations_preview") {
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        rt.animationsPreviewOpen = true;
+        renderState(rt);
+        focusActiveSurface(rt);
         return;
     }
     if (commandAction?.type === "open_configure") {
@@ -1209,6 +1218,7 @@ export function submitPrompt(rt: TuiRuntime,
                 adoptFallbackSessionTitle(rt, prompt);
                 rt.workingSince ??= Date.now();
                 rt.phaseSince = rt.workingSince;
+                rt.quietSince = Date.now();
                 rt.activity = "thinking";
             }
             renderState(rt);
@@ -1234,6 +1244,7 @@ export function submitPrompt(rt: TuiRuntime,
     if (!queueing && rt.workingSince === undefined) {
         rt.workingSince = Date.now();
         rt.phaseSince = rt.workingSince;
+        rt.quietSince = rt.workingSince;
         rt.activity = "thinking";
     }
     renderState(rt);

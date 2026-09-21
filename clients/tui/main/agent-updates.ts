@@ -628,10 +628,12 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 if (rt.state.working) {
                     rt.workingSince = Date.now();
                     rt.phaseSince = rt.workingSince;
+                    rt.quietSince = rt.workingSince;
                     rt.activity = "thinking";
                 } else {
                     rt.workingSince = undefined;
                     rt.phaseSince = undefined;
+                    rt.quietSince = undefined;
                     rt.activity = "ready";
                 }
             }

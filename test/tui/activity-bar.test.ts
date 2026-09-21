@@ -1,18 +1,28 @@
 import { expect, test } from "bun:test";
 
-import { renderTuiActivityBar, tuiActivityKind } from "../../clients/tui/activity-bar.ts";
+import { QUIET_THINKING_AFTER_MS, renderTuiActivityBar, tuiActivityKind } from "../../clients/tui/activity-bar.ts";
 
 const COLORS = { active: "#e0703e", dim: "#3a3a3a" };
 
 test("the pane's activity phrase picks the bar's kind", () => {
-    expect(tuiActivityKind("thinking", false)).toBe("waiting");
-    expect(tuiActivityKind("thinking", true)).toBe("thinking");
-    expect(tuiActivityKind("retrying gpt", false)).toBe("waiting");
-    expect(tuiActivityKind("running read", false)).toBe("reading");
-    expect(tuiActivityKind("running grep", false)).toBe("reading");
-    expect(tuiActivityKind("running bash", false)).toBe("running");
-    expect(tuiActivityKind("running edit", false)).toBe("writing");
-    expect(tuiActivityKind("responding", false)).toBe("writing");
+    expect(tuiActivityKind("thinking", false, 0)).toBe("waiting");
+    expect(tuiActivityKind("thinking", true, 0)).toBe("thinking");
+    expect(tuiActivityKind("retrying gpt", false, 0)).toBe("waiting");
+    expect(tuiActivityKind("running read", false, 0)).toBe("reading");
+    expect(tuiActivityKind("running grep", false, 0)).toBe("reading");
+    expect(tuiActivityKind("running bash", false, 0)).toBe("running");
+    expect(tuiActivityKind("running edit", false, 0)).toBe("writing");
+    expect(tuiActivityKind("responding", false, 0)).toBe("writing");
+});
+
+test("a quiet thinking phase turns from waiting to thinking after the threshold", () => {
+    expect(QUIET_THINKING_AFTER_MS).toBe(2_000);
+    expect(tuiActivityKind("thinking", false, QUIET_THINKING_AFTER_MS)).toBe("waiting");
+    expect(tuiActivityKind("thinking", false, QUIET_THINKING_AFTER_MS + 1)).toBe("thinking");
+    expect(tuiActivityKind("retrying gpt", false, 10_000)).toBe("waiting");
+    expect(tuiActivityKind("waiting", false, 10_000)).toBe("waiting");
+    expect(tuiActivityKind("running bash", false, 10_000)).toBe("running");
+    expect(tuiActivityKind("responding", false, 10_000)).toBe("writing");
 });
 
 test("each level sets how wide the bar is", () => {
@@ -46,4 +56,12 @@ test("waiting on the model is a still glyph that breathes", () => {
     expect(new Set(cells.flat().map((cell) => cell.glyph))).toEqual(new Set(["▓"]));
     expect(new Set(cells.map((row) => row[0]!.color)).size).toBeGreaterThan(1);
     expect(renderTuiActivityBar("waiting", 0, 0, COLORS)[0]?.glyph).toBe("▓");
+});
+
+test("the waiting glyph and its breathing colour are pinned", () => {
+    expect(renderTuiActivityBar("waiting", 1, 1_200, COLORS)).toEqual([{ glyph: "▓", color: "#e0703e" }]);
+    expect(renderTuiActivityBar("waiting", 2, 1_200, COLORS))
+        .toEqual(Array.from({ length: 6 }, () => ({ glyph: "▓", color: "#e0703e" })));
+    expect(renderTuiActivityBar("waiting", 3, 1_200, COLORS))
+        .toEqual(Array.from({ length: 8 }, () => ({ glyph: "▓", color: "#a95e3d" })));
 });
