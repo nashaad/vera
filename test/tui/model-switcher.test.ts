@@ -456,6 +456,23 @@ describe("model switcher favoriting", () => {
         expect(next.rows[next.selectedIndex]?.label).toBe(held.label);
     });
 
+    test("models that arrive after an empty open land on a model, not Browse", () => {
+        const empty = startTuiModelSwitcher([], { current: "openai/gpt-5.6" });
+        expect(onSwitcherBrowseRow(empty)).toBe(true);
+        const next = refreshedTuiModelSwitcher(empty, rows, []);
+        expect(onSwitcherBrowseRow(next)).toBe(false);
+        expect(next.rows[next.selectedIndex]?.label).toBe("GPT-5.6");
+    });
+
+    test("a search typed before the models arrive switches to its first match", () => {
+        const empty = startTuiModelSwitcher([], {});
+        const typed = searchedTuiModelSwitcher(empty, "mini");
+        const next = refreshedTuiModelSwitcher(typed, rows, []);
+        const enter = handleTuiModelSwitcherKey(next, { name: "return" });
+        expect(enter.browse).toBeUndefined();
+        expect(enter.selection?.label).toBe("GPT-5.6 mini");
+    });
+
     test("the footer names the action the highlighted row would take", () => {
         const state = started({ recents: ["openai/gpt-5.6-mini"] });
         expect(switcherFooterText(state)).toContain("Ctrl+F unfavorite");
