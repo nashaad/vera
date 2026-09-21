@@ -65,7 +65,7 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                 <header className="home-header">
                     <a className="home-wordmark" href={pathname}>vera</a>
                     <nav aria-label="Site">
-                        <a href="/">Manual</a>
+                        <a href="/manual/">Manual</a>
                         <a href="#install">Install</a>
                     </nav>
                 </header>
@@ -82,7 +82,7 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                             <p className="home-public">Being built in public.</p>
                             <div className="home-actions">
                                 <a className="home-button primary" href="/getting-started/">Get started</a>
-                                <a className="home-button" href="/">Read the manual</a>
+                                <a className="home-button" href="/manual/">Read the manual</a>
                             </div>
                         </div>
                         <div className="home-cell stage" dangerouslySetInnerHTML={{ __html: veraStageSvg }} />
@@ -104,7 +104,7 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                         <a href="https://corvines.com">Corvine Systems</a>
                         <a href="https://nashaad.com">nashaad.com</a>
                     </span>
-                    {draft ? <span>Preview. Excluded from the public site.</span> : <a href="/">Manual</a>}
+                    {draft ? <span>Preview. Excluded from the public site.</span> : <a href="/manual/">Manual</a>}
                 </footer>
             </div>
         </RootProvider>

@@ -1,7 +1,6 @@
 ---
-title: "Homepage"
+title: "Vera"
 description: "A durable, open agent runtime you can code with, script in Python, and build on."
-draft: true
 layout: homepage
 ---
 

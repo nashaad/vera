@@ -8,11 +8,8 @@ import { Content } from './content';
 import { ManualSearch } from './search';
 import { TerminalReplay } from './terminal-replay';
 
-// The homepage is a draft page, so this link is dead on the public build.
-const HOMEPAGE_URL = '/homepage-preview/';
-
 const OUTBOUND_LINKS = [
-    { text: 'Vera home', url: HOMEPAGE_URL },
+    { text: 'Vera home', url: '/' },
     { text: 'Corvine Systems', url: 'https://corvines.com', external: true },
     { text: 'nashaad.com', url: 'https://nashaad.com', external: true },
 ];
@@ -33,7 +30,7 @@ export function Manual({ tree, title, description, markdownUrl, pathname, toc, h
     return (
         <RootProvider pathname={pathname} search={{ SearchDialog: ManualSearch }} theme={{ defaultTheme: 'dark' }}>
             <Banner className="manual-banner" height="3.75rem"><span aria-hidden="true">🚧</span><span className="manual-banner-tag">Wet paint</span>Vera is under heavy development. Try the code, just expect things to move.</Banner>
-            <DocsLayout tree={tree} nav={{ title: 'Vera', url: '/' }} links={OUTBOUND_LINKS}>
+            <DocsLayout tree={tree} nav={{ title: 'Vera', url: '/manual/' }} links={OUTBOUND_LINKS}>
                 <DocsPage
                     className="max-w-[calc(70ch+4rem)]"
                     toc={toc}

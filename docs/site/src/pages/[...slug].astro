@@ -3,6 +3,7 @@ import { render, type CollectionEntry } from 'astro:content';
 import { Manual } from '../components/docs';
 import { Homepage } from '../components/homepage';
 import { getSource } from '../lib/source';
+import { getManualEntries } from '../lib/visibility';
 import '../styles/global.css';
 import { unified } from '@astrojs/markdown-remark';
 import manualLinks from '../manual-links.mjs';
@@ -13,10 +14,14 @@ interface Props {
 
 export async function getStaticPaths() {
     const source = await getSource();
-    return source.getPages().map((page) => ({
-        params: { slug: page.slugs.length ? page.slugs.join('/') : undefined },
-        props: { entry: page.data.entry },
-    }));
+    const homepage = (await getManualEntries()).filter((entry) => entry.data.layout === 'homepage');
+    return [
+        ...homepage.map((entry) => ({ params: { slug: undefined }, props: { entry } })),
+        ...source.getPages().map((page) => ({
+            params: { slug: page.slugs.join('/') },
+            props: { entry: page.data.entry },
+        })),
+    ];
 }
 
 const { entry } = Astro.props;
@@ -40,7 +45,7 @@ const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{entry.data.title} | Vera</title>
+        <title>{entry.data.layout === 'homepage' ? entry.data.title : `${entry.data.title} | Vera`}</title>
         <meta name="description" content={entry.data.description} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

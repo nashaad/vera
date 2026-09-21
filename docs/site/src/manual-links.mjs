@@ -7,7 +7,7 @@ export default function manualLinks() {
             if (node.type === 'link' || node.type === 'definition') {
                 const match = /^(?:\.\/)?([a-z0-9-]+)\.md(#.*)?$/.exec(node.url);
                 if (match) {
-                    const path = match[1] === 'index' ? '/' : `/${match[1]}/`;
+                    const path = match[1] === 'index' ? '/manual/' : `/${match[1]}/`;
                     node.url = path + (match[2] ?? '');
                 }
             }

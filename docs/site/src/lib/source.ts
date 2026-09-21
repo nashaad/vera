@@ -14,7 +14,7 @@ export async function getSource() {
     if (!index) throw new Error('The manual requires docs/index.md');
 
     const publicIds = new Set(entries.filter((entry) => !entry.data.draft).map((entry) => entry.id));
-    const pages = ['---Start here---', ...['index', 'getting-started'].filter((id) => publicIds.has(id))];
+    const pages = ['---Start here---', 'manual', ...['getting-started'].filter((id) => publicIds.has(id))];
     const labels = new Map<string, string>([['index', 'Manual']]);
     for (const line of (index.body ?? '').split('\n')) {
         const heading = /^## (.+)$/.exec(line);
@@ -25,13 +25,15 @@ export async function getSource() {
             labels.set(link[2]!, link[1]!);
         }
     }
-    const drafts = entries.filter((entry) => entry.data.draft);
+    // The homepage has its own layout and stays out of the sidebar and search.
+    const manualEntries = entries.filter((entry) => entry.data.layout === 'manual');
+    const drafts = manualEntries.filter((entry) => entry.data.draft);
     if (drafts.length > 0) pages.push('---Preview---', ...drafts.map((entry) => entry.id));
 
     const source: StaticSource<{ pageData: ManualPageData; metaData: MetaData }> = {
-        files: entries.map((entry) => ({
+        files: manualEntries.map((entry) => ({
             type: 'page',
-            path: `${entry.id}.md`,
+            path: entry.id === 'index' ? 'manual.md' : `${entry.id}.md`,
             data: {
                 title: labels.get(entry.id) ?? entry.data.title,
                 description: entry.data.description,
