@@ -41,13 +41,14 @@ test("a main-pane delivery turn begins dim however long the session has run", ()
     expect(tuiActivityKind(rt.activity, rt.reasoning, 62_500 - rt.quietSince!)).toBe("thinking");
 });
 
-test("a main-pane back-to-back delivery turn reports only its own thinking time", () => {
+test("a main-pane back-to-back delivery turn reports only its own thinking and working time", () => {
     const rt = runtime();
 
     at(rt, 1_000, { type: "user_prompt", content: "first", seq: 1 });
     at(rt, 2_000, { type: "assistant_delta", text: "done", seq: 2 });
     at(rt, 3_000, { type: "turn_finished", seq: 3 });
     at(rt, 60_000, { type: "status", state: "working", seq: 4 });
+    expect(rt.workingSince).toBe(60_000);
     at(rt, 61_000, { type: "assistant_thinking", text: "hm", seq: 5 });
     at(rt, 64_000, { type: "assistant_delta", text: "second", seq: 6 });
 

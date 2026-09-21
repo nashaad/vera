@@ -222,13 +222,14 @@ test("every request that goes out restarts the quiet clock", () => {
     expect(pane.quietSince).toBeUndefined();
 });
 
-test("a back-to-back delivery turn reports only its own thinking time", () => {
+test("a back-to-back delivery turn reports only its own thinking and working time", () => {
     const pane = new TuiAgentPaneState();
 
     pane.apply({ type: "user_prompt", content: "first", seq: 1 }, 1_000);
     pane.apply({ type: "assistant_delta", text: "done", seq: 2 }, 2_000);
     pane.apply({ type: "turn_finished", seq: 3 }, 3_000);
     pane.apply({ type: "status", state: "working", seq: 4 }, 60_000);
+    expect(pane.workingSince).toBe(60_000);
     pane.apply({ type: "assistant_thinking", text: "hm", seq: 5 }, 61_000);
     pane.apply({ type: "assistant_delta", text: "second", seq: 6 }, 64_000);
 

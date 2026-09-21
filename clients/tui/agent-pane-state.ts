@@ -78,8 +78,8 @@ export class TuiAgentPaneState {
 
     private observeActivity(update: AgentUpdate, now: number): void {
         if (update.type === "status" && update.state === "working") {
-            this.workingSince ??= now;
-            // Only a delivery turn sends this; workingSince can still hold the previous turn's start.
+            // Only a delivery turn sends this; the previous turn's start can still be set.
+            this.workingSince = now;
             this.phaseSince = now;
             this.quietSince = now;
             this.activity = "thinking";
