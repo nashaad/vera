@@ -417,6 +417,7 @@ export function receiveSkillInvocation(rt: TuiRuntime,
     if (!update.queued && rt.workingSince === undefined) {
         rt.workingSince = Date.now();
         rt.phaseSince = rt.workingSince;
+        rt.quietSince = rt.workingSince;
         rt.activity = "thinking";
     }
     renderState(rt);

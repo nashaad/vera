@@ -265,6 +265,21 @@ export function renderState(rt: TuiRuntime): void {
         && rt.diagnosticsDialog === undefined
         && rt.extensionsDialog === undefined
         && rt.documentDialog !== undefined;
+    rt.animationsPreviewView.surface.visible = uiRequest === undefined
+        && rt.timelinePicker === undefined
+        && !rt.confirmingFullAccess
+        && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+        && rt.providerForgetCandidate === undefined
+        && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
+        && rt.extensionsList === undefined
+        && rt.commandPalette === undefined
+        && rt.help === undefined
+        && rt.doctorDialog === undefined
+        && rt.diagnosticsDialog === undefined
+        && rt.extensionsDialog === undefined
+        && rt.documentDialog === undefined
+        && rt.animationsPreviewOpen;
     rt.permissionsConfirmView.box.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
@@ -310,6 +325,7 @@ export function renderState(rt: TuiRuntime): void {
         || rt.diagnosticsDialogView.box.visible
         || rt.extensionsDialogView.box.visible
         || rt.documentDialogView.box.visible
+        || rt.animationsPreviewView.surface.visible
         || rt.permissionsConfirmView.box.visible
         || rt.admissionDialogView.surface.visible
         || rt.sessionTrashConfirmView.surface.visible

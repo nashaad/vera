@@ -81,15 +81,18 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
     if (update.type === "status" && update.state === "working") {
         rt.workingSince ??= Date.now();
         rt.phaseSince ??= rt.workingSince;
+        rt.quietSince = Date.now();
         rt.activity = "thinking";
     } else if (update.type === "status" && update.state === "waiting") {
         rt.workingSince ??= Date.now();
         rt.phaseSince = undefined;
+        rt.quietSince = undefined;
         rt.activity = "waiting";
         rt.reasoning = false;
     } else if (update.type === "status" && update.state === "idle") {
         rt.workingSince = undefined;
         rt.phaseSince = undefined;
+        rt.quietSince = undefined;
         rt.activity = "ready";
         rt.reasoning = false;
     } else if (update.type === "model_activity") {
@@ -97,11 +100,13 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
         if (update.replacesPartialAttempt === true) {
             rt.phaseSince = undefined;
         }
+        rt.quietSince = Date.now();
         rt.activity = `retrying ${update.model}`;
         rt.reasoning = false;
     } else if (update.type === "user_prompt") {
         rt.workingSince ??= Date.now();
         rt.phaseSince = Date.now();
+        rt.quietSince = rt.phaseSince;
         rt.activity = "thinking";
         rt.reasoning = false;
     } else if (update.type === "assistant_thinking") {
@@ -123,6 +128,7 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
         rt.activity = "thinking";
         rt.reasoning = false;
         rt.phaseSince = Date.now();
+        rt.quietSince = rt.phaseSince;
     } else if (
         update.type === "turn_finished"
         || update.type === "agent_failed"

@@ -457,6 +457,7 @@ export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
     rt.diagnosticsDialog = undefined;
     rt.extensionsDialog = undefined;
     rt.documentDialog = undefined;
+    rt.animationsPreviewOpen = false;
     rt.jumpMenu = undefined;
     rt.jumpMenuBox.visible = false;
 }

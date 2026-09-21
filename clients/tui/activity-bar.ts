@@ -19,9 +19,12 @@ export function isTuiAnimationLevel(value: unknown): value is TuiAnimationLevel 
     return value === 0 || value === 1 || value === 2 || value === 3;
 }
 
+// A "thinking" phase with no reasoning tokens reads as waiting until it has lasted this long.
+export const QUIET_THINKING_AFTER_MS = 2_000;
+
 // `activity` is the pane's phrase: "thinking", "responding", "running <tool>", ...
-// "thinking" before any reasoning token arrives is the model not answering yet.
-export function tuiActivityKind(activity: string, reasoning: boolean): TuiActivityKind {
+// `quietMs` is how long ago the latest request went out.
+export function tuiActivityKind(activity: string, reasoning: boolean, quietMs: number): TuiActivityKind {
     if (activity === "responding") return "writing";
     if (activity.startsWith("running ")) {
         const tool = activity.slice("running ".length);
@@ -29,7 +32,8 @@ export function tuiActivityKind(activity: string, reasoning: boolean): TuiActivi
         if (WRITING_TOOLS.has(tool)) return "writing";
         return "running";
     }
-    return reasoning ? "thinking" : "waiting";
+    if (reasoning) return "thinking";
+    return activity === "thinking" && quietMs > QUIET_THINKING_AFTER_MS ? "thinking" : "waiting";
 }
 
 export function tuiActivityBarColumns(level: TuiAnimationLevel): number {

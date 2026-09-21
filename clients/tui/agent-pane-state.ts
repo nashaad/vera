@@ -19,8 +19,10 @@ export class TuiAgentPaneState {
     backgroundAgents: BackgroundAgentsSnapshot | undefined;
     workingSince: number | undefined;
     phaseSince: number | undefined;
+    // Restarts each time a request goes out; the strip reads it, thought timing does not.
+    quietSince: number | undefined;
     activity = "thinking";
-    // True once reasoning tokens arrive; until then "thinking" means waiting on the model.
+    // True once reasoning tokens arrive; until then a short "thinking" phase means waiting on the model.
     reasoning = false;
     abortRequested = false;
 
@@ -78,15 +80,18 @@ export class TuiAgentPaneState {
         if (update.type === "status" && update.state === "working") {
             this.workingSince ??= now;
             this.phaseSince ??= this.workingSince;
+            this.quietSince = now;
             this.activity = "thinking";
         } else if (update.type === "status" && update.state === "waiting") {
             this.reasoning = false;
             this.workingSince ??= now;
             this.phaseSince = undefined;
+            this.quietSince = undefined;
             this.activity = "waiting";
         } else if (update.type === "status" && update.state === "idle") {
             this.workingSince = undefined;
             this.phaseSince = undefined;
+            this.quietSince = undefined;
             this.activity = "ready";
             this.reasoning = false;
         } else if (update.type === "model_activity") {
@@ -94,11 +99,13 @@ export class TuiAgentPaneState {
             if (update.replacesPartialAttempt === true) {
                 this.phaseSince = undefined;
             }
+            this.quietSince = now;
             this.activity = `retrying ${update.model}`;
             this.reasoning = false;
         } else if (update.type === "user_prompt") {
             this.workingSince ??= now;
             this.phaseSince = now;
+            this.quietSince = now;
             this.activity = "thinking";
             this.reasoning = false;
         } else if (update.type === "assistant_thinking") {
@@ -120,6 +127,7 @@ export class TuiAgentPaneState {
             this.activity = "thinking";
             this.reasoning = false;
             this.phaseSince = now;
+            this.quietSince = now;
         } else if (
             update.type === "turn_finished"
             || update.type === "agent_failed"

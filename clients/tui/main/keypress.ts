@@ -29,6 +29,7 @@ import { handleTuiOverridesResetConfirmKey } from "../overrides-reset-confirm.ts
 import { jsonlViewKeyAction } from "../resume-overlay.ts";
 import { handleSearchOverlayKey, updateSearchOverlayText } from "../search-overlay.ts";
 import { handleTuiSessionCloseConfirmKey } from "../session-close-confirm.ts";
+import { handleTuiAnimationsPreviewKey } from "../animations-preview.ts";
 import { handleTuiSessionTrashConfirmKey } from "../session-trash-confirm.ts";
 import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { applyExtensionsListKey } from "./extensions-ops.ts";
@@ -943,6 +944,15 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             focusActiveSurface(rt);
             return;
         }
+    }
+
+    if (rt.animationsPreviewOpen && handleTuiAnimationsPreviewKey(key) === "dismiss") {
+        key.preventDefault();
+        key.stopPropagation();
+        rt.animationsPreviewOpen = false;
+        focusActiveSurface(rt);
+        renderState(rt);
+        return;
     }
 
     if (rt.doctorDialog !== undefined) {

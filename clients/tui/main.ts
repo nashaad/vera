@@ -180,6 +180,7 @@ import { TuiBodyFocusController } from "./body-focus.ts";
 import { createTuiPermissionsConfirmView } from "./permissions-confirm.ts";
 import { createTuiSessionTrashConfirmView } from "./session-trash-confirm.ts";
 import { createTuiSessionCloseConfirmView } from "./session-close-confirm.ts";
+import { createTuiAnimationsPreviewView } from "./animations-preview.ts";
 import { createTuiProviderForgetConfirmView } from "./provider-forget-confirm.ts";
 import { createTuiOverridesResetConfirmView } from "./overrides-reset-confirm.ts";
 import { createTuiAdmissionDialogView } from "./admission-dialog.ts";
@@ -1020,6 +1021,7 @@ export async function startTui(
     /** The settings change each in-flight admission was meant to end in, applied when its "added" verdict lands. */
     rt.sessionTrashPending = false;
     rt.sessionCloseConfirm = false;
+    rt.animationsPreviewOpen = false;
     rt.commandSuggestionIndex = 0;
     rt.commandSuggestionMoved = false;
     rt.argumentSuggestions = [];
@@ -1743,6 +1745,7 @@ export async function startTui(
         createTuiSessionTrashConfirmView(rt.renderer);
     rt.sessionCloseConfirmView =
         createTuiSessionCloseConfirmView(rt.renderer);
+    rt.animationsPreviewView = createTuiAnimationsPreviewView(rt.renderer);
     rt.providerForgetConfirmView =
         createTuiProviderForgetConfirmView(rt.renderer);
     rt.overridesResetConfirmView =
@@ -2365,6 +2368,7 @@ export async function startTui(
     rt.app.add(rt.admissionDialogView.surface);
     rt.app.add(rt.sessionTrashConfirmView.surface);
     rt.app.add(rt.sessionCloseConfirmView.surface);
+    rt.app.add(rt.animationsPreviewView.surface);
     rt.app.add(rt.providerForgetConfirmView.surface);
     rt.app.add(rt.overridesResetConfirmView.surface);
     rt.app.add(rt.composerTipText);
@@ -2951,6 +2955,7 @@ export async function startTui(
         ...rt.admissionDialogView.themeBindings,
         ...rt.sessionTrashConfirmView.themeBindings,
         ...rt.sessionCloseConfirmView.themeBindings,
+        ...rt.animationsPreviewView.themeBindings,
         ...rt.providerForgetConfirmView.themeBindings,
         ...rt.overridesResetConfirmView.themeBindings,
     ];
