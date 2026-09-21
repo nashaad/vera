@@ -200,3 +200,44 @@ test("Manage models names the action target and explains each selected action", 
         expect(empty.options.some((option) => option.value === "library")).toBe(false);
     } finally { setup.renderer.destroy(); }
 });
+
+test("Enter in Filter and sort changes the row and stays on the menu", () => {
+    const open = (): TuiSettingsPickerState => handleTuiSettingsPickerKey({ ...base, tab: "all", modelFocus: "filters" }, { name: "enter" }).state!;
+    const pick = (state: TuiSettingsPickerState, value: string): TuiSettingsPickerState =>
+        handleTuiSettingsPickerKey({ ...state, selectedIndex: state.options.findIndex((row) => row.value === value) }, { name: "enter" }).state!;
+    for (const [value, label] of [["available_filter", "Available only: On"], ["priced_filter", "Known price only: On"],
+        ["images_filter", "Image support only: On"], ["view_toggle", "View: Detailed"],
+        ["variants", "Hide extra variants and older models"]] as const) {
+        const next = pick(open(), value);
+        expect(next.title).toBe("Filter and sort");
+        expect(next.options[next.selectedIndex]?.label).toBe(label);
+    }
+    const priced = pick(open(), "priced_filter");
+    expect(priced.parent?.browsePricedOnly).toBe(true);
+    expect(handleTuiSettingsPickerKey(priced, { name: "escape" }).state?.browsePricedOnly).toBe(true);
+    const cleared = pick(priced, "clear_filters");
+    expect(cleared.title).toBe("Filter and sort");
+    expect(cleared.options.find((row) => row.value === "priced_filter")?.label).toBe("Known price only: Off");
+});
+
+test("Show, Sort and Provider lists opened from Filter and sort return to it", () => {
+    const open = (): TuiSettingsPickerState => handleTuiSettingsPickerKey({ ...base, tab: "all", modelFocus: "filters" }, { name: "enter" }).state!;
+    const pick = (state: TuiSettingsPickerState, value: string): TuiSettingsPickerState =>
+        handleTuiSettingsPickerKey({ ...state, selectedIndex: state.options.findIndex((row) => row.value === value) }, { name: "enter" }).state!;
+    for (const [row, choice, label] of [["show", "scope:pool", "Show: Favorites"], ["sort", "sort:price", "Sort: Cheapest first"],
+        ["provider_filter", "provider:p", "Provider: p"]] as const) {
+        const next = pick(pick(open(), row), choice);
+        expect(next.title).toBe("Filter and sort");
+        expect(next.options[next.selectedIndex]?.label).toBe(label);
+    }
+});
+
+test("Enter on the cutoff row keeps the cutoff and returns to the model list", () => {
+    let state = handleTuiSettingsPickerKey({ ...base, tab: "all", modelFocus: "filters" }, { name: "enter" }).state!;
+    state = { ...state, selectedIndex: state.options.findIndex((row) => row.value === "cutoff") };
+    state = handleTuiSettingsPickerKey(state, { name: "right" }).state!;
+    const home = handleTuiSettingsPickerKey(state, { name: "enter" }).state!;
+    expect(home.kind).toBe("model");
+    expect(home.modelFocus).toBe("list");
+    expect(home.intelligenceCutoff).toBe("1400");
+});

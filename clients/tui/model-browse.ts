@@ -301,38 +301,44 @@ export function handleModelBrowseMenuKey(state: TuiSettingsPickerState, key: Tui
         selectedIndex: Math.max(0, Math.min(state.options.length - 1, state.selectedIndex + (key.name === "up" ? -1 : 1))) } };
     if ((key.name === "enter" || key.name === "return") && parent?.kind === "model") {
         const value = state.options[state.selectedIndex]?.value;
-        if (value === "view_toggle") {
-            const browseView = parent.browseView === "detailed" ? "standard" : "detailed";
-            const options = state.options.map((row) => row.value === "view_toggle"
-                ? { ...row, label: `View: ${browseView === "detailed" ? "Detailed" : "Standard"}` } : row);
-            return { state: { ...state, options, allOptions: options, parent: { ...parent, browseView } }, handled: true };
-        }
+        // Choices made from Filter and sort, or a list it opened, land back on it.
+        const fromFilters = parent.modelFocus === "filters";
+        const inFilters = fromFilters && state.title === "Filter and sort";
+        const stay = (next: TuiSettingsPickerState, row: string): TuiSettingsPickerTransition =>
+            ({ state: filtersMenu(next, row), handled: true });
+        if (value === "view_toggle") return stay({ ...parent, browseView: parent.browseView === "detailed" ? "standard" : "detailed" }, "view_toggle");
         if (value === "view:standard" || value === "view:detailed") return {
             state: { ...parent, browseView: value === "view:standard" ? "standard" : "detailed" }, handled: true,
         };
         if (value === "show") return { state: modelBrowseScope(parent), handled: true };
         if (value === "sort") return { state: modelBrowseSort(parent), handled: true };
-        if (value === "cutoff") return { state, handled: true };
+        // Arrows already applied the cutoff, so Enter just confirms it.
+        if (value === "cutoff") return { state: { ...parent, modelFocus: "list" }, handled: true };
         if (value?.startsWith("cutoff:")) return { state: rebuiltBrowse({ ...parent, intelligenceCutoff: value.slice(7) as TuiSettingsPickerState["intelligenceCutoff"] }), handled: true };
         if (value === "provider_filter") return { state: browseChoiceMenu(parent, "Filter provider", [
             { value: "provider:", label: "Any provider", description: "" },
             ...[...new Set(parent.allOptions.flatMap((row) => row.provider === undefined ? [] : [row.provider]))].sort().map((provider) => ({ value: `provider:${provider}`, label: provider, description: "" })),
         ]), handled: true };
-        if (value?.startsWith("provider:")) return { state: rebuiltBrowse({ ...parent, browseProvider: value.slice(9) || undefined }), handled: true };
-        if (value === "available_filter") return { state: rebuiltBrowse({ ...parent, browseAvailableOnly: !parent.browseAvailableOnly }), handled: true };
-        if (value === "priced_filter") return { state: rebuiltBrowse({ ...parent, browsePricedOnly: !parent.browsePricedOnly }), handled: true };
-        if (value === "images_filter") return { state: rebuiltBrowse({ ...parent, browseImagesOnly: !parent.browseImagesOnly }), handled: true };
-        if (value === "clear_filters") return { state: rebuiltBrowse({ ...parent, intelligenceCutoff: "any", revealAll: false, browseProvider: undefined, browseAvailableOnly: false, browsePricedOnly: false, browseImagesOnly: false }), handled: true };
+        if (value?.startsWith("provider:")) return stay(rebuiltBrowse({ ...parent, browseProvider: value.slice(9) || undefined }), "provider_filter");
+        if (value === "available_filter") return stay(rebuiltBrowse({ ...parent, browseAvailableOnly: !parent.browseAvailableOnly }), value);
+        if (value === "priced_filter") return stay(rebuiltBrowse({ ...parent, browsePricedOnly: !parent.browsePricedOnly }), value);
+        if (value === "images_filter") return stay(rebuiltBrowse({ ...parent, browseImagesOnly: !parent.browseImagesOnly }), value);
+        if (value === "clear_filters") return stay(rebuiltBrowse({ ...parent, intelligenceCutoff: "any", revealAll: false, browseProvider: undefined, browseAvailableOnly: false, browsePricedOnly: false, browseImagesOnly: false }), value);
         if (value === "providers") return { state: parent, handled: true, openProviders: true };
-        if (value?.startsWith("scope:") === true) return {
-            state: rebuiltBrowse({ ...parent, modelFocus: "list", tab: value.slice("scope:".length) as TuiModelPickerTab }, parent.options[parent.selectedIndex]?.value), handled: true,
-        };
-        if (value === "sort:library" || value === "sort:az" || value === "sort:price") return {
-            state: rebuiltBrowse({ ...parent, modelFocus: "list", browseSort: value.slice("sort:".length) as ModelBrowseSort }, parent.options[parent.selectedIndex]?.value), handled: true,
-        };
-        if (state.options[state.selectedIndex]?.value === "variants") return {
-            state: rebuiltBrowse({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value), handled: true,
-        };
+        if (value?.startsWith("scope:") === true) {
+            const tab = value.slice("scope:".length) as TuiModelPickerTab;
+            if (fromFilters) return stay(rebuiltBrowse({ ...parent, tab }, parent.options[parent.selectedIndex]?.value), "show");
+            return { state: rebuiltBrowse({ ...parent, modelFocus: "list", tab }, parent.options[parent.selectedIndex]?.value), handled: true };
+        }
+        if (value === "sort:library" || value === "sort:az" || value === "sort:price") {
+            const browseSort = value.slice("sort:".length) as ModelBrowseSort;
+            if (fromFilters) return stay(rebuiltBrowse({ ...parent, browseSort }, parent.options[parent.selectedIndex]?.value), "sort");
+            return { state: rebuiltBrowse({ ...parent, modelFocus: "list", browseSort }, parent.options[parent.selectedIndex]?.value), handled: true };
+        }
+        if (value === "variants") {
+            const next = rebuiltBrowse({ ...parent, revealAll: parent.revealAll !== true }, parent.options[parent.selectedIndex]?.value);
+            return inFilters ? stay(next, "variants") : { state: next, handled: true };
+        }
         if (state.options[state.selectedIndex]?.value === "refresh") return { state: parent, handled: true, refreshAllCatalogs: true };
         if (value === "manage_library") return { state: parent, handled: true, selection: { kind: "model_shortlist_open" } };
         if (value === "verify") return { state: parent, handled: true, poolVerifySweep: true };
@@ -391,7 +397,15 @@ function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | un
         { value: "view:standard", label: "Standard", description: "" },
         { value: "view:detailed", label: "Detailed", description: "" },
     ]);
-    if (state.modelFocus === "filters") return browseChoiceMenu(state, "Filter and sort", [
+    if (state.modelFocus === "filters") return filtersMenu(state);
+    if (state.modelFocus === "scope") return modelBrowseScope(state);
+    if (state.modelFocus === "sort") return modelBrowseSort(state);
+    if (state.modelFocus === "more") return modelBrowseMenu(state);
+    return undefined;
+}
+
+function filtersMenu(state: TuiSettingsPickerState, selectedValue?: string): TuiSettingsPickerState {
+    const menu = browseChoiceMenu(state, "Filter and sort", [
         { value: "show", label: `Show: ${browseScopeLabel(state.tab)}`, description: "" },
         { value: "view_toggle", label: `View: ${state.browseView === "detailed" ? "Detailed" : "Standard"}`, description: "" },
         { value: "sort", label: `Sort: ${browseSortOptions(state).find((option) => option.value === `sort:${browseSort(state)}`)!.label}`, description: "" },
@@ -403,10 +417,7 @@ function focusedMenu(state: TuiSettingsPickerState): TuiSettingsPickerState | un
         { value: "variants", label: state.revealAll ? "Hide extra variants and older models" : "Show extra variants and older models", description: "" },
         { value: "clear_filters", label: "Clear filters", description: "" },
     ]);
-    if (state.modelFocus === "scope") return modelBrowseScope(state);
-    if (state.modelFocus === "sort") return modelBrowseSort(state);
-    if (state.modelFocus === "more") return modelBrowseMenu(state);
-    return undefined;
+    return { ...menu, selectedIndex: Math.max(0, menu.options.findIndex((row) => row.value === selectedValue)) };
 }
 
 function browseChoiceMenu(parent: TuiSettingsPickerState, title: string, options: readonly TuiSettingsPickerOption[]): TuiSettingsPickerState {
