@@ -27,7 +27,7 @@ test("clearing every lever asks first, and escape keeps them", async () => {
             "the settings list filtered to Overrides",
         );
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Reset all to defaults");
+        await session.waitForVisiblePane("Context limit");
     }
 
     async function chooseResetRow(): Promise<void> {
@@ -81,7 +81,11 @@ test("clearing every lever asks first, and escape keeps them", async () => {
         session.sendKey("Escape");
         await session.waitForVisiblePane("Settings");
         session.sendKey("Escape");
-        await session.waitForVisiblePane("overrides kept");
+        await session.waitForVisiblePaneWhere(
+            (pane) => pane.includes("overrides kept")
+                && !pane.includes("↑↓ move"),
+            "the settings overlay to close",
+        );
 
         // The lever survived the question being asked and answered no.
         await openOverrides();

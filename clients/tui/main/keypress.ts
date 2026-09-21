@@ -17,7 +17,7 @@ import { runOnboardingWizardAction, updateWizardSession } from "./onboarding-wiz
 import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
-import { isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
+import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, focusWorkspaceSidebar, forgetProviderCredential, leaveJsonlCommandMode, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, runWorkspaceSidebarAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
 import { abortFocusedAgent, closeDials, commitDials, composerIsAtLeftBoundary, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
@@ -1603,10 +1603,17 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
     const extensionBindingId = anyOverlayOpen(rt)
         ? undefined
         : tuiBindingId("conversation", key);
-    const extensionBinding = extensionBindingId === undefined
+    const bound = extensionBindingId === undefined
+        ? undefined
+        : activeTuiKeymap().find((binding) => binding.id === extensionBindingId);
+    // Built-in rows that an extension owns keep their table id and put the
+    // extension's id in extensionId. A chord the extension registered itself
+    // uses the same id in both places.
+    const registryId = bound?.extensionId ?? bound?.id;
+    const extensionBinding = registryId === undefined
         ? undefined
         : rt.clientExtensionRegistry?.keybindings().find((binding) =>
-            binding.id === extensionBindingId
+            binding.id === registryId
         );
     if (extensionBinding !== undefined) {
         key.preventDefault();

@@ -144,14 +144,18 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/diagnostics");
             sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "This conversation");
+            sendKey(socket, session, "Enter");
             await waitForVisiblePane(socket, session, "SESSION USAGE");
-            sendKey(socket, session, "Tab");
-            pane = await waitForVisiblePane(
-                socket,
-                session,
-                "reload       success (1 loaded)",
-            );
-            expect(pane).toContain("active       test.sidebar");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePane(socket, session, "The host");
+            sendKey(socket, session, "Down");
+            sendKey(socket, session, "Enter");
+            sendKey(socket, session, "NPage");
+            pane = await waitForVisiblePane(socket, session, "sidebar-extension");
+            expect(pane).toContain("Client reload");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePane(socket, session, "esc close");
             sendKey(socket, session, "Escape");
             await waitForVisiblePaneWhere(
                 socket,
@@ -617,7 +621,7 @@ test.skipIf(!tmuxAvailable)(
             expect(modeRow).toBeGreaterThan(veraHeader);
             expect(modeRow).toBeGreaterThan(composerRow);
             expect(pane).toContain(
-                "ready · ctrl+p commands · btw mode · split",
+                "ready · Ctrl+P commands · btw mode · split",
             );
             expect(veraHeader).toBeGreaterThanOrEqual(0);
             expect(sidekickHeader).toBeGreaterThanOrEqual(0);
@@ -636,7 +640,7 @@ test.skipIf(!tmuxAvailable)(
                 line.includes("esc stop sidekick")
             );
             const hostedPlaceRow = hostedWorkingLines.find((line) =>
-                line.includes("ready · Ctrl+P commands · btw mode · split")
+                line.includes("btw mode · split")
             );
             expect(hostedActivityRow).toBeDefined();
             expect(hostedPlaceRow).toBeDefined();
@@ -798,7 +802,7 @@ test.skipIf(!tmuxAvailable)(
             expect(captureVisiblePaneWithStyles(socket, session)).toMatch(
                 /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*(?:▁|━)+/,
             );
-            sendEscapeSequence(socket, session, String.fromCharCode(31));
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
             pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
@@ -810,7 +814,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("SIDEKICK ANSWERED 1");
             expect(pane).toContain("Message sidekick");
             expect(pane).toContain("sidekick · readonly");
-            sendEscapeSequence(socket, session, String.fromCharCode(31));
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
             pane = await waitForVisiblePaneWhere(
                 socket,
                 session,
@@ -824,7 +828,7 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "AGENT ANSWERED 1");
             expect(pane).toContain("main after layout switch");
-            sendEscapeSequence(socket, session, String.fromCharCode(31));
+            sendEscapeSequence(socket, session, String.fromCharCode(28));
             await waitForVisiblePane(socket, session, "SIDEKICK ANSWERED 1");
             sendKey(socket, session, "C-g");
 

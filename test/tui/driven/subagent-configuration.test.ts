@@ -155,7 +155,7 @@ test("missing subagent settings are configured and confirmed through the real TU
         let pane = await session.waitForVisiblePane("Subagent models");
         expect(pane).toContain("Not set");
         expect(pane).toContain("Assigned · fallback order");
-        expect(pane).toContain("Available from Library");
+        expect(pane).toContain("Connected models");
         expect(pane).toContain("Worker");
         expect(pane).toContain("Parent model fallback");
         expect(pane).toContain("test");

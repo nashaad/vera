@@ -48,10 +48,10 @@ test("the model inspector saves and clears request options through the real prof
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-p");
         await session.waitForVisiblePane("Commands");
-        session.sendText("favorites");
-        await session.waitForVisiblePane("Favorites");
+        session.sendText("switch model");
+        await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Models you keep close");
+        await session.waitForVisiblePane("One");
         session.sendKey("Down");
         await session.settle();
         session.sendKey("Right");
