@@ -13,7 +13,7 @@ verifies a release, then makes it available as the `vera` command.
 From the checkout's root directory:
 
 ```sh
-bun install --frozen-lockfile
+bun install
 bun run install:local
 ```
 
