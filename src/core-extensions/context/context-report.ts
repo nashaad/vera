@@ -4,6 +4,7 @@ import type {
     VeraClientContextSnapshot,
 } from "../../sdk/context.ts";
 import { inspectReportSection } from "vera/sdk/inspect-report";
+import { instructionBudget, type InstructionBudget } from "./instruction-budget.ts";
 
 export type ContextResponsiveMode = "wide" | "narrow";
 
@@ -41,6 +42,7 @@ export interface ContextReport {
     readonly breakdown: readonly ContextBreakdownRow[];
     readonly instructions: readonly ContextInstructionRow[];
     readonly instructionSummary?: string;
+    readonly budgetWarning?: string;
     readonly fileWarnings: readonly string[];
     readonly detail: readonly VeraClientContextComponent[];
     readonly breakdownMissing?: string;
@@ -152,8 +154,12 @@ export function buildContextReport(
         (sum, component) => sum + component.estimatedTokens,
         0,
     );
+    const budget = instructionBudget(instructionTokens, instructionFiles);
+    const budgetWarning = instructionFiles.length === 0
+        ? undefined
+        : instructionBudgetWarning(budget);
     const warnings = [
-        ...fileWarnings(instructionFiles),
+        ...(budgetWarning === undefined ? fileWarnings(instructionFiles) : []),
         ...messageWarnings(
             snapshot.projection?.components ?? [],
             usedTotal,
@@ -166,6 +172,7 @@ export function buildContextReport(
         occupancy,
         breakdown,
         instructions: instructionFiles,
+        ...(budgetWarning === undefined ? {} : { budgetWarning }),
         ...(instructionFiles.length === 0
             ? {}
             : {
@@ -241,6 +248,10 @@ export function contextReportLines(
                 width,
             ),
         );
+        if (report.budgetWarning !== undefined) {
+            // The inspect dialog paints a lone `!  ` paragraph as danger; the blank line ends it.
+            lines.push(`!  ${report.budgetWarning}`, "");
+        }
         for (const row of formatInstructionTable(
             report.instructions,
             inner,
@@ -262,6 +273,36 @@ export function contextReportLines(
         inner,
     ));
     return lines;
+}
+
+export function snapshotInstructionBudget(
+    snapshot: VeraClientContextSnapshot,
+): InstructionBudget | undefined {
+    if (snapshot.projection === undefined) return undefined;
+    const components = contextCategories(snapshot).find((category) =>
+        category.label === "Instructions"
+    )?.components ?? [];
+    const tokens = components.reduce((sum, component) => sum + component.estimatedTokens, 0);
+    return instructionBudget(tokens, instructionRows(components, 0, false));
+}
+
+export function instructionBudgetWarning(
+    budget: InstructionBudget,
+): string | undefined {
+    if (!budget.over) return undefined;
+    const biggest = budget.biggest === undefined
+        ? ""
+        : ` Biggest: ${budget.biggest.displayName} (${formatTokens(budget.biggest.estimatedTokens)}).`;
+    return `${formatTokens(budget.tokens)}, over the ${formatTokens(budget.budget)} budget.${biggest}`;
+}
+
+export function instructionBudgetNotice(
+    snapshot: VeraClientContextSnapshot,
+): string | undefined {
+    const budget = snapshotInstructionBudget(snapshot);
+    if (budget === undefined || !budget.over) return undefined;
+    return `Starting instructions are ${formatTokens(budget.tokens)} tokens,`
+        + ` over the ${formatTokens(budget.budget)} budget. See /context to trim.`;
 }
 
 export function formatTokens(tokens: number): string {

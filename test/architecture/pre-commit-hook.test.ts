@@ -118,3 +118,91 @@ test("a Git inspection error fails closed", () => {
     expect(new TextDecoder().decode(result.stderr))
         .toContain("could not inspect staged engine changes");
 });
+
+interface LockedChange {
+    readonly write?: Readonly<Record<string, string>>;
+    readonly remove?: readonly string[];
+    readonly approval?: string;
+}
+
+function checkLocked(committed: Readonly<Record<string, string>>, change: LockedChange): CheckResult {
+    const directory = mkdtempSync(join(tmpdir(), "vera-pre-commit-locked-"));
+
+    try {
+        runGit(directory, "init", "--quiet");
+        runGit(directory, "config", "user.email", "test@example.com");
+        runGit(directory, "config", "user.name", "test");
+        for (const [path, content] of Object.entries(committed)) {
+            const absolutePath = join(directory, path);
+            mkdirSync(dirname(absolutePath), { recursive: true });
+            writeFileSync(absolutePath, content);
+        }
+        runGit(directory, "add", ".");
+        runGit(directory, "commit", "--quiet", "--no-verify", "-m", "base");
+        for (const [path, content] of Object.entries(change.write ?? {})) {
+            const absolutePath = join(directory, path);
+            mkdirSync(dirname(absolutePath), { recursive: true });
+            writeFileSync(absolutePath, content);
+        }
+        for (const path of change.remove ?? []) runGit(directory, "rm", "--quiet", path);
+        runGit(directory, "add", ".");
+
+        const result = Bun.spawnSync(["sh", HOOK], {
+            cwd: directory,
+            env: {
+                ...process.env,
+                VERA_ENGINE_CHANGE_APPROVAL: "",
+                VERA_LOCKED_CHANGE_APPROVAL: change.approval ?? "",
+            },
+        });
+        return {
+            accepted: result.exitCode === 0,
+            said: new TextDecoder().decode(result.stderr),
+        };
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+}
+
+const LOCKED_TIMEOUT_MS = 30_000;
+const LOCKED = "test/locked/model-switch.journey.test.ts";
+
+test("adding a locked journey needs no approval", () => {
+    expect(checkLocked({ "README.md": "x\n" }, { write: { [LOCKED]: "new\n" } }).accepted).toBe(true);
+}, LOCKED_TIMEOUT_MS);
+
+test("editing a locked journey is refused without approval", () => {
+    const result = checkLocked({ [LOCKED]: "decided\n" }, { write: { [LOCKED]: "weakened\n" } });
+
+    expect(result.accepted).toBe(false);
+    expect(result.said).toContain(LOCKED);
+    expect(result.said).toContain("the code is the bug");
+}, LOCKED_TIMEOUT_MS);
+
+test("deleting or moving a locked journey is refused", () => {
+    expect(checkLocked({ [LOCKED]: "decided\n" }, { remove: [LOCKED] }).accepted).toBe(false);
+    expect(checkLocked({ [LOCKED]: "decided\n" }, {
+        remove: [LOCKED],
+        write: { "test/tui/model-switch.test.ts": "decided\n" },
+    }).accepted).toBe(false);
+}, LOCKED_TIMEOUT_MS);
+
+test("the printed locked approval permits only that staged change", () => {
+    const committed = { [LOCKED]: "decided\n" };
+    const denied = checkLocked(committed, { write: { [LOCKED]: "revised\n" } });
+    const approval = denied.said.match(/VERA_LOCKED_CHANGE_APPROVAL=([0-9a-f]+)/)?.[1];
+
+    expect(approval).toBeDefined();
+    expect(checkLocked(committed, { write: { [LOCKED]: "revised\n" }, approval }).accepted).toBe(true);
+    expect(checkLocked(committed, { write: { [LOCKED]: "other\n" }, approval }).accepted).toBe(false);
+}, LOCKED_TIMEOUT_MS);
+
+test("an engine approval does not unlock a locked journey", () => {
+    const committed = { [LOCKED]: "decided\n", "src/engine/run-turn.ts": "a\n" };
+    const change = { [LOCKED]: "revised\n", "src/engine/run-turn.ts": "b\n" };
+    const denied = checkLocked(committed, { write: change });
+    const locked = denied.said.match(/VERA_LOCKED_CHANGE_APPROVAL=([0-9a-f]+)/)?.[1];
+
+    expect(denied.said).toContain("VERA_ENGINE_CHANGE_APPROVAL=");
+    expect(checkLocked(committed, { write: change, approval: locked }).accepted).toBe(false);
+}, LOCKED_TIMEOUT_MS);

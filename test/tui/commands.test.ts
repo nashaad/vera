@@ -46,6 +46,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "open_help" },
         { type: "prefill_composer", text: "/rename " },
         { type: "open_theme_picker" },
+        { type: "open_animations_preview" },
         { type: "open_resume_picker" },
         { type: "open_subagents_picker" },
         { type: "go_to_parent" },
@@ -102,6 +103,7 @@ test("every slash action has an explicit pane scope", () => {
             ["open_help", "application"],
             ["prefill_composer", "application"],
             ["open_theme_picker", "application"],
+            ["open_animations_preview", "application"],
             ["open_resume_picker", "focused_agent"],
             ["open_subagents_picker", "focused_agent"],
             ["go_to_parent", "focused_agent"],
@@ -311,6 +313,14 @@ test("doctor is an application-owned client action", () => {
 
     const action = registry.dispatch("/doctor");
     expect(action).toEqual({ type: "show_doctor" });
+    expect(tuiCommandScope(action!)).toBe("application");
+});
+
+test("animations opens the preview as an application-owned client action", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    const action = registry.dispatch("/animations");
+    expect(action).toEqual({ type: "open_animations_preview" });
     expect(tuiCommandScope(action!)).toBe("application");
 });
 

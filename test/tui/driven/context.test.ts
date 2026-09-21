@@ -182,3 +182,77 @@ test("closing Dashboard returns every following character to the composer", asyn
         await session.close();
     }
 }, 15_000);
+
+test("resuming a session with large instructions warns once and /context repeats it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-context-budget-"));
+    const sessionPath = join(home, "sessions", "budget.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "budget-session",
+        cwd: home,
+    });
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+    });
+    await store.appendMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "hello from a heavy session" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: { ...emptyUsage(), inputTokens: 7_100, outputTokens: 8, totalTokens: 7_108 },
+        stopReason: "stop",
+    });
+    await store.appendContextMeasurement({
+        tokens: 7_100,
+        capacity: 200_000,
+        estimated: true,
+        projection: {
+            estimatedTokens: 7_100,
+            components: [{
+                kind: "prompt_contribution",
+                id: "core.user-rules",
+                owner: "core",
+                source: "contextual",
+                displayName: "User rules",
+                count: 1,
+                estimatedTokens: 7_000,
+                parts: [{
+                    id: "rules-global",
+                    displayName: "global.md",
+                    scope: "user",
+                    bytes: 28_000,
+                    estimatedTokens: 7_000,
+                }],
+            }, {
+                kind: "message",
+                id: "message:1",
+                owner: "session",
+                source: "user",
+                displayName: "user message",
+                count: 1,
+                estimatedTokens: 100,
+            }],
+        },
+    });
+
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 40,
+        dependencies: () => createTuiChildDependencies({
+            resumeSessionPath: sessionPath,
+        }),
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane("Starting instructions are 7.0k tokens");
+        expect(pane.split("Starting instructions are").length - 1).toBe(1);
+        expect(pane).toContain("Starting instructions are 7.0k tokens, over the 5.0k budget. See /context to trim.");
+        session.sendText("/context");
+        session.sendKey("Enter");
+        const report = await session.waitForVisiblePane("INSTRUCTIONS");
+        expect(report).toContain("!  7.0k, over the 5.0k budget. Biggest: global.md (7.0k).");
+        expect(report).not.toContain("rides every turn");
+    } finally {
+        await session.close();
+    }
+}, 15_000);

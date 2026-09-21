@@ -3,10 +3,10 @@ import type { TerminalColors } from "@opentui/core";
 
 import themeCatalog from "../../config/tui-themes.json" with { type: "json" };
 import type { TuiThemeName } from "../../clients/tui/theme.ts";
+import { resolveTuiTheme } from "../../clients/tui/theme-catalog.ts";
 import {
     TUI_THEME_REQUIRED_ROLES,
     VERA_TUI_THEME,
-    resolveTuiTheme,
     resolveSystemTuiTheme,
     themeFromTerminal,
     tuiRecessColor,

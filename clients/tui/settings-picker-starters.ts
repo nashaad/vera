@@ -102,7 +102,8 @@ import {
     type DialogMeta,
     type DialogMetaPart,
 } from "./dialog-chrome.ts";
-import { type TuiThemeName } from "./theme.ts";
+import type { TuiThemeName } from "./theme.ts";
+import { tuiThemeOptions } from "./theme-catalog.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,
@@ -193,21 +194,13 @@ export function tuiPermissionModeDescription(
         ?.description;
 }
 
-export const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
-    { value: "default", label: "Default", description: "Vera's original palette" },
-    { value: "system", label: "System", description: "inherit terminal colors" },
-    { value: "muted-blue", label: "Muted Blue", description: "blue transcript, muted details" },
-    { value: "orng", label: "Orng", description: "warm orange on charcoal" },
-    { value: "palenight", label: "Palenight", description: "soft blue and purple" },
-    { value: "synthwave", label: "Synthwave", description: "bright cyan and neon" },
-    { value: "nightowl", label: "Night Owl", description: "deep blue, low glare" },
-    { value: "github", label: "GitHub", description: "GitHub dark palette" },
-    { value: "midnight-blue", label: "Midnight Blue", description: "navy, gold, and cool white" },
-    { value: "midnight-blue-ii", label: "Midnight Blue II", description: "gold accent, blue code" },
-    { value: "norton-commander", label: "NC", description: "blue panels, cyan bars, yellow detail" },
-    { value: "nc-navy", label: "NC Navy", description: "deep navy panels, cyan bars" },
-    { value: "windows-31", label: "retro31", description: "navy windows on teal" },
-];
+export function themePickerOptions(): readonly TuiSettingsPickerOption[] {
+    return tuiThemeOptions().map((option) => ({
+        value: option.name,
+        label: option.label,
+        description: option.description,
+    }));
+}
 
 export function startTuiSettingsPicker(
     kind: Exclude<TuiSettingsPickerKind, "reasoning" | "configure">,
@@ -221,7 +214,7 @@ export function startTuiSettingsPicker(
     pooled: readonly PooledModel[] | undefined = undefined,
 ): TuiSettingsPickerState {
     const allOptions = kind === "theme"
-        ? THEME_OPTIONS
+        ? themePickerOptions()
         : kind === "model"
         ? modelOptions(availableModels, currentProvider, currentModel, pooled)
         : permissionOptions(availablePermissionModes);

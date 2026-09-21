@@ -3,6 +3,7 @@ import { runModelOperation } from "./model-operations.ts";
 import { currentModelAssignmentRows } from "./model-pickers.ts";
 import { applySelectedTheme, beginSessionResume, refreshHomeSessions, overrideChangeLabel, formatContextLimit, openCatalogRefreshScopePicker, openPoolVerifyScopePicker, requestCatalogRefresh, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, scheduleThemePreview, showStatusNotice, startCatalogRefreshSweep, startPoolVerifySweep, verifyModelInPicker } from "../main.ts";
 import { isHomeClient } from "../home-client.ts";
+import { modelSwitchCommand } from "../model-switch-command.ts";
 import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-dials.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
@@ -453,8 +454,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             const keptEffort = selection.reasoningEffort;
             const apply = () => {
                 const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
-                void client.send({ type: "update_session_model_settings", requestId: randomUUID(),
-                    patch: { provider: selection.provider, model: selection.model, reasoningEffort: keptEffort ?? null } })
+                void client.send(modelSwitchCommand({ provider: selection.provider, model: selection.model,
+                    ...(keptEffort === undefined ? {} : { reasoningEffort: keptEffort }) }))
                     .catch((error) => { showStatusNotice(rt, String(error)); renderState(rt); });
                 const chosen = keptEffort === undefined ? selection.model : `${selection.model} (${keptEffort})`;
                 showStatusNotice(rt, `${chosen}. Applies to the next request. Not added to your favorites.`);

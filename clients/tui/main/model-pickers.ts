@@ -27,6 +27,7 @@ import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
 import { refreshLocalRuntimeStatus } from "../main/outrider-control.ts";
 import { renderState } from "../main/render-state.ts";
+import { reloadTuiThemeCatalog } from "../theme-catalog.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { renderPermissionInspection } from "../permission-inspection.ts";
 import { startTuiPreferencesList } from "../preferences-list.ts";
@@ -566,6 +567,9 @@ export function openPermissionsPicker(rt: TuiRuntime, parent?: TuiSettingsPicker
 }
 
 export function openThemePicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
+    for (const problem of reloadTuiThemeCatalog().problems) {
+        rt.state = appendTuiError(rt.state, problem);
+    }
     rt.settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
         "theme",
         rt.state.modelSettings?.model,

@@ -6,6 +6,7 @@
     "capabilities": [
         "client.commands.register",
         "client.ui.picker",
+        "client.ui.notice",
         "client.context.read",
         "client.experimental_tui",
         "client.sessions.read",

@@ -1,10 +1,12 @@
 import { registerSourceBrowser } from "../customize/view.ts";
 import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
 import { contextReportMarkdown } from "./context-report.ts";
+import { watchInstructionBudget } from "./instruction-budget-notice.ts";
 import { registerDashboard } from "./dashboard.ts";
 
 export function activateClient(vera: VeraClientExtensionApi): void {
     registerDashboard(vera);
+    watchInstructionBudget(vera);
     const browser = registerSourceBrowser(vera);
     vera.commands.register({
         name: "context",

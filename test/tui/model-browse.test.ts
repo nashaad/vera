@@ -597,8 +597,7 @@ test("cutoff is reached through the vertical filter menu", () => {
     const state = { ...chooseScope(modelBrowse(base, "browse")), modelFocus: "filters" as const };
     const menu = handleTuiSettingsPickerKey(state, { name: "enter" }).state!;
     expect(menu.title).toBe("Filter and sort");
-    const cutoff = handleTuiSettingsPickerKey({ ...menu, selectedIndex: menu.options.findIndex((row) => row.value === "cutoff") }, { name: "enter" }).state!;
-    expect(cutoff.title).toBe("Filter and sort");
+    const cutoff = { ...menu, selectedIndex: menu.options.findIndex((row) => row.value === "cutoff") };
     const adjusted = handleTuiSettingsPickerKey(cutoff, { name: "right" }).state!;
     expect(adjusted.parent?.intelligenceCutoff).toBe("1400");
     const result = handleTuiSettingsPickerKey(adjusted, { name: "escape" }).state!;

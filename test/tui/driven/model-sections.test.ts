@@ -49,7 +49,7 @@ test("browse keeps the search text while Tab walks its sections, and Enter favor
         const favorited = await session.waitForVisiblePane("⏎ unfavorite");
         expect(favorited).toContain("* One");
         expect(operations).toEqual(["keep"]);
-        expect(commands).not.toContain("update_session_model_settings");
+        expect(commands).not.toContain("update_model_settings");
         expect(commands).not.toContain("prompt");
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere((pane) => !pane.includes("Browse models"), "the browse page to close");
@@ -83,7 +83,7 @@ test("the HUD stages agent and access, and Escape cancels both", async () => {
         await session.waitForVisiblePane("› AGENT");
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere((pane) => !pane.includes("ACCESS"), "the HUD to close");
-        expect(commands).not.toContain("update_session_model_settings");
+        expect(commands).not.toContain("update_model_settings");
         expect(commands).not.toContain("update_session_permission_mode");
         expect(commands).not.toContain("prompt");
     } finally { await session.close(); }

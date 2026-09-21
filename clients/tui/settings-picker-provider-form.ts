@@ -52,7 +52,8 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import { centeredDialogSurface } from "./dialog-chrome.ts";
-import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
+import type { TuiThemeName } from "./theme.ts";
+import { tuiThemeSwatch } from "./theme-catalog.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,

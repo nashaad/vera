@@ -62,6 +62,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.doctorDialog !== undefined) {
         return () => rt.doctorDialogView.focus();
     }
+    if (rt.animationsPreviewOpen) {
+        return () => rt.animationsPreviewView.box.focus();
+    }
     if (rt.extensionsDialog !== undefined) {
         return () => rt.extensionsDialogView.focus();
     }
@@ -519,6 +522,7 @@ export function settleLostHost(rt: TuiRuntime, reason: string): void {
     rt.abortRequested = false;
     rt.workingSince = undefined;
     rt.phaseSince = undefined;
+    rt.quietSince = undefined;
     rt.state = failTuiConnection(rt.state);
 }
 

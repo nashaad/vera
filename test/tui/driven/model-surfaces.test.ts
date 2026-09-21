@@ -220,7 +220,7 @@ test("Home stages access without creating a session, then the switcher applies t
         session.sendKey("Enter"); await session.waitForVisiblePane("Start a conversation");
         await session.settle();
         expect(created).toBe(1);
-        expect(commands.some((command) => command.type === "update_session_model_settings"
+        expect(commands.some((command) => command.type === "update_model_settings"
             && command.patch.model === "one/model")).toBe(true);
         expect(commands.some((command) => command.type === "update_session_permission_mode" && command.mode === "auto")).toBe(true);
         expect(commands.some((command) => command.type === "pool_add")).toBe(false);
@@ -251,12 +251,12 @@ test("the switcher asks for effort whenever the model has levels", async () => {
         session.sendKey("Enter"); await session.waitForVisiblePane("High effort");
         // The cursor opens on the model's own default, so the switch is not
         // applied until a level is chosen.
-        expect(commands.some((command) => command.type === "update_session_model_settings")).toBe(false);
-        session.sendKey("Down"); session.sendKey("Enter"); await session.settle();
-        const applied = commands.filter((command) => command.type === "update_session_model_settings");
-        expect(applied.map((command) => command.type === "update_session_model_settings" && command.patch))
-            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: "high" }]);
         expect(commands.some((command) => command.type === "update_model_settings")).toBe(false);
+        session.sendKey("Down"); session.sendKey("Enter"); await session.settle();
+        const applied = commands.filter((command) => command.type === "update_model_settings");
+        expect(applied.map((command) => command.type === "update_model_settings" && command.patch))
+            .toEqual([{ provider: "openrouter", model: "two/model", reasoningEffort: "high" }]);
+        expect(commands.some((command) => command.type === "update_session_model_settings")).toBe(false);
     } finally { await session.close(); }
 }, 15_000);
 
@@ -431,7 +431,7 @@ test("clicking a cutoff tick filters browse without switching models", async () 
         await session.sendMouseClick(filteredLines[nextRow]!.indexOf("any"), nextRow);
         await session.waitForVisiblePane("Intelligence cutoff: any");
         session.sendKey("Escape"); await session.waitForVisiblePane("Browse models");
-        expect(commands).not.toContain("update_session_model_settings");
+        expect(commands).not.toContain("update_model_settings");
     } finally { await session.close(); }
 }, 15_000);
 

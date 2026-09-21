@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { tuiActivityKind } from "../../clients/tui/activity-bar.ts";
 import { TuiAgentPaneState } from "../../clients/tui/agent-pane-state.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
@@ -193,4 +194,70 @@ test("a pane is waiting on the model until reasoning tokens arrive", () => {
 
     expect(seen).toEqual([false, true, false]);
     expect(pane.activity).toBe("thinking");
+});
+
+test("a delivery turn restarts the quiet clock so its strip begins dim", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({ type: "user_prompt", content: "first", seq: 1 }, 1_000);
+    pane.apply({ type: "assistant_delta", text: "done", seq: 2 }, 2_000);
+    pane.apply({ type: "turn_finished", seq: 3 }, 3_000);
+    // No user_prompt: a delivery turn opens with status working alone.
+    pane.apply({ type: "status", state: "working", seq: 4 }, 60_000);
+
+    expect(pane.quietSince).toBe(60_000);
+    expect(tuiActivityKind(pane.activity, pane.reasoning, 60_500 - pane.quietSince!)).toBe("waiting");
+    expect(tuiActivityKind(pane.activity, pane.reasoning, 62_500 - pane.quietSince!)).toBe("thinking");
+});
+
+test("every request that goes out restarts the quiet clock", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({ type: "user_prompt", content: "go", seq: 1 }, 1_000);
+    expect(pane.quietSince).toBe(1_000);
+    pane.apply({ type: "tool_started", tool: "read", args: { path: "a" }, seq: 2 }, 2_000);
+    pane.apply({ type: "tool_finished", tool: "read", output: "a", seq: 3 }, 9_000);
+    expect(pane.quietSince).toBe(9_000);
+    pane.apply({ type: "status", state: "idle", seq: 4 }, 10_000);
+    expect(pane.quietSince).toBeUndefined();
+});
+
+test("a back-to-back delivery turn reports only its own thinking and working time", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({ type: "user_prompt", content: "first", seq: 1 }, 1_000);
+    pane.apply({ type: "assistant_delta", text: "done", seq: 2 }, 2_000);
+    pane.apply({ type: "turn_finished", seq: 3 }, 3_000);
+    pane.apply({ type: "status", state: "working", seq: 4 }, 60_000);
+    expect(pane.workingSince).toBe(60_000);
+    pane.apply({ type: "assistant_thinking", text: "hm", seq: 5 }, 61_000);
+    pane.apply({ type: "assistant_delta", text: "second", seq: 6 }, 64_000);
+
+    expect(pane.state.entries.map((entry) => entry.text)).toContain("Reasoning: 4.0s");
+});
+
+test("thought timing still runs from the phase start, not the quiet clock", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({ type: "user_prompt", content: "go", seq: 1 }, 1_000);
+    pane.apply({
+        type: "model_activity",
+        phase: "retrying",
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 0,
+        retryAt: "2026-08-30T22:00:00.000Z",
+        failure: { kind: "unknown" },
+        seq: 2,
+    }, 2_500);
+    pane.apply({ type: "assistant_thinking", text: "hm", seq: 3 }, 3_000);
+    pane.apply({ type: "assistant_delta", text: "answer", seq: 4 }, 5_000);
+
+    expect(pane.quietSince).toBe(2_500);
+    expect(pane.state.entries.map((entry) => entry.text)).toEqual([
+        "go",
+        "Reasoning: 4.0s",
+        "answer",
+    ]);
 });

@@ -1,6 +1,8 @@
 {
   "themes": {
-    "vera": {
+    "default": {
+      "label": "Vera Blue",
+      "description": "Vera's original palette",
       "accent": "#7AA2F7",
       "text": "#A9AFBB",
       "muted": "#5C6370",
@@ -27,7 +29,35 @@
         "auto": "#40C977"
       }
     },
+    "vera-purple": {
+      "label": "Vera Purple",
+      "description": "violet haze on black",
+      "accent": "#8B79F6",
+      "text": "#E2E0DA",
+      "muted": "#7D7A8C",
+      "notice": "#F2C94C",
+      "danger": "#FF5F56",
+      "success": "#6FE3D4",
+      "critical": "#ff3b30",
+      "secondary": "#F2A6D6",
+      "focus": "#6FE3D4",
+      "inactive": "#3B3850",
+      "activityTrail": "#6E8BF5",
+      "dangerSurface": "#1C0A10",
+      "diffAdded": "#2E8C74",
+      "diffRemoved": "#C24A5A",
+      "code": "#8FB0FF",
+      "background": "#0C0B12",
+      "panel": "#13111C",
+      "element": "#1C1929",
+      "input": "#0C0B12",
+      "menu": "#13111C",
+      "chrome": "plain",
+      "selectionText": "#0C0B12"
+    },
     "muted-blue": {
+      "label": "Muted Blue",
+      "description": "blue transcript, muted details",
       "accent": "#4C9BCF",
       "text": "#02A2FF",
       "muted": "#175B8B",
@@ -51,31 +81,35 @@
       "chrome": "plain",
       "selectionText": "#0F1117"
     },
-    "orng": {
-      "accent": "#EC5B2B",
-      "text": "#c6c6c6",
-      "muted": "#808080",
-      "notice": "#E8A33D",
+    "onyx": {
+      "label": "Onyx",
+      "description": "true black, orange and chrome",
+      "accent": "#E8582A",
+      "text": "#DEDDD7",
+      "muted": "#7E8079",
+      "notice": "#F2C94C",
       "danger": "#FF5F56",
-      "success": "#8CC265",
+      "success": "#6FE3D4",
       "critical": "#ff3b30",
-      "secondary": "#c586c0",
-      "focus": "#22c55e",
-      "inactive": "#4b5563",
-      "activityTrail": "#B8B6D9",
-      "dangerSurface": "#210b0b",
-      "diffAdded": "#2F8F46",
-      "diffRemoved": "#B94A48",
-      "code": "#6ba1e6",
-      "background": "#111111",
-      "panel": "#181818",
-      "element": "#222222",
-      "input": "#111111",
-      "menu": "#181818",
+      "secondary": "#8B79F6",
+      "focus": "#6FE3D4",
+      "inactive": "#3A3D48",
+      "activityTrail": "#8B79F6",
+      "dangerSurface": "#1A0906",
+      "diffAdded": "#2E8C74",
+      "diffRemoved": "#C24A34",
+      "code": "#F2A6D6",
+      "background": "#07080A",
+      "panel": "#0E0F13",
+      "element": "#17191F",
+      "input": "#07080A",
+      "menu": "#0E0F13",
       "chrome": "plain",
-      "selectionText": "#111111"
+      "selectionText": "#07080A"
     },
     "palenight": {
+      "label": "Palenight",
+      "description": "soft blue and purple",
       "accent": "#82aaff",
       "text": "#a6accd",
       "muted": "#676e95",
@@ -100,6 +134,8 @@
       "selectionText": "#292d3e"
     },
     "synthwave": {
+      "label": "Synthwave",
+      "description": "bright cyan and neon",
       "accent": "#36f9f6",
       "text": "#d8d7db",
       "muted": "#848bbd",
@@ -124,6 +160,8 @@
       "selectionText": "#262335"
     },
     "nightowl": {
+      "label": "Night Owl",
+      "description": "deep blue, low glare",
       "accent": "#82AAFF",
       "text": "#d6deeb",
       "muted": "#5f7e97",
@@ -148,6 +186,8 @@
       "selectionText": "#011627"
     },
     "github": {
+      "label": "GitHub",
+      "description": "GitHub dark palette",
       "accent": "#58a6ff",
       "text": "#c9d1d9",
       "muted": "#8b949e",
@@ -172,6 +212,8 @@
       "selectionText": "#0d1117"
     },
     "midnight-blue": {
+      "label": "Midnight Blue",
+      "description": "navy, gold, and cool white",
       "accent": "#82AAFF",
       "text": "#c7d5d6",
       "muted": "#546E7A",
@@ -196,6 +238,8 @@
       "selectionText": "#14171C"
     },
     "midnight-blue-ii": {
+      "label": "Midnight Blue II",
+      "description": "gold accent, blue code",
       "accent": "#F9D768",
       "text": "#B2CCD6",
       "muted": "#65737E",
@@ -220,6 +264,8 @@
       "selectionText": "#14171C"
     },
     "norton-commander": {
+      "label": "NC",
+      "description": "blue panels, cyan bars, yellow detail",
       "accent": "#00AAAA",
       "text": "#FFFFFF",
       "muted": "#55FFFF",
@@ -244,6 +290,8 @@
       "selectionText": "#000000"
     },
     "nc-navy": {
+      "label": "NC Navy",
+      "description": "deep navy panels, cyan bars",
       "accent": "#00AAAA",
       "text": "#FFFFFF",
       "muted": "#55FFFF",
@@ -268,6 +316,8 @@
       "selectionText": "#000000"
     },
     "windows-31": {
+      "label": "retro31",
+      "description": "navy windows on teal",
       "accent": "#000080",
       "text": "#000000",
       "muted": "#707070",

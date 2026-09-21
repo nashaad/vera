@@ -10,7 +10,17 @@ import {
     contextReportLines,
     contextReportMarkdown,
     formatKilobytes,
+    instructionBudgetNotice,
+    snapshotInstructionBudget,
 } from "../../src/core-extensions/context/context-report.ts";
+import {
+    INSTRUCTION_BUDGET_TOKENS,
+    instructionBudget,
+} from "../../src/core-extensions/context/instruction-budget.ts";
+import type {
+    VeraClientContextComponent,
+    VeraClientContextPart,
+} from "../../src/sdk/context.ts";
 import {
     startClientExtensionRegistry,
     type ClientExtensionExperimentalTuiAdapter,
@@ -315,6 +325,205 @@ test("the context command reports a clean compatibility error on an old TUI host
         await registry.close();
     }
 });
+
+test("the instruction budget is the INSTRUCTIONS section total, skills included", () => {
+    expect(INSTRUCTION_BUDGET_TOKENS).toBe(5_000);
+    const under = budgetSnapshot([
+        instruction("core.user-rules", "User rules", 3_000),
+        instruction("core.project-instructions", "Project instructions", 1_000),
+        instruction("host.skills", "Skills", 999),
+    ]);
+    const budget = snapshotInstructionBudget(under);
+    expect(budget?.tokens).toBe(4_999);
+    expect(budget?.over).toBe(false);
+    expect(budget?.biggest?.displayName).toBe("User rules");
+    expect(instructionBudgetNotice(under)).toBeUndefined();
+    expect(snapshotInstructionBudget({ availability: "unavailable" })).toBeUndefined();
+    expect(instructionBudget(5_000, []).over).toBe(true);
+    expect(instructionBudget(5_000, []).biggest).toBeUndefined();
+
+    const over = budgetSnapshot([
+        instruction("core.user-rules", "User rules", 3_000),
+        instruction("core.project-instructions", "Project instructions", 1_000),
+        instruction("host.skills", "Skills", 1_000),
+        instruction("core.agent-instructions", "Agent", 500),
+    ]);
+    expect(snapshotInstructionBudget(over)?.tokens).toBe(5_500);
+    expect(instructionBudgetNotice(over)).toBe(
+        "Starting instructions are 5.5k tokens, over the 5.0k budget. See /context to trim.",
+    );
+});
+
+test("a 7k global rules file is over the budget and Sundr's files are not", () => {
+    const global = budgetSnapshot([
+        instruction("core.user-rules", "User rules", 7_000),
+        instruction("core.project-instructions", "Project instructions", 1_454),
+    ]);
+    const sundr = budgetSnapshot([
+        instruction("core.project-instructions", "Project instructions", 1_454),
+        instruction("host.skills", "Skills", 737),
+    ]);
+    expect(snapshotInstructionBudget(global)?.over).toBe(true);
+    expect(instructionBudgetNotice(global)).toBe(
+        "Starting instructions are 8.5k tokens, over the 5.0k budget. See /context to trim.",
+    );
+    expect(snapshotInstructionBudget(sundr)?.over).toBe(false);
+    expect(contextReportMarkdown(sundr, false, 72)).not.toContain("budget");
+});
+
+test("/context shows one red budget line with the biggest file and drops the per-file warning", () => {
+    const snapshot = budgetSnapshot([
+        instruction("core.user-rules", "User rules", 5_800, [{
+            id: "rules-house",
+            displayName: "<home>/rules/house-style.md",
+            scope: "user",
+            bytes: 27_000,
+            estimatedTokens: 5_800,
+        }]),
+        instruction("core.project-instructions", "Project instructions", 1_600, [{
+            id: "agents",
+            displayName: "AGENTS.md",
+            scope: "project",
+            bytes: 20_000,
+            estimatedTokens: 1_600,
+        }]),
+        instruction("host.skills", "Skills", 700),
+    ]);
+    const markdown = contextReportMarkdown(snapshot, false, 72);
+    const lines = markdown.split("\n");
+    const warning = lines.indexOf(
+        "!  8.1k, over the 5.0k budget. Biggest: <home>/rules/house-style.md (5.8k).",
+    );
+    expect(warning).toBeGreaterThan(0);
+    expect(lines[warning - 1]).toStartWith("## INSTRUCTIONS");
+    expect(lines[warning - 1]).toContain("8.1k");
+    expect(lines[warning + 1]).toBe("");
+    expect(lines[warning + 2]).toContain("house-style.md");
+    expect(lines.find((line) => line.startsWith("Instructions"))).toContain("8.1k");
+    expect(markdown).not.toContain("rides every turn");
+});
+
+test("a skill catalog can be the biggest source, named by its display name", () => {
+    const snapshot = budgetSnapshot([
+        instruction("host.skills", "Skills", 4_000),
+        instruction("core.user-rules", "User rules", 1_200),
+    ]);
+    expect(contextReportMarkdown(snapshot, false, 72)).toContain(
+        "!  5.2k, over the 5.0k budget. Biggest: Skills (4.0k).",
+    );
+});
+
+test("under the budget the per-file warning is unchanged", () => {
+    const snapshot = budgetSnapshot([
+        instruction("core.project-instructions", "Project instructions", 4_000, [{
+            id: "agents",
+            displayName: "AGENTS.local.md",
+            scope: "project",
+            bytes: 17_000,
+            estimatedTokens: 4_000,
+        }]),
+    ]);
+    const markdown = contextReportMarkdown(snapshot, false, 72);
+    expect(markdown).toContain("AGENTS.local.md is 17 KB and rides every turn.");
+    expect(markdown).not.toContain("budget");
+});
+
+test("the context extension posts one soft budget notice per conversation", async () => {
+    let snapshot: VeraClientContextSnapshot = { availability: "unavailable" };
+    const listeners = new Map<string, ((...args: unknown[]) => unknown)[]>();
+    const notices: { text: string; tone?: string }[] = [];
+    const experimentalTui: ClientExtensionExperimentalTuiAdapter = {
+        mount: () => async () => {},
+        mountRenderable: () => async () => {},
+        openDocument: () => {},
+        events: {
+            on(_extensionId, event, listener) {
+                const list = listeners.get(event) ?? [];
+                list.push(listener as (...args: unknown[]) => unknown);
+                listeners.set(event, list);
+                return async () => {};
+            },
+        },
+        agentSurface: {
+            current: () => undefined,
+            cycleLayout: () => false,
+            toggleFocus: () => false,
+        },
+    };
+    const fire = (event: string, ...args: unknown[]) => {
+        for (const listener of listeners.get(event) ?? []) listener(...args);
+    };
+    const options = registryOptions(
+        join(import.meta.dir, "../../src/core-extensions/context"),
+        snapshot,
+        experimentalTui,
+    );
+    const registry = await startClientExtensionRegistry({
+        ...options,
+        context: { current: () => snapshot },
+        notice: {
+            post: (_id, text, noticeOptions) => {
+                notices.push({ text, ...(noticeOptions?.tone === undefined ? {} : { tone: noticeOptions.tone }) });
+            },
+        },
+    });
+    try {
+        fire("agent_event", { type: "user_prompt", text: "hi" });
+        snapshot = budgetSnapshot([
+            instruction("core.user-rules", "User rules", 7_000),
+        ]);
+        fire("agent_event", { type: "status", state: "working" });
+        fire("transcript_changed", []);
+        expect(notices).toEqual([]);
+
+        fire("agent_event", { type: "turn_finished" });
+        expect(notices).toEqual([{
+            text: "Starting instructions are 7.0k tokens, over the 5.0k budget. See /context to trim.",
+            tone: "soft",
+        }]);
+
+        fire("agent_event", { type: "user_prompt", text: "again" });
+        fire("agent_event", { type: "turn_finished" });
+        fire("transcript_changed", []);
+        expect(notices.length).toBe(1);
+
+        fire("conversation_changed");
+        fire("transcript_changed", []);
+        expect(notices.length).toBe(2);
+    } finally {
+        await registry.close();
+    }
+});
+
+function instruction(
+    id: string,
+    displayName: string,
+    estimatedTokens: number,
+    parts?: readonly VeraClientContextPart[],
+): VeraClientContextComponent {
+    return {
+        kind: "prompt_contribution",
+        id,
+        owner: "core",
+        source: "contextual",
+        displayName,
+        count: 1,
+        estimatedTokens,
+        ...(parts === undefined ? {} : { parts }),
+    };
+}
+
+function budgetSnapshot(
+    components: readonly VeraClientContextComponent[],
+): VeraClientContextSnapshot {
+    const total = components.reduce((sum, component) => sum + component.estimatedTokens, 0);
+    return {
+        availability: "available",
+        model: { model: "model", capacity: 200_000 },
+        headline: { tokens: total, estimated: true },
+        projection: { estimatedTokens: total, components },
+    };
+}
 
 function availableSnapshot(): VeraClientContextSnapshot {
     return {

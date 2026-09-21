@@ -61,6 +61,7 @@ your first conversation. For recorded Python workflows, start with
 - [Extension credentials](extension-credentials.md)
 - [Configure automatic approval](permission-classifier.md)
 - [Choose a configuration file](configuration-files.md)
+- [Themes](themes.md)
 - [Keybindings](keybindings.md)
 - [Dialog controls](tui-dialogs.md)
 

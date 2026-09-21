@@ -146,8 +146,11 @@ export function refreshedTuiModelSwitcher(
         allRows,
         recents,
         ...ordered,
+        // An empty list leaves the cursor on Browse by default, not by choice.
         selectedIndex: at >= 0
             ? at
+            : state.rows.length === 0
+            ? startingIndex(ordered.rows, state.query === "" ? state.current : undefined)
             : onSwitcherBrowseRow(state)
             ? ordered.rows.length
             : Math.min(state.selectedIndex, Math.max(0, ordered.rows.length - 1)),

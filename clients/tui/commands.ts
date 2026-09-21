@@ -96,6 +96,10 @@ export interface OpenThemePickerTuiCommandAction {
     readonly type: "open_theme_picker";
 }
 
+export interface OpenAnimationsPreviewTuiCommandAction {
+    readonly type: "open_animations_preview";
+}
+
 export interface OpenResumePickerTuiCommandAction {
     readonly type: "open_resume_picker";
 }
@@ -238,6 +242,7 @@ export type TuiCommandAction =
     | OpenHelpTuiCommandAction
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
+    | OpenAnimationsPreviewTuiCommandAction
     | OpenResumePickerTuiCommandAction
     | OpenWorkTabTuiCommandAction
     | OpenSearchTuiCommandAction
@@ -310,6 +315,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_help":
         case "prefill_composer":
         case "open_theme_picker":
+        case "open_animations_preview":
         case "show_diagnostics":
         case "show_extensions":
         case "manage_extensions":
@@ -361,6 +367,7 @@ export interface TuiCommandDefinition {
         | OpenCommandPaletteTuiCommandAction
         | OpenHelpTuiCommandAction
         | OpenThemePickerTuiCommandAction
+        | OpenAnimationsPreviewTuiCommandAction
         | OpenResumePickerTuiCommandAction
         | OpenWorkTabTuiCommandAction
         | OpenSearchTuiCommandAction
@@ -448,6 +455,12 @@ const THEMES_COMMAND = {
     name: "themes",
     description: "Change the TUI theme",
     usage: "/themes",
+} as const satisfies TuiCommandCatalogEntry;
+
+const ANIMATIONS_COMMAND = {
+    name: "animations",
+    description: "Preview every activity strip at the current animation level",
+    usage: "/animations",
 } as const satisfies TuiCommandCatalogEntry;
 
 const RESUME_COMMAND = {
@@ -587,6 +600,7 @@ export const BUILTIN_COMMANDS = [
     NUDGES_COMMAND,
     CONFIGURE_COMMAND,
     THEMES_COMMAND,
+    ANIMATIONS_COMMAND,
     RESUME_COMMAND,
     WORK_COMMAND,
     SEARCH_COMMAND,
@@ -1379,6 +1393,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Settings",
             slashName: "themes",
             action: { type: "open_theme_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...ANIMATIONS_COMMAND,
+        action: { type: "open_animations_preview" },
+        palette: {
+            name: "animations",
+            label: "Preview animations",
+            description: "every activity strip, playing at your level",
+            group: "Settings",
+            slashName: "animations",
+            action: { type: "open_animations_preview" },
         },
     });
     registry.registerCommand({

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { findConfiguredProvider } from "../../../src/providers/registry.ts";
 import { isHomeClient } from "../home-client.ts";
+import { modelSwitchCommand } from "../model-switch-command.ts";
 import {
     modelSwitcherKey,
     refreshedTuiModelSwitcher,
@@ -208,15 +209,7 @@ export function applyModelSwitch(
     const target = rt.settingsPickerAgent ?? focusedAgentClient(rt);
     const apply = () => {
         const client = isHomeClient(target) ? focusedAgentClient(rt) : target;
-        void client.send({
-            type: "update_session_model_settings",
-            requestId: randomUUID(),
-            patch: {
-                provider: choice.provider,
-                model: choice.model,
-                reasoningEffort: choice.reasoningEffort ?? null,
-            },
-        }).catch((error: unknown) => {
+        void client.send(modelSwitchCommand(choice)).catch((error: unknown) => {
             showStatusNotice(rt, String(error));
             renderState(rt);
         });

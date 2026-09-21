@@ -6,7 +6,8 @@ import { TextareaRenderable, type StyledText } from "@opentui/core";
 import { tuiKeyHint } from "../../clients/tui/keymap.ts";
 import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { formatSessionDate } from "../../clients/tui/settings-picker-types.ts";
-import { resolveTuiTheme, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
+import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
+import { resolveTuiTheme } from "../../clients/tui/theme-catalog.ts";
 
 import {
     focusedPickerSection,
@@ -1703,8 +1704,10 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
     expect(themes.options.map((option) => option.value)).toEqual([
         "default",
         "system",
-        "muted-blue",
         "orng",
+        "vera-purple",
+        "muted-blue",
+        "onyx",
         "palenight",
         "synthwave",
         "nightowl",
@@ -1781,10 +1784,10 @@ test("theme picker renders as a borderless palette card with swatches", async ()
         expect(frame).toContain("Theme");
         expect(frame).toContain("esc");
         // Persisted theme carries the current-dot; every row shows a swatch.
-        expect(frame).toContain("● Default");
+        expect(frame).toContain("● Vera Blue");
         expect(frame).toContain("██ ██ ██ ██");
         const rows = frame.split("\n");
-        const defaultRow = rows.find((row) => row.includes("Default"));
+        const defaultRow = rows.find((row) => row.includes("Vera Blue"));
         const midnightBlueIiRow = rows.find((row) => row.includes("Midnight Blue II"));
         expect(midnightBlueIiRow?.indexOf("██ ██ ██ ██"))
             .toBe(defaultRow?.indexOf("██ ██ ██ ██"));

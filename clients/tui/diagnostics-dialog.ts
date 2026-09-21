@@ -196,6 +196,7 @@ export function createTuiDiagnosticsDialogView(
     let markdownStyle = inspectMarkdownStyle();
     let occupancyBlock = 0;
     let healthBlock = 0;
+    let dangerBlock = 0;
     const bodyMarkdown = new MarkdownRenderable(renderer, {
         id: `${id}-markdown`,
         content: "",
@@ -231,6 +232,16 @@ export function createTuiDiagnosticsDialogView(
                     content: styledInspectHealth(raw),
                     width: "100%",
                     wrapMode: "char",
+                    selectable: true,
+                });
+            }
+            if (INSPECT_DANGER_LINE.test(raw)) {
+                dangerBlock += 1;
+                return new TextRenderable(renderer, {
+                    id: `${id}-danger-${dangerBlock}`,
+                    content: styledInspectDanger(raw),
+                    width: "100%",
+                    wrapMode: "word",
                     selectable: true,
                 });
             }
@@ -432,6 +443,13 @@ export function styledInspectOccupancy(text: string): StyledText {
     }
     flush();
     return new StyledText(chunks);
+}
+
+// A paragraph that opens with `!` and two spaces is a warning painted as danger. Quoted `> !` warnings stay muted.
+const INSPECT_DANGER_LINE = /^! {2}\S/;
+
+export function styledInspectDanger(text: string): StyledText {
+    return new StyledText([fg(TUI_DANGER)(text)]);
 }
 
 const HEALTH_TONE_LINE =

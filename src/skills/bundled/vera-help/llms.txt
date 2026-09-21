@@ -41,12 +41,13 @@ Use development instances to test a branch. Install only when intentionally prom
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
 Manual: `docs/installation.md`.
 
-## Finding a command [lines=6]
+## Finding a command [lines=7]
 Run `vera --help` for the command and flag reference. Run `vera <command> --help` for one command: its usage, what it does, and the manual page that covers it. `-h` is the same flag.
 CLI help needs no TUI, no resident host, no provider, no network request, and no model call. It is safe to run anywhere.
 In the TUI, `/palette` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes. Help opens on a menu of pages: General, Keys, Slash commands, and Extensions. ↑↓ choose, Enter opens, Esc goes back to the menu. General is text. The other pages have Search and a list; Tab moves between them. ↑↓ move through the list and enter it from Search; ←→ move the caret in Search and return to Search from the list. Typing from the list goes to Search.
 A mistyped slash command, such as `/modle`, is not sent to the model; the TUI names the command you probably meant.
-Manual: `docs/commands.md`.
+`/theme` picks the TUI theme. Add your own themes in the home's `tui-themes.json`; `extends` starts one from an existing theme so you set only the colors you change.
+Manual: `docs/commands.md`, `docs/themes.md`.
 
 ## First-run setup [lines=7]
 Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add provider.
@@ -60,7 +61,7 @@ Manual: `docs/first-run-setup.md`.
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
 The list shows your favorites, your current model, and what you used recently. With no favorites it stays empty. Typing searches every connected model.
-Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. Favoriting is the only thing Switch model writes that outlives the session.
+Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. A switch also sets the model new conversations start on, including after Vera restarts.
 Its sections are Search, the model list, and a Browse models row pinned under the list. Tab and Left/Right move between them; Ctrl+K reaches Browse models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. Browse models opens the Models page, which is where `/models` opens. Escape from there returns to Switch model.
 Switch model has no scope, sort, score, or price controls and no detail pane. Those are the Models page.
 When Switch model lists one model from more than one provider, each of those rows names its provider.
@@ -86,7 +87,7 @@ Manual: `docs/models.md`.
 `/subagents` lists asynchronous child conversations that can be opened. `/parent` returns to the parent. `/back` returns to the previous view without stopping work.
 Submitting while Vera is working queues another prompt. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape sends only the oldest queued prompt and leaves the turn running.
 Ctrl+C stops the active turn without sending queued work. While a stop is already in progress it exits the TUI. When idle, it clears a composer draft first; with an empty composer it exits.
-The transcript animates while work runs. The composer shows a small activity strip whose glyphs change with what Vera is doing; `/settings` then Animation sets how much it moves, from Off to 3. A dim, full-width `Worked for` divider shows elapsed time after turns lasting at least five minutes, errors, or interruptions. Reopening a finished conversation also shows its last divider, even for a short turn. The local finish date and time appear only when the turn finished more than 24 hours ago; older turns without timing have no divider.
+The transcript animates while work runs. The composer shows a small activity strip whose glyphs change with what Vera is doing; `/settings` then Animation sets how much it moves, from Off to 3. `/animations` plays every strip at the current level. A dim, full-width `Worked for` divider shows elapsed time after turns lasting at least five minutes, errors, or interruptions. Reopening a finished conversation also shows its last divider, even for a short turn. The local finish date and time appear only when the turn finished more than 24 hours ago; older turns without timing have no divider.
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Pairing panes from `/btw` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer.
 Manual: `docs/sessions.md`.
 
@@ -115,7 +116,7 @@ Rules are markdown files kept in the home and in the project. A rule with no fro
 `vera rules which <path>` reports which rules a read of that path would bring in. It reads and reports; it changes nothing.
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 `/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled skills and included extensions have no edit action.
-Context is included by default. `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents.
+Context is included by default. `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents. When the loaded instructions are large together, Vera warns once per conversation after the first reply, and `/context` shows it in red under INSTRUCTIONS with the biggest source.
 Manual: `docs/skills.md`, `docs/rules.md`.
 
 ## Extensions [lines=15]
