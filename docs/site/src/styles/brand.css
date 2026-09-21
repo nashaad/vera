@@ -1,0 +1,134 @@
+:root {
+    --brand-bg: #0b0c10;
+    --brand-panel: rgba(20, 22, 28, 0.72);
+    --brand-ink: #ecebe6;
+    --brand-dim: #9a9c96;
+    --brand-line: #262a33;
+    --brand-accent: #e8582a;
+    --brand-wire: rgba(236, 235, 230, 0.14);
+    --brand-serif: "Young Serif", serif;
+    --brand-sans: "Hanken Grotesk", sans-serif;
+    --brand-mono: "IBM Plex Mono", monospace;
+    --font-sans: var(--brand-sans);
+    --font-mono: var(--brand-mono);
+    --panel-bg: var(--color-fd-card);
+    --panel-radius: 10px;
+}
+
+.dark {
+    --color-fd-background: var(--brand-bg);
+    --color-fd-foreground: var(--brand-ink);
+    --color-fd-muted: #15171d;
+    --color-fd-muted-foreground: var(--brand-dim);
+    --color-fd-popover: #121419;
+    --color-fd-popover-foreground: var(--brand-ink);
+    --color-fd-card: #111318;
+    --color-fd-card-foreground: var(--brand-ink);
+    --color-fd-border: var(--brand-wire);
+    --color-fd-primary: var(--brand-ink);
+    --color-fd-primary-foreground: var(--brand-bg);
+    --color-fd-secondary: #15171d;
+    --color-fd-secondary-foreground: var(--brand-ink);
+    --color-fd-accent: rgba(236, 235, 230, 0.08);
+    --color-fd-accent-foreground: var(--brand-ink);
+    --color-fd-ring: var(--brand-dim);
+    --panel-bg: rgba(14, 15, 20, 0.72);
+}
+
+.dark #nd-sidebar {
+    --color-fd-muted: #15171d;
+    --color-fd-secondary: #15171d;
+    --color-fd-muted-foreground: var(--brand-dim);
+}
+
+body {
+    font-family: var(--brand-sans);
+}
+
+.prose :where(h1, h2, h3):not(:where(.not-prose *)),
+#nd-page h1 {
+    font-family: var(--brand-serif);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+}
+
+.dark .manual-toc {
+    --color-fd-primary: var(--brand-accent);
+}
+
+/* One surface for code, replays and anything framed: a fill, no border. */
+.vera-panel {
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--panel-radius);
+    background: var(--panel-bg);
+}
+
+/* Shiki writes its theme background inline, so only !important wins. */
+.dark figure.shiki {
+    border: 0;
+    border-radius: var(--panel-radius);
+    background-color: var(--panel-bg) !important;
+    box-shadow: none;
+}
+
+.dark figure.shiki pre {
+    margin: 0;
+    padding: 1.1rem 1.25rem;
+    border: 0;
+    background: transparent;
+    font-family: var(--brand-mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+}
+
+.vera-warning {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid rgba(176, 124, 0, 0.45);
+    border-radius: 8px;
+    background: rgba(242, 201, 76, 0.14);
+    color: #8a5a00;
+    font-weight: 500;
+}
+
+.dark .vera-warning {
+    border-color: rgba(242, 201, 76, 0.45);
+    background: rgba(242, 201, 76, 0.08);
+    color: #f2c94c;
+}
+
+.manual-banner {
+    gap: 0.6rem;
+    border-bottom: 1px solid var(--color-fd-border);
+    background: var(--color-fd-muted);
+    color: var(--color-fd-muted-foreground);
+    font-size: 1rem;
+    font-weight: 400;
+}
+
+.manual-banner-tag {
+    color: var(--brand-accent);
+    font-family: var(--brand-mono);
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.vera-warning::before {
+    content: "⚠";
+}
+
+/* Grain sits above everything and ignores the pointer. */
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0.5;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='1.8' intercept='-0.4'/%3E%3CfeFuncG type='linear' slope='1.8' intercept='-0.4'/%3E%3CfeFuncB type='linear' slope='1.8' intercept='-0.4'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+}

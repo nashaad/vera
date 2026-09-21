@@ -1,44 +1,19 @@
 ---
 title: "Homepage"
-description: "Vera connects models to tools and manages conversations, context, permissions, and saved work."
+description: "A durable, open agent runtime you can code with, script in Python, and build on."
 draft: true
 layout: homepage
-replay: model-picker
 ---
 
-# Vera is an agent harness.
-
-<section class="home-section">
+<section class="home-section" id="workflows">
 <div>
 
-## Work in your project
+## Workflows in plain Python
 
-Ask a question, investigate a problem, or make a change. Choose the model,
-set its access, and review the work in the same conversation.
+Write each step as a function. Steps retry, branch like any Python, pick up
+after a crash, and can stop to ask a person.
 
-[Start a conversation](getting-started.md)
-
-</div>
-<div>
-
-- **Models:** connect a provider, choose a model, and save favourites.
-- **Tools and permissions:** control what the selected role can do.
-- **Context:** inspect what is loaded and provide project instructions.
-- **Saved work:** return to a conversation or keep it running while you switch.
-
-</div>
-</section>
-
-<section class="home-section" id="halcyon">
-<div>
-
-## Halcyon workflows
-
-Halcyon is Vera's workflow framework. Write Python functions as steps and
-save their results in a journal. On resume, completed steps return their
-recorded results.
-
-Your code decides the order, branches, and loops.
+<p class="vera-warning">Workflows are under heavy development, and the API will change.</p>
 
 [Write your first workflow](python-workflows.md)
 
@@ -46,20 +21,21 @@ Your code decides the order, branches, and loops.
 <div>
 
 ```python
-from pathlib import Path
-from vera.workflow.api import step, workflow
+from vera.workflow.api import ask, step, workflow
+
+@step(retries=3)
+def fetch(url: str) -> str: ...
 
 @step
-def read_note(path: str) -> str:
-    return Path(path).read_text()
+def publish(page: str) -> None: ...
 
 @workflow
-def collect(paths: list[str]) -> list[str]:
-    return read_note.map(paths)
+def review(url: str) -> str:
+    page = fetch(url)
+    if ask("Publish this page?") == "yes":
+        publish(page)
+    return page
 ```
-
-Completed results survive restarts. A step interrupted before its result is
-saved can run again. [How workflow runs work](halcyon.md).
 
 </div>
 </section>
@@ -67,7 +43,7 @@ saved can run again. [How workflow runs work](halcyon.md).
 <section class="home-section" id="install">
 <div>
 
-## Install Vera
+## Install
 
 From a Vera checkout, install dependencies and activate a local release.
 Then run `vera` in your project directory.
@@ -78,7 +54,7 @@ Then run `vera` in your project directory.
 <div>
 
 ```sh
-bun install --frozen-lockfile
+bun install
 bun run install:local
 ```
 

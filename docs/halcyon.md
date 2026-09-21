@@ -5,6 +5,8 @@ description: "Write Python workflows that record completed steps and resume afte
 
 # Halcyon workflows
 
+<p class="vera-warning">Workflows are in alpha. The API will change, so do not build on it yet.</p>
+
 Halcyon is Vera's durable-workflow framework. It runs Python functions as
 recorded steps, saving their results in a journal. If a process stops, resume
 reuses completed results and runs the steps that have no recorded result.

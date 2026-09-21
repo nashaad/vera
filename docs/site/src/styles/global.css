@@ -1,13 +1,10 @@
 @import 'tailwindcss';
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
+@import './brand.css';
 
 .manual-toc {
     --color-fd-primary: #786000;
-}
-
-.dark .manual-toc {
-    --color-fd-primary: #fff36d;
 }
 
 [role='dialog'] a[href^='https://scira.ai/'] {
@@ -48,17 +45,13 @@
     opacity: 0.5;
 }
 
-.manual-replay-frame {
-    overflow: hidden;
-    border: 1px solid var(--color-fd-border);
-    border-radius: 0.75rem;
+/* The player paints its own black fill and a line over the controls. */
+.manual-replay-player .ap-player {
+    background-color: transparent;
 }
 
-.manual-replay-title {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--color-fd-border);
-    background: var(--color-fd-muted);
-    font-size: 0.75rem;
+.manual-replay-player .ap-control-bar {
+    border-top: 0;
 }
 
 .manual-replay-scroll {

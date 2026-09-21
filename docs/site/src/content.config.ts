@@ -9,7 +9,7 @@ export const collections = {
             title: z.string(),
             description: z.string().optional(),
             draft: z.boolean().default(false),
-            replay: z.enum(['model-picker']).optional(),
+            replay: z.enum(['conversation']).optional(),
             layout: z.enum(['manual', 'homepage']).default('manual'),
         }),
     }),

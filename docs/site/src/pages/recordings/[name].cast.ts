@@ -1,8 +1,11 @@
 import type { APIRoute, GetStaticPaths } from 'astro';
 import { getManualEntries } from '../../lib/visibility';
-import modelPicker from '../../recordings/model-picker.cast?raw';
+import conversation from '../../recordings/conversation.cast?raw';
 
-const recordings = { 'model-picker': modelPicker };
+const recordings = { conversation };
+type RecordingName = keyof typeof recordings;
+// The homepage replay is not a manual entry, so it is listed here.
+const HOMEPAGE_RECORDINGS: RecordingName[] = ['conversation'];
 
 interface Props {
     recording: string;
@@ -10,7 +13,8 @@ interface Props {
 
 export const getStaticPaths: GetStaticPaths = async () => {
     const entries = await getManualEntries();
-    const names = new Set(entries.flatMap((entry) => entry.data.replay ? [entry.data.replay] : []));
+    const names = new Set<RecordingName>(entries.flatMap((entry) => entry.data.replay ? [entry.data.replay] : []));
+    for (const name of HOMEPAGE_RECORDINGS) names.add(name);
     return [...names].map((name) => ({ params: { name }, props: { recording: recordings[name] } }));
 };
 

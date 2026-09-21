@@ -5,6 +5,8 @@ description: "Define steps, choose a journal, and resume completed work with Hal
 
 # Write your first workflow
 
+<p class="vera-warning">Workflows are in alpha. The API will change, so do not build on it yet.</p>
+
 This guide creates a small Halcyon workflow, saves its results, and shows how
 to resume and inspect a run. Use Python 3.11 or newer from a Vera checkout.
 See [Halcyon workflows](halcyon.md) for how recorded steps work.

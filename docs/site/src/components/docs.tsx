@@ -1,6 +1,7 @@
 import type { Root } from 'fumadocs-core/page-tree';
 import type { TOCItemType } from 'fumadocs-core/toc';
 import { RootProvider } from 'fumadocs-ui/provider/astro';
+import { Banner } from 'fumadocs-ui/components/banner';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle, MarkdownCopyButton, ViewOptionsPopover } from 'fumadocs-ui/layouts/docs/page';
 import { Content } from './content';
@@ -16,12 +17,13 @@ interface ManualProps {
     toc: TOCItemType[];
     html: string;
     draft: boolean;
-    replay?: 'model-picker';
+    replay?: 'conversation';
 }
 
 export function Manual({ tree, title, description, markdownUrl, pathname, toc, html, draft, replay }: ManualProps) {
     return (
         <RootProvider pathname={pathname} search={{ SearchDialog: ManualSearch }} theme={{ defaultTheme: 'dark' }}>
+            <Banner className="manual-banner" height="3.75rem"><span aria-hidden="true">🚧</span><span className="manual-banner-tag">Wet paint</span>Vera is under heavy development. Try the code, just expect things to move.</Banner>
             <DocsLayout tree={tree} nav={{ title: 'Vera', url: '/' }}>
                 <DocsPage
                     className="max-w-[calc(70ch+4rem)]"

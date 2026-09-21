@@ -3,13 +3,15 @@ import type { Player } from 'asciinema-player';
 import 'asciinema-player/dist/bundle/asciinema-player.css';
 
 interface TerminalReplayProps {
-    recording: 'model-picker';
+    recording: 'conversation';
     appearanceControls?: boolean;
+    // Plays on its own and loops, with no player controls.
+    ambient?: boolean;
 }
 
 type Appearance = 'site' | 'recorded';
 
-export function TerminalReplay({ recording, appearanceControls = true }: TerminalReplayProps) {
+export function TerminalReplay({ recording, appearanceControls = true, ambient = false }: TerminalReplayProps) {
     const container = useRef<HTMLDivElement>(null);
     const player = useRef<Player | null>(null);
     const [appearance, setAppearance] = useState<Appearance>('site');
@@ -26,8 +28,9 @@ export function TerminalReplay({ recording, appearanceControls = true }: Termina
                 const { create } = await import('asciinema-player');
                 if (disposed || !container.current) return;
                 instance = create(`/recordings/${recording}.cast`, container.current, {
-                    autoPlay: false,
-                    controls: true,
+                    autoPlay: ambient,
+                    loop: ambient,
+                    controls: !ambient,
                     fit: 'width',
                     poster: 'npt:10.1',
                     terminalFontFamily: appearance === 'site'
@@ -49,7 +52,7 @@ export function TerminalReplay({ recording, appearanceControls = true }: Termina
             instance?.dispose();
             player.current = null;
         };
-    }, [recording, appearance]);
+    }, [recording, appearance, ambient]);
 
     async function replay() {
         try {
@@ -61,14 +64,13 @@ export function TerminalReplay({ recording, appearanceControls = true }: Termina
     }
 
     return (
-        <section className="manual-replay not-prose" aria-label="Vera model picker recording">
+        <section className="manual-replay not-prose" aria-label="Vera terminal recording">
             {appearanceControls && <div className="manual-replay-controls">
                 <button type="button" aria-pressed={appearance === 'site'} onClick={() => setAppearance('site')}>Site style</button>
                 <button type="button" aria-pressed={appearance === 'recorded'} onClick={() => setAppearance('recorded')}>Recorded appearance</button>
                 <button type="button" disabled={!ready} onClick={() => void replay()}>Replay from start</button>
             </div>}
-            <div className="manual-replay-frame">
-                <p className="manual-replay-title">Vera / Switch model</p>
+            <div className="manual-replay-frame vera-panel">
                 <div className="manual-replay-scroll"><div ref={container} className="manual-replay-player" /></div>
             </div>
             {error && <p role="alert">The recording could not load. Reload the page to try again.</p>}
