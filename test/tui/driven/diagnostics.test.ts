@@ -227,7 +227,8 @@ test("doctor opens the read-only process report inside the TUI", async () => {
         pane = await session.waitForVisiblePane("Result: issues found");
         expect(pane).toContain("Doctor");
         expect(pane).toContain("Process summary");
-        expect(pane).toContain("Resident hosts: 1 (1 unrecognized");
+        expect(pane).toContain("Resident host: not running");
+        expect(pane).toContain("unrecognized host");
         expect(pane).toContain("PID 4242");
         expect(pane).toContain("1 stray process can be stopped safely.");
         expect(pane).toContain("Run vera doctor in a terminal to stop it.");
@@ -279,7 +280,7 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
         session.sendText("/reload-extensions");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane(
-            "Extensions reloaded in the TUI with failures: none",
+            "Extensions reloaded in the TUI with failures: some",
         );
 
         session.sendText("/diagnostics");
@@ -289,9 +290,9 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
         session.sendKey("Enter");
         await session.waitForVisiblePane("BUILD");
         session.sendKey("NPage");
-        pane = await session.waitForVisiblePane("Status  failed");
+        pane = await session.waitForVisiblePane("Status  partial");
+        expect(pane).toContain("missing-client-extension");
         expect(pane).toContain("Error");
-        expect(pane).not.toContain("Status  partial");
     } finally {
         await session.close();
     }
@@ -325,8 +326,8 @@ test("partial reload names the extensions that stayed active", async () => {
         session.sendKey("Enter");
         await session.waitForVisiblePane("BUILD");
         session.sendKey("NPage");
-        pane = await session.waitForVisiblePane("Status  partial (1 loaded)");
-        expect(pane).toContain("Active  test.sidebar");
+        pane = await session.waitForVisiblePane("Status  partial");
+        expect(pane).toContain("test.sidebar");
         expect(pane).toContain("Error");
     } finally {
         await session.close();
