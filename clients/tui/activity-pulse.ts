@@ -80,17 +80,7 @@ function renderShimmer(
     const characters = Array.from(animated);
     const period = characters.length + padding * 2;
     const head = positiveModulo(frame, period) - padding;
-    const dotPhase = positiveModulo(frame, 30);
-    const dotColor = dotPhase < 5 || dotPhase >= 25
-        ? colors.active
-        : dotPhase < 10 || dotPhase >= 20
-        ? colors.trail
-        : colors.inactive;
-    const chunks: TextChunk[] = [
-        fg(dotColor)("••"),
-        fg(colors.inactive)(" "),
-    ];
-
+    const chunks: TextChunk[] = [];
     chunks.push(...shimmerBand(characters, head, colors.text, colors.trail)
         .map((chunk) => bold(chunk)));
     if (remainder.length > 0) {
@@ -132,7 +122,7 @@ function shimmerBand(
     });
 }
 
-function blendHex(base: string, dark: string, amount: number): string {
+export function blendHex(base: string, dark: string, amount: number): string {
     const baseRgb = parseHex(base);
     const darkRgb = parseHex(dark);
     if (baseRgb === undefined || darkRgb === undefined) return base;

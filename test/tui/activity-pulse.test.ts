@@ -88,17 +88,15 @@ test("TUI activity animation can use Braille or disable motion", () => {
     ))).toBe("working");
 });
 
-test("TUI shimmer diffuses a dark band across the bold activity verb", () => {
+test("TUI shimmer diffuses a dark band across the bold activity verb, with no lead glyph", () => {
     const shimmer = renderTuiActivityAnimation(
         "shimmer",
         12,
         "working · 2s · esc stop",
         shimmerColors,
     );
-    expect(plainText(shimmer)).toBe("•• working · 2s · esc stop");
+    expect(plainText(shimmer)).toBe("working · 2s · esc stop");
     expect(shimmer.chunks.map((chunk) => String(chunk.fg))).toEqual([
-        "rgba(0.36, 0.39, 0.44, 1.00)",
-        "rgba(0.36, 0.39, 0.44, 1.00)",
         "rgba(0.26, 0.33, 0.50, 1.00)",
         "rgba(0.24, 0.29, 0.44, 1.00)",
         "rgba(0.23, 0.28, 0.42, 1.00)",
@@ -114,10 +112,8 @@ test("TUI shimmer diffuses a dark band across the bold activity verb", () => {
         "working 🚀",
         shimmerColors,
     );
-    expect(plainText(dimShimmer)).toBe("•• working 🚀");
-    expect(String(dimShimmer.chunks[0]?.fg))
-        .toBe("rgba(0.36, 0.39, 0.44, 1.00)");
-    expect(shimmer.chunks.slice(2, 9).every((chunk) => chunk.attributes === 1))
+    expect(plainText(dimShimmer)).toBe("working 🚀");
+    expect(shimmer.chunks.slice(0, 7).every((chunk) => chunk.attributes === 1))
         .toBe(true);
     expect(shimmer.chunks.at(-1)?.attributes).toBe(0);
     expect(plainText(renderTuiActivityAnimation(
@@ -125,7 +121,7 @@ test("TUI shimmer diffuses a dark band across the bold activity verb", () => {
         0,
         " waiting",
         shimmerColors,
-    ))).toBe("••  waiting");
+    ))).toBe(" waiting");
 });
 
 test("TUI activity animation accepts a numeric width", () => {
