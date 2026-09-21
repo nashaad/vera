@@ -12,13 +12,14 @@ Use Ctrl+P to find an action, `/commands` to browse executable commands, or
 ## From the terminal
 
 ```sh
-vera help
-vera help <topic>
+vera --help
+vera <command> --help
 ```
 
-`vera help` lists commands, flags, and available topics. `vera --help` and
-`vera -h` show the same reference. Topic aliases resolve to their canonical
-names. Help works without a running host, provider, or network request.
+`vera --help` lists commands and flags. `vera <command> --help` shows one
+command's usage and names the page of this manual that covers it. `-h` is the
+same flag. `vera help` points you at these two. Help works without a running
+host, provider, or network request.
 
 ## In the TUI
 
@@ -79,5 +80,6 @@ commands currently loaded, or read [Included extensions](included-extensions.md)
 
 ## For another tool
 
-`vera help --llms` prints all help topics as compact Markdown for another
-program. It uses the same content as the topic commands.
+This manual ships with Vera as plain Markdown in the `docs/` directory of the
+install, so another program can read it directly. `vera --help` prints the
+path.

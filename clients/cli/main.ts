@@ -101,16 +101,7 @@ interface PoolAddOptions {
     readonly onStep?: (step: PoolAdmissionStep) => void;
 }
 import type { TuiStartOptions, TuiStartTarget } from "../tui/main.ts";
-import { renderCliHelp, renderCliUsage } from "./help.ts";
-import {
-    findHelpTopic,
-    loadHelpCorpus,
-    parseHelpRequest,
-    renderHelpTopic,
-    renderHelpUsage,
-    renderLlmHelp,
-    type HelpCorpus,
-} from "./help-corpus.ts";
+import { renderCliHelp, renderCliUsage, renderCommandHelp, renderHelpRedirect } from "./help.ts";
 import { runRulesCli } from "./rules.ts";
 import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
@@ -216,6 +207,7 @@ async function readAnsweringHost(): Promise<
 
 interface CliOutput {
     write(text: string): unknown;
+    readonly columns?: number;
 }
 
 function cliStreamWantsColor(output: CliOutput): boolean {
@@ -310,7 +302,6 @@ export interface CliDependencies {
     ) => Promise<PoolAdmissionOutcome>;
     readonly removePoolModel?: (workspace: string, ref: string) => Promise<void>;
     readonly extensionManager?: Partial<ExtensionManagerOperations>;
-    readonly helpCorpus?: () => Promise<HelpCorpus>;
     readonly version?: string;
     readonly dispatchToHostRelease?: (
         argv: readonly string[],
@@ -337,41 +328,22 @@ export async function runCli(
         confirmBusyUpgrade: assumeYes ? () => true : confirmBusyHostUpgrade,
     };
 
-    if (
-        args.length === 1
-        && (args[0] === "help" || args[0] === "--help" || args[0] === "-h")
-    ) {
-        const corpus = await (dependencies.helpCorpus ?? loadHelpCorpus)();
-        output.write(renderCliHelp(corpus));
+    if (args.length === 1 && isHelpFlag(args[0])) {
+        output.write(renderCliHelp(helpColumns(output)));
         return 0;
     }
 
     if (args[0] === "help") {
-        const request = parseHelpRequest(args);
-        if (request === undefined) {
-            errorOutput.write(renderHelpUsage());
-            return 1;
-        }
-        const corpus = await (dependencies.helpCorpus ?? loadHelpCorpus)();
-        if (request.llms) {
-            output.write(renderLlmHelp(corpus));
-            return 0;
-        }
-        if (request.topic === undefined) {
-            output.write(renderCliHelp(corpus));
-            return 0;
-        }
-        const topic = findHelpTopic(corpus, request.topic);
-        if (topic === undefined) {
-            errorOutput.write(
-                `Unknown Vera help topic '${request.topic}'. Available topics: `
-                    + `${corpus.topics.map((item) => item.slug).join(", ")}\n`
-                    + renderHelpUsage(),
-            );
-            return 1;
-        }
-        output.write(renderHelpTopic(topic));
+        output.write(renderHelpRedirect(args[1]));
         return 0;
+    }
+
+    if (args.length > 1 && args.slice(1).some(isHelpFlag)) {
+        const commandHelp = renderCommandHelp(args[0]!, helpColumns(output));
+        if (commandHelp !== undefined) {
+            output.write(commandHelp);
+            return 0;
+        }
     }
 
     if (
@@ -1636,12 +1608,21 @@ function renderTmuxSocketSweep(result: TmuxSocketSweepResult): string {
     return `${parts.join("; ")}.\n`;
 }
 
+// Piped help, and test writers without a width, wrap at 80.
+function helpColumns(output: CliOutput): number {
+    return output.columns !== undefined && output.columns > 0 ? output.columns : 80;
+}
+
+function isHelpFlag(arg: string | undefined): boolean {
+    return arg === "--help" || arg === "-h";
+}
+
 export function cliRequiresMigratedHome(args: readonly string[]): boolean {
+    if (args.length === 1 && isHelpFlag(args[0])) return false;
+    if (args.slice(1).some(isHelpFlag) && renderCommandHelp(args[0]!) !== undefined) return false;
     const first = args[0] === "--yes" || args[0] === "-y" ? args[1] : args[0];
     return first !== "migrate-home"
         && first !== "help"
-        && first !== "--help"
-        && first !== "-h"
         && first !== "--version"
         && first !== "-v";
 }

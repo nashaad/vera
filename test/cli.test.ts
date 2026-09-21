@@ -21,9 +21,8 @@ import { CatalogRefreshUnsupportedError } from "../src/host/catalog-refresh-clie
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
-import { loadHelpCorpus } from "../clients/cli/help-corpus.ts";
 
-test("vera help and version are available without starting a client", async () => {
+test("--help and version are available without starting a client", async () => {
     let output = "";
     let started = false;
     const dependencies = {
@@ -858,8 +857,8 @@ function closeableAgent(id: string, name: string): RegisteredAgentSummary {
     };
 }
 
-test("vera help separates stopping a turn from closing an agent", async () => {
-    const help = renderCliHelp(await loadHelpCorpus());
+test("--help separates stopping a turn from closing an agent", async () => {
+    const help = renderCliHelp(200);
     expect(help).toContain("vera abort <agent-id>");
     expect(help).toContain("vera close <agent-id>");
     expect(help).toContain("vera prune");

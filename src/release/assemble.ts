@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, realpathSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -11,6 +11,7 @@ import { writeSelfContainedWrappers } from "./wrappers.ts";
 const RUNTIME_ENTRIES = [
     "clients",
     "config",
+    "docs",
     "extensions",
     "src",
     "index.ts",
@@ -42,6 +43,8 @@ export function assembleRunnableRelease(
         }
         copyInto(from, join(releaseRoot, entry));
     }
+    // docs/site is the website build project, not reading material.
+    rmSync(join(releaseRoot, "docs", "site"), { recursive: true, force: true });
     const modules = join(sourceRoot, "node_modules");
     if (!existsSync(modules)) {
         throw new Error(

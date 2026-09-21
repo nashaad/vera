@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -40,5 +40,15 @@ test("every counted section in the guide states its own line count", () => {
             header.line,
             claimed,
         ]);
+    }
+});
+
+test("every manual page the guide names ships in docs/", () => {
+    const skill = join(bundledSkillDirectory(), "vera-help");
+    const guide = readFileSync(join(skill, "llms.txt"), "utf8");
+    const pages = [...guide.matchAll(/`(docs\/[^`]+\.md)`/g)].map((match) => match[1]!);
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+        expect([page, existsSync(join(skill, "..", "..", "..", "..", page))]).toEqual([page, true]);
     }
 });

@@ -34,7 +34,7 @@ export PATH="$HOME/.local/bin:$PATH"
 ```sh
 command -v vera
 vera --version
-vera help
+vera --help
 ```
 
 The first command should identify `~/.local/bin/vera`. If it names another

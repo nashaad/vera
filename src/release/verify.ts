@@ -34,6 +34,7 @@ const RELEASE_WRAPPERS = [
 const RUNTIME_ENTRIES = [
     "clients",
     "config",
+    "docs",
     "extensions",
     "src",
     "index.ts",
@@ -141,4 +142,5 @@ export function verifyPackedRelease(
     requireRegularFile(releaseRoot, join("clients", "cli", "main.ts"));
     requireRegularFile(releaseRoot, join("clients", "host", "main.ts"));
     requireRegularFile(releaseRoot, join("src", "annex", "main.ts"));
+    requireRegularFile(releaseRoot, join("docs", "index.md"));
 }

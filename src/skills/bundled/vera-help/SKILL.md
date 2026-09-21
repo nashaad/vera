@@ -13,5 +13,9 @@ never have to derive Vera's behavior from Vera's source. Answer from it.
    the section that carries the answer; the second is the shape of the turn.
 2. Read that one named section. Every `## ` header carries `[lines=N]`, the
    exact line count of its section, so the cost is known in advance.
-3. Answer product questions from the guide, not from source code. If the guide
-   does not cover it, say so and name the nearest thing it does cover.
+3. Answer product questions from the guide, not from source code.
+4. When the section is not enough, read the manual page its `Manual:` line
+   names. Those paths start at the Vera install root, which is
+   `../../../../` from this skill's directory.
+5. If neither the guide nor the manual covers it, say so and name the nearest
+   thing the guide does cover.
