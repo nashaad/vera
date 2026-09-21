@@ -1,105 +1,94 @@
 import { expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import { runCli } from "../clients/cli/main.ts";
-import {
-    parseHelpCorpus,
-    parseHelpRequest,
-} from "../clients/cli/help-corpus.ts";
+import { CLI_COMMANDS, DOCS_DIR } from "../clients/cli/help.ts";
 
-const corpus = parseHelpCorpus(`# Vera help
-
-Use a topic for focused guidance.
-
-## profiles — Profiles and configuration
-
-Aliases: \`profile\`, \`config\`
-
-Select a profile when Vera starts.
-
-## recovery — Recovery
-
-When Vera is stuck, preserve state before stopping it.
-`);
-
-test("help requests distinguish the index, a topic, and llms output", () => {
-    expect(parseHelpRequest(["help"])).toEqual({ llms: false });
-    expect(parseHelpRequest(["help", "profiles"])).toEqual({
-        topic: "profiles",
-        llms: false,
-    });
-    expect(parseHelpRequest(["help", "--llms"])).toEqual({ llms: true });
-    expect(parseHelpRequest(["help", "profiles", "--llms"])).toBeUndefined();
-    expect(parseHelpRequest(["doctor"])).toBeUndefined();
-});
-
-test("topic summaries keep the complete first paragraph", () => {
-    const wrapped = parseHelpCorpus(`# Vera help
-
-Use a topic for focused guidance.
-
-## profiles — Profiles and configuration
-
-Select a profile when Vera starts. The first paragraph can wrap across
-source lines without becoming a fragment in the top-level help.
-`);
-
-    expect(wrapped.topics[0]?.summary).toBe(
-        "Select a profile when Vera starts. The first paragraph can wrap across source lines without becoming a fragment in the top-level help.",
-    );
-});
-
-test("top-level help aliases render one command and topic overview", async () => {
-    const outputs: string[] = [];
+function capture() {
+    const out: string[] = [];
+    const err: string[] = [];
     let started = false;
-    const dependencies = {
-        helpCorpus: async () => corpus,
-        runTui: async () => {
-            started = true;
+    return {
+        out,
+        err,
+        started: () => started,
+        dependencies: {
+            runTui: async () => {
+                started = true;
+            },
+            doctor: async () => {
+                throw new Error("help must not run the command");
+            },
+            stdout: { write: (text: string) => out.push(text) },
+            stderr: { write: (text: string) => err.push(text) },
         },
-        stdout: { write: (text: string) => outputs.push(text) },
     };
+}
 
-    expect(await runCli(["help"], dependencies)).toBe(0);
-    expect(await runCli(["--help"], dependencies)).toBe(0);
-    expect(await runCli(["-h"], dependencies)).toBe(0);
-    expect(outputs[0]).toBe(outputs[1]);
-    expect(outputs[1]).toBe(outputs[2]);
-    expect(outputs[0]).toContain("Vera coding agent");
-    expect(outputs[0]).toContain("vera attach <agent-id>");
-    expect(outputs[0]).toContain("Help topics:");
-    expect(outputs[0]).toContain("profiles");
-    expect(outputs[0]).toContain("recovery");
-    expect(started).toBe(false);
-
-    outputs.length = 0;
-    expect(await runCli(["help", "profile"], dependencies)).toBe(0);
-    expect(outputs[0]).toContain("Profiles and configuration (profiles)");
-    expect(outputs[0]).toContain("Select a profile when Vera starts.");
-    expect(started).toBe(false);
+test("--help and -h render one overview with a docs pointer", async () => {
+    const run = capture();
+    expect(await runCli(["--help"], run.dependencies)).toBe(0);
+    expect(await runCli(["-h"], run.dependencies)).toBe(0);
+    expect(run.out[0]).toBe(run.out[1]);
+    expect(run.out[0]).toContain("Vera coding agent");
+    expect(run.out[0]).toContain("vera attach <agent-id>");
+    expect(run.out[0]).toContain(`Docs: ${join(DOCS_DIR, "index.md")}`);
+    expect(run.started()).toBe(false);
 });
 
-test("vera help --llms renders the same topics in a compact document", async () => {
-    let output = "";
-    expect(await runCli(["help", "--llms"], {
-        helpCorpus: async () => corpus,
-        stdout: { write: (text: string) => output += text },
-    })).toBe(0);
-
-    expect(output).toContain("# Vera help");
-    expect(output).toContain("## Topics");
-    expect(output).toContain("## profiles — Profiles and configuration");
-    expect(output).toContain("Aliases: profile, config");
-    expect(output).toContain("## recovery — Recovery");
+test("a command's --help shows only that command's rows and its docs file", async () => {
+    const run = capture();
+    expect(await runCli(["library", "--help"], run.dependencies)).toBe(0);
+    expect(run.out[0]).toContain("vera library list");
+    expect(run.out[0]).toContain("vera library add <provider/model>");
+    expect(run.out[0]).toContain("vera library remove <name|id>");
+    expect(run.out[0]).not.toContain("vera attach");
+    expect(run.out[0]).toContain(`Docs: ${join(DOCS_DIR, "models.md")}`);
 });
 
-test("unknown help topics name the available topics", async () => {
-    let error = "";
-    expect(await runCli(["help", "unknown"], {
-        helpCorpus: async () => corpus,
-        stderr: { write: (text: string) => error += text },
-    })).toBe(1);
+test("a command's -h prints help instead of running the command", async () => {
+    const run = capture();
+    expect(await runCli(["doctor", "-h"], run.dependencies)).toBe(0);
+    expect(run.out[0]).toContain("vera doctor --check-providers");
+    expect(run.out[0]).toContain("runtime-and-worktrees.md");
+});
 
-    expect(error).toContain("Unknown Vera help topic 'unknown'.");
-    expect(error).toContain("profiles, recovery");
-    expect(error).toContain("Usage: vera help [topic]");
+test("a command without its own page points at the docs index", async () => {
+    const run = capture();
+    expect(await runCli(["ls", "--help"], run.dependencies)).toBe(0);
+    expect(run.out[0]).toContain("vera ls [--all]");
+    expect(run.out[0]).toContain(`Docs: ${join(DOCS_DIR, "index.md")}`);
+});
+
+test("an unknown command with --help prints usage", async () => {
+    const run = capture();
+    expect(await runCli(["nonsense", "--help"], run.dependencies)).toBe(1);
+    expect(run.err.join("")).toContain("Run 'vera --help'");
+});
+
+test("every docs pointer names a file in docs/", () => {
+    expect(existsSync(join(DOCS_DIR, "index.md"))).toBe(true);
+    for (const command of CLI_COMMANDS) {
+        if (command.docs === undefined) continue;
+        expect(existsSync(join(DOCS_DIR, command.docs))).toBe(true);
+    }
+});
+
+test("help wraps to the terminal width at word breaks", async () => {
+    const out: string[] = [];
+    const narrow = { columns: 60, write: (text: string) => out.push(text) };
+    expect(await runCli(["--help"], { stdout: narrow })).toBe(0);
+    const lines = out.join("").split("\n").filter((line) => !line.startsWith("Docs:"));
+    for (const line of lines) expect([line, line.length <= 60]).toEqual([line, true]);
+    expect(out.join("")).toContain("  vera doctor --check-providers");
+});
+
+test("the help word points at the flag", async () => {
+    const run = capture();
+    expect(await runCli(["help"], run.dependencies)).toBe(0);
+    expect(await runCli(["help", "doctor"], run.dependencies)).toBe(0);
+    expect(run.out[0]).toContain("'vera <command> --help'");
+    expect(run.out[1]).toContain("'vera doctor --help'");
+    expect(run.started()).toBe(false);
 });

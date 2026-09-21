@@ -54,6 +54,7 @@ function writeRuntime(releaseRoot: string): void {
     for (const entry of [
         "clients",
         "config",
+        "docs",
         "extensions",
         "src",
         "node_modules",
@@ -66,6 +67,7 @@ function writeRuntime(releaseRoot: string): void {
     writeFileSync(join(releaseRoot, "clients", "cli", "main.ts"), "export {}\n");
     writeFileSync(join(releaseRoot, "clients", "host", "main.ts"), "export {}\n");
     writeFileSync(join(releaseRoot, "src", "annex", "main.ts"), "export {}\n");
+    writeFileSync(join(releaseRoot, "docs", "index.md"), "# Vera manual\n");
     writeFileSync(join(releaseRoot, "index.ts"), "export {}\n");
     writeFileSync(join(releaseRoot, "package.json"), "{}\n");
     writeFileSync(join(releaseRoot, "tsconfig.json"), "{}\n");

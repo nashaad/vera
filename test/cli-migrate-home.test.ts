@@ -46,12 +46,15 @@ function runCli(home: string, args: readonly string[]): {
     };
 }
 
-test("help and migrate-home skip the unmigrated-home refuse", () => {
+test("--help and migrate-home skip the unmigrated-home refuse", () => {
     expect(cliRequiresMigratedHome([])).toBe(true);
     expect(cliRequiresMigratedHome(["ls"])).toBe(true);
     expect(cliRequiresMigratedHome(["migrate-home"])).toBe(false);
     expect(cliRequiresMigratedHome(["--yes", "migrate-home"])).toBe(false);
+    expect(cliRequiresMigratedHome(["--help"])).toBe(false);
     expect(cliRequiresMigratedHome(["help"])).toBe(false);
+    expect(cliRequiresMigratedHome(["ls", "--help"])).toBe(false);
+    expect(cliRequiresMigratedHome(["-p", "-h"])).toBe(true);
     expect(cliRequiresMigratedHome(["--version"])).toBe(false);
 });
 
