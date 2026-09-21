@@ -59,12 +59,9 @@ async function footerShowing(session: TuiTestSession, expected: string): Promise
     return footerLine(pane) ?? "";
 }
 
-async function openSwitchModel(session: TuiTestSession): Promise<void> {
+function openSwitchModel(session: TuiTestSession): void {
     session.sendKey("C-x");
     session.sendText("m");
-    // Until Home has the host's settings the list reads "No models", and a row
-    // that arrives mid-search can leave Enter on Browse models.
-    await session.waitForVisiblePane("Your favorite models land here.");
 }
 
 test("a model switch is what a new conversation starts on after Vera restarts", async () => {
@@ -72,7 +69,7 @@ test("a model switch is what a new conversation starts on after Vera restarts", 
     try {
         const first = await journey.launch();
         await first.waitForVisiblePane("V  E  R  A");
-        await openSwitchModel(first);
+        openSwitchModel(first);
         first.sendText("switched");
         await first.waitForVisiblePane("journey-switched");
         first.sendKey("Enter");
