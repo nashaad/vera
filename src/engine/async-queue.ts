@@ -68,6 +68,10 @@ export class AsyncQueue<T> {
         });
     }
 
+    clear(): void {
+        this.values.length = 0;
+    }
+
     fail(error: unknown, options: FailAsyncQueueOptions = {}): void {
         if (this.failed) {
             return;

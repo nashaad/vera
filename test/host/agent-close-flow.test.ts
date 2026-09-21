@@ -10,6 +10,7 @@ import {
     attachAgent,
     type AttachedAgentClient,
 } from "../../src/host/attached-client.ts";
+import { HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE } from "../../src/host/capabilities.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
@@ -113,6 +114,62 @@ flowTest(
         }
     },
     10_000,
+);
+
+flowTest(
+    "releasing the last viewer stops a turn that is looping on tools",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-release-loop-"));
+        const paths = hostPaths(root);
+        const toolLoop = Array.from({ length: 40 }, (_, index) =>
+            bashToolResponse("true", `bash-${index}`)
+        );
+        const host = await startResidentHost({
+            config,
+            createAdapter: () => new FauxAdapter(toolLoop, {
+                chunkSize: 1,
+                delayMs: 30,
+            }),
+            ...paths,
+        });
+        try {
+            await host.registry.create({ id: "looping", workspace: root });
+            const client = await attachAgent({
+                socketPath: paths.socketPath,
+                agentId: "looping",
+                interactive: true,
+                clientId: "viewer",
+                requestedCapabilities: [
+                    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+                ],
+            });
+            expect((await client.receive()).type).toBe("history");
+            await client.send({ type: "prompt", content: "keep polling" });
+            const eventLog = join(paths.eventLogDirectory, "looping.jsonl");
+            await waitFor(async () =>
+                await countEvents(eventLog, "tool_execution_finished") >= 2
+            );
+
+            // Release detaches before it closes; the abort must survive that.
+            const released = await Promise.race([
+                client.release!("stop_if_last"),
+                Bun.sleep(3000).then(() => "timed out" as const),
+            ]);
+            expect(released).toMatchObject({ outcome: "stopped" });
+            const atAcknowledgement = await countEvents(
+                eventLog,
+                "model_request",
+            );
+            await Bun.sleep(200);
+            expect(await countEvents(eventLog, "model_request"))
+                .toBe(atAcknowledgement);
+            expect(atAcknowledgement).toBeLessThan(toolLoop.length);
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+    20_000,
 );
 
 flowTest(
@@ -441,12 +498,12 @@ async function waitUntilUpdate(
     throw new Error(`Timed out waiting for a ${type} update`);
 }
 
-function bashToolResponse(command: string): AssistantMessage {
+function bashToolResponse(command: string, id = "bash-1"): AssistantMessage {
     return {
         role: "assistant",
         content: [{
             type: "tool_call",
-            id: "bash-1",
+            id,
             name: "bash",
             input: { command },
         }],

@@ -120,9 +120,7 @@ export class ResidentAgent {
         this.engine = {
             send: (update): void => this.broadcast(update),
             receive: (signal): Promise<EngineCommand> => {
-                if (this.isClosed) {
-                    return Promise.reject(new ResidentAgentClosedError());
-                }
+                // No isClosed guard: the abort buffered by close must still be delivered.
                 return this.inbound.receive(signal).then((queued) => {
                     if (queued.countsTowardLimit) {
                         this.pendingCommandCount -= 1;
@@ -435,6 +433,8 @@ export class ResidentAgent {
         if (this.isClosed) {
             return;
         }
+        // Clear before pushing: a detach just before close can leave the engine not waiting, so the abort is buffered.
+        this.inbound.clear();
         if (this.terminalFailure === undefined) {
             this.inbound.push({
                 command: { type: "abort" },
@@ -443,7 +443,7 @@ export class ResidentAgent {
         }
         this.isClosed = true;
         this.pendingCommandCount = 0;
-        this.inbound.fail(error, { discardBuffered: true });
+        this.inbound.fail(error);
         for (const outgoing of this.attachments.values()) {
             outgoing.fail(error, { discardBuffered });
         }

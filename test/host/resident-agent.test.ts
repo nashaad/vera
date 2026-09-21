@@ -316,6 +316,24 @@ test("detaching one client leaves the resident agent and peers alive", async () 
     expect(await second.receive()).toEqual({ type: "turn_finished", seq: 1 });
 });
 
+test("close after the last detach still delivers the abort to the running turn", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const client = agent.attach();
+    await client.receive();
+    // The engine takes the detach and has not asked again when close runs.
+    const detachReceived = agent.engine.receive();
+    client.detach();
+    agent.close();
+
+    expect(await detachReceived).toMatchObject({
+        type: "timeline_owner_detached",
+    });
+    expect(await agent.engine.receive()).toEqual({ type: "abort" });
+    await expect(agent.engine.receive()).rejects.toBeInstanceOf(
+        ResidentAgentClosedError,
+    );
+});
+
 test("closing a resident agent discards buffered commands and updates", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const client = agent.attach();
@@ -326,6 +344,7 @@ test("closing a resident agent discards buffered commands and updates", async ()
     agent.close();
     agent.close();
 
+    expect(await agent.engine.receive()).toEqual({ type: "abort" });
     await expect(agent.engine.receive()).rejects.toBeInstanceOf(
         ResidentAgentClosedError,
     );
