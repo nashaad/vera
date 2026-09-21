@@ -1530,9 +1530,9 @@ export function clipToCells(value: string, cells: number): string {
 }
 
 export function sessionActivity(agent: RegisteredAgentSummary, now: Date): string {
-    if (agent.status === "working" || agent.status === "waiting") {
-        return agent.status;
-    }
+    // The ACTIVE heading already says it.
+    if (agent.status === "working") return "";
+    if (agent.status === "waiting") return agent.status;
     if (agent.kind === "background" && agent.status === "completed") {
         return "completed";
     }

@@ -502,7 +502,7 @@ test("session picker threads an async subagent under its parent", async () => {
     expect(state.options.map((option) => option.sessionId))
         .toEqual([undefined, "child", undefined, "parent"]);
     expect(state.options[1]).toMatchObject({
-        activity: "working",
+        activity: "",
         group: "ACTIVE",
     });
     expect(state.options[3]).toMatchObject({
@@ -545,7 +545,8 @@ test("session picker hides empty chats and shows only meaningful live state", as
     const rendered = await pickerFrame(state);
     expect(rendered).not.toContain("empty");
     expect(rendered).toContain("Investigate the host");
-    expect(rendered).toContain("working");
+    expect(rendered).toContain("ACTIVE");
+    expect(rendered).not.toContain("working");
     expect(rendered).toContain("ACTIVE");
     expect(rendered).toContain("alpha");
 });
