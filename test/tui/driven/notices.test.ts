@@ -66,3 +66,34 @@ test("an injected head stays hidden through the turns that follow", async () => 
         await session.close();
     }
 }, 30_000);
+
+test("an unknown slash command stays in the composer and never reaches the model", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-unknown-command-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => createTuiInjectingDependencies(),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/modle");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane(
+            "Unknown command: /modle. Did you mean /model?",
+        );
+        await session.settle(300);
+        expect(await session.captureVisiblePane()).not.toContain("AGENT SAW");
+
+        // The draft was kept, so erasing it takes one Backspace per character.
+        for (let index = 0; index < "/modle".length; index += 1) {
+            session.sendKey("BSpace");
+        }
+        session.sendText("/tmp/a.txt hi");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("AGENT SAW NO HEAD");
+    } finally {
+        await session.close();
+    }
+}, 15_000);

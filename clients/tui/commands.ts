@@ -789,6 +789,36 @@ export class TuiCommandRegistry {
         }
         return command.action;
     }
+
+    // Only called when dispatch found nothing. "/Users/x" or "/tmp/a.txt" is a path, not a command.
+    unknownCommandMessage(input: string): string | undefined {
+        const match = /^\s*\/([^\s/.]+)(\s|$)/.exec(input);
+        const name = match?.[1];
+        if (name === undefined) {
+            return undefined;
+        }
+        const names = this.registeredCommands().map((command) => command.name);
+        const sharingPrefix = names.filter((candidate) => candidate.startsWith(name));
+        let closest = sharingPrefix.slice(0, 3);
+        if (closest.length === 0) {
+            let best = 3;
+            for (const candidate of names) {
+                const distance = editDistance(name, candidate);
+                if (distance < best) {
+                    best = distance;
+                    closest = [candidate];
+                }
+            }
+        }
+        const unknown = `Unknown command: /${name}`;
+        if (closest.length === 0) {
+            return unknown;
+        }
+        const options = closest.map((candidate) => `/${candidate}`);
+        const last = options.pop();
+        const list = options.length === 0 ? last : `${options.join(", ")} or ${last}`;
+        return `${unknown}. Did you mean ${list}?`;
+    }
 }
 
 export function registerExtensionTuiCommands(
@@ -917,6 +947,19 @@ export function extensionCommandResultText(
         return result.source;
     }
     return `${result.source} [${result.body.level}]: ${result.body.text}`;
+}
+
+function editDistance(a: string, b: string): number {
+    let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+    for (let i = 1; i <= a.length; i++) {
+        const current = [i];
+        for (let j = 1; j <= b.length; j++) {
+            const substitution = (previous[j - 1] ?? 0) + (a[i - 1] === b[j - 1] ? 0 : 1);
+            current.push(Math.min((previous[j] ?? 0) + 1, (current[j - 1] ?? 0) + 1, substitution));
+        }
+        previous = current;
+    }
+    return previous[b.length] ?? 0;
 }
 
 function sharedPrefix(values: readonly string[]): string {

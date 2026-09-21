@@ -118,6 +118,14 @@ export function submitPrompt(rt: TuiRuntime,
         renderState(rt);
         return;
     }
+    const unknownCommand = commandAction === undefined
+        ? rt.commandRegistry.unknownCommandMessage(prompt)
+        : undefined;
+    if (unknownCommand !== undefined) {
+        rt.state = appendTuiNotice(rt.state, unknownCommand);
+        renderState(rt);
+        return;
+    }
     if (
         commandAction !== undefined
         && rt.sidebar.isFocused()

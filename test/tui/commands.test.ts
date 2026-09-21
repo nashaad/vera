@@ -983,3 +983,27 @@ test("compatibility aliases reserve their names and leave with their command", (
     registry.registerCommand({ ...command, name: "shortlist", aliases: [] });
     expect(registry.hasCommand("shortlist")).toBe(true);
 });
+
+test("an unknown slash command names the commands it could have meant", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/re")).toBeUndefined();
+    const ambiguous = registry.unknownCommandMessage("/re") ?? "";
+    expect(ambiguous).toStartWith("Unknown command: /re. Did you mean /");
+    expect(ambiguous).toContain("/resume");
+    expect(registry.unknownCommandMessage("/resmue")).toBe(
+        "Unknown command: /resmue. Did you mean /resume?",
+    );
+    expect(registry.unknownCommandMessage("/booboo please")).toBe(
+        "Unknown command: /booboo",
+    );
+});
+
+test("a slash path is not an unknown command", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.unknownCommandMessage("/Users/nash/notes.md explain")).toBeUndefined();
+    expect(registry.unknownCommandMessage("/tmp/")).toBeUndefined();
+    expect(registry.unknownCommandMessage("readme.md")).toBeUndefined();
+    expect(registry.unknownCommandMessage("/")).toBeUndefined();
+});
