@@ -17,6 +17,7 @@ import {
     handleTuiSettingsPickerScroll,
     startTuiConfigurePicker,
     startTuiSettingsMenu,
+    startTuiAnimationPicker,
     startTuiContextLimitPicker,
     startTuiOverridesMenu,
     startTuiOverrideValuePicker,
@@ -502,7 +503,7 @@ test("session picker threads an async subagent under its parent", async () => {
     expect(state.options.map((option) => option.sessionId))
         .toEqual([undefined, "child", undefined, "parent"]);
     expect(state.options[1]).toMatchObject({
-        activity: "working",
+        activity: "",
         group: "ACTIVE",
     });
     expect(state.options[3]).toMatchObject({
@@ -545,7 +546,8 @@ test("session picker hides empty chats and shows only meaningful live state", as
     const rendered = await pickerFrame(state);
     expect(rendered).not.toContain("empty");
     expect(rendered).toContain("Investigate the host");
-    expect(rendered).toContain("working");
+    expect(rendered).toContain("ACTIVE");
+    expect(rendered).not.toContain("working");
     expect(rendered).toContain("ACTIVE");
     expect(rendered).toContain("alpha");
 });
@@ -1485,6 +1487,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "permissions",
         "reviewer",
         "theme",
+        "animation",
     ]);
     // The context limit is a lever inside Overrides, so searching for it by
     // its old name lands there rather than nowhere.
@@ -1517,6 +1520,20 @@ test("the context limit picker offers auto and fixed global ceilings", () => {
     const automatic = startTuiContextLimitPicker(undefined);
     expect(handleTuiSettingsPickerKey(automatic, { name: "enter" }).selection)
         .toEqual({ kind: "context_limit", limit: null });
+});
+
+test("the animation picker offers off and three levels, opened from settings", () => {
+    const settings = startTuiSettingsMenu("settings");
+    const row = settings.options.findIndex((option) => option.value === "animation");
+    expect(handleTuiSettingsPickerKey({ ...settings, selectedIndex: row }, { name: "enter" }).selection)
+        .toEqual({ kind: "menu", target: "animation" });
+
+    const picker = startTuiAnimationPicker(2);
+    expect(picker.options.map((option) => option.label)).toEqual(["Off", "1 Subtle", "2 Normal", "3 Full"]);
+    expect(picker.options[picker.selectedIndex]?.label).toBe("2 Normal");
+    expect(handleTuiSettingsPickerKey(picker, { name: "up" }).state?.options[1]?.value).toBe("1");
+    const off = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 0 }, { name: "enter" });
+    expect(off.selection).toEqual({ kind: "animation", level: 0 });
 });
 
 test("escape steps back to the pane a pane was opened from", () => {

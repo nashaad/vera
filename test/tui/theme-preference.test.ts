@@ -17,6 +17,8 @@ import {
     loadTuiThemePreference,
     loadTuiWorkspaceSidebarWidth,
     saveTuiActivityAnimationPreference,
+    loadTuiAnimationLevelPreference,
+    saveTuiAnimationLevelPreference,
     saveTuiRecentSessionId,
     saveTuiSharedSessionGroups,
     saveTuiPersistedAgentPane,
@@ -116,6 +118,7 @@ test("TUI theme preference persists outside the engine configuration", () => {
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
         theme: "nightowl",
         animation: "symmetric_wave",
+        animation_level: 2,
     });
 
     saveTuiThemePreference("github", path);
@@ -145,6 +148,7 @@ test("legacy TUI preferences gain the default animation when saved", () => {
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
         theme: "github",
         animation: "off",
+        animation_level: 2,
     });
 });
 
@@ -185,6 +189,7 @@ test("saving one preference writes no empty blocks for the others", () => {
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
         theme: "orng",
         animation: "shimmer",
+        animation_level: 2,
     });
 });
 
@@ -292,4 +297,21 @@ test("a stored dock open state is dropped on the next write", () => {
     expect(loadTuiThemePreference(path)).toBe("nightowl");
     expect(JSON.parse(readFileSync(path, "utf8")))
         .not.toHaveProperty("workspace_sidebar_docked");
+});
+
+test("animation level is its own setting and leaves the transcript animation alone", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
+    const path = join(directory, "tui.json");
+
+    writeFileSync(path, JSON.stringify({ theme: "github", animation: "braille" }));
+    expect(loadTuiAnimationLevelPreference(path)).toBe(2);
+
+    saveTuiAnimationLevelPreference(0, path);
+    expect(loadTuiAnimationLevelPreference(path)).toBe(0);
+    expect(loadTuiActivityAnimationPreference(path)).toBe("braille");
+    saveTuiActivityAnimationPreference("off", path);
+    expect(loadTuiAnimationLevelPreference(path)).toBe(0);
+    saveTuiAnimationLevelPreference(3, path);
+    expect(loadTuiAnimationLevelPreference(path)).toBe(3);
+    expect(loadTuiActivityAnimationPreference(path)).toBe("off");
 });

@@ -1,5 +1,6 @@
 import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
+import { renderTuiActivityBar, tuiActivityKind } from "../activity-bar.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
 import { tuiApprovalHint } from "../approval.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS, mapDialRows, paintDialHud } from "../dial-paint.ts";
@@ -14,7 +15,7 @@ import { paneHeaderText, renderHeldAddress, renderJumpToBottom, renderPendingQuo
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
-import { needsYouChipColumns, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiPlaceRowModeLine, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
+import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiPlaceRowModeLine, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
 import { VERA_TUI_THEME } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, bg, fg } from "@opentui/core";
@@ -334,6 +335,9 @@ export function renderStatus(rt: TuiRuntime): void {
                 },
                 rt.workIndex?.needs_you ?? 0,
                 Math.max(1, rt.renderer.width - rt.composerHorizontalInset - railInset),
+                undefined,
+                activityBarChunks(rt, statusState.working || statusState.compactingSince !== undefined,
+                    focusedAbort, focusedActivity, focusedSide?.state.reasoning ?? rt.reasoning),
             )
         : [[{
                 tone: "muted",
@@ -392,7 +396,7 @@ export function renderStatus(rt: TuiRuntime): void {
     const insideRow = detailsRows[0] ?? [];
     const outsideRows = detailsRows.slice(1);
     setTextContent(rt.composerStatusText, new StyledText(
-        insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+        insideRow.map((chunk) => fg(statusChunkColor(chunk))(chunk.text)),
     ));
     rt.needsYouChipWidth = needsYouChipColumns(
         insideRow,
@@ -483,4 +487,17 @@ export function renderStatus(rt: TuiRuntime): void {
             rt.activityAnimationWidth,
         )
         : statusLine);
+}
+
+function activityBarChunks(
+    rt: TuiRuntime,
+    working: boolean,
+    stopping: boolean,
+    activity: string,
+    reasoning: boolean,
+): TuiStatusChunk[] {
+    if (stopping || !working || isWorkerFreeClient(rt.client)) return [];
+    const kind = tuiActivityKind(activity, reasoning);
+    const cells = renderTuiActivityBar(kind, rt.animationLevel, Date.now(), { active: TUI_ACCENT, dim: TUI_ELEMENT });
+    return cells.map((cell): TuiStatusChunk => ({ text: cell.glyph, tone: "accent", color: cell.color }));
 }

@@ -6,12 +6,14 @@ import { randomUUID } from "node:crypto";
 import type { JsonValue } from "../../src/sdk/hooks.ts";
 import type { TuiThemeName } from "./theme.ts";
 import type { TuiActivityAnimation } from "./activity-pulse.ts";
+import { DEFAULT_ANIMATION_LEVEL, isTuiAnimationLevel, type TuiAnimationLevel } from "./activity-bar.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
 interface TuiClientPreferences {
     readonly model_picker?: ModelPickerPreferences;
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
+    readonly animation_level: TuiAnimationLevel;
     readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
@@ -116,6 +118,22 @@ export function saveTuiActivityAnimationPreference(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         animation,
+    }, path);
+}
+
+export function loadTuiAnimationLevelPreference(
+    path = tuiThemePreferencePath(),
+): TuiAnimationLevel {
+    return loadTuiClientPreferences(path).animation_level;
+}
+
+export function saveTuiAnimationLevelPreference(
+    level: TuiAnimationLevel,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        animation_level: level,
     }, path);
 }
 
@@ -316,6 +334,10 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
         if (typeof value === "object" && value !== null) {
             const theme = Reflect.get(value, "theme");
             const animation = Reflect.get(value, "animation");
+            const storedLevel = Reflect.get(value, "animation_level");
+            const level: TuiAnimationLevel = isTuiAnimationLevel(storedLevel)
+                ? storedLevel
+                : DEFAULT_ANIMATION_LEVEL;
             const recentSessionId = Reflect.get(value, "recent_session_id");
             const interval = boundedInteger(
                 Reflect.get(value, "animation_interval_ms"),
@@ -358,6 +380,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 animation: isTuiActivityAnimation(animation)
                     ? animation
                     : "shimmer",
+                animation_level: level,
                 ...(typeof recentSessionId === "string"
                         && recentSessionId.length > 0
                     ? { recent_session_id: recentSessionId }
@@ -388,7 +411,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
     } catch {
         // Missing or malformed client preferences must not prevent startup.
     }
-    return { theme: "default", animation: "shimmer" };
+    return { theme: "default", animation: "shimmer", animation_level: DEFAULT_ANIMATION_LEVEL };
 }
 
 function parsePersistedAgentPanes(value: unknown): readonly DiskPersistedAgentPane[] {

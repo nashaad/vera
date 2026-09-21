@@ -20,6 +20,8 @@ export class TuiAgentPaneState {
     workingSince: number | undefined;
     phaseSince: number | undefined;
     activity = "thinking";
+    // True once reasoning tokens arrive; until then "thinking" means waiting on the model.
+    reasoning = false;
     abortRequested = false;
 
     apply(update: AgentUpdate, now: number = Date.now()): void {
@@ -78,6 +80,7 @@ export class TuiAgentPaneState {
             this.phaseSince ??= this.workingSince;
             this.activity = "thinking";
         } else if (update.type === "status" && update.state === "waiting") {
+            this.reasoning = false;
             this.workingSince ??= now;
             this.phaseSince = undefined;
             this.activity = "waiting";
@@ -85,30 +88,37 @@ export class TuiAgentPaneState {
             this.workingSince = undefined;
             this.phaseSince = undefined;
             this.activity = "ready";
+            this.reasoning = false;
         } else if (update.type === "model_activity") {
             this.workingSince ??= now;
             if (update.replacesPartialAttempt === true) {
                 this.phaseSince = undefined;
             }
             this.activity = `retrying ${update.model}`;
+            this.reasoning = false;
         } else if (update.type === "user_prompt") {
             this.workingSince ??= now;
             this.phaseSince = now;
             this.activity = "thinking";
+            this.reasoning = false;
         } else if (update.type === "assistant_thinking") {
             this.workingSince ??= now;
             this.phaseSince ??= now;
             this.activity = "thinking";
+            this.reasoning = true;
         } else if (update.type === "assistant_delta") {
             this.finishThoughtPhase(now);
             this.workingSince ??= now;
             this.activity = "responding";
+            this.reasoning = false;
         } else if (update.type === "tool_started") {
             this.finishThoughtPhase(now);
             this.workingSince ??= now;
             this.activity = `running ${update.tool}`;
+            this.reasoning = false;
         } else if (update.type === "tool_finished") {
             this.activity = "thinking";
+            this.reasoning = false;
             this.phaseSince = now;
         } else if (
             update.type === "turn_finished"

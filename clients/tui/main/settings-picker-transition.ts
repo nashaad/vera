@@ -17,6 +17,7 @@ import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
+import { applyAnimationLevel } from "./animation-level.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
@@ -551,6 +552,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             rt.themeName = selection.theme;
             saveTuiThemePreference(rt.themeName);
             void applySelectedTheme(rt, rt.themeName, true);
+        } else if (selection.kind === "animation") {
+            applyAnimationLevel(rt, selection.level);
         } else if (selection.kind === "context_limit") {
             const label = selection.limit === null
                 ? "Auto"

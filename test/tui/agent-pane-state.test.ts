@@ -178,3 +178,19 @@ function approval(requestId: string): AgentUpdate {
         seq: Number(requestId.endsWith("2")) + 1,
     };
 }
+
+test("a pane is waiting on the model until reasoning tokens arrive", () => {
+    const pane = new TuiAgentPaneState();
+    const seen: boolean[] = [];
+
+    pane.apply({ type: "user_prompt", content: "inspect", seq: 1 }, 1_000);
+    seen.push(pane.reasoning);
+    pane.apply({ type: "assistant_thinking", text: "hm", seq: 2 }, 2_000);
+    seen.push(pane.reasoning);
+    pane.apply({ type: "tool_started", tool: "read", args: { path: "a" }, seq: 3 }, 3_000);
+    pane.apply({ type: "tool_finished", tool: "read", output: "a", seq: 4 }, 4_000);
+    seen.push(pane.reasoning);
+
+    expect(seen).toEqual([false, true, false]);
+    expect(pane.activity).toBe("thinking");
+});

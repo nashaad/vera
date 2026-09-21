@@ -277,7 +277,7 @@ import { createTuiTimelinePickerView } from "./timeline-picker.ts";
 import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, createTuiState, setTuiWorkspaceRoot, type TuiState, type TuiTranscriptEntry } from "./state.ts";
 import { resolveTuiTheme, tuiRecessColor } from "./theme.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
-import { loadTuiActivityAnimationPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
@@ -305,6 +305,7 @@ import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModel
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
 import { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
+import { startStatusTimer } from "./main/animation-level.ts";
 import { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
@@ -391,7 +392,6 @@ export function shortConnectionFailure(message: string): string {
 export const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
 export const COPY_NOTICE_DURATION_MS = 1_500;
 export const MODE_TOAST_DURATION_MS = 2_500;
-const STATUS_REFRESH_INTERVAL_MS = 100;
 export const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 export const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 export const SHIMMER_FRAME_INTERVAL_MS = 40;
@@ -898,6 +898,7 @@ export async function startTui(
     refreshTerminalTitle(rt);
     rt.themeName = loadTuiThemePreference();
     rt.activityAnimation = loadTuiActivityAnimationPreference();
+    rt.animationLevel = loadTuiAnimationLevelPreference();
     rt.activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
     rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
@@ -1024,6 +1025,7 @@ export async function startTui(
     rt.argumentSuggestions = [];
     rt.extensionMentions = [];
     rt.activity = "thinking";
+    rt.reasoning = false;
     rt.themeApplicationVersion = 0;
     rt.clientGeneration = 0;
     rt.composeSurfaceGeneration = 0;
@@ -2462,16 +2464,7 @@ export async function startTui(
         showSearchTarget(rt);
     });
 
-    let lastTimedSurfaceRefresh = 0;
-    rt.statusTimer = setInterval(() => {
-        renderStatus(rt);
-        if (Date.now() - lastTimedSurfaceRefresh >= STATUS_REFRESH_INTERVAL_MS) {
-            refreshTimedSurfaces(rt);
-            lastTimedSurfaceRefresh = Date.now();
-        }
-    }, rt.activityAnimation === "off"
-        ? STATUS_REFRESH_INTERVAL_MS
-        : SHIMMER_FRAME_INTERVAL_MS);
+    startStatusTimer(rt);
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);

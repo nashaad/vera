@@ -61,6 +61,7 @@ import {
     tuiTextareaKey,
 } from "./single-line-editor.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
+import type { TuiAnimationLevel } from "./activity-bar.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -70,6 +71,7 @@ export type TuiSettingsPickerKind =
     | "reasoning"
     | "permissions"
     | "theme"
+    | "animation"
     | "context_limit"
     | "overrides_settings"
     | "override_value"
@@ -124,6 +126,7 @@ export type TuiSettingsMenuTarget =
     | "reasoning"
     | "permissions"
     | "theme"
+    | "animation"
     | "context_limit"
     | "overrides"
     | OverrideMenuTarget
@@ -443,6 +446,7 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "provider"; readonly providerId: string }
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
+    | { readonly kind: "animation"; readonly level: TuiAnimationLevel }
     | { readonly kind: "context_limit"; readonly limit: number | null }
     | {
         readonly kind: "overrides";
