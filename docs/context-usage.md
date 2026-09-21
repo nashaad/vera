@@ -30,6 +30,18 @@ The maximum comes from the model's known context window. If a local server
 does not publish a window, Vera leaves it unknown rather than estimating one.
 Used, free, and reserved space remain distinguishable without color.
 
+## Large instruction files
+
+Everything in the INSTRUCTIONS section is sent with every request: home and
+project rules, `AGENTS.md`, `AGENTS.local.md`, memory, the selected agent's
+instructions, and the skill catalog. When that total reaches 5,000 estimated
+tokens, `/context` shows a red line under INSTRUCTIONS with the total and the
+biggest source, and Vera shows one short notice after the first reply in a
+conversation. The numbers match the Instructions row and the section heading.
+While the red line shows, the per-file size warnings are hidden. Trim or split
+the biggest source to clear it. The notice appears again in a new or resumed
+conversation while the total stays over.
+
 ## Inspect an instruction file
 
 1. Press Ctrl+O in the report, or run `/context sources`.

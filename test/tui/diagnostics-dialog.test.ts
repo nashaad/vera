@@ -9,6 +9,7 @@ import {
     inspectDocumentMarkdown,
     inspectDocumentLines,
     INSPECT_COPY_HINT,
+    styledInspectDanger,
     styledInspectHealth,
     styledInspectOccupancy,
 } from "../../clients/tui/diagnostics-dialog.ts";
@@ -180,6 +181,46 @@ test("inspect health tones keep the word and decorate it", () => {
     expect(color("green")).toEqual(parseColor(TUI_SUCCESS));
     expect(color("yellow")).toEqual(parseColor(TUI_NOTICE));
     expect(color("red")).toEqual(parseColor(TUI_DANGER));
+});
+
+test("a bare ! warning paints danger while a quoted one stays muted", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 40 });
+    const view = createTuiDiagnosticsDialogView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        text: [
+            "# Context",
+            "project  AGENTS.local.md  28 KB  7.0k",
+            "",
+            "!  Instructions are 7.0k tokens, over the 5.0k budget. Trim them.",
+            "",
+            "> !  AGENTS.local.md is 28 KB and rides every turn.",
+        ].join("\n"),
+    });
+
+    try {
+        await setup.flush();
+        await Bun.sleep(50);
+        await setup.flush();
+        const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+        const danger = spans.find((span) => span.text.includes("over the 5.0k budget"));
+        const quoted = spans.find((span) => span.text.includes("rides every turn"));
+        expect(danger?.fg).toEqual(parseColor(TUI_DANGER));
+        expect(danger?.text).toContain("!  Instructions are 7.0k tokens");
+        expect(quoted).toBeDefined();
+        expect(quoted?.fg).not.toEqual(parseColor(TUI_DANGER));
+    } finally {
+        view.box.destroyRecursively();
+        setup.renderer.destroy();
+    }
+});
+
+test("styled danger keeps the ! marker in the text", () => {
+    const styled = styledInspectDanger("!  Instructions are 7.0k tokens.");
+    expect(styled.chunks.map((chunk) => chunk.text).join(""))
+        .toBe("!  Instructions are 7.0k tokens.");
+    expect(styled.chunks[0]?.fg).toEqual(parseColor(TUI_DANGER));
 });
 
 test("inspect reports use the terminal width with outer gutters", () => {
