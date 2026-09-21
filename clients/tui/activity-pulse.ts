@@ -91,19 +91,45 @@ function renderShimmer(
         fg(colors.inactive)(" "),
     ];
 
-    for (let index = 0; index < characters.length; index += 1) {
-        const distance = Math.abs(index - head);
-        const bandHalfWidth = 8;
-        const intensity = distance <= bandHalfWidth
-            ? 0.5 * (1 + Math.cos(Math.PI * distance / bandHalfWidth))
-            : 0;
-        const color = blendHex(colors.text, colors.trail, intensity * 0.75);
-        chunks.push(bold(fg(color)(characters[index] ?? "")));
-    }
+    chunks.push(...shimmerBand(characters, head, colors.text, colors.trail)
+        .map((chunk) => bold(chunk)));
     if (remainder.length > 0) {
         chunks.push(fg(colors.text)(remainder));
     }
     return new StyledText(chunks);
+}
+
+// The transcript's band across a whole line of text, for callers that keep their own style.
+export function tuiShimmerChunks(
+    frame: number,
+    text: string,
+    base: string,
+    trail: string,
+): TextChunk[] {
+    const characters = Array.from(text.trimEnd());
+    const padding = 10;
+    const head = positiveModulo(frame, characters.length + padding * 2) - padding;
+    const tail = text.slice(text.trimEnd().length);
+    return [
+        ...shimmerBand(characters, head, base, trail),
+        ...(tail.length > 0 ? [fg(base)(tail)] : []),
+    ];
+}
+
+function shimmerBand(
+    characters: readonly string[],
+    head: number,
+    base: string,
+    trail: string,
+): TextChunk[] {
+    const bandHalfWidth = 8;
+    return characters.map((character, index) => {
+        const distance = Math.abs(index - head);
+        const intensity = distance <= bandHalfWidth
+            ? 0.5 * (1 + Math.cos(Math.PI * distance / bandHalfWidth))
+            : 0;
+        return fg(blendHex(base, trail, intensity * 0.75))(character);
+    });
 }
 
 function blendHex(base: string, dark: string, amount: number): string {

@@ -5,7 +5,8 @@ import { renderModelBrowse, modelBrowseRows } from "./model-browse-view.ts";
 import { extensionPickerButtons, renderExtensionPicker } from "./extension-picker-view.ts";
 import { handleVerificationKey } from "./model-verification.ts";
 import { screenPickerKey } from "./settings-picker-keys.ts";
-import { renderTuiActivityAnimation } from "./activity-pulse.ts";
+import { renderTuiActivityAnimation, tuiShimmerChunks } from "./activity-pulse.ts";
+import { WORKING_GROUP } from "./workspace-panel.ts";
 import { providerActions, providerActionTransition } from "./provider-actions.ts";
 import { localRuntimeStatusLines } from "./local-runtime-status.ts";
 import { TUI_REFRESH_PROVIDERS_VALUE } from "./settings-picker-types.ts";
@@ -17,7 +18,7 @@ import {
 } from "./session-preview.ts";
 import { emptyModelBrowse, handleModelBrowseKey, handleModelBrowseMenuKey, browseHeader, browseFooter, browseMoreText, browseWindow, browseModels, browseScopeOptions, browseSort, browseSortOptions } from "./model-browse.ts";
 import { DIALOG_HEADER_HEIGHT } from "./dialog-header.ts";
-import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, type Renderable, type RenderContext, type TextChunk } from "@opentui/core";
+import { BoxRenderable, bg, bold, fg, StyledText, TextRenderable, Renderable, type RenderContext, type TextChunk } from "@opentui/core";
 
 import {
     isJobAssignmentId,
@@ -59,7 +60,7 @@ import {
     tuiThemeProperties,
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
-import { isTuiDialTabKey, tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import { isTuiDialTabKey, tuiBindingId, tuiChordLabel, tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 import {
     atFirstPickerSection,
     focusedOnSection,
@@ -540,6 +541,18 @@ export function createTuiSettingsPickerView(
         focus(): void {
             if (searchLive) search.editor.focus();
             else box.focus();
+        },
+        animateSessionTitles(frame, enabled): void {
+            if (!enabled) return;
+            for (const node of shimmeringTitles(box)) {
+                const [, phase = "0", lit = "0"] = node.id.split(":");
+                node.content = new StyledText(tuiShimmerChunks(
+                    frame + Number(phase),
+                    node.plainText,
+                    lit === "1" ? TUI_SELECTION_TEXT : TUI_TEXT,
+                    lit === "1" ? TUI_ACCENT : TUI_MUTED,
+                ));
+            }
         },
         animateFeedback(frame, enabled): void {
             const node = nodes.find((node) => node.id === "model-operation-working");
@@ -1209,6 +1222,21 @@ export function renderListPickerRows(
         nodes.push(subtitleNode);
         subtitleLines = 4;
     }
+    if (state.kind === "session") {
+        const tipNode = new TextRenderable(renderer, {
+            content: new StyledText([
+                { text: DIALOG_GUTTER } as TextChunk,
+                fg(TUI_ACCENT)(`${TIP_LABELS.tip} `),
+                fg(TUI_MUTED)(sessionCycleTip()),
+            ]),
+            width: "100%",
+            height: 1,
+            marginTop: 1,
+        });
+        box.add(tipNode);
+        nodes.push(tipNode);
+        subtitleLines += 2;
+    }
     if (searchable && search !== undefined) {
         updateDialogSearchNode(
             search,
@@ -1286,13 +1314,17 @@ export function renderListPickerRows(
             + stackedLines,
     );
     const detailMaxLines = availableRows + listActionLines + pageEntryLines;
+    const sessionGapLines = state.kind === "session"
+        ? Math.max(0, state.options.filter((option) => option.section !== undefined).length - 1)
+        : 0;
     const rows = windowedDisplayRows(
         listDisplayRows(state),
         state.selectedIndex,
         tab === "all"
             ? Math.min(availableRows, MODEL_ALL_MAX_ROWS)
-            : availableRows,
+            : Math.max(1, availableRows - sessionGapLines),
     );
+    let firstHeading = true;
     let lines = 0;
     const activityWidth = Math.max(0, ...rows.map((row) =>
         row.kind === "option" ? row.option.activity?.length ?? 0 : 0));
@@ -1352,6 +1384,13 @@ export function renderListPickerRows(
                         && row.index === state.selectedIndex
                     ? "›"
                     : optionMarker(state, row.option),
+                ...(state.kind === "session" && row.option.section !== undefined
+                    ? (firstHeading ? (firstHeading = false, {}) : { spaced: true })
+                    : {}),
+                ...(state.kind === "session" && row.option.group === WORKING_GROUP
+                        && row.option.section === undefined
+                    ? { labelId: shimmerTitleId(row.option, row.index === state.selectedIndex) }
+                    : {}),
                 leading: optionLeading(
                     state,
                     row.option,
@@ -2129,6 +2168,9 @@ export function optionMarker(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
 ): string | undefined {
+    if (state.kind === "session" && option.section !== undefined) {
+        return undefined;
+    }
     if (option.section !== undefined) {
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
@@ -2139,6 +2181,35 @@ export function optionMarker(
         return "+";
     }
     return isCurrentOption(state, option) ? "●" : undefined;
+}
+
+export function sessionCycleTip(): string {
+    const previous = tuiChordLabel(tuiKeyChord("cycle_live_session_prev"));
+    const next = tuiChordLabel(tuiKeyChord("cycle_live_session_next"));
+    return `${previous} / ${next} switches live sessions from anywhere, without opening this list`;
+}
+
+const SHIMMER_TITLE_ID = "session-shimmer";
+
+// Each session gets its own phase, so several working titles never sweep in step.
+function shimmerTitleId(option: TuiSettingsPickerOption, lit: boolean): string {
+    let phase = 0;
+    for (const character of option.sessionId ?? option.value) {
+        phase = (phase * 31 + character.charCodeAt(0)) % 997;
+    }
+    return `${SHIMMER_TITLE_ID}:${phase}:${lit ? 1 : 0}`;
+}
+
+function shimmeringTitles(root: Renderable): TextRenderable[] {
+    const found: TextRenderable[] = [];
+    for (const child of root.getChildren()) {
+        if (!(child instanceof Renderable)) continue;
+        if (child instanceof TextRenderable && child.id.startsWith(`${SHIMMER_TITLE_ID}:`)) {
+            found.push(child);
+        }
+        found.push(...shimmeringTitles(child));
+    }
+    return found;
 }
 
 export function optionLeading(

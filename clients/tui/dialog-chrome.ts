@@ -317,6 +317,8 @@ export interface DialogRowContent {
     readonly description?: string;
     /** Muted text right after the label, inside the label column rather than aligned past it. */
     readonly note?: string;
+    /** Lets a view find the label again to animate it without a full redraw. */
+    readonly labelId?: string;
     readonly emphasis?: { readonly start: number; readonly length: number };
     readonly meta?: DialogMeta;
     readonly active: boolean;
@@ -631,6 +633,7 @@ export function dialogOptionRow(
         labelChunks.push(fg(detail)(`  ${content.description}`));
     }
     row.add(new TextRenderable(renderer, {
+        ...(content.labelId === undefined ? {} : { id: content.labelId }),
         content: new StyledText(labelChunks),
         bg: background,
         attributes: content.active || content.current === true || content.heading === true ? 1 : 0,

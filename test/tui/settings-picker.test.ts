@@ -5,6 +5,7 @@ import { TextareaRenderable, type StyledText } from "@opentui/core";
 
 import { tuiKeyHint } from "../../clients/tui/keymap.ts";
 import { applyTuiTheme } from "../../clients/tui/state.ts";
+import { formatSessionDate } from "../../clients/tui/settings-picker-types.ts";
 import { resolveTuiTheme, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 import {
@@ -502,7 +503,7 @@ test("session picker threads an async subagent under its parent", async () => {
         .toEqual([undefined, "child", undefined, "parent"]);
     expect(state.options[1]).toMatchObject({
         activity: "working",
-        group: "WORKING",
+        group: "ACTIVE",
     });
     expect(state.options[3]).toMatchObject({
         activity: "open",
@@ -545,7 +546,7 @@ test("session picker hides empty chats and shows only meaningful live state", as
     expect(rendered).not.toContain("empty");
     expect(rendered).toContain("Investigate the host");
     expect(rendered).toContain("working");
-    expect(rendered).toContain("WORKING");
+    expect(rendered).toContain("ACTIVE");
     expect(rendered).toContain("alpha");
 });
 
@@ -598,9 +599,54 @@ test("session picker puts live work above parked history", async () => {
         .map((option) => option.label))
         .toEqual(["Counting", "Still resident", "Parked last week"]);
     const frame = await pickerFrame(state);
-    expect(frame.indexOf("WORKING")).toBeLessThan(frame.indexOf("IDLE"));
+    expect(frame.indexOf("ACTIVE")).toBeLessThan(frame.indexOf("IDLE"));
     expect(frame.indexOf("IDLE")).toBeLessThan(frame.indexOf("RECENT"));
     expect(frame.indexOf("Still resident")).toBeLessThan(frame.indexOf("Parked last week"));
+});
+
+test("session sections have no fold caret and a blank line between them", async () => {
+    const state = startTuiSessionPicker([
+        { ...session("old", "idle"), title: "Parked last week", updated_at: "2026-07-19T20:00:00.000Z" },
+        { ...session("live", "idle"), live: true, title: "Still resident", updated_at: "2026-07-18T20:00:00.000Z" },
+        { ...session("busy", "working"), live: true, title: "Counting", updated_at: "2026-07-17T20:00:00.000Z" },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const rows = (await pickerFrame(state)).split("\n");
+    const at = (text: string): number => rows.findIndex((line) => line.includes(text));
+    expect(rows.join("\n")).not.toContain("▼");
+    expect(at("IDLE") - at("Counting")).toBe(2);
+    expect(rows[at("IDLE") - 1]?.trim()).toBe("");
+    expect(at("RECENT") - at("Still resident")).toBe(2);
+    expect(at("Counting") - at("ACTIVE")).toBe(1);
+});
+
+test("the resume list opens with the live-session switching tip above search", async () => {
+    const rows = (await pickerFrame(startTuiSessionPicker([session("busy", "working")]))).split("\n");
+    const tip = rows.findIndex((line) => line.includes("Ctrl+Shift+← / Ctrl+Shift+→ switches live sessions"));
+    expect(tip).toBeGreaterThan(0);
+    expect(tip).toBeLessThan(rows.findIndex((line) => line.includes("Search")));
+});
+
+test("session size and date keep fixed columns at the right edge", async () => {
+    const state = startTuiSessionPicker([
+        { ...session("small", "idle"), title: "Small one", size_bytes: 891, updated_at: "2026-07-19T20:00:00.000Z" },
+        { ...session("large", "idle"), title: "Large one", size_bytes: 735_000, updated_at: "2026-07-02T20:00:00.000Z" },
+    ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const rows = (await pickerFrame(state)).split("\n");
+    const small = rows.find((line) => line.includes("Small one")) ?? "";
+    const large = rows.find((line) => line.includes("Large one")) ?? "";
+    expect(small.trimEnd().endsWith(" 891B")).toBe(true);
+    expect(large.trimEnd().endsWith(" 735K")).toBe(true);
+    expect(small.trimEnd().length).toBe(large.trimEnd().length);
+    expect(small.indexOf("Jul 19")).toBe(large.indexOf("Jul  2"));
+});
+
+test("a session date is month and day this year, the year otherwise", () => {
+    const now = new Date(2026, 8, 21, 12);
+    expect(formatSessionDate(new Date(2026, 8, 3, 12).toISOString(), now)).toBe("Sep  3");
+    expect(formatSessionDate(new Date(2025, 11, 30, 12).toISOString(), now)).toBe("2025");
+    expect(formatSessionDate(undefined, now)).toBe("");
 });
 
 test("the two visible panes form a shared group without implying ancestry", async () => {
@@ -671,7 +717,8 @@ test("session rows stay on one line at 80 columns", async () => {
         // than stopping at a fixed measure well short of the terminal edge.
         expect(row).toContain("1h ago");
         expect(row).toContain("a-very-long-w…");
-        expect(row).toContain("deliberately long first prompt title");
+        expect(row).toContain("Jul 20");
+        expect(row).toContain("deliberately long first");
         expect(row?.length).toBe(80);
     } finally {
         setup.renderer.destroy();
@@ -3108,7 +3155,7 @@ test("the inspector offers naming on a pooled row only", async () => {
     expect(await pickerFrame(unpooled)).not.toContain("Name this model");
 });
 
-test("an old session stays on the relative clock instead of a calendar date", async () => {
+test("an old session keeps the relative clock and puts its date in its own column", async () => {
     const state = startTuiSessionPicker([
         {
             ...session("ancient", "idle"),
@@ -3118,8 +3165,9 @@ test("an old session stays on the relative clock instead of a calendar date", as
     ], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
 
     const rendered = await pickerFrame(state);
-    expect(rendered).toContain("38d ago");
-    expect(rendered).not.toContain("Jun");
+    const row = rendered.split("\n").find((line) => line.includes("Left alone")) ?? "";
+    expect(row.trimStart().startsWith("38d ago")).toBe(true);
+    expect(row.indexOf("Jun 12")).toBeGreaterThan(row.indexOf("alpha"));
 });
 
 test("a session row reports its transcript size beside the workspace", async () => {

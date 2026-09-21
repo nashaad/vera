@@ -24,7 +24,7 @@ export function workspaceRowColumns(width: WorkspacePanelWidth): number {
 export const PINNED_GROUP = "PINNED";
 export const WORKSPACE_PINS_ENABLED = false;
 export const NEEDS_YOU_GROUP = "NEEDS YOU";
-export const WORKING_GROUP = "WORKING";
+export const WORKING_GROUP = "ACTIVE";
 export const IDLE_GROUP = "IDLE";
 export const RECENT_GROUP = "RECENT";
 

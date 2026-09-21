@@ -164,6 +164,7 @@ export interface TuiSettingsPickerOption {
     readonly activity?: string;
     readonly workspace?: string;
     readonly sizeBytes?: number;
+    readonly updatedAt?: string;
     readonly current?: boolean;
     readonly forkedFrom?: string;
     readonly threadParent?: string;
@@ -604,6 +605,7 @@ export interface TuiSettingsPickerView {
     onSection?: (section: ModelBrowseSection) => void;
     focus(): void;
     animateFeedback(frame: number, enabled: boolean): void;
+    animateSessionTitles(frame: number, enabled: boolean): void;
     handleExtensionEditorKey(state: TuiExtensionPickerState, key: TuiSettingsPickerKey): TuiExtensionPickerTransition;
     handleExtensionEditorPaste(state: TuiExtensionPickerState, text: string): TuiExtensionPickerTransition;
     handleEditorKey(
@@ -913,6 +915,21 @@ export function formatSessionSize(bytes: number): string {
         return `${Math.round(bytes / 1_000)}K`;
     }
     return `${(bytes / 1_000_000).toFixed(1)}M`;
+}
+
+// Fixed widths keep the size and date columns still as rows change.
+export const SESSION_SIZE_COLUMNS = 5;
+export const SESSION_DATE_COLUMNS = 6;
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+export function formatSessionDate(updatedAt: string | undefined, now: Date): string {
+    const parsed = updatedAt === undefined ? Number.NaN : Date.parse(updatedAt);
+    if (!Number.isFinite(parsed)) return "";
+    const date = new Date(parsed);
+    return date.getFullYear() === now.getFullYear()
+        ? `${MONTHS[date.getMonth()]} ${String(date.getDate()).padStart(2)}`
+        : String(date.getFullYear());
 }
 
 export const TUI_TOP_PICKS_SECTION = "Top picks";

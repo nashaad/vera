@@ -28,6 +28,9 @@ export function renderStatus(rt: TuiRuntime): void {
     if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.browseFeedback?.status === "working") {
         rt.settingsPickerView.animateFeedback(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
     }
+    if (rt.settingsPicker?.kind === "session") {
+        rt.settingsPickerView.animateSessionTitles(transcriptShimmerFrame(Date.now()), rt.activityAnimation !== "off");
+    }
     rt.transcriptWorking.visible = rt.state.working && !isWorkerFreeClient(rt.client);
     if (rt.transcriptWorking.visible) {
         setTextContent(rt.transcriptWorking, renderTuiActivityAnimation(

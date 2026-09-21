@@ -75,7 +75,10 @@ import {
     type TuiSettingsPickerSelection,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
+    formatSessionDate,
     formatSessionSize,
+    SESSION_DATE_COLUMNS,
+    SESSION_SIZE_COLUMNS,
     modelAssignmentOfValue,
     tuiModelActionOfValue,
     OVERRIDES_RESET_VALUE,
@@ -1346,13 +1349,13 @@ export function optionMeta(
 ): DialogMeta | undefined {
     if (state.kind === "session_import") return option.workspace;
     if (state.kind === "session") {
-        if (option.sizeBytes === undefined) {
-            return option.workspace;
-        }
+        const size = option.sizeBytes === undefined ? "" : formatSessionSize(option.sizeBytes);
         return [
-            { text: formatSessionSize(option.sizeBytes) },
-            { text: "  " },
             { text: option.workspace ?? "" },
+            { text: "  " },
+            { text: formatSessionDate(option.updatedAt, new Date()).padStart(SESSION_DATE_COLUMNS) },
+            { text: "  " },
+            { text: size.padStart(SESSION_SIZE_COLUMNS) },
         ];
     }
     if (state.kind === "provider") {

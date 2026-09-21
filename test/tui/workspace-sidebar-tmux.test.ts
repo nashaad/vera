@@ -624,7 +624,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("p leaves dormant pinning unchanged
         await tui.settled();
         tui.bytes(CTRL_E);
         await tui.paneWhere((value) =>
-            value.includes("VERA ·") && value.includes("WORKING")
+            value.includes("VERA ·") && value.includes("ACTIVE")
         );
         tui.text("p");
         await Bun.sleep(100);
@@ -632,7 +632,7 @@ test.skipIf(!tmuxAvailable || !RAIL_LISTING)("p leaves dormant pinning unchanged
     });
 
     expect(after).not.toContain("PINNED");
-    expect(after).toContain("WORKING");
+    expect(after).toContain("ACTIVE");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable || !RAIL_LISTING)("every state the side bar shows has a text marker", async () => {

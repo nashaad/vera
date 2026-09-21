@@ -1354,6 +1354,7 @@ function sessionPickerOption(
         ...(agent.size_bytes === undefined
             ? {}
             : { sizeBytes: agent.size_bytes }),
+        ...(agent.updated_at === undefined ? {} : { updatedAt: agent.updated_at }),
         ...(agent.id === currentAgentId ? { current: true } : {}),
         ...(agent.forked_from === undefined
             ? {}

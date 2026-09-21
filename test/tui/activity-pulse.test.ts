@@ -3,6 +3,7 @@ import type { StyledText } from "@opentui/core";
 
 import {
     renderTuiActivityAnimation,
+    tuiShimmerChunks,
     renderTuiActivityPulse,
     renderTuiSpokes,
     transcriptShimmerFrame,
@@ -167,3 +168,9 @@ test("TUI spokes spin a one-cell four-spoke glyph", () => {
 function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
 }
+
+test("a shimmered title keeps its text and moves its band with the frame", () => {
+    const text = (frame: number) => tuiShimmerChunks(frame, "Counting sheep  ", "#EEEEEE", "#5C6370");
+    expect(text(0).map((chunk) => chunk.text).join("")).toBe("Counting sheep  ");
+    expect(text(12).map((chunk) => chunk.fg)).not.toEqual(text(0).map((chunk) => chunk.fg));
+});
