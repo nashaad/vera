@@ -1428,6 +1428,7 @@ export function renderListPickerRows(
                     && (!sectionHasKeys(state, "list")
                         || state.modelFocus === "list_action"),
                 heading: row.option.section !== undefined,
+                ...(state.kind === "session" ? { headingTone: "text" as const } : {}),
                 current: isCurrentOption(state, row.option),
                 ...dialogRowPointer(pointer, row.index),
             }]

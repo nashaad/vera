@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { parseColor } from "@opentui/core";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import {
     createTuiRenameSessionScenario,
 } from "../../support/tui-rename-session-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+import { TUI_TEXT } from "../../../clients/tui/palette.ts";
 
 test("resume picker switches conversation without restarting the TUI", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-"));
@@ -320,6 +322,36 @@ test("session trash rejection keeps the picker usable", async () => {
         pane = await session.waitForVisiblePane("That con");
         session.sendKey("C-c");
         await session.waitForSessionExit();
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("resume picker headings are plain text so the accent only marks the cursor", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-heading-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("Continue the theme picker");
+        const headings = ["NEEDS YOU", "ACTIVE", "IDLE", "RECENT"].filter((heading) =>
+            pane.split("\n").some((line) => line.trim().startsWith(heading))
+        );
+        expect(headings.length).toBeGreaterThan(0);
+        for (const heading of headings) {
+            const span = session.captureSpans().lines
+                .flatMap((line) => line.spans)
+                .find((candidate) => candidate.text.trim().startsWith(heading));
+            expect(span?.fg?.toInts().toString()).toBe(
+                parseColor(TUI_TEXT).toInts().toString(),
+            );
+        }
     } finally {
         await session.close();
     }

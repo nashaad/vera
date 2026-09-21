@@ -327,6 +327,8 @@ export interface DialogRowContent {
     readonly current?: boolean;
     /** A group heading rendered as a row. It keeps the accent; a current row does not. */
     readonly heading?: boolean;
+    /** The session picker's headings are plain text, so the accent there only marks the cursor and the current row. */
+    readonly headingTone?: "accent" | "text";
     readonly tint?: boolean;
     readonly wrap?: boolean;
     readonly card?: boolean;
@@ -590,7 +592,7 @@ export function dialogOptionRow(
     // so tinting it too made the two read alike.
     const label = lit
         ? TUI_SELECTION_TEXT
-        : content.heading === true
+        : content.heading === true && content.headingTone !== "text"
         ? TUI_ACCENT
         : TUI_TEXT;
     const accent = lit ? TUI_SELECTION_TEXT : TUI_ACCENT;
