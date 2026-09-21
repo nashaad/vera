@@ -580,15 +580,7 @@
     }
 }
 
-.home-details .vera-warning,
-.dark .home-details .vera-warning {
-    display: block;
-    padding: 0;
-    border: 0;
-    background: none;
-    font-weight: 400;
-}
-
-.home-details .vera-warning::before {
-    content: none;
+.home-footer-links {
+    display: flex;
+    gap: 1.5rem;
 }

@@ -100,7 +100,10 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                     <div className="home-details prose prose-neutral dark:prose-invert"><Content html={html} /></div>
                 </main>
                 <footer className="home-footer">
-                    <a href="https://corvines.com">Corvine Systems</a>
+                    <span className="home-footer-links">
+                        <a href="https://corvines.com">Corvine Systems</a>
+                        <a href="https://nashaad.com">nashaad.com</a>
+                    </span>
                     {draft ? <span>Preview. Excluded from the public site.</span> : <a href="/">Manual</a>}
                 </footer>
             </div>
