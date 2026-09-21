@@ -12,7 +12,7 @@ how results are combined.
 
 Use this approach when an application needs an individual role or several
 independent review passes. For workflows that retain completed steps across
-process restarts, see [Halcyon](halcyon.md).
+process restarts, see [How workflows run](workflows.md).
 
 ## Run the complete workflow
 

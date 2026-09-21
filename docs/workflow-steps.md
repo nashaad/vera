@@ -7,7 +7,7 @@ description: "Pause for input, set deadlines, choose stable keys, and run hooks 
 
 <p class="vera-warning">Workflows are in alpha. The API will change, so do not build on it yet.</p>
 
-Halcyon records each successful step so a resumed workflow can reuse its
+Vera records each successful step so a resumed workflow can reuse its
 result. These controls apply when a step has no successful record. Start with
 [your first workflow](python-workflows.md) for the decorators and journal setup.
 

@@ -1,13 +1,13 @@
 ---
-title: "Halcyon workflows"
+title: "How workflows run"
 description: "Write Python workflows that record completed steps and resume after interruption."
 ---
 
-# Halcyon workflows
+# How workflows run
 
 <p class="vera-warning">Workflows are in alpha. The API will change, so do not build on it yet.</p>
 
-Halcyon is Vera's durable-workflow framework. It runs Python functions as
+Vera workflows run Python functions as
 recorded steps, saving their results in a journal. If a process stops, resume
 reuses completed results and runs the steps that have no recorded result.
 
@@ -16,7 +16,7 @@ branches, and loops.
 
 ## When to use a workflow
 
-Use Halcyon when a task has a repeatable sequence and progress needs to survive
+Use a workflow when a task has a repeatable sequence and progress needs to survive
 an interruption. Examples include processing a collection of files, reviewing
 several changes, or pausing a run for a person's decision.
 
@@ -24,7 +24,7 @@ several changes, or pausing a run for a person's decision.
 | --- | --- |
 | Investigate a question interactively | A Vera conversation. |
 | Apply the same instructions and tools to recurring tasks | A reusable agent definition. |
-| Run a sequence and retain completed results across restarts | A Halcyon workflow. |
+| Run a sequence and retain completed results across restarts | A Vera workflow. |
 
 ## How a run works
 
@@ -52,7 +52,7 @@ inside steps and make those steps safe to repeat.
 ### What survives an interruption
 
 The journal records successful steps. If the process stops after a side effect
-but before its result is recorded, that step can run again. Halcyon does not
+but before its result is recorded, that step can run again. Vera does not
 roll back external changes or guarantee that each side effect happens once.
 
 The journal can be a directory of files or a SQLite database. You choose its
@@ -67,6 +67,6 @@ steps, running them, resuming, and inspecting saved results.
 For more control, see [step controls](workflow-steps.md): pause for input,
 set deadlines, provide stable keys, and run hooks before unrecorded steps.
 
-Halcyon ships in Vera's `python/` package and uses `vera.workflow` imports.
+Workflows ship in Vera's `python/` package and uses `vera.workflow` imports.
 It requires Python 3.11 or newer. The workflow runtime itself has no
 third-party package dependencies.

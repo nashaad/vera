@@ -1,20 +1,20 @@
 ---
 title: "Vera manual"
-description: "Use Vera in a project, customize its behavior, and write Halcyon workflows."
+description: "Use Vera in a project, customize its behavior, and write Python workflows."
 ---
 
 # Vera manual
 
-Vera is an agent harness. It connects models to tools and manages conversations,
+Vera is an agent runtime. It connects models to tools and manages conversations,
 context, permissions, and saved work. You can use it interactively in your
 project or call it from application code.
 
-Halcyon is Vera's workflow framework. It runs Python steps and records their
-results so work can resume after interruption.
+Vera workflows run Python steps and record their results so work can resume
+after interruption.
 
 Start with [Getting started](getting-started.md) to connect a model and run
 your first conversation. For recorded Python workflows, start with
-[Halcyon](halcyon.md).
+[How workflows run](workflows.md).
 
 ## Core concepts
 
@@ -39,9 +39,9 @@ your first conversation. For recorded Python workflows, start with
 - [Usage and cost](usage.md)
 - [Conversation budgets](budgets.md)
 
-## Halcyon workflows
+## Workflows
 
-- [How workflows run](halcyon.md)
+- [How workflows run](workflows.md)
 - [Write your first workflow](python-workflows.md)
 - [Control workflow steps](workflow-steps.md)
 - [Watch workflow runs](workflow-runs.md)

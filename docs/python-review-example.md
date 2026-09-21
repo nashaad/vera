@@ -8,7 +8,7 @@ draft: true
 
 This review example remains unvalidated. The SDK now accepts `provider` and
 `model` and makes live calls. References below to overlapping calls do not
-describe Halcyon’s serial `.submit` behavior.
+describe the workflow runner’s serial `.submit` behavior.
 
 ## Example
 

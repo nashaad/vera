@@ -1,15 +1,15 @@
 ---
 title: "Write your first workflow"
-description: "Define steps, choose a journal, and resume completed work with Halcyon."
+description: "Define steps, choose a journal, and resume completed work."
 ---
 
 # Write your first workflow
 
 <p class="vera-warning">Workflows are in alpha. The API will change, so do not build on it yet.</p>
 
-This guide creates a small Halcyon workflow, saves its results, and shows how
+This guide creates a small workflow, saves its results, and shows how
 to resume and inspect a run. Use Python 3.11 or newer from a Vera checkout.
-See [Halcyon workflows](halcyon.md) for how recorded steps work.
+See [How workflows run](workflows.md) for how recorded steps work.
 
 ## Run the included example
 
@@ -216,7 +216,7 @@ record every try, so a step that failed twice before succeeding is three spans
 and one record. A span with no ending is the try whose process died in it.
 
 Field names follow OpenTelemetry, and the span kind follows OpenInference, so
-an exporter maps ids rather than shapes. What Halcyon knows that OpenTelemetry
+an exporter maps ids rather than shapes. What a workflow records that OpenTelemetry
 has no word for rides in `attributes` under a `halcyon.` prefix.
 
 ```python
@@ -266,7 +266,7 @@ def ask(prompt: str) -> str:
     return answer.content[0].text
 ```
 
-`cost` is optional. Halcyon records the number it is given and adds nothing of
+`cost` is optional. Vera records the number it is given and adds nothing of
 its own, so a run with no reported cost shows tokens and no money. The report
 prints the total:
 

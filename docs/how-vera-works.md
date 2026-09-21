@@ -5,12 +5,12 @@ description: "Understand conversations, tools, permissions, and recorded workflo
 
 # How Vera works
 
-Vera is an agent harness. The model generates responses and requests tool calls;
+Vera is an agent runtime. The model generates responses and requests tool calls;
 Vera supplies context, checks permissions, runs tools, and saves the conversation.
 You can inspect changes, stop work, or continue with another message.
 
-For repeatable work, Halcyon lets you write Python workflows that save
-completed steps across restarts.
+For repeatable work, you can write Python workflows that save completed
+steps across restarts.
 
 ## Conversations and tools
 
@@ -85,13 +85,13 @@ and [Switch conversations](session-switching.md).
 Delegated work runs in child conversations. `/subagents` opens their list;
 `/parent` returns to the parent conversation.
 
-## Halcyon workflows
+## Workflows
 
-A workflow is Python code that calls recorded steps. On resume, Halcyon reuses
+A workflow is Python code that calls recorded steps. On resume, Vera reuses
 successful step results and runs steps that have no result in the journal.
 Use it for repeated sequences, processing collections, and work that pauses
 for a person's decision.
 
 A step runs ordinary Python code. Progress is stored in a file or SQLite
-journal that you choose. See [Halcyon workflows](halcyon.md) for the
+journal that you choose. See [How workflows run](workflows.md) for the
 execution and retry rules, then [write your first workflow](python-workflows.md).

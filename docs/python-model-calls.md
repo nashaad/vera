@@ -35,14 +35,14 @@ and does not inherit the rest of the parent environment.
 An empty tool list offers no tools. A live child uses low reasoning effort and
 a 180-second timeout.
 
-## Record a call in Halcyon
+## Record a call in a workflow
 
 Place `vera.run(...)` inside a function decorated with `@step`. Once the step
 result is journaled, resuming the workflow reuses that response.
 
 An interruption before the journal record is saved can repeat the call and
 its provider charge. The same retry rule applies to other step side effects.
-See [How a run works](halcyon.md#how-a-run-works).
+See [How a run works](workflows.md#how-a-run-works).
 
 ## Earlier manual text
 
