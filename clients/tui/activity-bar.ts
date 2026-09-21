@@ -1,4 +1,4 @@
-import { blendHex } from "./activity-pulse.ts";
+import { blendHex } from "./blend-hex.ts";
 
 // 0 is off: nothing on screen moves.
 export type TuiAnimationLevel = 0 | 1 | 2 | 3;
