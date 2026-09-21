@@ -20,6 +20,10 @@ Then run `vera` in your project directory.
 Start with [Getting started](docs/getting-started.md), or read the manual at
 [vera.corvines.com/manual](https://vera.corvines.com/manual/).
 
+## Community
+
+Questions and things you've built: [Discord](https://discord.gg/8svqyjdhS8).
+
 ## Contributing
 
 > [!NOTE]
