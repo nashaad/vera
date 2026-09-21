@@ -63,8 +63,6 @@ export function renderStatus(rt: TuiRuntime): void {
             layout === "split" ? mainWidth : rt.renderer.width,
             layout === "split",
         )
-        : !isHomeClient(rt.client)
-        ? paneHeaderText(rt, rt.sessionTitle ?? "Vera", rt.state.approvalMode, rt.state.modelSettings, rt.renderer.width, false)
         : undefined);
     rt.sidebar.setHeader(
         paneHeadersVisible

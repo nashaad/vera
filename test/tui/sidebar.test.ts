@@ -15,6 +15,7 @@ import {
     MIN_SIDEBAR_WIDTH,
     MIN_TRANSCRIPT_WIDTH,
 } from "../../clients/tui/sidebar.ts";
+import { isTranscriptSelection } from "../../clients/tui/selection.ts";
 
 test("the divider cannot be dragged past either side's floor", () => {
     expect(clampSidebarWidth(DEFAULT_SIDEBAR_WIDTH, 120)).toBe(
@@ -81,7 +82,7 @@ async function openSidebar(
     });
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
-    return { setup, sidebar };
+    return { setup, sidebar, transcript };
 }
 
 test("a drag that jumps clear of the divider still resizes the sidebar", async () => {
@@ -425,3 +426,38 @@ test("cycles between split, sidebar-only, main-only, and split", async () => {
         setup.renderer.destroy();
     }
 });
+
+for (const direction of ["downward", "upward"] as const) {
+    test(`a ${direction} selection across the main pane header copies without clicking it`, async () => {
+        let headerClicks = 0;
+        const { setup, sidebar, transcript } = await openSidebar(
+            120,
+            12,
+            undefined,
+            undefined,
+            undefined,
+            "Please COPY THIS TEXT from the transcript.",
+            undefined,
+            () => { headerClicks += 1; },
+        );
+        try {
+            sidebar.setMainHeader("Vera · auto");
+            await setup.flush();
+            const lines = setup.captureCharFrame().split("\n");
+            const headerRow = lines.findIndex((line) => line.includes("Vera · auto"));
+            const textRow = lines.findIndex((line) => line.includes("Please COPY THIS TEXT"));
+            expect(headerRow).toBeGreaterThanOrEqual(0);
+            const start = { x: lines[headerRow]!.indexOf("Vera"), y: headerRow };
+            const end = { x: lines[textRow]!.indexOf("transcript.") + "transcript.".length, y: textRow };
+            const [from, to] = direction === "downward" ? [start, end] : [end, start];
+            await setup.mockMouse.drag(from.x, from.y, to.x, to.y);
+            await setup.flush();
+            const selection = setup.renderer.getSelection();
+            expect(selection?.getSelectedText()).toContain("Please COPY THIS TEXT from the transcript.");
+            expect(isTranscriptSelection(selection!, [...sidebar.headers(), ...transcript.getChildren()])).toBe(true);
+            expect(headerClicks).toBe(0);
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+}
