@@ -65,15 +65,96 @@ function wave(index: number, frame: number, width: number, speed: number, spread
     return distance > spread ? 0 : 0.5 * (1 + Math.cos(Math.PI * distance / spread));
 }
 
+export interface ReadingPass {
+    readonly start: number;
+    readonly length: number;
+    // Cells per frame.
+    readonly speed: number;
+    // Frames of rest after the pass.
+    readonly gap: number;
+}
+
+// Same index, same numbers: frames must be a pure function of nowMs.
+function unitHash(index: number, salt: number): number {
+    let value = Math.imul(index ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(salt + 1, 0xc2b2ae35);
+    value = Math.imul(value ^ (value >>> 16), 0x7feb352d);
+    value = Math.imul(value ^ (value >>> 15), 0x846ca68b);
+    value ^= value >>> 16;
+    return (value >>> 0) / 0x1_0000_0000;
+}
+
+function pickInt(min: number, max: number, unit: number): number {
+    return min + Math.min(max - min, Math.floor(unit * (max - min + 1)));
+}
+
+export function readingPass(index: number, width: number): ReadingPass {
+    const start = pickInt(0, width - 2, unitHash(index, 0));
+    const length = pickInt(2, width - start, unitHash(index, 1));
+    const speed = 0.09 + 0.07 * unitHash(index, 2);
+    const gap = pickInt(3, 8, unitHash(index, 3));
+    return { start, length, speed, gap };
+}
+
+// Passes vary in duration, so finding the current one means walking from a known
+// origin. Epochs bound that walk; a pass that would cross an epoch end is shortened.
+const READING_EPOCH_FRAMES = 1_200;
+const READING_PASSES_PER_EPOCH = 1_000;
+
+interface ReadingMoment {
+    readonly passIndex: number;
+    readonly pass: ReadingPass;
+    readonly travelled: number;
+}
+
+function readingMoment(frame: number, width: number): ReadingMoment | undefined {
+    const epoch = Math.floor(frame / READING_EPOCH_FRAMES);
+    const inEpoch = frame - epoch * READING_EPOCH_FRAMES;
+    let passStart = 0;
+    for (let slot = 0; slot < READING_PASSES_PER_EPOCH; slot += 1) {
+        const passIndex = epoch * READING_PASSES_PER_EPOCH + slot;
+        const planned = readingPass(passIndex, width);
+        const room = Math.floor((READING_EPOCH_FRAMES - passStart - planned.gap) * planned.speed);
+        const length = Math.min(planned.length, room);
+        if (length < 1) return undefined;
+        const pass: ReadingPass = { ...planned, length };
+        const duration = length / pass.speed;
+        if (inEpoch < passStart + duration) {
+            return { passIndex, pass, travelled: (inEpoch - passStart) * pass.speed };
+        }
+        passStart += duration + pass.gap;
+        if (inEpoch < passStart) return undefined;
+    }
+    return undefined;
+}
+
+const READING_HEAD_GLYPHS = ["▚", "▞", "▙", "▛", "▜", "▟"] as const;
+const READING_TRAIL_GLYPHS = ["▖", "▗", "▘", "▝", "▌", "▐"] as const;
+const READING_GLYPH_FRAMES = 2;
+
+// Salts 0 to 3 pick the pass itself; glyph salts start above them.
+function readingGlyph(glyphs: readonly string[], passIndex: number, index: number, frame: number): string {
+    const bucket = Math.floor(frame / READING_GLYPH_FRAMES);
+    const salt = 4 + bucket * 16 + index;
+    return glyphs[pickInt(0, glyphs.length - 1, unitHash(passIndex, salt))]!;
+}
+
 function cell(kind: TuiActivityKind, index: number, frame: number, width: number): Cell {
     if (kind === "thinking") {
         const strength = Math.max(wave(index, frame, width, 0.2, 3), 0.15);
         return [SHADES[Math.min(3, Math.floor(strength * 4))]!, strength];
     }
     if (kind === "reading") {
-        const behind = (frame * 0.12) % (width + 3) - index;
-        if (behind >= 0 && behind < 1) return ["▚", 1];
-        if (behind >= 1 && behind < 3) return ["▖", 0.45 - (behind - 1) * 0.15];
+        const moment = readingMoment(frame, width);
+        if (moment === undefined) return ["·", 0.12];
+        const head = moment.pass.start + moment.travelled;
+        const behind = head - index;
+        if (index < moment.pass.start) return ["·", 0.12];
+        if (behind >= 0 && behind < 1) {
+            return [readingGlyph(READING_HEAD_GLYPHS, moment.passIndex, index, frame), 1];
+        }
+        if (behind >= 1 && behind < 3) {
+            return [readingGlyph(READING_TRAIL_GLYPHS, moment.passIndex, index, frame), 0.45 - (behind - 1) * 0.15];
+        }
         return ["·", 0.12];
     }
     if (kind === "running") {
