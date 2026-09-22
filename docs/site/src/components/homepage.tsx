@@ -79,7 +79,7 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                             <h1 id="home-heading">A durable, open agent runtime and harness.</h1>
                             <p className="home-lede">Use the SDK library and workflow to script in Python and build your application.</p>
                             <ul className="home-points">
-                                <li>Work with an agent in your terminal.</li>
+                                <li>Code with an agent in your terminal.</li>
                                 <li>Write workflows in plain Python. Steps retry, branch, pick up after a crash, and wait for a person when they need one.</li>
                                 <li>Add extensions, or use the SDK to build your own agents.</li>
                             </ul>
