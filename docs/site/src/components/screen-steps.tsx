@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, SkipBack } from 'lucide-react';
 import { ContextPanel, ConversationDiagram } from './conversation-diagram';
-import { DIFF_FILES, FLOW_EVENT, screenSteps, type FlowHighlight, type KeysAnchor, type ScreenStep, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
+import { DIFF_FILES, FLOW_EVENT, screenSteps, type FlowHighlight, type KeysAnchor, type ScreenStep, type RuleFile, type ScreenSteps as ScreenSequence, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
 import '../styles/screen-steps.css';
 
 const STEP_MS = 1800;
@@ -79,6 +79,7 @@ function lineClass(line: SketchLine): string {
     if (line.live) classes.push('live');
     if (line.appear) classes.push('appear');
     if (line.notice) classes.push('notice');
+    if (line.added) classes.push('added');
     return classes.join(' ');
 }
 
@@ -100,6 +101,8 @@ interface SketchLine {
     appear?: boolean;
     // A plain transcript notice, such as an extension's message.
     notice?: boolean;
+    // A line an edit added, shown under its tool line.
+    added?: boolean;
 }
 
 const MAP_ASK: SketchLine = { you: true, text: 'chart the route to the island' };
@@ -110,9 +113,8 @@ const REEF_READ: SketchLine = { you: false, text: 'Read src/reef.ts', tool: true
 const BUDGET_HALF: SketchLine = { you: false, notice: true, text: 'Halfway through budget: $1.60 spent of $3.00. $1.40 remaining.' };
 const REEF_EDIT: SketchLine = { you: false, text: 'Edit src/loot.ts', tool: true };
 const BUDGET_EIGHTY: SketchLine = { you: false, notice: true, text: '80% of budget used: $2.45 spent of $3.00. $0.55 remaining.' };
-const REFUND_ASK: SketchLine = { you: true, text: 'hide a secret compartment in src/treasure/chest.ts' };
-const ORDERS_READ: SketchLine = { you: false, text: 'Read src/treasure/chest.ts', tool: true };
-const REFUNDS_READ: SketchLine = { you: false, text: 'Read src/treasure/map.ts', tool: true };
+const LOOT_ASK: SketchLine = { you: true, text: 'stash the gold in the chest' };
+const CHEST_READ: SketchLine = { you: false, text: 'Read treasure/chest.yaml', tool: true };
 
 const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[]> = {
     first: [
@@ -190,15 +192,21 @@ const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[
     // The transcript has scrolled, so the oldest lines are gone.
     'budget-continued': [REEF_ASK, REEF_READ, BUDGET_HALF, REEF_EDIT, BUDGET_EIGHTY, { you: false, text: 'Raided the reef: 31 buttons, one very angry kraken.', stream: true }],
     'rules-start': [],
-    'rules-asked': [REFUND_ASK],
-    'rules-read': [REFUND_ASK, ORDERS_READ],
-    'rules-read-again': [REFUND_ASK, ORDERS_READ, REFUNDS_READ],
+    'rules-asked': [LOOT_ASK],
+    'rules-read': [LOOT_ASK, CHEST_READ],
     'rules-done': [
-        REFUND_ASK,
-        ORDERS_READ,
-        REFUNDS_READ,
-        { you: false, text: 'Edit src/treasure/chest.ts', tool: true },
-        { you: false, text: 'Hid the compartment. The map stays out of the chest.', stream: true },
+        LOOT_ASK,
+        CHEST_READ,
+        { you: false, text: 'Edit treasure/chest.yaml', tool: true },
+        { you: false, text: '+ decoy_lid: 3 shiny buttons   # gold goes underneath', added: true },
+        { you: false, text: 'Stashed the gold under a decoy lid of three shiny buttons.', stream: true },
+    ],
+    'rules-without': [
+        LOOT_ASK,
+        CHEST_READ,
+        { you: false, text: 'Edit treasure/chest.yaml', tool: true },
+        { you: false, text: '+ gold: 500 coins   # right on top', added: true },
+        { you: false, text: 'Stashed the gold in the chest.', stream: true },
     ],
 };
 
@@ -341,6 +349,36 @@ function Frame({ step: base, pressed, pressedCount = 0, typeComposer, live }: Fr
     );
 }
 
+function RuleFiles({ files, step }: { files: RuleFile[]; step: number }) {
+    return (
+        <div className="rule-files" aria-hidden="true">
+            <div className="flow-context-title">Rule files</div>
+            {files.length === 0 && <div className="rule-file">none</div>}
+            {files.map((each) => {
+                const classes = ['rule-file'];
+                if (step >= each.step) classes.push('is-in');
+                if (step === each.step) classes.push('is-new');
+                return (
+                    <div key={each.file} className={classes.join(' ')}>
+                        <span className="flow-context-step">{step >= each.step ? each.step : ''}</span>
+                        <span className="rule-file-name">{each.file}</span>
+                        <span className="rule-file-folder">for files in {each.folder}</span>
+                        <span className="rule-file-text">{each.text}</span>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+function arrivals(sequence: ScreenSequence): number[] {
+    const steps: number[] = [];
+    sequence.steps.forEach((each, index) => {
+        while (steps.length < (each.context ?? 0)) steps.push(index + 1);
+    });
+    return steps;
+}
+
 export function ScreenSteps({ name }: ScreenStepsProps) {
     const sequence = screenSteps[name as ScreenStepsName];
     const [index, setIndex] = useState(0);
@@ -397,13 +435,14 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
 
     // Follows the caption, which switches as the key goes down, so the two numbers always match.
     const shownFlow = sequence && index >= 0 ? sequence.steps[index].flow : undefined;
-    const numbered = sequence?.steps.some((each) => each.flow) ?? false;
+    const flowing = sequence?.steps.some((each) => each.flow) ?? false;
+    const numbered = flowing || sequence?.context !== undefined;
     useEffect(() => {
-        if (!numbered) return;
+        if (!flowing) return;
         const detail: FlowHighlight | undefined = shownFlow && { ...shownFlow, step: index + 1 };
         window.dispatchEvent(new CustomEvent<FlowHighlight | undefined>(FLOW_EVENT, { detail }));
         // `wide` is here so the diagram that wide view mounts gets the current step at once.
-    }, [shownFlow, index, numbered, wide]);
+    }, [shownFlow, index, flowing, wide]);
 
     function advance(next: number) {
         if (!sequence) return;
@@ -428,11 +467,15 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
     }
 
     const figure = (
-        <figure className="screen-steps" ref={root} aria-label={sequence.title}>
-            <figcaption className="screen-steps-title">{sequence.title}</figcaption>
+        <figure className={wide && sequence.context ? 'screen-steps wide-context' : 'screen-steps'} ref={root} aria-label={sequence.title}>
+            <figcaption className="screen-steps-title">
+                {sequence.title}
+                {sequence.verdict && <span className={`screen-steps-verdict ${sequence.verdict.tone}`}>{sequence.verdict.text}</span>}
+            </figcaption>
             {sequence.context && (
                 <div className="screen-steps-context">
-                    <ContextPanel entries={sequence.context} count={step.context ?? 0} fresh={step.fresh} />
+                    {sequence.ruleFiles && <RuleFiles files={sequence.ruleFiles} step={index + 1} />}
+                    <ContextPanel entries={sequence.context} count={step.context ?? 0} fresh={step.fresh} steps={arrivals(sequence)} />
                 </div>
             )}
             {pressing
@@ -473,7 +516,7 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
             {createPortal(
                 <div className="screen-steps-wide" role="dialog" aria-modal="true" aria-label={sequence.title}>
                     <div className="screen-steps-wide-inner">
-                        <ConversationDiagram wide />
+                        {flowing && <ConversationDiagram wide />}
                         {figure}
                     </div>
                 </div>,

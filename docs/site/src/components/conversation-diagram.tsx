@@ -55,7 +55,15 @@ const LINES: Record<FlowLine, string> = {
 const BAR_WIDTHS = ['62%', '44%', '54%'];
 
 // Fixed height, so the reader sees the space fill up as each turn adds to it.
-export function ContextPanel({ entries: all, count, fresh = 1 }: { entries: ContextEntry[]; count: number; fresh?: number }) {
+interface ContextPanelProps {
+    entries: ContextEntry[];
+    count: number;
+    fresh?: number;
+    // The step each entry arrived at, matching the numbered captions.
+    steps?: number[];
+}
+
+export function ContextPanel({ entries: all, count, fresh = 1, steps }: ContextPanelProps) {
     const entries = all.slice(0, count);
     return (
         <div className="flow-context" aria-hidden="true">
@@ -66,6 +74,7 @@ export function ContextPanel({ entries: all, count, fresh = 1 }: { entries: Cont
                         key={index}
                         className={index >= count - fresh ? `flow-context-entry ${entry.role} is-new` : `flow-context-entry ${entry.role}`}
                     >
+                        {steps && <span className="flow-context-step">{steps[index]}</span>}
                         <span className="flow-context-role">{entry.role}</span>
                         <span className="flow-context-content">
                             <span className="flow-context-text">{entry.text}</span>
