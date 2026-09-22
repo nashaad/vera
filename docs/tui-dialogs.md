@@ -9,6 +9,14 @@ Most Vera dialogs use arrow keys to choose, Enter to open or confirm, and
 Escape to return or close. The footer shows the action for the focused
 control. Typing in a searchable picker moves into its search field.
 
+A brief overlay can appear as a full-width band at the top of the screen,
+including above an open dialog, for work such as a catalog refresh. The
+message types on quickly, then a tick or a failure mark. Press Escape to close
+it when no dialog is open.
+While a dialog is open, Escape still belongs to the dialog and the overlay
+clears after a few seconds. Clicking it also closes it. Another overlay
+waits its turn. It does not change the dialog's size.
+
 ## Open common dialogs
 
 | Task | Command |

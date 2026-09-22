@@ -87,6 +87,7 @@ export const DIALOG_CARD_PADDING = 4;
 export const DIALOG_BACKGROUND_Z_INDEX = 4;
 export const DIALOG_SCRIM_Z_INDEX = 10;
 export const DIALOG_CARD_Z_INDEX = 20;
+export const TOAST_Z_INDEX = DIALOG_CARD_Z_INDEX + 1;
 
 export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
 

@@ -344,6 +344,15 @@ function scrubForeignHostIdentity(home: string): void {
     }
 }
 
+function uniqueLeftoverPath(leftover: string, entry: string): string {
+    const first = join(leftover, entry);
+    if (!existsSync(first)) return first;
+    for (let n = 2; ; n += 1) {
+        const candidate = join(leftover, `${entry}-${n}`);
+        if (!existsSync(candidate)) return candidate;
+    }
+}
+
 /** Move leftover root files into machine/leftover so the clone can start. */
 export function quarantineUnknownHomeEntries(home: string): void {
     if (!existsSync(home)) return;
@@ -356,7 +365,7 @@ export function quarantineUnknownHomeEntries(home: string): void {
         if (entry.startsWith(".")) continue;
         if (owned.has(entry)) continue;
         mkdirSync(leftover, { recursive: true, mode: 0o700 });
-        renameSync(join(home, entry), join(leftover, entry));
+        renameSync(join(home, entry), uniqueLeftoverPath(leftover, entry));
     }
 }
 

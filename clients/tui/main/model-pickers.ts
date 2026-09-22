@@ -743,11 +743,14 @@ export function openProviderPicker(rt: TuiRuntime,
     void refreshLocalRuntimeStatus(rt);
 }
 
-export function refreshProviderPicker(rt: TuiRuntime, notice: string): void {
+export function refreshProviderPicker(rt: TuiRuntime, notice?: string): void {
     const previous = rt.settingsPicker;
     if (previous?.kind !== "provider") return;
     const selected = previous.options[previous.selectedIndex]?.value;
-    openProviderPicker(rt, previous.parent, { selected, subtitle: notice });
+    openProviderPicker(rt, previous.parent, {
+        selected,
+        ...(notice === undefined ? {} : { subtitle: notice }),
+    });
     const current = rt.settingsPicker;
     if (current?.kind !== "provider") return;
     const searched = updateTuiSettingsPickerSearch(current, previous.query, previous.queryCursor).state!;
