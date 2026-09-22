@@ -305,13 +305,13 @@ import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, ru
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
-import { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
+import { showStatusNotice, showModeToast, hideModeToast, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
 import { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
-export { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
+export { showStatusNotice, showModeToast, hideModeToast, modeToastTakesEscape, layoutModeToastBand, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
 export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview };
 export { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings };
@@ -393,7 +393,6 @@ export function shortConnectionFailure(message: string): string {
 }
 export const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
 export const COPY_NOTICE_DURATION_MS = 1_500;
-export const MODE_TOAST_DURATION_MS = 2_500;
 export const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 export const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 export const SHIMMER_FRAME_INTERVAL_MS = 40;
@@ -1261,6 +1260,7 @@ export async function startTui(
             },
             postNotice(text, noticeOptions) {
                 rt.state = appendTuiNotice(rt.state, text, noticeOptions?.tone);
+                showModeToast(rt, text);
                 renderState(rt);
                 if (
                     noticeOptions?.replay === true
@@ -1865,8 +1865,8 @@ export async function startTui(
     rt.modeToastText = new TextRenderable(rt.renderer, {
         id: "mode-toast-text",
         content: "",
-        fg: rt.theme.background,
-        bg: rt.theme.accent,
+        fg: rt.theme.text,
+        bg: rt.theme[MODE_TOAST_FILL_ROLE],
         width: "100%",
         height: 1,
         wrapMode: "none",
@@ -1874,21 +1874,32 @@ export async function startTui(
     rt.modeToast = new BoxRenderable(rt.renderer, {
         id: "mode-toast",
         position: "absolute",
-        top: 1,
-        right: 2,
-        width: 1,
+        top: 0,
+        left: 0,
+        width: "100%",
         height: 3,
         paddingTop: 1,
         paddingBottom: 1,
         paddingLeft: 2,
         paddingRight: 2,
-        backgroundColor: rt.theme.accent,
+        backgroundColor: rt.theme[MODE_TOAST_FILL_ROLE],
         zIndex: TOAST_Z_INDEX,
+        flexShrink: 0,
         visible: false,
+        onMouseDown: (event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            hideModeToast(rt);
+        },
     });
     rt.modeToast.add(rt.modeToastText);
     rt.modeToastVersion = 0;
-
+    rt.modeToastCurrent = undefined;
+    rt.modeToastQueue = [];
+    rt.modeToastRevealed = 0;
+    rt.modeToastTypeTimer = undefined;
+    rt.modeToastExpireTimer = undefined;
     const {
         panel: composerBox,
         status: composerStatusText,
@@ -2048,6 +2059,7 @@ export async function startTui(
         onLayoutChanged: () => {
             renderJumpToBottom(rt);
             renderSidebarJump(rt);
+            layoutModeToastBand(rt);
             renderCommandSuggestions(rt);
             const settings = focusedAgentState(rt).modelSettings;
             if (settings !== undefined) notifyExtensionSettings(rt, settings);
@@ -2824,10 +2836,13 @@ export async function startTui(
         }),
         tuiThemeProperties(rt.sidebarJump, { backgroundColor: "accent" }),
         tuiThemeProperties(rt.modeToastText, {
-            fg: "background",
-            bg: "accent",
+            fg: "text",
+            bg: MODE_TOAST_FILL_ROLE,
         }),
-        tuiThemeProperties(rt.modeToast, { backgroundColor: "accent" }),
+        tuiThemeProperties(rt.modeToast, { backgroundColor: MODE_TOAST_FILL_ROLE }),
+        () => {
+            layoutModeToastBand(rt);
+        },
         tuiThemeProperties(rt.commandSuggestionsText, { fg: "text" }),
         tuiThemeProperties(rt.commandSuggestionsBox, {
             backgroundColor: "background",

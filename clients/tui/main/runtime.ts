@@ -451,6 +451,11 @@ export interface TuiRuntime {
     modeToastText: TextRenderable;
     modeToast: BoxRenderable;
     modeToastVersion: number;
+    modeToastCurrent: string | undefined;
+    modeToastQueue: string[];
+    modeToastRevealed: number;
+    modeToastTypeTimer: NodeJS.Timeout | undefined;
+    modeToastExpireTimer: NodeJS.Timeout | undefined;
     verificationConsole: {
         readonly requestId: string;
         readonly subject: string;

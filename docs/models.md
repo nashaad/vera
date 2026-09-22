@@ -165,8 +165,11 @@ You are asked to choose again only when it does not.
 ## Refresh or recover a connection
 
 Choose **Refresh model catalog** from Manage models (Ctrl+K on the browse page)
-to reload connected catalogs. A brief overlay reports catalogs refreshed, new
-models, and any failures. A model that has disappeared from its provider is
+to reload connected catalogs. A brief overlay types catalogs refreshed, new
+models, and any failures, then a tick. Press Escape to close it when no
+dialog is open;
+otherwise it clears after a few seconds. Another overlay waits its turn.
+A model that has disappeared from its provider is
 marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 

@@ -341,6 +341,31 @@ test("leftover root files on a clone move into machine/leftover", () => {
     }
 });
 
+test("a second leftover with the same name gets a unique path", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-leftover-again-"));
+    const home = join(root, ".vera");
+    mkdirSync(join(home, "machine", "leftover", "Library", "Caches"), {
+        recursive: true,
+    });
+    writeFileSync(join(home, "machine", "leftover", "Library", "first"), "old\n");
+    mkdirSync(join(home, "Library", "Caches"), { recursive: true });
+    writeFileSync(join(home, "Library", "Caches", "bun"), "new\n");
+    try {
+        quarantineUnknownHomeEntries(home);
+        expect(existsSync(join(home, "Library"))).toBe(false);
+        expect(readFileSync(
+            join(home, "machine", "leftover", "Library", "first"),
+            "utf8",
+        )).toBe("old\n");
+        expect(readFileSync(
+            join(home, "machine", "leftover", "Library-2", "Caches", "bun"),
+            "utf8",
+        )).toBe("new\n");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("reusing a worktree preserves its sessions and never writes the daily home", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
     const worktree = linkedWorktree("ovu-reuse");

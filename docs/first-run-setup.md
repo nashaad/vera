@@ -81,8 +81,10 @@ returns to the screen you came from.
 
 Choose **Refresh providers** below the groups to read every connected catalog.
 To refresh one connection, press Enter on its row and choose **Refresh**.
-The result appears as an overlay above the dialog; your search and highlighted
-row stay in place.
+The result appears as an overlay above the dialog that types the message
+quickly, then a tick. Escape still belongs to the dialog, so the overlay
+clears after a few seconds. Another overlay waits its turn. Your search
+and highlighted row stay in place.
 
 ### Edit a connection
 
