@@ -161,7 +161,7 @@ test("matching is exact, disabled rules are omitted, and blocks sort by id", () 
   expect(contribution).toEqual({
     id: "host.standing-instructions",
     owner: "host",
-    target: "contextual",
+    target: "turn",
     title: "Standing instructions",
     content:
       "These are profile preferences. The current user message overrides them when they conflict. They do not override safety, permissions, tool scope, or project instructions.\n\n" +

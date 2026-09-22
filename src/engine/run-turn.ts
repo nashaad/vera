@@ -91,6 +91,7 @@ import {
     type ContextualContributionContext,
     promptContributionMetadata,
     type PromptContribution,
+    renderPromptContribution,
 } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
@@ -1493,7 +1494,7 @@ export async function runTurn(
                 && state.loadOptionalContext !== false
                 && state.loadContextualContributions !== undefined
             ) {
-                additionalContextualContributions =
+                const loaded =
                     await state.loadContextualContributions(
                         state.instructionRoot
                             ?? {
@@ -1512,8 +1513,25 @@ export async function runTurn(
                             agent: selected?.name ?? "default",
                         },
                     );
+                additionalContextualContributions = loaded.filter(
+                    (contribution) => contribution.target !== "turn",
+                );
                 state.contextualContributionsForTurn =
                     additionalContextualContributions;
+                const forTurn = loaded.filter(
+                    (contribution) => contribution.target === "turn",
+                );
+                if (userMessages.length > 0 && forTurn.length > 0) {
+                    await commitMessage(state, {
+                        role: "user",
+                        internal: true,
+                        content: [{
+                            type: "text",
+                            text: forTurn.map(renderPromptContribution)
+                                .join("\n\n"),
+                        }],
+                    });
+                }
             }
             const tools = denialBreaker.filterOffered(scopedTools);
             const projection = projectModelRequest({

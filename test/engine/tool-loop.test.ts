@@ -3,7 +3,6 @@ import {
     chmod,
     mkdir,
     mkdtemp,
-    readFile,
     realpath,
     rm,
     writeFile,
@@ -19,6 +18,8 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelInputMessage,
+    type ModelMessage,
     type ModelRequest,
     type ToolResultMessage,
 } from "../../src/model/types.ts";
@@ -282,46 +283,55 @@ test("context freezes through deliveries and cadence advances only on user turns
         await running;
     };
 
+    const nudgeTexts = (
+        messages: readonly (ModelMessage | ModelInputMessage)[],
+    ): string[] =>
+        messages.flatMap((message) =>
+            message.role === "user" && message.internal === true
+                ? message.content.flatMap((block) =>
+                    block.type === "text" ? [block.text] : []
+                )
+                : []
+        );
+
     try {
         await runPrompt("first");
 
         expect(contexts).toHaveLength(1);
         expect(requests).toHaveLength(2);
-        expect(requests[0]?.systemPrompt).toContain(
-            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        expect(requests[1]?.systemPrompt).toContain(
-            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        expect(requests[0]?.systemPrompt).toContain(
-            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
         expect(contexts).toEqual([{
             sessionId: "standing-nudges-freeze",
             turn: "user",
             workspace,
             agent: "reviewer",
         }]);
-        const firstHashes = modelRequests.slice(0, 2).map((event) =>
-            event.promptContributions.find((entry) =>
-                entry.id === "host.standing-instructions"
-            )?.sha256
-        );
-        expect(firstHashes[0]).toBeDefined();
-        expect(firstHashes[1]).toBe(firstHashes[0]);
+        for (const request of requests) {
+            expect(request.systemPrompt).not.toContain("STANDING_TEXT");
+        }
+        const firstNudges = nudgeTexts(requests[0]!.messages);
+        expect(firstNudges).toHaveLength(1);
+        expect(firstNudges[0]).toStartWith("## Standing instructions\n");
+        expect(firstNudges[0]).toContain("FIRST_STANDING_TEXT");
+        expect(firstNudges[0]).toContain("SPACED_STANDING_TEXT");
+        expect(requests[0]!.messages[0]?.role).toBe("user");
+        expect(requests[0]!.messages[1]).toMatchObject({
+            role: "user",
+            internal: true,
+        });
+        expect(nudgeTexts(requests[1]!.messages)).toEqual(firstNudges);
 
         saveStandingNudges(profileDirectory, [
             {
                 id: "preference",
                 enabled: true,
-                text: "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
+                text: "SECOND_STANDING_TEXT",
                 trigger: { type: "always" },
                 turnsApart: 0,
             },
             {
                 id: "spaced",
                 enabled: true,
-                text: "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+                text: "SPACED_STANDING_TEXT",
                 trigger: { type: "always" },
                 turnsApart: 2,
             },
@@ -329,61 +339,47 @@ test("context freezes through deliveries and cadence advances only on user turns
         await runDelivery();
 
         expect(contexts).toHaveLength(1);
-        expect(requests[2]?.systemPrompt).toContain(
-            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        expect(requests[2]?.systemPrompt).toContain(
-            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        expect(requests[2]?.systemPrompt).not.toContain(
-            "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
+        expect(nudgeTexts(requests[2]!.messages)).toEqual(firstNudges);
+
         await runPrompt("second");
 
         expect(contexts).toHaveLength(2);
-        expect(requests[3]?.systemPrompt).toContain(
-            "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        expect(requests[3]?.systemPrompt).not.toContain(
-            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        const secondHash = modelRequests[3]?.promptContributions.find((entry) =>
-            entry.id === "host.standing-instructions"
-        )?.sha256;
-        expect(secondHash).toBeDefined();
-        expect(secondHash).not.toBe(firstHashes[0]);
+        // Earlier turns replay unchanged, so the cached prefix survives a nudge change.
+        expect(JSON.stringify(
+            requests[3]!.messages.slice(0, requests[2]!.messages.length),
+        )).toBe(JSON.stringify(requests[2]!.messages));
+        const secondNudges = nudgeTexts(requests[3]!.messages);
+        expect(secondNudges).toHaveLength(2);
+        expect(secondNudges[1]).toContain("SECOND_STANDING_TEXT");
+        expect(secondNudges[1]).not.toContain("SPACED_STANDING_TEXT");
 
         await runPrompt("third");
         expect(contexts).toHaveLength(3);
-        expect(requests[4]?.systemPrompt).toContain(
-            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
-        );
-        const thirdHash = modelRequests[4]?.promptContributions.find((entry) =>
-            entry.id === "host.standing-instructions"
-        )?.sha256;
-        expect(thirdHash).not.toBe(secondHash);
+        expect(JSON.stringify(
+            requests[4]!.messages.slice(0, requests[3]!.messages.length),
+        )).toBe(JSON.stringify(requests[3]!.messages));
+        const thirdNudges = nudgeTexts(requests[4]!.messages);
+        expect(thirdNudges).toHaveLength(3);
+        expect(thirdNudges[2]).toContain("SPACED_STANDING_TEXT");
+        for (const request of requests) {
+            expect(request.systemPrompt).not.toContain("STANDING_TEXT");
+        }
 
-        const forbidden = [
-            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
-            "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
-            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
-        ];
-        const durableBytes = await readFile(sessionPath, "utf8");
-        const exportJson = await exportSession(sessionPath, "json");
-        const exportMarkdown = await exportSession(sessionPath, "markdown");
+        const reopened = await readSessionSnapshot(sessionPath);
+        expect(nudgeTexts(reopened.messages)).toEqual(thirdNudges);
         const thirdUser = store.activeEntries()
-            .filter((entry) => entry.message.role === "user")
+            .filter((entry) =>
+                entry.message.role === "user" && entry.message.internal !== true
+            )
             .at(2);
         expect(thirdUser).toBeDefined();
         await store.rewindBefore(thirdUser!.id);
         const rewindSnapshot = await readSessionSnapshot(sessionPath);
-        for (const text of forbidden) {
-            expect(JSON.stringify(state.messages)).not.toContain(text);
-            expect(durableBytes).not.toContain(text);
-            expect(JSON.stringify(rewindSnapshot.messages)).not.toContain(text);
-            expect(exportJson).not.toContain(text);
-            expect(exportMarkdown).not.toContain(text);
-        }
+        expect(nudgeTexts(rewindSnapshot.messages)).toEqual(secondNudges);
+        expect(await exportSession(sessionPath, "markdown"))
+            .not.toContain("STANDING_TEXT");
+        expect(await exportSession(sessionPath, "json"))
+            .not.toContain("STANDING_TEXT");
     } finally {
         await rm(root, { recursive: true, force: true });
     }

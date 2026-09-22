@@ -121,7 +121,7 @@ export function standingNudgeContribution(
   return {
     id: "host.standing-instructions",
     owner: "host",
-    target: "contextual",
+    target: "turn",
     title: "Standing instructions",
     content,
   };

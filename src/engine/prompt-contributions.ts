@@ -5,7 +5,9 @@ import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 import { alwaysOnRules, type RuleScope, type RuleSnapshot } from "./rules.ts";
 import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
-export type PromptContributionTarget = "stable" | "contextual";
+// "turn" is never in the system prompt: the engine saves it once, as a hidden
+// message after the user's message, so later requests replay the same bytes.
+export type PromptContributionTarget = "stable" | "contextual" | "turn";
 
 export interface PromptContribution {
     readonly id: string;

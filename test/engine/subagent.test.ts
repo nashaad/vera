@@ -1118,7 +1118,7 @@ test("a subagent loads contextual contributions with its own selected agent and 
                 return [{
                     id: "host.standing-instructions",
                     owner: "host",
-                    target: "contextual",
+                    target: "turn",
                     title: "Standing instructions",
                     content: "[explore-child]\nExplore carefully.",
                 }];
@@ -1131,7 +1131,8 @@ test("a subagent loads contextual contributions with its own selected agent and 
             workspace: root,
             agent: "explore",
         });
-        expect(request?.systemPrompt).toContain("[explore-child]");
+        expect(request?.systemPrompt).not.toContain("[explore-child]");
+        expect(JSON.stringify(request?.messages)).toContain("[explore-child]");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
