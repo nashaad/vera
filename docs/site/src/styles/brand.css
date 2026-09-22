@@ -2,6 +2,7 @@
     --brand-bg: #0b0c10;
     --brand-panel: rgba(20, 22, 28, 0.72);
     --brand-ink: #ecebe6;
+    --brand-body: #a6a59f;
     --brand-dim: #9a9c96;
     --brand-line: #262a33;
     --brand-accent: #e8582a;
@@ -34,6 +35,13 @@
     --color-fd-ring: var(--brand-dim);
     --panel-bg: rgba(14, 15, 20, 0.72);
 }
+
+.dark .prose {
+    --tw-prose-body: var(--brand-body);
+    --tw-prose-bullets: var(--brand-dim);
+}
+
+.prose :where(p, li):not(:where(.not-prose *)) { font-weight: 300; }
 
 .dark #nd-sidebar {
     --color-fd-muted: #15171d;
