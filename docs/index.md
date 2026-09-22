@@ -36,6 +36,7 @@ your first conversation. For recorded Python workflows, start with
 - [Queue messages while work runs](queued-messages.md)
 - [Browse workspace changes](workspace-diff.md)
 - [Search the web](web-search.md)
+- [Browser use](browser-use.md)
 - [Usage and cost](usage.md)
 - [Conversation budgets](budgets.md)
 
@@ -72,4 +73,3 @@ your first conversation. For recorded Python workflows, start with
 - [Development instances and process cleanup](runtime-and-worktrees.md)
 - [Use Vera from scripts](programmatic-use.md)
 - [Build a reviewer with the embedded SDK](embedded-sdk-reviewer.md)
-- [Work in a Chrome tab](chrome-browser.md)

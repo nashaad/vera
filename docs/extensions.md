@@ -75,4 +75,3 @@ VERA_EXTENSIONS=extensions/btw,examples/extensions/plan bun run dev:tui
 directories. It does not append them. A running host keeps the list from its
 startup. See [Development instances](runtime-and-worktrees.md).
 
-For browser work, see [Work in a Chrome tab](chrome-browser.md).
