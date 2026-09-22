@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, SkipBack } from 'lucide-react';
+import { CrowMark } from './crow-mark';
 import { ContextPanel, ConversationDiagram, type ContextMark } from './conversation-diagram';
 import { DIFF_FILES, FLOW_EVENT, screenSteps, type ContextEntry, type ContextMeter, type FlowHighlight, type KeysAnchor, type ScreenStep, type RuleFile, type ScreenSteps as ScreenSequence, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
 import '../styles/screen-steps.css';
@@ -529,6 +530,7 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
             <figcaption className="screen-steps-title">
                 {sequence.title}
                 {sequence.verdict && <span className={`screen-steps-verdict ${sequence.verdict.tone}`}>{sequence.verdict.text}</span>}
+                <CrowMark step={index} playing={playing && visible} />
             </figcaption>
             {sequence.context && (
                 <div className="screen-steps-context">

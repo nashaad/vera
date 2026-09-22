@@ -241,3 +241,13 @@
 .screen-steps-verdict { display: inline-block; margin-left: 12px; white-space: nowrap; padding: 2px 8px; border: 1px solid currentColor; border-radius: 4px; font-size: 11px; vertical-align: 2px; }
 .screen-steps-verdict.bad { color: #e5534b; }
 .screen-steps-verdict.good { color: #7fb77e; }
+.screen-steps .screen-steps-title { display: flex; align-items: center; flex-wrap: wrap; }
+.crow-mark { flex: none; width: 40px; height: 32px; margin-left: auto; fill: var(--color-fd-foreground); opacity: 0.55; transition: opacity 0.4s; }
+.crow-mark.is-playing { opacity: 1; }
+.crow-mark-beak { transform-box: view-box; transform-origin: 200px 150px; }
+.crow-mark-bird { transform-box: view-box; transform-origin: 190px 320px; }
+.crow-mark.is-playing .crow-mark-beak { animation: crow-peck 0.5s ease-in-out; }
+.crow-mark.is-playing .crow-mark-bird { animation: crow-breathe 3.6s ease-in-out infinite; }
+@keyframes crow-peck { 40% { transform: rotate(9deg); } }
+@keyframes crow-breathe { 50% { transform: rotate(-2deg) translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .crow-mark .crow-mark-beak, .crow-mark .crow-mark-bird { animation: none; } }
