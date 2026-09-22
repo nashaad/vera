@@ -5,6 +5,7 @@ import { Banner } from 'fumadocs-ui/components/banner';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle, MarkdownCopyButton, ViewOptionsPopover } from 'fumadocs-ui/layouts/docs/page';
 import { Content } from './content';
+import { pageSection } from './page-section';
 import { ManualSearch } from './search';
 import { TerminalReplay } from './terminal-replay';
 
@@ -29,6 +30,7 @@ interface ManualProps {
 }
 
 export function Manual({ tree, title, description, markdownUrl, pathname, toc, html, draft, replay }: ManualProps) {
+    const section = pageSection(tree, pathname);
     return (
         <RootProvider pathname={pathname} search={{ SearchDialog: ManualSearch }} theme={{ defaultTheme: 'dark' }}>
             <Banner className="manual-banner" height="3.75rem"><span aria-hidden="true">🚧</span><span className="manual-banner-tag">Wet paint</span>Vera is under heavy development. Try the code, just expect things to move.</Banner>
@@ -38,7 +40,9 @@ export function Manual({ tree, title, description, markdownUrl, pathname, toc, h
                     toc={toc}
                     tableOfContent={{ style: 'normal', container: { className: 'manual-toc' } }}
                     tableOfContentPopover={{ style: 'normal', container: { className: 'manual-toc' } }}
+                    footer={{ className: 'manual-page-footer' }}
                 >
+                    <p className="manual-eyebrow">{section ?? 'Vera manual'}</p>
                     <DocsTitle>{title}</DocsTitle>
                     <DocsDescription>{description}</DocsDescription>
                     {draft && <p className="text-sm text-fd-muted-foreground">Preview page. Excluded from the public site.</p>}
