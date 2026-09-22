@@ -12,10 +12,10 @@ or project. The current definition determines which skills are available.
 ## Run a skill
 
 Enter the skill's slash command followed by the task. For an installed skill
-named `browser-research`, for example:
+named `consult`, for example:
 
 ```text
-/browser-research compare these two sources
+/consult should we raid the reef or the wreck first?
 ```
 
 Allowed skills appear in the command browser under skills. They do not need a
