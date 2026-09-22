@@ -122,6 +122,25 @@ body {
     text-transform: uppercase;
 }
 
+/* Blockquotes in the manual are notes, not quotations. */
+.prose blockquote:not(:where(.not-prose *)) {
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--color-fd-border);
+    border-radius: 8px;
+    background: var(--color-fd-muted);
+    color: var(--color-fd-foreground);
+    font-style: normal;
+    font-weight: 400;
+}
+
+.prose blockquote:not(:where(.not-prose *)) p::before,
+.prose blockquote:not(:where(.not-prose *)) p::after {
+    content: none;
+}
+
+.prose blockquote:not(:where(.not-prose *)) > :first-child { margin-top: 0; }
+.prose blockquote:not(:where(.not-prose *)) > :last-child { margin-bottom: 0; }
+
 /* Grain sits above everything and ignores the pointer. */
 body::after {
     content: "";

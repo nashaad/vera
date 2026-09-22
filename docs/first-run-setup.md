@@ -57,6 +57,13 @@ built-in local connection uses `http://127.0.0.1:11434` unless `OLLAMA_HOST`
 selects another endpoint. For another server, add its endpoint through
 **Add provider**.
 
+> Connecting Ollama this way works, but it may not give the best experience
+> with Vera. Ollama expects to configure the coding tools it supports itself,
+> through `ollama launch`, and a plain API connection does not get that setup.
+>
+> For local models, use Outrider instead. More details will follow as the
+> Outrider provider rolls out further.
+
 The legacy local installation wizard is separate from this connection form.
 Selecting a model changes the current conversation. Use **Defaults** to choose
 models for later conversations.
