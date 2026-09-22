@@ -21,9 +21,16 @@ shows where a source comes from and whether it belongs to the project or home.
 
 ## Edit a source
 
-Press Ctrl+O in a writable file's preview. Vera uses `VISUAL`, then `EDITOR`,
-then `vi`. For a graphical editor, use its wait option if you want the preview
-to refresh when you finish editing.
+Press Ctrl+O in a writable file's preview to open it in your editor. Vera
+uses the editor set in `VISUAL` or `EDITOR`, and falls back to `vi` when
+neither is set.
+
+Vera reloads the preview when the editor closes. A terminal editor such as
+`vi` or `nano` stays open until you quit, so this works on its own. A
+graphical editor such as VS Code hands the file to its window and returns at
+once, so Vera reloads before you have made any changes. Add its wait flag,
+as in `EDITOR="code --wait"`, and it returns only when you close the file's
+tab.
 
 Bundled skills and extension-provided definitions are read-only here. Close
 and reopen Customize to refresh all catalogs after changes.
