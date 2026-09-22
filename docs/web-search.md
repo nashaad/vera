@@ -24,6 +24,10 @@ or Exa, or install the DuckDuckGo example from
 Key input is masked and saved privately in your Vera home's credential store.
 Verification can incur service charges. Escape cancels it.
 
+Provider actions are grouped: key actions, then move up and move down, then
+enable, disable, and remove. A dashed line separates the groups. A provider
+that needs no key has no key actions.
+
 You can also reach these settings through `/extensions`, then
 `vera.web-search`, then **Search providers**. Changes apply to the next search
 without restarting Vera.
@@ -60,6 +64,20 @@ key to be used again.
 The tool accepts a query and 1 to 10 results, defaulting to 5. Queries are
 limited to 600 characters and 75 words. A search has a 15-second deadline,
 with at most 5 seconds for each provider.
+
+## Install the DuckDuckGo example
+
+DuckDuckGo Lite needs no key and is not included. Install the example, then
+restart the host, because the provider runs there:
+
+```text
+/extension install ~/Projects/vera/examples/extensions/duckduckgo-search
+```
+
+Use the path to your own Vera checkout. It then appears at the bottom of
+`/search-providers`. It reads DuckDuckGo's HTML page, so a block or a changed
+page is reported as a failure rather than as zero results. Keep the volume
+low. `/extension remove example.duckduckgo-search` removes it and its provider.
 
 ## Add a provider from an extension
 

@@ -22,6 +22,9 @@ live conversation, choose what happens to it:
 | Switch, keep running | Leave it working and open the selected conversation. |
 | Escape | Return to the picker. |
 
+Space on a highlighted conversation opens a preview and does not switch.
+Escape closes the preview.
+
 <div data-widget="screen-steps" data-steps="keep-running"></div>
 
 From Home or a saved-file view, Enter opens the selected conversation directly.

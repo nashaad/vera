@@ -63,9 +63,15 @@ Filters narrow results by provider, availability, known price, image support,
 and intelligence score. They also apply to searches. Clearing the search
 returns to the selected collection; it does not clear filters.
 
-The **Intelligence cutoff** slider runs from Any to Smarter. A positive cutoff
-also hides models without scores, including favorites. If a model is missing,
-check the cutoff and other filters before reconnecting its provider.
+Enter on a toggle, such as view, an on/off filter, variants, or **Clear
+filters**, changes that row and leaves the menu open. Choosing a value from
+Show, Sort, or Provider returns you to Filter and sort on the row you changed.
+
+The **Intelligence cutoff** slider runs from Any to Smarter. Left and Right
+change it. Enter returns to the model list and keeps the cutoff; Escape
+returns and keeps it too. A positive cutoff also hides models without scores,
+including favorites. If a model is missing, check the cutoff and other filters
+before reconnecting its provider.
 
 Older and extra variants are normally hidden unless favorited or found by
 search. Turn on variants in Filter and sort to browse them. **Clear filters**
@@ -73,11 +79,15 @@ keeps your search, view, sort order, and favorites.
 
 ### Compare prices and capabilities
 
-Choose **Detailed** view in Filter and sort to see input and output prices,
-status, image support, verification, and the exact model ID. Wider terminals
-show a details panel; narrow terminals keep facts in the list.
+Choose **Detailed** view in Filter and sort to add WA Score, input price,
+output price, and status columns when the terminal is wide enough. When there
+is room for both, a details panel sits beside those columns. If the columns
+need the width, the panel is omitted. A narrower terminal keeps facts in the
+list, including image support, verification, and the exact model ID.
 
-Prices are dollars per million tokens. An unknown price is not zero.
+Prices are dollars per million tokens. Unknown scores and prices show `?`.
+An unknown price is not zero. WA Score, when known, is a rating from blind
+comparisons of responses.
 **Cheapest first** sorts within each provider using three input tokens for
 every output token, with unknown prices last. Other orders are A to Z and,
 within Favorites, your saved favorite order.

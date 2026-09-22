@@ -27,7 +27,9 @@ with Vera.create(workspace="/path/to/project") as vera:
 ```
 
 `Agent` accepts `name`, `instructions`, `tools`, and `posture`. Set `provider`
-and `model` to choose a connected provider and model for that request.
+and `model` together to choose a connected provider and model for that request.
+One without the other is refused. Leave both unset and `run()` returns the
+prompt unchanged, without calling a model.
 
 ## Continue a conversation
 

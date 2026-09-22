@@ -54,6 +54,7 @@ your first conversation. For recorded Python workflows, start with
 - [Use and create skills](skills.md)
 - [Standing instructions](standing-nudges.md)
 - [Rules](rules.md)
+- [Session start hooks](session-start-hooks.md)
 - [Inspect context usage](context-usage.md)
 - [Context limits and compaction](context-levers.md)
 - [Manage extensions](extensions.md)

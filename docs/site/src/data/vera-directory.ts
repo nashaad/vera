@@ -167,7 +167,7 @@ disable-model-invocation: true
         summary: 'Executables for command hooks.',
         loads: 'Run only when a hook in `config.json` names them.',
         detail: 'Command hooks run configured executables before or after tool calls, or at session start. With no hooks configured, nothing runs.',
-        documentedIn: 'llms.txt',
+        documentedIn: 'session-start-hooks',
     },
     {
         name: 'rules/',

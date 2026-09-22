@@ -17,15 +17,16 @@ session stops its worker:
 | Switch, keep running | Leave it working and open the selected conversation. |
 | Escape | Return to the picker. |
 
-From Home or a saved-file view, Enter opens the selected conversation
-directly. Ctrl+E again, or Escape, closes the picker.
+Space on a highlighted conversation opens a preview and does not switch.
+Escape closes the preview. From Home or a saved-file view, Enter opens the
+selected conversation directly. Ctrl+E again, or Escape, closes the picker.
 
 ## Read the status groups
 
 | Group | What it contains |
 | --- | --- |
 | Needs you | Conversations waiting for your response. |
-| Working | Conversations with active work. |
+| Active | Conversations with active work. |
 | Idle | Live conversations that are not working. |
 | Recent | Saved conversation history. |
 

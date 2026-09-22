@@ -75,7 +75,8 @@ provides `/dashboard`; disabling it removes both commands.
 ## Run command hooks
 
 Command hooks run configured executables around tool calls. With no hooks
-configured, the extension runs nothing.
+configured, the extension runs nothing. A hook can also run when a conversation
+starts, resumes, or compacts. See [Session start hooks](session-start-hooks.md).
 
 Find `vera.command-hooks` in `/customize` under Extensions and note its
 absolute path. Add an explicit entry to the home's `config.json`:
