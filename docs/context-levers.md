@@ -12,6 +12,26 @@ large the summary is, and how tool results use the remaining space.
 Use `/context` to inspect usage before changing these settings. If the
 conversation is working well, leave the defaults in place.
 
+## What the model keeps
+
+Every message, tool call and file the model reads takes up tokens in the
+context. The context has a fixed size, so a long session fills it. Once it is
+full, the next model call does not fit.
+
+Vera makes room in two ways. Once the context passes a threshold (60% on a
+typical model window), big tool results from a few turns back are trimmed to a
+short note that says where the full output is saved. If the context still
+passes 82%, older messages become one summary in one go. Your last two
+messages stay as they were.
+
+Here is the same raid twice, first without compaction, then with it. Sizes
+are in made-up crow words, and the model fits 100 of them. Real models count
+tokens and fit hundreds of thousands.
+
+<div data-widget="screen-steps" data-steps="context-no-compaction"></div>
+
+<div data-widget="screen-steps" data-steps="context-compaction"></div>
+
 ## Change a setting
 
 Open `/settings` and choose **Overrides**. The screen contains controls for

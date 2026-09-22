@@ -70,7 +70,8 @@ export type ConversationName =
     | 'first' | 'second' | 'steering' | 'steered' | 'sent'
     | 'tool-start' | 'tool-asked' | 'tool-read' | 'tool-edit' | 'tool-running' | 'tool-ran' | 'tool-done'
     | 'budget-start' | 'budget-set' | 'budget-half' | 'budget-eighty' | 'budget-continued'
-    | 'rules-start' | 'rules-asked' | 'rules-read' | 'rules-done' | 'rules-without';
+    | 'rules-start' | 'rules-asked' | 'rules-read' | 'rules-done' | 'rules-without'
+    | 'fill-ledger' | 'fill-log-ask' | 'fill-log' | 'fill-rum' | 'fill-course' | 'fill-map' | 'fill-failed' | 'fill-summarized' | 'fill-answered';
 
 // Parts of the How Vera works diagram. A step with `flow` lights them while it shows.
 export type FlowNode = 'message' | 'model' | 'response' | 'request' | 'permission' | 'run' | 'results';
@@ -91,13 +92,24 @@ export interface FlowHighlight {
     context?: number;
 }
 
-export type ContextRole = 'system' | 'you' | 'model' | 'tool' | 'rule';
+export type ContextRole = 'system' | 'you' | 'model' | 'tool' | 'rule' | 'summary' | 'more' | 'cut';
 
 export interface ContextEntry {
     role: ContextRole;
     text: string;
     // Roughly how much room it takes, in lines; a file read is the big one.
     lines?: number;
+    // Compaction removes rows, so a sequence that shows it gives every entry the step it arrives at and leaves at.
+    at?: number;
+    gone?: number;
+    // The step it is shown struck through, just before it leaves.
+    folding?: number;
+    // The row the reader should watch, drawn blue and blinking.
+    key?: boolean;
+    // Approximate size; when a sequence gives these, its meter sums them.
+    tokens?: number;
+    // It arrived but does not fit in the window.
+    overflow?: boolean;
 }
 
 // What the model sees during the tool-call walkthrough, in the order it arrives.
@@ -136,6 +148,63 @@ const NO_RULE_CONTEXT: ContextEntry[] = [
     { role: 'model', text: 'Stashed the gold in the chest.' },
 ];
 
+// Sizes are in made-up crow words, 100 to a window, so the sums stay easy. The trim and summary points follow Vera's defaults.
+// Each step adds or changes one thing, so `at` doubles as the step number.
+const SYSTEM: ContextEntry = { role: 'system', text: 'instructions, tools, rules', tokens: 10, at: 1 };
+const LEDGER_ASK: ContextEntry = { role: 'you', text: 'tally the loot in treasure/ledger.yaml', tokens: 1, at: 1 };
+const LEDGER: ContextEntry = { role: 'tool', text: 'all of treasure/ledger.yaml', tokens: 30, at: 1 };
+const MORE_14: ContextEntry = { role: 'more', text: '· · ·  14 more messages', tokens: 15, at: 2 };
+const LOG_ASK: ContextEntry = { role: 'you', text: "read the ship's log", tokens: 1, at: 3 };
+const LOG: ContextEntry = { role: 'tool', text: 'all of ship/log.md', tokens: 20, at: 4 };
+const MORE_20: ContextEntry = { role: 'more', text: '· · ·  20 more messages', tokens: 15 };
+const RUM: ContextEntry = { role: 'you', text: 'stow the rum below deck', tokens: 1 };
+const COURSE: ContextEntry = { role: 'you', text: 'plot a course to skull island', tokens: 1 };
+const MAP: ContextEntry = { role: 'tool', text: 'all of maps/skull-island.md', tokens: 20 };
+
+const NO_COMPACTION_CONTEXT: ContextEntry[] = [
+    SYSTEM,
+    LEDGER_ASK,
+    LEDGER,
+    MORE_14,
+    LOG_ASK,
+    LOG,
+    { ...MORE_20, at: 5 },
+    { ...RUM, at: 6 },
+    { ...COURSE, at: 7 },
+    { ...MAP, at: 8, overflow: true },
+];
+
+const TRIM_AT = 5;
+const FOLD_AT = 11;
+
+function folded(entry: ContextEntry): ContextEntry {
+    return { ...entry, folding: FOLD_AT, gone: FOLD_AT + 1 };
+}
+
+// Everything from the first message up to the last two of yours goes into the summary.
+const SUMMARIZED_ROWS: ContextEntry[] = [
+    LEDGER_ASK,
+    { ...LEDGER, folding: TRIM_AT, gone: TRIM_AT + 1 },
+    { role: 'tool', text: 'ledger.yaml trimmed, full copy saved', tokens: 1, at: TRIM_AT + 1, key: true },
+    MORE_14,
+    LOG_ASK,
+    LOG,
+    { ...MORE_20, at: 7 },
+];
+
+const COMPACTION_CONTEXT: ContextEntry[] = [
+    SYSTEM,
+    { role: 'cut', text: '✂  summary starts here', at: FOLD_AT, gone: FOLD_AT + 1 },
+    { role: 'summary', text: 'raid so far, files: ledger, log', tokens: 5, at: FOLD_AT + 1, key: true },
+    // The full ledger already left when its trimmed note replaced it.
+    ...SUMMARIZED_ROWS.map((entry) => entry.gone === TRIM_AT + 1 ? entry : folded(entry)),
+    { role: 'cut', text: '✂  summary ends here, the rest stays', at: FOLD_AT, gone: FOLD_AT + 1 },
+    { ...RUM, at: 8 },
+    { ...COURSE, at: 9 },
+    { ...MAP, at: 10 },
+    { role: 'model', text: 'Course set: two days west, mind the kraken.', tokens: 1, at: 13 },
+];
+
 export interface SketchHeader {
     name: string;
     status?: string;
@@ -150,6 +219,18 @@ export interface ScreenSteps {
     ruleFiles?: RuleFile[];
     // A tag beside the title, for sequences shown as a pair.
     verdict?: Verdict;
+    // A token meter under the context; `marks` are percents where Vera acts.
+    meter?: ContextMeter;
+}
+
+export interface ContextMeter {
+    window: number;
+    marks: MeterMark[];
+}
+
+export interface MeterMark {
+    percent: number;
+    label: string;
 }
 
 export interface Verdict {
@@ -175,7 +256,9 @@ export type ScreenStepsName =
     | 'tool-call'
     | 'budget-limit'
     | 'rule-without'
-    | 'scoped-rule';
+    | 'scoped-rule'
+    | 'context-no-compaction'
+    | 'context-compaction';
 
 const APPROVAL: SketchRow[] = [
     { label: 'Allow once', active: true },
@@ -922,6 +1005,169 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
             },
         ],
     },
-
-
+    'context-no-compaction': {
+        title: 'Without compaction',
+        context: NO_COMPACTION_CONTEXT,
+        meter: { window: 100, marks: [] },
+        steps: [
+            {
+                action: 'Start a raid.',
+                keys: [],
+                result: 'Every message takes up room. Reading a file puts all of it in, so the ledger alone is 30 crow words.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-ledger',
+            },
+            {
+                keys: [],
+                result: '14 more messages go back and forth. 15 crow words.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-ledger',
+            },
+            {
+                keys: [],
+                result: "You ask for the ship's log. 1 crow word.",
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log-ask',
+            },
+            {
+                keys: [],
+                result: 'The whole log goes in. 20 crow words, 77 in all.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log',
+            },
+            {
+                keys: [],
+                result: '20 more messages. Nothing ever leaves.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log',
+            },
+            {
+                keys: [],
+                result: 'Another message from you.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-rum',
+            },
+            {
+                keys: [],
+                result: 'And another. Only 6 crow words of room are left.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-course',
+            },
+            {
+                keys: [],
+                result: 'The map is 20 crow words. It does not fit, so the next model call fails.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-failed',
+            },
+        ],
+    },
+    'context-compaction': {
+        title: "With Vera's compaction",
+        context: COMPACTION_CONTEXT,
+        meter: { window: 100, marks: [{ percent: 60, label: 'trim' }, { percent: 82, label: 'summarize' }] },
+        steps: [
+            {
+                action: 'Same raid.',
+                keys: [],
+                result: 'Every message takes up room. Reading a file puts all of it in, so the ledger alone is 30 crow words.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-ledger',
+            },
+            {
+                keys: [],
+                result: '14 more messages go back and forth. 15 crow words.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-ledger',
+            },
+            {
+                keys: [],
+                result: "You ask for the ship's log. 1 crow word.",
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log-ask',
+            },
+            {
+                keys: [],
+                result: 'The whole log goes in. 77 crow words, past the 60% line.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log',
+            },
+            {
+                keys: [],
+                result: 'The ledger was read many messages ago, so Vera picks it to trim.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log',
+            },
+            {
+                keys: [],
+                result: 'The ledger shrinks from 30 crow words to a 1-word note, in blue. It says where the full copy is saved. Down to 48.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log',
+            },
+            {
+                keys: [],
+                result: '20 more messages. 63 crow words.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-log',
+            },
+            {
+                keys: [],
+                result: 'Another message from you.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-rum',
+            },
+            {
+                keys: [],
+                result: 'And another.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-course',
+            },
+            {
+                keys: [],
+                result: 'The map goes in. 85 crow words, past the 82% line.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-map',
+            },
+            {
+                keys: [],
+                result: 'Vera marks everything between the blue lines for one summary, in one go. Your last two messages and the map stay.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-map',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'One 5-word summary, in blue, replaces them. Down to 37.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-summarized',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'The next model call fits, and the raid goes on.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'fill-answered',
+            },
+        ],
+    },
 };

@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { CONTEXT_ENTRIES, FLOW_EVENT, type ContextEntry, type FlowHighlight, type FlowLine, type FlowNode } from '../data/screen-steps';
+import { CONTEXT_ENTRIES, FLOW_EVENT, type ContextEntry, type ContextMeter, type FlowHighlight, type FlowLine, type FlowNode } from '../data/screen-steps';
 import '../styles/diagrams.css';
 
 interface DiagramNodeProps {
@@ -55,24 +55,79 @@ const LINES: Record<FlowLine, string> = {
 const BAR_WIDTHS = ['62%', '44%', '54%'];
 
 // Fixed height, so the reader sees the space fill up as each turn adds to it.
+export type ContextMark = 'new' | 'folding' | undefined;
+
 interface ContextPanelProps {
     entries: ContextEntry[];
     count: number;
     fresh?: number;
     // The step each entry arrived at, matching the numbered captions.
     steps?: number[];
+    // Per-entry marks; when given, they replace `fresh`.
+    marks?: ContextMark[];
+    // Given for sequences with token counts: adds a running total and a gauge of the window.
+    meter?: ContextMeter;
 }
 
-export function ContextPanel({ entries: all, count, fresh = 1, steps }: ContextPanelProps) {
-    const entries = all.slice(0, count);
+function entryClass(role: string, mark: ContextMark): string {
+    if (mark === 'new') return `flow-context-entry ${role} is-new`;
+    if (mark === 'folding') return `flow-context-entry ${role} is-folding`;
+    return `flow-context-entry ${role}`;
+}
+
+function runningTotals(entries: ContextEntry[]): number[] {
+    const totals: number[] = [];
+    let sum = 0;
+    for (const entry of entries) {
+        sum += entry.tokens ?? 0;
+        totals.push(sum);
+    }
+    return totals;
+}
+
+// One block per row, stacked from the bottom, so the window visibly fills.
+function gaugeClass(entry: ContextEntry, mark: ContextMark): string {
+    if (entry.overflow) return 'context-gauge-block is-overflow';
+    if (mark === 'folding') return 'context-gauge-block is-folding';
+    if (entry.key) return 'context-gauge-block is-key';
+    if (mark === 'new') return 'context-gauge-block is-new';
+    return 'context-gauge-block';
+}
+
+// What does not fit pokes out above the top.
+function ContextGauge({ entries, marks, meter }: { entries: ContextEntry[]; marks: ContextMark[]; meter: ContextMeter }) {
     return (
-        <div className="flow-context" aria-hidden="true">
-            <div className="flow-context-title">What the model sees</div>
+        <div className="context-gauge">
+            <div className="context-gauge-fill">
+                {entries.map((entry, index) => entry.tokens === undefined ? null : (
+                    <span
+                        key={index}
+                        className={gaugeClass(entry, marks[index])}
+                        style={{ flexBasis: `${(entry.tokens / meter.window) * 100}%` }}
+                    />
+                ))}
+            </div>
+            {meter.marks.map((mark) => (
+                <span key={mark.percent} className="context-gauge-mark" style={{ bottom: `${mark.percent}%` }}>
+                    <span className="context-gauge-mark-label">{mark.percent}%</span>
+                </span>
+            ))}
+        </div>
+    );
+}
+
+export function ContextPanel({ entries: all, count, fresh = 1, steps, marks, meter }: ContextPanelProps) {
+    const entries = all.slice(0, count);
+    const shownMarks = entries.map((_, index) => marks ? marks[index] : index >= count - fresh ? 'new' : undefined);
+    const classes = entries.map((entry, index) =>
+        `${entryClass(entry.role, shownMarks[index])}${entry.key ? ' is-key' : ''}${entry.overflow ? ' is-overflow' : ''}`);
+    const totals = runningTotals(entries);
+    const body = (
             <div className="flow-context-body">
                 {entries.map((entry, index) => (
                     <div
                         key={index}
-                        className={index >= count - fresh ? `flow-context-entry ${entry.role} is-new` : `flow-context-entry ${entry.role}`}
+                        className={classes[index]}
                     >
                         {steps && <span className="flow-context-step">{steps[index]}</span>}
                         <span className="flow-context-role">{entry.role}</span>
@@ -82,9 +137,18 @@ export function ContextPanel({ entries: all, count, fresh = 1, steps }: ContextP
                                 <span key={bar} className="flow-context-bar" style={{ width }} />
                             ))}
                         </span>
+                        {entry.tokens !== undefined && <span className="flow-context-tokens">+{entry.tokens}</span>}
+                        {meter && entry.tokens !== undefined && <span className="flow-context-total">= {totals[index]}</span>}
                     </div>
                 ))}
             </div>
+    );
+    return (
+        <div className="flow-context" aria-hidden="true">
+            <div className="flow-context-title">What the model sees</div>
+            {meter
+                ? <div className="flow-context-frame">{body}<ContextGauge entries={entries} marks={shownMarks} meter={meter} /></div>
+                : body}
         </div>
     );
 }
