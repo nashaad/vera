@@ -9,6 +9,8 @@ Run `/usage` to open Vera's local usage page in your browser. It reads the
 session files in your Vera home and summarizes past work. For reminders and
 approval during active work, use [conversation budgets](budgets.md).
 
+![The usage page for the last 30 days: summary cards, daily spend by model, and a table of conversations](/images/usage-page.png)
+
 Model calls recorded by [Python workflows](python-workflows.md) in the Vera
 home count toward the summary cards, the chart, and the model list. They do
 not appear as conversations in the table. The `/runs` page shows them per run.

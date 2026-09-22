@@ -18,6 +18,8 @@ const options: HTMLReactParserOptions = {
         if (node.attribs['data-widget'] === 'screen-steps') return <ScreenSteps name={node.attribs['data-steps'] ?? ''} />;
         const Component = components[node.name];
         if (!Component) return;
+        // Void tags such as img make React throw if they get any children, even an empty array.
+        if (node.children.length === 0) return <Component {...attributesToProps(node.attribs)} />;
         return (
             <Component {...attributesToProps(node.attribs)}>
                 {domToReact(node.children as DOMNode[], options)}
