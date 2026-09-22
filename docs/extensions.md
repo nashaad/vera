@@ -68,7 +68,7 @@ See [Extension credentials](extension-credentials.md).
 From a development worktree:
 
 ```sh
-VERA_EXTENSIONS=extensions/btw,extensions/plan bun run dev:tui
+VERA_EXTENSIONS=extensions/btw,examples/extensions/plan bun run dev:tui
 ```
 
 `VERA_EXTENSIONS` replaces the configured list with the supplied comma-separated

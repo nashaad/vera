@@ -1,11 +1,11 @@
 ---
 title: "Included extensions"
-description: "Use planning, side conversations, context inspection, and other capabilities that ship with Vera."
+description: "Use side conversations, workspace diffs, context inspection, and other capabilities that ship with Vera."
 ---
 
 # Included extensions
 
-Vera includes extensions for planning, side conversations, workspace diffs,
+Vera includes extensions for side conversations, workspace diffs,
 context inspection, and command hooks. They appear in `/extensions` and
 `/customize`; no separate installation is needed.
 
@@ -27,28 +27,8 @@ The core and optional extensions are:
 ```text
 core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
            vera.reasoning-cycle, vera.session-identity, vera.web-search
-included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.plan
+included   vera.btw, vera.budget, vera.diff, vera.mcp
 ```
-
-## Plan before making changes
-
-Use `/agent plan` to investigate and plan with read, search, and listing
-tools. Use `/agent default` to return to the default definition.
-
-Selecting Plan from auto or full_access changes access to readonly. Selecting
-one of those incompatible access modes later returns to the default definition.
-
-### Configure Plan
-
-Plan's extension configuration supports:
-
-| Option | Effect |
-| --- | --- |
-| `compose_suggestion: true` | Offer to switch from the composer. Off by default. |
-| `allow_skill_scripts: true` | Allow guarded scripts from permitted skills. Off by default. |
-| `skills` | List allowed skills. Omit for installed skills, or use `[]` for none. |
-
-A home or project `plan.md` overrides the included definition.
 
 ## BTW and Pair
 
@@ -114,7 +94,7 @@ in configuration, name their IDs in `disabled_included_extensions`:
 
 ```json
 {
-    "disabled_included_extensions": ["vera.plan", "vera.command-hooks", "vera.btw"]
+    "disabled_included_extensions": ["vera.diff", "vera.command-hooks", "vera.btw"]
 }
 ```
 
@@ -127,6 +107,33 @@ replaces the included copy, even when that entry is disabled. It keeps its own
 configuration. An installed extension with the same ID also replaces the
 included copy.
 
-For Plan configuration, use an explicit entry with the absolute path shown in
-Customize. Restart the host for command-hook or Plan changes. Restart the
-client for Plan or BTW changes.
+Restart the host for command-hook changes. Restart the client for BTW
+changes.
+
+## Example extensions
+
+Examples are not included. Install one by path to try it.
+
+### Plan
+
+Install it with `/extension install examples/extensions/plan`. Then use
+`/agent plan` to investigate and plan with read, search, and listing
+tools. Use `/agent default` to return to the default definition.
+
+Selecting Plan from auto or full_access changes access to readonly. Selecting
+one of those incompatible access modes later returns to the default definition.
+
+#### Configure Plan
+
+An installed copy runs with the defaults. To set options, skip the install and
+add a `config.json` `extensions` entry whose path is the absolute path of
+`examples/extensions/plan`. Its configuration supports:
+
+| Option | Effect |
+| --- | --- |
+| `compose_suggestion: true` | Offer to switch from the composer. Off by default. |
+| `allow_skill_scripts: true` | Allow guarded scripts from permitted skills. Off by default. |
+| `skills` | List allowed skills. Omit for installed skills, or use `[]` for none. |
+
+A home or project `plan.md` overrides the extension's definition. Restart
+the host and client after changing its configuration.

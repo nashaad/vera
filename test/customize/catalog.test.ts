@@ -51,14 +51,14 @@ test("included extension status respects explicit copies and disabled IDs", asyn
         model: "faux/test",
         disabled_included_extensions: ["vera.btw", "vera.command-hooks"],
         extensions: [
-            { path: join(import.meta.dir, "../../extensions/plan"), enabled: false },
+            { path: join(import.meta.dir, "../../extensions/diff"), enabled: false },
             { path: join(home, "btw"), enabled: true },
         ],
     }));
     const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
     const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
     const extensions = catalog.sources.filter((source) => source.category === "extensions");
-    expect(extensions.filter((source) => source.name === "vera.plan"))
+    expect(extensions.filter((source) => source.name === "vera.diff"))
         .toMatchObject([{ scope: "user", status: "disabled" }]);
     expect(extensions.find((source) => source.name === "vera.command-hooks"))
         .toMatchObject({ scope: "core", status: "disabled" });

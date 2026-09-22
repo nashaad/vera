@@ -1,4 +1,4 @@
-import type { VeraClientExtensionApi, VeraExtensionApi } from "../../src/sdk/extensions.ts";
+import type { VeraClientExtensionApi, VeraExtensionApi } from "../../../src/sdk/extensions.ts";
 
 const PLAN_INSTRUCTIONS = `You are planning, not building.
 
