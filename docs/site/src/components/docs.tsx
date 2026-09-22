@@ -8,6 +8,7 @@ import { Content } from './content';
 import { pageSection } from './page-section';
 import { ManualSearch } from './search';
 import { TerminalReplay } from './terminal-replay';
+import { EarlyAccessSwitch, hideEarlyAccess, useShowEarlyAccess } from './early-access';
 
 const OUTBOUND_LINKS = [
     { text: 'Vera home', url: '/' },
@@ -27,14 +28,22 @@ interface ManualProps {
     html: string;
     draft: boolean;
     replay?: 'conversation';
+    earlyAccessUrls: string[];
 }
 
-export function Manual({ tree, title, description, markdownUrl, pathname, toc, html, draft, replay }: ManualProps) {
+export function Manual({ tree, title, description, markdownUrl, pathname, toc, html, draft, replay, earlyAccessUrls }: ManualProps) {
     const section = pageSection(tree, pathname);
+    const [showEarlyAccess, setShowEarlyAccess] = useShowEarlyAccess();
+    const sidebarTree = showEarlyAccess ? tree : hideEarlyAccess(tree, earlyAccessUrls);
     return (
         <RootProvider pathname={pathname} search={{ SearchDialog: ManualSearch }} theme={{ defaultTheme: 'dark' }}>
             <Banner className="manual-banner" height="3.75rem"><span aria-hidden="true">🚧</span><span className="manual-banner-tag">Wet paint</span>Vera is under heavy development. Try the code, just expect things to move.</Banner>
-            <DocsLayout tree={tree} nav={{ title: 'Vera', url: '/manual/' }} links={OUTBOUND_LINKS}>
+            <DocsLayout
+                tree={sidebarTree}
+                nav={{ title: 'Vera', url: '/manual/' }}
+                links={OUTBOUND_LINKS}
+                sidebar={{ footer: <EarlyAccessSwitch show={showEarlyAccess} pageCount={earlyAccessUrls.length} onChange={setShowEarlyAccess} /> }}
+            >
                 <DocsPage
                     className="max-w-[calc(70ch+4rem)]"
                     toc={toc}

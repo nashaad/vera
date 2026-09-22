@@ -33,6 +33,7 @@ const indexContent = await indexRenderer?.render(entry.body ?? '');
 const { headings } = indexContent?.metadata ?? await render(entry);
 const html = indexContent?.code ?? entry.rendered?.html;
 if (html === undefined) throw new Error(`Missing rendered Markdown for ${entry.id}`);
+const earlyAccessUrls = source.getPages().filter((page) => page.data.entry.data.early_access).map((page) => page.url);
 const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3).map((heading) => ({
     depth: heading.depth,
     title: heading.text,
@@ -69,6 +70,7 @@ const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3
             html={html}
             draft={entry.data.draft}
             replay={entry.data.replay}
+            earlyAccessUrls={earlyAccessUrls}
             client:load
         />}
     </body>

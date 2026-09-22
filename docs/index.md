@@ -1,6 +1,6 @@
 ---
 title: "Vera manual"
-description: "Use Vera in a project, customize its behavior, and write Python workflows."
+description: "Use Vera in a project and customize its behavior."
 ---
 
 # Vera manual
@@ -9,12 +9,8 @@ Vera is an agent runtime. It connects models to tools and manages conversations,
 context, permissions, and saved work. You can use it interactively in your
 project or call it from application code.
 
-Vera workflows run Python steps and record their results so work can resume
-after interruption.
-
 Start with [Getting started](getting-started.md) to connect a model and run
-your first conversation. For recorded Python workflows, start with
-[How workflows run](workflows.md).
+your first conversation.
 
 ## Core concepts
 
@@ -40,7 +36,7 @@ your first conversation. For recorded Python workflows, start with
 - [Usage and cost](usage.md)
 - [Conversation budgets](budgets.md)
 
-## Workflows
+## Workflows (early access)
 
 - [How workflows run](workflows.md)
 - [Write your first workflow](python-workflows.md)

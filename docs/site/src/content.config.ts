@@ -11,6 +11,7 @@ export const collections = {
             draft: z.boolean().default(false),
             replay: z.enum(['conversation']).optional(),
             layout: z.enum(['manual', 'homepage']).default('manual'),
+            early_access: z.boolean().default(false),
         }),
     }),
 };
