@@ -5,12 +5,34 @@ description: "Use Vera in a project and customize its behavior."
 
 # Vera manual
 
-Vera is an agent runtime. It connects models to tools and manages conversations,
-context, permissions, and saved work. You can use it interactively in your
-project or call it from application code.
+Vera is a coding agent, built on its own agent harness and runtime.
+
+- **For everyday use**\
+  Ask it to research, search the web, use a browser, or sort through files.
+- **For coding**\
+  It reads and changes code in your project, within your permissions.
+- **For app builders**\
+  Put agents in your own software: call Vera from code, add tools, and define agents.
+- **Harness**\
+  The code that gives a model tools, context, and permission checks. Without it, a model can only reply with text; with it, the model can work with you and act on your system.
+- **Runtime**\
+  A host process that keeps conversations running and saved.
 
 Start with [Getting started](getting-started.md) to connect a model and run
 your first conversation.
+
+> [!WARNING]
+> **Safety**
+> No harness can guarantee safety, Vera included. Ask and auto are for normal
+> work; run full access only in an isolated environment. See
+> [What to expect](how-vera-works.md#what-to-expect).
+
+> [!NOTE]
+> **Privacy**
+> Vera does not collect your data and never will. It has no telemetry. Your
+> conversations go only to the model providers and tools you set up. Vera
+> downloads a few public files, such as the recommended model list and model
+> scores, and sends nothing about you with them.
 
 ## Core concepts
 
@@ -36,6 +58,8 @@ your first conversation.
 - [Usage and cost](usage.md)
 - [Conversation budgets](budgets.md)
 
+<div data-early-access="workflows-early-access">
+
 ## Workflows (early access)
 
 - [How workflows run](workflows.md)
@@ -43,6 +67,8 @@ your first conversation.
 - [Control workflow steps](workflow-steps.md)
 - [Watch workflow runs](workflow-runs.md)
 - [Run Vera from Python](python-agents.md)
+
+</div>
 
 ## Customize
 

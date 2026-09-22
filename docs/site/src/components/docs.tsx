@@ -4,7 +4,7 @@ import { RootProvider } from 'fumadocs-ui/provider/astro';
 import { Banner } from 'fumadocs-ui/components/banner';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
 import { DocsBody, DocsDescription, DocsPage, DocsTitle, MarkdownCopyButton, ViewOptionsPopover } from 'fumadocs-ui/layouts/docs/page';
-import { Content } from './content';
+import { Content, earlyAccessHeadings } from './content';
 import { pageSection } from './page-section';
 import { ManualSearch } from './search';
 import { TerminalReplay } from './terminal-replay';
@@ -35,6 +35,8 @@ export function Manual({ tree, title, description, markdownUrl, pathname, toc, h
     const section = pageSection(tree, pathname);
     const [showEarlyAccess, setShowEarlyAccess] = useShowEarlyAccess();
     const sidebarTree = showEarlyAccess ? tree : hideEarlyAccess(tree, earlyAccessUrls);
+    const hiddenHeadings = earlyAccessHeadings(html);
+    const visibleToc = showEarlyAccess ? toc : toc.filter((item) => !hiddenHeadings.has(item.url.replace('#', '')));
     return (
         <RootProvider pathname={pathname} search={{ SearchDialog: ManualSearch }} theme={{ defaultTheme: 'dark' }}>
             <Banner className="manual-banner" height="3.75rem"><span aria-hidden="true">🚧</span><span className="manual-banner-tag">Wet paint</span>Vera is under heavy development. Try the code, just expect things to move.</Banner>
@@ -46,7 +48,7 @@ export function Manual({ tree, title, description, markdownUrl, pathname, toc, h
             >
                 <DocsPage
                     className="max-w-[calc(70ch+4rem)]"
-                    toc={toc}
+                    toc={visibleToc}
                     tableOfContent={{ style: 'normal', container: { className: 'manual-toc' } }}
                     tableOfContentPopover={{ style: 'normal', container: { className: 'manual-toc' } }}
                     footer={{ className: 'manual-page-footer' }}
@@ -60,7 +62,7 @@ export function Manual({ tree, title, description, markdownUrl, pathname, toc, h
                         <ViewOptionsPopover markdownUrl={markdownUrl} />
                     </div>
                     <DocsBody>
-                        <Content html={html} />
+                        <Content html={html} showEarlyAccess={showEarlyAccess} />
                         {replay && <TerminalReplay recording={replay} />}
                     </DocsBody>
                 </DocsPage>

@@ -15,6 +15,12 @@ decisions add a line to the conversation.
 The classifier is separate from the model working on your task. Changing the
 conversation model does not change the configured classifier.
 
+> [!NOTE]
+> A managed service is on the roadmap. It will be opt-in and will run Vera
+> fully automatically at a choice of usage tiers. Vera will pick the models,
+> including the classifier, to meet the tier's expected performance, for
+> users who would rather not tune models themselves.
+
 ## Choose a classifier
 
 1. Open `/settings` and choose **Defaults**.
@@ -23,6 +29,12 @@ conversation model does not change the configured classifier.
 
 The assignment applies to the next classification, including in existing
 conversations. No host restart is needed.
+
+> [!WARNING]
+> A weak classifier can approve an action it should have blocked. Use a model
+> at the level of Claude Haiku 4.5 or better. To find one, set the
+> **Intelligence cutoff** in the model picker's Filter and sort (see
+> [Models](models.md)) so that only well-ranked models are listed.
 
 ### Override the default
 
@@ -42,41 +54,17 @@ tool and confirms that the action did not run.
 The classifier receives user turns and tool calls. It does not receive tool
 results.
 
-## Add a second review
+## Recover from an unavailable classifier
 
-By default, each reviewed action makes one classifier request. To give
-uncertain decisions a second pass, enable `two_tier`:
-
-```json
-{
-  "reviewer": {
-    "model": "provider/model-id",
-    "provider": "openrouter",
-    "two_tier": true,
-    "escalation_reasoning_effort": "high"
-  }
-}
-```
-
-Replace the example route with a connected model. With two-tier review, low
-and medium risk allows finish after the first pass. Other decisions get a
-second pass on the same model by default.
-
-Use `escalation_model` and optionally `escalation_provider` to choose another
-model for the second pass.
-
-### Recover from an unavailable classifier
-
-A failsafe handles a reviewer that errors or cannot be reached. It is separate
-from a second opinion. Configure it in `/settings` under Classifier, or use
-`fallback_model`, `fallback_provider`, and `fallback_reasoning_effort` in the
-reviewer configuration.
+A failsafe handles a reviewer that errors or cannot be reached. Configure it in
+`/settings` under Classifier, or use `fallback_model`, `fallback_provider`, and
+`fallback_reasoning_effort` in the reviewer configuration.
 
 ## Inspect review logs
 
 Each classifier request is recorded in
-`~/.vera/runtime/logs/reviewer.jsonl`. Two-tier review records two requests.
-The log includes the prompt, response, grades, and latency.
+`~/.vera/runtime/logs/reviewer.jsonl`. The log includes the prompt, response, grades, and latency.
 
-This is a private diagnostic file containing conversation material sent to
-the classifier provider. Treat it as sensitive when sharing a report.
+> [!WARNING]
+> This is a private diagnostic file containing conversation material sent to
+> the classifier provider. Treat it as sensitive when sharing a report.

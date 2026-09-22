@@ -57,6 +57,20 @@ Automatic approval checks rules first and uses a classifier when needed. See
 [Automatic approval](permission-classifier.md) for configuration and failure
 behavior.
 
+### What to expect
+
+- No harness can guarantee safety, Vera included. A model can misread a
+  request or follow instructions hidden in a file it reads.
+- Ask and auto are for normal work. Both can still go wrong, so keep an eye
+  on what Vera does.
+- Vera does not ask you to trust a new folder. The folder's instruction
+  files, skills, and rules load straight away. Extensions load only from your
+  Vera home, never from the folder.
+
+> [!WARNING]
+> Use full access only in an isolated environment, such as a container or a
+> virtual machine. It runs every tool without asking.
+
 ## Context and customization
 
 Each request includes the conversation's working context. Instructions, tool
@@ -84,9 +98,13 @@ and [Switch conversations](session-switching.md).
 Delegated work runs in child conversations. `/subagents` opens their list;
 `/parent` returns to the parent conversation.
 
+<div data-early-access="workflows">
+
 ## Workflows
 
-Workflows are in early access and not yet well tested. The API will change.
+> [!NOTE]
+> **Early access**
+> Workflows are still being developed. The API will change.
 
 A workflow is Python code that calls recorded steps. On resume, Vera reuses
 successful step results and runs steps that have no result in the journal.
@@ -96,3 +114,5 @@ for a person's decision.
 A step runs ordinary Python code. Progress is stored in a file or SQLite
 journal that you choose. See [How workflows run](workflows.md) for the
 execution and retry rules, then [write your first workflow](python-workflows.md).
+
+</div>

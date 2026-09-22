@@ -69,5 +69,8 @@ vera inspect ~/.vera/runtime/sessions/<session-id>.jsonl
 
 This prints the latest recorded provider-neutral request: system prompt,
 model-visible messages, and offered tools. It is not the provider's wire
-payload. It can contain project files, tool results, prompts, and private
-reasoning from earlier messages, so treat the export as sensitive local data.
+payload.
+
+> [!WARNING]
+> The export can contain project files, tool results, prompts, and private
+> reasoning from earlier messages. Treat it as sensitive local data.

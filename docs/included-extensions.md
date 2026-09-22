@@ -84,8 +84,11 @@ absolute path. Add an explicit entry to the home's `config.json`:
 receive JSON on stdin and return a hook result as JSON on stdout. The default
 timeout is one second; the maximum is 30 seconds.
 
-Scripts run with Vera's operating-system access. Hook failures do not guarantee
-a blocked tool call, so hooks should not be used as a security boundary.
+> [!WARNING]
+> Scripts run with Vera's operating-system access. Hook failures do not
+> guarantee a blocked tool call, so hooks should not be used as a security
+> boundary.
+
 Malformed supplied configuration prevents activation.
 
 ## Configure or disable included copies
