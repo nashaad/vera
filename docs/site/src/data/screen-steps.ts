@@ -104,11 +104,11 @@ export interface ContextEntry {
 export const CONTEXT_ENTRIES: ContextEntry[] = [
     { role: 'system', text: 'instructions, tools, project rules', lines: 2 },
     { role: 'you', text: 'mark the X in src/map.ts and run the tests' },
-    { role: 'model', text: 'read src/map.ts' },
+    { role: 'model', text: 'asks to read src/map.ts' },
     { role: 'tool', text: 'src/map.ts, 42 lines of code', lines: 3 },
-    { role: 'model', text: 'edit src/map.ts' },
+    { role: 'model', text: 'asks to edit src/map.ts' },
     { role: 'tool', text: 'edited src/map.ts' },
-    { role: 'model', text: 'bash: bun test' },
+    { role: 'model', text: 'asks to run bun test' },
     { role: 'tool', text: '12 pass, 0 fail' },
     { role: 'model', text: 'Marked the X at the north cove. The map tests pass.' },
 ];
@@ -117,21 +117,21 @@ export const CONTEXT_ENTRIES: ContextEntry[] = [
 const RULE_SHARED: ContextEntry[] = [
     { role: 'system', text: 'instructions, tools, always-on rules', lines: 2 },
     { role: 'you', text: 'stash the gold in the chest' },
-    { role: 'model', text: 'read treasure/chest.yaml' },
+    { role: 'model', text: 'asks to read treasure/chest.yaml' },
     { role: 'tool', text: 'treasure/chest.yaml, 30 lines', lines: 2 },
 ];
 
 const RULE_CONTEXT: ContextEntry[] = [
     ...RULE_SHARED,
     { role: 'rule', text: 'chest.yaml is in treasure/, so: every chest gets a decoy lid' },
-    { role: 'model', text: 'edit chest.yaml: + decoy lid, gold underneath' },
+    { role: 'model', text: 'asks to edit chest.yaml: + decoy lid, gold underneath' },
     { role: 'tool', text: 'edited treasure/chest.yaml' },
     { role: 'model', text: 'Stashed the gold under a decoy lid of three shiny buttons.' },
 ];
 
 const NO_RULE_CONTEXT: ContextEntry[] = [
     ...RULE_SHARED,
-    { role: 'model', text: 'edit chest.yaml: + gold, right on top' },
+    { role: 'model', text: 'asks to edit chest.yaml: + gold, right on top' },
     { role: 'tool', text: 'edited treasure/chest.yaml' },
     { role: 'model', text: 'Stashed the gold in the chest.' },
 ];
