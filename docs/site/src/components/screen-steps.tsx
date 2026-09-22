@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Pause, Play, SkipBack } from 'lucide-react';
-import { DIFF_FILES, screenSteps, type KeysAnchor, type ScreenStep, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, SkipBack } from 'lucide-react';
+import { ConversationDiagram } from './conversation-diagram';
+import { DIFF_FILES, FLOW_EVENT, screenSteps, type FlowHighlight, type KeysAnchor, type ScreenStep, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
 import '../styles/screen-steps.css';
 
 const STEP_MS = 1800;
@@ -69,6 +71,16 @@ function Typed({ text, ms = TYPE_MS, run }: { text: string; ms?: number; run: bo
     return <>{text.slice(0, shown)}</>;
 }
 
+function lineClass(line: SketchLine): string {
+    const classes = ['sketch-line'];
+    if (line.you) classes.push('you');
+    if (line.tool) classes.push('tool');
+    if (line.header) classes.push('tool-header');
+    if (line.live) classes.push('live');
+    if (line.appear) classes.push('appear');
+    return classes.join(' ');
+}
+
 function Bar({ width }: { width: string }) {
     return <span className="sketch-bar" style={{ width }} />;
 }
@@ -79,9 +91,15 @@ interface SketchLine {
     you: boolean;
     text: string;
     stream?: boolean;
+    tool?: boolean;
+    // A tool group header such as Running or Ran; `live` marks one still running.
+    header?: boolean;
+    live?: boolean;
+    // Fades in instead of typing, for output that lands all at once.
+    appear?: boolean;
 }
 
-const CONVERSATIONS: Record<'first' | 'second' | 'steering' | 'steered' | 'sent', SketchLine[]> = {
+const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[]> = {
     first: [
         { you: true, text: 'chart the route to the island' },
         { you: false, text: 'Reading src/map.ts for the reef markers.' },
@@ -114,6 +132,41 @@ const CONVERSATIONS: Record<'first' | 'second' | 'steering' | 'steered' | 'sent'
         { you: true, text: 'then hide the map' },
         { you: true, text: 'and feed the parrot' },
         { you: false, text: 'Hid the map and fed the parrot.', stream: true },
+    ],
+    'tool-start': [],
+    'tool-asked': [
+        { you: true, text: 'mark the X in src/map.ts and run the tests' },
+    ],
+    'tool-read': [
+        { you: true, text: 'mark the X in src/map.ts and run the tests' },
+        { you: false, text: 'Read src/map.ts', tool: true },
+    ],
+    'tool-edit': [
+        { you: true, text: 'mark the X in src/map.ts and run the tests' },
+        { you: false, text: 'Read src/map.ts', tool: true },
+        { you: false, text: 'Edit src/map.ts', tool: true },
+    ],
+    'tool-running': [
+        { you: true, text: 'mark the X in src/map.ts and run the tests' },
+        { you: false, text: 'Read src/map.ts', tool: true },
+        { you: false, text: 'Edit src/map.ts', tool: true },
+        { you: false, text: 'Running', header: true, live: true },
+        { you: false, text: 'bun test', tool: true },
+    ],
+    'tool-ran': [
+        { you: true, text: 'mark the X in src/map.ts and run the tests' },
+        { you: false, text: 'Read src/map.ts', tool: true },
+        { you: false, text: 'Edit src/map.ts', tool: true },
+        { you: false, text: 'Ran  bun test', header: true },
+        { you: false, text: '12 pass, 0 fail', tool: true, appear: true },
+    ],
+    'tool-done': [
+        { you: true, text: 'mark the X in src/map.ts and run the tests' },
+        { you: false, text: 'Read src/map.ts', tool: true },
+        { you: false, text: 'Edit src/map.ts', tool: true },
+        { you: false, text: 'Ran  bun test', header: true },
+        { you: false, text: '12 pass, 0 fail', tool: true },
+        { you: false, text: 'Marked the X at the north cove. The map tests pass.', stream: true },
     ],
 };
 
@@ -148,6 +201,7 @@ function Dialog({ dialog, keys }: { dialog: SketchDialog; keys?: ReactNode }) {
                 {dialog.title !== undefined ? <span>{dialog.title}</span> : <span className="sketch-title-bar"><Bar width="100%" /></span>}
                 <span className="sketch-dim">esc</span>
             </div>
+            {dialog.body && <div className="sketch-dialog-body">{dialog.body}</div>}
             {dialog.search !== undefined && (
                 <div className="sketch-search">
                     {dialog.search}
@@ -209,7 +263,7 @@ interface FrameProps {
 
 // `pressed` is the step whose keys act on this frame; `pressedCount` of them are down so far.
 function Frame({ step: base, pressed, pressedCount = 0, typeComposer, live }: FrameProps) {
-    const shownKeys = pressed ? pressed.keys.slice(0, pressedCount) : [];
+    const shownKeys = pressed ? pressed.keys.slice(0, pressedCount) : base.held ?? [];
     const step = moveHighlight(base, keyDelta(shownKeys));
     const lines = CONVERSATIONS[step.conversation ?? 'first'];
     const covered = step.dialog !== undefined;
@@ -227,8 +281,9 @@ function Frame({ step: base, pressed, pressedCount = 0, typeComposer, live }: Fr
                     </div>
                 )}
                 {step.page ? <Page page={step.page} keys={keys} anchor={anchor} /> : lines.map((line, index) => (
-                    <div key={index} className={line.you ? 'sketch-line you' : 'sketch-line'}>
+                    <div key={index} className={lineClass(line)}>
                         {line.you && <span className="sketch-prompt">&gt;</span>}
+                        {line.tool && <span className="sketch-tool-mark">└</span>}
                         <span className="sketch-text">{line.stream ? <Typed text={line.text} ms={STREAM_MS} run={live} /> : line.text}</span>
                     </div>
                 ))}
@@ -261,16 +316,36 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
     const [pressed, setPressed] = useState(sequence?.steps[0].keys.length ? 1 : 0);
     const pressing = pressed > 0;
     const [visible, setVisible] = useState(false);
+    // Wide view shows the diagram beside the screen, for widgets that drive it.
+    const [wide, setWide] = useState(false);
     const root = useRef<HTMLElement>(null);
 
     useEffect(() => {
         if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) setPlaying(true);
+    }, []);
+
+    // The figure moves to a new node when wide view toggles, so observe it again.
+    useEffect(() => {
         const element = root.current;
         if (!element) return;
         const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: 0.4 });
         observer.observe(element);
         return () => observer.disconnect();
-    }, []);
+    }, [wide]);
+
+    useEffect(() => {
+        if (!wide) return;
+        function onKey(event: KeyboardEvent) {
+            if (event.key === 'Escape') setWide(false);
+        }
+        window.addEventListener('keydown', onKey);
+        const overflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            window.removeEventListener('keydown', onKey);
+            document.body.style.overflow = overflow;
+        };
+    }, [wide]);
 
     // Runs while paused too, so Next still shows the key press.
     useEffect(() => {
@@ -286,6 +361,16 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
         const timer = window.setTimeout(() => advance(last ? 0 : index + 1), last ? STEP_MS * 1.6 : STEP_MS);
         return () => window.clearTimeout(timer);
     }, [playing, visible, pressing, index, sequence]);
+
+    // Follows the caption, which switches as the key goes down, so the two numbers always match.
+    const shownFlow = sequence && index >= 0 ? sequence.steps[index].flow : undefined;
+    const numbered = sequence?.steps.some((each) => each.flow) ?? false;
+    useEffect(() => {
+        if (!numbered) return;
+        const detail: FlowHighlight | undefined = shownFlow && { ...shownFlow, step: index + 1 };
+        window.dispatchEvent(new CustomEvent<FlowHighlight | undefined>(FLOW_EVENT, { detail }));
+        // `wide` is here so the diagram that wide view mounts gets the current step at once.
+    }, [shownFlow, index, numbered, wide]);
 
     function advance(next: number) {
         if (!sequence) return;
@@ -309,7 +394,7 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
         advance(index + 1);
     }
 
-    return (
+    const figure = (
         <figure className="screen-steps" ref={root} aria-label={sequence.title}>
             <figcaption className="screen-steps-title">{sequence.title}</figcaption>
             {pressing
@@ -319,6 +404,7 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
             <div className="screen-steps-caption">
                 {sequence.steps.map((each, eachIndex) => (
                     <div key={eachIndex} className={eachIndex === index ? 'current' : undefined} aria-hidden={eachIndex !== index} aria-live={eachIndex === index ? 'polite' : undefined}>
+                        {numbered && <span className="screen-steps-number">{eachIndex + 1}</span>}
                         {each.action && <p className="screen-steps-action"><Inline text={each.action} /></p>}
                         {each.result && <p className="screen-steps-result"><Inline text={each.result} /></p>}
                     </div>
@@ -329,8 +415,32 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
                 <button type="button" onClick={() => goTo(index - 1)} aria-label="Previous step" disabled={index === 0}><ChevronLeft /></button>
                 <button type="button" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Play'}>{playing ? <Pause /> : <Play />}</button>
                 <button type="button" onClick={goNext} aria-label="Next step" disabled={index === count - 1}><ChevronRight /></button>
+                {numbered && (
+                    <button type="button" className="screen-steps-wide-toggle" onClick={() => setWide(!wide)} aria-label={wide ? 'Close wide view' : 'Wide view'} aria-pressed={wide}>
+                        {wide ? <Minimize2 /> : <Maximize2 />}
+                        <span>{wide ? 'Close wide view' : 'Wide view'}</span>
+                    </button>
+                )}
                 <span className="screen-steps-counter">{index + 1} of {count}</span>
             </div>
         </figure>
+    );
+
+    if (!wide) return figure;
+    return (
+        <>
+            <div className="screen-steps-wide-placeholder">
+                <button type="button" onClick={() => setWide(false)}>Close wide view</button>
+            </div>
+            {createPortal(
+                <div className="screen-steps-wide" role="dialog" aria-modal="true" aria-label={sequence.title}>
+                    <div className="screen-steps-wide-inner">
+                        <ConversationDiagram wide />
+                        {figure}
+                    </div>
+                </div>,
+                document.body,
+            )}
+        </>
     );
 }

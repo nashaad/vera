@@ -192,3 +192,39 @@
 /* Each prompt is its own band, so two prompts in a row read as two messages. */
 .sketch-line.you { margin: 3px 0; padding: 0 8px; background: color-mix(in srgb, var(--sketch-accent) 9%, transparent); }
 .sketch-main > .sketch-line.you:first-child { margin-top: 0; }
+.sketch-line.tool { color: var(--color-fd-muted-foreground); font-family: var(--brand-mono); }
+.sketch-tool-mark { color: var(--sketch-accent); }
+.sketch-dialog-body { padding: 4px 10px; color: var(--color-fd-foreground); font-family: var(--brand-mono); }
+/* Same numbered circle as the diagram above, so the caption and the lit box read as one step. */
+.screen-steps-caption > div:has(.screen-steps-number) { position: relative; padding-left: 34px; }
+.screen-steps-number {
+    position: absolute;
+    top: 1px;
+    left: 0;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--brand-accent);
+    color: var(--brand-bg);
+    font-family: var(--brand-mono);
+    font-size: 12px;
+    font-weight: 600;
+}
+.sketch-line.tool-header { white-space: pre; color: var(--color-fd-foreground); font-family: var(--brand-mono); font-weight: 600; }
+.sketch-line.tool-header.live { color: var(--sketch-accent); animation: sketch-live 1.2s ease-in-out infinite; }
+.sketch-line.appear { animation: sketch-appear 0.6s ease-out; }
+@keyframes sketch-live { 50% { opacity: 0.45; } }
+@keyframes sketch-appear { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .sketch-line.tool-header.live, .sketch-line.appear { animation: none; } }
+.screen-steps-controls .screen-steps-wide-toggle { display: none; margin-left: auto; }
+.screen-steps-wide-toggle + .screen-steps-counter { margin-left: 12px; }
+@media (min-width: 1100px) { .screen-steps-controls .screen-steps-wide-toggle { display: inline-flex; } }
+.screen-steps-controls .screen-steps-wide-toggle { align-items: center; gap: 8px; padding: 5px 12px; border: 1px solid var(--sketch-accent); border-radius: 6px; color: var(--sketch-accent); font-family: var(--brand-mono); font-size: 12px; }
+.screen-steps-controls .screen-steps-wide-toggle:hover { background: color-mix(in srgb, var(--sketch-accent) 14%, transparent); color: var(--sketch-accent); }
+.screen-steps-wide-placeholder { margin: 1.75rem 0; padding: 20px; border: 1px dashed var(--color-fd-border); border-radius: 12px; text-align: center; }
+.screen-steps-wide-placeholder button { color: var(--color-fd-muted-foreground); font-family: var(--brand-mono); font-size: 12px; }
+.screen-steps-wide { position: fixed; inset: 0; z-index: 60; overflow: auto; padding: 32px; background: var(--color-fd-background); }
+.screen-steps-wide-inner { display: flex; flex-direction: column; gap: 24px; max-width: 1200px; min-height: 100%; margin: 0 auto; justify-content: center; }
+.screen-steps-wide .screen-steps, .screen-steps-wide .conversation-diagram { margin: 0; }

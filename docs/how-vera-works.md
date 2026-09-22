@@ -34,6 +34,8 @@ Response
 
 </div>
 
+<div data-widget="screen-steps" data-steps="tool-call"></div>
+
 Tool use can repeat while Vera works on the task. You can review workspace
 changes with `/diff` and stop the active turn with Ctrl+C. Messages you submit
 during a turn are queued. See [Queue messages](queued-messages.md) for the

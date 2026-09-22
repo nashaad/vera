@@ -15,6 +15,8 @@ export interface SketchField {
 
 export interface SketchDialog {
     title?: string;
+    // A line of detail under the title, such as the command an approval is for.
+    body?: string;
     // '' shows the Search placeholder.
     search?: string;
     searchFocused?: boolean;
@@ -48,13 +50,57 @@ export interface ScreenStep {
     result?: string;
     composer: string;
     composerFocused: boolean;
-    conversation?: 'first' | 'second' | 'steering' | 'steered' | 'sent';
+    conversation?: 'first' | 'second' | 'steering' | 'steered' | 'sent' | 'tool-start' | 'tool-asked' | 'tool-read' | 'tool-edit' | 'tool-running' | 'tool-ran' | 'tool-done';
     header?: SketchHeader;
     working?: boolean;
     queue?: SketchQueue;
     dialog?: SketchDialog;
     page?: SketchPage;
+    // Key caps drawn on this step's own frame and kept there, for a press the reader should see.
+    held?: string[];
+    flow?: Omit<FlowHighlight, 'step'>;
 }
+
+// Parts of the How Vera works diagram. A step with `flow` lights them while it shows.
+export type FlowNode = 'message' | 'model' | 'response' | 'request' | 'permission' | 'run' | 'results';
+export type FlowLine = 'message-model' | 'model-response' | 'model-request' | 'request-permission' | 'permission-run' | 'run-results' | 'results-model';
+
+export const FLOW_EVENT = 'vera-flow';
+
+// `node` is where the step lands and gets the step number; `trail` is the way it came, drawn dimmer.
+export interface FlowHighlight {
+    step: number;
+    node: FlowNode;
+    trail: FlowLine[];
+    // A short note drawn inside the landing box, such as what the model asked for.
+    detail?: string;
+    // What the model last decided, kept on its box while the loop runs elsewhere.
+    model?: string;
+    // How many CONTEXT_ENTRIES the model can see at this step.
+    context?: number;
+}
+
+export type ContextRole = 'system' | 'you' | 'model' | 'tool';
+
+export interface ContextEntry {
+    role: ContextRole;
+    text: string;
+    // Roughly how much room it takes, in lines; a file read is the big one.
+    lines?: number;
+}
+
+// What the model sees during the tool-call walkthrough, in the order it arrives.
+export const CONTEXT_ENTRIES: ContextEntry[] = [
+    { role: 'system', text: 'instructions, tools, project rules', lines: 2 },
+    { role: 'you', text: 'mark the X in src/map.ts and run the tests' },
+    { role: 'model', text: 'read src/map.ts' },
+    { role: 'tool', text: 'src/map.ts, 42 lines of code', lines: 3 },
+    { role: 'model', text: 'edit src/map.ts' },
+    { role: 'tool', text: 'edited src/map.ts' },
+    { role: 'model', text: 'bash: bun test' },
+    { role: 'tool', text: '12 pass, 0 fail' },
+    { role: 'model', text: 'Marked the X at the north cove. The map tests pass.' },
+];
 
 export interface SketchHeader {
     name: string;
@@ -73,7 +119,15 @@ export type ScreenStepsName =
     | 'keep-running'
     | 'add-provider'
     | 'queued-messages'
-    | 'workspace-diff';
+    | 'workspace-diff'
+    | 'tool-call';
+
+const APPROVAL: SketchRow[] = [
+    { label: 'Allow once', active: true },
+    { label: 'Session' },
+    { label: 'Deny' },
+    { label: 'Always' },
+];
 
 export const DIFF_FILES = ['src/map.ts', 'src/treasure.ts', 'test/map.test.ts', 'README.md'];
 
@@ -540,6 +594,101 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
                 result: 'Back in the conversation.',
                 composer: '',
                 composerFocused: true,
+            },
+        ],
+    },
+    'tool-call': {
+        title: 'One request, three tool calls',
+        steps: [
+            {
+                action: 'Ask for a change.',
+                keys: [],
+                composer: 'mark the X in src/map.ts and run the tests',
+                composerFocused: true,
+                conversation: 'tool-start',
+                flow: { node: 'message', trail: [], detail: 'mark the X…', context: 1 },
+            },
+            {
+                keys: ['Enter'],
+                result: 'The model reads your message and asks to read `src/map.ts`.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'tool-asked',
+                working: true,
+                flow: { node: 'request', trail: ['message-model', 'model-request'], detail: 'read src/map.ts', model: 'needs the file', context: 3 },
+            },
+            {
+                result: 'Reading is allowed in ask mode, so Vera runs the tool. The file contents go back to the model.',
+                keys: [],
+                composer: '',
+                composerFocused: true,
+                conversation: 'tool-read',
+                working: true,
+                flow: { node: 'results', trail: ['request-permission', 'permission-run', 'run-results'], detail: 'the file, 42 lines', model: 'needs the file', context: 4 },
+            },
+            {
+                result: 'It asks to edit the file. Edits inside the workspace are allowed too, so the loop runs again without stopping.',
+                keys: [],
+                composer: '',
+                composerFocused: true,
+                conversation: 'tool-edit',
+                working: true,
+                flow: { node: 'run', trail: ['results-model', 'model-request', 'request-permission', 'permission-run'], detail: 'edit src/map.ts', model: 'mark the X', context: 5 },
+            },
+            {
+                result: 'Next it asks to run a command. No rule allows that in ask mode, so Vera asks you first.',
+                keys: [],
+                composer: '',
+                composerFocused: false,
+                conversation: 'tool-edit',
+                working: true,
+                dialog: {
+                    title: 'Permission required · bash',
+                    body: 'bun test',
+                    rows: APPROVAL,
+                },
+                flow: { node: 'permission', trail: ['run-results', 'results-model', 'model-request', 'request-permission'], detail: 'bash? ask you', model: 'run the tests', context: 7 },
+            },
+            {
+                action: 'Press 1 to allow it once.',
+                keys: [],
+                held: ['1'],
+                composer: '',
+                composerFocused: false,
+                conversation: 'tool-edit',
+                working: true,
+                dialog: {
+                    title: 'Permission required · bash',
+                    body: 'bun test',
+                    rows: APPROVAL,
+                },
+                flow: { node: 'permission', trail: [], detail: 'you: allow once', model: 'run the tests', context: 7 },
+            },
+            {
+                keys: [],
+                result: 'Vera runs `bun test`. The group header says Running until it finishes.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'tool-running',
+                working: true,
+                flow: { node: 'run', trail: ['permission-run'], detail: 'bun test', model: 'run the tests', context: 7 },
+            },
+            {
+                keys: [],
+                result: 'The tests pass. The first line of output shows here, and the whole output goes back to the model.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'tool-ran',
+                working: true,
+                flow: { node: 'results', trail: ['run-results'], detail: '12 pass, 0 fail', model: 'run the tests', context: 8 },
+            },
+            {
+                result: 'The model needs nothing else, so it answers.',
+                keys: [],
+                composer: '',
+                composerFocused: true,
+                conversation: 'tool-done',
+                flow: { node: 'response', trail: ['results-model', 'model-response'], detail: 'Marked the X…', model: 'done, answer', context: 9 },
             },
         ],
     },
