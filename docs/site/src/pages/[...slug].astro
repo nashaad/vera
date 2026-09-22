@@ -33,6 +33,7 @@ const indexContent = await indexRenderer?.render(entry.body ?? '');
 const { headings } = indexContent?.metadata ?? await render(entry);
 const html = indexContent?.code ?? entry.rendered?.html;
 if (html === undefined) throw new Error(`Missing rendered Markdown for ${entry.id}`);
+const earlyAccessUrls = source.getPages().filter((page) => page.data.entry.data.early_access).map((page) => page.url);
 const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3).map((heading) => ({
     depth: heading.depth,
     title: heading.text,
@@ -49,7 +50,7 @@ const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3
         <meta name="description" content={entry.data.description} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500&family=Young+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500&family=Young+Serif&family=Instrument+Serif:ital@1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
         {entry.data.draft && <meta name="robots" content="noindex, nofollow" />}
     </head>
     <body class="flex min-h-screen flex-col">
@@ -69,6 +70,7 @@ const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3
             html={html}
             draft={entry.data.draft}
             replay={entry.data.replay}
+            earlyAccessUrls={earlyAccessUrls}
             client:load
         />}
     </body>

@@ -1,6 +1,6 @@
 ---
 title: "How Vera works"
-description: "Understand conversations, tools, permissions, and recorded workflows."
+description: "Understand conversations, tools, and permissions."
 ---
 
 # How Vera works
@@ -8,9 +8,6 @@ description: "Understand conversations, tools, permissions, and recorded workflo
 Vera is an agent runtime. The model generates responses and requests tool calls;
 Vera supplies context, checks permissions, runs tools, and saves the conversation.
 You can inspect changes, stop work, or continue with another message.
-
-For repeatable work, you can write Python workflows that save completed
-steps across restarts.
 
 ## Conversations and tools
 
@@ -88,6 +85,8 @@ Delegated work runs in child conversations. `/subagents` opens their list;
 `/parent` returns to the parent conversation.
 
 ## Workflows
+
+Workflows are in early access and not yet well tested. The API will change.
 
 A workflow is Python code that calls recorded steps. On resume, Vera reuses
 successful step results and runs steps that have no result in the journal.

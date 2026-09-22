@@ -1,8 +1,31 @@
 ---
 title: "Vera"
-description: "A durable, open agent runtime and harness. Use the SDK library and workflow to script in Python and build your application."
+description: "A durable, open agent runtime and harness."
 layout: homepage
 ---
+
+<section class="home-section" id="install">
+<div>
+
+## Install
+
+From a Vera checkout, install dependencies and activate a local release.
+Then run `vera` in your project directory.
+
+[Installation instructions](installation.md)
+
+</div>
+<div>
+
+```sh
+bun install
+bun run install:local
+```
+
+[Connect a provider](first-run-setup.md) to start using a model.
+
+</div>
+</section>
 
 <section class="home-section" id="workflows">
 <div>
@@ -35,29 +58,6 @@ def review(url: str) -> str:
         publish(page)
     return page
 ```
-
-</div>
-</section>
-
-<section class="home-section" id="install">
-<div>
-
-## Install
-
-From a Vera checkout, install dependencies and activate a local release.
-Then run `vera` in your project directory.
-
-[Installation instructions](installation.md)
-
-</div>
-<div>
-
-```sh
-bun install
-bun run install:local
-```
-
-[Connect a provider](first-run-setup.md) to start using a model.
 
 </div>
 </section>

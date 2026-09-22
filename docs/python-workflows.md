@@ -1,6 +1,7 @@
 ---
 title: "Write your first workflow"
 description: "Define steps, choose a journal, and resume completed work."
+early_access: true
 ---
 
 # Write your first workflow

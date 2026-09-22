@@ -1,6 +1,7 @@
 ---
 title: "Control workflow steps"
 description: "Pause for input, set deadlines, choose stable keys, and run hooks before a step."
+early_access: true
 ---
 
 # Control workflow steps

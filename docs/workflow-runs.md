@@ -1,6 +1,7 @@
 ---
 title: "Watch workflow runs"
 description: "See every workflow run, its attempts, and how long each step took."
+early_access: true
 ---
 
 # Watch workflow runs
