@@ -277,6 +277,15 @@ export function modelBrowseMenu(parent: TuiSettingsPickerState): TuiSettingsPick
         ...(selected?.provider !== undefined && selected.model !== undefined
             ? [{ value: "verify_selected", label: "Verify this model", description: "Check that it still answers" }]
             : []),
+        ...(selected?.provider !== undefined
+            && parent.requestOptionsProviders?.[selected.provider] !== undefined
+            ? [{
+                value: "request_options",
+                label: "Request options",
+                description: parent.requestOptionsProviders[selected.provider]
+                    ?.label ?? "Edit the request body",
+            }]
+            : []),
         ...(parent.allOptions.some((row) => row.pooledRank !== undefined)
             ? [{ value: "verify", label: "Verify favorites", description: "Check that they still answer" }]
             : []),
@@ -346,6 +355,28 @@ export function handleModelBrowseMenuKey(state: TuiSettingsPickerState, key: Tui
             const row = parent.options[parent.selectedIndex];
             if (row?.provider === undefined || row.model === undefined) return { state, handled: true };
             return { state: parent, handled: true, poolVerify: { provider: row.provider, model: row.model } };
+        }
+        if (value === "request_options") {
+            const row = parent.options[parent.selectedIndex];
+            const support = row?.provider === undefined
+                ? undefined
+                : parent.requestOptionsProviders?.[row.provider];
+            if (
+                row?.provider === undefined
+                || row.model === undefined
+                || support === undefined
+            ) {
+                return { state, handled: true };
+            }
+            return {
+                state: parent,
+                handled: true,
+                requestOptions: {
+                    provider: row.provider,
+                    model: row.model,
+                    support,
+                },
+            };
         }
         if (value === "defaults") return { state: parent, handled: true, selection: { kind: "model_defaults_open" } };
         if (value === "library") {

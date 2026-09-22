@@ -170,8 +170,8 @@ test("/extensions opens a manager list, not an inspect dump", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/extensions");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("No extensions installed");
-        expect(pane).toContain("/extension install <path>");
+        const pane = await session.waitForVisiblePane("Included");
+        expect(pane).toContain("vera.btw");
         expect(pane).not.toContain("drag a section");
         expect(pane).not.toContain("enter copies all");
         session.sendKey("Escape");

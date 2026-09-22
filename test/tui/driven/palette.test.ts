@@ -72,9 +72,9 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         expect(pane).toContain("Switch model");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("Search models");
-        // The composer stays behind the overlay, and its frame carries the
-        // row that says what the session is answering as.
-        expect(pane).toContain("test · high");
+        // The model card covers the middle of the status row. The tail of
+        // the model label stays in the margin beside the card.
+        expect(pane).toContain("· high");
         expect(pane).not.toContain("switch model");
         session.sendKey("Escape");
         await session.waitForVisiblePaneWhere(

@@ -35,7 +35,11 @@ for (const outcome of ["passed", "failed", "canceled"] as const) {
         });
         try {
             await session.waitForVisiblePane("Start a conversation");
-            session.sendText("/defaults"); session.sendKey("Enter");
+            session.sendKey("C-p");
+            await session.waitForVisiblePane("Commands");
+            session.sendText("assign model");
+            await session.waitForVisiblePane("Assign model defaults");
+            session.sendKey("Enter");
             await session.waitForVisiblePane("eco");
             session.sendKey("Down"); session.sendKey("Enter");
             await session.waitForVisiblePane("Assign a model to eco");

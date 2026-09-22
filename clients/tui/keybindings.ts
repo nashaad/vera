@@ -189,6 +189,9 @@ function coalesce(
             keys: row.keys,
             scope: row.scope ?? "global",
             description: row.description ?? row.id,
+            // Marks the row as an extension binding so it stands down inside
+            // overlays instead of colliding with a chord those overlays own.
+            extensionId: row.id,
             ...(row.hint === undefined ? {} : { hint: row.hint }),
             remappable: row.remappable ?? false,
         });

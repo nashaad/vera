@@ -22,7 +22,7 @@ test("long tool output folds and Ctrl-T reveals it", async () => {
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane("TOOL DETAILS COMPLETED");
-        expect(pane).toMatch(/· ask +│$/m);
+        expect(pane).toContain("default · ask");
         expect(pane).toContain("Ran  printf");
         expect(pane).not.toContain("TOOL_DETAIL_09");
         // An instant reasoning phase earns no verb row at all.
@@ -34,7 +34,7 @@ test("long tool output folds and Ctrl-T reveals it", async () => {
 
         session.sendKey("C-t");
         pane = await session.waitForVisiblePane("TOOL_DETAIL_09");
-        expect(pane).toMatch(/▾ Ran\s+ctrl\+t details/);
+        expect(pane).toMatch(/▾ Ran\s+Ctrl\+T details/);
         expect(pane).toContain("TOOL DETAILS COMPLETED");
 
         session.sendKey("C-t");
