@@ -17,7 +17,7 @@ import { runOnboardingWizardAction, updateWizardSession } from "./onboarding-wiz
 import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
-import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiChord, tuiComposerWordDeleteDirection } from "../keymap.ts";
+import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
 import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, focusWorkspaceSidebar, forgetProviderCredential, leaveJsonlCommandMode, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, runWorkspaceSidebarAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
 import { abortFocusedAgent, closeDials, commitDials, composerIsAtLeftBoundary, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
@@ -1608,19 +1608,24 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         return;
     }
 
-    const extensionKey = tuiChord(key);
-    const bound = extensionKey === undefined
+    // Scope matters: an overlay can own the same chord without taking it
+    // from the conversation. The first row in the table is not the winner.
+    const extensionBindingId = anyOverlayOpen(rt)
         ? undefined
-        : activeTuiKeymap().find((binding) =>
-            binding.keys.includes(extensionKey)
-        );
-    const boundId = bound?.extensionId ?? bound?.id;
-    const extensionBinding = boundId === undefined
+        : tuiBindingId("conversation", key);
+    const bound = extensionBindingId === undefined
+        ? undefined
+        : activeTuiKeymap().find((binding) => binding.id === extensionBindingId);
+    // Built-in rows that an extension owns keep their table id and put the
+    // extension's id in extensionId. A chord the extension registered itself
+    // uses the same id in both places.
+    const registryId = bound?.extensionId ?? bound?.id;
+    const extensionBinding = registryId === undefined
         ? undefined
         : rt.clientExtensionRegistry?.keybindings().find((binding) =>
-            binding.id === boundId
+            binding.id === registryId
         );
-    if (extensionBinding !== undefined && !anyOverlayOpen(rt)) {
+    if (extensionBinding !== undefined) {
         key.preventDefault();
         key.stopPropagation();
         const target = focusedAgentClient(rt);

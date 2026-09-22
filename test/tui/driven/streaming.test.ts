@@ -27,37 +27,34 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane("esc stop");
-        expect(pane).toMatch(/[░▒▓█]{7} (thinking|responding) · \d+s/);
+        // The wave sits in the composer status. The hint under the frame
+        // names the phase and how to stop it.
+        expect(pane).toMatch(/[░▒▓█]{6}/);
         expect(pane).toContain("esc stop");
         expect(pane).not.toContain("enter queue");
         const workingLines = pane.split("\n");
         const activityLine = workingLines.find((line) =>
             line.includes("esc stop")
         );
-        const placeLine = workingLines.find((line) =>
-            line.includes("ready · Ctrl+P commands")
+        const barLine = workingLines.find((line) =>
+            /[░▒▓█]{6}/.test(line)
         );
         expect(activityLine).toBeDefined();
-        expect(placeLine).toBeDefined();
-        if (activityLine === undefined || placeLine === undefined) {
-            throw new Error("missing fixed activity or place row");
+        expect(barLine).toBeDefined();
+        if (activityLine === undefined || barLine === undefined) {
+            throw new Error("missing activity hint or bar");
         }
-        const activityLabel = Math.max(
-            activityLine.indexOf("thinking"),
-            activityLine.indexOf("responding"),
-        );
-        expect(activityLabel).toBeGreaterThanOrEqual(0);
+        expect(activityLine.indexOf("thinking")).toBeGreaterThanOrEqual(0);
         expect(activityLine.indexOf("esc stop")).toBeGreaterThan(
-            activityLabel,
+            activityLine.indexOf("thinking"),
         );
         expect(activityLine).toEndWith("esc stop · Ctrl+C stop");
-        expect(activityLine.length).toBe(96);
-        expect(workingLines.indexOf(activityLine)).toBeLessThan(
-            workingLines.indexOf(placeLine),
+        expect(workingLines.indexOf(barLine)).toBeLessThan(
+            workingLines.indexOf(activityLine),
         );
 
         pane = await session.waitForVisiblePane("PARTIAL xxxxx");
-        expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
+        expect(pane).toMatch(/[░▒▓█▏▎▍▌▋▊▉]{6}/);
         expect(pane).toContain("esc stop");
         // This turn reasons without producing any summary text: an instant
         // phase earns no row, and a measurable one earns a row with nothing

@@ -9,6 +9,9 @@ In auto mode, Vera checks tool actions against permission rules. When those
 rules cannot decide, a separate classifier evaluates whether to allow the
 action. If it cannot return a usable decision, the tool does not run.
 
+An action the rules allow runs without a notice. Only the classifier's
+decisions add a line to the conversation.
+
 The classifier is separate from the model working on your task. Changing the
 conversation model does not change the configured classifier.
 

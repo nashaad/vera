@@ -1,6 +1,4 @@
 import { loadStandingNudges, type StandingNudge } from "../../../src/standing-nudges.ts";
-import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
-import type { TuiAgentPane } from "../agent-pane.ts";
 import type { TuiCommandAction, TuiCommandCatalogEntry, TuiPaletteEntry } from "../commands.ts";
 import { TUI_COMPOSER_MAX_TEXT_ROWS, TUI_COMPOSER_MIN_TEXT_ROWS, tuiComposerPanelRows } from "../composer.ts";
 import { markTuiGutterEntry, unmarkTuiGutterEntry } from "../gutter.ts";
@@ -126,19 +124,6 @@ export function clearSearchLanding(rt: TuiRuntime): void {
     } else {
         unmarkTuiGutterEntry(node, entry);
     }
-}
-
-export function appendPendingSidebarContextNotice(rt: TuiRuntime, 
-    side: TuiAgentPane<IdentifiedTuiAgentClient>,
-): void {
-    const notice = rt.pendingSidebarContextNotice;
-    if (notice?.agentId !== side.agentId) return;
-    side.state.state = appendTuiNotice(
-        side.state.state,
-        notice.text,
-        "soft",
-    );
-    rt.pendingSidebarContextNotice = undefined;
 }
 
 export function refreshKeymap(rt: TuiRuntime): void {

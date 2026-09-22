@@ -36,7 +36,8 @@ test("settings picker restores the composer and the next Enter submits", async (
         )))
             .toEqual({
                 theme: "nightowl",
-                animation: "conveyor",
+                animation: "shimmer",
+                animation_level: 2,
             });
 
         session.sendText("/effort");
@@ -50,7 +51,7 @@ test("settings picker restores the composer and the next Enter submits", async (
         // only reads that way if Down moved the selection off High.
         session.sendKey("Down");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("test · MAX");
+        await session.waitForVisiblePane("faux/test · max");
 
         session.sendText("testing");
         session.sendKey("Enter");

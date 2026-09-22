@@ -48,7 +48,7 @@ test("persisted TUI appearance config controls transcript and composer layout", 
         session.sendText("show configured layout");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("TOOL DETAILS COMPLETED");
-        expect(pane).toMatch(/· ask +│$/m);
+        expect(pane).toContain("default · ask");
 
         expect(pane).toMatch(/^ {5}Ran/m);
         expect(pane).not.toMatch(/^ {5}─{20}/m);

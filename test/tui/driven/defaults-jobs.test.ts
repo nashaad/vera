@@ -129,7 +129,7 @@ test("the switcher's favorite runs the admission in the transcript", async () =>
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/model");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("favorites here");
+        await session.waitForVisiblePane("Your favorite models land here.");
         session.sendText("one");
         await session.waitForVisiblePane("Ctrl+F favorite");
         session.sendKey("C-f");

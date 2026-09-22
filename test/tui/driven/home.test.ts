@@ -15,12 +15,7 @@ import {
 } from "../../support/tui-resume-child.ts";
 import { searchSessions } from "../../../src/store/session-search.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
-import {
-    HOME_CARD_COLUMNS,
-    HOME_CONTENT_INDENT,
-    HOME_RULE,
-    HOME_TYPING_HINT,
-} from "../../../clients/tui/home-screen.ts";
+import { HOME_TYPING_HINT } from "../../../clients/tui/home-screen.ts";
 
 const providerEnv = new Map(configuredProviders(undefined).flatMap((provider) =>
     provider.envVar === undefined ? [] : [[provider.envVar, process.env[provider.envVar]] as const]));
@@ -183,7 +178,7 @@ test("a machine with no connection leads to the provider list", async () => {
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("Configure providers");
         expect(pane).toContain("No provider connected");
-        expect(pane).toContain("Add provider");
+        expect(pane).toContain("add provider");
     } finally {
         await session.close();
     }
@@ -200,15 +195,20 @@ test("provider form text fields keep a caret that the arrows move", async () => 
         await session.waitForVisiblePane("Connect a provider");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Configure providers");
+        // The first row is a subscription sign-in. An API-key row opens a
+        // text form, and Enter on the row opens its actions first.
+        session.sendKey("Down");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Save connects");
+        await session.waitForVisiblePane("Connect");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("⏎ save");
         session.sendText("abc");
         await session.waitForVisiblePane("abc");
         session.sendKey("Left");
         await session.settle();
         session.sendText("X");
         const pane = await session.waitForVisiblePane("abXc");
-        expect(pane).toContain("←→ move");
+        expect(pane).toContain("⏎ save");
     } finally {
         await session.close();
     }
@@ -375,46 +375,28 @@ test("the picker opened from home leaves nothing behind", async () => {
     }
 }, 15_000);
 
-test("the card centres on what the rail leaves, not on the terminal", async () => {
+test("ctrl+e from home opens resume instead of a side rail", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-rail-"));
-    const columns = 100;
     const session = await startTuiTestSession({
         home,
-        width: columns,
+        width: 100,
         dependencies: () => homeDependencies(home, true),
     });
 
     try {
         await session.waitForVisiblePane("V  E  R  A");
         session.sendKey("C-e");
-        const pane = await session.waitForVisiblePane("VERA");
-        // The rule is the one line of the card drawn to a known width, so it
-        // is what says where the card sits.
-        const rule = pane.split("\n").find((line) => line.includes(HOME_RULE));
-        expect(rule).toBeDefined();
-        if (rule === undefined) throw new Error("no rule row");
-        // Everything left of the rail's edge belongs to the rail, so the
-        // space the card has to centre in starts one column past it. The edge
-        // is heavy while the rail holds the keyboard and light when it does
-        // not, and it is the same column either way.
-        const rail = Math.max(
-            rule.indexOf("\u2502"),
-            rule.indexOf("\u2503"),
-        ) + 1;
-        expect(rail).toBeGreaterThan(1);
-        // The rule starts at the card's content column, not its left edge.
-        const start = rule.indexOf(HOME_RULE) - HOME_CONTENT_INDENT;
-        const middle = start + HOME_CARD_COLUMNS / 2;
-        // A column of slack: an odd remainder cannot be split evenly.
-        expect(Math.abs(middle - (rail + (columns - rail) / 2)))
-            .toBeLessThanOrEqual(1);
-        expect(start).toBeGreaterThan(rail);
+        const pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("Resume");
+        expect(pane).not.toContain("Chat    →");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("V  E  R  A");
     } finally {
         await session.close();
     }
 }, 15_000);
 
-test("left and right hand focus between home and its rail", async () => {
+test("escape from the resume ctrl+e opened returns to the home card", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-rail-focus-"));
     const session = await startTuiTestSession({
         home,
@@ -425,15 +407,11 @@ test("left and right hand focus between home and its rail", async () => {
     try {
         await session.waitForVisiblePane(HOME_TYPING_HINT);
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Chat    →");
-
-        session.sendKey("Right");
-        let pane = await session.waitForVisiblePane("Focus  ←");
-        expect(pane).toContain(HOME_TYPING_HINT);
-
-        session.sendKey("Left");
-        pane = await session.waitForVisiblePane("Chat    →");
-        expect(pane).toContain(HOME_TYPING_HINT);
+        await session.waitForVisiblePane("Resume");
+        session.sendKey("Escape");
+        const pane = await session.waitForVisiblePane(HOME_TYPING_HINT);
+        expect(pane).toContain("V  E  R  A");
+        expect(pane).not.toContain("Resume");
     } finally {
         await session.close();
     }

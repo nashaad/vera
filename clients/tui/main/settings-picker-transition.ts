@@ -135,14 +135,19 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         );
         return;
     }
+    const requestOptionsPane = previousPicker?.kind === "model"
+        ? previousPicker
+        : transition.state?.kind === "model"
+            ? transition.state
+            : undefined;
     if (
         "requestOptions" in transition
         && transition.requestOptions !== undefined
-        && previousPicker?.kind === "model"
+        && requestOptionsPane !== undefined
     ) {
         openRequestOptionsEditor(rt, 
             transition.requestOptions,
-            previousPicker,
+            requestOptionsPane,
         );
         return;
     }

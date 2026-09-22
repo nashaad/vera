@@ -284,7 +284,7 @@ test("a typed prompt stays queued behind an idle send-one fence", async () => {
         const pane = await session.waitForVisiblePane("+1");
 
         expect(pane).toContain("queued · held first");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("esc stop");
         expect(pane).not.toContain("stopping…");
         expect(sent.some((command) =>
             command.type === "prompt"
