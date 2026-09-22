@@ -62,7 +62,7 @@ body {
 }
 
 #nd-page h1 { font-family: var(--brand-serif); font-style: normal; font-size: 3.75rem; line-height: 1.1; letter-spacing: -0.015em; margin-top: -0.25rem; }
-.manual-eyebrow { margin: 0; font: 500 0.75rem var(--brand-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-fd-muted-foreground); }
+.manual-eyebrow { margin: 0; font: 500 0.75rem var(--brand-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-fd-foreground); }
 .prose h2:not(:where(.not-prose *)) { font-size: 2.25rem; line-height: 1.2; }
 .prose h3:not(:where(.not-prose *)) { font-size: 1.625rem; line-height: 1.3; }
 @media (max-width: 640px) { #nd-page h1 { font-size: 2.5rem; } .prose h2:not(:where(.not-prose *)) { font-size: 1.875rem; } }
@@ -204,4 +204,4 @@ html { font-size: 110%; }
 .prose ul:has(> li > strong:first-child + br) { list-style: none; padding-left: 0; }
 .prose ul:has(> li > strong:first-child + br) > li { padding-left: 0; margin: 0 0 0.9rem; }
 .prose ul:has(> li > strong:first-child + br) > li::marker { content: none; }
-.prose ul:has(> li > strong:first-child + br) > li > strong:first-child { font: 500 0.75rem var(--brand-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-fd-muted-foreground); }
+.prose ul:has(> li > strong:first-child + br) > li > strong:first-child { font: 500 0.75rem var(--brand-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-fd-foreground); }
