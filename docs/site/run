@@ -14,4 +14,29 @@ if [[ ! -x node_modules/.bin/astro ]]; then
     bun install --frozen-lockfile
 fi
 
+if [[ "${1:-}" == "bundle" ]]; then
+    copy_dir="${2:-}"
+    zip_path="$site_dir/vera-site.zip"
+
+    bun run build
+    for page in index.html manual/index.html; do
+        if [[ ! -f "dist/$page" ]]; then
+            echo "Build is missing dist/$page" >&2
+            exit 1
+        fi
+    done
+
+    rm -f "$zip_path"
+    (cd dist && zip -qr "$zip_path" .)
+    echo "Wrote $zip_path ($(du -h "$zip_path" | cut -f1))"
+
+    if [[ -n "$copy_dir" ]]; then
+        mkdir -p "$copy_dir/vera.corvines.com"
+        rsync -a --delete dist/ "$copy_dir/vera.corvines.com/"
+        cp "$zip_path" "$copy_dir/vera.corvines.com.zip"
+        echo "Copied to $copy_dir/vera.corvines.com and $copy_dir/vera.corvines.com.zip"
+    fi
+    exit 0
+fi
+
 exec bun run dev -- --host 127.0.0.1 "$@"
