@@ -40,6 +40,57 @@ async function chooseCreateLeave(
     session.sendKey("Enter");
 }
 
+function sidebarTranscriptColor(root: {
+    getChildren(): readonly unknown[];
+}): number[] | undefined {
+    let best: { depth: number; color: number[] } | undefined;
+    const visit = (node: unknown, depth: number): void => {
+        if (node === null || typeof node !== "object") return;
+        const record = node as {
+            content?: unknown;
+            fg?: { toInts?: () => number[] };
+            getChildren?: () => readonly unknown[];
+        };
+        if (
+            typeof record.content === "string"
+            && record.content.includes("SIDEBAR")
+            && record.fg?.toInts !== undefined
+        ) {
+            if (best === undefined || depth >= best.depth) {
+                best = { depth, color: record.fg.toInts() };
+            }
+        }
+        for (const child of record.getChildren?.() ?? []) {
+            visit(child, depth + 1);
+        }
+    };
+    visit(root, 0);
+    return best?.color;
+}
+
+async function waitForColor(
+    read: () => number[] | undefined,
+    expected: readonly number[],
+    session: Awaited<ReturnType<typeof startTuiTestSession>>,
+): Promise<void> {
+    const deadline = Date.now() + 2_000;
+    let last: number[] | undefined;
+    while (Date.now() < deadline) {
+        await session.settle(20);
+        last = read();
+        if (
+            last !== undefined
+            && last.length === expected.length
+            && last.every((channel, index) => channel === expected[index])
+        ) {
+            return;
+        }
+    }
+    throw new Error(
+        `sidebar color ${JSON.stringify(last)}, expected ${JSON.stringify(expected)}`,
+    );
+}
+
 test("idle TUI exit stops the current conversation", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-exit-close-"));
     const scenario = createTuiResumeScenario({ home });
@@ -1038,14 +1089,18 @@ test("theme preview and cancel repaint an attached sidebar transcript", async ()
             seq: 0,
         }],
     });
+    let sidebarTextColor = (): number[] | undefined => undefined;
     const session = await startTuiTestSession({
         home,
         width: 100,
         height: 30,
-        dependencies: () => ({
-            ...scenario.dependencies,
-            attachAgent: async () => sidebarClient,
-        }),
+        dependencies: (renderer) => {
+            sidebarTextColor = () => sidebarTranscriptColor(renderer.root);
+            return {
+                ...scenario.dependencies,
+                attachAgent: async () => sidebarClient,
+            };
+        },
     });
 
     try {
@@ -1055,8 +1110,27 @@ test("theme preview and cancel repaint an attached sidebar transcript", async ()
         session.sendKey("Enter");
         await session.waitForVisiblePane("Theme");
         session.sendText("owl");
+        await session.waitForVisiblePane("Night Owl");
+        await waitForColor(
+            sidebarTextColor,
+            RGBA.fromHex(themeCatalog.themes.nightowl.muted).toInts(),
+            session,
+        );
+        session.sendKey("BSpace");
+        session.sendKey("BSpace");
+        session.sendKey("BSpace");
+        session.sendText("hub");
+        await session.waitForVisiblePane("GitHub");
+        await waitForColor(
+            sidebarTextColor,
+            RGBA.fromHex(themeCatalog.themes.github.muted).toInts(),
+            session,
+        );
+        session.sendKey("Escape");
         await session.settle(250);
-        const sidebarTextColor = (): number[] | undefined => {
+        const pane = await session.waitForVisiblePane("SIDEBAR THEME TEXT");
+        expect(pane).toContain("SIDEBAR THEME TEXT");
+        const visibleSidebarColor = (): number[] | undefined => {
             const line = session.captureSpans().lines.find((candidate) =>
                 candidate.spans.map((span) => span.text).join("")
                     .includes("SIDEBAR THEME TEXT")
@@ -1064,29 +1138,11 @@ test("theme preview and cancel repaint an attached sidebar transcript", async ()
             return line?.spans.find((span) => span.text.includes("SIDEBAR"))
                 ?.fg.toInts();
         };
-        const behindScrim = (color: string): number[] => {
-            const [red = 0, green = 0, blue = 0] = RGBA.fromHex(color).toInts();
-            const visible = (channel: number): number =>
-                Math.round(channel * (255 - 150) / 255);
-            return [visible(red), visible(green), visible(blue), 255];
-        };
-        expect(sidebarTextColor()).toEqual(
-            behindScrim(themeCatalog.themes.nightowl.text),
-        );
-        session.sendKey("BSpace");
-        session.sendKey("BSpace");
-        session.sendKey("BSpace");
-        session.sendText("hub");
-        await session.settle(250);
-        expect(sidebarTextColor()).toEqual(
-            behindScrim(themeCatalog.themes.github.text),
-        );
-        session.sendKey("Escape");
-        await session.settle(250);
-        const pane = await session.waitForVisiblePane("SIDEBAR THEME TEXT");
-        expect(pane).toContain("SIDEBAR THEME TEXT");
-        expect(sidebarTextColor()).toEqual(
+        expect(visibleSidebarColor()).toEqual(
             RGBA.fromHex(VERA_TUI_THEME.text).toInts(),
+        );
+        expect(sidebarTextColor()).toEqual(
+            RGBA.fromHex(VERA_TUI_THEME.muted).toInts(),
         );
     } finally {
         await session.close();

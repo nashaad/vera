@@ -61,15 +61,6 @@ export function activateClient(vera: any): void {
         return "ok";
     }
 
-    function targetsSidekickOnly(text: string): boolean {
-        const addressed = /^@(\S+)(?:\s+[\s\S]+)?$/.exec(text.trim());
-        if (addressed !== null) {
-            return addressed[1] === SIDEKICK;
-        }
-        return vera.experimentalTui.agentSurface.current()?.focused
-            === "secondary";
-    }
-
     async function openAgent(
         statusLabel: string,
         mention: string,
@@ -206,10 +197,10 @@ export function activateClient(vera: any): void {
         "Open or message a readonly sidekick",
     );
 
-    // Bare prompts in the primary conversation bypass slash-command dispatch.
-    // Catch the sidekick up with completed primary turns. Messages already
-    // going to the sidekick skip this: the primary is often still answering,
-    // and sync then returns busy. `/btw message` still syncs on that path.
+    // Bare prompts bypass slash-command dispatch. Catch the sidekick up
+    // with completed primary turns, including a message aimed at the
+    // sidekick. A busy agent must not block the prompt; `/btw message`
+    // still refuses to sync mid-turn.
     vera.messages.intercept(
         async (
             message: { text: string; workspace: string },
@@ -218,7 +209,6 @@ export function activateClient(vera: any): void {
             const target = agents[SIDEKICK];
             if (
                 target !== undefined
-                && !targetsSidekickOnly(message.text)
                 && await syncPrimaryContext(target, signal, true) === "stale"
             ) {
                 agents[SIDEKICK] = undefined;

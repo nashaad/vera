@@ -555,6 +555,8 @@ test.skipIf(!tmuxAvailable)(
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts`,
             ]);
+            await waitForPane(socket, session, "New conversation");
+            sendKey(socket, session, "Enter");
             await waitForPane(socket, session, "Start a conversation");
             sendText(socket, session, "/rew");
             sendKey(socket, session, "Tab");
@@ -568,6 +570,7 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
         } catch (error) {
+            pane = capturePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
             killTmuxServer(socket);

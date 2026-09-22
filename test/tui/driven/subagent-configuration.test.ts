@@ -11,7 +11,10 @@ import {
 import { AgentRegistry } from "../../../src/host/agent-registry.ts";
 import { subagentPoolPolicy } from "../../../src/host/subagent-policy.ts";
 import { pooledModels } from "../../../src/model/catalog-view.ts";
-import { addPoolModel } from "../../../src/model/pool-file-store.ts";
+import {
+    addPoolModel,
+    recordModelVerification,
+} from "../../../src/model/pool-file-store.ts";
 import type { SuggestedModel } from "../../../src/model/supported-models.ts";
 import {
     emptyUsage,
@@ -56,6 +59,9 @@ test("missing subagent settings are configured and confirmed through the real TU
         dependencies: async () => {
             await Bun.write(join(workspace, ".keep"), "");
             addPoolModel("ollama/worker", { added: true }, { path: poolPath });
+            recordModelVerification("ollama/worker", {
+                probe: { ok: true, seen: "2026-09-22" },
+            }, { path: poolPath });
             configPath = defaultVeraConfigPath();
             registry = new AgentRegistry({
                 createAdapter(): ModelAdapter {
@@ -163,8 +169,9 @@ test("missing subagent settings are configured and confirmed through the real TU
         expect(childModelCalls).toBe(0);
         expect(registry?.list()).toHaveLength(1);
 
-        // Not set opens selected; p assigns the shortlisted worker without
-        // dismissing the policy pane.
+        // Not set is first, then the parent, then the verified worker.
+        // p assigns that worker without dismissing the policy pane.
+        session.sendKey("Down");
         session.sendKey("Down");
         chmodSync(dirname(configPath), 0o500);
         configDirectoryLocked = true;

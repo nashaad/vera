@@ -332,10 +332,6 @@ export interface TuiRuntime {
     } | undefined;
     pendingOneshots: Map<string, { readonly resolve: (result: VeraClientOneshotResult) => void; readonly reject: (reason: Error) => void; }>;
     hostedSidebar: TuiHostedSidebarAgent;
-    pendingSidebarContextNotice: {
-        readonly agentId: string;
-        readonly text: string;
-    } | undefined;
     submitAfterImageAttachment: boolean;
     pendingImages: Array<{
         requestId: string;

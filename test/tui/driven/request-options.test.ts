@@ -52,18 +52,19 @@ test("the model inspector saves and clears request options through the real prof
         await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter");
         await session.waitForVisiblePane("One");
-        session.sendKey("Down");
-        await session.settle();
-        session.sendKey("Right");
-        await session.waitForVisiblePane("⏎ run · ← list");
-        session.sendKey("Down");
-        session.sendKey("Down");
-        session.sendKey("Down");
+        // The switcher hands off to browse, and Ctrl+K on the highlighted
+        // model opens the manage menu that carries request options.
+        session.sendKey("C-k");
+        await session.waitForVisiblePane("manage highlighted model");
+        session.sendKey("C-k");
+        await session.waitForVisiblePane("Refresh model catalog");
+        // Remove from favorites, refresh, library, verify, then request options.
+        for (let step = 0; step < 4; step += 1) session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(
             "default profile · every use of this model",
         );
-        expect(pane).toContain("ctrl+s save");
+        expect(pane).toContain("Ctrl+S save");
         expect(pane).toContain("\"provider\" selects the");
         expect(pane).toContain("upstream host used by OpenRouter");
 
@@ -73,8 +74,9 @@ test("the model inspector saves and clears request options through the real prof
             '{"provider":{"only":["z-ai"],"allow_fallbacks":false}}',
         );
         session.sendKey("C-s");
-        pane = await session.waitForVisiblePane("configured");
-        expect(pane).toContain("Request options");
+        pane = await session.waitForVisiblePane(
+            "saved request options for openrouter/one/model",
+        );
         expect(readConfig(configPath).model_request_options).toEqual({
             "openrouter/other/model": {
                 body: { provider: { only: ["other"] } },
@@ -89,12 +91,17 @@ test("the model inspector saves and clears request options through the real prof
             },
         });
 
+        session.sendKey("C-k");
+        await session.waitForVisiblePane("Refresh model catalog");
+        for (let step = 0; step < 4; step += 1) session.sendKey("Down");
         session.sendKey("Enter");
         await session.waitForVisiblePane("default profile · every use of this model");
         session.sendKeyWithModifiers("home", { shift: true });
         session.sendText("{}");
         session.sendKey("C-s");
-        await session.waitForVisiblePane("none");
+        await session.waitForVisiblePane(
+            "saved request options for openrouter/one/model",
+        );
         expect(readConfig(configPath).model_request_options).toEqual({
             "openrouter/other/model": {
                 body: { provider: { only: ["other"] } },
