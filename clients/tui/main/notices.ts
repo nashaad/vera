@@ -2,14 +2,54 @@ import { modelSelectionCleared } from "../../../src/host/model-catalog-settings.
 import { setTextContent } from "../text-content.ts";
 import { renderTuiHeldAddress } from "../addressing.ts";
 import { COPY_NOTICE_DURATION_MS, MODE_TOAST_DURATION_MS, renderStatus } from "../main.ts";
+import { DIALOG_SHORT_TERMINAL_HEIGHT, TOAST_Z_INDEX } from "../dialog-chrome.ts";
 import { setComposerMargin } from "../main/chrome.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
 import { renderTuiQuote, tuiQuoteMarker } from "../quote.ts";
-import { verificationConsoleLines } from "../settings-picker.ts";
+import { clippedToWidth, verificationConsoleLines } from "../settings-picker.ts";
 import { TUI_ACCENT, TUI_MUTED, type TuiState } from "../state.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, fg } from "@opentui/core";
+
+export const TOAST_RIGHT_GUTTER = 2;
+
+export function clipToastMessage(message: string, width: number): string {
+    if (Bun.stringWidth(message) <= width) return message;
+    const failure = message.match(/Could not refresh.*$/);
+    if (failure !== null) return clippedToWidth(failure[0], width);
+    return clippedToWidth(message, width);
+}
+
+export function layoutModeToast(
+    message: string,
+    terminalWidth: number,
+    terminalHeight: number,
+): {
+    readonly text: string;
+    readonly width: number;
+    readonly height: number;
+    readonly paddingTop: number;
+    readonly paddingBottom: number;
+    readonly paddingLeft: number;
+    readonly paddingRight: number;
+} {
+    const compact = terminalHeight <= DIALOG_SHORT_TERMINAL_HEIGHT;
+    const paddingX = compact ? 0 : 2;
+    const paddingY = compact ? 0 : 1;
+    const maxWidth = Math.max(1, terminalWidth - TOAST_RIGHT_GUTTER);
+    const maxText = Math.max(1, maxWidth - paddingX * 2);
+    const text = clipToastMessage(message, maxText);
+    return {
+        text,
+        width: Math.min(maxWidth, Math.max(1, Bun.stringWidth(text) + paddingX * 2)),
+        height: compact ? 1 : 3,
+        paddingTop: paddingY,
+        paddingBottom: paddingY,
+        paddingLeft: paddingX,
+        paddingRight: paddingX,
+    };
+}
 
 export function showStatusNotice(rt: TuiRuntime, message: string): void {
     rt.statusNotice = message;
@@ -29,8 +69,15 @@ export function showStatusNotice(rt: TuiRuntime, message: string): void {
 export function showModeToast(rt: TuiRuntime, message: string): void {
     rt.modeToastVersion += 1;
     const version = rt.modeToastVersion;
-    setTextContent(rt.modeToastText, message);
-    rt.modeToast.width = message.length + 4;
+    const layout = layoutModeToast(message, rt.renderer.width, rt.renderer.height);
+    setTextContent(rt.modeToastText, layout.text);
+    rt.modeToast.width = layout.width;
+    rt.modeToast.height = layout.height;
+    rt.modeToast.paddingTop = layout.paddingTop;
+    rt.modeToast.paddingBottom = layout.paddingBottom;
+    rt.modeToast.paddingLeft = layout.paddingLeft;
+    rt.modeToast.paddingRight = layout.paddingRight;
+    rt.modeToast.zIndex = TOAST_Z_INDEX;
     rt.modeToast.visible = true;
     setTimeout(() => {
         if (rt.modeToastVersion !== version) return;

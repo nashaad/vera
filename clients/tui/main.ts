@@ -22,7 +22,7 @@ import {
     watchTerminalLoss,
 } from "./terminal-restore.ts";
 
-import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_BACKGROUND_Z_INDEX, DIALOG_CARD_Z_INDEX, DIALOG_SCRIM_Z_INDEX, refreshDialogChrome, configureDialogHeaders, configureDialogSearch, registerDialogCard } from "./dialog-chrome.ts";
+import { APP_PADDING_BOTTOM, APP_PADDING_TOP, DIALOG_BACKGROUND_Z_INDEX, DIALOG_CARD_Z_INDEX, DIALOG_SCRIM_Z_INDEX, TOAST_Z_INDEX, refreshDialogChrome, configureDialogHeaders, configureDialogSearch, registerDialogCard } from "./dialog-chrome.ts";
 
 import { isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
@@ -1865,10 +1865,11 @@ export async function startTui(
     rt.modeToastText = new TextRenderable(rt.renderer, {
         id: "mode-toast-text",
         content: "",
-        fg: rt.theme.text,
-        bg: rt.theme.panel,
+        fg: rt.theme.background,
+        bg: rt.theme.accent,
         width: "100%",
         height: 1,
+        wrapMode: "none",
     });
     rt.modeToast = new BoxRenderable(rt.renderer, {
         id: "mode-toast",
@@ -1881,8 +1882,8 @@ export async function startTui(
         paddingBottom: 1,
         paddingLeft: 2,
         paddingRight: 2,
-        backgroundColor: rt.theme.panel,
-        zIndex: 4,
+        backgroundColor: rt.theme.accent,
+        zIndex: TOAST_Z_INDEX,
         visible: false,
     });
     rt.modeToast.add(rt.modeToastText);
@@ -2823,10 +2824,10 @@ export async function startTui(
         }),
         tuiThemeProperties(rt.sidebarJump, { backgroundColor: "accent" }),
         tuiThemeProperties(rt.modeToastText, {
-            fg: "text",
-            bg: "panel",
+            fg: "background",
+            bg: "accent",
         }),
-        tuiThemeProperties(rt.modeToast, { backgroundColor: "panel" }),
+        tuiThemeProperties(rt.modeToast, { backgroundColor: "accent" }),
         tuiThemeProperties(rt.commandSuggestionsText, { fg: "text" }),
         tuiThemeProperties(rt.commandSuggestionsBox, {
             backgroundColor: "background",

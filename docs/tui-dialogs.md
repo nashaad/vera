@@ -9,6 +9,9 @@ Most Vera dialogs use arrow keys to choose, Enter to open or confirm, and
 Escape to return or close. The footer shows the action for the focused
 control. Typing in a searchable picker moves into its search field.
 
+A brief overlay can appear above an open dialog for work such as a catalog
+refresh. It does not take keys and does not change the dialog's size.
+
 ## Open common dialogs
 
 | Task | Command |

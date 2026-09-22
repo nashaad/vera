@@ -81,8 +81,8 @@ returns to the screen you came from.
 
 Choose **Refresh providers** below the groups to read every connected catalog.
 To refresh one connection, press Enter on its row and choose **Refresh**.
-The result appears on the provider screen; your search and highlighted row
-stay in place.
+The result appears as an overlay above the dialog; your search and highlighted
+row stay in place.
 
 ### Edit a connection
 

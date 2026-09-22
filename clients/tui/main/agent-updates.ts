@@ -1,6 +1,6 @@
 import { receiveCustomizationSources } from "./customization-sources.ts";
 import { isConfigurationRequiredUiRequestUpdate, isTimelineReplyUpdate } from "../../../src/engine/protocol.ts";
-import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
+import { anyOverlayOpen, applyTimelineTransition, catalogRefreshSweepResult, defaultModelChangeNotice, dropSettledVerificationConsole, failPendingSkillInvocations, finishStreamingAssistant, finishThoughtPhase, focusActiveSurface, hideVerificationConsole, modelPickerActionOptions, notifyExtensionSettings, observeActivity, openNamePrompt, poolVerifySweepResult, receiveSkillCatalog, receiveSkillInvocation, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectPendingExtensionSettingsFor, rejectionNotice, renderJumpToBottom, renderState, reportConnectionError, requestSkillCommands, retryPoolAdmission, sendCommand, settleExtensionModelSettings, showModeToast, showStatusNotice, syncConfigurationRequiredRequest } from "../main.ts";
 import { closeTransientOverlaysForUiRequest, hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { adoptFallbackSessionTitle, applyTerminalTitle, refreshTerminalTitle } from "../main/chrome.ts";
 import { isSettingsRetryTrigger, noticeRepeatedModelFailure, retryMissingAgentSettings } from "../main/diagnostics-ops.ts";
@@ -502,16 +502,16 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
                 const provider = rt.catalogRefreshes.get(update.requestId)!;
                 rt.catalogRefreshes.delete(update.requestId);
                 if (update.type === "model_settings_rejected") {
-                    refreshProviderPicker(rt, `Could not refresh ${provider}; its saved list stands.`);
-                    showStatusNotice(rt, 
-                        `could not ask ${provider}, its saved list stands`,
+                    refreshProviderPicker(rt);
+                    showModeToast(rt,
+                        `Could not refresh ${provider}; its saved list stands.`,
                     );
                 } else {
                     const count = (rt.state.modelSettings?.availableModels ?? [])
                         .filter((entry) => entry.provider === provider)
                         .length;
-                    showStatusNotice(rt, `${provider}: ${count} models`);
-                    refreshProviderPicker(rt, `${provider}: ${count} models`);
+                    showModeToast(rt, `${provider}: ${count} models`);
+                    refreshProviderPicker(rt);
                 }
             }
             if (

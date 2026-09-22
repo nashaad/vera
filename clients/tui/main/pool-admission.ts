@@ -2,7 +2,7 @@ import { verificationPicker, verificationResults } from "../model-verification.t
 import { runModelOperation } from "./model-operations.ts";
 import { HOST_CAPABILITY_SESSION_SCOPED_STATE } from "../../../src/host/capabilities.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
-import { showStatusNotice, showVerificationConsole } from "../main.ts";
+import { showModeToast, showStatusNotice, showVerificationConsole } from "../main.ts";
 import { focusedAgentClient, focusedAgentState } from "../main/agents-dials.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface, reportConnectionError } from "../main/focus-switch.ts";
@@ -20,7 +20,7 @@ import { ensureLocalRuntimeProfile, localRuntimeProvider } from "./outrider-cont
 export function requestCatalogRefresh(rt: TuiRuntime, provider: string): void {
     const requestId = randomUUID();
     rt.catalogRefreshes.set(requestId, provider);
-    showStatusNotice(rt, `asking ${provider} for its model list…`);
+    showModeToast(rt, `asking ${provider} for its model list…`);
     sendCommand(rt, { type: "catalog_refresh", requestId, provider });
     renderState(rt);
 }
@@ -80,7 +80,7 @@ export function openCatalogRefreshScopePicker(rt: TuiRuntime): void {
         targetState.modelSettings?.refreshableProviders,
     );
     if (providers.length === 0) {
-        showStatusNotice(rt, "no provider here keeps a model list to refresh");
+        showModeToast(rt, "no provider here keeps a model list to refresh");
         return;
     }
     rt.settingsPicker = withTuiPickerParent(
@@ -105,13 +105,13 @@ export function startCatalogRefreshSweep(rt: TuiRuntime, providers: readonly str
         );
     rt.composer.blur();
     if (rt.catalogRefreshSweep !== undefined) {
-        showStatusNotice(rt, "a refresh is already running");
+        showModeToast(rt, "a refresh is already running");
         renderState(rt);
         focusActiveSurface(rt);
         return;
     }
     if (queue.length === 0) {
-        showStatusNotice(rt, "no provider here keeps a model list to refresh");
+        showModeToast(rt, "no provider here keeps a model list to refresh");
         renderState(rt);
         focusActiveSurface(rt);
         return;
@@ -129,14 +129,13 @@ export function advanceCatalogRefreshSweep(rt: TuiRuntime): void {
     if (next === undefined) {
         rt.catalogRefreshSweep = undefined;
         const summary = catalogRefreshSummary(rt, sweep.results);
-        showStatusNotice(rt, summary);
-        refreshProviderPicker(rt, summary);
-        if (rt.settingsPicker?.kind === "model" && rt.settingsPicker.modelBrowse !== undefined) rt.settingsPicker = { ...rt.settingsPicker, browseNotice: summary };
+        showModeToast(rt, summary);
+        refreshProviderPicker(rt);
         renderState(rt);
         return;
     }
     sweep.results.push({ provider: next, before: catalogSizeOf(rt, next) });
-    showStatusNotice(rt, 
+    showModeToast(rt,
         `asking ${next} (${sweep.index + 1}/${sweep.queue.length})\u2026`,
     );
     const requestId = randomUUID();
