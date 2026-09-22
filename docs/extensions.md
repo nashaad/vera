@@ -9,6 +9,9 @@ Extensions add capabilities to Vera. Run `/extensions` to see included
 extensions and installed copies, what they contribute, and whether they are
 enabled. The same screen is available from **Manage extensions** in Ctrl+P.
 
+> Sharing and a catalog of extensions are planned. For now, the focus is
+> making the existing extensions work well.
+
 Installed extensions live in the home, under `extensions/`. Vera does not load
 extensions from a project folder; a `.vera/extensions` directory in a
 workspace is ignored.
@@ -65,11 +68,10 @@ See [Extension credentials](extension-credentials.md).
 From a development worktree:
 
 ```sh
-VERA_EXTENSIONS=extensions/btw,extensions/plan bun run dev:tui
+VERA_EXTENSIONS=extensions/btw,examples/extensions/plan bun run dev:tui
 ```
 
 `VERA_EXTENSIONS` replaces the configured list with the supplied comma-separated
 directories. It does not append them. A running host keeps the list from its
 startup. See [Development instances](runtime-and-worktrees.md).
 
-For browser work, see [Work in a Chrome tab](chrome-browser.md).

@@ -64,7 +64,7 @@ test("an installed release activates included batteries without checkout example
                 console.log(JSON.stringify({
                     failures,
                     activity,
-                    plan: host.agents().find((entry) => entry.name === "plan"),
+                    explorer: host.agents().find((entry) => entry.name === "explorer"),
                     preHooks: host.preToolUseHooks().length,
                     postHooks: host.postToolUseHooks().length,
                     commands: client.commands().map((entry) => entry.name),
@@ -88,7 +88,7 @@ test("an installed release activates included batteries without checkout example
         const result = JSON.parse(stdout);
         expect(result.failures).toEqual([]);
         expect(result.activity).toEqual([]);
-        expect(result.plan.tools).toEqual(["read", "grep", "list"]);
+        expect(result.explorer.tools).toEqual(["read", "grep", "list"]);
         expect(result.preHooks).toBe(0);
         expect(result.postHooks).toBe(0);
         expect(result.commands).toContain("btw");

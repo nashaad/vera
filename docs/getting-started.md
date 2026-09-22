@@ -53,12 +53,6 @@ Read the README and tell me how to run this project's tests. Do not change files
 Press Enter to send. Vera shows its reply and tool activity. If an approval
 appears, read the action and decide whether to allow it.
 
-### Plan before editing
-
-For read-only investigation, enter `/agent plan` before the question.
-Use `/agent default` to return to the default definition when ready to make
-changes.
-
 ### Make and review a change
 
 Give Vera a concrete task and say what should count as finished:

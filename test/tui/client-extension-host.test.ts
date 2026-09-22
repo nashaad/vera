@@ -15,7 +15,6 @@ const DISABLED_BUILTINS = [
     "vera.reasoning-cycle",
     "vera.customize",
     "vera.budget",
-    "vera.plan",
     "vera.btw",
     "vera.diff",
     "vera.web-search",

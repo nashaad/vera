@@ -1,6 +1,7 @@
 ---
 title: "Work in a Chrome tab"
 description: "Ask Vera to inspect and interact with an open browser tab."
+draft: true
 ---
 
 # Work in a Chrome tab
