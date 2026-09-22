@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, SkipBack } from 'lucide-react';
-import { ContextPanel, ConversationDiagram } from './conversation-diagram';
-import { DIFF_FILES, FLOW_EVENT, screenSteps, type FlowHighlight, type KeysAnchor, type ScreenStep, type RuleFile, type ScreenSteps as ScreenSequence, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
+import { ContextPanel, ConversationDiagram, type ContextMark } from './conversation-diagram';
+import { DIFF_FILES, FLOW_EVENT, screenSteps, type ContextEntry, type ContextMeter, type FlowHighlight, type KeysAnchor, type ScreenStep, type RuleFile, type ScreenSteps as ScreenSequence, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
 import '../styles/screen-steps.css';
 
 const STEP_MS = 1800;
@@ -116,6 +116,16 @@ const BUDGET_EIGHTY: SketchLine = { you: false, notice: true, text: '80% of budg
 const LOOT_ASK: SketchLine = { you: true, text: 'stash the gold in the chest' };
 const CHEST_READ: SketchLine = { you: false, text: 'Read treasure/chest.yaml', tool: true };
 
+const LEDGER_ASK: SketchLine = { you: true, text: 'tally the loot in treasure/ledger.yaml' };
+const LEDGER_READ: SketchLine = { you: false, text: 'Read treasure/ledger.yaml', tool: true };
+const LOG_ASK: SketchLine = { you: true, text: "read the ship's log" };
+const LOG_READ: SketchLine = { you: false, text: 'Read ship/log.md', tool: true };
+const RUM_ASK: SketchLine = { you: true, text: 'stow the rum below deck' };
+const COURSE_ASK: SketchLine = { you: true, text: 'plot a course to skull island' };
+const MAP_READ: SketchLine = { you: false, text: 'Read maps/skull-island.md', tool: true };
+const TOO_BIG: SketchLine = { you: false, notice: true, text: 'Model call failed: the conversation is larger than the context window.' };
+const SUMMARIZED: SketchLine = { you: false, notice: true, text: 'Earlier messages were summarized. They are still shown here, but the model now sees the summary instead.' };
+
 const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[]> = {
     first: [
         { you: true, text: 'chart the route to the island' },
@@ -208,6 +218,17 @@ const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[
         { you: false, text: '+ gold: 500 coins   # right on top', added: true },
         { you: false, text: 'Stashed the gold in the chest.', stream: true },
     ],
+    // The transcript has scrolled, so the start of the raid is off screen.
+    'fill-ledger': [LEDGER_ASK, LEDGER_READ],
+    'fill-log-ask': [LEDGER_ASK, LEDGER_READ, LOG_ASK],
+    'fill-log': [LEDGER_ASK, LEDGER_READ, LOG_ASK, LOG_READ],
+    // The transcript has scrolled, so the oldest lines are gone.
+    'fill-rum': [LEDGER_READ, LOG_ASK, LOG_READ, RUM_ASK],
+    'fill-course': [LOG_ASK, LOG_READ, RUM_ASK, COURSE_ASK],
+    'fill-map': [LOG_READ, RUM_ASK, COURSE_ASK, MAP_READ],
+    'fill-failed': [LOG_READ, RUM_ASK, COURSE_ASK, MAP_READ, TOO_BIG],
+    'fill-summarized': [RUM_ASK, COURSE_ASK, MAP_READ, SUMMARIZED],
+    'fill-answered': [RUM_ASK, COURSE_ASK, MAP_READ, SUMMARIZED, { you: false, text: 'Course set: two days west, mind the kraken.', stream: true }],
 };
 
 const TITLES: Record<string, string> = {
@@ -371,6 +392,42 @@ function RuleFiles({ files, step }: { files: RuleFile[]; step: number }) {
     );
 }
 
+interface ShownContext {
+    entries: ContextEntry[];
+    fresh: number;
+    steps: number[];
+    marks?: ContextMark[];
+}
+
+function shownContext(sequence: ScreenSequence, index: number): ShownContext {
+    const all = sequence.context ?? [];
+    const step = sequence.steps[index];
+    if (!all.some((entry) => entry.at !== undefined)) {
+        return { entries: all.slice(0, step.context ?? 0), fresh: step.fresh ?? 1, steps: arrivals(sequence) };
+    }
+    const now = index + 1;
+    const entries = all.filter((entry) => (entry.at ?? 1) <= now && (entry.gone === undefined || entry.gone > now));
+    return {
+        entries,
+        fresh: 0,
+        steps: entries.map((entry) => entry.at ?? 1),
+        marks: entries.map((entry) => {
+            if (entry.folding === now) return 'folding';
+            return now > 1 && entry.at === now ? 'new' : undefined;
+        }),
+    };
+}
+
+function TokenTally({ meter, entries }: { meter: ContextMeter; entries: ContextEntry[] }) {
+    const used = entries.reduce((sum, entry) => sum + (entry.tokens ?? 0), 0);
+    const marks = meter.marks.map((mark) => `${mark.label} at ${mark.percent}%`).join(', ');
+    return (
+        <div className={used > meter.window ? 'context-tally is-full' : 'context-tally'} aria-hidden="true">
+            {used} of {meter.window} crow words{used > meter.window && ', too big to send'}{marks && <span className="context-tally-marks">{marks}</span>}
+        </div>
+    );
+}
+
 function arrivals(sequence: ScreenSequence): number[] {
     const steps: number[] = [];
     sequence.steps.forEach((each, index) => {
@@ -466,6 +523,7 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
         advance(index + 1);
     }
 
+    const shown = shownContext(sequence, index);
     const figure = (
         <figure className={wide && sequence.context ? 'screen-steps wide-context' : 'screen-steps'} ref={root} aria-label={sequence.title}>
             <figcaption className="screen-steps-title">
@@ -475,7 +533,8 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
             {sequence.context && (
                 <div className="screen-steps-context">
                     {sequence.ruleFiles && <RuleFiles files={sequence.ruleFiles} step={index + 1} />}
-                    <ContextPanel entries={sequence.context} count={step.context ?? 0} fresh={step.fresh} steps={arrivals(sequence)} />
+                    <ContextPanel entries={shown.entries} count={shown.entries.length} fresh={shown.fresh} steps={shown.steps} marks={shown.marks} meter={sequence.meter} />
+                    {sequence.meter && <TokenTally meter={sequence.meter} entries={shown.entries} />}
                 </div>
             )}
             {pressing
