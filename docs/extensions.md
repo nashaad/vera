@@ -9,6 +9,9 @@ Extensions add capabilities to Vera. Run `/extensions` to see included
 extensions and installed copies, what they contribute, and whether they are
 enabled. The same screen is available from **Manage extensions** in Ctrl+P.
 
+> Sharing and a catalog of extensions are planned. For now, the focus is
+> making the existing extensions work well.
+
 Installed extensions live in the home, under `extensions/`. Vera does not load
 extensions from a project folder; a `.vera/extensions` directory in a
 workspace is ignored.
