@@ -372,10 +372,10 @@ posture: readonly
                 detail: 'The directory is flat. A scoped rule arrives at most once until the conversation compacts. `vera rules which <path>` reports what applies.',
                 example: `---
 paths:
-  - "src/api/**"
+  - "src/treasure/**"
 ---
 
-Every handler validates its input before touching the database.`,
+Never bury the map with the loot.`,
                 documentedIn: 'rules',
             },
         ],

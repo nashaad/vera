@@ -23,8 +23,7 @@ including work already done. `/budget .5` sets $0.50. Run `/budget` with no
 amount to turn the budget off. `/budget -1` is also supported.
 
 The setting survives reconnect and resume. Turning it off keeps the recorded
-cost. Press Ctrl+E to see spending in the sidebar, such as
-`$1.75 / $3.00 · 58%`.
+cost. Setting a budget prints what has been spent and what remains.
 
 ## Respond to spending notices
 
@@ -40,7 +39,10 @@ At or above the budget, choose how to continue:
 | Increase budget and continue | Enter a new total above the amount already spent, then continue. |
 
 Use Up/Down and Enter, or the choice number. Stop is selected initially.
-Choosing Increase opens an input for the new total, such as `2.50`.
+Choosing Increase turns its row into an input. Type the new total, such as
+`5`, and press Enter.
+
+<div data-widget="screen-steps" data-steps="budget-limit"></div>
 
 Ignore survives reconnect and resume. Setting a budget again, even to the same
 amount, restores budget prompts. A pending question survives reconnecting to
@@ -52,10 +54,9 @@ The total includes intermediate model replies and billed compactions.
 Rewinding does not erase spending. Each child conversation has its own budget
 and total.
 
-When some calls have no reported price, the sidebar says **Known cost**.
-If every reply is unpriced, cost is unavailable. Budget checks do not estimate
-missing prices. The percentage uses the known subtotal, rounds down, and can
-exceed 100%.
+When some calls have no reported price, the notices and the prompt count
+known spend only and say *Known spend only; some replies have no reported
+cost.* Budget checks do not estimate missing prices.
 
 For historical spending and estimates across conversations, see
 [Usage and cost](usage.md).
