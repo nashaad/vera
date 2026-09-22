@@ -69,13 +69,15 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                         <a href="#install">Install</a>
                         <a href="https://github.com/nashaad/vera">Source</a>
                         <a href="https://discord.gg/8svqyjdhS8">Discord</a>
+                        <a href="https://corvines.com">Corvine Systems</a>
                     </nav>
                 </header>
                 <main className="home-grid">
                     <section className="home-row home-hero" aria-labelledby="home-heading">
                         <div className="home-cell home-hero-text">
                             {draft && <p className="home-preview-label">Homepage preview</p>}
-                            <h1 id="home-heading">A durable, open agent runtime you can code with, script in Python, and build on.</h1>
+                            <h1 id="home-heading">A durable, open agent runtime and harness.</h1>
+                            <p className="home-lede">Use the SDK library and workflow to script in Python and build your application.</p>
                             <ul className="home-points">
                                 <li>Work with an agent in your terminal.</li>
                                 <li>Write workflows in plain Python. Steps retry, branch, pick up after a crash, and wait for a person when they need one.</li>

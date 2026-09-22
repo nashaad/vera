@@ -1,6 +1,7 @@
 # vera
 
-A durable, open agent runtime you can code with, script in Python, and build on.
+A durable, open agent runtime and harness. Use the SDK library and workflow to
+script in Python and build your application.
 
 Vera is under heavy development. Try the code, just expect things to move.
 

@@ -113,6 +113,7 @@
 
 .home-header nav a {
     text-decoration: none;
+    white-space: nowrap;
 }
 
 .home-header nav a:hover {
@@ -191,7 +192,14 @@
     line-height: 1.1;
     letter-spacing: -0.015em;
     max-width: 20ch;
+    margin: 0 0 1rem;
+}
+
+.home-lede {
+    max-width: 30rem;
     margin: 0 0 2rem;
+    font-size: 1.15rem;
+    line-height: 1.5;
 }
 
 .home-points {
@@ -564,7 +572,9 @@
     }
 
     .home-header nav {
-        gap: 1rem;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 0.25rem 1rem;
     }
 
     .home-demo-text {

@@ -1,6 +1,6 @@
 ---
 title: "Vera"
-description: "A durable, open agent runtime you can code with, script in Python, and build on."
+description: "A durable, open agent runtime and harness. Use the SDK library and workflow to script in Python and build your application."
 layout: homepage
 ---
 
