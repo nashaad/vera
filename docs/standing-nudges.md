@@ -5,13 +5,29 @@ description: "Save short preferences that apply across matching conversations."
 
 # Standing instructions
 
-Standing nudges are short preferences Vera adds to matching user turns. Use
-one for a preference such as concise answers or including test results in a
-summary. Nudges belong to your Vera home and can apply everywhere, to one
-definition, or to one workspace.
+A nudge is a short reminder Vera repeats every few turns, so the model keeps
+following it.
 
-They add guidance alongside your message and project instructions. They do
-not change tools or permissions.
+- **Why:** models have limited attention. An instruction from early in a long
+  conversation gets buried, and the model starts to forget it.
+- **What to use it for:** things you want kept up all the time, such as
+  concise answers or test results in every summary.
+- **Where it applies:** everywhere, in one workspace, or for one agent.
+
+Nudges add guidance. They do not change tools or permissions.
+
+## What a nudge does
+
+On a turn where a nudge applies, Vera adds its text as a hidden message right
+after yours. The model reads it with your request. The transcript and exports
+leave it out, and the conversation keeps it where it was added.
+
+<div data-widget="screen-steps" data-steps="standing-nudge"></div>
+
+Adding nudges does not break the provider's prompt cache (the KV cache).
+Every earlier message, including earlier nudges, is sent again exactly as
+before, so the provider reuses its cached work and only reads the new turn
+fresh.
 
 ## Create a nudge
 

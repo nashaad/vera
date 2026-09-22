@@ -71,7 +71,8 @@ export type ConversationName =
     | 'tool-start' | 'tool-asked' | 'tool-read' | 'tool-edit' | 'tool-running' | 'tool-ran' | 'tool-done'
     | 'budget-start' | 'budget-set' | 'budget-half' | 'budget-eighty' | 'budget-continued'
     | 'rules-start' | 'rules-asked' | 'rules-read' | 'rules-done' | 'rules-without'
-    | 'fill-ledger' | 'fill-log-ask' | 'fill-log' | 'fill-rum' | 'fill-course' | 'fill-map' | 'fill-failed' | 'fill-summarized' | 'fill-answered';
+    | 'fill-ledger' | 'fill-log-ask' | 'fill-log' | 'fill-rum' | 'fill-course' | 'fill-map' | 'fill-failed' | 'fill-summarized' | 'fill-answered'
+    | 'nudge-ask' | 'nudge-read' | 'nudge-answer' | 'nudge-parrot' | 'nudge-parrot-done' | 'nudge-sail' | 'nudge-done';
 
 // Parts of the How Vera works diagram. A step with `flow` lights them while it shows.
 export type FlowNode = 'message' | 'model' | 'response' | 'request' | 'permission' | 'run' | 'results';
@@ -92,7 +93,7 @@ export interface FlowHighlight {
     context?: number;
 }
 
-export type ContextRole = 'system' | 'you' | 'model' | 'tool' | 'rule' | 'summary' | 'more' | 'cut';
+export type ContextRole = 'system' | 'you' | 'model' | 'tool' | 'rule' | 'nudge' | 'summary' | 'more' | 'cut';
 
 export interface ContextEntry {
     role: ContextRole;
@@ -205,6 +206,26 @@ const COMPACTION_CONTEXT: ContextEntry[] = [
     { role: 'model', text: 'Course set: two days west, mind the kraken.', tokens: 1, at: 13 },
 ];
 
+// A nudge set to every 2 turns. Each step adds one row, so `at` doubles as the step number.
+const NUDGE: ContextEntry = { role: 'nudge', text: 'end every answer with "arr"' };
+const FROM_CACHE = '↑  same as the last request, read from cache';
+
+const NUDGE_CONTEXT: ContextEntry[] = [
+    { role: 'system', text: 'instructions, tools, rules', at: 1 },
+    { role: 'you', text: 'count the doubloons in treasure/chest.yaml', at: 1 },
+    { ...NUDGE, at: 2 },
+    { role: 'model', text: 'asks to read treasure/chest.yaml', at: 3 },
+    { role: 'tool', text: 'treasure/chest.yaml: 40 doubloons', at: 4 },
+    { role: 'model', text: '40 doubloons in the chest, arr.', at: 5 },
+    { role: 'cut', text: FROM_CACHE, at: 7, gone: 9 },
+    { role: 'you', text: 'hide them from the parrot', at: 6 },
+    { role: 'model', text: "Buried under the crow's nest.", at: 8 },
+    { role: 'cut', text: FROM_CACHE, at: 11 },
+    { role: 'you', text: 'sail for skull island', at: 9 },
+    { ...NUDGE, at: 10 },
+    { role: 'model', text: 'Heading west, arr.', at: 12 },
+];
+
 export interface SketchHeader {
     name: string;
     status?: string;
@@ -258,7 +279,8 @@ export type ScreenStepsName =
     | 'rule-without'
     | 'scoped-rule'
     | 'context-no-compaction'
-    | 'context-compaction';
+    | 'context-compaction'
+    | 'standing-nudge';
 
 const APPROVAL: SketchRow[] = [
     { label: 'Allow once', active: true },
@@ -1167,6 +1189,105 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
                 composer: '',
                 composerFocused: true,
                 conversation: 'fill-answered',
+            },
+        ],
+    },
+    'standing-nudge': {
+        title: 'A nudge every 2 turns',
+        context: NUDGE_CONTEXT,
+        steps: [
+            {
+                action: 'You ask the crow to count the loot.',
+                keys: [],
+                result: "Vera's instructions and tools go first, then your message.",
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-ask',
+            },
+            {
+                keys: [],
+                result: 'Your nudge matches, so Vera adds it right after your message. The transcript does not show it.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-ask',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'The model asks to read the chest.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-ask',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'The chest goes in.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-read',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'The answer ends with arr, as the nudge asked.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-answer',
+            },
+            {
+                action: 'Turn 2.',
+                keys: [],
+                result: 'The nudge runs every 2 turns, so this turn gets none.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-parrot',
+            },
+            {
+                keys: [],
+                result: 'Everything above the line is sent exactly as last time, so the provider reads it from its cache.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-parrot',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'Only the new message is read fresh.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-parrot-done',
+            },
+            {
+                action: 'Turn 3.',
+                keys: [],
+                result: 'You send the next order.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-sail',
+            },
+            {
+                keys: [],
+                result: 'The nudge is due again. Vera adds it after this message, and the first one stays where it was.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-sail',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'Nothing above moved, so the cache still covers all of it.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-sail',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'The answer ends with arr again.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'nudge-done',
             },
         ],
     },

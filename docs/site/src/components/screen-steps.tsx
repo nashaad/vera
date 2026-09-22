@@ -127,6 +127,13 @@ const MAP_READ: SketchLine = { you: false, text: 'Read maps/skull-island.md', to
 const TOO_BIG: SketchLine = { you: false, notice: true, text: 'Model call failed: the conversation is larger than the context window.' };
 const SUMMARIZED: SketchLine = { you: false, notice: true, text: 'Earlier messages were summarized. They are still shown here, but the model now sees the summary instead.' };
 
+const DOUBLOON_ASK: SketchLine = { you: true, text: 'count the doubloons in treasure/chest.yaml' };
+const DOUBLOON_READ: SketchLine = { you: false, text: 'Read treasure/chest.yaml', tool: true };
+const DOUBLOON_ANSWER: SketchLine = { you: false, text: '40 doubloons in the chest, arr.' };
+const PARROT_ASK: SketchLine = { you: true, text: 'hide them from the parrot' };
+const PARROT_ANSWER: SketchLine = { you: false, text: "Buried under the crow's nest." };
+const SAIL_ASK: SketchLine = { you: true, text: 'sail for skull island' };
+
 const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[]> = {
     first: [
         { you: true, text: 'chart the route to the island' },
@@ -230,6 +237,14 @@ const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[
     'fill-failed': [LOG_READ, RUM_ASK, COURSE_ASK, MAP_READ, TOO_BIG],
     'fill-summarized': [RUM_ASK, COURSE_ASK, MAP_READ, SUMMARIZED],
     'fill-answered': [RUM_ASK, COURSE_ASK, MAP_READ, SUMMARIZED, { you: false, text: 'Course set: two days west, mind the kraken.', stream: true }],
+    // The nudge is hidden, so none of these lines show it.
+    'nudge-ask': [DOUBLOON_ASK],
+    'nudge-read': [DOUBLOON_ASK, DOUBLOON_READ],
+    'nudge-answer': [DOUBLOON_ASK, DOUBLOON_READ, { ...DOUBLOON_ANSWER, stream: true }],
+    'nudge-parrot': [DOUBLOON_ASK, DOUBLOON_READ, DOUBLOON_ANSWER, PARROT_ASK],
+    'nudge-parrot-done': [DOUBLOON_ASK, DOUBLOON_READ, DOUBLOON_ANSWER, PARROT_ASK, { ...PARROT_ANSWER, stream: true }],
+    'nudge-sail': [DOUBLOON_READ, DOUBLOON_ANSWER, PARROT_ASK, PARROT_ANSWER, SAIL_ASK],
+    'nudge-done': [DOUBLOON_ANSWER, PARROT_ASK, PARROT_ANSWER, SAIL_ASK, { you: false, text: 'Heading west, arr.', stream: true }],
 };
 
 const TITLES: Record<string, string> = {

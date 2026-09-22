@@ -41,6 +41,8 @@
 .flow-context-entry.tool .flow-context-text { color: var(--color-fd-muted-foreground); }
 .flow-context-entry.rule { border-left-color: var(--color-fd-foreground); }
 .flow-context-entry.rule .flow-context-role { color: var(--color-fd-foreground); }
+.flow-context-entry.nudge { border-left-color: #58a6ff; }
+.flow-context-entry.nudge .flow-context-role, .flow-context-entry.nudge .flow-context-text { color: #58a6ff; }
 .screen-steps-context .flow-context-entry.rule, .screen-steps-context .flow-context-entry.rule.is-new, .screen-steps-context .flow-context-entry.is-key, .screen-steps-context .flow-context-entry.is-key.is-new { border-left-color: #58a6ff; background: color-mix(in srgb, #58a6ff 14%, var(--color-fd-background)); animation: rule-blink 1.2s ease-in-out infinite; }
 .screen-steps-context .flow-context-entry.rule .flow-context-role, .screen-steps-context .flow-context-entry.rule .flow-context-text, .screen-steps-context .flow-context-entry.is-key .flow-context-role, .screen-steps-context .flow-context-entry.is-key .flow-context-text { color: #58a6ff; }
 @keyframes rule-blink { 50% { opacity: 0.35; } }
