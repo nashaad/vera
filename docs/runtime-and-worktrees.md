@@ -55,7 +55,10 @@ that host and reports the PID and builds. It does not replace the daily host.
 | `bun run dev:tui --stop` | Stop the development host belonging to the current worktree. |
 
 A plain-shell `vera host stop` targets daily Vera. Use the development
-launcher to stop a trial. Do not run two hosts against one runtime directory.
+launcher to stop a trial.
+
+> [!CAUTION]
+> Do not run two hosts against one runtime directory.
 
 ## Recover a host connection
 
