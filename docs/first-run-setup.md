@@ -11,6 +11,8 @@ on Home.
 
 ## Connect an API provider
 
+<div data-widget="screen-steps" data-steps="add-provider"></div>
+
 1. Choose **Add provider**.
 2. Enter the provider name, endpoint, and API key. Known providers prefill the
    endpoint. Custom providers also let you choose a protocol and whether a key

@@ -14,6 +14,8 @@ send them together.
 
 ## Send queued prompts
 
+<div data-widget="screen-steps" data-steps="queued-messages"></div>
+
 With the composer empty and the queue visible:
 
 | Key | Result |

@@ -11,6 +11,8 @@ conversation running while you open another.
 
 ## Resume a conversation
 
+<div data-widget="screen-steps" data-steps="resume-conversation"></div>
+
 Run `/resume`, choose a conversation, and press Enter. If you are leaving a
 live conversation, choose what happens to it:
 
@@ -19,6 +21,8 @@ live conversation, choose what happens to it:
 | Stop & switch | Stop its work and open the selected conversation. |
 | Switch, keep running | Leave it working and open the selected conversation. |
 | Escape | Return to the picker. |
+
+<div data-widget="screen-steps" data-steps="keep-running"></div>
 
 From Home or a saved-file view, Enter opens the selected conversation directly.
 `Ctrl+E` opens the same picker as `/resume`.

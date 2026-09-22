@@ -26,6 +26,8 @@ removing a favorite does not clear a default assignment.
 
 ## Choose a model
 
+<div data-widget="screen-steps" data-steps="switch-model"></div>
+
 1. Enter `/model` to open **Switch model**.
 2. Type a model name. Search includes connected models outside your favorites.
 3. Use Up/Down to highlight a model, then press Enter.

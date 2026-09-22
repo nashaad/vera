@@ -1,0 +1,194 @@
+.screen-steps { margin: 1.75rem 0; font-size: 14px; }
+
+.screen-steps {
+    --sketch-line: color-mix(in srgb, var(--color-fd-foreground) 40%, transparent);
+    --sketch-accent: var(--brand-accent, #e8582a);
+    --sketch-you: color-mix(in srgb, var(--sketch-accent) 38%, transparent);
+    --sketch-add: #7fb069;
+    --sketch-del: #d9665b;
+}
+
+.sketch-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.sketch-main {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: 244px;
+    overflow: hidden;
+    padding: 14px 16px;
+    border: 1px solid var(--sketch-line);
+}
+.sketch-main.dimmed .sketch-line,
+.sketch-main.dimmed .sketch-header { opacity: 0.3; }
+
+.sketch-line { display: flex; align-items: center; gap: 10px; min-height: 12px; white-space: nowrap; }
+.sketch-line:not(.you) { padding-left: 20px; }
+
+.sketch-bar {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--color-fd-foreground) 14%, transparent);
+}
+
+.sketch-dialog {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    width: min(80%, 440px);
+    height: 190px;
+    box-sizing: border-box;
+    overflow: hidden;
+    transform: translateX(-50%);
+    padding: 10px 14px 12px;
+    border: 1px solid var(--sketch-line);
+    background: var(--color-fd-background);
+}
+
+.sketch-dialog-title { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.sketch-dim { color: var(--color-fd-muted-foreground); }
+.sketch-search { display: flex; align-items: center; min-height: 22px; margin-bottom: 6px; }
+
+/* Scoped under .screen-steps so the manual's list styles do not add margins. */
+.screen-steps .sketch-rows { margin: 0; padding: 0; list-style: none; }
+.screen-steps .sketch-rows li { display: flex; align-items: center; gap: 8px; min-height: 22px; margin: 0; padding: 0; }
+.screen-steps .sketch-rows li.active { color: var(--sketch-accent); }
+.screen-steps .sketch-rows li.active .sketch-bar { background: color-mix(in srgb, var(--sketch-accent) 55%, transparent); }
+.screen-steps .sketch-rows li { color: color-mix(in srgb, var(--color-fd-foreground) 72%, transparent); white-space: nowrap; }
+.screen-steps .sketch-rows li > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.sketch-hit { color: var(--color-fd-foreground); font-weight: 600; }
+.screen-steps .sketch-rows li.active .sketch-hit { color: var(--sketch-accent); }
+.sketch-queue-prompt { overflow: hidden; color: color-mix(in srgb, var(--sketch-accent) 80%, var(--color-fd-foreground)); text-overflow: ellipsis; white-space: nowrap; }
+.sketch-field-label { color: color-mix(in srgb, var(--color-fd-foreground) 72%, transparent); }
+.sketch-title-bar { display: flex; align-items: center; width: 30%; }
+.sketch-title-bar .sketch-bar { background: color-mix(in srgb, var(--color-fd-foreground) 45%, transparent); }
+.sketch-typed { display: inline-block; width: 5ch; height: 6px; margin-right: 2px; border-radius: 3px; background: var(--color-fd-foreground); }
+
+.sketch-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.sketch-field { display: flex; align-items: center; gap: 12px; }
+.sketch-field-label { display: flex; flex: none; width: 9ch; }
+.sketch-field-input { display: flex; flex: 1; align-items: center; min-height: 26px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--color-fd-foreground) 18%, transparent); }
+.sketch-field.focused .sketch-field-input { border-color: var(--sketch-line); }
+
+.sketch-page { display: grid; flex: 1; grid-template-columns: 2fr 1fr; gap: 10px; }
+.sketch-pane { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--color-fd-foreground) 18%, transparent); }
+.sketch-pane.focused { border-color: var(--sketch-line); }
+.screen-steps .sketch-pane.sketch-rows { padding: 10px 12px; }
+.sketch-page .sketch-line:not(.you) { padding-left: 0; }
+.sketch-page .sketch-pane { gap: 8px; min-height: 0; }
+
+.sketch-working .sketch-bar { animation: sketch-pulse 1.2s ease-in-out infinite; }
+@keyframes sketch-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .sketch-working .sketch-bar { animation: none; } }
+
+.sketch-queue { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+.sketch-queue .sketch-bar { background: var(--sketch-you); }
+.sketch-queue-phase { color: var(--sketch-accent); }
+.sketch-line.you .sketch-bar { background: var(--sketch-you); }
+.sketch-mark { width: 1ch; flex: none; }
+.sketch-mark.add { color: var(--sketch-add); }
+.sketch-mark.del { color: var(--sketch-del); }
+.sketch-working .sketch-bar { background: var(--sketch-accent); }
+.sketch-field.focused .sketch-field-input,
+.sketch-pane.focused { border-color: color-mix(in srgb, var(--sketch-accent) 70%, transparent); }
+
+.sketch-star { width: 1ch; flex: none; color: var(--sketch-accent); }
+.sketch-pointer { width: 1ch; color: var(--sketch-accent); }
+
+.sketch-composer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 0 16px;
+    border: 1px solid var(--sketch-line);
+}
+.sketch-prompt { color: var(--sketch-accent); }
+.sketch-line .sketch-prompt { color: var(--color-fd-muted-foreground); }
+
+.sketch-caret {
+    display: inline-block;
+    width: 0.6em;
+    height: 1.1em;
+    background: var(--sketch-accent);
+}
+
+.screen-steps-controls { padding: 8px 2px 0; }
+
+.screen-steps-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+}
+.screen-steps-controls button {
+    display: flex;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-fd-muted-foreground);
+    font: inherit;
+}
+.screen-steps-controls svg { width: 16px; height: 16px; }
+.screen-steps-controls button:hover:not(:disabled) { color: var(--color-fd-foreground); }
+.screen-steps-controls button:disabled { opacity: 0.35; }
+.screen-steps-controls button:focus-visible { outline: 1px solid var(--sketch-accent); outline-offset: 3px; }
+.screen-steps-counter { margin-left: auto; color: var(--color-fd-muted-foreground); }
+
+.sketch-header { display: flex; justify-content: space-between; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb, var(--color-fd-foreground) 14%, transparent); }
+.sketch-header b { color: var(--sketch-accent); font-weight: 600; }
+
+.screen-steps-caption { display: grid; padding: 10px 2px 0; font-size: 15px; line-height: 1.5; }
+.screen-steps-caption > div { grid-area: 1 / 1; visibility: hidden; }
+.screen-steps-caption > div.current { visibility: visible; }
+.screen-steps .screen-steps-caption p { margin: 0; }
+.screen-steps-action { color: var(--color-fd-foreground); font-weight: 500; }
+.screen-steps .screen-steps-result { margin-top: 4px; color: color-mix(in srgb, var(--color-fd-foreground) 78%, transparent); }
+.screen-steps-caption code { padding: 0 3px; border: 0; background: none; font-size: 0.9em; }
+
+/* Key caps sit on the frame, next to what they act on. */
+.sketch-keys { display: inline-flex; gap: 4px; margin-left: auto; animation: sketch-pop 0.35s ease-out; }
+.sketch-dialog .sketch-keys,
+.sketch-pane .sketch-keys { position: absolute; right: 12px; bottom: 10px; }
+.sketch-pane { position: relative; }
+.sketch-header .sketch-keys { margin-left: 12px; margin-right: auto; }
+.sketch-keys kbd {
+    padding: 1px 7px;
+    border: 1px solid var(--sketch-accent);
+    border-radius: 4px;
+    background: var(--color-fd-background);
+    color: var(--sketch-accent);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 1.5;
+}
+@keyframes sketch-pop { from { opacity: 0; transform: scale(0.85); } }
+@media (prefers-reduced-motion: reduce) { .sketch-keys { animation: none; } }
+.screen-steps .screen-steps-title {
+    margin: 0 0 8px;
+    padding: 0 2px;
+    color: var(--color-fd-foreground);
+    font-family: var(--brand-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+.sketch-text { overflow: hidden; color: color-mix(in srgb, var(--color-fd-foreground) 62%, transparent); text-overflow: ellipsis; }
+.sketch-line.you .sketch-text { color: color-mix(in srgb, var(--sketch-accent) 75%, var(--color-fd-foreground)); }
+.sketch-header { margin-bottom: 4px; }
+.sketch-header-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sketch-working { margin-top: 6px; }
+/* Each prompt is its own band, so two prompts in a row read as two messages. */
+.sketch-line.you { margin: 3px 0; padding: 0 8px; background: color-mix(in srgb, var(--sketch-accent) 9%, transparent); }
+.sketch-main > .sketch-line.you:first-child { margin-top: 0; }

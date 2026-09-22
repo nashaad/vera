@@ -11,6 +11,8 @@ The viewer does not edit, stage, or revert files.
 
 ## Browse files and patches
 
+<div data-widget="screen-steps" data-steps="workspace-diff"></div>
+
 Select a file with Up/Down and press Enter to open it. Tab switches focus
 between the tree and patches. Left/Right folds or expands folders.
 File headers show additions and deletions.

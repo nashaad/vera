@@ -23,6 +23,8 @@ host, provider, or network request.
 
 ## In the TUI
 
+<div data-widget="screen-steps" data-steps="command-palette"></div>
+
 `/palette` opens the same command palette as Ctrl+P. In `/help`, choose a
 page with Up/Down and Enter. Escape returns to the menu.
 
