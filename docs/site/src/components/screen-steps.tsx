@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Pause, Play, SkipBack } from 'lucide-react';
-import { ConversationDiagram } from './conversation-diagram';
+import { ContextPanel, ConversationDiagram } from './conversation-diagram';
 import { DIFF_FILES, FLOW_EVENT, screenSteps, type FlowHighlight, type KeysAnchor, type ScreenStep, type ScreenStepsName, type SketchDialog, type SketchPage, type SketchRow } from '../data/screen-steps';
 import '../styles/screen-steps.css';
 
@@ -78,6 +78,7 @@ function lineClass(line: SketchLine): string {
     if (line.header) classes.push('tool-header');
     if (line.live) classes.push('live');
     if (line.appear) classes.push('appear');
+    if (line.notice) classes.push('notice');
     return classes.join(' ');
 }
 
@@ -97,7 +98,21 @@ interface SketchLine {
     live?: boolean;
     // Fades in instead of typing, for output that lands all at once.
     appear?: boolean;
+    // A plain transcript notice, such as an extension's message.
+    notice?: boolean;
 }
+
+const MAP_ASK: SketchLine = { you: true, text: 'chart the route to the island' };
+const MAP_REPLY: SketchLine = { you: false, text: 'The north route is shorter.' };
+const BUDGET_SET: SketchLine = { you: false, notice: true, text: 'vera.budget/budget: Budget changed to $3.00. Spent: $1.20. Remaining: $1.80.' };
+const REEF_ASK: SketchLine = { you: true, text: 'raid the kraken\'s reef for shiny buttons' };
+const REEF_READ: SketchLine = { you: false, text: 'Read src/reef.ts', tool: true };
+const BUDGET_HALF: SketchLine = { you: false, notice: true, text: 'Halfway through budget: $1.60 spent of $3.00. $1.40 remaining.' };
+const REEF_EDIT: SketchLine = { you: false, text: 'Edit src/loot.ts', tool: true };
+const BUDGET_EIGHTY: SketchLine = { you: false, notice: true, text: '80% of budget used: $2.45 spent of $3.00. $0.55 remaining.' };
+const REFUND_ASK: SketchLine = { you: true, text: 'hide a secret compartment in src/treasure/chest.ts' };
+const ORDERS_READ: SketchLine = { you: false, text: 'Read src/treasure/chest.ts', tool: true };
+const REFUNDS_READ: SketchLine = { you: false, text: 'Read src/treasure/map.ts', tool: true };
 
 const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[]> = {
     first: [
@@ -168,6 +183,23 @@ const CONVERSATIONS: Record<NonNullable<ScreenStep['conversation']>, SketchLine[
         { you: false, text: '12 pass, 0 fail', tool: true },
         { you: false, text: 'Marked the X at the north cove. The map tests pass.', stream: true },
     ],
+    'budget-start': [MAP_ASK, MAP_REPLY],
+    'budget-set': [MAP_ASK, MAP_REPLY, BUDGET_SET],
+    'budget-half': [MAP_ASK, MAP_REPLY, BUDGET_SET, REEF_ASK, REEF_READ, BUDGET_HALF],
+    'budget-eighty': [MAP_ASK, MAP_REPLY, BUDGET_SET, REEF_ASK, REEF_READ, BUDGET_HALF, REEF_EDIT, BUDGET_EIGHTY],
+    // The transcript has scrolled, so the oldest lines are gone.
+    'budget-continued': [REEF_ASK, REEF_READ, BUDGET_HALF, REEF_EDIT, BUDGET_EIGHTY, { you: false, text: 'Raided the reef: 31 buttons, one very angry kraken.', stream: true }],
+    'rules-start': [],
+    'rules-asked': [REFUND_ASK],
+    'rules-read': [REFUND_ASK, ORDERS_READ],
+    'rules-read-again': [REFUND_ASK, ORDERS_READ, REFUNDS_READ],
+    'rules-done': [
+        REFUND_ASK,
+        ORDERS_READ,
+        REFUNDS_READ,
+        { you: false, text: 'Edit src/treasure/chest.ts', tool: true },
+        { you: false, text: 'Hid the compartment. The map stays out of the chest.', stream: true },
+    ],
 };
 
 const TITLES: Record<string, string> = {
@@ -190,6 +222,7 @@ function Row({ row, index }: { row: SketchRow; index: number }) {
             <span className="sketch-pointer">{row.active ? '›' : ' '}</span>
             <span className="sketch-star">{row.favorite ? '★' : ''}</span>
             {body}
+            {row.input !== undefined && <span className="sketch-row-input">{row.input}<span className="sketch-caret" /></span>}
         </li>
     );
 }
@@ -397,6 +430,11 @@ export function ScreenSteps({ name }: ScreenStepsProps) {
     const figure = (
         <figure className="screen-steps" ref={root} aria-label={sequence.title}>
             <figcaption className="screen-steps-title">{sequence.title}</figcaption>
+            {sequence.context && (
+                <div className="screen-steps-context">
+                    <ContextPanel entries={sequence.context} count={step.context ?? 0} fresh={step.fresh} />
+                </div>
+            )}
             {pressing
                 ? <Frame key={`press-${index}`} step={before} pressed={step} pressedCount={pressed} typeComposer={false} live={visible} />
                 : <Frame key={`step-${index}`} step={step} typeComposer={step.composer !== '' && step.composer !== before.composer} live={visible} />}

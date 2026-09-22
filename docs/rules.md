@@ -18,8 +18,9 @@ not look for rule files next to your code.
 
 ## Always-on rules
 
-A rule with no frontmatter is always on. It joins the system prompt at the
-start of the session and stays there.
+A rule with no frontmatter is always on. It joins the system prompt and stays
+there. Vera reads rule files again before each turn, so an edit applies from
+the next turn.
 
 ```markdown
 # Tone
@@ -40,13 +41,13 @@ file.
 ```markdown
 ---
 paths:
-  - "src/api/**"
-  - "src/api/*.test.ts"
+  - "src/treasure/**"
+  - "src/treasure/*.test.ts"
 ---
 
-# API conventions
+# Treasure
 
-Every handler validates its input before touching the database.
+Never bury the map with the loot. The crow keeps one shiny thing from every chest.
 ```
 
 Globs match paths relative to the project root. `*` matches within one path
@@ -60,13 +61,18 @@ in that turn. A rule arrives at most once until the conversation compacts, and
 can arrive again after that. Search, listing, editing, writing, and failed
 reads do not bring a rule in.
 
+Nothing on screen marks a rule arriving. It reaches the model as a message
+after the file.
+
+<div data-widget="screen-steps" data-steps="scoped-rule"></div>
+
 ## See what applies
 
 ```console
-$ vera rules which src/api/handler.ts
-Rules for src/api/handler.ts:
-  always      <home>/rules/tone.md
-  src/api/**  .vera/rules/api.md
+$ vera rules which src/treasure/chest.ts
+Rules for src/treasure/chest.ts:
+  always           <home>/rules/tone.md
+  src/treasure/**  .vera/rules/treasure.md
 ```
 
 The command reads the rule files and reports; it changes nothing.

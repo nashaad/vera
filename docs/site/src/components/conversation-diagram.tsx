@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { CONTEXT_ENTRIES, FLOW_EVENT, type FlowHighlight, type FlowLine, type FlowNode } from '../data/screen-steps';
+import { CONTEXT_ENTRIES, FLOW_EVENT, type ContextEntry, type FlowHighlight, type FlowLine, type FlowNode } from '../data/screen-steps';
 import '../styles/diagrams.css';
 
 interface DiagramNodeProps {
@@ -55,8 +55,8 @@ const LINES: Record<FlowLine, string> = {
 const BAR_WIDTHS = ['62%', '44%', '54%'];
 
 // Fixed height, so the reader sees the space fill up as each turn adds to it.
-function ContextPanel({ count }: { count: number }) {
-    const entries = CONTEXT_ENTRIES.slice(0, count);
+export function ContextPanel({ entries: all, count, fresh = 1 }: { entries: ContextEntry[]; count: number; fresh?: number }) {
+    const entries = all.slice(0, count);
     return (
         <div className="flow-context" aria-hidden="true">
             <div className="flow-context-title">What the model sees</div>
@@ -64,7 +64,7 @@ function ContextPanel({ count }: { count: number }) {
                 {entries.map((entry, index) => (
                     <div
                         key={index}
-                        className={index === count - 1 ? `flow-context-entry ${entry.role} is-new` : `flow-context-entry ${entry.role}`}
+                        className={index >= count - fresh ? `flow-context-entry ${entry.role} is-new` : `flow-context-entry ${entry.role}`}
                     >
                         <span className="flow-context-role">{entry.role}</span>
                         <span className="flow-context-content">
@@ -107,7 +107,7 @@ export function ConversationDiagram({ wide = false }: { wide?: boolean }) {
     const landing = NODES.find((node) => node.id === flow?.node);
     return (
         <figure className={wide ? 'conversation-diagram wide not-prose' : 'conversation-diagram not-prose'}>
-            <ContextPanel count={flow?.context ?? 0} />
+            <ContextPanel entries={CONTEXT_ENTRIES} count={flow?.context ?? 0} />
             <div className="conversation-diagram-scroll" tabIndex={0} role="region" aria-label="Conversation flow diagram">
                 <svg viewBox="0 0 640 330" role="img" aria-labelledby={`${title} ${description}`}>
                     <title id={title}>A conversation with Vera</title>

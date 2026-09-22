@@ -228,3 +228,6 @@
 .screen-steps-wide { position: fixed; inset: 0; z-index: 60; overflow: auto; padding: 32px; background: var(--color-fd-background); }
 .screen-steps-wide-inner { display: flex; flex-direction: column; gap: 24px; max-width: 1200px; min-height: 100%; margin: 0 auto; justify-content: center; }
 .screen-steps-wide .screen-steps, .screen-steps-wide .conversation-diagram { margin: 0; }
+.sketch-line.notice { color: var(--color-fd-muted-foreground); font-family: var(--brand-mono); font-size: 12px; }
+.sketch-line.notice .sketch-text { color: inherit; }
+.sketch-row-input { display: inline-flex; align-items: center; min-width: 8ch; margin-left: 6px; padding: 0 4px; border-bottom: 1px solid var(--sketch-accent); color: var(--color-fd-foreground); }

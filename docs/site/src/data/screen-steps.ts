@@ -5,6 +5,8 @@ export interface SketchRow {
     hit?: string;
     active?: boolean;
     favorite?: boolean;
+    // An answer typed on the row itself, as Increase budget does.
+    input?: string;
 }
 
 export interface SketchField {
@@ -50,7 +52,7 @@ export interface ScreenStep {
     result?: string;
     composer: string;
     composerFocused: boolean;
-    conversation?: 'first' | 'second' | 'steering' | 'steered' | 'sent' | 'tool-start' | 'tool-asked' | 'tool-read' | 'tool-edit' | 'tool-running' | 'tool-ran' | 'tool-done';
+    conversation?: ConversationName;
     header?: SketchHeader;
     working?: boolean;
     queue?: SketchQueue;
@@ -59,7 +61,16 @@ export interface ScreenStep {
     // Key caps drawn on this step's own frame and kept there, for a press the reader should see.
     held?: string[];
     flow?: Omit<FlowHighlight, 'step'>;
+    // How many of the sequence's `context` entries the model can see, and how many of those just arrived.
+    context?: number;
+    fresh?: number;
 }
+
+export type ConversationName =
+    | 'first' | 'second' | 'steering' | 'steered' | 'sent'
+    | 'tool-start' | 'tool-asked' | 'tool-read' | 'tool-edit' | 'tool-running' | 'tool-ran' | 'tool-done'
+    | 'budget-start' | 'budget-set' | 'budget-half' | 'budget-eighty' | 'budget-continued'
+    | 'rules-start' | 'rules-asked' | 'rules-read' | 'rules-read-again' | 'rules-done';
 
 // Parts of the How Vera works diagram. A step with `flow` lights them while it shows.
 export type FlowNode = 'message' | 'model' | 'response' | 'request' | 'permission' | 'run' | 'results';
@@ -80,7 +91,7 @@ export interface FlowHighlight {
     context?: number;
 }
 
-export type ContextRole = 'system' | 'you' | 'model' | 'tool';
+export type ContextRole = 'system' | 'you' | 'model' | 'tool' | 'rule';
 
 export interface ContextEntry {
     role: ContextRole;
@@ -102,6 +113,20 @@ export const CONTEXT_ENTRIES: ContextEntry[] = [
     { role: 'model', text: 'Marked the X at the north cove. The map tests pass.' },
 ];
 
+// A scoped rule is a hidden message after the tool result, so only this panel shows it arriving.
+const RULE_CONTEXT: ContextEntry[] = [
+    { role: 'system', text: 'instructions, tools, always-on rules', lines: 2 },
+    { role: 'you', text: 'hide a secret compartment in src/treasure/chest.ts' },
+    { role: 'model', text: 'read src/treasure/chest.ts' },
+    { role: 'tool', text: 'src/treasure/chest.ts, 88 lines of code', lines: 3 },
+    { role: 'rule', text: '.vera/rules/treasure.md: never bury the map with the loot', lines: 2 },
+    { role: 'model', text: 'read src/treasure/map.ts' },
+    { role: 'tool', text: 'src/treasure/map.ts, 40 lines of code', lines: 2 },
+    { role: 'model', text: 'edit src/treasure/chest.ts' },
+    { role: 'tool', text: 'edited src/treasure/chest.ts' },
+    { role: 'model', text: 'Hid the compartment. The map stays out of the chest.' },
+];
+
 export interface SketchHeader {
     name: string;
     status?: string;
@@ -110,6 +135,8 @@ export interface SketchHeader {
 export interface ScreenSteps {
     title: string;
     steps: ScreenStep[];
+    // Drawn as What the model sees above the screen.
+    context?: ContextEntry[];
 }
 
 export type ScreenStepsName =
@@ -120,7 +147,9 @@ export type ScreenStepsName =
     | 'add-provider'
     | 'queued-messages'
     | 'workspace-diff'
-    | 'tool-call';
+    | 'tool-call'
+    | 'budget-limit'
+    | 'scoped-rule';
 
 const APPROVAL: SketchRow[] = [
     { label: 'Allow once', active: true },
@@ -128,6 +157,22 @@ const APPROVAL: SketchRow[] = [
     { label: 'Deny' },
     { label: 'Always' },
 ];
+
+const BUDGET_TITLE = 'Budget exceeded: $3.04 / $3.00.';
+const BUDGET_BODY = 'Continue spending? Enter a new total above $3.04.';
+const BUDGET_CHOICES: SketchRow[] = [
+    { label: '1. Stop', active: true },
+    { label: '2. Ignore budget and continue' },
+    { label: '3. Increase budget and continue' },
+];
+
+function increase(input: string): SketchDialog {
+    return {
+        title: BUDGET_TITLE,
+        body: BUDGET_BODY,
+        rows: [{ label: '1. Stop' }, BUDGET_CHOICES[1], { label: '3. Increase budget and continue:', active: true, input }],
+    };
+}
 
 export const DIFF_FILES = ['src/map.ts', 'src/treasure.ts', 'test/map.test.ts', 'README.md'];
 
@@ -689,6 +734,132 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
                 composerFocused: true,
                 conversation: 'tool-done',
                 flow: { node: 'response', trail: ['results-model', 'model-response'], detail: 'Marked the X…', model: 'done, answer', context: 9 },
+            },
+        ],
+    },
+    'budget-limit': {
+        title: 'Set a budget and decide at the limit',
+        steps: [
+            { action: 'Type `/budget 3`.', keys: [], composer: '/budget 3', composerFocused: true, conversation: 'budget-start' },
+            {
+                keys: ['Enter'],
+                result: 'The budget counts the whole conversation, including work already done.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'budget-set',
+            },
+            { action: 'Ask for more work.', keys: [], composer: 'raid the kraken\'s reef for shiny buttons', composerFocused: true, conversation: 'budget-set' },
+            {
+                keys: ['Enter'],
+                result: 'Past half, the next request starts with a notice. The model gets the same line.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'budget-half',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'At 80% there is one more.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'budget-eighty',
+                working: true,
+            },
+            {
+                keys: [],
+                result: 'At the budget, work pauses before the next request. Stop is selected.',
+                composer: '',
+                composerFocused: false,
+                conversation: 'budget-eighty',
+                working: true,
+                dialog: { title: BUDGET_TITLE, body: BUDGET_BODY, rows: BUDGET_CHOICES },
+            },
+            {
+                keys: ['3'],
+                result: 'Increase asks for the new total on the row itself.',
+                composer: '',
+                composerFocused: false,
+                conversation: 'budget-eighty',
+                working: true,
+                dialog: increase(''),
+            },
+            {
+                action: 'Type the new total.',
+                keys: [],
+                composer: '',
+                composerFocused: false,
+                conversation: 'budget-eighty',
+                working: true,
+                dialog: increase('5'),
+            },
+            {
+                keys: ['Enter'],
+                result: 'Work continues. The model is told you raised the budget.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'budget-continued',
+                working: true,
+            },
+        ],
+    },
+    'scoped-rule': {
+        title: 'A scoped rule arrives with the file',
+        context: RULE_CONTEXT,
+        steps: [
+            {
+                action: 'Ask for a change under `src/treasure/`.',
+                keys: [],
+                composer: 'hide a secret compartment in src/treasure/chest.ts',
+                composerFocused: true,
+                conversation: 'rules-start',
+                context: 1,
+            },
+            {
+                keys: ['Enter'],
+                result: 'The model asks to read `src/treasure/chest.ts`.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-asked',
+                working: true,
+                context: 3,
+                fresh: 2,
+            },
+            {
+                keys: [],
+                result: 'Vera reads it. The file goes back to the model.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-read',
+                working: true,
+                context: 4,
+            },
+            {
+                keys: [],
+                result: 'The path matches `src/treasure/**`, so `.vera/rules/treasure.md` joins the next request. The screen shows nothing.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-read',
+                working: true,
+                context: 5,
+            },
+            {
+                keys: [],
+                result: 'The model reads another file under `src/treasure/`. The rule is already there, so it does not arrive again.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-read-again',
+                working: true,
+                context: 7,
+                fresh: 2,
+            },
+            {
+                keys: [],
+                result: 'It follows the rule in its edit, then answers.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-done',
+                context: 10,
+                fresh: 3,
             },
         ],
     },
