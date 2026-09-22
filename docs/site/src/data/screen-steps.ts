@@ -70,7 +70,7 @@ export type ConversationName =
     | 'first' | 'second' | 'steering' | 'steered' | 'sent'
     | 'tool-start' | 'tool-asked' | 'tool-read' | 'tool-edit' | 'tool-running' | 'tool-ran' | 'tool-done'
     | 'budget-start' | 'budget-set' | 'budget-half' | 'budget-eighty' | 'budget-continued'
-    | 'rules-start' | 'rules-asked' | 'rules-read' | 'rules-read-again' | 'rules-done';
+    | 'rules-start' | 'rules-asked' | 'rules-read' | 'rules-done' | 'rules-without';
 
 // Parts of the How Vera works diagram. A step with `flow` lights them while it shows.
 export type FlowNode = 'message' | 'model' | 'response' | 'request' | 'permission' | 'run' | 'results';
@@ -114,17 +114,26 @@ export const CONTEXT_ENTRIES: ContextEntry[] = [
 ];
 
 // A scoped rule is a hidden message after the tool result, so only this panel shows it arriving.
-const RULE_CONTEXT: ContextEntry[] = [
+const RULE_SHARED: ContextEntry[] = [
     { role: 'system', text: 'instructions, tools, always-on rules', lines: 2 },
-    { role: 'you', text: 'hide a secret compartment in src/treasure/chest.ts' },
-    { role: 'model', text: 'read src/treasure/chest.ts' },
-    { role: 'tool', text: 'src/treasure/chest.ts, 88 lines of code', lines: 3 },
-    { role: 'rule', text: '.vera/rules/treasure.md: never bury the map with the loot', lines: 2 },
-    { role: 'model', text: 'read src/treasure/map.ts' },
-    { role: 'tool', text: 'src/treasure/map.ts, 40 lines of code', lines: 2 },
-    { role: 'model', text: 'edit src/treasure/chest.ts' },
-    { role: 'tool', text: 'edited src/treasure/chest.ts' },
-    { role: 'model', text: 'Hid the compartment. The map stays out of the chest.' },
+    { role: 'you', text: 'stash the gold in the chest' },
+    { role: 'model', text: 'read treasure/chest.yaml' },
+    { role: 'tool', text: 'treasure/chest.yaml, 30 lines', lines: 2 },
+];
+
+const RULE_CONTEXT: ContextEntry[] = [
+    ...RULE_SHARED,
+    { role: 'rule', text: 'chest.yaml is in treasure/, so: every chest gets a decoy lid' },
+    { role: 'model', text: 'edit chest.yaml: + decoy lid, gold underneath' },
+    { role: 'tool', text: 'edited treasure/chest.yaml' },
+    { role: 'model', text: 'Stashed the gold under a decoy lid of three shiny buttons.' },
+];
+
+const NO_RULE_CONTEXT: ContextEntry[] = [
+    ...RULE_SHARED,
+    { role: 'model', text: 'edit chest.yaml: + gold, right on top' },
+    { role: 'tool', text: 'edited treasure/chest.yaml' },
+    { role: 'model', text: 'Stashed the gold in the chest.' },
 ];
 
 export interface SketchHeader {
@@ -137,6 +146,22 @@ export interface ScreenSteps {
     steps: ScreenStep[];
     // Drawn as What the model sees above the screen.
     context?: ContextEntry[];
+    // Drawn above the context; each lights up from the step it arrives at.
+    ruleFiles?: RuleFile[];
+    // A tag beside the title, for sequences shown as a pair.
+    verdict?: Verdict;
+}
+
+export interface Verdict {
+    tone: 'bad' | 'good';
+    text: string;
+}
+
+export interface RuleFile {
+    file: string;
+    folder: string;
+    text: string;
+    step: number;
 }
 
 export type ScreenStepsName =
@@ -149,6 +174,7 @@ export type ScreenStepsName =
     | 'workspace-diff'
     | 'tool-call'
     | 'budget-limit'
+    | 'rule-without'
     | 'scoped-rule';
 
 const APPROVAL: SketchRow[] = [
@@ -802,21 +828,24 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
             },
         ],
     },
-    'scoped-rule': {
-        title: 'A scoped rule arrives with the file',
-        context: RULE_CONTEXT,
+    'rule-without': {
+        title: 'Without a rule',
+        verdict: { tone: 'bad', text: 'Raiders win: no rule arrived' },
+        context: NO_RULE_CONTEXT,
+        ruleFiles: [],
         steps: [
             {
-                action: 'Ask for a change under `src/treasure/`.',
+                action: 'Ask to stash the gold.',
                 keys: [],
-                composer: 'hide a secret compartment in src/treasure/chest.ts',
+                result: 'This project has no rule files.',
+                composer: 'stash the gold in the chest',
                 composerFocused: true,
                 conversation: 'rules-start',
                 context: 1,
             },
             {
                 keys: ['Enter'],
-                result: 'The model asks to read `src/treasure/chest.ts`.',
+                result: 'The model asks to read the chest.',
                 composer: '',
                 composerFocused: true,
                 conversation: 'rules-asked',
@@ -826,41 +855,73 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
             },
             {
                 keys: [],
-                result: 'Vera reads it. The file goes back to the model.',
+                result: 'The file comes back. No rule covers `treasure/`, so nothing else arrives.',
                 composer: '',
                 composerFocused: true,
                 conversation: 'rules-read',
                 working: true,
                 context: 4,
+                fresh: 1,
             },
             {
                 keys: [],
-                result: 'The path matches `src/treasure/**`, so `.vera/rules/treasure.md` joins the next request. The screen shows nothing.',
+                result: 'The model does the plain thing: the gold goes straight in the chest, right on top where raiders look first.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-without',
+                context: 7,
+                fresh: 3,
+            },
+        ],
+    },
+    'scoped-rule': {
+        title: 'With a rule for treasure/',
+        verdict: { tone: 'good', text: 'Gold stays hidden: the rule arrived' },
+        context: RULE_CONTEXT,
+        ruleFiles: [
+            { file: 'treasure.md', folder: 'treasure/', text: 'every chest gets a decoy lid', step: 3 },
+        ],
+        steps: [
+            {
+                action: 'Ask to stash the gold.',
+                keys: [],
+                result: 'Files in `treasure/` have a rule: every chest gets a decoy lid. It is not in the context yet.',
+                composer: 'stash the gold in the chest',
+                composerFocused: true,
+                conversation: 'rules-start',
+                context: 1,
+            },
+            {
+                keys: ['Enter'],
+                result: 'The model asks to read the chest.',
+                composer: '',
+                composerFocused: true,
+                conversation: 'rules-asked',
+                working: true,
+                context: 3,
+                fresh: 2,
+            },
+            {
+                keys: [],
+                result: 'The file comes back. It is in `treasure/`, so the rule comes with it.',
                 composer: '',
                 composerFocused: true,
                 conversation: 'rules-read',
                 working: true,
                 context: 5,
-            },
-            {
-                keys: [],
-                result: 'The model reads another file under `src/treasure/`. The rule is already there, so it does not arrive again.',
-                composer: '',
-                composerFocused: true,
-                conversation: 'rules-read-again',
-                working: true,
-                context: 7,
                 fresh: 2,
             },
             {
                 keys: [],
-                result: 'It follows the rule in its edit, then answers.',
+                result: 'The model follows the rule: a decoy lid of three shiny buttons, with the gold underneath.',
                 composer: '',
                 composerFocused: true,
                 conversation: 'rules-done',
-                context: 10,
+                context: 8,
                 fresh: 3,
             },
         ],
     },
+
+
 };

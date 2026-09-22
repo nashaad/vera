@@ -230,4 +230,14 @@
 .screen-steps-wide .screen-steps, .screen-steps-wide .conversation-diagram { margin: 0; }
 .sketch-line.notice { color: var(--color-fd-muted-foreground); font-family: var(--brand-mono); font-size: 12px; }
 .sketch-line.notice .sketch-text { color: inherit; }
+.sketch-line.added { padding-left: 44px; color: #7fb77e; font-family: var(--brand-mono); font-size: 12px; white-space: pre; }
+.sketch-line.added .sketch-text { color: inherit; }
 .sketch-row-input { display: inline-flex; align-items: center; min-width: 8ch; margin-left: 6px; padding: 0 4px; border-bottom: 1px solid var(--sketch-accent); color: var(--color-fd-foreground); }
+/* Wide view puts the context panel beside the screen instead of above it. */
+.screen-steps.wide-context { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto auto auto 1fr; column-gap: 32px; align-items: start; }
+.screen-steps.wide-context > * { grid-column: 2; }
+.screen-steps.wide-context > .screen-steps-title { grid-column: 1 / -1; }
+.screen-steps.wide-context > .screen-steps-context { grid-column: 1; grid-row: 2 / 6; }
+.screen-steps-verdict { display: inline-block; margin-left: 12px; white-space: nowrap; padding: 2px 8px; border: 1px solid currentColor; border-radius: 4px; font-size: 11px; vertical-align: 2px; }
+.screen-steps-verdict.bad { color: #e5534b; }
+.screen-steps-verdict.good { color: #7fb77e; }

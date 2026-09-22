@@ -41,13 +41,13 @@ file.
 ```markdown
 ---
 paths:
-  - "src/treasure/**"
-  - "src/treasure/*.test.ts"
+  - "treasure/**"
+  - "ships/*/hold.yaml"
 ---
 
 # Treasure
 
-Never bury the map with the loot. The crow keeps one shiny thing from every chest.
+Every chest gets a decoy lid.
 ```
 
 Globs match paths relative to the project root. `*` matches within one path
@@ -62,17 +62,19 @@ can arrive again after that. Search, listing, editing, writing, and failed
 reads do not bring a rule in.
 
 Nothing on screen marks a rule arriving. It reaches the model as a message
-after the file.
+after the file. Here is the same ask, first without a rule and then with one.
+
+<div data-widget="screen-steps" data-steps="rule-without"></div>
 
 <div data-widget="screen-steps" data-steps="scoped-rule"></div>
 
 ## See what applies
 
 ```console
-$ vera rules which src/treasure/chest.ts
-Rules for src/treasure/chest.ts:
-  always           <home>/rules/tone.md
-  src/treasure/**  .vera/rules/treasure.md
+$ vera rules which treasure/chest.yaml
+Rules for treasure/chest.yaml:
+  always       <home>/rules/tone.md
+  treasure/**  .vera/rules/treasure.md
 ```
 
 The command reads the rule files and reports; it changes nothing.
