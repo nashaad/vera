@@ -305,11 +305,13 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
     if (background == null || text == null) {
         return VERA_TUI_THEME;
     }
+    // Mixed toward white (palette 7), not the foreground: a tinted foreground gives a muted role too dark to read.
+    const neutral = colors.palette[7] ?? text;
 
     return {
         accent: paletteColor(colors, 6, VERA_TUI_THEME.accent),
-        text: mixHex(background, text, 0.85),
-        muted: mixHex(background, text, 0.55),
+        text,
+        muted: mixHex(background, neutral, 0.7),
         notice: paletteColor(colors, 3, VERA_TUI_THEME.notice),
         danger: paletteColor(colors, 1, VERA_TUI_THEME.danger),
         success: paletteColor(colors, 2, VERA_TUI_THEME.success),
@@ -321,7 +323,7 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
         dangerSurface: VERA_TUI_THEME.dangerSurface,
         diffAdded: paletteColor(colors, 2, VERA_TUI_THEME.diffAdded),
         diffRemoved: paletteColor(colors, 1, VERA_TUI_THEME.diffRemoved),
-        code: paletteColor(colors, 2, VERA_TUI_THEME.code),
+        code: paletteColor(colors, 6, VERA_TUI_THEME.code),
         background,
         panel: mixHex(background, text, 0.08),
         element: mixHex(background, text, 0.13),

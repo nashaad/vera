@@ -33,9 +33,8 @@ function terminalColors(): TerminalColors {
 test("TUI system theme uses terminal foreground and ANSI colors", () => {
     const theme = themeFromTerminal(terminalColors());
 
-    // Off the terminal's foreground, and a shade back from it: the transcript
-    // is read at length and the raw value is as bright as the palette goes.
-    expect(theme.text).toBe("#cdcdcd");
+    expect(theme.text).toBe("#eeeeee");
+    expect(theme.muted).toBe("#7c7c7c");
     expect(theme.background).toBe("#111111");
     expect(theme.accent).toBe("#00aaaa");
     expect(theme.notice).toBe("#aa5500");
@@ -49,7 +48,7 @@ test("TUI system theme uses terminal foreground and ANSI colors", () => {
     expect(theme.dangerSurface).toBe("#210b0b");
     expect(theme.diffAdded).toBe("#00aa00");
     expect(theme.diffRemoved).toBe("#aa0000");
-    expect(theme.code).toBe("#00aa00");
+    expect(theme.code).toBe("#00aaaa");
     expect(theme.panel).not.toBe(VERA_TUI_THEME.panel);
 });
 
