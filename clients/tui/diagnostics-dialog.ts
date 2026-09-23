@@ -420,7 +420,7 @@ export function styledInspectOccupancy(text: string): StyledText {
         const color = tone === "used"
             ? TUI_ACCENT
             : tone === "free"
-                ? TUI_ELEMENT
+                ? TUI_MUTED
                 : tone === "reserve"
                     ? TUI_NOTICE
                     : TUI_TEXT;

@@ -28,14 +28,23 @@ export function activateClient(vera: VeraClientExtensionApi): void {
                 };
             }
             const detail = argument === "all";
-            const snapshot = vera.context.current();
-            vera.experimentalTui.openDocument({
-                title: "Context",
-                footerText: "Last measured request.",
-                action: { label: "loaded sources", run: () => browser.open(new AbortController().signal, true) },
-                markdown: (columns) =>
-                    contextReportMarkdown(snapshot, detail, columns, budgetTokens),
-            });
+            const showReport = (): void => {
+                const snapshot = vera.context.current();
+                vera.experimentalTui.openDocument({
+                    title: "Context",
+                    footerText: "Last measured request.",
+                    action: {
+                        label: "loaded sources",
+                        run: async () => {
+                            const exit = await browser.open(new AbortController().signal, true);
+                            if (exit === "back") showReport();
+                        },
+                    },
+                    markdown: (columns) =>
+                        contextReportMarkdown(snapshot, detail, columns, budgetTokens),
+                });
+            };
+            showReport();
             return { kind: "handled" };
         },
     });

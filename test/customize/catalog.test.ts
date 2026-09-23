@@ -120,3 +120,25 @@ test("skills turned off by disabled_skills still appear, marked disabled", async
     expect(skills.find((source) => source.name === "vera-help")?.status).toBe("disabled");
     expect(skills.find((source) => source.name === "create-agent")?.status).not.toBe("disabled");
 });
+
+test("catalog lists home and project rules as instructions keyed by their loaded path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "customize-rules-")); roots.push(root);
+    const home = join(root, "home"); const workspace = join(root, "project");
+    process.env.VERA_HOME = home;
+    await mkdir(join(home, "rules"), { recursive: true });
+    await mkdir(join(workspace, ".vera/rules"), { recursive: true });
+    const global = join(home, "rules/global.md");
+    await writeFile(global, "Keep the parrot off the rigging.\n");
+    await writeFile(join(workspace, ".vera/rules/tui.md"), "---\npaths:\n  - \"clients/tui/**\"\n---\nCrow's nest rules.\n");
+    const agents = await loadAgentCatalog({ projectRoot: workspace, permissionModes: ["readonly"], interactive: true });
+    const catalog = await loadCustomizationCatalog({ workspace, instructionRoot: { path: root, source: "git" }, agents });
+    const user = catalog.sources.find((source) => source.name === "<home>/rules/global.md");
+    expect(user?.category).toBe("instructions");
+    expect(user?.scope).toBe("user");
+    expect(user?.contextIds).toEqual([global]);
+    expect(user?.content).toContain("parrot");
+    expect(user?.description).toBe("User rule, always on");
+    const project = catalog.sources.find((source) => source.name === ".vera/rules/tui.md");
+    expect(project?.scope).toBe("project");
+    expect(project?.description).toBe("Project rule for clients/tui/**");
+});

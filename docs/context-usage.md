@@ -13,7 +13,9 @@ inspection does not send a model request.
 ## Read the report
 
 The compact report shows used, free, and reserved space, a category breakdown,
-and loaded instruction files. Large tool results are called out so you can
+and loaded instruction files. The line under the bar names each part of it:
+used tokens with their share of the window, free space until auto-compaction,
+the point where Vera compacts, and the reserve past it. Large tool results are called out so you can
 spot an unusually expensive file read or command output.
 
 Use `/context all` to expand individual messages and tools. A used total
@@ -34,7 +36,7 @@ Used, free, and reserved space remain distinguishable without color.
 
 Everything in the INSTRUCTIONS section is sent with every request: home and
 project rules, `AGENTS.md`, `AGENTS.local.md`, memory, the selected agent's
-instructions, and the skill catalog. When that total reaches 5,000 estimated
+instructions, and the skill catalog. When that total reaches 8,000 estimated
 tokens, `/context` shows a red line under INSTRUCTIONS with the total and the
 biggest source, and Vera shows one short notice after the first reply in a
 conversation, plus the same sentence as a brief overlay that types on
@@ -69,9 +71,12 @@ activating.
 
 ## Inspect an instruction file
 
-1. Press Ctrl+O in the report, or run `/context sources`.
+1. Press Ctrl+O in the report, or run `/context sources`. The list shows the
+   rules, `AGENTS.md` files, and other sources the last measured request loaded.
 2. Choose a source and press Enter to preview it in [Customize](customize.md).
 3. For a writable source, open it in your editor from the preview.
+
+Escape from the list goes back to the report when you opened it with Ctrl+O.
 
 Previews show the file's current saved contents. They are not historical
 copies of what the model received.

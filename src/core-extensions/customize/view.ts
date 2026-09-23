@@ -2,8 +2,11 @@ import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
 import type { CustomizationSource, SourceCategory } from "../../customize/types.ts";
 import { CATEGORIES, sourceStatus, sourceWasLoaded } from "./model.ts";
 
+// "back" means the user pressed Esc on the loaded list, so the caller can reopen its own page.
+export type SourceBrowserExit = "back" | "closed";
+
 export function registerSourceBrowser(vera: VeraClientExtensionApi): {
-    open(signal: AbortSignal, loadedOnly?: boolean): Promise<void>;
+    open(signal: AbortSignal, loadedOnly?: boolean): Promise<SourceBrowserExit>;
 } {
     let generation = 0;
     let finishPreview: (() => void) | undefined;
@@ -15,7 +18,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
             let selectedId: string | undefined;
             while (!signal.aborted && version === generation) {
                 const catalog = await vera.context.sources(signal);
-                if (signal.aborted || version !== generation) return;
+                if (signal.aborted || version !== generation) return "closed";
                 const snapshot = vera.context.current();
                 if (category === undefined && !loadedOnly) {
                     const choice = await vera.ui.requestPicker({
@@ -26,7 +29,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                         })),
                         actions: [{ id: "open", label: "open", keys: ["enter"] }],
                     }, signal);
-                    if (choice.outcome === "cancelled") return;
+                    if (choice.outcome === "cancelled") return "closed";
                     category = choice.rowId as SourceCategory;
                     selectedId = undefined;
                     continue;
@@ -48,7 +51,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                     actions: [{ id: "preview", label: "preview", keys: ["enter"] }],
                 }, signal);
                 if (choice.outcome === "cancelled") {
-                    if (loadedOnly) return;
+                    if (loadedOnly) return "back";
                     category = undefined;
                     continue;
                 }
@@ -82,6 +85,7 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                     show();
                 });
             }
+            return "closed";
         },
     };
 }

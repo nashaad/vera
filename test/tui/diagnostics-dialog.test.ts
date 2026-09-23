@@ -146,7 +146,7 @@ test("rendered context occupancy keeps its three capacity colors", () => {
         styled.chunks.find((chunk) => chunk.text.toString() === text)?.fg;
 
     expect(color("█")).toEqual(parseColor(TUI_ACCENT));
-    expect(color("░")).toEqual(parseColor(TUI_ELEMENT));
+    expect(color("░")).toEqual(parseColor(TUI_MUTED));
     expect(color("▒")).toEqual(parseColor(TUI_NOTICE));
 });
 
