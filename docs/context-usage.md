@@ -13,9 +13,7 @@ inspection does not send a model request.
 ## Read the report
 
 The compact report shows used, free, and reserved space, a category breakdown,
-and loaded instruction files. The line under the bar names each part of it:
-used tokens with their share of the window, free space until auto-compaction,
-the point where Vera compacts, and the reserve past it. Large tool results are called out so you can
+and loaded instruction files. Large tool results are called out so you can
 spot an unusually expensive file read or command output.
 
 Use `/context all` to expand individual messages and tools. A used total
@@ -71,12 +69,9 @@ activating.
 
 ## Inspect an instruction file
 
-1. Press Ctrl+O in the report, or run `/context sources`. The list shows the
-   rules, `AGENTS.md` files, and other sources the last measured request loaded.
+1. Press Ctrl+O in the report, or run `/context sources`.
 2. Choose a source and press Enter to preview it in [Customize](customize.md).
 3. For a writable source, open it in your editor from the preview.
-
-Escape from the list goes back to the report when you opened it with Ctrl+O.
 
 Previews show the file's current saved contents. They are not historical
 copies of what the model received.

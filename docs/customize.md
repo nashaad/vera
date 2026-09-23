@@ -16,16 +16,10 @@ your editor.
 3. Type to search names, descriptions, scopes, and paths.
 4. Press Enter on a result to preview its saved contents.
 
-Instructions lists `AGENTS.md`, `AGENTS.local.md`, their imports, and the
-rules in the home and project `rules` folders.
-
 Tab moves between Search and the list. Escape returns one level. The preview
 shows where a source comes from and whether it belongs to the project or home.
 
-A Markdown file opens rendered. Press `s` to switch to its source with line
-numbers, and `s` again to go back. Other sources always show their source.
-Dragging over the source copies the text without the line numbers, and Enter
-copies the whole file.
+A Markdown file opens rendered. Press `s` to see its source.
 
 ## Edit a source
 
