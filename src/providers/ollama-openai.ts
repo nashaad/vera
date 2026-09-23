@@ -169,7 +169,7 @@ export function encodeOpenAiMessage(
     const value = message as unknown as Record<string, unknown>;
     return {
         role: value.role,
-        content: value.content,
+        content: encodeOpenAiContent(value.content),
         ...(value.name === undefined ? {} : { name: value.name }),
         ...(value.toolCallId === undefined
             ? {}
@@ -181,6 +181,21 @@ export function encodeOpenAiMessage(
             ? {}
             : { reasoning: value.reasoning }),
     };
+}
+
+// The chat SDK field is imageUrl. These servers read image_url, and an
+// empty lookup is decoded as base64 and fails the whole request.
+function encodeOpenAiContent(content: unknown): unknown {
+    if (!Array.isArray(content)) return content;
+    return content.map((part) => {
+        if (typeof part !== "object" || part === null || Array.isArray(part)) {
+            return part;
+        }
+        const record = part as Record<string, unknown>;
+        if (!Object.hasOwn(record, "imageUrl")) return part;
+        const { imageUrl, ...rest } = record;
+        return { ...rest, image_url: imageUrl };
+    });
 }
 
 export async function* decodeOpenAiSse(

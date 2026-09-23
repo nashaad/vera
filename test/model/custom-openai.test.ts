@@ -230,6 +230,40 @@ function sseOk(): Response {
     );
 }
 
+test("image parts are sent as image_url", async () => {
+    let body: { messages?: unknown } | undefined;
+    const adapter = createCustomOpenAIAdapter({
+        provider: "local-gateway",
+        baseUrl: "http://127.0.0.1:8888/v1",
+        fetch: async (_input, init) => {
+            body = JSON.parse(String(init?.body)) as { messages?: unknown };
+            return sseOk();
+        },
+    });
+
+    await adapter.stream({
+        model: "bonsai",
+        messages: [{
+            role: "user",
+            content: [
+                { type: "text", text: "can you read images?" },
+                { type: "image", mediaType: "image/png", data: Uint8Array.from([1, 2, 3]) },
+            ],
+        }],
+    }).result();
+
+    expect(body?.messages).toEqual([{
+        role: "user",
+        content: [
+            { type: "text", text: "can you read images?" },
+            {
+                type: "image_url",
+                image_url: { url: "data:image/png;base64,AQID" },
+            },
+        ],
+    }]);
+});
+
 test("Unsloth Qwen overlay sends enable_thinking kwargs, not reasoning_effort", async () => {
     let body: Record<string, unknown> | undefined;
     const adapter = createConfiguredModelAdapter({
