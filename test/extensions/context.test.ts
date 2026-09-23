@@ -14,7 +14,8 @@ import {
     snapshotInstructionBudget,
 } from "../../src/core-extensions/context/context-report.ts";
 import {
-    INSTRUCTION_BUDGET_TOKENS,
+    configuredInstructionBudget,
+    DEFAULT_INSTRUCTION_BUDGET_TOKENS,
     instructionBudget,
 } from "../../src/core-extensions/context/instruction-budget.ts";
 import type {
@@ -300,6 +301,63 @@ test("the client extension opens a markdown inspect document", async () => {
     }
 });
 
+test("the included Context extension reads instruction_budget_tokens from its config", async () => {
+    const path = join(import.meta.dir, "../../src/core-extensions/context");
+    const snapshot = budgetSnapshot([
+        instruction("core.user-rules", "User rules", 7_000),
+    ]);
+    const openWith = async (config: { instruction_budget_tokens?: number }): Promise<string | undefined> => {
+        let markdown: string | undefined;
+        const experimentalTui: ClientExtensionExperimentalTuiAdapter = {
+            mount: () => async () => {},
+            mountRenderable: () => async () => {},
+            openDocument(_extensionId, document) {
+                markdown = typeof document.markdown === "function"
+                    ? document.markdown(88)
+                    : document.markdown;
+            },
+            events: { on: () => async () => {} },
+            agentSurface: {
+                current: () => undefined,
+                cycleLayout: () => false,
+                toggleFocus: () => false,
+            },
+        };
+        const options = registryOptions(path, snapshot, experimentalTui);
+        const registry = await startClientExtensionRegistry({
+            ...options,
+            extensions: [{ path, enabled: true, config }],
+        });
+        try {
+            await registry.invokeCommand("context", "", "/workspace");
+        } finally {
+            await registry.close();
+        }
+        return markdown;
+    };
+    expect(await openWith({})).toContain("over the 5.0k budget");
+    expect(await openWith({ instruction_budget_tokens: 6_000 })).toContain("over the 6.0k budget");
+    expect(await openWith({ instruction_budget_tokens: 8_000 })).not.toContain("budget");
+    expect(await openWith({ instruction_budget_tokens: 0 })).not.toContain("budget");
+
+    const options = registryOptions(path, snapshot, {
+        mount: () => async () => {},
+        mountRenderable: () => async () => {},
+        openDocument: () => {},
+        events: { on: () => async () => {} },
+        agentSurface: { current: () => undefined, cycleLayout: () => false, toggleFocus: () => false },
+    });
+    const broken = await startClientExtensionRegistry({
+        ...options,
+        extensions: [{ path, enabled: true, config: { instruction_budget_tokens: -1 } }],
+    });
+    try {
+        await expect(broken.invokeCommand("context", "", "/workspace")).rejects.toThrow("unavailable");
+    } finally {
+        await broken.close();
+    }
+});
+
 test("the context command reports a clean compatibility error on an old TUI host", async () => {
     const directory = createExtension();
     const snapshot = availableSnapshot();
@@ -327,7 +385,7 @@ test("the context command reports a clean compatibility error on an old TUI host
 });
 
 test("the instruction budget is the INSTRUCTIONS section total, skills included", () => {
-    expect(INSTRUCTION_BUDGET_TOKENS).toBe(5_000);
+    expect(DEFAULT_INSTRUCTION_BUDGET_TOKENS).toBe(5_000);
     const under = budgetSnapshot([
         instruction("core.user-rules", "User rules", 3_000),
         instruction("core.project-instructions", "Project instructions", 1_000),
@@ -352,6 +410,30 @@ test("the instruction budget is the INSTRUCTIONS section total, skills included"
     expect(instructionBudgetNotice(over)).toBe(
         "Starting instructions are 5.5k tokens, over the 5.0k budget. See /context to trim.",
     );
+});
+
+test("instruction_budget_tokens in the extension config sets the budget, and 0 turns it off", () => {
+    expect(configuredInstructionBudget(null)).toBe(5_000);
+    expect(configuredInstructionBudget({})).toBe(5_000);
+    expect(configuredInstructionBudget({ instruction_budget_tokens: 8_000 })).toBe(8_000);
+    expect(configuredInstructionBudget({ instruction_budget_tokens: 0 })).toBe(0);
+    for (const bad of [-1, 1.5, "8000", null]) {
+        expect(() => configuredInstructionBudget({ instruction_budget_tokens: bad }))
+            .toThrow("instruction_budget_tokens");
+    }
+    expect(() => configuredInstructionBudget([])).toThrow("must be an object");
+
+    const snapshot = budgetSnapshot([
+        instruction("core.user-rules", "User rules", 7_000),
+    ]);
+    expect(instructionBudgetNotice(snapshot, 8_000)).toBeUndefined();
+    expect(contextReportMarkdown(snapshot, false, 72, 8_000)).not.toContain("budget");
+    expect(instructionBudgetNotice(snapshot, 6_000)).toBe(
+        "Starting instructions are 7.0k tokens, over the 6.0k budget. See /context to trim.",
+    );
+    expect(snapshotInstructionBudget(snapshot, 0)?.over).toBe(false);
+    expect(instructionBudgetNotice(snapshot, 0)).toBeUndefined();
+    expect(contextReportMarkdown(snapshot, false, 72, 0)).not.toContain("budget");
 });
 
 test("a 7k global rules file is over the budget and Sundr's files are not", () => {

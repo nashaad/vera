@@ -4,7 +4,11 @@ import type {
     VeraClientContextSnapshot,
 } from "../../sdk/context.ts";
 import { inspectReportSection } from "vera/sdk/inspect-report";
-import { instructionBudget, type InstructionBudget } from "./instruction-budget.ts";
+import {
+    DEFAULT_INSTRUCTION_BUDGET_TOKENS,
+    instructionBudget,
+    type InstructionBudget,
+} from "./instruction-budget.ts";
 
 export type ContextResponsiveMode = "wide" | "narrow";
 
@@ -116,6 +120,7 @@ export function buildContextReport(
     snapshot: VeraClientContextSnapshot,
     detail: boolean,
     width: number,
+    budgetTokens: number = DEFAULT_INSTRUCTION_BUDGET_TOKENS,
 ): ContextReport {
     const categories = contextCategories(snapshot);
     const used = snapshot.headline?.tokens;
@@ -154,7 +159,7 @@ export function buildContextReport(
         (sum, component) => sum + component.estimatedTokens,
         0,
     );
-    const budget = instructionBudget(instructionTokens, instructionFiles);
+    const budget = instructionBudget(instructionTokens, instructionFiles, budgetTokens);
     const budgetWarning = instructionFiles.length === 0
         ? undefined
         : instructionBudgetWarning(budget);
@@ -277,13 +282,14 @@ export function contextReportLines(
 
 export function snapshotInstructionBudget(
     snapshot: VeraClientContextSnapshot,
+    budgetTokens: number = DEFAULT_INSTRUCTION_BUDGET_TOKENS,
 ): InstructionBudget | undefined {
     if (snapshot.projection === undefined) return undefined;
     const components = contextCategories(snapshot).find((category) =>
         category.label === "Instructions"
     )?.components ?? [];
     const tokens = components.reduce((sum, component) => sum + component.estimatedTokens, 0);
-    return instructionBudget(tokens, instructionRows(components, 0, false));
+    return instructionBudget(tokens, instructionRows(components, 0, false), budgetTokens);
 }
 
 export function instructionBudgetWarning(
@@ -298,8 +304,9 @@ export function instructionBudgetWarning(
 
 export function instructionBudgetNotice(
     snapshot: VeraClientContextSnapshot,
+    budgetTokens: number = DEFAULT_INSTRUCTION_BUDGET_TOKENS,
 ): string | undefined {
-    const budget = snapshotInstructionBudget(snapshot);
+    const budget = snapshotInstructionBudget(snapshot, budgetTokens);
     if (budget === undefined || !budget.over) return undefined;
     return `Starting instructions are ${formatTokens(budget.tokens)} tokens,`
         + ` over the ${formatTokens(budget.budget)} budget. See /context to trim.`;
@@ -579,8 +586,9 @@ export function contextReportMarkdown(
     snapshot: VeraClientContextSnapshot,
     detail: boolean,
     width: number,
+    budgetTokens: number = DEFAULT_INSTRUCTION_BUDGET_TOKENS,
 ): string {
-    const report = buildContextReport(snapshot, detail, width);
+    const report = buildContextReport(snapshot, detail, width, budgetTokens);
     return contextReportLines(report, width, detail).join("\n");
 }
 
