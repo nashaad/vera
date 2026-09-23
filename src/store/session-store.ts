@@ -8,7 +8,7 @@ import {
     rm,
 } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 import type { AgentSnapshot } from "../agents/snapshot.ts";
 import type { AssistantMessage, ModelMessage, ModelUsage } from "../model/types.ts";
@@ -178,6 +178,7 @@ export interface SessionAgentFailureEntry {
 export interface SessionImageAttachmentMetadata {
     readonly id: string;
     readonly name: string;
+    readonly source?: string;
     readonly mediaType: ImageMediaType;
     readonly bytes: number;
     readonly width: number;
@@ -1945,6 +1946,7 @@ function copySessionImageAttachment(
     const attachment = {
         id: value.id,
         name: value.name,
+        ...(value.source === undefined ? {} : { source: value.source }),
         mediaType: value.mediaType,
         bytes: value.bytes,
         width: value.width,
@@ -1967,6 +1969,12 @@ function copySessionImageAttachment(
         || attachment.name.includes("/")
         || attachment.name.includes("\\")
         || Buffer.byteLength(attachment.name, "utf8") > 255
+        || (attachment.source !== undefined && (
+            typeof attachment.source !== "string"
+            || !isAbsolute(attachment.source)
+            || attachment.source.includes("\0")
+            || Buffer.byteLength(attachment.source, "utf8") > 4096
+        ))
         || !Number.isSafeInteger(attachment.bytes)
         || attachment.bytes <= 0
         || !Number.isSafeInteger(attachment.width)

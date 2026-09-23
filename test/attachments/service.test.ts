@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "bun:test";
 
-import { ImageAttachmentService } from "../../src/attachments/service.ts";
+import {
+    hydrateImageAttachments,
+    ImageAttachmentService,
+    OMITTED_IMAGE_TEXT,
+    sessionAttachmentSource,
+} from "../../src/attachments/service.ts";
 import type { InspectedImage } from "../../src/attachments/image.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 
@@ -55,9 +60,63 @@ test("image attachment service owns a selected regular file", async () => {
     const attached = await service.attachFile(sourcePath);
 
     expect(attached.name).toBe("selected.png");
+    expect(attached.source).toBe(sourcePath);
     expect(Array.from(await readFile(
         join(`${session.path}.attachments`, attached.id),
     ))).toEqual([4, 5, 6]);
+});
+
+test("a client copy records the user's original path and name, which survive reopening", async () => {
+    const root = await temporaryDirectory();
+    const copy = join(root, "drop-1", "Screenshot 2026-09-23 at 1.10.00 AM.png");
+    await Bun.write(copy, Uint8Array.from([7, 8, 9]));
+    const sessionPath = join(root, "session.jsonl");
+    const session = await SessionStore.create(sessionPath, {
+        sessionId: "session-1",
+        cwd: root,
+    });
+    const service = new ImageAttachmentService(
+        session,
+        limits,
+        async () => ({ mediaType: "image/png", width: 2, height: 3 }),
+    );
+
+    const attached = await service.attachFile(copy, undefined, "/Users/crow/Desktop/treasure map.png");
+
+    expect(attached.source).toBe("/Users/crow/Desktop/treasure map.png");
+    expect(attached.name).toBe("treasure map.png");
+    const reopened = await SessionStore.open(sessionPath);
+    expect(sessionAttachmentSource(reopened)(attached.id))
+        .toBe("/Users/crow/Desktop/treasure map.png");
+});
+
+test("hydration puts the image source line before each image, also when images are omitted", async () => {
+    const image = { type: "image" as const, mediaType: "image/png" as const, data: Uint8Array.from([1]) };
+    const messages = [{
+        role: "user" as const,
+        content: [
+            { type: "text" as const, text: "which cove is this? [Image 1]" },
+            { type: "image_attachment" as const, attachmentId: "a.png" },
+            { type: "image_attachment" as const, attachmentId: "old.png" },
+        ],
+    }];
+    const source = (id: string) => id === "a.png" ? "/Users/crow/Desktop/cove.png" : undefined;
+
+    const shown = await hydrateImageAttachments(messages, async () => image, new Map(), false, source);
+    expect(shown[0]!.content).toEqual([
+        { type: "text", text: "which cove is this? [Image 1]" },
+        { type: "text", text: "[Image source: /Users/crow/Desktop/cove.png]" },
+        image,
+        image,
+    ]);
+
+    const omitted = await hydrateImageAttachments(messages, async () => image, new Map(), true, source);
+    expect(omitted[0]!.content).toEqual([
+        { type: "text", text: "which cove is this? [Image 1]" },
+        { type: "text", text: "[Image source: /Users/crow/Desktop/cove.png]" },
+        { type: "text", text: OMITTED_IMAGE_TEXT },
+        { type: "text", text: OMITTED_IMAGE_TEXT },
+    ]);
 });
 
 test("image attachment service owns one immutable byte snapshot", async () => {

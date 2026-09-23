@@ -263,6 +263,30 @@ test("image attachment results return only to the requesting client", async () =
     });
 });
 
+test("an image attachment passes the user's source path to the host", async () => {
+    const seen: (string | undefined)[] = [];
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        attachImage: async (_path, _signal, sourcePath) => {
+            seen.push(sourcePath);
+            return { id: "hash.png", name: "map.png", mediaType: "image/png", bytes: 3, width: 2, height: 1 };
+        },
+    });
+    const client = agent.attach();
+    await client.receive();
+
+    client.send({
+        type: "attach_image",
+        requestId: "request-1",
+        path: "/tmp/drop/map.png",
+        sourcePath: "/Users/crow/Desktop/map.png",
+    });
+    await client.receive();
+    client.send({ type: "attach_image", requestId: "request-2", path: "/tmp/map.png" });
+    await client.receive();
+
+    expect(seen).toEqual(["/Users/crow/Desktop/map.png", undefined]);
+});
+
 test("detaching cancels that client's in-flight image attachments", async () => {
     let observedSignal: AbortSignal | undefined;
     const cancelled = Promise.withResolvers<void>();

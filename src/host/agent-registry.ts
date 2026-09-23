@@ -671,8 +671,8 @@ export class AgentRegistry {
                 providerCatalogs: this.options.providerCatalogs?.(),
                 selectionCleared: modelSelectionCleared(this.agents.get(store.header.id)?.modelSettings),
             }),
-            attachImage: (path, signal) =>
-                imageAttachments.attachFile(path, signal),
+            attachImage: (path, signal, sourcePath) =>
+                imageAttachments.attachFile(path, signal, sourcePath),
             onRunStateChanged: () => this.notifyRosterChanged(),
             onClientPrompt: () => {
                 const woken = this.agents.get(store.header.id);

@@ -708,6 +708,8 @@ test("image references are durable while model requests receive verified bytes",
                 data: Uint8Array.from([1, 2, 3]),
             };
         },
+        imageSource: (attachmentId) =>
+            attachmentId === "image-1.png" ? "/Users/crow/Desktop/parrot.png" : undefined,
     };
 
     channel.client.send({
@@ -728,6 +730,7 @@ test("image references are durable while model requests receive verified bytes",
         role: "user",
         content: [
             { type: "text", text: "inspect this" },
+            { type: "text", text: "[Image source: /Users/crow/Desktop/parrot.png]" },
             {
                 type: "image",
                 mediaType: "image/png",
