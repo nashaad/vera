@@ -1032,6 +1032,14 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         });
         return;
     }
+    if (rt.documentDialog?.source?.markdown === true
+        && tuiBindingId("inspect_document", key) === "inspect_document_source") {
+        key.preventDefault();
+        key.stopPropagation();
+        rt.documentDialog = { ...rt.documentDialog, showSource: rt.documentDialog.showSource !== true };
+        renderState(rt);
+        return;
+    }
     if (rt.documentDialog !== undefined) {
         const action = handleTuiDiagnosticsDialogKey(key);
         if (action !== undefined) {
@@ -1047,13 +1055,13 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             }
             if (action !== "copy") return;
             if (rt.documentDialog.copyReady === false) return;
-            const text = rt.documentDialog.text;
+            const text = rt.documentDialog.source?.text ?? rt.documentDialog.text;
             void rt.copyText(text).then(() => {
-                if (rt.documentDialog?.text !== text) return;
+                if (rt.documentDialog === undefined || (rt.documentDialog.source?.text ?? rt.documentDialog.text) !== text) return;
                 rt.documentDialog = { ...rt.documentDialog, copyStatus: "copied" };
                 renderState(rt);
             }).catch(() => {
-                if (rt.documentDialog?.text !== text) return;
+                if (rt.documentDialog === undefined || (rt.documentDialog.source?.text ?? rt.documentDialog.text) !== text) return;
                 rt.documentDialog = { ...rt.documentDialog, copyStatus: "failed" };
                 renderState(rt);
             });

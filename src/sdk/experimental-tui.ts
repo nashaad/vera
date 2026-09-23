@@ -176,6 +176,13 @@ export interface VeraExperimentalTuiDocumentAction {
     run(): void | Promise<void>;
 }
 
+// A file shown under the document's `markdown`. The TUI shows Markdown files
+// rendered first and toggles to the numbered raw text; other files show raw.
+export interface VeraExperimentalTuiDocumentSource {
+    readonly text: string;
+    readonly markdown: boolean;
+}
+
 export interface VeraExperimentalTuiDocument {
     readonly editorPath?: string;
     readonly onEditorClosed?: () => void | Promise<void>;
@@ -183,6 +190,7 @@ export interface VeraExperimentalTuiDocument {
     readonly action?: VeraExperimentalTuiDocumentAction;
     readonly title: string;
     readonly markdown: string | ((columns: number) => string);
+    readonly source?: VeraExperimentalTuiDocumentSource;
     readonly footerText?: string;
 }
 

@@ -71,6 +71,10 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
                         vera.experimentalTui.openDocument({
                             title: `${title} › ${source!.name}`,
                             markdown: sourceDocument(source!, sourceStatus(source!, snapshot)),
+                            ...(source!.content === "" ? {} : {
+                                // An agent's content is its parsed definition, not the file text.
+                                source: { text: source!.content, markdown: source!.category !== "agents" && /\.(md|markdown)$/i.test(source!.path ?? "") },
+                            }),
                             footerText: notice ?? "Current saved contents. Esc back.",
                             ...(source!.editable && source!.path !== undefined ? { editorPath: source!.path } : {}),
                             onClose: finish,
@@ -91,6 +95,6 @@ export function registerSourceBrowser(vera: VeraClientExtensionApi): {
 }
 
 export function sourceDocument(source: CustomizationSource, status: string): string {
-    const fence = "`".repeat(Math.max(3, ...[...source.content.matchAll(/`+/g)].map((match) => match[0].length + 1)));
-    return `Scope: ${source.scope}\n\nStatus: ${status}\n\nSource: ${source.path ?? "Provided by an extension"}\n\n${fence}\n${source.content || "(Empty file)"}\n${fence}`;
+    const empty = source.content === "" ? "\n\n(Empty file)" : "";
+    return `Scope: ${source.scope}\n\nStatus: ${status}\n\nSource: ${source.path ?? "Provided by an extension"}${empty}`;
 }

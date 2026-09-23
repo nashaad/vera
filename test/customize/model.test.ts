@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { filterSources, sourceStatus, sourceWasLoaded } from "../../src/core-extensions/customize/model.ts";
+import { sourceDocument } from "../../src/core-extensions/customize/view.ts";
 import type { CustomizationSource } from "../../src/customize/types.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 
@@ -32,3 +33,15 @@ test("catalog availability does not claim loading before a measurement", () => {
     expect(sourceStatus({ ...source, category: "skills", status: "disabled", contextIds: [] }, measured)).toBe("disabled by disabled_skills");
 });
 
+
+test("source previews keep the file out of the header and mark an empty file", () => {
+    const header = sourceDocument({
+        id: "instructions:/rules/crow.md", category: "instructions", name: "crow.md", description: "",
+        scope: "user", path: "/rules/crow.md", editable: true, content: "Caw at dawn.\n", contextIds: [],
+    }, "available");
+    expect(header).toBe("Scope: user\n\nStatus: available\n\nSource: /rules/crow.md");
+    expect(sourceDocument({
+        id: "x", category: "instructions", name: "empty.md", description: "",
+        scope: "user", path: "/rules/empty.md", editable: true, content: "", contextIds: [],
+    }, "available")).toEndWith("(Empty file)");
+});
