@@ -8,6 +8,7 @@ import { renderState } from "../main/render-state.ts";
 import { renderStatus } from "../main/render-status.ts";
 import { refreshWorkspaceSidebarRoster } from "../main/workspace-ops.ts";
 import { appendTuiThought, dropTuiThinking } from "../state.ts";
+import { meterStreamedText, meterThought, turnMeterSegments } from "../turn-meter.ts";
 import { applyWorkIndex } from "../work-tab.ts";
 import { applyWorkspaceWorkIndex } from "../workspace-sidebar.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -136,6 +137,9 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
     ) {
         finishThoughtPhase(rt);
     }
+    if (update.type === "assistant_delta" || update.type === "assistant_thinking") {
+        rt.turnMeter = meterStreamedText(rt.turnMeter, rt.workingSince, update.text);
+    }
 }
 
 export function finishThoughtPhase(rt: TuiRuntime): void {
@@ -144,6 +148,9 @@ export function finishThoughtPhase(rt: TuiRuntime): void {
         return;
     }
     const seconds = Math.max(0, Date.now() - rt.phaseSince) / 1_000;
+    if ((rt.state.pendingThinking ?? "").trim().length > 0) {
+        rt.turnMeter = meterThought(rt.turnMeter, rt.workingSince, seconds * 1_000);
+    }
     rt.state = appendTuiThought(rt.state, seconds);
     rt.phaseSince = undefined;
 }
@@ -161,6 +168,23 @@ export function elapsedWorkingTime(rt: TuiRuntime): string {
     return minutes === 0
         ? `${seconds}s`
         : `${minutes}m${String(seconds).padStart(2, "0")}s`;
+}
+
+// Meter segments drop from the end first, so the interrupt hint always fits.
+export function workingLineText(rt: TuiRuntime, columns: number): string {
+    const liveThoughtMs = rt.reasoning && rt.phaseSince !== undefined
+        ? Date.now() - rt.phaseSince
+        : 0;
+    const segments = turnMeterSegments(rt.turnMeter, rt.workingSince, liveThoughtMs);
+    for (let kept = segments.length; kept >= 0; kept -= 1) {
+        const text = `Working (${[
+            elapsedWorkingTime(rt),
+            ...segments.slice(0, kept),
+            "esc to interrupt",
+        ].join(" · ")})`;
+        if (kept === 0 || text.length <= columns) return text;
+    }
+    return "";
 }
 
 export function activityFrame(rt: TuiRuntime): number {

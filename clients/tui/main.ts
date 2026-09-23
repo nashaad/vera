@@ -279,7 +279,8 @@ import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtens
 import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
-import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiTerminalProgressPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { EMPTY_TURN_METER } from "./turn-meter.ts";
+import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiTerminalProgressPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
@@ -905,6 +906,8 @@ export async function startTui(
     rt.terminalProgressEnabled = loadTuiTerminalProgressPreference()
         && terminalSupportsProgress(process.env, process.stdout.isTTY === true);
     rt.terminalProgress = TERMINAL_PROGRESS_IDLE;
+    rt.liveReasoningRows = loadTuiLiveReasoningRowsPreference();
+    rt.turnMeter = EMPTY_TURN_METER;
     rt.activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
     rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();

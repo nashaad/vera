@@ -3,11 +3,13 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { parseColor } from "@opentui/core";
 
 import {
+    animateTuiToolHeader,
     createTuiToolHeader,
     createTuiToolRow,
+    updateTuiToolHeader,
     updateTuiToolRow,
 } from "../../clients/tui/tool-row.ts";
-import { TUI_ACCENT, TUI_MUTED } from "../../clients/tui/state.ts";
+import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "../../clients/tui/state.ts";
 
 test("a compact tool preview stays to one row per summary", async () => {
     const setup = await createTestRenderer({ width: 28, height: 8 });
@@ -164,6 +166,36 @@ test("a finished command draws a vertical connector through wrapped lines", asyn
         const rows = setup.captureCharFrame().split("\n");
         expect(rows[0]).toContain("│ grep alpha");
         expect(rows[1]).toContain("│ bravo charlie");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a running header shimmers and a finished one stays plain", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 4 });
+    const header = createTuiToolHeader(
+        setup.renderer,
+        "entry-live-header",
+        { kind: "tool_header", header: "Running", active: true, text: "Running" },
+        0,
+    );
+    setup.renderer.root.add(header);
+    const firstLetterColor = async () => {
+        await setup.flush();
+        const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+        return spans.find((span) => span.text.startsWith("R"))?.fg;
+    };
+
+    try {
+        expect((await firstLetterColor())?.equals(parseColor(TUI_TEXT))).toBe(true);
+        animateTuiToolHeader(header, 10);
+        const dimmed = await firstLetterColor();
+        expect(dimmed?.equals(parseColor(TUI_TEXT))).toBe(false);
+        expect(dimmed?.equals(parseColor(TUI_ACCENT))).toBe(false);
+
+        updateTuiToolHeader(header, { kind: "tool_header", header: "Ran", text: "Ran" });
+        animateTuiToolHeader(header, 10);
+        expect((await firstLetterColor())?.equals(parseColor(TUI_TEXT))).toBe(true);
     } finally {
         setup.renderer.destroy();
     }

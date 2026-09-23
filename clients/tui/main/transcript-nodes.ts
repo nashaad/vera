@@ -5,10 +5,10 @@ import { createTuiEntryNode, mainTranscriptWidth } from "../main/sidebar-pane.ts
 import { tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { updateTuiNoticeCard } from "../notice-card.ts";
 import { renderTuiEntry, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
-import { updateTuiThinkingWindow } from "../thinking-window.ts";
+import { liveReasoningHeight, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
-import { updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
+import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -127,7 +127,7 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
     );
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
     if (entry.kind === "thinking") {
-        return margin + 1;
+        return margin + liveReasoningHeight(rt.liveReasoningRows);
     }
     return margin + Math.max(
         1,
@@ -146,6 +146,15 @@ export function estimatedTranscriptRows(rt: TuiRuntime,
         rows += transcriptEntryRows(rt, entries, index);
     }
     return rows;
+}
+
+export function animateLiveToolHeaders(rt: TuiRuntime, frame: number): void {
+    for (let index = rt.materializedEntryStart; index < rt.materializedEntryEnd; index += 1) {
+        const node = rt.entryNodes[index];
+        if (node === undefined || rt.entryNodeKinds[index] !== "tool_header") continue;
+        const header = tuiGutterContent(node);
+        if (header instanceof BoxRenderable) animateTuiToolHeader(header, frame);
+    }
 }
 
 export function updateTranscriptEntryNode(rt: TuiRuntime, 
@@ -178,7 +187,7 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
         entry.kind === "thinking"
         && existing instanceof BoxRenderable
     ) {
-        updateTuiThinkingWindow(existing, entry);
+        updateTuiThinkingWindow(existing, entry, rt.liveReasoningRows);
     }
     if (
         entry.kind === "notice" && entry.card === true

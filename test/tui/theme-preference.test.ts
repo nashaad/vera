@@ -20,6 +20,8 @@ import {
     loadTuiAnimationLevelPreference,
     saveTuiAnimationLevelPreference,
     loadTuiTerminalProgressPreference,
+    loadTuiLiveReasoningRowsPreference,
+    saveTuiLiveReasoningRowsPreference,
     saveTuiTerminalProgressPreference,
     saveTuiRecentSessionId,
     saveTuiSharedSessionGroups,
@@ -331,4 +333,21 @@ test("the terminal progress bar is on unless turned off, and only off is stored"
     expect(loadTuiTerminalProgressPreference(path)).toBe(true);
     expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("terminal_progress");
     expect(loadTuiThemePreference(path)).toBe("github");
+});
+
+test("live reasoning rows default to one, survive other writes, and ignore bad values", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-reasoning-rows-prefs-")), "tui.json");
+    expect(loadTuiLiveReasoningRowsPreference(path)).toBe(1);
+
+    saveTuiLiveReasoningRowsPreference(4, path);
+    saveTuiThemePreference("github", path);
+    expect(loadTuiLiveReasoningRowsPreference(path)).toBe(4);
+    saveTuiLiveReasoningRowsPreference(0, path);
+    expect(loadTuiLiveReasoningRowsPreference(path)).toBe(0);
+
+    saveTuiLiveReasoningRowsPreference(1, path);
+    expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("live_reasoning_rows");
+
+    writeFileSync(path, JSON.stringify({ live_reasoning_rows: 20 }));
+    expect(loadTuiLiveReasoningRowsPreference(path)).toBe(1);
 });

@@ -2078,6 +2078,9 @@ export function pickerSelection(
         }
         return { kind, level };
     }
+    if (kind === "live_reasoning_rows") {
+        return { kind, rows: Number(value) };
+    }
     if (kind === "terminal_progress") {
         return { kind, enabled: value === "on" };
     }

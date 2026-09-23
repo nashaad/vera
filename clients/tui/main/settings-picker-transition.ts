@@ -17,7 +17,7 @@ import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
 import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
-import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
+import { saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
 import { applyTerminalProgressPreference } from "./terminal-progress-sync.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -561,6 +561,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             void applySelectedTheme(rt, rt.themeName, true);
         } else if (selection.kind === "animation") {
             applyAnimationLevel(rt, selection.level);
+        } else if (selection.kind === "live_reasoning_rows") {
+            rt.liveReasoningRows = selection.rows;
+            saveTuiLiveReasoningRowsPreference(selection.rows);
         } else if (selection.kind === "terminal_progress") {
             applyTerminalProgressPreference(rt, selection.enabled);
         } else if (selection.kind === "context_limit") {

@@ -9,6 +9,9 @@ import type { TuiActivityAnimation } from "./activity-pulse.ts";
 import { DEFAULT_ANIMATION_LEVEL, isTuiAnimationLevel, type TuiAnimationLevel } from "./activity-bar.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
+export const DEFAULT_LIVE_REASONING_ROWS = 1;
+export const MAX_LIVE_REASONING_ROWS = 8;
+
 interface TuiClientPreferences {
     readonly model_picker?: ModelPickerPreferences;
     readonly theme: TuiThemeName;
@@ -16,6 +19,8 @@ interface TuiClientPreferences {
     readonly animation_level: TuiAnimationLevel;
     // Stored only when turned off; absent means on.
     readonly terminal_progress?: false;
+    // Stored only when it differs from the default of one row.
+    readonly live_reasoning_rows?: number;
     readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
@@ -154,6 +159,35 @@ export function saveTuiTerminalProgressPreference(
         ...rest,
         ...(enabled ? {} : { terminal_progress: false }),
     }, path);
+}
+
+export function loadTuiLiveReasoningRowsPreference(
+    path = tuiThemePreferencePath(),
+): number {
+    return loadTuiClientPreferences(path).live_reasoning_rows ?? DEFAULT_LIVE_REASONING_ROWS;
+}
+
+export function saveTuiLiveReasoningRowsPreference(
+    rows: number,
+    path = tuiThemePreferencePath(),
+): void {
+    const { live_reasoning_rows: _previous, ...rest } = loadTuiClientPreferences(path);
+    const stored = parseLiveReasoningRows(rows);
+    saveTuiClientPreferences({
+        ...rest,
+        ...(stored === undefined || stored === DEFAULT_LIVE_REASONING_ROWS
+            ? {}
+            : { live_reasoning_rows: stored }),
+    }, path);
+}
+
+function parseLiveReasoningRows(value: unknown): number | undefined {
+    return typeof value === "number"
+        && Number.isInteger(value)
+        && value >= 0
+        && value <= MAX_LIVE_REASONING_ROWS
+        ? value
+        : undefined;
 }
 
 export function loadTuiActivityAnimationIntervalPreference(
@@ -393,6 +427,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             const pinnedSessionIds = parsePinnedSessionIds(
                 Reflect.get(value, "pinned_session_ids"),
             );
+            const liveReasoningRows = parseLiveReasoningRows(
+                Reflect.get(value, "live_reasoning_rows"),
+            );
             return {
                 ...(Reflect.get(value, "model_picker") === undefined ? {} : { model_picker: parseModelPickerPreferences(Reflect.get(value, "model_picker")) }),
                 theme: isTuiThemeName(theme) ? theme : "default",
@@ -403,6 +440,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(Reflect.get(value, "terminal_progress") === false
                     ? { terminal_progress: false }
                     : {}),
+                ...(liveReasoningRows === undefined
+                    ? {}
+                    : { live_reasoning_rows: liveReasoningRows }),
                 ...(typeof recentSessionId === "string"
                         && recentSessionId.length > 0
                     ? { recent_session_id: recentSessionId }

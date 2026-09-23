@@ -26,6 +26,7 @@ import type {
 } from "../../src/engine/permissions.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
 import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
+import { tuiShimmerChunks } from "./activity-pulse.ts";
 import {
     resolveTuiDiagnostic,
     type TuiDiagnostic,
@@ -1427,7 +1428,7 @@ function liveThinkingTail(text: string): string {
     return lines.slice(-LIVE_THINKING_ROWS).join("\n");
 }
 
-function plainReasoningSummary(reasoning: string): string {
+export function plainReasoningSummary(reasoning: string): string {
     return reasoning
         .replace(/\n[ \t]*[-=]{3,}[ \t]*(?=\n|$)/g, "")
         .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]+#*[ \t]*$/gm, "$1")
@@ -1540,19 +1541,32 @@ function renderTuiDiagnostic(
     ];
 }
 
-function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
+function renderToolHeader(
+    entry: TuiTextTranscriptEntry,
+    action: (text: string) => TextChunk[] = (text) => [bold(fg(TUI_TEXT)(text))],
+): TextChunk[] {
     const folded = /^([+-]) (.+)$/.exec(entry.text);
     if (folded === null) {
-        return [fg(TUI_MUTED)("  "), bold(fg(TUI_TEXT)(entry.text))];
+        return [fg(TUI_MUTED)("  "), ...action(entry.text)];
     }
-    const [, marker, action] = folded;
+    const [, marker, verb] = folded;
     return [
         fg(TUI_MUTED)(marker === "+" ? "  " : "▾ "),
-        bold(fg(TUI_TEXT)(action ?? "")),
+        ...action(verb ?? ""),
         ...(entry.command === undefined
             ? []
             : [fg(TUI_MUTED)(`  ${entry.command}`)]),
     ];
+}
+
+export function renderTuiLiveToolHeader(
+    entry: TuiTextTranscriptEntry,
+    frame: number,
+): StyledText {
+    return new StyledText(renderToolHeader(
+        { ...entry, hint: false, detailPreview: undefined },
+        (text) => tuiShimmerChunks(frame, text, TUI_TEXT, TUI_MUTED).map((chunk) => bold(chunk)),
+    ));
 }
 
 function renderCompactToolPreview(preview: string): TextChunk[] {
