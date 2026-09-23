@@ -268,8 +268,10 @@
 }
 
 .home-demo-text h2,
-.home-details h2 {
+.home-details.prose h2 {
     font-family: var(--brand-serif);
+    font-style: normal;
+    letter-spacing: normal;
     font-size: 1.9rem;
     font-weight: 400;
     line-height: 1.2;
