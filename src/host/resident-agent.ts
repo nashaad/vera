@@ -57,6 +57,7 @@ export interface ResidentAgentOptions {
     readonly attachImage?: (
         path: string,
         signal: AbortSignal,
+        sourcePath?: string,
     ) => Promise<ImageAttachedUpdate["attachment"]>;
     readonly onRunStateChanged?: () => void;
 }
@@ -203,6 +204,7 @@ export class ResidentAgent {
                         attachmentId,
                         command.requestId,
                         command.path,
+                        command.sourcePath,
                     );
                     return;
                 }
@@ -347,6 +349,7 @@ export class ResidentAgent {
         ownerId: string,
         requestId: string,
         path: string,
+        sourcePath: string | undefined,
     ): Promise<void> {
         const outgoing = this.attachments.get(ownerId);
         if (outgoing === undefined || this.isClosed) return;
@@ -358,6 +361,7 @@ export class ResidentAgent {
             const attachment = await this.options.attachImage?.(
                 path,
                 controller.signal,
+                sourcePath,
             );
             if (attachment === undefined) {
                 throw new Error("Image attachments are unavailable");

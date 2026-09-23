@@ -26,8 +26,9 @@ describe("materializeDroppedImage", () => {
         const original = join(source, "Screenshot.png");
         await writeFile(original, "image-bytes");
 
-        const { path, release } = await materializeDroppedImage(original);
+        const { path, source: dropped, release } = await materializeDroppedImage(original);
         expect(path).not.toBe(original);
+        expect(dropped).toBe(original);
         expect(await readFile(path, "utf8")).toBe("image-bytes");
 
         // The copy outlives the original, which is the whole point.
@@ -59,10 +60,11 @@ describe("materializeDroppedImage", () => {
         );
         await writeFile(join(captures, DROPPED_CAPTURE_NAME), "filed-bytes");
 
-        const { path, release } = await materializeDroppedImage(vanished, {
+        const { path, source: filed, release } = await materializeDroppedImage(vanished, {
             savedCaptures: async () => captures,
         });
         expect(await readFile(path, "utf8")).toBe("filed-bytes");
+        expect(filed).toBe(join(captures, DROPPED_CAPTURE_NAME));
 
         await release();
         await rm(captures, { recursive: true, force: true });

@@ -15,6 +15,7 @@ import type { ImageMediaType, ValidatedImage } from "./image.ts";
 export interface StoredImageAttachment extends ValidatedImage {
     readonly id: string;
     readonly name: string;
+    readonly source?: string;
 }
 
 export class AttachmentStore {
@@ -29,6 +30,7 @@ export class AttachmentStore {
         data: Uint8Array,
         image: ValidatedImage,
         sourceName: string,
+        source?: string,
     ): Promise<StoredImageAttachment> {
         const bytes = copyBytes(data);
         const metadata = copyMetadata(image);
@@ -47,6 +49,7 @@ export class AttachmentStore {
         return {
             id,
             name,
+            ...(source === undefined ? {} : { source }),
             ...metadata,
         };
     }

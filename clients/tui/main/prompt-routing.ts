@@ -242,13 +242,18 @@ export function attachPastedImage(rt: TuiRuntime, path: string): void {
     rt.pendingImages.push({ requestId, path });
     rt.composer.attachImageChip(requestId);
     renderState(rt);
-    void materializeDroppedImage(path).then(({ path: taken, release }) => {
+    void materializeDroppedImage(path).then(({ path: taken, source, release }) => {
         if (!rt.pendingImages.some((image) => image.requestId === requestId)) {
             void release();
             return;
         }
         rt.droppedImageReleases.set(requestId, release);
-        sendCommand(rt, { type: "attach_image", requestId, path: taken });
+        sendCommand(rt, {
+            type: "attach_image",
+            requestId,
+            path: taken,
+            ...(source === taken ? {} : { sourcePath: source }),
+        });
     });
 }
 

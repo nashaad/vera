@@ -206,6 +206,8 @@ export interface AttachImageCommand {
     readonly type: "attach_image";
     readonly requestId: string;
     readonly path: string;
+    // Where the user's image lives when `path` is a client-side copy.
+    readonly sourcePath?: string;
 }
 
 export interface AbortCommand {
@@ -1181,11 +1183,14 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         && isRequestId(command.requestId)
         && typeof command.path === "string"
         && command.path.length > 0
+        && (command.sourcePath === undefined
+            || (typeof command.sourcePath === "string" && command.sourcePath.length > 0))
     ) {
         return {
             type: "attach_image",
             requestId: command.requestId,
             path: command.path,
+            ...(command.sourcePath === undefined ? {} : { sourcePath: command.sourcePath }),
         };
     }
     if (

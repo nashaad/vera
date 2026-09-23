@@ -39,6 +39,7 @@ export class ImageAttachmentService {
         data: Uint8Array,
         sourceName: string,
         signal?: AbortSignal,
+        source?: string,
     ): Promise<StoredImageAttachment> {
         const snapshot = copyBytes(data);
         const validated = await validateImageBytes(
@@ -51,6 +52,7 @@ export class ImageAttachmentService {
             snapshot,
             validated,
             sourceName,
+            source,
         );
         signal?.throwIfAborted();
         return this.session.appendAttachment(stored);
@@ -59,8 +61,12 @@ export class ImageAttachmentService {
     async attachFile(
         path: string,
         signal?: AbortSignal,
+        sourcePath?: string,
     ): Promise<StoredImageAttachment> {
         const selectedPath = resolveSelectedPath(path, this.session.header.cwd);
+        const source = sourcePath === undefined
+            ? selectedPath
+            : resolveSelectedPath(sourcePath, this.session.header.cwd);
         signal?.throwIfAborted();
         const file = await open(selectedPath, "r");
         try {
@@ -94,8 +100,9 @@ export class ImageAttachmentService {
             signal?.throwIfAborted();
             return this.attach(
                 buffer.subarray(0, offset),
-                basename(selectedPath),
+                basename(source),
                 signal,
+                source,
             );
         } finally {
             await file.close();
@@ -120,6 +127,18 @@ export function sessionAttachmentName(
     return (id) => session.attachmentRecords().find(
         (record) => record.id === id,
     )?.name;
+}
+
+export function sessionAttachmentSource(
+    session: SessionStore,
+): AttachmentNameLookup {
+    return (id) => session.attachmentRecords().find(
+        (record) => record.id === id,
+    )?.source;
+}
+
+export function imageSourceText(source: string): string {
+    return `[Image source: ${source}]`;
 }
 
 export async function readSessionImageContent(
@@ -147,6 +166,7 @@ export async function hydrateImageAttachments(
     readImage: (attachmentId: string) => Promise<ImageContent>,
     cache: Map<string, ImageContent> = new Map(),
     omitImages = false,
+    imageSource: (attachmentId: string) => string | undefined = () => undefined,
 ): Promise<ModelInputMessage[]> {
     const hydrated: ModelInputMessage[] = [];
     for (const message of messages) {
@@ -159,6 +179,10 @@ export async function hydrateImageAttachments(
             if (block.type === "text") {
                 content.push(block);
                 continue;
+            }
+            const source = imageSource(block.attachmentId);
+            if (source !== undefined) {
+                content.push({ type: "text" as const, text: imageSourceText(source) });
             }
             if (omitImages) {
                 content.push({ type: "text" as const, text: OMITTED_IMAGE_TEXT });

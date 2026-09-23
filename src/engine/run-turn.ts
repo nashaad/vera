@@ -29,6 +29,7 @@ import {
     hydrateImageAttachments,
     ImageAttachmentService,
     readSessionImageContent,
+    sessionAttachmentSource,
     sessionAttachmentName,
 } from "../attachments/service.ts";
 import type { JsonObject } from "../sdk/hooks.ts";
@@ -304,6 +305,7 @@ export interface RunTurnState {
     readonly promptPrefixTracker?: PromptPrefixTracker;
     readonly attachToolImage?: (path: string, signal: AbortSignal) => Promise<string>;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
+    readonly imageSource?: (attachmentId: string) => string | undefined;
     readonly scratchDir?: string;
     readonly toolResultSpill?: ToolResultSpill;
     readonly toolResults?: ToolResultLimits;
@@ -1130,6 +1132,7 @@ export async function runHeadlessLoop(
         attachToolImage: async (path, signal) => (await new ImageAttachmentService(store, IMAGE_ATTACHMENT_LIMITS).attachFile(path, signal)).id,
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
+        imageSource: sessionAttachmentSource(store),
         scratchDir,
         toolResultSpill: createToolResultSpill(scratchDir),
         ...(owned.toolResults === undefined
@@ -1658,6 +1661,7 @@ export async function runTurn(
                             modelSettings.provider,
                             activeModel,
                         ),
+                        state.imageSource,
                     ),
                 };
             } catch (error) {

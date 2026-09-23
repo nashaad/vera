@@ -39,7 +39,7 @@ export async function materializeDroppedImage(
     options: {
         readonly savedCaptures?: () => Promise<string>;
     } = {},
-): Promise<{ path: string; release: () => Promise<void> }> {
+): Promise<{ path: string; source: string; release: () => Promise<void> }> {
     const root = join(tmpdir(), "vera-dropped-images");
     await mkdir(root, { recursive: true });
     const scratch = await mkdtemp(join(root, "drop-"));
@@ -51,15 +51,15 @@ export async function materializeDroppedImage(
     };
 
     const direct = await copyIntoScratch(path, scratch);
-    if (direct !== undefined) return { path: direct, release };
+    if (direct !== undefined) return { path: direct, source: path, release };
 
     const locate = options.savedCaptures ?? savedCaptureDirectory;
     const saved = join(await locate(), basename(path));
     if (saved !== path) {
         const recovered = await copyIntoScratch(saved, scratch);
-        if (recovered !== undefined) return { path: recovered, release };
+        if (recovered !== undefined) return { path: recovered, source: saved, release };
     }
 
     await release();
-    return { path, release: async () => {} };
+    return { path, source: path, release: async () => {} };
 }

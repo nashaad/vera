@@ -276,6 +276,23 @@ test("image attachment requests require a request ID and nonempty path", () => {
         requestId: "",
         path: "/tmp/screen.png",
     })).toBeUndefined();
+    expect(parseClientCommand({
+        type: "attach_image",
+        requestId: "image-2",
+        path: "/tmp/drop/screen.png",
+        sourcePath: "/Users/crow/Desktop/screen.png",
+    })).toEqual({
+        type: "attach_image",
+        requestId: "image-2",
+        path: "/tmp/drop/screen.png",
+        sourcePath: "/Users/crow/Desktop/screen.png",
+    });
+    expect(parseClientCommand({
+        type: "attach_image",
+        requestId: "image-3",
+        path: "/tmp/drop/screen.png",
+        sourcePath: "",
+    })).toBeUndefined();
 });
 
 test("projected tool arguments cannot mutate canonical history", () => {
