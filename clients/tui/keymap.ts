@@ -689,6 +689,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         overrides: ["toggle_thinking"],
     },
     {
+        id: "inspect_document_source",
+        remappable: true,
+        keys: ["s"],
+        scope: "inspect_document",
+        description: "Switch a Markdown file between rendered and source",
+        hint: "s source",
+    },
+    {
         id: "check_provider_health",
         keys: ["v"],
         scope: "diagnostics",

@@ -1,10 +1,10 @@
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { TextareaRenderable, type StyledText } from "@opentui/core";
+import { parseColor, TextareaRenderable, type StyledText } from "@opentui/core";
 
 import { tuiKeyHint } from "../../clients/tui/keymap.ts";
-import { applyTuiTheme } from "../../clients/tui/state.ts";
+import { applyTuiTheme, TUI_ACCENT } from "../../clients/tui/state.ts";
 import { formatSessionDate } from "../../clients/tui/settings-picker-types.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import { resolveTuiTheme } from "../../clients/tui/theme-catalog.ts";
@@ -97,6 +97,29 @@ async function pickerFrame(
     try {
         await setup.flush();
         return setup.captureCharFrame();
+    } finally {
+        setup.renderer.destroy();
+    }
+}
+
+// The text of the one row painted on the accent fill.
+async function pickerSelection(
+    state: TuiAnySettingsPickerState,
+    width: number,
+    height: number,
+): Promise<string> {
+    const setup = await createTestRenderer({ width, height });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
+    view.update(state);
+    try {
+        await setup.flush();
+        const accent = parseColor(TUI_ACCENT);
+        const lit = setup.captureSpans().lines.filter((line) =>
+            line.spans.some((span) => span.text.trim().length > 0 && span.bg.equals(accent)));
+        expect(lit).toHaveLength(1);
+        return lit[0]!.spans.map((span) => span.text).join("");
     } finally {
         setup.renderer.destroy();
     }
@@ -2700,7 +2723,6 @@ test("the connect pane groups providers by access and spells out connected statu
     expect(frame).toMatch(/Ollama.*connected/);
     expect(frame).not.toMatch(/OpenRouter.*connected/);
     expect(frame).not.toContain("✓");
-    expect(frame).toMatch(/›\s+OpenRouter/);
     // The credential is on the row, so choosing one is not a surprise about
     // what it is going to ask for.
     expect(frame).toContain("ChatGPT Plus/Pro subscription");
@@ -2769,17 +2791,16 @@ test("provider groups have a stable order and preserve order within a group", ()
         ]);
 });
 
-test("the provider marker moves independently of the answer state", async () => {
+test("the provider highlight moves independently of the answer state", async () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
-    const first = await pickerFrame(pane, 151, 36);
-    expect(first).toMatch(/›\s+OpenRouter/);
-    expect(first).not.toMatch(/›\s+Ollama/);
+    const first = await pickerSelection(pane, 151, 36);
+    expect(first).toContain("OpenRouter");
+    expect(first).not.toContain("›");
 
     const moved = handleTuiSettingsPickerKey(pane, { name: "down" }).state!;
-    const second = await pickerFrame(moved, 151, 36);
-    expect(second).toMatch(/›\s+Ollama/);
-    expect(second).not.toMatch(/›\s+OpenRouter/);
-    expect(second).toMatch(/Ollama.*connected/);
+    const second = await pickerSelection(moved, 151, 36);
+    expect(second).toContain("Ollama");
+    expect(second).toContain("connected");
 });
 
 test("provider search keeps matching group headings in group order", async () => {

@@ -1794,6 +1794,7 @@ export async function startTui(
                 ? document.markdown as string
                 : renderMarkdown(columns),
             footerText: [document.footerText, document.editorPath === undefined ? undefined : "Ctrl+O Open in editor", document.action === undefined ? undefined : `Ctrl+O ${document.action.label}`].filter(Boolean).join(" · "),
+            ...(document.source === undefined ? {} : { source: document.source, showSource: !document.source.markdown }),
             action: document.action,
             editorPath: document.editorPath,
             onEditorClosed: document.onEditorClosed,

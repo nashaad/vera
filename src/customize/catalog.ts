@@ -4,6 +4,7 @@ import type { AgentCatalog } from "../agents/catalog.ts";
 import { loadSkillCatalog, type CatalogSkill } from "../skills/catalog.ts";
 import { loadProjectInstructions } from "../engine/project-instructions.ts";
 import { loadMemory, MEMORY_ENABLED, type InstructionRoot } from "../engine/memory.ts";
+import { loadRules, ruleDirectories } from "../engine/rules.ts";
 import { listExtensions } from "../extensions/manager.ts";
 import { loadOptionalVeraConfig } from "../config.ts";
 import { includedExtensions } from "../extensions/included.ts";
@@ -84,6 +85,19 @@ export async function loadCustomizationCatalog(options: {
             name: file.name, description: "Project instructions and imports",
             scope: "project", path: file.path, editable: true,
             content: file.content, contextIds: [file.path],
+        });
+    }
+    const rules = await loadRules(ruleDirectories(options.workspace));
+    warnings.push(...rules.warnings.map((warning) => warning.message));
+    for (const rule of rules.rules) {
+        await add({
+            id: `instructions:${rule.path}`, category: "instructions",
+            name: rule.displayPath,
+            description: rule.paths.length === 0
+                ? `${rule.scope === "user" ? "User" : "Project"} rule, always on`
+                : `${rule.scope === "user" ? "User" : "Project"} rule for ${rule.paths.join(", ")}`,
+            scope: rule.scope, path: rule.path, editable: true,
+            content: rule.body, contextIds: [rule.path],
         });
     }
     const memory = await loadMemory(options.instructionRoot);

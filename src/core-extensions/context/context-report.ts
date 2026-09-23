@@ -34,6 +34,7 @@ export interface ContextOccupancy {
     readonly freeTokens: number;
     readonly reserveTokens: number;
     readonly triggerTokens: number;
+    readonly capacityTokens: number;
     readonly bar: string;
     readonly tickColumn: number;
 }
@@ -208,21 +209,17 @@ export function contextReportLines(
 ): readonly string[] {
     const inner = Math.max(20, width - 2);
     const lines: string[] = [
-        ...inspectReportSection("Context usage", report.headline, width),
+        // With a bar, the label line under it carries the numbers.
+        ...inspectReportSection(
+            "Context usage",
+            report.occupancy === undefined ? report.headline : undefined,
+            width,
+        ),
     ];
     if (report.occupancy !== undefined) {
         lines.push(report.occupancy.bar, report.occupancy.bar);
-        lines.push(`${" ".repeat(report.occupancy.tickColumn)}╵`);
-        const compactLabel = `auto-compacts at ${formatTokens(report.occupancy.triggerTokens)}`;
-        const labelColumn = Math.max(
-            0,
-            Math.min(
-                inner - compactLabel.length,
-                report.occupancy.tickColumn + 1 - compactLabel.length,
-            ),
-        );
-        lines.push(`${" ".repeat(labelColumn)}${compactLabel}`);
-        lines.push("");
+        // `▏` hugs its cell's left edge, so it marks the free/reserve boundary.
+        lines.push(`${" ".repeat(report.occupancy.tickColumn)}▏`);
         lines.push(...occupancyLegend(report, inner));
         lines.push("");
     }
@@ -353,6 +350,7 @@ function contextOccupancy(
         freeTokens: Math.max(0, trigger - used),
         reserveTokens: Math.max(0, capacity - Math.max(trigger, used)),
         triggerTokens: trigger,
+        capacityTokens: capacity,
         bar: chars.join(""),
         tickColumn: clamp(triggerCells, 0, Math.max(0, width - 1)),
     };
@@ -360,19 +358,19 @@ function contextOccupancy(
 
 function occupancyLegend(report: ContextReport, width: number): readonly string[] {
     const occupancy = report.occupancy!;
+    const percent = Math.round(occupancy.usedTokens / occupancy.capacityTokens * 100);
     const items = [
-        `█ used ${formatTokens(occupancy.usedTokens)}`,
+        `█ used ${formatTokens(occupancy.usedTokens)} (${percent}%)`,
         `░ free ${formatTokens(occupancy.freeTokens)}`,
+        `▏ compacts at ${formatTokens(occupancy.triggerTokens)}`,
         `▒ reserve ${formatTokens(occupancy.reserveTokens)}`,
     ];
-    if (report.estimated) items.push("estimated");
-    const compact = items.join("  ");
-    if (compact.length <= width) return [compact];
-    const counts = items.filter((item) => item !== "estimated").join("  ");
-    if (report.estimated && counts.length <= width) {
-        return [counts, "estimated"];
-    }
-    return items;
+    const total = `of ${formatTokens(occupancy.capacityTokens)}${report.estimated ? " · estimated" : ""}`;
+    const compact = items.join("   ");
+    if (compact.length <= width) return [compact, total];
+    const pairs = [items.slice(0, 2).join("   "), items.slice(2).join("   ")];
+    if (pairs.every((line) => line.length <= width)) return [...pairs, total];
+    return [...items, total];
 }
 
 function instructionRows(

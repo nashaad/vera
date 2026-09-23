@@ -8,6 +8,8 @@ import {
     inspectDialogFrame,
     inspectDocumentMarkdown,
     inspectDocumentLines,
+    sourceMarkdownStyle,
+    splitFrontmatter,
     INSPECT_COPY_HINT,
     styledInspectDanger,
     styledInspectHealth,
@@ -21,6 +23,7 @@ import {
     TUI_NOTICE,
     TUI_SUCCESS,
     TUI_DANGER,
+    TUI_TEXT,
 } from "../../clients/tui/state.ts";
 
 test("diagnostics dialog copies on Enter and dismisses on Escape", () => {
@@ -146,7 +149,7 @@ test("rendered context occupancy keeps its three capacity colors", () => {
         styled.chunks.find((chunk) => chunk.text.toString() === text)?.fg;
 
     expect(color("█")).toEqual(parseColor(TUI_ACCENT));
-    expect(color("░")).toEqual(parseColor(TUI_ELEMENT));
+    expect(color("░")).toEqual(parseColor(TUI_MUTED));
     expect(color("▒")).toEqual(parseColor(TUI_NOTICE));
 });
 
@@ -314,6 +317,79 @@ test("inspect content width shrinks before layout catches up", async () => {
 
         expect(narrow).toBeLessThan(wide);
         expect(narrow).toBeLessThanOrEqual(inspectDialogFrame(64).width - 5);
+    } finally {
+        view.box.destroyRecursively();
+        setup.renderer.destroy();
+    }
+});
+
+test("a Markdown source opens rendered and its source view numbers lines without copying them", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 30 });
+    const view = createTuiDiagnosticsDialogView(setup.renderer, { skipFirstLine: false });
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    const source = { text: "# Crow rules\n\nSteal **only** shiny things.\n", markdown: true };
+    const settle = async (): Promise<string> => {
+        await setup.flush();
+        await Bun.sleep(50);
+        await setup.flush();
+        return setup.captureCharFrame();
+    };
+    try {
+        view.update({ text: "Source: /rules/crow.md", footerText: "Esc back", source });
+        let frame = await settle();
+        expect(frame).toContain("Steal only shiny things.");
+        expect(frame).not.toContain("**only**");
+        expect(frame).toContain("Esc back · s source");
+
+        view.update({ text: "Source: /rules/crow.md", footerText: "Esc back", source, showSource: true });
+        frame = await settle();
+        const lines = frame.split("\n");
+        const row = lines.findIndex((line) => line.includes("Steal **only** shiny things."));
+        expect(lines[row]).toMatch(/\b3 +Steal/);
+        expect(lines.some((line) => /\b1 +# Crow rules/.test(line))).toBe(true);
+        expect(frame).toContain("Esc back · s rendered");
+
+        const first = lines.findIndex((line) => line.includes("# Crow rules"));
+        await setup.mockMouse.drag(lines[first]!.indexOf("# Crow"), first, lines[row]!.indexOf("things.") + 7, row);
+        await settle();
+        expect(setup.renderer.getSelection()?.getSelectedText()).toBe("# Crow rules\n\nSteal **only** shiny things.");
+    } finally {
+        view.box.destroyRecursively();
+        setup.renderer.destroy();
+    }
+});
+
+test("rendered Markdown sources dim frontmatter and keep headings bright", async () => {
+    expect(splitFrontmatter("---\npaths:\n  - \"src/crow/**\"\n---\n\n# Crow\n"))
+        .toEqual({ frontmatter: "paths:\n  - \"src/crow/**\"", body: "# Crow\n" });
+    expect(splitFrontmatter("# Crow\n\n---\n\nNo frontmatter.")).toEqual({ body: "# Crow\n\n---\n\nNo frontmatter." });
+    const style = sourceMarkdownStyle();
+    expect(style.getStyle("markup.heading.1")?.fg?.equals(parseColor(TUI_TEXT))).toBe(true);
+    style.destroy();
+
+    const setup = await createTestRenderer({ width: 60, height: 30 });
+    const view = createTuiDiagnosticsDialogView(setup.renderer, { skipFirstLine: false });
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    try {
+        view.update({
+            text: "Scope: user\n\nSource: /rules/crow.md", footerText: "Esc back",
+            source: { text: "---\npaths:\n  - \"src/crow/**\"\n---\n\n# Crow\n\nHoard buttons.\n", markdown: true },
+        });
+        await setup.flush();
+        await Bun.sleep(50);
+        await setup.flush();
+        // Strip the scrollbar thumb so blank rows compare as blank.
+        const lines = setup.captureCharFrame().split("\n").map((line) => line.replace(/[█▀▄]/g, " "));
+        const source = lines.findIndex((line) => line.includes("Source: /rules/crow.md"));
+        expect(lines.some((line) => line.includes("Scope: user"))).toBe(true);
+        expect(lines[source + 2]).toContain("───");
+        expect(lines[source + 3]!.trim()).toBe("");
+        expect(lines[source + 4]).toContain("paths:");
+        expect(lines[source + 5]).toContain("- \"src/crow/**\"");
+        expect(lines.slice(source).some((line) => line.trim() === "---")).toBe(false);
+        expect(lines.some((line) => line.trim() === "Crow")).toBe(true);
     } finally {
         view.box.destroyRecursively();
         setup.renderer.destroy();

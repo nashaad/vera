@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue } from "../../sdk/hooks.ts";
 
-export const DEFAULT_INSTRUCTION_BUDGET_TOKENS = 5_000;
+export const DEFAULT_INSTRUCTION_BUDGET_TOKENS = 8_000;
 
 export interface InstructionSource {
     readonly displayName: string;

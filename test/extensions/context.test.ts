@@ -237,7 +237,7 @@ test("context markdown shows occupancy sections at 120, 80, and 60 columns", () 
     }
 });
 
-test("context headline appears once before and after the first request", () => {
+test("context numbers appear once, under the bar once it can be drawn", () => {
     const occurrences = (text: string, value: string) =>
         text.split(value).length - 1;
     const emptyHeadline = "No completed model request yet";
@@ -247,7 +247,22 @@ test("context headline appears once before and after the first request", () => {
     const snapshot = availableSnapshot();
     const report = buildContextReport(snapshot, false, 60);
     const measured = contextReportMarkdown(snapshot, false, 60);
-    expect(occurrences(measured, report.headline)).toBe(1);
+    expect(occurrences(measured, report.headline)).toBe(0);
+    const lines = measured.split("\n");
+    expect(lines).toContain("## CONTEXT USAGE");
+    const tick = lines.findIndex((line) => line.trim() === "▏");
+    expect(lines.slice(tick + 1, tick + 4)).toEqual([
+        "█ used 700 (70%)   ░ free 100",
+        "▏ compacts at 800   ▒ reserve 200",
+        "of 1.0k · estimated",
+    ]);
+    const wide = contextReportMarkdown(snapshot, false, 88).split("\n");
+    const wideTick = wide.findIndex((line) => line.trim() === "▏");
+    expect(wide.slice(wideTick + 1, wideTick + 3)).toEqual([
+        "█ used 700 (70%)   ░ free 100   ▏ compacts at 800   ▒ reserve 200",
+        "of 1.0k · estimated",
+    ]);
+    expect(occurrences(measured, "700 (70%)")).toBe(1);
 });
 
 test("breakdown bars share one left edge when /context all expands components", () => {
@@ -335,7 +350,8 @@ test("the included Context extension reads instruction_budget_tokens from its co
         }
         return markdown;
     };
-    expect(await openWith({})).toContain("over the 5.0k budget");
+    expect(await openWith({})).not.toContain("budget");
+    expect(await openWith({ instruction_budget_tokens: 5_000 })).toContain("over the 5.0k budget");
     expect(await openWith({ instruction_budget_tokens: 6_000 })).toContain("over the 6.0k budget");
     expect(await openWith({ instruction_budget_tokens: 8_000 })).not.toContain("budget");
     expect(await openWith({ instruction_budget_tokens: 0 })).not.toContain("budget");
@@ -385,36 +401,36 @@ test("the context command reports a clean compatibility error on an old TUI host
 });
 
 test("the instruction budget is the INSTRUCTIONS section total, skills included", () => {
-    expect(DEFAULT_INSTRUCTION_BUDGET_TOKENS).toBe(5_000);
+    expect(DEFAULT_INSTRUCTION_BUDGET_TOKENS).toBe(8_000);
     const under = budgetSnapshot([
-        instruction("core.user-rules", "User rules", 3_000),
+        instruction("core.user-rules", "User rules", 6_000),
         instruction("core.project-instructions", "Project instructions", 1_000),
         instruction("host.skills", "Skills", 999),
     ]);
     const budget = snapshotInstructionBudget(under);
-    expect(budget?.tokens).toBe(4_999);
+    expect(budget?.tokens).toBe(7_999);
     expect(budget?.over).toBe(false);
     expect(budget?.biggest?.displayName).toBe("User rules");
     expect(instructionBudgetNotice(under)).toBeUndefined();
     expect(snapshotInstructionBudget({ availability: "unavailable" })).toBeUndefined();
-    expect(instructionBudget(5_000, []).over).toBe(true);
-    expect(instructionBudget(5_000, []).biggest).toBeUndefined();
+    expect(instructionBudget(8_000, []).over).toBe(true);
+    expect(instructionBudget(8_000, []).biggest).toBeUndefined();
 
     const over = budgetSnapshot([
-        instruction("core.user-rules", "User rules", 3_000),
+        instruction("core.user-rules", "User rules", 6_000),
         instruction("core.project-instructions", "Project instructions", 1_000),
         instruction("host.skills", "Skills", 1_000),
         instruction("core.agent-instructions", "Agent", 500),
     ]);
-    expect(snapshotInstructionBudget(over)?.tokens).toBe(5_500);
+    expect(snapshotInstructionBudget(over)?.tokens).toBe(8_500);
     expect(instructionBudgetNotice(over)).toBe(
-        "Starting instructions are 5.5k tokens, over the 5.0k budget. See /context to trim.",
+        "Starting instructions are 8.5k tokens, over the 8.0k budget. See /context to trim.",
     );
 });
 
 test("instruction_budget_tokens in the extension config sets the budget, and 0 turns it off", () => {
-    expect(configuredInstructionBudget(null)).toBe(5_000);
-    expect(configuredInstructionBudget({})).toBe(5_000);
+    expect(configuredInstructionBudget(null)).toBe(8_000);
+    expect(configuredInstructionBudget({})).toBe(8_000);
     expect(configuredInstructionBudget({ instruction_budget_tokens: 8_000 })).toBe(8_000);
     expect(configuredInstructionBudget({ instruction_budget_tokens: 0 })).toBe(0);
     for (const bad of [-1, 1.5, "8000", null]) {
@@ -447,7 +463,7 @@ test("a 7k global rules file is over the budget and Sundr's files are not", () =
     ]);
     expect(snapshotInstructionBudget(global)?.over).toBe(true);
     expect(instructionBudgetNotice(global)).toBe(
-        "Starting instructions are 8.5k tokens, over the 5.0k budget. See /context to trim.",
+        "Starting instructions are 8.5k tokens, over the 8.0k budget. See /context to trim.",
     );
     expect(snapshotInstructionBudget(sundr)?.over).toBe(false);
     expect(contextReportMarkdown(sundr, false, 72)).not.toContain("budget");
@@ -474,7 +490,7 @@ test("/context shows one red budget line with the biggest file and drops the per
     const markdown = contextReportMarkdown(snapshot, false, 72);
     const lines = markdown.split("\n");
     const warning = lines.indexOf(
-        "!  8.1k, over the 5.0k budget. Biggest: <home>/rules/house-style.md (5.8k).",
+        "!  8.1k, over the 8.0k budget. Biggest: <home>/rules/house-style.md (5.8k).",
     );
     expect(warning).toBeGreaterThan(0);
     expect(lines[warning - 1]).toStartWith("## INSTRUCTIONS");
@@ -487,11 +503,11 @@ test("/context shows one red budget line with the biggest file and drops the per
 
 test("a skill catalog can be the biggest source, named by its display name", () => {
     const snapshot = budgetSnapshot([
-        instruction("host.skills", "Skills", 4_000),
+        instruction("host.skills", "Skills", 7_000),
         instruction("core.user-rules", "User rules", 1_200),
     ]);
     expect(contextReportMarkdown(snapshot, false, 72)).toContain(
-        "!  5.2k, over the 5.0k budget. Biggest: Skills (4.0k).",
+        "!  8.2k, over the 8.0k budget. Biggest: Skills (7.0k).",
     );
 });
 
@@ -552,7 +568,7 @@ test("the context extension posts one soft budget notice per conversation", asyn
     try {
         fire("agent_event", { type: "user_prompt", text: "hi" });
         snapshot = budgetSnapshot([
-            instruction("core.user-rules", "User rules", 7_000),
+            instruction("core.user-rules", "User rules", 9_000),
         ]);
         fire("agent_event", { type: "status", state: "working" });
         fire("transcript_changed", []);
@@ -560,7 +576,7 @@ test("the context extension posts one soft budget notice per conversation", asyn
 
         fire("agent_event", { type: "turn_finished" });
         expect(notices).toEqual([{
-            text: "Starting instructions are 7.0k tokens, over the 5.0k budget. See /context to trim.",
+            text: "Starting instructions are 9.0k tokens, over the 8.0k budget. See /context to trim.",
             tone: "soft",
         }]);
 
@@ -754,3 +770,53 @@ function createExtension(): string {
     `);
     return directory;
 }
+
+test("Esc on Loaded sources reopens the Context report", async () => {
+    const path = join(import.meta.dir, "../../src/core-extensions/context");
+    const snapshot = budgetSnapshot([instruction("core.user-rules", "User rules", 1_000)]);
+    const opened: { title: string; action?: { run(): void | Promise<void> } }[] = [];
+    const pickerTitles: string[] = [];
+    const options = registryOptions(path, snapshot, {
+        mount: () => async () => {},
+        mountRenderable: () => async () => {},
+        openDocument(_extensionId, document) {
+            opened.push(document);
+        },
+        events: { on: () => async () => {} },
+        agentSurface: {
+            current: () => undefined,
+            cycleLayout: () => false,
+            toggleFocus: () => false,
+        },
+    });
+    const registry = await startClientExtensionRegistry({
+        ...options,
+        picker: {
+            request: async (_extensionId, request) => {
+                pickerTitles.push(request.title);
+                return { outcome: "cancelled" };
+            },
+        },
+        context: {
+            current: () => snapshot,
+            sources: async () => ({ sources: [], warnings: [] }),
+        },
+    });
+    try {
+        await registry.invokeCommand("context", "", "/workspace");
+        expect(opened.map((document) => document.title)).toEqual(["Context"]);
+        await opened[0]!.action!.run();
+        expect(pickerTitles).toEqual(["Context › Loaded sources"]);
+        expect(opened.map((document) => document.title)).toEqual(["Context", "Context"]);
+    } finally {
+        await registry.close();
+    }
+});
+
+test("the auto-compact tick sits in the first reserve cell", () => {
+    const lines = contextReportMarkdown(budgetSnapshot([instruction("core.user-rules", "User rules", 6_000)]), false, 72).split("\n");
+    const bar = lines.find((line) => line.includes("▒"))!;
+    const tick = lines[lines.lastIndexOf(bar) + 1]!;
+    expect(tick.trimStart()).toBe("▏");
+    expect(tick.indexOf("▏")).toBe(bar.indexOf("▒"));
+});

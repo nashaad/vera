@@ -2067,6 +2067,8 @@ function validateExperimentalTuiDocument(
         || (document.editorPath !== undefined && (typeof document.editorPath !== "string" || document.editorPath.trim().length === 0 || document.action !== undefined))
         || (document.onEditorClosed !== undefined && typeof document.onEditorClosed !== "function")
         || (document.onClose !== undefined && typeof document.onClose !== "function")
+        || (document.source !== undefined && (typeof document.source !== "object" || document.source === null
+            || typeof document.source.text !== "string" || typeof document.source.markdown !== "boolean"))
         || (document.footerText !== undefined
             && typeof document.footerText !== "string")
     ) {

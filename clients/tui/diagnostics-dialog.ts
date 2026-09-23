@@ -1,6 +1,7 @@
 import {
     BoxRenderable,
     fg,
+    LineNumberRenderable,
     MarkdownRenderable,
     ScrollBoxRenderable,
     StyledText,
@@ -56,6 +57,8 @@ export interface TuiDiagnosticsDialogState {
     readonly menu?: boolean;
     readonly copyReady?: boolean;
     readonly copyStatus?: "copied" | "failed";
+    readonly source?: { readonly text: string; readonly markdown: boolean };
+    readonly showSource?: boolean;
 }
 
 export type TuiDiagnosticsDialogAction =
@@ -269,6 +272,61 @@ export function createTuiDiagnosticsDialogView(
         contentOptions: { flexDirection: "column" },
     });
     body.add(bodyMarkdown);
+    const sourceRule = new BoxRenderable(renderer, {
+        id: `${id}-source-rule`,
+        width: "100%",
+        height: 1,
+        marginTop: 1,
+        border: ["top"],
+        borderColor: TUI_ELEMENT,
+        visible: false,
+    });
+    const sourceFrontmatter = new TextRenderable(renderer, {
+        id: `${id}-source-frontmatter`,
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        wrapMode: "word",
+        selectable: true,
+        visible: false,
+    });
+    // A file's headings are its structure, so they keep full brightness here.
+    let sourceStyle = sourceMarkdownStyle();
+    const sourceMarkdown = new MarkdownRenderable(renderer, {
+        id: `${id}-source-markdown`,
+        content: "",
+        syntaxStyle: sourceStyle,
+        fg: TUI_TEXT,
+        width: "100%",
+        conceal: true,
+        internalBlockMode: "top-level",
+        tableOptions: { style: "columns", columnFitter: "balanced", wrapMode: "word", selectable: true },
+        visible: false,
+    });
+    body.add(sourceRule);
+    body.add(sourceFrontmatter);
+    body.add(sourceMarkdown);
+    const sourceText = new TextRenderable(renderer, {
+        id: `${id}-source-text`,
+        content: "",
+        fg: TUI_TEXT,
+        flexGrow: 1,
+        wrapMode: "word",
+        selectable: true,
+    });
+    // The gutter paints its numbers itself, so dragging over the file never copies them.
+    const sourceLines = new LineNumberRenderable(renderer, {
+        id: `${id}-source`,
+        target: sourceText,
+        fg: TUI_MUTED,
+        bg: TUI_PANEL,
+        minWidth: 3,
+        paddingRight: 2,
+        width: "100%",
+        marginTop: 1,
+        visible: false,
+    });
+    body.add(sourceLines);
     const footer = new BoxRenderable(renderer, {
         id: `${id}-footer`,
         width: "100%",
@@ -296,7 +354,7 @@ export function createTuiDiagnosticsDialogView(
     if (scopeMenu !== undefined) box.add(scopeMenu);
     box.add(body);
     box.add(footer);
-    box.once("destroyed", () => markdownStyle.destroy());
+    box.once("destroyed", () => { markdownStyle.destroy(); sourceStyle.destroy(); });
     let activeScope: TuiDiagnosticsScope = "session";
     let onMenu = false;
 
@@ -344,7 +402,10 @@ export function createTuiDiagnosticsDialogView(
                 updateDialogHeaderTitle(header, state.title);
             }
             if (state.footerText !== undefined) {
-                shareHint.content = state.footerText;
+                const toggle = state.source?.markdown === true
+                    ? `s ${state.showSource === true ? "rendered" : "source"}`
+                    : undefined;
+                shareHint.content = [state.footerText, toggle].filter(Boolean).join(" · ");
             }
             if (scopeMenu !== undefined) {
                 activeScope = state.scope ?? "session";
@@ -359,10 +420,25 @@ export function createTuiDiagnosticsDialogView(
                 );
                 paintMenu();
             }
-            bodyMarkdown.content = inspectDocumentMarkdown(
+            const headerText = inspectDocumentMarkdown(
                 state.text,
                 options.skipFirstLine,
             );
+            const raw = state.source !== undefined
+                && (state.showSource === true || !state.source.markdown);
+            const rendered = state.source !== undefined && !raw
+                ? splitFrontmatter(state.source.text)
+                : undefined;
+            bodyMarkdown.content = headerText;
+            sourceRule.visible = rendered !== undefined;
+            sourceFrontmatter.visible = rendered?.frontmatter !== undefined;
+            sourceFrontmatter.marginTop = 1;
+            sourceFrontmatter.content = rendered?.frontmatter ?? "";
+            sourceMarkdown.visible = rendered !== undefined;
+            sourceMarkdown.marginTop = rendered?.frontmatter === undefined ? 0 : 1;
+            sourceMarkdown.content = rendered?.body ?? "";
+            sourceLines.visible = raw;
+            sourceText.content = raw ? state.source!.text.replace(/\n$/, "") : "";
             const back = scopeMenu === undefined ? "" : " · esc back";
             copyHint.content = onMenu && scopeMenu !== undefined
                 ? DIAGNOSTICS_MENU_HINT
@@ -385,6 +461,17 @@ export function createTuiDiagnosticsDialogView(
             bodyMarkdown.fg = TUI_TEXT;
             bodyMarkdown.refreshStyles();
             retiredStyle.destroy();
+            const retiredSourceStyle = sourceStyle;
+            sourceStyle = sourceMarkdownStyle();
+            sourceMarkdown.syntaxStyle = sourceStyle;
+            sourceMarkdown.fg = TUI_TEXT;
+            sourceMarkdown.refreshStyles();
+            retiredSourceStyle.destroy();
+            sourceRule.borderColor = TUI_ELEMENT;
+            sourceFrontmatter.fg = TUI_MUTED;
+            sourceText.fg = TUI_TEXT;
+            sourceLines.fg = TUI_MUTED;
+            sourceLines.bg = TUI_PANEL;
             paintMenu();
             shareHint.fg = TUI_MUTED;
             copyHint.fg = TUI_MUTED;
@@ -411,6 +498,24 @@ export function inspectMarkdownStyle(): SyntaxStyle {
     });
 }
 
+export function sourceMarkdownStyle(): SyntaxStyle {
+    return SyntaxStyle.fromStyles({
+        default: { fg: TUI_TEXT },
+        "markup.heading": { fg: TUI_TEXT, bold: true },
+        "markup.heading.1": { fg: TUI_TEXT, bold: true },
+        "markup.heading.2": { fg: TUI_TEXT, bold: true },
+        "markup.heading.3": { fg: TUI_TEXT, bold: true },
+        "markup.strong": { fg: TUI_TEXT, bold: true },
+        "markup.italic": { fg: TUI_TEXT, italic: true },
+        "markup.raw": { fg: TUI_NOTICE },
+        "markup.raw.block": { fg: TUI_NOTICE },
+        "markup.list": { fg: TUI_ACCENT },
+        "markup.quote": { fg: TUI_MUTED, italic: true },
+        "punctuation.special": { fg: TUI_ELEMENT },
+        conceal: { fg: TUI_ELEMENT },
+    });
+}
+
 export function styledInspectOccupancy(text: string): StyledText {
     const chunks: TextChunk[] = [];
     let buffer = "";
@@ -420,7 +525,7 @@ export function styledInspectOccupancy(text: string): StyledText {
         const color = tone === "used"
             ? TUI_ACCENT
             : tone === "free"
-                ? TUI_ELEMENT
+                ? TUI_MUTED
                 : tone === "reserve"
                     ? TUI_NOTICE
                     : TUI_TEXT;
@@ -483,6 +588,13 @@ function healthToneChunks(line: string): TextChunk[] {
         fg(color)(tone ?? ""),
         fg(TUI_TEXT)(health.groups.rest ?? ""),
     ];
+}
+
+// Markdown would read frontmatter's `---` fences as rules and headings.
+export function splitFrontmatter(text: string): { readonly frontmatter?: string; readonly body: string } {
+    const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+    if (match === null) return { body: text };
+    return { frontmatter: match[1]!, body: text.slice(match[0].length).replace(/^\s*\n/, "") };
 }
 
 export function inspectDocumentLines(
