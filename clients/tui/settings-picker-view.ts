@@ -2393,5 +2393,7 @@ export function pickerTitle(
                                         ? "Assign a model"
                                         : kind === "animation"
                                         ? "Animation"
+                                        : kind === "terminal_progress"
+                                        ? "Progress bar"
                                         : "Theme";
 }

@@ -72,6 +72,7 @@ export type TuiSettingsPickerKind =
     | "permissions"
     | "theme"
     | "animation"
+    | "terminal_progress"
     | "context_limit"
     | "overrides_settings"
     | "override_value"
@@ -127,6 +128,7 @@ export type TuiSettingsMenuTarget =
     | "permissions"
     | "theme"
     | "animation"
+    | "terminal_progress"
     | "context_limit"
     | "overrides"
     | OverrideMenuTarget
@@ -447,6 +449,7 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
     | { readonly kind: "animation"; readonly level: TuiAnimationLevel }
+    | { readonly kind: "terminal_progress"; readonly enabled: boolean }
     | { readonly kind: "context_limit"; readonly limit: number | null }
     | {
         readonly kind: "overrides";

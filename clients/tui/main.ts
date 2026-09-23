@@ -279,7 +279,7 @@ import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtens
 import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
-import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiTerminalProgressPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
@@ -308,6 +308,8 @@ import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeCom
 import { showStatusNotice, showModeToast, hideModeToast, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
+import { syncTerminalProgress } from "./main/terminal-progress-sync.ts";
+import { TERMINAL_PROGRESS_IDLE, terminalSupportsProgress } from "./terminal-progress.ts";
 import { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
 export { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
@@ -900,6 +902,9 @@ export async function startTui(
     rt.themeName = loadTuiThemePreference();
     rt.activityAnimation = loadTuiActivityAnimationPreference();
     rt.animationLevel = loadTuiAnimationLevelPreference();
+    rt.terminalProgressEnabled = loadTuiTerminalProgressPreference()
+        && terminalSupportsProgress(process.env, process.stdout.isTTY === true);
+    rt.terminalProgress = TERMINAL_PROGRESS_IDLE;
     rt.activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
     rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
@@ -2415,6 +2420,7 @@ export async function startTui(
         stopAutoModeAnimation(rt);
         rt.renderCoalescer.stop();
         clearInterval(rt.statusTimer);
+        syncTerminalProgress(rt);
         rt.stopWatchingBackgroundAgents?.();
         rt.stopWatchingBackgroundAgents = undefined;
         rt.stopWatchingWorkIndex?.();

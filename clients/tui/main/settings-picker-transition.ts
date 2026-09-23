@@ -19,6 +19,7 @@ import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm
 import { readSessionPreview } from "../session-preview.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
+import { applyTerminalProgressPreference } from "./terminal-progress-sync.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { overrideConflict } from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
@@ -560,6 +561,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             void applySelectedTheme(rt, rt.themeName, true);
         } else if (selection.kind === "animation") {
             applyAnimationLevel(rt, selection.level);
+        } else if (selection.kind === "terminal_progress") {
+            applyTerminalProgressPreference(rt, selection.enabled);
         } else if (selection.kind === "context_limit") {
             const label = selection.limit === null
                 ? "Auto"

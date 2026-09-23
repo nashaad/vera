@@ -19,6 +19,8 @@ import {
     saveTuiActivityAnimationPreference,
     loadTuiAnimationLevelPreference,
     saveTuiAnimationLevelPreference,
+    loadTuiTerminalProgressPreference,
+    saveTuiTerminalProgressPreference,
     saveTuiRecentSessionId,
     saveTuiSharedSessionGroups,
     saveTuiPersistedAgentPane,
@@ -314,4 +316,19 @@ test("animation level is its own setting and leaves the transcript animation alo
     saveTuiAnimationLevelPreference(3, path);
     expect(loadTuiAnimationLevelPreference(path)).toBe(3);
     expect(loadTuiActivityAnimationPreference(path)).toBe("off");
+});
+
+test("the terminal progress bar is on unless turned off, and only off is stored", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-progress-prefs-")), "tui.json");
+    expect(loadTuiTerminalProgressPreference(path)).toBe(true);
+
+    saveTuiTerminalProgressPreference(false, path);
+    expect(loadTuiTerminalProgressPreference(path)).toBe(false);
+    saveTuiThemePreference("github", path);
+    expect(loadTuiTerminalProgressPreference(path)).toBe(false);
+
+    saveTuiTerminalProgressPreference(true, path);
+    expect(loadTuiTerminalProgressPreference(path)).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("terminal_progress");
+    expect(loadTuiThemePreference(path)).toBe("github");
 });
