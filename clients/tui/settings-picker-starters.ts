@@ -489,6 +489,12 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
     { value: "theme", label: "Theme", description: "TUI colors" },
     { value: "animation", label: "Animation", description: "the activity strip in the composer" },
+    {
+        value: "terminal_progress",
+        label: "Progress bar",
+        description: "the terminal's own busy bar while Vera works",
+        searchText: "ghostty iterm osc tab",
+    },
 ];
 
 export const ANIMATION_LEVEL_OPTIONS: readonly TuiSettingsPickerOption[] = [
@@ -509,6 +515,21 @@ export function startTuiAnimationPicker(
             0,
             ANIMATION_LEVEL_OPTIONS.findIndex((option) => option.value === String(current)),
         ),
+        query: "",
+    };
+}
+
+export const TERMINAL_PROGRESS_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    { value: "on", label: "On", description: "Ghostty and iTerm2 draw a busy bar at the top" },
+    { value: "off", label: "Off", description: "no bar" },
+];
+
+export function startTuiTerminalProgressPicker(enabled: boolean): TuiSettingsPickerState {
+    return {
+        kind: "terminal_progress",
+        allOptions: TERMINAL_PROGRESS_OPTIONS,
+        options: TERMINAL_PROGRESS_OPTIONS,
+        selectedIndex: enabled ? 0 : 1,
         query: "",
     };
 }

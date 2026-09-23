@@ -4,6 +4,7 @@ import { saveTuiAnimationLevelPreference } from "../theme-preference.ts";
 import { refreshTimedSurfaces } from "./render-state.ts";
 import { renderStatus } from "./render-status.ts";
 import type { TuiRuntime } from "./runtime.ts";
+import { syncTerminalProgress } from "./terminal-progress-sync.ts";
 
 const STATUS_REFRESH_INTERVAL_MS = 100;
 
@@ -13,6 +14,7 @@ export function startStatusTimer(rt: TuiRuntime): void {
     let lastTimedSurfaceRefresh = 0;
     rt.statusTimer = setInterval(() => {
         renderStatus(rt);
+        syncTerminalProgress(rt);
         if (Date.now() - lastTimedSurfaceRefresh >= STATUS_REFRESH_INTERVAL_MS) {
             refreshTimedSurfaces(rt);
             lastTimedSurfaceRefresh = Date.now();

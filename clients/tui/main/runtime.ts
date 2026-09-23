@@ -55,6 +55,7 @@ import type { SearchOverlayState } from "../search-overlay.ts";
 import type { TuiSecretPromptState, TuiSecretPromptView } from "../secret-prompt.ts";
 import type { TuiSessionCloseConfirmView } from "../session-close-confirm.ts";
 import type { TuiAnimationsPreviewView } from "../animations-preview.ts";
+import type { TerminalProgressState } from "../terminal-progress.ts";
 import type { TuiSessionTrashConfirmView } from "../session-trash-confirm.ts";
 import type { TuiAnySettingsPickerState, TuiLocalRuntimeStatus, TuiProviderFormState, TuiProviderFormView, TuiSettingsPickerState, TuiSettingsPickerView } from "../settings-picker.ts";
 import type { TuiSidebar } from "../sidebar.ts";
@@ -109,6 +110,8 @@ export interface TuiRuntime {
     themeName: TuiThemeName;
     activityAnimation: TuiActivityAnimation;
     animationLevel: TuiAnimationLevel;
+    terminalProgressEnabled: boolean;
+    terminalProgress: TerminalProgressState;
     activityAnimationInterval: number | undefined;
     activityAnimationWidth: number | undefined;
     sidebarWidth: number | undefined;

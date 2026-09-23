@@ -2078,6 +2078,9 @@ export function pickerSelection(
         }
         return { kind, level };
     }
+    if (kind === "terminal_progress") {
+        return { kind, enabled: value === "on" };
+    }
     if (kind === "override_value") {
         const key = state.overrideKey;
         if (key === undefined) {

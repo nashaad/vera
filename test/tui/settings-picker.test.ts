@@ -19,6 +19,7 @@ import {
     startTuiConfigurePicker,
     startTuiSettingsMenu,
     startTuiAnimationPicker,
+    startTuiTerminalProgressPicker,
     startTuiContextLimitPicker,
     startTuiOverridesMenu,
     startTuiOverrideValuePicker,
@@ -1489,6 +1490,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "reviewer",
         "theme",
         "animation",
+        "terminal_progress",
     ]);
     // The context limit is a lever inside Overrides, so searching for it by
     // its old name lands there rather than nowhere.
@@ -1535,6 +1537,14 @@ test("the animation picker offers off and three levels, opened from settings", (
     expect(handleTuiSettingsPickerKey(picker, { name: "up" }).state?.options[1]?.value).toBe("1");
     const off = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 0 }, { name: "enter" });
     expect(off.selection).toEqual({ kind: "animation", level: 0 });
+});
+
+test("the progress bar pane opens on the current choice and selects on or off", () => {
+    const picker = startTuiTerminalProgressPicker(false);
+    expect(picker.options.map((option) => option.label)).toEqual(["On", "Off"]);
+    expect(picker.options[picker.selectedIndex]?.label).toBe("Off");
+    const on = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 0 }, { name: "enter" });
+    expect(on.selection).toEqual({ kind: "terminal_progress", enabled: true });
 });
 
 test("escape steps back to the pane a pane was opened from", () => {
