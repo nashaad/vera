@@ -13,6 +13,8 @@ import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUi
 import { setComposerMargin } from "../main/chrome.ts";
 import { paneHeaderText, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
+import { animateLiveToolHeaders } from "../main/transcript-nodes.ts";
+import { workingLineText } from "../main/watchers.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
 import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiPlaceRowModeLine, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
@@ -40,9 +42,12 @@ export function renderStatus(rt: TuiRuntime): void {
         setTextContent(rt.transcriptWorking, renderTuiActivityAnimation(
             rt.activityAnimation === "off" ? "off" : "shimmer",
             transcriptShimmerFrame(Date.now()),
-            `Working (${elapsedWorkingTime(rt)} · esc to interrupt)`,
+            workingLineText(rt, rt.transcriptWorking.width),
             { active: TUI_ACCENT, trail: TUI_ELEMENT, inactive: TUI_MUTED, text: TUI_ACCENT },
         ));
+        if (rt.activityAnimation !== "off") {
+            animateLiveToolHeaders(rt, transcriptShimmerFrame(Date.now()));
+        }
     }
     const uiRequest = focusedUiRequest(rt);
     const focusedSide = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;

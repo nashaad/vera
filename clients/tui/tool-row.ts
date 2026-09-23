@@ -10,6 +10,7 @@ import { tuiKeyHint } from "./keymap.ts";
 import type { TuiTextTranscriptEntry } from "./state.ts";
 import {
     renderTuiEntry,
+    renderTuiLiveToolHeader,
     renderTuiToolRowContent,
     TUI_MUTED,
     TUI_TEXT,
@@ -26,6 +27,7 @@ const headerParts = new WeakMap<
         header: TextRenderable;
         hint: TextRenderable;
         preview: BoxRenderable[];
+        entry: TuiTextTranscriptEntry;
     }
 >();
 const CONNECTOR_BORDER = {
@@ -48,6 +50,7 @@ export function updateTuiToolHeader(
 ): void {
     const parts = headerParts.get(node);
     if (parts === undefined) return;
+    parts.entry = entry;
     parts.header.content = renderTuiEntry({
         ...entry,
         hint: false,
@@ -96,12 +99,19 @@ export function createTuiToolHeader(
         flexShrink: 0,
         selectable: true,
     });
-    headerParts.set(node, { header, hint, preview: [] });
+    headerParts.set(node, { header, hint, preview: [], entry });
     line.add(header);
     line.add(hint);
     node.add(line);
     updateTuiToolHeader(node, entry);
     return node;
+}
+
+// Only a running header moves; a finished one keeps the content its update set.
+export function animateTuiToolHeader(node: BoxRenderable, frame: number): void {
+    const parts = headerParts.get(node);
+    if (parts === undefined || parts.entry.active !== true) return;
+    parts.header.content = renderTuiLiveToolHeader(parts.entry, frame);
 }
 
 function createCompactPreviewRow(

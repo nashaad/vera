@@ -490,6 +490,12 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "theme", label: "Theme", description: "TUI colors" },
     { value: "animation", label: "Animation", description: "the activity strip in the composer" },
     {
+        value: "live_reasoning_rows",
+        label: "Live reasoning",
+        description: "how many lines of reasoning show while Vera thinks",
+        searchText: "thinking stream rows lines",
+    },
+    {
         value: "terminal_progress",
         label: "Progress bar",
         description: "the terminal's own busy bar while Vera works",
@@ -514,6 +520,29 @@ export function startTuiAnimationPicker(
         selectedIndex: Math.max(
             0,
             ANIMATION_LEVEL_OPTIONS.findIndex((option) => option.value === String(current)),
+        ),
+        query: "",
+    };
+}
+
+export const LIVE_REASONING_ROWS_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    { value: "0", label: "Hidden", description: "just ··· while Vera thinks" },
+    { value: "1", label: "1 row", description: "the latest line" },
+    ...[2, 3, 4, 5, 6, 7, 8].map((rows) => ({
+        value: String(rows),
+        label: `${rows} rows`,
+        description: `the latest ${rows} lines`,
+    })),
+];
+
+export function startTuiLiveReasoningRowsPicker(rows: number): TuiSettingsPickerState {
+    return {
+        kind: "live_reasoning_rows",
+        allOptions: LIVE_REASONING_ROWS_OPTIONS,
+        options: LIVE_REASONING_ROWS_OPTIONS,
+        selectedIndex: Math.max(
+            0,
+            LIVE_REASONING_ROWS_OPTIONS.findIndex((option) => option.value === String(rows)),
         ),
         query: "",
     };

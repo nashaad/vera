@@ -20,6 +20,7 @@ import {
     startTuiSettingsMenu,
     startTuiAnimationPicker,
     startTuiTerminalProgressPicker,
+    startTuiLiveReasoningRowsPicker,
     startTuiContextLimitPicker,
     startTuiOverridesMenu,
     startTuiOverrideValuePicker,
@@ -1490,6 +1491,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "reviewer",
         "theme",
         "animation",
+        "live_reasoning_rows",
         "terminal_progress",
     ]);
     // The context limit is a lever inside Overrides, so searching for it by
@@ -1545,6 +1547,16 @@ test("the progress bar pane opens on the current choice and selects on or off", 
     expect(picker.options[picker.selectedIndex]?.label).toBe("Off");
     const on = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 0 }, { name: "enter" });
     expect(on.selection).toEqual({ kind: "terminal_progress", enabled: true });
+});
+
+test("the live reasoning pane opens on the current rows and selects a count", () => {
+    const picker = startTuiLiveReasoningRowsPicker(1);
+    expect(picker.options.map((option) => option.value)).toEqual(
+        ["0", "1", "2", "3", "4", "5", "6", "7", "8"],
+    );
+    expect(picker.options[picker.selectedIndex]?.label).toBe("1 row");
+    const hidden = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 0 }, { name: "enter" });
+    expect(hidden.selection).toEqual({ kind: "live_reasoning_rows", rows: 0 });
 });
 
 test("escape steps back to the pane a pane was opened from", () => {

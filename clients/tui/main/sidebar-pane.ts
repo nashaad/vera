@@ -104,7 +104,7 @@ export function createTuiEntryNode(rt: TuiRuntime,
             inner,
         )
         : entry.kind === "thinking"
-        ? createTuiThinkingWindow(rt.renderer, id, entry, inner)
+        ? createTuiThinkingWindow(rt.renderer, id, entry, inner, rt.liveReasoningRows)
         : entry.kind === "notice" && entry.card === true
         ? createTuiNoticeCard(rt.renderer, id, entry, inner)
         : markdownNode ?? new TextRenderable(rt.renderer, {
@@ -206,7 +206,7 @@ export function renderSidebarAgent(rt: TuiRuntime,
                 entry.kind === "thinking"
                 && existing instanceof BoxRenderable
             ) {
-                updateTuiThinkingWindow(existing, entry);
+                updateTuiThinkingWindow(existing, entry, rt.liveReasoningRows);
             } else if (entry.kind === "worked" && existing instanceof BoxRenderable) {
                 updateTuiWorkedDivider(existing, entry.text);
             } else if (existing instanceof TextRenderable) {
