@@ -322,15 +322,17 @@ test("live reasoning rows default to one, survive other writes, and ignore bad v
     const path = join(mkdtempSync(join(tmpdir(), "vera-reasoning-rows-prefs-")), "tui.json");
     expect(loadTuiLiveReasoningRowsPreference(path)).toBe(1);
 
-    saveTuiLiveReasoningRowsPreference(4, path);
+    saveTuiLiveReasoningRowsPreference(8, path);
     saveTuiThemePreference("github", path);
-    expect(loadTuiLiveReasoningRowsPreference(path)).toBe(4);
+    expect(loadTuiLiveReasoningRowsPreference(path)).toBe(8);
+    saveTuiLiveReasoningRowsPreference("all", path);
+    expect(loadTuiLiveReasoningRowsPreference(path)).toBe("all");
     saveTuiLiveReasoningRowsPreference(0, path);
     expect(loadTuiLiveReasoningRowsPreference(path)).toBe(0);
 
     saveTuiLiveReasoningRowsPreference(1, path);
     expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("live_reasoning_rows");
 
-    writeFileSync(path, JSON.stringify({ live_reasoning_rows: 20 }));
+    writeFileSync(path, JSON.stringify({ live_reasoning_rows: 4 }));
     expect(loadTuiLiveReasoningRowsPreference(path)).toBe(1);
 });

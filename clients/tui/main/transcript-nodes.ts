@@ -5,7 +5,7 @@ import { createTuiEntryNode, mainTranscriptWidth } from "../main/sidebar-pane.ts
 import { tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { updateTuiNoticeCard } from "../notice-card.ts";
 import { renderTuiEntry, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
-import { liveReasoningHeight, updateTuiThinkingWindow } from "../thinking-window.ts";
+import { animateTuiThinkingWindow, ELLIPSIS_COLUMNS, liveReasoningHeight, liveReasoningText, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
 import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
@@ -127,7 +127,12 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
     );
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
     if (entry.kind === "thinking") {
-        return margin + liveReasoningHeight(rt.liveReasoningRows);
+        if (rt.liveReasoningRows !== "all") return margin + liveReasoningHeight(rt.liveReasoningRows);
+        return margin + Math.max(1, transcriptEstimatedRows(
+            rt,
+            liveReasoningText(entry.text, true),
+            Math.max(8, width - ELLIPSIS_COLUMNS),
+        ));
     }
     return margin + Math.max(
         1,
@@ -154,6 +159,15 @@ export function animateLiveToolHeaders(rt: TuiRuntime, frame: number): void {
         if (node === undefined || rt.entryNodeKinds[index] !== "tool_header") continue;
         const header = tuiGutterContent(node);
         if (header instanceof BoxRenderable) animateTuiToolHeader(header, frame);
+    }
+}
+
+export function animateLiveThinking(rt: TuiRuntime, frame: number): void {
+    for (let index = rt.materializedEntryStart; index < rt.materializedEntryEnd; index += 1) {
+        const node = rt.entryNodes[index];
+        if (node === undefined || rt.entryNodeKinds[index] !== "thinking") continue;
+        const window = tuiGutterContent(node);
+        if (window instanceof BoxRenderable) animateTuiThinkingWindow(window, frame);
     }
 }
 

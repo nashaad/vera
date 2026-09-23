@@ -1,3 +1,4 @@
+import type { TuiLiveReasoningRows } from "./theme-preference.ts";
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
 import { BoxRenderable } from "@opentui/core";
 
@@ -449,7 +450,7 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
     | { readonly kind: "animation"; readonly level: TuiAnimationLevel }
-    | { readonly kind: "live_reasoning_rows"; readonly rows: number }
+    | { readonly kind: "live_reasoning_rows"; readonly rows: TuiLiveReasoningRows }
     | { readonly kind: "context_limit"; readonly limit: number | null }
     | {
         readonly kind: "overrides";

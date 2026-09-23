@@ -9,8 +9,9 @@ import type { TuiActivityAnimation } from "./activity-pulse.ts";
 import { DEFAULT_ANIMATION_LEVEL, isTuiAnimationLevel, type TuiAnimationLevel } from "./activity-bar.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
-export const DEFAULT_LIVE_REASONING_ROWS = 1;
-export const MAX_LIVE_REASONING_ROWS = 8;
+// "all" lets the block grow with the whole reasoning instead of a fixed tail.
+export type TuiLiveReasoningRows = 0 | 1 | 8 | "all";
+export const DEFAULT_LIVE_REASONING_ROWS: TuiLiveReasoningRows = 1;
 
 interface TuiClientPreferences {
     readonly model_picker?: ModelPickerPreferences;
@@ -18,7 +19,7 @@ interface TuiClientPreferences {
     readonly animation: TuiActivityAnimation;
     readonly animation_level: TuiAnimationLevel;
     // Stored only when it differs from the default of one row.
-    readonly live_reasoning_rows?: number;
+    readonly live_reasoning_rows?: TuiLiveReasoningRows;
     readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
@@ -144,12 +145,12 @@ export function saveTuiAnimationLevelPreference(
 
 export function loadTuiLiveReasoningRowsPreference(
     path = tuiThemePreferencePath(),
-): number {
+): TuiLiveReasoningRows {
     return loadTuiClientPreferences(path).live_reasoning_rows ?? DEFAULT_LIVE_REASONING_ROWS;
 }
 
 export function saveTuiLiveReasoningRowsPreference(
-    rows: number,
+    rows: TuiLiveReasoningRows,
     path = tuiThemePreferencePath(),
 ): void {
     const { live_reasoning_rows: _previous, ...rest } = loadTuiClientPreferences(path);
@@ -162,11 +163,8 @@ export function saveTuiLiveReasoningRowsPreference(
     }, path);
 }
 
-function parseLiveReasoningRows(value: unknown): number | undefined {
-    return typeof value === "number"
-        && Number.isInteger(value)
-        && value >= 0
-        && value <= MAX_LIVE_REASONING_ROWS
+export function parseLiveReasoningRows(value: unknown): TuiLiveReasoningRows | undefined {
+    return value === 0 || value === 1 || value === 8 || value === "all"
         ? value
         : undefined;
 }
