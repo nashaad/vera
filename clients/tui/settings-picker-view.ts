@@ -2395,7 +2395,5 @@ export function pickerTitle(
                                         ? "Animation"
                                         : kind === "live_reasoning_rows"
                                         ? "Live reasoning"
-                                        : kind === "terminal_progress"
-                                        ? "Progress bar"
                                         : "Theme";
 }

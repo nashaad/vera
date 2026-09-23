@@ -495,12 +495,6 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         description: "how many lines of reasoning show while Vera thinks",
         searchText: "thinking stream rows lines",
     },
-    {
-        value: "terminal_progress",
-        label: "Progress bar",
-        description: "the terminal's own busy bar while Vera works",
-        searchText: "ghostty iterm osc tab",
-    },
 ];
 
 export const ANIMATION_LEVEL_OPTIONS: readonly TuiSettingsPickerOption[] = [
@@ -544,21 +538,6 @@ export function startTuiLiveReasoningRowsPicker(rows: number): TuiSettingsPicker
             0,
             LIVE_REASONING_ROWS_OPTIONS.findIndex((option) => option.value === String(rows)),
         ),
-        query: "",
-    };
-}
-
-export const TERMINAL_PROGRESS_OPTIONS: readonly TuiSettingsPickerOption[] = [
-    { value: "on", label: "On", description: "Ghostty and iTerm2 draw a busy bar at the top" },
-    { value: "off", label: "Off", description: "no bar" },
-];
-
-export function startTuiTerminalProgressPicker(enabled: boolean): TuiSettingsPickerState {
-    return {
-        kind: "terminal_progress",
-        allOptions: TERMINAL_PROGRESS_OPTIONS,
-        options: TERMINAL_PROGRESS_OPTIONS,
-        selectedIndex: enabled ? 0 : 1,
         query: "",
     };
 }

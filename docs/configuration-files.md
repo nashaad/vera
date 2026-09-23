@@ -23,7 +23,7 @@ already exist; choosing configuration does not create them.
 | File | What it controls |
 | --- | --- |
 | Home config | Provider, model, permission, extension, and hook defaults for this home. |
-| TUI preferences | Theme, layout, animation, the terminal progress bar, live reasoning rows, and the `keybindings` block in `tui.json`. |
+| TUI preferences | Theme, layout, animation, live reasoning rows, and the `keybindings` block in `tui.json`. |
 | Project config | Configuration in the attached workspace's `.vera/config.json`. |
 
 `/settings` remains a separate menu of settings controls. For a map of other

@@ -15,12 +15,6 @@ export const TERMINAL_RESTORE_SEQUENCE = "\x1b[?1049l" // main screen
     + "\x1b[0m"; // reset colors and attributes
 
 let installed = false;
-// Set only while a mode outside the renderer is on, such as the progress bar.
-let pendingRestore = "";
-
-export function setPendingTerminalRestore(sequence: string): void {
-    pendingRestore = sequence;
-}
 
 export function restoreTerminalNow(
     tty: { readonly fd: number } = process.stdout,
@@ -32,7 +26,7 @@ export function restoreTerminalNow(
         // A closed stdin must not stop the screen restore below.
     }
     try {
-        writeSync(tty.fd, TERMINAL_RESTORE_SEQUENCE + pendingRestore);
+        writeSync(tty.fd, TERMINAL_RESTORE_SEQUENCE);
     } catch {
     }
 }

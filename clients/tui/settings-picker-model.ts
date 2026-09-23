@@ -2081,9 +2081,6 @@ export function pickerSelection(
     if (kind === "live_reasoning_rows") {
         return { kind, rows: Number(value) };
     }
-    if (kind === "terminal_progress") {
-        return { kind, enabled: value === "on" };
-    }
     if (kind === "override_value") {
         const key = state.overrideKey;
         if (key === undefined) {
