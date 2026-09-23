@@ -1381,10 +1381,7 @@ export function renderListPickerRows(
         row.kind === "option"
             ? [{
                 label: optionRowLabel(state, row),
-                marker: (state.kind === "provider" || state.kind === "extension")
-                        && row.index === state.selectedIndex
-                    ? "›"
-                    : optionMarker(state, row.option),
+                marker: optionMarker(state, row.option),
                 ...(state.kind === "session" && row.option.section !== undefined
                     ? (firstHeading ? (firstHeading = false, {}) : { spaced: true })
                     : {}),
