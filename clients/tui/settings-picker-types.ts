@@ -73,7 +73,6 @@ export type TuiSettingsPickerKind =
     | "theme"
     | "animation"
     | "live_reasoning_rows"
-    | "terminal_progress"
     | "context_limit"
     | "overrides_settings"
     | "override_value"
@@ -130,7 +129,6 @@ export type TuiSettingsMenuTarget =
     | "theme"
     | "animation"
     | "live_reasoning_rows"
-    | "terminal_progress"
     | "context_limit"
     | "overrides"
     | OverrideMenuTarget
@@ -452,7 +450,6 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
     | { readonly kind: "animation"; readonly level: TuiAnimationLevel }
     | { readonly kind: "live_reasoning_rows"; readonly rows: number }
-    | { readonly kind: "terminal_progress"; readonly enabled: boolean }
     | { readonly kind: "context_limit"; readonly limit: number | null }
     | {
         readonly kind: "overrides";

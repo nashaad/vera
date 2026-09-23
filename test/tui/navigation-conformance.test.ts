@@ -82,7 +82,6 @@ const PICKERS: Record<TuiSettingsPickerKind, PickerCase> = {
     theme: {},
     animation: {},
     live_reasoning_rows: {},
-    terminal_progress: {},
     context_limit: {},
     overrides_settings: {},
     override_value: {},

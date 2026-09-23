@@ -17,8 +17,6 @@ interface TuiClientPreferences {
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
     readonly animation_level: TuiAnimationLevel;
-    // Stored only when turned off; absent means on.
-    readonly terminal_progress?: false;
     // Stored only when it differs from the default of one row.
     readonly live_reasoning_rows?: number;
     readonly recent_session_id?: string;
@@ -141,23 +139,6 @@ export function saveTuiAnimationLevelPreference(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         animation_level: level,
-    }, path);
-}
-
-export function loadTuiTerminalProgressPreference(
-    path = tuiThemePreferencePath(),
-): boolean {
-    return loadTuiClientPreferences(path).terminal_progress !== false;
-}
-
-export function saveTuiTerminalProgressPreference(
-    enabled: boolean,
-    path = tuiThemePreferencePath(),
-): void {
-    const { terminal_progress: _previous, ...rest } = loadTuiClientPreferences(path);
-    saveTuiClientPreferences({
-        ...rest,
-        ...(enabled ? {} : { terminal_progress: false }),
     }, path);
 }
 
@@ -437,9 +418,6 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                     ? animation
                     : "shimmer",
                 animation_level: level,
-                ...(Reflect.get(value, "terminal_progress") === false
-                    ? { terminal_progress: false }
-                    : {}),
                 ...(liveReasoningRows === undefined
                     ? {}
                     : { live_reasoning_rows: liveReasoningRows }),
