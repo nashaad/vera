@@ -1,3 +1,4 @@
+import { DEFAULT_LIVE_REASONING_ROWS, parseLiveReasoningRows } from "./theme-preference.ts";
 import { isTuiAnimationLevel } from "./activity-bar.ts";
 import { browseModels } from "./model-browse.ts";
 import { providerCatalogsOf, type HostModelCatalogSettings } from "../../src/host/model-catalog-settings.ts";
@@ -2079,7 +2080,7 @@ export function pickerSelection(
         return { kind, level };
     }
     if (kind === "live_reasoning_rows") {
-        return { kind, rows: Number(value) };
+        return { kind, rows: parseLiveReasoningRows(value === "all" ? value : Number(value)) ?? DEFAULT_LIVE_REASONING_ROWS };
     }
     if (kind === "override_value") {
         const key = state.overrideKey;

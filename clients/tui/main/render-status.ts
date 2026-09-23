@@ -13,7 +13,7 @@ import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUi
 import { setComposerMargin } from "../main/chrome.ts";
 import { paneHeaderText, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
 import { anyOverlayOpen } from "../main/render-state.ts";
-import { animateLiveToolHeaders } from "../main/transcript-nodes.ts";
+import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-nodes.ts";
 import { workingLineText } from "../main/watchers.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
@@ -47,6 +47,7 @@ export function renderStatus(rt: TuiRuntime): void {
         ));
         if (rt.activityAnimation !== "off") {
             animateLiveToolHeaders(rt, transcriptShimmerFrame(Date.now()));
+            animateLiveThinking(rt, Math.floor(Date.now() / 80));
         }
     }
     const uiRequest = focusedUiRequest(rt);

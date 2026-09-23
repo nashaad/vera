@@ -1,3 +1,4 @@
+import type { TuiLiveReasoningRows } from "./theme-preference.ts";
 import type { TuiAnimationLevel } from "./activity-bar.ts";
 import type { ImportableSessionEntry } from "../../src/host/protocol.ts";
 import type { ImportableSessionListing } from "../../src/host/session-import-service.ts";
@@ -521,15 +522,12 @@ export function startTuiAnimationPicker(
 
 export const LIVE_REASONING_ROWS_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "0", label: "Hidden", description: "just ··· while Vera thinks" },
-    { value: "1", label: "1 row", description: "the latest line" },
-    ...[2, 3, 4, 5, 6, 7, 8].map((rows) => ({
-        value: String(rows),
-        label: `${rows} rows`,
-        description: `the latest ${rows} lines`,
-    })),
+    { value: "1", label: "1 line", description: "the latest line" },
+    { value: "8", label: "8 lines", description: "the latest 8 lines" },
+    { value: "all", label: "Unbounded", description: "all of it, growing as Vera thinks" },
 ];
 
-export function startTuiLiveReasoningRowsPicker(rows: number): TuiSettingsPickerState {
+export function startTuiLiveReasoningRowsPicker(rows: TuiLiveReasoningRows): TuiSettingsPickerState {
     return {
         kind: "live_reasoning_rows",
         allOptions: LIVE_REASONING_ROWS_OPTIONS,

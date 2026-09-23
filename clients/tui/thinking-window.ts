@@ -1,7 +1,9 @@
 import { BoxRenderable, fg, StyledText, TextRenderable } from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
 
+import { tuiBrailleSpinner } from "./activity-pulse.ts";
 import type { TuiTextTranscriptEntry } from "./state.ts";
+import type { TuiLiveReasoningRows } from "./theme-preference.ts";
 import {
     LIVE_THINKING_ELLIPSIS,
     plainReasoningSummary,
@@ -10,9 +12,10 @@ import {
 
 // Enough text to fill the widest pane at the most rows; older text is cut first.
 const TAIL_CHARACTERS = 4_000;
-const ELLIPSIS_COLUMNS = LIVE_THINKING_ELLIPSIS.length + 1;
+export const ELLIPSIS_COLUMNS = LIVE_THINKING_ELLIPSIS.length + 1;
 
 interface ThinkingWindowParts {
+    readonly ellipsis: TextRenderable;
     readonly body: TailTextRenderable;
 }
 
@@ -32,7 +35,7 @@ class TailTextRenderable extends TextRenderable {
     }
 }
 
-export function liveReasoningHeight(rows: number): number {
+export function liveReasoningHeight(rows: Exclude<TuiLiveReasoningRows, "all">): number {
     return Math.max(1, rows);
 }
 
@@ -41,7 +44,7 @@ export function createTuiThinkingWindow(
     id: string,
     entry: TuiTextTranscriptEntry,
     marginTop: number,
-    rows: number,
+    rows: TuiLiveReasoningRows,
 ): BoxRenderable {
     const box = new BoxRenderable(renderer, {
         id,
@@ -67,7 +70,7 @@ export function createTuiThinkingWindow(
     });
     box.add(ellipsis);
     box.add(body);
-    windowParts.set(box, { body });
+    windowParts.set(box, { ellipsis, body });
     updateTuiThinkingWindow(box, entry, rows);
     return box;
 }
@@ -75,21 +78,29 @@ export function createTuiThinkingWindow(
 export function updateTuiThinkingWindow(
     node: BoxRenderable,
     entry: TuiTextTranscriptEntry,
-    rows: number,
+    rows: TuiLiveReasoningRows,
 ): void {
     const parts = windowParts.get(node);
     if (parts === undefined) return;
-    const height = liveReasoningHeight(rows);
+    const height = rows === "all" ? "auto" : liveReasoningHeight(rows);
     node.height = height;
     parts.body.height = height;
-    parts.body.visible = rows > 0;
-    parts.body.content = rows > 0
-        ? new StyledText([fg(TUI_MUTED)(liveReasoningText(entry.text))])
-        : "";
+    parts.body.visible = rows !== 0;
+    parts.body.content = rows === 0
+        ? ""
+        : new StyledText([fg(TUI_MUTED)(liveReasoningText(entry.text, rows === "all"))]);
 }
 
-function liveReasoningText(text: string): string {
-    return plainReasoningSummary(text.slice(-TAIL_CHARACTERS))
+// The mark is padded to the ellipsis width so the reasoning text never shifts.
+export function animateTuiThinkingWindow(node: BoxRenderable, frame: number): void {
+    const parts = windowParts.get(node);
+    if (parts === undefined) return;
+    const mark = tuiBrailleSpinner(frame).padEnd(LIVE_THINKING_ELLIPSIS.length);
+    parts.ellipsis.content = new StyledText([fg(TUI_MUTED)(mark)]);
+}
+
+export function liveReasoningText(text: string, whole: boolean): string {
+    return plainReasoningSummary(whole ? text : text.slice(-TAIL_CHARACTERS))
         .split("\n")
         .map((line) => line.trimEnd())
         .filter((line) => line.length > 0)

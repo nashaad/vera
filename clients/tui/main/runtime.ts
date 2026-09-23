@@ -1,3 +1,4 @@
+import type { TuiLiveReasoningRows } from "../theme-preference.ts";
 import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
 import type { ModelSettingsPatch, ModelTurnSettings } from "../../../src/engine/model-settings.ts";
@@ -110,7 +111,7 @@ export interface TuiRuntime {
     themeName: TuiThemeName;
     activityAnimation: TuiActivityAnimation;
     animationLevel: TuiAnimationLevel;
-    liveReasoningRows: number;
+    liveReasoningRows: TuiLiveReasoningRows;
     turnMeter: TuiTurnMeter;
     activityAnimationInterval: number | undefined;
     activityAnimationWidth: number | undefined;

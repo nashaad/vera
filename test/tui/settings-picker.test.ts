@@ -1542,11 +1542,15 @@ test("the animation picker offers off and three levels, opened from settings", (
 test("the live reasoning pane opens on the current rows and selects a count", () => {
     const picker = startTuiLiveReasoningRowsPicker(1);
     expect(picker.options.map((option) => option.value)).toEqual(
-        ["0", "1", "2", "3", "4", "5", "6", "7", "8"],
+        ["0", "1", "8", "all"],
     );
-    expect(picker.options[picker.selectedIndex]?.label).toBe("1 row");
+    expect(picker.options[picker.selectedIndex]?.label).toBe("1 line");
     const hidden = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 0 }, { name: "enter" });
     expect(hidden.selection).toEqual({ kind: "live_reasoning_rows", rows: 0 });
+    const eight = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 2 }, { name: "enter" });
+    expect(eight.selection).toEqual({ kind: "live_reasoning_rows", rows: 8 });
+    const all = handleTuiSettingsPickerKey({ ...picker, selectedIndex: 3 }, { name: "enter" });
+    expect(all.selection).toEqual({ kind: "live_reasoning_rows", rows: "all" });
 });
 
 test("escape steps back to the pane a pane was opened from", () => {
