@@ -2,11 +2,13 @@ import { registerSourceBrowser } from "../customize/view.ts";
 import type { VeraClientExtensionApi } from "../../sdk/extensions.ts";
 import { contextReportMarkdown } from "./context-report.ts";
 import { watchInstructionBudget } from "./instruction-budget-notice.ts";
+import { configuredInstructionBudget } from "./instruction-budget.ts";
 import { registerDashboard } from "./dashboard.ts";
 
 export function activateClient(vera: VeraClientExtensionApi): void {
+    const budgetTokens = configuredInstructionBudget(vera.config);
     registerDashboard(vera);
-    watchInstructionBudget(vera);
+    watchInstructionBudget(vera, budgetTokens);
     const browser = registerSourceBrowser(vera);
     vera.commands.register({
         name: "context",
@@ -32,7 +34,7 @@ export function activateClient(vera: VeraClientExtensionApi): void {
                 footerText: "Last measured request.",
                 action: { label: "loaded sources", run: () => browser.open(new AbortController().signal, true) },
                 markdown: (columns) =>
-                    contextReportMarkdown(snapshot, detail, columns),
+                    contextReportMarkdown(snapshot, detail, columns, budgetTokens),
             });
             return { kind: "handled" };
         },

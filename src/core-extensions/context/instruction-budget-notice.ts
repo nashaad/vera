@@ -3,12 +3,15 @@ import { instructionBudgetNotice } from "./context-report.ts";
 
 // Posts one soft notice per conversation, after a turn settles, when the
 // last measured request carried instructions over the budget.
-export function watchInstructionBudget(vera: VeraClientExtensionApi): void {
+export function watchInstructionBudget(
+    vera: VeraClientExtensionApi,
+    budgetTokens: number,
+): void {
     let warned = false;
     let working = false;
     const check = (): void => {
         if (warned || working) return;
-        const notice = instructionBudgetNotice(vera.context.current());
+        const notice = instructionBudgetNotice(vera.context.current(), budgetTokens);
         if (notice === undefined) return;
         warned = true;
         vera.ui.notice(notice, { tone: "soft" });

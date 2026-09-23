@@ -45,6 +45,28 @@ While the red line shows, the per-file size warnings are hidden. Trim or split
 the biggest source to clear it. The notice appears again in a new or resumed
 conversation while the total stays over.
 
+### Change the instruction budget
+
+Find `vera.context` in `/customize` under Extensions and note its absolute
+path. Add an explicit entry to the home's `config.json` and set
+`instruction_budget_tokens`:
+
+```json
+{
+    "extensions": [{
+        "path": "/absolute/path/to/src/core-extensions/context",
+        "enabled": true,
+        "config": {
+            "instruction_budget_tokens": 8000
+        }
+    }]
+}
+```
+
+Set it to `0` to turn the warning off; `/context` still shows the total. A
+value that is not a whole number of 0 or more prevents the extension from
+activating.
+
 ## Inspect an instruction file
 
 1. Press Ctrl+O in the report, or run `/context sources`.
