@@ -324,12 +324,12 @@ test("thought rows leave the fold control as their only marker", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
-        content: "Reasoning: 1.8s",
+        content: "Reasoning summary: 1.8s",
     });
     const node = createTuiGutterEntry(
         setup.renderer,
         "thought",
-        { kind: "thought", text: "Reasoning: 1.8s" },
+        { kind: "thought", text: "Reasoning summary: 1.8s" },
         content,
         0,
     );

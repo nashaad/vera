@@ -81,13 +81,13 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         // The second turn reasons, so its summary carries a fold that
         // Ctrl+O opens over a row already drawn. It starts in the same
         // column as a summary with nothing behind it.
-        expect(pane).toMatch(/^  Reasoning: \d+\.\d+s/m);
+        expect(pane).toMatch(/^  Reasoning summary: \d+\.\d+s/m);
         expect(pane).not.toContain("WEIGHING THE ORDERINGS");
         session.sendKey("C-u");
         pane = await session.waitForVisiblePane("PARTIAL xxxxx");
         session.sendKey("C-o");
         pane = await session.waitForVisiblePane("WEIGHING THE ORDERINGS");
-        expect(pane).toMatch(/Reasoning: \d+\.\d+s/);
+        expect(pane).toMatch(/Reasoning summary: \d+\.\d+s/);
         expect(pane).toContain("Ctrl+O hide reasoning");
         expect(pane).toContain("PARTIAL xxxxx");
     } finally {

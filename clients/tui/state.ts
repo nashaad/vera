@@ -1251,7 +1251,7 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
 }
 
 function thoughtSummary(seconds: number): string {
-    return `Reasoning: ${seconds.toFixed(1)}s`;
+    return `Reasoning summary: ${seconds.toFixed(1)}s`;
 }
 
 export function dropTuiThinking(state: TuiState): TuiState {
@@ -2094,7 +2094,11 @@ function applyToolDetailPreference(
         const summary = active
             ? liveToolSummary(calls)
             : compactToolSummary(rows, calls);
-        const base = header.header ?? header.text.replace(/^[+-] /, "");
+        const searches = calls.length > 0
+            && calls.every((call) => call.startsWith("web_search "));
+        const base = !active && searches
+            ? `Searched the web ${calls.length} ${calls.length === 1 ? "time" : "times"}`
+            : header.header ?? header.text.replace(/^[+-] /, "");
         const activity = active
             ? rows.findLast((entry) =>
                 entry.active === true && entry.activity !== undefined
@@ -2118,7 +2122,7 @@ function applyToolDetailPreference(
                     ? activity ?? base
                     : `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
-                ...(!expanded && calls.length === 1 && calls[0] !== undefined
+                ...(!expanded && !searches && calls.length === 1 && calls[0] !== undefined
                     ? { command: compactToolLine(calls[0]) }
                     : {}),
                 ...(expanded || summary === undefined
@@ -2174,6 +2178,11 @@ function compactToolSummary(
     rows: readonly TuiTextTranscriptEntry[],
     calls: readonly string[],
 ): string | undefined {
+    if (calls.length > 0 && calls.every((call) => call.startsWith("web_search "))) {
+        return calls.map((call, index) =>
+            `  ${index === calls.length - 1 ? "└" : "│"} ${compactToolLine(call.slice("web_search ".length))}`
+        ).join("\n");
+    }
     if (calls.length > 1) {
         return `  └ ${compactToolLine(compactFoldedCalls(calls).join(", "))}`;
     }

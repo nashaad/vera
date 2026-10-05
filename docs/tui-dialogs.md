@@ -17,6 +17,13 @@ While a dialog is open, Escape still belongs to the dialog and the overlay
 clears after a few seconds. Clicking it also closes it. Another overlay
 waits its turn. It does not change the dialog's size.
 
+## Read conversation activity
+
+Completed web searches show a count and a short query for each search in the
+collapsed group. Ctrl+T shows or hides the full tool calls and results.
+Reasoning summary rows show the time spent on that phase. Ctrl+O shows or hides
+the readable reasoning text returned by the provider.
+
 ## Open common dialogs
 
 | Task | Command |

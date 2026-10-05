@@ -267,7 +267,7 @@ test("a delivered history keeps the finished answer and drops the live row", () 
     ];
     const next: TuiTranscriptEntry[] = [
         { kind: "user", text: "ask", entryId: "u1" },
-        { kind: "thought", text: "Reasoning: 1.2s", seconds: 1.2 },
+        { kind: "thought", text: "Reasoning summary: 1.2s", seconds: 1.2 },
         { kind: "assistant", text: "here is the answer", entryId: "a1" },
     ];
     expect(tuiTranscriptEntriesEquivalent(previous[2], next[2])).toBe(true);

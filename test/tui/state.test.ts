@@ -173,12 +173,12 @@ test("a completion reports the time the reasoning behind it took", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Reasoning: 3.0s",
+        text: "Reasoning summary: 3.0s",
         seconds: 3.04,
         reasoning: "weighing the two orderings",
     }]);
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning: 3.0s  Ctrl+O reasoning");
+        .toBe("Reasoning summary: 3.0s  Ctrl+O reasoning");
 });
 
 test("tool calls between two stretches of thinking do not split the row", () => {
@@ -193,7 +193,7 @@ test("tool calls between two stretches of thinking do not split the row", () => 
 
     const thoughts = state.entries.filter((entry) => entry.kind === "thought");
     expect(thoughts).toHaveLength(1);
-    expect(thoughts[0]?.text).toBe("Reasoning: 5.3s");
+    expect(thoughts[0]?.text).toBe("Reasoning summary: 5.3s");
 });
 
 test("an empty phase that took no time reports nothing", () => {
@@ -207,7 +207,7 @@ test("consecutive thought phases report as one stretch", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Reasoning: 6.0s",
+        text: "Reasoning summary: 6.0s",
         seconds: 6,
         reasoning: "first\n\nsecond\n\nthird",
     }]);
@@ -249,7 +249,7 @@ test("summaries a shortened rebuild strands report as one stretch", () => {
     // The whole stretch reads as one row, above the notice that ended it.
     const thoughts = state.entries.filter((entry) => entry.kind === "thought");
     expect(thoughts).toHaveLength(1);
-    expect(thoughts[0]?.text).toBe("Reasoning: 27.0s");
+    expect(thoughts[0]?.text).toBe("Reasoning summary: 27.0s");
     const thought = thoughts[0];
     if (thought === undefined || thought.kind === "diff") {
         throw new Error("Expected one thought row");
@@ -352,13 +352,13 @@ test("the thought summary folds the reasoning it collected", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Reasoning: 12.4s",
+        text: "Reasoning summary: 12.4s",
         seconds: 12.4,
         reasoning: "weighing the two orderings",
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning: 12.4s  Ctrl+O reasoning");
+        .toBe("Reasoning summary: 12.4s  Ctrl+O reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -371,13 +371,13 @@ test("toggling reasoning opens every fold and every later one", () => {
 
     expect(state.entries[0]).toEqual({
         kind: "thought",
-        text: "Reasoning: 12.4s",
+        text: "Reasoning summary: 12.4s",
         seconds: 12.4,
         reasoning: "weighing the two orderings",
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning: 12.4s  Ctrl+O hide reasoning\n\nweighing the two orderings");
+        .toBe("Reasoning summary: 12.4s  Ctrl+O hide reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -388,14 +388,14 @@ test("toggling reasoning opens every fold and every later one", () => {
     state = appendTuiThought(state, 1.5);
     expect(state.entries[1]).toBeUndefined();
     expect(state.entries[0]).toMatchObject({
-        text: "Reasoning: 13.9s",
+        text: "Reasoning summary: 13.9s",
         seconds: 13.9,
         reasoning: "weighing the two orderings\n\nsecond burst",
         expanded: true,
     });
 
     expect(toggleTuiThinking(state).entries[0]).toMatchObject({
-        text: "Reasoning: 13.9s",
+        text: "Reasoning summary: 13.9s",
         seconds: 13.9,
         expanded: false,
     });
@@ -410,7 +410,7 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "Reasoning: 3.3s  Ctrl+O hide reasoning"
+        "Reasoning summary: 3.3s  Ctrl+O hide reasoning"
         + "\n\nEstimating remaining work\n\nChecking shipped slices",
     );
 });
@@ -444,7 +444,7 @@ test("turn completion moves checkpointed thoughts before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "Reasoning: 6.6s",
+                text: "Reasoning summary: 6.6s",
                 seconds: 6.6,
                 reasoning: "Estimating the remaining work",
             },
@@ -470,7 +470,7 @@ test("idle status also keeps a late reasoning row before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "Reasoning: 4.6s",
+                text: "Reasoning summary: 4.6s",
                 seconds: 4.6,
                 reasoning: "Summarizing active unfinished tasks",
             },
@@ -510,7 +510,7 @@ test("a thought summary survives a history rebuild in place", () => {
     expect(state.entries).toEqual([
         {
             kind: "thought",
-            text: "Reasoning: 8.3s",
+            text: "Reasoning summary: 8.3s",
             seconds: 8.3,
             reasoning: "weighing the two orderings",
         },
@@ -533,7 +533,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         ...state,
         entries: [
             { kind: "user", text: "first" },
-            { kind: "thought", text: "Reasoning: 1.0s" },
+            { kind: "thought", text: "Reasoning summary: 1.0s" },
             { kind: "assistant", text: "first answer" },
         ],
     };
@@ -543,7 +543,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         entries: [
             ...state.entries,
             { kind: "user", text: "second" },
-            { kind: "thought", text: "Reasoning: 2.0s" },
+            { kind: "thought", text: "Reasoning summary: 2.0s" },
             { kind: "assistant", text: "second answer" },
         ],
     };
@@ -561,11 +561,11 @@ test("client notices do not push later reasoning summaries to the tail", () => {
 
     expect(state.entries.map((entry) => entry.text)).toEqual([
         "first",
-        "Reasoning: 1.0s",
+        "Reasoning summary: 1.0s",
         "first answer",
         "Switched models.",
         "second",
-        "Reasoning: 2.0s",
+        "Reasoning summary: 2.0s",
         "second answer",
     ]);
 });
@@ -2013,7 +2013,7 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "thought", text: "Reasoning: 0.0s", seconds: 0 },
+        { kind: "thought", text: "Reasoning summary: 0.0s", seconds: 0 },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },
@@ -2027,7 +2027,7 @@ test("a tool header leaves a row after expanded reasoning", () => {
     const entries = [
         {
             kind: "thought",
-            text: "Reasoning: 3.6s",
+            text: "Reasoning summary: 3.6s",
             seconds: 3.6,
             reasoning: "Inspecting Obsidian file in-flight",
             expanded: true,
@@ -2047,7 +2047,7 @@ test("a continued tool run also leaves a row after expanded reasoning", () => {
         { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read first" },
         {
             kind: "thought",
-            text: "Reasoning: 3.6s",
+            text: "Reasoning summary: 3.6s",
             seconds: 3.6,
             reasoning: "Checking the next file",
             expanded: true,
@@ -2988,13 +2988,13 @@ test("a rebuild puts restored summaries back in front of the answer", () => {
             ...state.entries,
             {
                 kind: "thought",
-                text: "Reasoning: 8.0s",
+                text: "Reasoning summary: 8.0s",
                 seconds: 8,
                 reasoning: "checking the diff",
             },
             {
                 kind: "thought",
-                text: "Reasoning: 4.2s",
+                text: "Reasoning summary: 4.2s",
                 seconds: 4.2,
                 reasoning: "drafting the message",
             },
@@ -3016,7 +3016,7 @@ test("a rebuild puts restored summaries back in front of the answer", () => {
         "assistant",
     ]);
     expect(state.entries[1]).toMatchObject({
-        text: "Reasoning: 12.2s",
+        text: "Reasoning summary: 12.2s",
         seconds: 12.2,
     });
 });
@@ -3041,13 +3041,13 @@ test("folded phases keep every stretch of reasoning behind one row", () => {
             { kind: "assistant", text: "move the flush above the check" },
             {
                 kind: "thought",
-                text: "Reasoning: 2.0s",
+                text: "Reasoning summary: 2.0s",
                 seconds: 2,
                 reasoning: "weighing the two orderings",
             },
             {
                 kind: "thought",
-                text: "Reasoning: 1.0s",
+                text: "Reasoning summary: 1.0s",
                 seconds: 1,
                 reasoning: "checking the flush",
             },
@@ -3055,7 +3055,7 @@ test("folded phases keep every stretch of reasoning behind one row", () => {
     }, { type: "status", state: "idle", seq: 1 });
 
     expect(state.entries[1]).toMatchObject({
-        text: "Reasoning: 3.0s",
+        text: "Reasoning summary: 3.0s",
         reasoning: "weighing the two orderings\n\nchecking the flush",
     });
 });
@@ -3081,7 +3081,7 @@ test("a long stretch of live reasoning is bounded to its window", () => {
     state = appendTuiThought(state, 4);
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Reasoning: 4.0s",
+        text: "Reasoning summary: 4.0s",
         seconds: 4,
         reasoning: lines.join("\n"),
     }]);
@@ -3141,4 +3141,45 @@ test("a row's id names the message it came from, not the row", () => {
     // Rows that were never numbered, and rows with no id at all.
     expect(transcriptMessageId("abc")).toBe("abc");
     expect(transcriptMessageId(undefined)).toBeUndefined();
+});
+
+
+test("three web searches remain visible when folded, replayed, and expanded", () => {
+    const queries = [
+        "sample pack license royalty free loops license mechanism provenance source audio " + "details ".repeat(20),
+        "where sample pack producers record their original sounds",
+        "site:loopmasters.com license royalty free original recordings",
+    ];
+    let state = createTuiState();
+    for (const query of queries) {
+        state = thinkFor(state, "Checking source terms", 2);
+        state = applyAgentUpdate(state, {
+            type: "tool_started", tool: "web_search", args: { query }, seq: 1,
+        });
+        state = applyAgentUpdate(state, {
+            type: "tool_finished", tool: "web_search", output: "Provider: test\nSearch result", seq: 2,
+        });
+    }
+    const header = state.entries.find((entry) => entry.kind === "tool_header")!;
+    if (header.kind !== "tool_header") throw new Error("Missing search header");
+    const rendered = plainText(renderTuiEntry(header));
+    expect(rendered).toContain("Searched the web 3 times");
+    expect(rendered).toContain("where sample pack producers");
+    expect(rendered).toContain("site:loopmasters.com");
+    expect(header.detailPreview?.split("\n")).toHaveLength(3);
+    expect(header.detailPreview?.split("\n").every((line) => line.length <= 100)).toBe(true);
+
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: queries.flatMap((query) => [
+            { kind: "tool" as const, tool: "web_search", args: { query } },
+            { kind: "tool_result" as const, tool: "web_search", output: "Provider: test\nSearch result", isError: false },
+        ]),
+        seq: 3,
+    });
+    expect(plainText(renderTuiEntry(replayed.entries[0]!))).toBe(rendered);
+    const expanded = toggleTuiToolDetails(replayed);
+    expect(expanded.entries.filter((entry) => entry.kind === "tool")
+        .every((entry) => entry.kind === "tool" && entry.hidden !== true)).toBe(true);
+    expect(plainText(renderTuiEntry(toggleTuiToolDetails(expanded).entries[0]!))).toBe(rendered);
 });

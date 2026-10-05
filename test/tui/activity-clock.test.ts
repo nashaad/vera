@@ -52,7 +52,7 @@ test("a main-pane back-to-back delivery turn reports only its own thinking and w
     at(rt, 61_000, { type: "assistant_thinking", text: "hm", seq: 5 });
     at(rt, 64_000, { type: "assistant_delta", text: "second", seq: 6 });
 
-    expect(rt.state.entries.map((entry) => entry.text)).toContain("Reasoning: 4.0s");
+    expect(rt.state.entries.map((entry) => entry.text)).toContain("Reasoning summary: 4.0s");
 });
 
 test("main-pane thought timing is unaffected by the quiet clock", () => {
@@ -75,5 +75,5 @@ test("main-pane thought timing is unaffected by the quiet clock", () => {
 
     expect(rt.quietSince).toBe(2_500);
     expect(rt.phaseSince).toBeUndefined();
-    expect(rt.state.entries.map((entry) => entry.text)).toContain("Reasoning: 4.0s");
+    expect(rt.state.entries.map((entry) => entry.text)).toContain("Reasoning summary: 4.0s");
 });

@@ -17,12 +17,12 @@ test("two panes reduce agent updates into independent transcripts", () => {
 
     expect(main.state.entries.map((entry) => entry.text)).toEqual([
         "main question",
-        "Reasoning: 2.0s",
+        "Reasoning summary: 2.0s",
         "main answer",
     ]);
     expect(sidebar.state.entries.map((entry) => entry.text)).toEqual([
         "side question",
-        "Reasoning: 2.0s",
+        "Reasoning summary: 2.0s",
         "side answer",
     ]);
 });
@@ -233,7 +233,7 @@ test("a back-to-back delivery turn reports only its own thinking and working tim
     pane.apply({ type: "assistant_thinking", text: "hm", seq: 5 }, 61_000);
     pane.apply({ type: "assistant_delta", text: "second", seq: 6 }, 64_000);
 
-    expect(pane.state.entries.map((entry) => entry.text)).toContain("Reasoning: 4.0s");
+    expect(pane.state.entries.map((entry) => entry.text)).toContain("Reasoning summary: 4.0s");
 });
 
 test("thought timing still runs from the phase start, not the quiet clock", () => {
@@ -257,7 +257,7 @@ test("thought timing still runs from the phase start, not the quiet clock", () =
     expect(pane.quietSince).toBe(2_500);
     expect(pane.state.entries.map((entry) => entry.text)).toEqual([
         "go",
-        "Reasoning: 4.0s",
+        "Reasoning summary: 4.0s",
         "answer",
     ]);
 });
