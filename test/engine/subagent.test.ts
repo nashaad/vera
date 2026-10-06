@@ -26,6 +26,12 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import type { AvailableModel } from "../../src/model/catalog-view.ts";
+import type { RegisteredTool } from "../../src/tools/types.ts";
+import {
+    TOOL_RESULT_CEILING_BYTES,
+    toolResultCeilingBytes,
+} from "../../src/tools/tool-result-limit.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
@@ -1417,6 +1423,98 @@ test("a spawn may name the pool entry it wants by its user-chosen name", async (
         expect(request?.provider).toBe("pin-provider");
         expect(request?.model).toBe("small-model");
         expect(result.isError).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a child derives its result ceiling from the window the parent knows", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-ceiling-"));
+    const oversized = "e".repeat(200_000);
+    const dump: RegisteredTool = {
+        definition: {
+            name: "extension_dump",
+            description: "Returns more than any ceiling allows.",
+            inputSchema: { type: "object", properties: {} },
+        },
+        execute: async () => ({
+            kind: "output",
+            output: oversized,
+            isError: false,
+        }),
+    };
+    const call: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_dump",
+            name: "extension_dump",
+            input: {},
+        }],
+        source: { provider: "faux", api: "scripted", model: "child-model" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const done: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "read it" }],
+        source: { provider: "faux", api: "scripted", model: "child-model" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+
+    const carriedResultBytes = async (
+        name: string,
+        availableModels?: readonly AvailableModel[],
+    ): Promise<number> => {
+        const requests: ModelRequest[] = [];
+        const adapter: ModelAdapter = {
+            stream(request) {
+                requests.push(request);
+                const stream = new ModelEventStream();
+                stream.push({ type: "start" });
+                stream.push({
+                    type: "done",
+                    message: requests.length === 1 ? call : done,
+                });
+                return stream;
+            },
+        };
+        await runSubagent({
+            adapter,
+            provider: "faux",
+            model: "child-model",
+            description: "dump it",
+            workspace: root,
+            approvalMode: "full_access",
+            extensionTools: [dump],
+            sessionPath: join(root, `${name}.jsonl`),
+            ...(availableModels === undefined ? {} : { availableModels }),
+        });
+        const followUp = requests.at(-1);
+        const result = followUp?.messages.find((message) =>
+            message.role === "tool_result"
+        );
+        expect(JSON.stringify(result)).toContain("bytes omitted from the middle");
+        return Buffer.byteLength(JSON.stringify(result), "utf8");
+    };
+
+    try {
+        // Without a catalog the child cannot tell its window, so it keeps the
+        // flat ceiling; with one it takes the share a 33k window can afford.
+        const flat = await carriedResultBytes("unknown-window");
+        const derived = await carriedResultBytes("small-window", [{
+            provider: "faux",
+            model: "child-model",
+            label: "child",
+            description: "small local model",
+            levels: [],
+            contextWindow: 33_000,
+        }]);
+
+        expect(flat).toBeGreaterThan(TOOL_RESULT_CEILING_BYTES / 2);
+        expect(derived).toBeLessThan(toolResultCeilingBytes(33_000) + 2_048);
+        expect(derived).toBeLessThan(flat / 2);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

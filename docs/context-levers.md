@@ -24,6 +24,11 @@ short note that says where the full output is saved. If the context still
 passes 82%, older messages become one summary in one go. Your last two
 messages stay as they were.
 
+A single tool result is also capped on arrival, so one large read cannot fill
+the context by itself. The cap is a share of the model's window, which means a
+small window gets a smaller cap. What was cut is saved to a file the result
+points at.
+
 Here is the same raid twice, first without compaction, then with it. Sizes
 are in made-up crow words, and the model fits 100 of them. Real models count
 tokens and fit hundreds of thousands.

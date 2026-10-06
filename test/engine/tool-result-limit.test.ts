@@ -12,6 +12,8 @@ import { createToolResultSpill } from "../../src/engine/tool-result-spill.ts";
 import {
     limitToolResult,
     TOOL_RESULT_CEILING_BYTES,
+    TOOL_RESULT_CEILING_FLOOR_BYTES,
+    toolResultCeilingBytes,
 } from "../../src/tools/tool-result-limit.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { boundToolResult } from "../../src/tools/execute.ts";
@@ -275,4 +277,39 @@ test("a scratch file the model wrote is left alone by eviction", async () => {
     } finally {
         await rm(scratch, { recursive: true, force: true });
     }
+});
+
+test("the ceiling a window can afford is a share of it, clamped both ends", () => {
+    // A 33k window cannot spend 64 KiB (about 16k tokens) on one result.
+    expect(toolResultCeilingBytes(33_000)).toBe(19_800);
+    expect(toolResultCeilingBytes(64_000)).toBe(38_400);
+
+    // The clamp takes over at 64 KiB / 0.15 / 4 bytes, not at a round window.
+    expect(toolResultCeilingBytes(109_226)).toBe(TOOL_RESULT_CEILING_BYTES - 1);
+    expect(toolResultCeilingBytes(109_227)).toBe(TOOL_RESULT_CEILING_BYTES);
+    expect(toolResultCeilingBytes(1_000_000)).toBe(TOOL_RESULT_CEILING_BYTES);
+
+    // A tiny window still gets enough to be worth reading.
+    expect(toolResultCeilingBytes(2_000)).toBe(TOOL_RESULT_CEILING_FLOOR_BYTES);
+
+    // A window that is not a number has no share to take either.
+    expect(toolResultCeilingBytes(Number.NaN)).toBe(TOOL_RESULT_CEILING_BYTES);
+
+    // An unknown window has no share to take, so the flat ceiling stands.
+    expect(toolResultCeilingBytes(undefined)).toBe(TOOL_RESULT_CEILING_BYTES);
+});
+
+test("the derived ceiling trims a result the flat ceiling would pass", async () => {
+    const text = "a".repeat(32 * 1024);
+    const ceiling = toolResultCeilingBytes(33_000);
+
+    expect(await limitToolResult(text, { toolName: "read" }))
+        .toEqual({ text });
+
+    const limited = await limitToolResult(text, {
+        toolName: "read",
+        ceilingBytes: ceiling,
+    });
+    expect(limited.truncation?.originalBytes).toBe(text.length);
+    expect(limited.truncation!.retainedBytes).toBeLessThanOrEqual(ceiling);
 });

@@ -11,7 +11,10 @@ import {
     toolResultAgingLevel,
     type ToolResultAgingLevel,
 } from "./tool-result-history.ts";
-import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
+import {
+    TOOL_RESULT_CEILING_BYTES,
+    toolResultCeilingBytes,
+} from "../tools/tool-result-limit.ts";
 
 export type OverrideKey =
     | "contextLimit"
@@ -149,7 +152,7 @@ export function overrideRows(
         row(
             "toolResultCeilingBytes",
             configured.toolResultCeilingBytes,
-            TOOL_RESULT_CEILING_BYTES,
+            toolResultCeilingBytes(capacity),
         ),
         row(
             "toolResultTotalBudgetBytes",

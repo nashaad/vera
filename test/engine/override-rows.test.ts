@@ -145,3 +145,14 @@ test("clearing a lever clears the rule it was one side of", () => {
     expect(overrideConflict(rows, { toolResultTotalBudgetBytes: null }))
         .toBeUndefined();
 });
+
+test("the unset ceiling is the share a small window can afford", () => {
+    expect(rowFor("toolResultCeilingBytes", {}, 33_000).value).toBe(19_800);
+    expect(rowFor("toolResultCeilingBytes", {}, 200_000).value).toBe(65_536);
+
+    // Configured still wins over the derived default.
+    expect(
+        rowFor("toolResultCeilingBytes", { toolResultCeilingBytes: 8_192 }, 33_000)
+            .value,
+    ).toBe(8_192);
+});
