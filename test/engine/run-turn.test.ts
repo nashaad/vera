@@ -1457,6 +1457,87 @@ test("a transient model failure reports its retry to attached clients", async ()
     }));
 });
 
+for (const recovers of [true, false]) {
+    test(`overload retries reach clients and permit the next turn (recovers: ${recovers})`, async () => {
+        const workspace = mkdtempSync(join(tmpdir(), "vera-overload-"));
+        temporaryWorkspaces.push(workspace);
+        const response: AssistantMessage = {
+            role: "assistant",
+            content: [{ type: "text", text: "recovered" }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        };
+        let attempts = 0;
+        const adapter: ModelAdapter = {
+            stream(request): ModelEventStream {
+                attempts += 1;
+                if (attempts > (recovers ? 6 : 7)) {
+                    return new FauxAdapter([response]).stream(request);
+                }
+                const stream = new ModelEventStream();
+                const error = new ProviderFailureError({
+                    kind: "server",
+                    resolution: "retry",
+                    message: "provider overloaded",
+                }, new Error("provider overloaded"));
+                stream.push({ type: "start" });
+                stream.push({
+                    type: "error",
+                    error,
+                    message: {
+                        ...response,
+                        content: [],
+                        stopReason: "error",
+                        errorMessage: error.message,
+                    },
+                });
+                return stream;
+            },
+        };
+        const channel = createInProcessChannel();
+        const events = createTestEvents(channel.engine);
+        const state: RunTurnState = {
+            messages: [],
+            store: new InMemorySessionStore(),
+            toolRuntime: new ToolRuntime(workspace),
+            inbound: new InboundCommandRouter(channel.engine, events),
+            events,
+            hooks: new ToolHooks(),
+            approvalMode: "auto",
+            waitForModelRetry: async () => {},
+        };
+        channel.client.send({ type: "prompt", content: "recover" });
+        const turn = runTurn(adapter, "test", state);
+        await expectUserPrompt(channel, "recover", 1);
+        await expectContextMeasured(channel, 2);
+        const delays = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
+        for (const [index, delayMs] of delays.entries()) {
+            expect(await channel.client.receive()).toMatchObject({
+                type: "model_activity",
+                phase: "retrying",
+                nextAttempt: index + 2,
+                maxAttempts: 7,
+                delayMs,
+            });
+        }
+        if (recovers) {
+            expect(await channel.client.receive()).toMatchObject({
+                type: "assistant_delta", text: "recovered",
+            });
+        }
+        expect(await channel.client.receive()).toMatchObject({
+            type: "turn_finished",
+            ...(recovers ? {} : { outcome: "error", error: "provider overloaded" }),
+        });
+        expect((await turn).stopReason).toBe(recovers ? "stop" : "error");
+        expect(attempts).toBe(7);
+        channel.client.send({ type: "prompt", content: "next" });
+        expect((await runTurn(adapter, "test", state)).stopReason).toBe("stop");
+        expect(attempts).toBe(8);
+    });
+}
+
 test("a discard-safe partial failure tells clients to replace the attempt", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-partial-retry-"));
     temporaryWorkspaces.push(workspace);

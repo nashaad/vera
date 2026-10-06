@@ -124,6 +124,73 @@ test("engine recovery stops after its retry budget", async () => {
     expect(delays).toEqual([500, 1_000]);
 });
 
+for (const kind of ["server", "rate_limit"] as const) {
+    for (const recovers of [true, false]) {
+        test(`engine recovery handles ${kind} after six retries (recovers: ${recovers})`, async () => {
+            const failure: ProviderFailure = { ...overloadFailure, kind };
+            let calls = 0;
+            const adapter = scriptedAdapter(Array.from({ length: 7 }, (_, index) =>
+                (stream: ModelEventStream) => {
+                    calls += 1;
+                    if (recovers && index === 6) {
+                        succeed(stream, "complete");
+                    } else {
+                        fail(stream, failure);
+                    }
+                },
+            ));
+            const retries: ModelRetryScheduled[] = [];
+            const events: ModelStreamEvent[] = [];
+            const delays: number[] = [];
+            const result = await requestModelWithRecovery(
+                adapter,
+                { model: "test", messages: [] },
+                {
+                    onEvent: (event) => events.push(event),
+                    onRetry: (retry) => retries.push(retry),
+                    onFallback: () => {},
+                    wait: async (delayMs) => { delays.push(delayMs); },
+                },
+            );
+            expect(calls).toBe(7);
+            expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 15_000, 30_000]);
+            expect(retries.map((retry) => retry.nextAttempt)).toEqual([2, 3, 4, 5, 6, 7]);
+            expect(retries.every((retry) => retry.maxAttempts === 7)).toBe(true);
+            expect(result.stopReason).toBe(recovers ? "stop" : "error");
+            expect(events.map((event) => event.type)).toEqual([
+                "start", recovers ? "done" : "error",
+            ]);
+        });
+    }
+}
+
+test("cancelling the final overload wait prevents the seventh request", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const adapter = scriptedAdapter(Array.from({ length: 6 }, () =>
+        (stream: ModelEventStream) => {
+            calls += 1;
+            fail(stream, overloadFailure);
+        },
+    ));
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [], signal: controller.signal },
+        {
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            wait: async (delayMs) => {
+                if (delayMs === 30_000) {
+                    controller.abort(new Error("stop now"));
+                }
+            },
+        },
+    );
+    expect(result.stopReason).toBe("aborted");
+    expect(calls).toBe(6);
+});
+
 test("engine recovery selects a fallback after consecutive overloads", async () => {
     const models: string[] = [];
     const adapter = scriptedAdapter([
@@ -228,6 +295,7 @@ test("engine recovery requires consecutive overloads for fallback", async () => 
         adapter,
         { model: "primary", messages: [] },
         {
+            policy: { delaysMs: [500, 1_000] },
             fallback: { model: "backup", afterFailures: 2 },
             onEvent: () => {},
             onRetry: () => {},
@@ -267,6 +335,7 @@ test("engine recovery selects at most one fallback", async () => {
         adapter,
         { model: "primary", messages: [] },
         {
+            policy: { delaysMs: [500, 1_000] },
             fallback: { model: "backup", afterFailures: 1 },
             onEvent: () => {},
             onRetry: () => {},

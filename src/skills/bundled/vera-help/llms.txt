@@ -147,7 +147,8 @@ Tool results should be visibly bounded, truncated, or paginated. Oversized outpu
 How much context Vera keeps is configurable on one screen: `/settings` then Overrides. It exposes the context limit, compaction, and tool-result levers. A lever the current model's window leaves unused is labelled inert rather than hidden. The pane refuses a pick that contradicts another lever, and asks before clearing every lever at once.
 Manual: `docs/context-levers.md`.
 
-## Diagnostics and recovery [lines=14]
+## Diagnostics and recovery [lines=15]
+Vera automatically retries rate-limit and server failures with increasing waits; retry activity stays visible and Escape cancels the pending retry.
 Completed web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, use `/reconnect`. This attaches to or replaces the host process while preserving the same installed build.

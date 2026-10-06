@@ -46,6 +46,10 @@ export const DEFAULT_MODEL_RETRY_POLICY: ModelRetryPolicy = {
     delaysMs: [500, 1_000],
 };
 
+const DEFAULT_OVERLOAD_RETRY_POLICY: ModelRetryPolicy = {
+    delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000, 30_000],
+};
+
 export const DEFAULT_MODEL_MAX_TOKENS = 8_000;
 export const ESCALATED_MODEL_MAX_TOKENS = 64_000;
 export const MAX_LENGTH_CONTINUATIONS = 3;
@@ -130,7 +134,6 @@ export async function requestModelWithRecovery(
     request: ModelRequest,
     options: ModelRecoveryOptions,
 ): Promise<AssistantMessage> {
-    const policy = options.policy ?? DEFAULT_MODEL_RETRY_POLICY;
     const wait = options.wait ?? waitForModelRetry;
     let activeRequest = request;
     let requestAttempt = 0;
@@ -205,6 +208,9 @@ export async function requestModelWithRecovery(
                         break;
                     }
 
+                    const policy = options.policy ?? (isOverloadFailure(failure)
+                        ? DEFAULT_OVERLOAD_RETRY_POLICY
+                        : DEFAULT_MODEL_RETRY_POLICY);
                     const delayMs = policy.delaysMs[retryAttempt];
                     if (
                         failure.resolution === "retry"

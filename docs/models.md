@@ -176,7 +176,10 @@ A model that has disappeared from its provider is
 marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
-Vera retries transient request failures up to twice. Missing credentials or
+Vera retries rate-limit and server failures up to six times, waiting 1, 2, 4,
+8, 15, and 30 seconds. Other transient request failures get up to two retries.
+Retry activity shows the next attempt and total attempt count. Press Escape
+to cancel while waiting. Missing credentials or
 provider credit need your attention and stop immediately. Malformed tool
 arguments can also be retried when no tool could have run. If retries fail,
 Vera keeps the last partial response and shows the error.
