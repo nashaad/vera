@@ -431,7 +431,8 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         }
         return update.turnTiming !== undefined
             && (update.turnTiming.durationMs >= WORKED_DIVIDER_THRESHOLD_MS
-                || update.outcome !== undefined || update.error !== undefined)
+                || update.outcome === "error"
+                || (update.outcome !== "aborted" && update.error !== undefined))
             ? appendWorkedDivider(finished, update.turnTiming)
             : finished;
     }
@@ -2277,7 +2278,7 @@ function toTuiTranscriptEntries(
             )];
         if (entry.turnTiming !== undefined
             && (entry.turnTiming.durationMs >= WORKED_DIVIDER_THRESHOLD_MS
-                || entry.kind === "error"
+                || (entry.kind === "error" && entry.outcome !== "aborted")
                 || entry.turnTiming.finishedAt === reopenedTurnFinishedAt)) {
             converted.push(workedDividerEntry(entry.turnTiming));
         }
