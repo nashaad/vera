@@ -27,8 +27,8 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane("esc stop");
-        // The wave sits in the composer status. The hint under the frame
-        // names the phase and how to stop it.
+        // The hint under the frame names the phase and how to stop it; the
+        // wave sits in the corner below it.
         expect(pane).toMatch(/[░▒▓█]{6}/);
         expect(pane).toContain("esc stop");
         expect(pane).not.toContain("enter queue");
@@ -49,9 +49,10 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
             activityLine.indexOf("thinking"),
         );
         expect(activityLine).toEndWith("esc stop · Ctrl+C stop");
-        expect(workingLines.indexOf(barLine)).toBeLessThan(
-            workingLines.indexOf(activityLine),
+        expect(workingLines.indexOf(barLine)).toBe(
+            workingLines.indexOf(activityLine) + 1,
         );
+        expect(barLine.trimEnd().length).toBe(activityLine.trimEnd().length);
 
         pane = await session.waitForVisiblePane("PARTIAL xxxxx");
         expect(pane).toMatch(/[░▒▓█▏▎▍▌▋▊▉]{6}/);

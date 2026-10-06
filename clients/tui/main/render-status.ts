@@ -411,7 +411,7 @@ export function renderStatus(rt: TuiRuntime): void {
         rt.workIndex?.needs_you ?? 0,
     );
     const detailChunks = outsideRows.flatMap((row, index) => [
-        ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+        ...row.map((chunk) => fg(statusChunkColor(chunk))(chunk.text)),
         ...(index === outsideRows.length - 1
             ? []
             : [fg(TUI_MUTED)("\n"), rule("─")]),

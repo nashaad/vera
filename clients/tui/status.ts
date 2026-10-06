@@ -229,7 +229,6 @@ export function renderTuiStatusDetailsRows(
                 tone: permissionsTone(approvalMode),
             } as TuiStatusChunk]
             : []),
-        ...(activity.length === 0 ? [] : [muted("  "), ...activity]),
     ];
     const ctxChunks = contextChunks(context, settings);
     const right: TuiStatusChunk[] = [
@@ -260,12 +259,15 @@ export function renderTuiStatusDetailsRows(
     if (width !== undefined && needsYou > 0 && rowWidth(first) > width) {
         first = row(false);
     }
-    const second: TuiStatusChunk[] = [
+    const place: TuiStatusChunk[] = [
         muted(compactWorkspace(workspace)),
         ...(branch === undefined
             ? []
             : [separator, { text: branch, tone: "accent" } as TuiStatusChunk]),
     ];
+    if (activity.length === 0) return [first, place];
+    const room = width === undefined ? 2 : width - rowWidth(place) - rowWidth(activity);
+    const second = [...place, muted(" ".repeat(Math.max(2, room))), ...activity];
     return [first, second];
 }
 

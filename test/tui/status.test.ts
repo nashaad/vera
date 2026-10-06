@@ -510,8 +510,8 @@ test("agent and access sit left, model and effort right, padded to the width", (
     expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
 });
 
-test("the activity strip sits in the gap after agent and access", () => {
-    const row = renderTuiStatusDetailsRows(
+test("the activity strip sits at the right end of the workspace row", () => {
+    const rows = renderTuiStatusDetailsRows(
         { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
         "ask",
         undefined,
@@ -525,11 +525,12 @@ test("the activity strip sits in the gap after agent and access", () => {
         60,
         undefined,
         [{ text: "▒▓█", tone: "accent", color: "#e0703e" }],
-    )[0] ?? [];
-    const text = row.map((chunk) => chunk.text).join("");
-    expect(text.length).toBe(60);
-    expect(text.startsWith("build · ask  ▒▓█ ")).toBe(true);
-    expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
+    );
+    const [first, second] = rows.map((row) => row.map((chunk) => chunk.text).join(""));
+    expect(first?.includes("▒▓█")).toBe(false);
+    expect(second?.length).toBe(60);
+    expect(second?.startsWith("/workspace ")).toBe(true);
+    expect(second?.endsWith(" ▒▓█")).toBe(true);
 });
 
 test("too narrow to pad, the two ends read as one row rather than wrap", () => {
