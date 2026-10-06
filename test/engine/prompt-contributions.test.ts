@@ -81,6 +81,25 @@ test("an empty optional contribution does not disturb built-in order", () => {
     ]);
 });
 
+test("subagent prompt copy says the child cannot see this conversation", () => {
+    const contributions = collectBuiltInPromptContributions({
+        tools: [{
+            name: "subagent",
+            description: "Launch a focused subagent.",
+            inputSchema: { type: "object", properties: {} },
+        }],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+    });
+    const subagents = contributions.find((contribution) =>
+        contribution.id === "core.subagents"
+    );
+    expect(subagents?.content).toContain(
+        "The child starts with only the description you pass; it cannot see this conversation.",
+    );
+});
+
 test("prompt contribution metadata records final order, bytes, and hashes", () => {
     const contributions = collectBuiltInPromptContributions({
         tools: [],

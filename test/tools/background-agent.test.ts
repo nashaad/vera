@@ -29,3 +29,15 @@ test("async_subagent requires a description", async () => {
         "async_subagent tool requires a string description",
     );
 });
+
+test("async_subagent tells the parent the child cannot see this conversation", () => {
+    expect(asyncSubagentTool.definition.description).toBe(
+        "Launch a focused subagent concurrently and return its ID immediately. Its final summary arrives on a later turn. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`.",
+    );
+    const properties = asyncSubagentTool.definition.inputSchema.properties as {
+        readonly description: { readonly description?: string };
+    };
+    expect(properties.description.description).toBe(
+        "The child's only view of the task. Include everything it needs; it cannot see this conversation.",
+    );
+});

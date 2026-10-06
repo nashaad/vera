@@ -151,7 +151,8 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
                     + "spawn subagents when direct work is simpler, and do not "
                     + "duplicate work you have delegated (if a subagent is "
                     + "researching something, do not run the same searches "
-                    + "yourself).",
+                    + "yourself). The child starts with only the description "
+                    + "you pass; it cannot see this conversation.",
             } : null,
     },
     {

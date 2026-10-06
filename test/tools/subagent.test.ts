@@ -117,3 +117,15 @@ test("a spawn with no model named is not an error", async () => {
         "description",
     ]);
 });
+
+test("subagent tells the parent the child cannot see this conversation", () => {
+    expect(subagentTool.definition.description).toBe(
+        "Launch a focused subagent and return only its final summary. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`.",
+    );
+    const properties = subagentTool.definition.inputSchema.properties as {
+        readonly description: { readonly description?: string };
+    };
+    expect(properties.description.description).toBe(
+        "The child's only view of the task. Include everything it needs; it cannot see this conversation.",
+    );
+});

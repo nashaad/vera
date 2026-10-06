@@ -9,6 +9,10 @@ An agent definition describes a role: its instructions and the tools it may
 use. Select a definition with `/agent` for your own conversation, or ask Vera
 to delegate a task to it in a separate conversation.
 
+A delegated child starts without the parent conversation. Put the goal, why
+it matters, what you already know, paths, and what to return in the spawn
+description.
+
 Definitions can restrict the conversation's permissions. They cannot grant
 access beyond what the conversation allows.
 

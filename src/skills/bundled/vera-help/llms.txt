@@ -93,7 +93,7 @@ The transcript animates while work runs. The footer shows a small activity strip
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Pairing panes from `/btw` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=14]
+## Tools, permissions, and agents [lines=15]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
@@ -106,6 +106,7 @@ A substitution is reported in one sentence naming what was asked for, what ran, 
 The included explorer investigates questions using read, search, and listing tools, then returns concise findings with precise references. The subagent result also identifies the actual agent, model, and reasoning effort. It cannot edit material, run shell commands, or invoke skills.
 Explorer uses Defaults then eco when called through the subagent tool. Its eco model does not also need to be assigned under Subagents. If eco is unset or unavailable, the launch fails with the assignment named; it does not use the parent or the Subagents list. Selecting explorer directly with `/agent` leaves the conversation model unchanged.
 The subagent tool lists available agent names and descriptions so the parent can choose a definition. You can ask for explorer by name. Custom definitions can bind delegated launches to a named assignment with `subagent_assignment`; definitions without this field keep the ordinary Subagents rules.
+A delegated child starts without the parent conversation; put the task in the spawn description.
 Manual: `docs/agents.md`.
 
 ## Skills, rules, and standing instructions [lines=12]

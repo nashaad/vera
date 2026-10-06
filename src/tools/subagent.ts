@@ -7,11 +7,16 @@ export const subagentTool: RegisteredTool = {
     permissionOperation: "agent.spawn",
     definition: {
         name: "subagent",
-        description: "Launch a focused subagent and return only its final summary.",
+        description:
+            "Launch a focused subagent and return only its final summary. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`.",
         inputSchema: {
             type: "object",
             properties: {
-                description: { type: "string" },
+                description: {
+                    type: "string",
+                    description:
+                        "The child's only view of the task. Include everything it needs; it cannot see this conversation.",
+                },
                 model: {
                     type: "string",
                     description: "Optional model within the allowed subagent models. If omitted, the selected agent definition and configured assignments determine the model.",
