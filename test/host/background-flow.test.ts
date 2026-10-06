@@ -24,6 +24,7 @@ const config = {
     provider: "openrouter",
     model: "faux/test",
     approval_mode: "full_access",
+    model_assignments: { subagents: { allow_self: true } },
 } as const;
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(

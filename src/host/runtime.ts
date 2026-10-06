@@ -632,8 +632,10 @@ export async function startResidentHost(
                 onWriteRefused: (error) =>
                     hostLog({ type: "pool_write_refused", message: error.message }),
             }),
-        readPolicy: (projectRoot) => ({ ...subagentPoolPolicy(scoped(projectRoot)),
-            candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }) }),
+        readPolicy: (projectRoot) => ({
+            ...subagentPoolPolicy({ ...scoped(projectRoot), config: currentConfig() }),
+            candidates: pooledModels(models, { ...scoped(projectRoot), includeUncurated: true }),
+        }),
         admitToPool: (entry, onStep, admissionOptions) => {
             const config = currentConfig();
             return admitToPool(entry, onStep, {

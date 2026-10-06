@@ -2,6 +2,7 @@
 import type { SubagentPoolPolicy } from "../engine/subagent.ts";
 import {
     loadOptionalVeraConfig,
+    type VeraConfig,
 } from "../config.ts";
 import {
     MODEL_ASSIGNMENT_IDS,
@@ -30,6 +31,8 @@ import {
 export interface SubagentPolicyOptions
     extends LoadPoolFileOptions, EffectiveCatalogOptions {
     readonly configPath?: string;
+    // The host's live config; when set, configPath and the default file are not read.
+    readonly config?: VeraConfig;
 }
 
 export function subagentPoolPolicy(
@@ -49,7 +52,9 @@ export function subagentPoolPolicy(
         : resolvePoolRef(file, file.defaults.subagent) ?? file.defaults.subagent;
     const failsafe = failsafeCandidates(file);
     const tools = failsafeToolSupport(failsafe, file, options);
-    const config = options.configPath === undefined
+    const config = options.config !== undefined
+        ? options.config
+        : options.configPath === undefined
         ? options.userPath === undefined
             ? loadOptionalVeraConfig()
             : undefined
