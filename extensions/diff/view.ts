@@ -134,7 +134,7 @@ export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, c
         patches.add(section);
         section.add(new TextRenderable(renderer, { content: `${file.path}  ${fileCounts(file)}\nLoading diff…`, fg: TUI_MUTED }));
     });
-    if (snapshot.files.length === 0) patches.add(new TextRenderable(renderer, { content: "No diff!", fg: TUI_MUTED }));
+    if (snapshot.files.length === 0) patches.add(new TextRenderable(renderer, { content: "No changes in this worktree.\n\nOnly changes in the current worktree are shown. Changes in other worktrees won’t appear here.", fg: TUI_MUTED, width: "100%", wrapMode: "word" }));
     const resize = (): void => { for (const diff of diffNodes.values()) diff.view = splitView(); };
     renderer.on("resize", resize);
     root.once("destroyed", () => { renderer.off("resize", resize); style.destroy(); });
