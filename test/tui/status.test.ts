@@ -22,7 +22,7 @@ test("TUI status line shows host-reported model and reasoning", () => {
         capacity: 258_000,
         estimated: false,
     }, "/workspace")).toBe(
-        "default · auto · ctx 64.5k/258k [██░░░░░░] 25% · gpt-5.6-sol · high\n/workspace",
+        "default · auto · ctx 64.5k/258k ▰▰▰▱▱▱▱▱▱▱  25% · gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -64,7 +64,7 @@ test("TUI status marks a character-counted measurement as approximate", () => {
         capacity: 258_000,
         estimated: true,
     }, "/workspace")).toBe(
-        "default · auto · ctx ~64.5k/258k [██░░░░░░] 25% · gpt-5.6-sol · high\n/workspace",
+        "default · auto · ctx ~64.5k/258k ▰▰▰▱▱▱▱▱▱▱  25% · gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -78,7 +78,7 @@ test("TUI status context max follows the selected model before the next turn", (
         capacity: 258_000,
         estimated: true,
     }, "/workspace")).toBe(
-        "default · auto · ctx ~64.5k/204.8k [██░░░░░░] 31% · gpt-5.6-sol · high\n/workspace",
+        "default · auto · ctx ~64.5k/204.8k ▰▰▰▱▱▱▱▱▱▱  31% · gpt-5.6-sol · high\n/workspace",
     );
 });
 
@@ -135,7 +135,7 @@ test("TUI status caps a known window by the user ceiling", () => {
         capacity: 204_800,
         estimated: true,
     }, "/workspace")).toBe(
-        "default · auto · ctx ~20k/32.8k [█████░░░] 61% · qwen-local · default\n/workspace",
+        "default · auto · ctx ~20k/32.8k ▰▰▰▰▰▰▱▱▱▱  61% · qwen-local · default\n/workspace",
     );
     expect(renderTuiStatusDetailsLine({
         model: "qwen-local",
@@ -145,7 +145,7 @@ test("TUI status caps a known window by the user ceiling", () => {
         tokens: 4_000,
         estimated: false,
     }, "/workspace")).toBe(
-        "default · auto · ctx 4k/8.2k [████░░░░] 49% · qwen-local · default\n/workspace",
+        "default · auto · ctx 4k/8.2k ▰▰▰▰▰▱▱▱▱▱  49% · qwen-local · default\n/workspace",
     );
 });
 
@@ -159,7 +159,7 @@ test("TUI status drops the previous model's max when the next window is unknown"
         model: "qwen-local",
         contextWindow: 32_768,
     }, "auto", lastMeasurement, "/workspace")).toBe(
-        "default · auto · ctx ~20k/32.8k [█████░░░] 61% · qwen-local · default\n/workspace",
+        "default · auto · ctx ~20k/32.8k ▰▰▰▰▰▰▱▱▱▱  61% · qwen-local · default\n/workspace",
     );
     expect(renderTuiStatusDetailsLine({
         model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
@@ -244,7 +244,7 @@ test("TUI renders extension segments in its own words", () => {
         { kind: "free_note", text: "deploy queued" },
     ])).toBe(
         "2 async subagents running · gpt-5.6-sol · reasoning high · /workspace"
-            + " · auto · ctx ~64.5k/258k [██░░░░░░] 25% · deploy queued",
+            + " · auto · ctx ~64.5k/258k ▰▰▰▱▱▱▱▱▱▱  25% · deploy queued",
     );
 });
 

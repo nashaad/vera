@@ -346,17 +346,17 @@ function contextChunks(
     if (context === undefined || capacity === undefined) return [];
     const { tokens, estimated } = context;
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
-    const filled = Math.min(8, Math.round(percent / 100 * 8));
+    const filled = Math.min(10, Math.round(percent / 100 * 10));
     return [
         separator,
         muted(
             `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${
                 formatTokenCount(capacity)
-            } [`,
+            } `,
         ),
-        { text: "█".repeat(filled), tone: "meter" },
-        { text: "░".repeat(8 - filled), tone: "meterEmpty" },
-        muted(`] ${percent}%`),
+        { text: "▰".repeat(filled), tone: "meter" },
+        { text: "▱".repeat(10 - filled), tone: "meterEmpty" },
+        muted(`  ${percent}%`),
     ];
 }
 
@@ -438,9 +438,9 @@ function contextUsage(
     estimated: boolean,
 ): string {
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
-    const filled = Math.min(8, Math.round(percent / 100 * 8));
-    const meter = `${"█".repeat(filled)}${"░".repeat(8 - filled)}`;
-    return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${formatTokenCount(capacity)} [${meter}] ${percent}%`;
+    const filled = Math.min(10, Math.round(percent / 100 * 10));
+    const meter = `${"▰".repeat(filled)}${"▱".repeat(10 - filled)}`;
+    return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${formatTokenCount(capacity)} ${meter}  ${percent}%`;
 }
 
 function formatTokenCount(tokens: number): string {
