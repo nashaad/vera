@@ -27,9 +27,8 @@ Questions and things you've built: [Discord](https://discord.gg/8svqyjdhS8).
 
 ## Contributing
 
-> [!NOTE]
-> Vera isn't accepting pull requests yet. When it does, it will be under a
-> tight contribution policy.
+For now, contributions are by invitation. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
