@@ -338,6 +338,11 @@ export function tuiRecessColor(theme: TuiTheme): string {
     return mixHex(theme.background, "#000000", 0.45);
 }
 
+// Derived, not `element`: themes where element equals accent made stripes match the cursor.
+export function tuiStripeColor(theme: TuiTheme): string {
+    return mixHex(theme.panel, theme.text, 0.06);
+}
+
 export function tuiHandleColor(theme: TuiTheme): string {
     return mixHex(theme.background, theme.text, 0.07);
 }

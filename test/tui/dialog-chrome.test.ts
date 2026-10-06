@@ -45,6 +45,8 @@ import {
     TUI_SUCCESS,
     TUI_TEXT,
 } from "../../clients/tui/state.ts";
+import { TUI_STRIPE, applyTuiTheme } from "../../clients/tui/palette.ts";
+import { BUILT_IN_TUI_THEMES, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 test("bottom-anchored overlays clear the status line only when there is room", async () => {
     const roomy = await createTestRenderer({ width: 80, height: 24 });
@@ -414,5 +416,27 @@ test("a fixed column goes whole or not at all", async () => {
         expect(meta.trimEnd().endsWith("…")).toBe(true);
     } finally {
         setup.renderer.destroy();
+    }
+});
+
+test("a striped row keeps its accent text readable where element equals accent", async () => {
+    const navy = BUILT_IN_TUI_THEMES.find((entry) => entry.name === "nc-navy")!.theme;
+    applyTuiTheme(navy);
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const row = dialogOptionRow(setup.renderer, {
+            leading: "4m ago ",
+            label: "hoist the crow's nest",
+            active: false,
+            tint: true,
+        });
+        expect(row.backgroundColor).toEqual(parseColor(TUI_STRIPE));
+        expect(row.backgroundColor).not.toEqual(parseColor(TUI_ACCENT));
+        const leading = row.getChildren()[0] as TextRenderable;
+        expect(chunkFor((leading.content as StyledText).chunks, "4m ago ")?.fg)
+            .not.toEqual(row.backgroundColor);
+    } finally {
+        setup.renderer.destroy();
+        applyTuiTheme(VERA_TUI_THEME);
     }
 });

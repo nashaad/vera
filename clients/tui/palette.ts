@@ -1,6 +1,6 @@
 /** The live colour bindings every TUI view draws with, and the one call that repoints them at a theme. Nothing here knows what a session is, so a view that needs only colour needs only this. */
 
-import { VERA_TUI_THEME, type TuiTheme, type TuiThemeHud } from "./theme.ts";
+import { VERA_TUI_THEME, tuiStripeColor, type TuiTheme, type TuiThemeHud } from "./theme.ts";
 
 export let TUI_ACCENT = VERA_TUI_THEME.accent;
 export let TUI_TEXT = VERA_TUI_THEME.text;
@@ -16,6 +16,7 @@ export let TUI_PANEL = VERA_TUI_THEME.panel;
 export let TUI_ELEMENT = VERA_TUI_THEME.element;
 export let TUI_INPUT = VERA_TUI_THEME.input;
 export let TUI_MENU = VERA_TUI_THEME.menu;
+export let TUI_STRIPE = tuiStripeColor(VERA_TUI_THEME);
 export let TUI_CHROME: "plain" | "norton" = "plain";
 export let TUI_SELECTION_TEXT = VERA_TUI_THEME.selectionText;
 export let TUI_HUD: TuiThemeHud | undefined = VERA_TUI_THEME.hud;
@@ -35,6 +36,7 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ELEMENT = theme.element;
     TUI_INPUT = theme.input;
     TUI_MENU = theme.menu;
+    TUI_STRIPE = tuiStripeColor(theme);
     TUI_CHROME = theme.chrome;
     TUI_SELECTION_TEXT = theme.selectionText;
     TUI_HUD = theme.hud;

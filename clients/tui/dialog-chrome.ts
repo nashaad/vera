@@ -25,6 +25,7 @@ import {
     TUI_PANEL,
     TUI_SUCCESS,
     TUI_SELECTION_TEXT,
+    TUI_STRIPE,
     TUI_TEXT,
 } from "./palette.ts";
 import {
@@ -586,8 +587,10 @@ export function dialogOptionRow(
     const lit = content.active && content.dimmed !== true;
     const background = lit
         ? TUI_ACCENT
-        : content.active || content.tint === true
+        : content.active
             ? TUI_ELEMENT
+            : content.tint === true
+            ? TUI_STRIPE
             : content.background ?? TUI_PANEL;
     // Group headings own the accent. A current row carries the word "current",
     // so tinting it too made the two read alike.

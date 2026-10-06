@@ -5,11 +5,13 @@ import themeCatalog from "../../config/tui-themes.json" with { type: "json" };
 import type { TuiThemeName } from "../../clients/tui/theme.ts";
 import { resolveTuiTheme } from "../../clients/tui/theme-catalog.ts";
 import {
+    BUILT_IN_TUI_THEMES,
     TUI_THEME_REQUIRED_ROLES,
     VERA_TUI_THEME,
     resolveSystemTuiTheme,
     themeFromTerminal,
     tuiRecessColor,
+    tuiStripeColor,
 } from "../../clients/tui/theme.ts";
 
 function terminalColors(): TerminalColors {
@@ -244,5 +246,13 @@ test("every configured theme declares the complete Vera role set", () => {
         for (const role of TUI_THEME_REQUIRED_ROLES) {
             expect([name, role, role in theme]).toEqual([name, role, true]);
         }
+    }
+});
+
+test("every built-in theme stripes rows apart from both the panel and the cursor", () => {
+    for (const entry of BUILT_IN_TUI_THEMES) {
+        const stripe = tuiStripeColor(entry.theme).toLowerCase();
+        expect(stripe, entry.name).not.toBe(entry.theme.panel.toLowerCase());
+        expect(stripe, entry.name).not.toBe(entry.theme.accent.toLowerCase());
     }
 });
