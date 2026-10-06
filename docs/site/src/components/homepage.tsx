@@ -96,8 +96,8 @@ export function Homepage({ pathname, html, draft }: HomepageProps) {
                             <TerminalReplay recording="conversation" appearanceControls={false} ambient />
                         </div>
                         <div className="home-cell home-demo-text">
-                            <h2 id="demo-heading">Inside a conversation</h2>
-                            <p>A recorded session: an answer, then switching models and filtering them by score.</p>
+                            <h2 id="demo-heading">Vera in action</h2>
+                            <p>A recorded Vera session: an answer, then switching models and filtering them by score.</p>
                             <ActivityMark />
                         </div>
                     </section>
