@@ -1,6 +1,7 @@
 import type { ElementType } from 'react';
 import parse, { attributesToProps, domToReact, Element, type DOMNode, type HTMLReactParserOptions } from 'html-react-parser';
 import { ConversationDiagram } from './conversation-diagram';
+import { HooksLifecycle } from './hooks-lifecycle';
 import { DirectoryExplorer } from './directory-explorer';
 import { ScreenSteps } from './screen-steps';
 import defaultComponents from 'fumadocs-ui/mdx';
@@ -20,6 +21,7 @@ function buildOptions(showEarlyAccess: boolean): HTMLReactParserOptions {
             // A marked section follows the sidebar's early access switch.
             if (node.attribs['data-early-access'] !== undefined && !showEarlyAccess) return <></>;
             if (node.attribs['data-diagram'] === 'conversation-loop') return <ConversationDiagram />;
+            if (node.attribs['data-diagram'] === 'hooks-lifecycle') return <HooksLifecycle />;
             if (node.attribs['data-widget'] === 'directory-explorer') return <DirectoryExplorer />;
             if (node.attribs['data-widget'] === 'screen-steps') return <ScreenSteps name={node.attribs['data-steps'] ?? ''} />;
             const callout = node.attribs['data-callout'];

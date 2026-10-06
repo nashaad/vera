@@ -39,6 +39,7 @@ These paths are inside `~/.vera`:
 | `tui.json` | Display preferences and keybindings. |
 | `skills/` | Installed skills. |
 | `agents/` | Reusable definitions. |
+| `hooks/` | Executables named by the `hooks` list in `config.json`. See [Hooks](hooks.md). |
 | `rules/` | [Rules](rules.md) that apply in every project. |
 | `extensions/` | Installed extensions. |
 | `standing-nudges.json` | Preferences managed through `/nudges`. |

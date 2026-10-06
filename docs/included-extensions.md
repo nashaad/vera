@@ -54,42 +54,16 @@ provides `/dashboard`; disabling it removes both commands.
 
 ## Run command hooks
 
-Command hooks run configured executables around tool calls. With no hooks
-configured, the extension runs nothing. A hook can also run when a conversation
-starts, resumes, or compacts. See [Session start hooks](session-start-hooks.md).
+`vera.command-hooks` runs a `hooks` list from its own configuration, around
+tool calls and when a conversation starts, resumes, or compacts. With no list
+configured, it runs nothing. Hooks in the home `config.json` are run by the
+host, not by this extension, and disabling it does not stop them. See
+[Hooks](hooks.md).
 
-Find `vera.command-hooks` in `/customize` under Extensions and note its
-absolute path. Add an explicit entry to the home's `config.json`:
-
-```json
-{
-    "extensions": [{
-        "path": "/absolute/path/to/src/core-extensions/command-hooks",
-        "enabled": true,
-        "config": {
-            "hooks": [{
-                "phase": "pre_tool_use",
-                "argv": ["/absolute/path/to/hook"],
-                "protocol": "vera",
-                "timeout_ms": 1000
-            }]
-        }
-    }]
-}
-```
-
-### Hook behavior
-
-`argv` contains the executable and arguments, without shell expansion. Scripts
-receive JSON on stdin and return a hook result as JSON on stdout. The default
-timeout is one second; the maximum is 30 seconds.
-
-> [!WARNING]
-> Scripts run with Vera's operating-system access. Hook failures do not
-> guarantee a blocked tool call, so hooks should not be used as a security
-> boundary.
-
-Malformed supplied configuration prevents activation.
+To configure this extension's list, add an `extensions` entry
+whose path is the absolute directory shown for `vera.command-hooks` in
+`/customize`. That entry replaces the included copy. Its `argv` is an absolute
+path. Malformed supplied configuration prevents activation.
 
 ## Configure or disable included copies
 

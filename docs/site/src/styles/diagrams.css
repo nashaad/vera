@@ -52,6 +52,16 @@
 .flow-context-entry.is-new { border-left-color: var(--brand-accent); background: color-mix(in srgb, var(--brand-accent) 12%, var(--color-fd-background)); animation: flow-context-in 0.4s ease-out; }
 @keyframes flow-context-in { from { opacity: 0; transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .flow-context-entry.is-new { animation: none; } }
+.hooks-lifecycle { container-type: inline-size; width: 100%; max-width: 420px; margin-inline: auto; }
+.hooks-lifecycle svg { min-width: 0; width: 100%; max-width: none; font-size: 3.4cqw; }
+.hooks-lifecycle .conversation-diagram-scroll { overflow-x: hidden; }
+.hooks-lifecycle .flow-node text.flow-detail { font-size: 2.35cqw; }
+.hooks-lifecycle .flow-note,
+.hooks-lifecycle .flow-region-label { font-size: 2.9cqw; letter-spacing: 0; }
+.flow-lines path.is-dashed { stroke-dasharray: 4 3; }
+.flow-node-hook rect { stroke: var(--brand-accent); }
+.flow-region { fill: none; stroke: var(--color-fd-muted-foreground); stroke-dasharray: 5 4; }
+.flow-region-label { fill: var(--color-fd-muted-foreground); font-family: var(--brand-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .conversation-diagram.wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); align-items: center; }
 .conversation-diagram.wide .flow-context { padding-bottom: 16px; }
 .conversation-diagram.wide figcaption { display: none; }
