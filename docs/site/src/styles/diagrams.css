@@ -67,7 +67,7 @@
 .hooks-lifecycle .flow-note.is-blocked { fill: var(--flow-blocked); }
 .hooks-lifecycle .flow-note.is-result { fill: var(--flow-result); }
 .hooks-lifecycle .flow-region.is-turn { fill: color-mix(in srgb, var(--color-fd-foreground) 5%, transparent); stroke: color-mix(in srgb, var(--color-fd-foreground) 18%, transparent); }
-.hooks-lifecycle .flow-region.is-tool { fill: color-mix(in srgb, var(--brand-accent) 10%, transparent); stroke: color-mix(in srgb, var(--brand-accent) 35%, transparent); }
+.hooks-lifecycle .flow-region.is-tool { fill: color-mix(in srgb, var(--color-fd-foreground) 7%, transparent); stroke: color-mix(in srgb, var(--color-fd-foreground) 28%, transparent); }
 .flow-lines path.is-dashed { stroke-dasharray: 4 3; }
 .flow-node-hook rect { stroke: var(--brand-accent); }
 .flow-region { fill: none; stroke: var(--color-fd-muted-foreground); stroke-dasharray: 5 4; }

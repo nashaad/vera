@@ -45,6 +45,10 @@ export function HooksLifecycle() {
     const joinY = 668;
     const blockedX = 324;
     const answerX = 390;
+    const blockedLabelY = (beforeY + joinY) / 2;
+    const answerLabelY = (modelY + responseY + NODE_HEIGHT) / 2;
+    const resultLabelY = (modelY + NODE_HEIGHT / 2 + joinY) / 2;
+    const callsLabelY = (modelY + NODE_HEIGHT + beforeY) / 2;
 
     return (
         <figure className="conversation-diagram hooks-lifecycle not-prose">
@@ -71,19 +75,19 @@ export function HooksLifecycle() {
                     <g className="flow-lines">
                         <path d={`M ${CENTER} ${sessionY + NODE_HEIGHT} V ${messageY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${messageY + NODE_HEIGHT} V ${modelY - 8}`} markerEnd={marker} />
-                        <path d={`M ${CENTER} ${modelY + NODE_HEIGHT} V ${beforeY - 8}`} markerEnd={marker} />
+                        <path d={`M ${CENTER} ${modelY + NODE_HEIGHT} V ${callsLabelY - 10} M ${CENTER} ${callsLabelY + 10} V ${beforeY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${beforeY + NODE_HEIGHT} V ${permissionY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${permissionY + NODE_HEIGHT} V ${runsY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${runsY + NODE_HEIGHT} V ${afterY - 8}`} markerEnd={marker} />
                         <path className="is-result" d={`M ${CENTER} ${afterY + NODE_HEIGHT} V ${joinY}`} />
-                        <path className="is-blocked" d={`M ${NODE_RIGHT} ${beforeY + NODE_HEIGHT / 2} H ${blockedX} V ${joinY} H ${CENTER + 8}`} markerEnd={marker} />
-                        <path className="is-result" d={`M ${CENTER} ${joinY} H 32 V ${modelY + NODE_HEIGHT / 2} H ${NODE_X}`} markerEnd={marker} />
-                        <path className="is-answer" d={`M ${NODE_RIGHT} ${modelY + NODE_HEIGHT / 2} H ${answerX} V ${responseY + NODE_HEIGHT / 2} H ${NODE_RIGHT + 4}`} markerEnd={marker} />
+                        <path className="is-blocked" d={`M ${NODE_RIGHT} ${beforeY + NODE_HEIGHT / 2} H ${blockedX} V ${blockedLabelY - 25} M ${blockedX} ${blockedLabelY + 25} V ${joinY} H ${CENTER + 8}`} markerEnd={marker} />
+                        <path className="is-result" d={`M ${CENTER} ${joinY} H 32 V ${resultLabelY + 22} M 32 ${resultLabelY - 22} V ${modelY + NODE_HEIGHT / 2} H ${NODE_X}`} markerEnd={marker} />
+                        <path className="is-answer" d={`M ${NODE_RIGHT} ${modelY + NODE_HEIGHT / 2} H ${answerX} V ${answerLabelY - 28} M ${answerX} ${answerLabelY + 28} V ${responseY + NODE_HEIGHT / 2} H ${NODE_RIGHT + 4}`} markerEnd={marker} />
                     </g>
-                    <text className="flow-note" x={CENTER + 8} y="288">calls a tool</text>
-                    <text className="flow-note is-answer" x={NODE_RIGHT + 16} y={modelY + 12}>answers</text>
-                    <text className="flow-note is-blocked" x={NODE_RIGHT + 4} y={beforeY - 6}>blocked</text>
-                    <text className="flow-note is-result" x="40" y={joinY - 6}>result</text>
+                    <text className="flow-note" x={CENTER} y={callsLabelY} textAnchor="middle" dominantBaseline="central">calls a tool</text>
+                    <text className="flow-note is-answer" x={answerX} y={answerLabelY} textAnchor="middle" dominantBaseline="central" transform={`rotate(90 ${answerX} ${answerLabelY})`}>answers</text>
+                    <text className="flow-note is-blocked" x={blockedX} y={blockedLabelY} textAnchor="middle" dominantBaseline="central" transform={`rotate(90 ${blockedX} ${blockedLabelY})`}>blocked</text>
+                    <text className="flow-note is-result" x="32" y={resultLabelY} textAnchor="middle" dominantBaseline="central" transform={`rotate(-90 32 ${resultLabelY})`}>result</text>
                     <Step x={NODE_X} y={sessionY} label="Session start" detail="start, resume, after compaction" hook />
                     <Step x={NODE_X} y={messageY} label="Your message" />
                     <Step x={NODE_X} y={modelY} label="Model" />
