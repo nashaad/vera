@@ -39,9 +39,9 @@ Other conversations can remain running after the TUI exits.
 
 ## Recognize a finished turn
 
-A **Worked for** divider records elapsed time after long turns or errors.
-Interrupted turns show it only after at least five minutes of work. Quick
-successful replies omit it during live conversation.
+A **Worked for** divider records elapsed time after turns that ran at least
+five minutes, whether they finished, failed or were interrupted. Shorter
+turns omit it during live conversation.
 Reopening finished work shows its final divider even for a short turn.
 
 For work finished more than 24 hours ago, the divider also shows the saved
