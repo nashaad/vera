@@ -186,7 +186,7 @@ test("command -v vera is the launcher, and the release runs with the repo denied
             }
             const page = await fetch(new URL("usage", url).href);
             expect(page.status).toBe(200);
-            expect(await page.text()).toContain("Vera · Usage");
+            expect(await page.text()).toContain("<title>Vera</title>");
         } finally {
             annex.kill("SIGTERM");
             await annex.exited;

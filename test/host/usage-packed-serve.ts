@@ -36,7 +36,7 @@ async function main(): Promise<void> {
         }
         const page = await fetch(new URL("usage", result.url).href);
         const text = await page.text();
-        if (page.status !== 200 || !text.includes("Vera · Usage")) {
+        if (page.status !== 200 || !text.includes("<title>Vera</title>")) {
             process.stderr.write("usage page missing\n");
             process.exit(1);
         }

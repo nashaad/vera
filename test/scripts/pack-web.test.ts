@@ -25,7 +25,7 @@ test("pack-web writes index.html, main.js, and styles.css", async () => {
     const result = await packWebAssets(output, { force: true });
     expect(result.packed).toBe(true);
     expect(result.buildId).toMatch(/^vera-[0-9a-f]+(\+[0-9a-f]{12})?$/);
-    expect(readFileSync(join(output, "index.html"), "utf8")).toContain("Vera · Usage");
+    expect(readFileSync(join(output, "index.html"), "utf8")).toContain("<title>Vera</title>");
     expect(readFileSync(join(output, "styles.css"), "utf8").length).toBeGreaterThan(0);
     const javascript = readFileSync(join(output, "main.js"), "utf8");
     expect(javascript).toContain("at current OpenRouter rates");

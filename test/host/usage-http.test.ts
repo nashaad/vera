@@ -131,7 +131,7 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
 
     const page = await fetch(`${server.url}usage`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("Vera · Usage");
+    expect(await page.text()).toContain("<title>Vera</title>");
 
     const script = await fetch(`${server.url}main.js`);
     expect(script.status).toBe(200);
@@ -151,7 +151,7 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     const missing = await fetch(`${server.url}api/usage/session/nope?window=7d`);
     expect(missing.status).toBe(404);
 
-    const detail = await fetch(`${server.url}api/usage/session/live?window=7d`);
+    const detail = await fetch(`${server.url}api/usage/session/live?window=all`);
     expect(detail.status).toBe(200);
     const body = await detail.json() as { session: { id: string }; calls: unknown[] };
     expect(body.session.id).toBe("live");
@@ -174,7 +174,7 @@ test("usage server defaults to the packed release annex root", async () => {
     servers.push(server);
     const page = await fetch(`${server.url}usage`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain("Vera · Usage");
+    expect(await page.text()).toContain("<title>Vera</title>");
 });
 
 test("resident host answers annex_url with a loopback base URL", async () => {
@@ -202,7 +202,7 @@ test("resident host answers annex_url with a loopback base URL", async () => {
         expect(result.url.endsWith("/usage")).toBe(false);
         const page = await fetch(new URL("usage", result.url).href);
         expect(page.status).toBe(200);
-        expect(await page.text()).toContain("Vera · Usage");
+        expect(await page.text()).toContain("<title>Vera</title>");
         expect(host.health.annex).toBe("ok");
         expect(host.annexPid).toBeGreaterThan(0);
     } finally {

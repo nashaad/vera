@@ -56,7 +56,7 @@ test("pack-release writes a manifest with annex and the host protocol version", 
         expect(manifest.artifacts).toContain("host");
         expect(manifest.artifacts).toContain("worker");
         expect(readFileSync(join(packedAnnexRoot(output), "index.html"), "utf8"))
-            .toContain("Vera · Usage");
+            .toContain("<title>Vera</title>");
         expect(readFileSync(join(packedAnnexRoot(output), "build-id"), "utf8").trim())
             .toBe(manifest.build_id);
         expect(manifest.asset_digest.startsWith("sha256:")).toBe(true);
