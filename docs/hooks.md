@@ -23,36 +23,32 @@ and neither do their subagents.
 <div data-diagram="hooks-lifecycle">
 
 ```text
-Session start
-start, resume, after compaction
-     | start, resume          ^
-     v                        | after compaction
-Your message                  |
-     |                        |
-     v                        |
-   .- Each turn --------------+---------.
-   | Model <------------------+         |
-   |   |                                |
-   |   |---- answers --------> Response |
-   |   |                                |
-   |   | calls a tool                   |
-   |   v                                |
-   |   .- Each tool call ----------.    |
-   |   | Before the tool           |    |
-   |   |   |              blocked  |    |
-   |   |   v                 |     |    |
-   |   | Permission check    |     |    |
-   |   |   |                 |     |    |
-   |   |   v                 |     |    |
-   |   | Tool runs           |     |    |
-   |   |   |                 |     |    |
-   |   |   v                 |     |    |
-   |   | After the tool      |     |    |
-   |   |   |                 |     |    |
-   |   +---+-----------------+     |    |
-   |       |                       |    |
-   |       +-------> Model         |    |
-   +-------------------------------+
+Session start (start, resume, after compaction)
+     |
+     v
+.- Each turn ----------------------------------.
+| Your message                                 |
+|     |                                        |
+|     v                                        |
+| Model ------------ answers ------> Response  |
+|  ^  |                                        |
+|  |  | calls a tool                           |
+|  |  v                                        |
+|  | .- Each tool call -------------------.    |
+|  | | Before the tool ---- blocked ----. |    |
+|  | |     |                            | |    |
+|  | |     v                            | |    |
+|  | | Permission check                 | |    |
+|  | |     |                            | |    |
+|  | |     v                            | |    |
+|  | | Tool runs                        | |    |
+|  | |     |                            | |    |
+|  | |     v                            | |    |
+|  | | After the tool                   | |    |
+|  | |     |                            | |    |
+|  '-+-----+----------------------------' |    |
+|    '------------------------------------'    |
+'----------------------------------------------'
 ```
 
 </div>

@@ -42,14 +42,14 @@ export function HooksLifecycle() {
     const runsY = 496;
     const afterY = 572;
     const responseY = 728;
-    const joinY = 676;
-    const blockedX = 372;
+    const joinY = 668;
+    const blockedX = 324;
     const answerX = 390;
 
     return (
         <figure className="conversation-diagram hooks-lifecycle not-prose">
             <div className="conversation-diagram-scroll" tabIndex={0} role="region" aria-label="Hook lifecycle diagram">
-                <svg viewBox="0 0 416 880" role="img" aria-labelledby={`${title} ${description}`}>
+                <svg viewBox="0 0 416 816" role="img" aria-labelledby={`${title} ${description}`}>
                     <title id={title}>When a hook runs</title>
                     <desc id={description}>
                         Session start runs when a conversation starts or resumes, then your message
@@ -61,13 +61,13 @@ export function HooksLifecycle() {
                     </desc>
                     <defs>
                         <marker id={arrow} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                            <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                            <path d="M 1 1 L 8 5 L 1 9" fill="none" stroke="context-stroke" strokeWidth="1.5" />
                         </marker>
                     </defs>
-                    <rect className="flow-region" x="16" y="96" width="384" height="724" rx="8" />
+                    <rect className="flow-region is-turn" x="16" y="96" width="384" height="704" rx="8" />
                     <text className="flow-region-label" x="28" y="114">Each turn</text>
-                    <rect className="flow-region" x="68" y="304" width="234" height="344" rx="8" />
-                    <text className="flow-region-label" x="68" y="300">Each tool call</text>
+                    <rect className="flow-region is-tool" x="56" y="304" width="296" height="384" rx="8" />
+                    <text className="flow-region-label" x="68" y="322">Each tool call</text>
                     <g className="flow-lines">
                         <path d={`M ${CENTER} ${sessionY + NODE_HEIGHT} V ${messageY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${messageY + NODE_HEIGHT} V ${modelY - 8}`} markerEnd={marker} />
@@ -75,17 +75,15 @@ export function HooksLifecycle() {
                         <path d={`M ${CENTER} ${beforeY + NODE_HEIGHT} V ${permissionY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${permissionY + NODE_HEIGHT} V ${runsY - 8}`} markerEnd={marker} />
                         <path d={`M ${CENTER} ${runsY + NODE_HEIGHT} V ${afterY - 8}`} markerEnd={marker} />
-                        <path d={`M ${CENTER} ${afterY + NODE_HEIGHT} V ${joinY}`} />
-                        <path d={`M ${NODE_RIGHT} ${beforeY + NODE_HEIGHT / 2} H ${blockedX} V ${joinY} H ${CENTER + 4}`} />
-                        <path d={`M ${CENTER} ${joinY} H 32 V ${modelY + NODE_HEIGHT / 2} H ${NODE_X}`} markerEnd={marker} />
-                        <path d={`M ${NODE_RIGHT} ${modelY + NODE_HEIGHT / 2} H ${answerX} V ${responseY + NODE_HEIGHT / 2} H ${NODE_RIGHT + 4}`} markerEnd={marker} />
-                        <path className="is-dashed" d={`M ${CENTER} 820 H 8 V ${sessionY + NODE_HEIGHT / 2} H ${NODE_X}`} />
-                        <path className="is-dashed" d={`M 8 ${sessionY + NODE_HEIGHT / 2} V ${modelY + NODE_HEIGHT / 2} H ${NODE_X}`} markerEnd={marker} />
+                        <path className="is-result" d={`M ${CENTER} ${afterY + NODE_HEIGHT} V ${joinY}`} />
+                        <path className="is-blocked" d={`M ${NODE_RIGHT} ${beforeY + NODE_HEIGHT / 2} H ${blockedX} V ${joinY} H ${CENTER + 8}`} markerEnd={marker} />
+                        <path className="is-result" d={`M ${CENTER} ${joinY} H 32 V ${modelY + NODE_HEIGHT / 2} H ${NODE_X}`} markerEnd={marker} />
+                        <path className="is-answer" d={`M ${NODE_RIGHT} ${modelY + NODE_HEIGHT / 2} H ${answerX} V ${responseY + NODE_HEIGHT / 2} H ${NODE_RIGHT + 4}`} markerEnd={marker} />
                     </g>
                     <text className="flow-note" x={CENTER + 8} y="288">calls a tool</text>
-                    <text className="flow-note" x={NODE_RIGHT + 16} y={modelY + 12}>answers</text>
-                    <text className="flow-note" x={NODE_RIGHT + 28} y={beforeY + NODE_HEIGHT + 20}>blocked</text>
-                    <text className="flow-note" x="20" y="170">after compaction</text>
+                    <text className="flow-note is-answer" x={NODE_RIGHT + 16} y={modelY + 12}>answers</text>
+                    <text className="flow-note is-blocked" x={NODE_RIGHT + 4} y={beforeY - 6}>blocked</text>
+                    <text className="flow-note is-result" x="40" y={joinY - 6}>result</text>
                     <Step x={NODE_X} y={sessionY} label="Session start" detail="start, resume, after compaction" hook />
                     <Step x={NODE_X} y={messageY} label="Your message" />
                     <Step x={NODE_X} y={modelY} label="Model" />

@@ -58,6 +58,16 @@
 .hooks-lifecycle .flow-node text.flow-detail { font-size: 2.35cqw; }
 .hooks-lifecycle .flow-note,
 .hooks-lifecycle .flow-region-label { font-size: 2.9cqw; letter-spacing: 0; }
+.hooks-lifecycle .flow-region { stroke-dasharray: none; }
+.hooks-lifecycle { --flow-answer: #3fa877; --flow-blocked: #e5484d; --flow-result: #4c8dff; }
+.hooks-lifecycle .flow-lines path.is-answer { stroke: var(--flow-answer); }
+.hooks-lifecycle .flow-lines path.is-blocked { stroke: var(--flow-blocked); }
+.hooks-lifecycle .flow-lines path.is-result { stroke: var(--flow-result); }
+.hooks-lifecycle .flow-note.is-answer { fill: var(--flow-answer); }
+.hooks-lifecycle .flow-note.is-blocked { fill: var(--flow-blocked); }
+.hooks-lifecycle .flow-note.is-result { fill: var(--flow-result); }
+.hooks-lifecycle .flow-region.is-turn { fill: color-mix(in srgb, var(--color-fd-foreground) 5%, transparent); stroke: color-mix(in srgb, var(--color-fd-foreground) 18%, transparent); }
+.hooks-lifecycle .flow-region.is-tool { fill: color-mix(in srgb, var(--brand-accent) 10%, transparent); stroke: color-mix(in srgb, var(--brand-accent) 35%, transparent); }
 .flow-lines path.is-dashed { stroke-dasharray: 4 3; }
 .flow-node-hook rect { stroke: var(--brand-accent); }
 .flow-region { fill: none; stroke: var(--color-fd-muted-foreground); stroke-dasharray: 5 4; }
