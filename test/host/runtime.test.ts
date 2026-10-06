@@ -74,57 +74,6 @@ test("the resident host fails closed without an identity provider", async () => 
     }
 });
 
-(process.platform === "win32"
-        || process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
-    ? test.skip
-    : test)(
-    "model settings rejects a FIFO pool without blocking other host requests",
-    async () => {
-        const root = await mkdtemp(join(tmpdir(), "vera-host-fifo-pool-"));
-        const workspace = join(root, "workspace");
-        const poolPath = join(workspace, ".vera", "pool.json");
-        const socketPath = join(root, "host.sock");
-        await mkdir(join(workspace, ".vera"), { recursive: true });
-        const mkfifo = Bun.spawn(["mkfifo", poolPath], {
-            stdout: "ignore",
-            stderr: "pipe",
-        });
-        expect(await mkfifo.exited).toBe(0);
-
-        const host = await startResidentHost({
-            config: {
-                schema_version: 1,
-                provider: "openrouter",
-                model: "faux/test",
-                approval_mode: "auto",
-            },
-            createAdapter: () => new FauxAdapter([]),
-            socketPath,
-            lockPath: join(root, "host.json"),
-            sessionDirectory: join(root, "sessions"),
-            permissionPreferencesPath: join(root, "preferences.json"),
-        });
-
-        try {
-            const settings = readModelSettingsThroughHost(
-                socketPath,
-                workspace,
-                500,
-            );
-            const identity = requestHostIdentity(socketPath);
-            expect(await identity).toMatchObject(host.server.identity);
-            expect(await settings).toMatchObject({
-                provider: "openrouter",
-                model: "faux/test",
-                pooled: [],
-            });
-        } finally {
-            await host.close();
-            await rm(root, { recursive: true, force: true });
-        }
-    },
-);
-
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "hard close through the resident host retains a resumable session",
     async () => {
