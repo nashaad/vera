@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+    <mask id="crow">
+        <circle cx="200" cy="200" r="200" fill="#fff"/>
+        <g fill="#000" transform="translate(200 200) scale(0.85) translate(-200 -200)">
+            <polygon points="96,80 200,80 230,100 168,144 50,144"/>
+            <polygon points="58,158 168,158 208,182 208,320 170,305"/>
+            <polygon points="240,106 350,137 348,144 210,163 190,148"/>
+        </g>
+    </mask>
+    <circle cx="200" cy="200" r="200" fill="#e8582a" mask="url(#crow)"/>
+</svg>

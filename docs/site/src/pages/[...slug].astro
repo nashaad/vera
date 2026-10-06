@@ -48,6 +48,9 @@ const toc = headings.filter((heading) => heading.depth > 1 && heading.depth <= 3
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{entry.data.layout === 'homepage' ? entry.data.title : `${entry.data.title} | Vera`}</title>
         <meta name="description" content={entry.data.description} />
+        <link rel="icon" href="/favicon.ico" sizes="32x32" />
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300..500&family=Young+Serif&family=Instrument+Serif:ital@1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
