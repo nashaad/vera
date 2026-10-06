@@ -144,6 +144,11 @@ function clearModeToastExpiry(rt: TuiRuntime): void {
     rt.modeToastExpireTimer = undefined;
 }
 
+export function stopModeToastTimers(rt: TuiRuntime): void {
+    clearModeToastTyping(rt);
+    clearModeToastExpiry(rt);
+}
+
 function armModeToastExpiry(rt: TuiRuntime, version: number): void {
     clearModeToastExpiry(rt);
     const hold = rt.modeToastQueue.length > 0
