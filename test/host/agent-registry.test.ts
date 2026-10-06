@@ -1403,14 +1403,14 @@ test("a branch synchronizes completed source turns before its next request", asy
             sideStore.projectedHarnessMessages(),
         )).toEqual([
             { kind: "user", text: "S1" },
-            { kind: "assistant", text: "answer 4" },
+            { kind: "assistant", text: "answer 4", turnTiming: expect.any(Object) },
             { kind: "user", text: "S2" },
             {
                 kind: "harness",
                 text: "Caught up with 2 new turns from the primary conversation.",
                 tone: "soft",
             },
-            { kind: "assistant", text: "answer 7" },
+            { kind: "assistant", text: "answer 7", turnTiming: expect.any(Object) },
         ]);
         const sideRequest = requests.at(-1)!;
         const text = sideRequest.messages.flatMap((message) =>
@@ -1942,6 +1942,7 @@ test("a registry resumes the same resident agent from its session", async () => 
                 id: expect.any(String),
                 kind: "assistant",
                 text: "first reply",
+                turnTiming: expect.any(Object),
             },
         ]);
 
