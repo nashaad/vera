@@ -101,9 +101,10 @@ import {
     createToolResultSpill,
     SPILL_DIRECTORY_NAME,
 } from "./tool-result-spill.ts";
-import type {
-    ToolResultSpill,
-    ToolResultTruncation,
+import {
+    toolResultCeilingBytes,
+    type ToolResultSpill,
+    type ToolResultTruncation,
 } from "../tools/tool-result-limit.ts";
 import {
     measureMessages,
@@ -348,6 +349,7 @@ function compactionContextForSettings(
             settings.provider,
             model,
             settings.availableModels,
+            availableModels(),
         );
     const capacity = budgetContextWindow(declared, settings.contextLimit);
     return {
@@ -708,6 +710,7 @@ export async function runHeadlessLoop(
             get reviewers() { return policy().reviewers; },
             get permissionModes() { return policy().permissionModes; },
             readPool: () => readModelSettings?.()?.pooled ?? [],
+            readWindowSettings: () => readModelSettings?.() ?? {},
             readPolicy: () => policy().subagentPolicy ?? {},
             ...(boundary.loadContextualContributions === undefined ? {} : {
                 loadContextualContributions:
@@ -1894,6 +1897,7 @@ export async function runTurn(
             let toolIndex = 0;
             let interrupt: string | undefined;
             const batchCompleted: CompletedToolCall[] = [];
+            const toolCapacity = capacityForModel(activeModel);
             while (toolIndex < preparedToolCalls.length) {
                 const first = preparedToolCalls[toolIndex]!;
                 if (!toolMayRunInParallel(
@@ -1915,6 +1919,7 @@ export async function runTurn(
                             },
                             reviewBreaker,
                             denialBreaker,
+                            toolCapacity,
                         ),
                     ]);
                     batchCompleted.push(...finished.completed);
@@ -1954,6 +1959,7 @@ export async function runTurn(
                             },
                             reviewBreaker,
                             denialBreaker,
+                            toolCapacity,
                         )
                     ),
                 );
@@ -2380,6 +2386,7 @@ async function executePreparedTool(
     modelSettings: ModelTurnSettings,
     breaker: ReviewCircuitBreaker,
     denialBreaker: ToolDenialBreaker,
+    capacity?: number,
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
@@ -2629,7 +2636,7 @@ async function executePreparedTool(
         toolCall,
         applied.output,
         state.toolResultSpill,
-        state.toolResults?.ceilingBytes,
+        state.toolResults?.ceilingBytes ?? toolResultCeilingBytes(capacity),
     );
     const durationMs = performance.now() - startedAt;
     const completed = await finishExecutedTool(

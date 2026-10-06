@@ -764,8 +764,25 @@ export class AgentRegistry {
             return catalog.agents.map((item) => item.definition)
                 .filter((definition) => definition.nudges === undefined);
         };
+        const readModelSettings = (): ModelTurnSettings =>
+            settingsForClient(
+                entry.modelSettings,
+                entry.modelSettings.provider ?? this.defaultProvider,
+                this.catalog,
+                this.modelsForClient(),
+                this.options.readPool?.(store.header.cwd),
+                this.options.subagentModel,
+                entry.requestedReasoningEffort,
+                this.reviewerDefault(),
+                this.options.contextLimit?.(),
+                this.options.configuredOverrides?.(),
+                store.header.cwd,
+                this.options.refreshableProviders?.(),
+                this.options.providerCatalogs?.(),
+            );
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
+            readWindowSettings: readModelSettings,
             loadAgent: async (name) => (await loadAgents())
                 .find((definition) => definition.name === name),
             workspace: store.header.cwd,
@@ -1030,21 +1047,7 @@ export class AgentRegistry {
                         ),
                     };
                 },
-                readModelSettings: () => settingsForClient(
-                    entry.modelSettings,
-                    entry.modelSettings.provider ?? this.defaultProvider,
-                    this.catalog,
-                    this.modelsForClient(),
-                    this.options.readPool?.(store.header.cwd),
-                    this.options.subagentModel,
-                    entry.requestedReasoningEffort,
-                    this.reviewerDefault(),
-                    this.options.contextLimit?.(),
-                    this.options.configuredOverrides?.(),
-                    store.header.cwd,
-                    this.options.refreshableProviders?.(),
-                    this.options.providerCatalogs?.(),
-                ),
+                readModelSettings,
                 readSelectedAgent: () => entry.selectedAgent,
                 loadAgents,
                 readApprovalMode: () => entry.approvalMode,

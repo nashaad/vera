@@ -41,6 +41,11 @@ import {
     ResidentAgentClosedError,
     type AgentAttachment,
 } from "../host/resident-agent.ts";
+import {
+    cachedContextWindow,
+    readCachedWindowIndex,
+} from "../model/cached-windows.ts";
+import { contextWindowForModel } from "../engine/model-settings.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { splitModelId } from "../model/pool-file.ts";
 import { resolvePoolRef } from "../model/pool-names.ts";
@@ -471,6 +476,10 @@ async function runResolvedTurn<Output>(
                 provider,
             ),
         );
+        const contextWindow = sdkContextWindow(
+            resolved.config.provider,
+            resolved.model,
+        );
         const selected = resolveAgentSnapshot(resolved.definition);
         const hooks = new ToolHooks();
         if (options.prepareTurn !== undefined) {
@@ -497,6 +506,12 @@ async function runResolvedTurn<Output>(
                     ...(resolved.reasoningEffort === undefined
                         ? {}
                         : { reasoningEffort: resolved.reasoningEffort }),
+                    ...(contextWindow === undefined
+                        ? {}
+                        : { contextWindow }),
+                    ...(resolved.config.context_limit === undefined
+                        ? {}
+                        : { contextLimit: resolved.config.context_limit }),
                 }),
                 readPolicy: () => configuredTurnPolicy(resolved.config),
                 readSelectedAgent: () => selected,
@@ -605,6 +620,19 @@ async function runResolvedTurn<Output>(
         substitutions,
         ...(error === undefined ? {} : { error }),
     };
+}
+
+/**
+ * The window the bound model serves, read from the bundled catalog and then
+ * from what provider discovery cached. Without it the turn has no capacity and
+ * falls back to flat budgets, which a small local model cannot pay.
+ */
+function sdkContextWindow(
+    provider: string | undefined,
+    model: string,
+): number | undefined {
+    return contextWindowForModel(provider, model)
+        ?? cachedContextWindow(provider, model, readCachedWindowIndex());
 }
 
 async function resolveAgentOptions(

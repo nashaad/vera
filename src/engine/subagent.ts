@@ -93,6 +93,9 @@ export interface CreateSubagentEffectApplierOptions {
     readonly loadOptionalContext?: boolean;
     readonly sessionMetadata?: SessionCreationMetadata;
     readonly readPool?: () => readonly PooledModel[];
+    /** The window the child derives its own budgets from; the parent's catalog and limit, not its model. */
+    readonly readWindowSettings?: () =>
+        Pick<ModelTurnSettings, "availableModels" | "contextLimit">;
     readonly subagentModel?: SpawnModelDefault;
     readonly readPolicy?: () => SubagentPoolPolicy;
     readonly requestMissingConfiguration?: RequestMissingSubagentConfiguration;
@@ -393,6 +396,8 @@ export interface RunSubagentOptions {
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly selectedAgent?: AgentSnapshot;
     readonly clampPermissionMode?: ApprovalMode;
+    readonly availableModels?: ModelTurnSettings["availableModels"];
+    readonly contextLimit?: number;
 }
 
 export type ChildToolApprovalRelay = (
@@ -540,6 +545,7 @@ export function createSubagentEffectApplier(
             permissionModes,
         } = options;
         const parentSessionId = context.sessionId ?? options.parentSessionId;
+        const parentWindow = options.readWindowSettings?.() ?? {};
         try {
             const result = await runSubagent({
                 adapter: options.adapter,
@@ -583,6 +589,12 @@ export function createSubagentEffectApplier(
                 parentSessionId,
                 signal,
                 sessionId,
+                ...(parentWindow.availableModels === undefined
+                    ? {}
+                    : { availableModels: parentWindow.availableModels }),
+                ...(parentWindow.contextLimit === undefined
+                    ? {}
+                    : { contextLimit: parentWindow.contextLimit }),
                 ...(options.relayToolApproval === undefined
                     ? {}
                     : { relayToolApproval: options.relayToolApproval }),
@@ -790,6 +802,12 @@ export async function runSubagent(
                     ...(options.reasoningEffort === undefined
                         ? {}
                         : { reasoningEffort: options.reasoningEffort }),
+                    ...(options.availableModels === undefined
+                        ? {}
+                        : { availableModels: options.availableModels }),
+                    ...(options.contextLimit === undefined
+                        ? {}
+                        : { contextLimit: options.contextLimit }),
                 }),
             },
             options.reasoningEffort,

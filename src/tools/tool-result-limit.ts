@@ -1,6 +1,27 @@
 
 export const TOOL_RESULT_CEILING_BYTES = 64 * 1024;
 
+/** A small window cannot spend the flat ceiling on one result and still work. */
+const TOOL_RESULT_CEILING_WINDOW_SHARE = 0.15;
+/** Above the verbatim spill floor, so a trimmed result always has a spill file to point at. */
+export const TOOL_RESULT_CEILING_FLOOR_BYTES = 4 * 1024;
+const BYTES_PER_TOKEN = 4;
+
+/**
+ * The ceiling a window of this size can afford. Unknown capacity keeps the
+ * flat ceiling; a large window reaches the same value through the clamp.
+ */
+export function toolResultCeilingBytes(capacity: number | undefined): number {
+    if (capacity === undefined || !Number.isFinite(capacity)) {
+        return TOOL_RESULT_CEILING_BYTES;
+    }
+    const share = capacity * TOOL_RESULT_CEILING_WINDOW_SHARE * BYTES_PER_TOKEN;
+    return Math.min(
+        TOOL_RESULT_CEILING_BYTES,
+        Math.max(TOOL_RESULT_CEILING_FLOOR_BYTES, Math.floor(share)),
+    );
+}
+
 export interface ToolResultTruncation {
     readonly originalBytes: number;
     readonly retainedBytes: number;
