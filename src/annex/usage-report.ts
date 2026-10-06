@@ -86,6 +86,9 @@ export interface UsageCallRow {
     readonly provider: string;
     readonly model: string;
     readonly kind: UsageCallKind;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
     readonly cost: number;
     readonly costKind: "reported" | "estimated" | "unpriced";
     readonly tools: readonly string[];
@@ -107,6 +110,9 @@ export interface UsageSessionRow {
     readonly parentId?: string;
     readonly kind: "interactive" | "subagent";
     readonly calls: number;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
     readonly own: number;
     readonly children: number;
     readonly combined: number;
@@ -342,6 +348,9 @@ function callRowFrom(call: PricedCall): UsageCallRow {
         provider: call.provider,
         model: call.model,
         kind: call.callKind,
+        inputTokens: call.inputTokens,
+        outputTokens: call.outputTokens,
+        totalTokens: call.totalTokens,
         cost: call.cost,
         costKind: call.kind,
         tools: call.tools,
@@ -837,6 +846,9 @@ function sessionRowsFrom(
     const own = new Map<string, {
         spend: number;
         calls: number;
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
         reported: boolean;
         estimated: boolean;
         unpriced: boolean;
@@ -847,6 +859,9 @@ function sessionRowsFrom(
         const prior = own.get(call.sessionId) ?? {
             spend: 0,
             calls: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            totalTokens: 0,
             reported: false,
             estimated: false,
             unpriced: false,
@@ -855,6 +870,9 @@ function sessionRowsFrom(
         };
         prior.spend += call.cost;
         prior.calls += 1;
+        prior.inputTokens += call.inputTokens;
+        prior.outputTokens += call.outputTokens;
+        prior.totalTokens += call.totalTokens;
         if (call.kind === "reported") prior.reported = true;
         else if (call.kind === "estimated") prior.estimated = true;
         else prior.unpriced = true;
@@ -934,6 +952,9 @@ function sessionRowsFrom(
             ...(session.parentId === undefined ? {} : { parentId: session.parentId }),
             kind: sessionIsSubagent(session.header) ? "subagent" : "interactive",
             calls: stats?.calls ?? 0,
+            inputTokens: stats?.inputTokens ?? 0,
+            outputTokens: stats?.outputTokens ?? 0,
+            totalTokens: stats?.totalTokens ?? 0,
             own: ownSpend,
             children: combined - ownSpend,
             combined,

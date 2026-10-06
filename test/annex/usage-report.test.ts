@@ -240,6 +240,9 @@ test("parent combined cost includes descendants; totals count each call once", a
         combined: 2.5,
         kind: "interactive",
         costKind: "reported",
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
     });
     expect(child).toMatchObject({
         parentId: "parent",
@@ -247,6 +250,9 @@ test("parent combined cost includes descendants; totals count each call once", a
         children: 0,
         combined: 0.5,
         kind: "subagent",
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
     });
 });
 
@@ -426,8 +432,14 @@ test("session detail lists own calls and child spend separately", async () => {
     });
     expect(detail?.session.combined).toBeCloseTo(2.5, 8);
     expect(detail?.calls).toHaveLength(1);
+    expect(detail?.calls[0]).toMatchObject({
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
+    });
     expect(detail?.children).toHaveLength(1);
     expect(detail?.totals.calls).toBe(2);
+    expect(detail?.totals.totalTokens).toBe(2_200);
 });
 
 test("7d prior totals count the previous week, not the current one", async () => {

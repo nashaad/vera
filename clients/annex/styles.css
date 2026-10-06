@@ -1,41 +1,43 @@
+@import url("https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap");
+
 :root {
-    --bg: #09090b;
-    --card: #111113;
-    --line: #1c1c20;
-    --line-2: #27272a;
-    --fg: #f4f4f5;
-    --muted: #a1a1aa;
-    --faint: #71717a;
-    --fill: #18181b;
-    --fill-2: #27272a;
-    --est: #c4a574;
-    --m0: #d4d4d8;
-    --m1: #7dd3fc;
-    --m2: #86efac;
-    --rest: #3f3f46;
-    --bad: #fca5a5;
-    --radius: 6px;
-    --font: Inter, ui-sans-serif, system-ui, sans-serif;
-    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --bg: #0b0c10;
+    --card: #111318;
+    --line: #262a33;
+    --line-2: #2e333d;
+    --fg: #ecebe6;
+    --muted: #a6a59f;
+    --faint: #7a7b76;
+    --fill: #15171d;
+    --fill-2: #1b1e26;
+    --est: #e8582a;
+    --m0: #ecebe6;
+    --m1: #e8582a;
+    --m2: #8a8880;
+    --rest: #3a3d46;
+    --bad: #c4453a;
+    --radius: 0;
+    --font: "General Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: "General Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
     color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
     :root {
-        --bg: #fafafa;
+        --bg: #f3f1ea;
         --card: #ffffff;
-        --line: #ececef;
-        --line-2: #dcdce0;
-        --fg: #18181b;
-        --muted: #52525b;
-        --faint: #8b8b94;
-        --fill: #f4f4f5;
-        --fill-2: #e4e4e7;
-        --est: #a16207;
-        --m0: #52525b;
-        --m1: #0284c7;
-        --m2: #16a34a;
-        --rest: #d4d4d8;
-        --bad: #dc2626;
+        --line: #d8d4c8;
+        --line-2: #cfcabe;
+        --fg: #1a1916;
+        --muted: #5c5b55;
+        --faint: #8a8880;
+        --fill: #e7e4db;
+        --fill-2: #ddd9ce;
+        --est: #e8582a;
+        --m0: #1a1916;
+        --m1: #e8582a;
+        --m2: #6a6860;
+        --rest: #c8c4b8;
+        --bad: #b13228;
         color-scheme: light;
     }
 }
@@ -77,8 +79,20 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .nav-sidebar [role="menuitem"]:focus-visible {
     background: var(--fill); outline: none;
 }
-.brand { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; }
-.brand span { color: var(--faint); font-weight: 500; }
+.brand {
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+}
+.brand span {
+    font-family: var(--font);
+    font-style: normal;
+    font-size: inherit;
+    font-weight: 400;
+    letter-spacing: inherit;
+    color: var(--muted);
+}
 .meta { color: var(--faint); font-size: 12px; }
 .toolbar {
     display: flex; align-items: center; justify-content: flex-start;
@@ -127,7 +141,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     padding: 5px 11px; color: var(--muted); font-size: 12.5px; font-weight: 500;
 }
 .seg button + button { border-left: 1px solid var(--line-2); }
-.seg button.on { background: var(--fg); color: var(--bg); }
+.seg button.on { background: var(--est); color: var(--bg); }
 .metrics {
     display: flex; gap: 1px;
     background: var(--line); border: 1px solid var(--line); border-radius: var(--radius);
@@ -178,7 +192,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     margin-bottom: 16px; min-width: 0;
 }
 .table-scroll { overflow-x: auto; }
-table { width: 100%; min-width: 720px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table { width: 100%; min-width: 800px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: 8px 10px; text-align: right; white-space: nowrap; }
 th { font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; }
 td { border-top: 1px solid var(--line); font-size: 12.5px; }

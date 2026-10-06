@@ -580,6 +580,12 @@ function Overview({
                                     onSort={cycleSort}
                                 />
                                 <SortHeader
+                                    label="Tokens"
+                                    column="tokens"
+                                    sort={sort}
+                                    onSort={cycleSort}
+                                />
+                                <SortHeader
                                     label="Own"
                                     column="own"
                                     sort={sort}
@@ -610,7 +616,7 @@ function Overview({
                             {paged.total === 0
                                 ? (
                                     <tr>
-                                        <td className="faint" colSpan={7}>
+                                        <td className="faint" colSpan={8}>
                                             {sessions.length === 0
                                                 ? "No sessions in this window"
                                                 : "No sessions match"}
@@ -764,6 +770,11 @@ function SessionDetailPage({
                             sub="this work"
                         />
                         <Metric
+                            label="Tokens"
+                            value={formatTokens(detail.totals.totalTokens)}
+                            sub={`${formatTokens(detail.totals.inputTokens)} in · ${formatTokens(detail.totals.outputTokens)} out`}
+                        />
+                        <Metric
                             label="Unpriced"
                             value={formatCount(detail.totals.spend.unpricedCalls)}
                             sub="no dollar yet"
@@ -783,6 +794,7 @@ function SessionDetailPage({
                                             <tr>
                                                 <th>Session</th>
                                                 <th>Kind</th>
+                                                <th>Tokens</th>
                                                 <th>Cost</th>
                                             </tr>
                                         </thead>
@@ -797,6 +809,7 @@ function SessionDetailPage({
                                                     <td className="dim">
                                                         {kindLabel(row.kind)}
                                                     </td>
+                                                    {tokenCell(row)}
                                                     <td>
                                                         {costCell(row.combined, row.costKind)}
                                                     </td>
@@ -818,6 +831,7 @@ function SessionDetailPage({
                                         <th>Model</th>
                                         <th>Kind</th>
                                         <th>Tools</th>
+                                        <th>Tokens</th>
                                         <th>Cost</th>
                                     </tr>
                                 </thead>
@@ -828,7 +842,7 @@ function SessionDetailPage({
                                     {detail.calls.length === 0
                                         ? (
                                             <tr>
-                                                <td className="faint" colSpan={5}>
+                                                <td className="faint" colSpan={6}>
                                                     No calls in this window
                                                 </td>
                                             </tr>
@@ -878,6 +892,7 @@ function CallRow({ call }: { readonly call: UsageCallRow }) {
             <td className="mono">{call.provider}/{call.model}</td>
             <td className="dim">{call.kind}</td>
             <td className="dim">{call.tools.join(" · ") || "—"}</td>
+            {tokenCell(call)}
             <td>{costCell(call.cost, call.costKind)}</td>
         </tr>
     );
@@ -896,6 +911,7 @@ function SessionPreview({
             <td className="ws">{row.workspaceLabel}</td>
             <td className="dim">{kindLabel(row.kind)}</td>
             <td className="dim">{row.calls}</td>
+            {tokenCell(row)}
             <td className="dim">{money(row.own)}</td>
             <td className="dim">
                 {row.children > 0 ? money(row.children) : "—"}
@@ -923,6 +939,7 @@ function ModelTable({
                     <tr>
                         <th>Model</th>
                         <th>Share</th>
+                        <th>Tokens</th>
                         <th>Cost</th>
                         {tools ? <th>Tools</th> : undefined}
                     </tr>
@@ -934,6 +951,7 @@ function ModelTable({
                                 {row.provider}/{row.model}
                             </td>
                             <td>{shareCell(row.share)}</td>
+                            {tokenCell(row)}
                             <td>{costCell(row.spend, row.kind)}</td>
                             {tools
                                 ? <td className="dim">{toolMix(row.tools)}</td>
@@ -945,6 +963,12 @@ function ModelTable({
                             <tr>
                                 <td className="faint">Other ({rest.length})</td>
                                 <td>{shareCell(restShare)}</td>
+                                <td className="dim">
+                                    {formatTokens(rest.reduce(
+                                        (sum, row) => sum + row.inputTokens + row.outputTokens,
+                                        0,
+                                    ))}
+                                </td>
                                 <td>{money(restSpend)}</td>
                                 {tools ? <td /> : undefined}
                             </tr>
@@ -953,7 +977,7 @@ function ModelTable({
                     {rows.length === 0
                         ? (
                             <tr>
-                                <td className="faint" colSpan={tools ? 4 : 3}>
+                                <td className="faint" colSpan={tools ? 5 : 4}>
                                     No priced calls in this window
                                 </td>
                             </tr>
@@ -1133,6 +1157,22 @@ function formatTokens(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
     return String(n);
+}
+
+function tokenCell(row: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens?: number;
+}) {
+    const total = row.totalTokens ?? row.inputTokens + row.outputTokens;
+    return (
+        <td
+            className="dim"
+            title={`${formatTokens(row.inputTokens)} in · ${formatTokens(row.outputTokens)} out`}
+        >
+            {formatTokens(total)}
+        </td>
+    );
 }
 
 function percent(ratio: number): string {

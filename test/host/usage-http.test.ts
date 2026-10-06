@@ -128,6 +128,11 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     expect(report.window.id).toBe("7d");
     expect(report.totals.spend.reported).toBeCloseTo(0.41, 8);
     expect(report.totals.calls).toBe(1);
+    expect(report.sessions[0]).toMatchObject({
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
+    });
 
     const page = await fetch(`${server.url}usage`);
     expect(page.status).toBe(200);
@@ -145,6 +150,7 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     expect(javascript).toContain("combobox");
     expect(javascript).toContain("nav-sidebar");
     expect(javascript).toContain("Close menu");
+    expect(javascript).toContain("Tokens");
     expect(javascript).not.toContain("this machine · this profile");
     expect(javascript).not.toContain("this machine · loopback");
 

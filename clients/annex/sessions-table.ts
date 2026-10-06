@@ -7,6 +7,7 @@ export type SessionSortKey =
     | "workspace"
     | "kind"
     | "calls"
+    | "tokens"
     | "own"
     | "children"
     | "cost";
@@ -20,7 +21,13 @@ export interface SessionSort {
 
 export const DEFAULT_SESSION_SORT: SessionSort = { key: "cost", dir: "desc" };
 
-const NUMERIC = new Set<SessionSortKey>(["calls", "own", "children", "cost"]);
+const NUMERIC = new Set<SessionSortKey>([
+    "calls",
+    "tokens",
+    "own",
+    "children",
+    "cost",
+]);
 
 export function nextSessionSort(
     current: SessionSort,
@@ -135,6 +142,8 @@ function sortValue(
             return row.kind === "subagent" ? "sub" : "chat";
         case "calls":
             return row.calls;
+        case "tokens":
+            return row.totalTokens;
         case "own":
             return row.own;
         case "children":

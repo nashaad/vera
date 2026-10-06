@@ -51,7 +51,8 @@ that exact provider/model route; clear the field to include all models.
 
 Click a column heading to sort. Numeric columns start highest first; names
 start A to Z. Cost is the default, with newer conversations breaking ties.
-The table shows 25 rows per page.
+The table shows 25 rows per page. Tokens are this conversation's own input
+plus output, shown separately from cost.
 
 ### Inspect delegated work
 
@@ -60,12 +61,14 @@ Click a conversation to see its own work and work it launched:
 | Field | Includes |
 | --- | --- |
 | Calls and Own | This conversation's recorded calls and cost. |
+| Tokens | This conversation's own input plus output. |
 | Children | Work in conversations it launched. |
 | Cost | Own and child work combined. |
 
 The detail page includes models, tools, launched sessions, and the selected
 conversation's calls. Child calls appear in Children and Models, rather than
-in the parent's Calls list. The transcript remains in Vera.
+in the parent's Calls list. Tokens on the conversation page cover this work,
+including launched conversations. The transcript remains in Vera.
 
 Use **Usage** to go back to the overview, or the back link to return one level.
 

@@ -20,6 +20,9 @@ function row(overrides: Partial<UsageSessionRow>): UsageSessionRow {
         workspaceLabel: "vera",
         kind: "interactive",
         calls: 10,
+        inputTokens: 1_000,
+        outputTokens: 100,
+        totalTokens: 1_100,
         own: 1,
         children: 0,
         combined: 1,
@@ -43,6 +46,17 @@ test("default sort is combined cost descending, then recency", () => {
 test("clicking a new numeric column starts descending", () => {
     expect(nextSessionSort(DEFAULT_SESSION_SORT, "calls"))
         .toEqual({ key: "calls", dir: "desc" });
+    expect(nextSessionSort(DEFAULT_SESSION_SORT, "tokens"))
+        .toEqual({ key: "tokens", dir: "desc" });
+});
+
+test("tokens sort uses own total tokens", () => {
+    const rows = [
+        row({ id: "small", totalTokens: 100 }),
+        row({ id: "large", totalTokens: 9_000 }),
+    ];
+    expect(sortSessions(rows, { key: "tokens", dir: "desc" }).map((item) => item.id))
+        .toEqual(["large", "small"]);
 });
 
 test("clicking a new text column starts ascending", () => {
