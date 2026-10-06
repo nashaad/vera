@@ -8,8 +8,10 @@ import {
     ClientExtensionReloadPartialFailure,
     reloadTuiClientExtensions,
 } from "../../clients/tui/client-extension-reload.ts";
-import { createTuiClientExtensionHostController } from
-    "../../clients/tui/client-extension-host.ts";
+import {
+    configuredTuiClientExtensions,
+    createTuiClientExtensionHostController,
+} from "../../clients/tui/client-extension-host.ts";
 import type { ClientExtensionRegistry } from
     "../../src/extensions/client-registry.ts";
 
@@ -112,8 +114,16 @@ test("client extension reload applies refreshed config before activation", async
         },
     });
 
+    const expected = configuredTuiClientExtensions(
+        ["vera.model-presets", "vera.reasoning-cycle"],
+        [extension],
+    ).length;
     expect(loaded).toEqual(["test.sidebar"]);
-    expect(events).toEqual(["apply:1", "close:old", "start:1"]);
+    expect(events).toEqual([
+        `apply:${expected}`,
+        "close:old",
+        `start:${expected}`,
+    ]);
     await host.close();
 });
 

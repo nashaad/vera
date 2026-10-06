@@ -57,9 +57,9 @@ test("the model inspector saves and clears request options through the real prof
         session.sendKey("C-k");
         await session.waitForVisiblePane("manage highlighted model");
         session.sendKey("C-k");
-        await session.waitForVisiblePane("Refresh model catalog");
-        // Remove from favorites, refresh, library, verify, then request options.
-        for (let step = 0; step < 4; step += 1) session.sendKey("Down");
+        await session.waitForVisiblePane("Verify this model");
+        // Remove from favorites, verify, then request options.
+        for (let step = 0; step < 2; step += 1) session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(
             "default profile · every use of this model",
@@ -92,8 +92,8 @@ test("the model inspector saves and clears request options through the real prof
         });
 
         session.sendKey("C-k");
-        await session.waitForVisiblePane("Refresh model catalog");
-        for (let step = 0; step < 4; step += 1) session.sendKey("Down");
+        await session.waitForVisiblePane("Verify this model");
+        for (let step = 0; step < 2; step += 1) session.sendKey("Down");
         session.sendKey("Enter");
         await session.waitForVisiblePane("default profile · every use of this model");
         session.sendKeyWithModifiers("home", { shift: true });

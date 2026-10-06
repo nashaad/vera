@@ -4,6 +4,7 @@ import { tuiActivityKind } from "../../clients/tui/activity-bar.ts";
 import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
 import { observeActivity } from "../../clients/tui/main/watchers.ts";
 import { applyAgentUpdate, createTuiState } from "../../clients/tui/state.ts";
+import { EMPTY_TURN_METER } from "../../clients/tui/turn-meter.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
 afterEach(() => {
@@ -18,6 +19,7 @@ function runtime(): TuiRuntime {
         workingSince: undefined,
         phaseSince: undefined,
         quietSince: undefined,
+        turnMeter: EMPTY_TURN_METER,
         experimentalTuiHost: { agentEvent: () => {} },
     } as unknown as TuiRuntime;
 }
