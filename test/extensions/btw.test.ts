@@ -235,7 +235,7 @@ test("a bare prompt from the primary while btw is open synchronizes", async () =
     await harness.registry.close();
 });
 
-test("repeated messages while the sidekick is focused skip sync", async () => {
+test("messages while the sidekick is focused still catch it up", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "first", "/workspace");
     harness.syncs.length = 0;
@@ -251,12 +251,12 @@ test("repeated messages while the sidekick is focused skip sync", async () => {
         workspace: "/workspace",
         imageCount: 0,
     })).toEqual({ kind: "pass" });
-    expect(harness.syncs).toEqual([]);
+    expect(harness.syncs).toEqual(["side-1", "side-1"]);
     expect(harness.failures).toEqual([]);
     await harness.registry.close();
 });
 
-test("an @sidekick message skips sync even when the primary is focused", async () => {
+test("an @sidekick message catches the sidekick up from the primary", async () => {
     const harness = await start();
     await harness.registry.invokeCommand("btw", "first", "/workspace");
     harness.syncs.length = 0;
@@ -266,7 +266,7 @@ test("an @sidekick message skips sync even when the primary is focused", async (
         workspace: "/workspace",
         imageCount: 0,
     })).toEqual({ kind: "pass" });
-    expect(harness.syncs).toEqual([]);
+    expect(harness.syncs).toEqual(["side-1"]);
     expect(harness.failures).toEqual([]);
     await harness.registry.close();
 });
