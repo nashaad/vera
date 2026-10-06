@@ -84,23 +84,24 @@ export function createTuiUserEntry(
         wrapMode: "word",
         selectable: true,
     });
-    line.add(text);
-    body.add(line);
     const attachments = entry.kind === "diff" ? [] : entry.attachments ?? [];
+    const chipOnCaretLine = entry.text.length === 0 && attachments.length > 0;
+    if (!chipOnCaretLine) line.add(text);
+    body.add(line);
     const grounds = [band, body, line];
     const accent: TextRenderable[] = [];
     const muted: TextRenderable[] = [];
     attachments.forEach((name, index) => {
         const chip = new BoxRenderable(renderer, {
             id: `${id}-chip-${index}`,
-            marginLeft: 2,
+            marginLeft: chipOnCaretLine && index === 0 ? 0 : 2,
             marginTop: index === 0 && entry.text.length > 0 ? 1 : 0,
             flexDirection: "row",
             backgroundColor: TUI_ELEMENT,
         });
         const label = new TextRenderable(renderer, {
             id: `${id}-chip-${index}-label`,
-            content: "File ",
+            content: "Image",
             fg: TUI_ACCENT,
             bg: TUI_ELEMENT,
             selectable: true,
@@ -114,7 +115,7 @@ export function createTuiUserEntry(
         });
         chip.add(label);
         chip.add(attachmentName);
-        body.add(chip);
+        (chipOnCaretLine && index === 0 ? line : body).add(chip);
         grounds.push(chip);
         accent.push(label);
         muted.push(attachmentName);

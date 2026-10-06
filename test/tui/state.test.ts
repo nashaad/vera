@@ -3183,3 +3183,22 @@ test("three web searches remain visible when folded, replayed, and expanded", ()
         .every((entry) => entry.kind === "tool" && entry.hidden !== true)).toBe(true);
     expect(plainText(renderTuiEntry(toggleTuiToolDetails(expanded).entries[0]!))).toBe(rendered);
 });
+
+test("a queued prompt names its images", () => {
+    const queued = (prompts: readonly { content: string; attachmentIds?: string[] }[]) =>
+        renderTuiQueuedPrompt(applyAgentUpdate(createTuiState(), {
+            type: "prompt_queue",
+            queue: {
+                prompts: prompts.map((prompt) => ({ ...prompt, state: "held" as const })),
+                draining: false,
+            },
+            seq: 1,
+        }));
+
+    expect(queued([{ content: "", attachmentIds: ["a"] }])).toBe("queued · [Image]");
+    expect(queued([{ content: "", attachmentIds: ["a", "b"] }])).toBe("queued · [2 images]");
+    expect(queued([{ content: "hoist the crow", attachmentIds: ["a"] }]))
+        .toBe("queued · [Image] hoist the crow");
+    expect(queued([{ content: "x".repeat(60), attachmentIds: ["a"] }]).length)
+        .toBe("queued · ".length + 48);
+});

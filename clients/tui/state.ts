@@ -126,6 +126,7 @@ export interface TuiEffortSubstitution {
 
 export interface TuiQueuedPrompt {
     readonly content: string;
+    readonly images?: number;
     readonly state: "held" | "released";
 }
 
@@ -278,9 +279,18 @@ export function beginNextQueuedTuiTurn(state: TuiState): TuiState {
 }
 
 function toTuiQueuedPrompt(
-    prompt: { readonly content: string; readonly state?: "held" | "released" },
+    prompt: {
+        readonly content: string;
+        readonly attachmentIds?: readonly string[];
+        readonly state?: "held" | "released";
+    },
 ): TuiQueuedPrompt {
-    return { content: prompt.content, state: prompt.state ?? "held" };
+    const images = prompt.attachmentIds?.length ?? 0;
+    return {
+        content: prompt.content,
+        ...(images === 0 ? {} : { images }),
+        state: prompt.state ?? "held",
+    };
 }
 
 export function renderTuiQueuedPrompt(state: TuiState): string {
@@ -289,10 +299,14 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
         return "";
     }
 
+    const images = prompt.images ?? 0;
+    const imageLabel = images === 0 ? "" : images === 1 ? "[Image]" : `[${images} images]`;
     const summary = prompt.content.replace(/\s+/g, " ").trim();
-    const compact = summary.length > 48
-        ? `${summary.slice(0, 47)}…`
+    const room = imageLabel === "" ? 48 : 48 - imageLabel.length - 1;
+    const text = summary.length > room
+        ? `${summary.slice(0, room - 1)}…`
         : summary;
+    const compact = [imageLabel, text].filter((part) => part !== "").join(" ");
     const remaining = state.queuedPrompts.length - 1;
     const phase = prompt.state === "released" ? "sending" : "queued";
     return `${phase} · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;

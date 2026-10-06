@@ -31,7 +31,7 @@ test("a user message fills the width of the transcript", async () => {
     }
 });
 
-test("attachments show as file chips under the message", async () => {
+test("attachments show as image chips under the message", async () => {
     const setup = await createTestRenderer({ width: 48, height: 8 });
     setup.renderer.root.add(createTuiUserEntry(
         setup.renderer,
@@ -48,14 +48,14 @@ test("attachments show as file chips under the message", async () => {
         await setup.flush();
         const frame = setup.captureCharFrame();
         expect(frame).toContain("look");
-        expect(frame).toContain("File  shot.png");
-        expect(frame).toContain("File  attached image");
+        expect(frame).toContain("Image shot.png");
+        expect(frame).toContain("Image attached image");
     } finally {
         setup.renderer.destroy();
     }
 });
 
-test("an attachment-only prompt has no blank row above its file", async () => {
+test("an attachment-only prompt puts its first image on the caret row", async () => {
     const setup = await createTestRenderer({ width: 48, height: 8 });
     setup.renderer.root.add(createTuiUserEntry(
         setup.renderer,
@@ -71,9 +71,8 @@ test("an attachment-only prompt has no blank row above its file", async () => {
     try {
         await setup.flush();
         const rows = setup.captureCharFrame().split("\n");
-        const caretRow = rows.findIndex((row) => row.includes("›"));
-        const fileRow = rows.findIndex((row) => row.includes("File  shot.png"));
-        expect(fileRow).toBe(caretRow + 1);
+        const caretRow = rows.find((row) => row.includes("›"));
+        expect(caretRow).toContain("› Image shot.png");
     } finally {
         setup.renderer.destroy();
     }
