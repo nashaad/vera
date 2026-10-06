@@ -551,3 +551,26 @@ test("too narrow to pad, the two ends read as one row rather than wrap", () => {
         "build · ask · anthropic/claude-opus-5 · high",
     );
 });
+
+test("activity_strip_position composer puts the strip after agent and access", () => {
+    const rows = renderTuiStatusDetailsRows(
+        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
+        "ask",
+        undefined,
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        { agent: "build" },
+        0,
+        60,
+        undefined,
+        [{ text: "▒▓█", tone: "accent", color: "#e0703e" }],
+        "composer",
+    );
+    const [first, second] = rows.map((row) => row.map((chunk) => chunk.text).join(""));
+    expect(first?.length).toBe(60);
+    expect(first?.startsWith("build · ask  ▒▓█ ")).toBe(true);
+    expect(second).toBe("/workspace");
+});

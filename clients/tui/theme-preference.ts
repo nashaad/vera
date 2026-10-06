@@ -13,6 +13,8 @@ import { veraProfileDirectory } from "../../src/profile-paths.ts";
 export type TuiLiveReasoningRows = 0 | 1 | 8 | "all";
 export const DEFAULT_LIVE_REASONING_ROWS: TuiLiveReasoningRows = 1;
 
+export type TuiActivityStripPosition = "corner" | "composer";
+
 interface TuiClientPreferences {
     readonly model_picker?: ModelPickerPreferences;
     readonly theme: TuiThemeName;
@@ -23,6 +25,7 @@ interface TuiClientPreferences {
     readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
+    readonly activity_strip_position?: TuiActivityStripPosition;
     readonly sidebar_width?: number;
     readonly workspace_sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
@@ -179,6 +182,12 @@ export function loadTuiActivityAnimationWidthPreference(
     path = tuiThemePreferencePath(),
 ): number | undefined {
     return loadTuiClientPreferences(path).animation_width;
+}
+
+export function loadTuiActivityStripPositionPreference(
+    path = tuiThemePreferencePath(),
+): TuiActivityStripPosition {
+    return loadTuiClientPreferences(path).activity_strip_position ?? "corner";
 }
 
 export function loadTuiSidebarWidth(
@@ -381,6 +390,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 2,
                 15,
             );
+            const stripPosition = Reflect.get(value, "activity_strip_position");
             const sidebarWidth = boundedInteger(
                 Reflect.get(value, "sidebar_width"),
                 20,
@@ -427,6 +437,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                     ? {}
                     : { animation_interval_ms: interval }),
                 ...(width === undefined ? {} : { animation_width: width }),
+                ...(stripPosition === "corner" || stripPosition === "composer"
+                    ? { activity_strip_position: stripPosition }
+                    : {}),
                 ...(sidebarWidth === undefined
                     ? {}
                     : { sidebar_width: sidebarWidth }),

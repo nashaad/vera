@@ -9,6 +9,7 @@ import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
+    loadTuiActivityStripPositionPreference,
     loadTuiRecentSessionId,
     loadTuiSharedSessionGroups,
     loadTuiPersistedAgentPane,
@@ -335,4 +336,18 @@ test("live reasoning rows default to one, survive other writes, and ignore bad v
 
     writeFileSync(path, JSON.stringify({ live_reasoning_rows: 4 }));
     expect(loadTuiLiveReasoningRowsPreference(path)).toBe(1);
+});
+
+test("the activity strip sits in the corner unless tui.json moves it", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
+    const path = join(directory, "tui.json");
+    expect(loadTuiActivityStripPositionPreference(path)).toBe("corner");
+
+    writeFileSync(path, JSON.stringify({ activity_strip_position: "composer" }));
+    expect(loadTuiActivityStripPositionPreference(path)).toBe("composer");
+    saveTuiThemePreference("default", path);
+    expect(loadTuiActivityStripPositionPreference(path)).toBe("composer");
+
+    writeFileSync(path, JSON.stringify({ activity_strip_position: "crow's nest" }));
+    expect(loadTuiActivityStripPositionPreference(path)).toBe("corner");
 });

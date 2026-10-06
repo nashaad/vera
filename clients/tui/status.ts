@@ -1,5 +1,6 @@
 import { modelSelectionCleared } from "../../src/host/model-catalog-settings.ts";
 import { homedir } from "node:os";
+import type { TuiActivityStripPosition } from "./theme-preference.ts";
 
 import {
     effectiveContextWindow,
@@ -174,7 +175,9 @@ export function renderTuiStatusDetailsRows(
     width: number | undefined = undefined,
     needsYouHint = "/work",
     activity: readonly TuiStatusChunk[] = [],
+    activityPosition: TuiActivityStripPosition = "corner",
 ): TuiStatusChunk[][] {
+    const inComposer = activityPosition === "composer" && activity.length > 0;
     const providerLabel = settings?.provider === undefined
         ? undefined
         : findProvider(settings.provider)?.shortLabel ?? settings.provider;
@@ -229,6 +232,7 @@ export function renderTuiStatusDetailsRows(
                 tone: permissionsTone(approvalMode),
             } as TuiStatusChunk]
             : []),
+        ...(inComposer ? [muted("  "), ...activity] : []),
     ];
     const ctxChunks = contextChunks(context, settings);
     const right: TuiStatusChunk[] = [
@@ -265,7 +269,7 @@ export function renderTuiStatusDetailsRows(
             ? []
             : [separator, { text: branch, tone: "accent" } as TuiStatusChunk]),
     ];
-    if (activity.length === 0) return [first, place];
+    if (activity.length === 0 || inComposer) return [first, place];
     const room = width === undefined ? 2 : width - rowWidth(place) - rowWidth(activity);
     const second = [...place, muted(" ".repeat(Math.max(2, room))), ...activity];
     return [first, second];

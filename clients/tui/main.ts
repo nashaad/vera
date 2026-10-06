@@ -280,7 +280,7 @@ import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
 import { EMPTY_TURN_METER } from "./turn-meter.ts";
-import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiActivityStripPositionPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
@@ -906,6 +906,7 @@ export async function startTui(
     rt.activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
     rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
+    rt.activityStripPosition = loadTuiActivityStripPositionPreference();
     rt.sidebarWidth = loadTuiSidebarWidth();
     rt.hostedPanePersistence = new TuiHostedPanePersistence();
     const themeCatalog = reloadTuiThemeCatalog();

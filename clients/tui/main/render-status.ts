@@ -346,6 +346,7 @@ export function renderStatus(rt: TuiRuntime): void {
                 activityBarChunks(rt, statusState.working || statusState.compactingSince !== undefined,
                     focusedAbort, focusedActivity, focusedSide?.state.reasoning ?? rt.reasoning,
                     focusedSide === undefined ? rt.quietSince : focusedSide.state.quietSince),
+                rt.activityStripPosition,
             )
         : [[{
                 tone: "muted",
