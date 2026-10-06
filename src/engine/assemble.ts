@@ -2,7 +2,6 @@ import type { ModelTool } from "../model/types.ts";
 import type { MemorySnapshot } from "./memory.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 import type { RuleSnapshot } from "./rules.ts";
-import type { ScratchStateSnapshot } from "./scratch-state.ts";
 import {
     collectBuiltInPromptContributions,
     collectContextualPromptContributions,
@@ -19,7 +18,6 @@ export interface AssembleSystemPromptInput {
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
-    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
     /** Which contributions render, and in what order. Absent uses the built-in order. */
     readonly contributionOrder?: readonly string[];
@@ -42,7 +40,6 @@ export interface AssembleContextualSystemPromptInput {
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
-    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
     /** Which contributions render, and in what order. Absent uses the built-in order. */
     readonly contributionOrder?: readonly string[];

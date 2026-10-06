@@ -181,25 +181,38 @@ test("disabled contribution ids are omitted from both targets", () => {
     ]);
 });
 
-test("scratch state renders as a contextual contribution", () => {
+test("the scratch directory's contents never reach the system prompt", async () => {
+    const scratchDir = await mkdtemp(join(tmpdir(), "vera-scratch-prompt-"));
+    try {
+        await Bun.write(join(scratchDir, "todo.md"), "- [ ] polish the cannon\n");
+        const contributions = collectBuiltInPromptContributions({
+            tools: [],
+            workspace: "/work/vera",
+            scratchDir,
+            date: new Date(2026, 6, 29),
+            projectInstructions: { files: [], warnings: [] },
+        });
+        expect(contributions.map((entry) => entry.id)).not.toContain(
+            "core.scratchpad-state",
+        );
+        expect(contributions.map((entry) => entry.content).join("\n"))
+            .not.toContain("polish the cannon");
+    } finally {
+        await rm(scratchDir, { recursive: true, force: true });
+    }
+});
+
+test("a saved order naming the retired scratch state section still loads", () => {
+    const withRetired = [...DEFAULT_PROMPT_CONTRIBUTION_ORDER, "core.scratchpad-state"];
+    expect(() => validatePromptContributionOrder(withRetired)).not.toThrow();
     const contributions = collectBuiltInPromptContributions({
         tools: [],
         workspace: "/work/vera",
         date: new Date(2026, 6, 29),
         projectInstructions: { files: [], warnings: [] },
-        scratchState: {
-            files: ["notes.txt", "todo.md"],
-            truncatedFiles: 0,
-            todo: "- [x] done\n- [ ] next\n",
-        },
+        contributionOrder: withRetired,
     });
-
-    const state = contributions.find(
-        (contribution) => contribution.id === "core.scratchpad-state",
-    );
-    expect(state?.target).toBe("contextual");
-    expect(state?.content).toContain("notes.txt, todo.md");
-    expect(state?.content).toContain("- [ ] next");
+    expect(contributions.map((entry) => entry.id)).toContain("core.identity");
 });
 
 test("owner-provided contextual contributions append after core context", () => {

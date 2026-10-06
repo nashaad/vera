@@ -3,7 +3,6 @@ import type { ModelTool } from "../model/types.ts";
 import type { MemorySnapshot } from "./memory.ts";
 import type { ProjectInstructionSnapshot } from "./project-instructions.ts";
 import { alwaysOnRules, type RuleScope, type RuleSnapshot } from "./rules.ts";
-import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 // "turn" is never in the system prompt: the engine saves it once, as a hidden
 // message after the user's message, so later requests replay the same bytes.
@@ -41,7 +40,6 @@ export interface PromptContributionInput {
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
-    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
     /**
      * Which contributions render, and in what order. Absent uses the built-in
@@ -70,7 +68,6 @@ export interface ContextualPromptContributionInput {
     readonly projectInstructions?: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
-    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
     /**
      * Which contributions render, and in what order. Absent uses the built-in
@@ -209,27 +206,6 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         }),
     },
     {
-        id: "core.scratchpad-state",
-        owner: "core",
-        target: "contextual",
-        contribute: (input) => {
-            const state = input.scratchState;
-            if (state === undefined) {
-                return null;
-            }
-            const listed = state.truncatedFiles > 0
-                ? `${state.files.join(", ")} (+${state.truncatedFiles} more)`
-                : state.files.join(", ");
-            return {
-                title: "Scratch directory state",
-                content: `Files: ${listed}`
-                    + (state.todo === undefined
-                        ? ""
-                        : `\ntodo.md:\n${state.todo}`),
-            };
-        },
-    },
-    {
         id: "core.user-rules",
         owner: "core",
         target: "contextual",
@@ -290,6 +266,15 @@ export const DEFAULT_PROMPT_CONTRIBUTION_ORDER: readonly string[] = Object
  */
 const PINNED_FIRST_CONTRIBUTION = "core.identity";
 
+// Ids that a saved order may still name; they are skipped, not rejected.
+const RETIRED_CONTRIBUTIONS: ReadonlySet<string> = new Set([
+    "core.scratchpad-state",
+]);
+
+function withoutRetired(order: readonly string[]): readonly string[] {
+    return order.filter((id) => !RETIRED_CONTRIBUTIONS.has(id));
+}
+
 /**
  * Rejects an order that cannot be rendered as written. A stable contribution
  * is part of the cached prefix and a contextual one is rebuilt each turn, so
@@ -298,8 +283,9 @@ const PINNED_FIRST_CONTRIBUTION = "core.identity";
  * prompt it produces.
  */
 export function validatePromptContributionOrder(
-    order: readonly string[],
+    savedOrder: readonly string[],
 ): void {
+    const order = withoutRetired(savedOrder);
     const known = new Map(
         BUILT_IN_PROMPT_CONTRIBUTORS.map((contributor) => [
             contributor.id,
@@ -368,7 +354,7 @@ function orderedContributors(
             contributor,
         ]),
     );
-    return order.map((id) => byId.get(id)!);
+    return withoutRetired(order).map((id) => byId.get(id)!);
 }
 
 export function collectBuiltInPromptContributions(

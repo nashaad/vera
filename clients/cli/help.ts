@@ -55,7 +55,7 @@ const OPTIONS: readonly [string, string][] = [
 ];
 
 const PROMPT_FLAGS: readonly [string, string][] = [
-    ["--bare", "Skip model extensions, project guidance, memory, and scratch prompt state"],
+    ["--bare", "Skip model extensions, project guidance, memory, and the post-compaction todo"],
     ["--prompt-only", "Send only Vera's identity prompt and user message; offer no tools"],
     ["--permission-mode <mode>", "Run under a named permission mode"],
     ["--model <name|id>", "Run on one model in your library, by name or provider/model"],

@@ -96,7 +96,7 @@ import {
 } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
-import { loadScratchState } from "./scratch-state.ts";
+import { formatScratchTodo, readScratchTodo } from "./scratch-state.ts";
 import {
     createToolResultSpill,
     SPILL_DIRECTORY_NAME,
@@ -1023,7 +1023,9 @@ export async function runHeadlessLoop(
             }
             if (result.outcome === "compacted") {
                 injectedRulePaths.clear();
-                const contextAdded = await injectSessionStartContext(state, "compacted");
+                const todoAdded = await injectScratchTodo(state);
+                const hookContextAdded = await injectSessionStartContext(state, "compacted");
+                const contextAdded = todoAdded || hookContextAdded;
                 if (contextAdded) {
                     protocol.checkpoint(messages, store.activeMessageIds());
                 }
@@ -1487,10 +1489,6 @@ export async function runTurn(
                         },
                 )
                 : undefined;
-            const scratchState = state.loadOptionalContext === false
-                    || state.scratchDir === undefined
-                ? undefined
-                : await loadScratchState(state.scratchDir);
             const requestDate = new Date();
             let additionalContextualContributions:
                 | readonly PromptContribution[]
@@ -1561,7 +1559,6 @@ export async function runTurn(
                 projectInstructions,
                 ...(rules === undefined ? {} : { rules }),
                 memory,
-                ...(scratchState === undefined ? {} : { scratchState }),
                 ...(state.disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions:
                         state.disabledPromptContributions,
@@ -3055,6 +3052,28 @@ async function injectSessionStartContext(
         content: [{
             type: "text",
             text,
+        }],
+    });
+    return true;
+}
+
+// Only after compaction: the summary can drop the list, and the cache is already gone.
+async function injectScratchTodo(state: RunTurnState): Promise<boolean> {
+    if (
+        state.loadOptionalContext === false
+        || state.scratchDir === undefined
+        || state.disabledPromptContributions?.includes("core.scratchpad") === true
+    ) {
+        return false;
+    }
+    const todo = await readScratchTodo(state.scratchDir);
+    if (todo === undefined) return false;
+    await commitMessage(state, {
+        role: "user",
+        internal: true,
+        content: [{
+            type: "text",
+            text: formatScratchTodo(state.scratchDir, todo),
         }],
     });
     return true;

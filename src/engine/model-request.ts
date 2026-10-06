@@ -17,7 +17,6 @@ import {
 } from "./project-instructions.ts";
 import type { PromptContribution } from "./prompt-contributions.ts";
 import type { RuleSnapshot } from "./rules.ts";
-import type { ScratchStateSnapshot } from "./scratch-state.ts";
 
 export interface ModelRequestSnapshot {
     readonly provider?: string;
@@ -32,7 +31,6 @@ export interface ModelRequestSnapshot {
     readonly projectInstructions: ProjectInstructionSnapshot;
     readonly rules?: RuleSnapshot;
     readonly memory?: MemorySnapshot;
-    readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
     readonly promptContributionOrder?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
@@ -88,9 +86,6 @@ export function projectModelRequest(
         projectInstructions: snapshot.projectInstructions,
         ...(snapshot.rules === undefined ? {} : { rules: snapshot.rules }),
         ...(snapshot.memory === undefined ? {} : { memory: snapshot.memory }),
-        ...(snapshot.scratchState === undefined
-            ? {}
-            : { scratchState: snapshot.scratchState }),
         ...(snapshot.disabledPromptContributions === undefined
             ? {}
             : {

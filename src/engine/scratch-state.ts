@@ -1,42 +1,25 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const MAX_LISTED_FILES = 20;
 const MAX_TODO_BYTES = 2000;
 
-export interface ScratchStateSnapshot {
-    readonly files: readonly string[];
-    readonly truncatedFiles: number;
-    readonly todo?: string;
-}
-
-export async function loadScratchState(
+export async function readScratchTodo(
     scratchDir: string,
-): Promise<ScratchStateSnapshot | undefined> {
-    let entries: string[];
+): Promise<string | undefined> {
+    let content: string;
     try {
-        entries = (await readdir(scratchDir)).sort();
+        content = await readFile(join(scratchDir, "todo.md"), "utf8");
     } catch {
         return undefined;
     }
-    if (entries.length === 0) {
+    if (content.trim().length === 0) {
         return undefined;
     }
-    const files = entries.slice(0, MAX_LISTED_FILES);
-    let todo: string | undefined;
-    if (entries.includes("todo.md")) {
-        try {
-            const content = await readFile(join(scratchDir, "todo.md"), "utf8");
-            todo = content.length > MAX_TODO_BYTES
-                ? `${content.slice(0, MAX_TODO_BYTES)}\n[truncated]`
-                : content;
-        } catch {
-            todo = undefined;
-        }
-    }
-    return {
-        files,
-        truncatedFiles: entries.length - files.length,
-        ...(todo === undefined ? {} : { todo }),
-    };
+    return content.length > MAX_TODO_BYTES
+        ? `${content.slice(0, MAX_TODO_BYTES)}\n[truncated]`
+        : content;
+}
+
+export function formatScratchTodo(scratchDir: string, todo: string): string {
+    return `Your todo list, ${join(scratchDir, "todo.md")}, as it stands after compaction:\n\n${todo}`;
 }
