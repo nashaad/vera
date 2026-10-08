@@ -733,6 +733,7 @@ async function appendToolRounds(
 async function appendToolTurn(
     store: SessionStore,
     turn: number,
+    answered = true,
 ): Promise<void> {
     await store.appendMessage({
         role: "user",
@@ -762,6 +763,9 @@ async function appendToolTurn(
             content: [{ type: "text", text: `output ${"x ".repeat(300)}` }],
             isError: false,
         });
+    }
+    if (!answered) {
+        return;
     }
     await store.appendMessage({
         role: "assistant",
@@ -1130,6 +1134,118 @@ test("a rule reminder is not a user turn, so the real prompt stays verbatim", as
     expect(result.outcome).toBe("compacted");
     expect(store.modelContext().map(text))
         .toContain("the current prompt, word for word");
+});
+
+test("a seam inside a running turn keeps its prompt word for word", async () => {
+    const store = await session(3);
+    await appendToolTurn(store, 4, false);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        pressure(store, 6_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    const context = store.modelContext();
+    expect(context[0]).toEqual(summary());
+    expect(context[1]).toEqual(summary("turn 4"));
+    expect(context[2]?.role).toBe("assistant");
+    expect(context.map(text).filter((line) => line === "turn 4")).toHaveLength(1);
+});
+
+test("the last rung keeps the running turn's prompt word for word", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    const requests: CompactionRequest[] = [];
+    const result = await compactSession(
+        options(store, (request) => {
+            requests.push(request);
+            return { projection: [summary()] };
+        }, { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary(), summary("turn 3")]);
+    // The copy is paid for out of the summary's room.
+    const room = compactionTargetBudget(pressure(store, 8_000), {})! - FIXED_OVERHEAD;
+    expect(requests[0]?.targetTokens)
+        .toBeLessThanOrEqual(room - measureMessages([summary("turn 3")]));
+});
+
+test("an answered prompt is left to the summary", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary()]);
+});
+
+test("a message sent during the turn is the one kept word for word", async () => {
+    const store = await session(1);
+    await appendToolTurn(store, 2, false);
+    await store.appendMessage({
+        role: "user",
+        arrivedDuringTurn: true,
+        content: [{ type: "text", text: "and bury the doubloons twice" }],
+    });
+    await appendToolRounds(store, 2);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    const context = store.modelContext();
+    expect(context.map(text)).toEqual([
+        "a summary of what came before",
+        "and bury the doubloons twice",
+    ]);
+    expect(context[1]).toMatchObject({ arrivedDuringTurn: true });
+});
+
+test("the kept copy survives a second compaction", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    const first = await compactSession(
+        options(store, () => ({ projection: [summary("first")] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+    expect(first.outcome).toBe("compacted");
+    await appendToolRounds(store, 3);
+    const second = await compactSession(
+        options(store, () => ({ projection: [summary("second")] }), { retainedUserTurns: 0 }),
+        pressure(store, 4_000),
+        new AbortController().signal,
+    );
+
+    expect(second.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary("second"), summary("turn 3")]);
+});
+
+test("a prompt too large to copy beside a summary is summarized as before", async () => {
+    const store = await session(1);
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: `turn 2 ${"plank ".repeat(2_000)}` }],
+    });
+    await appendToolRounds(store, 2);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary()]);
 });
 
 test("overhead that fills the target still compacts when the leanest plan lands under the trigger", async () => {

@@ -395,9 +395,14 @@ async function attemptCompaction(
         ...active.slice(previousBoundary + 1, plan.boundaryIndex + 1)
             .map((entry) => entry.message),
     ];
+    const carried = options.pendingPrompt === true
+        ? undefined
+        : carriedMessage(active, plan, targetTokens);
     const request: CompactionRequest = {
         messages: deepFreeze(structuredClone(span) as ModelMessage[]),
-        targetTokens,
+        targetTokens: carried === undefined
+            ? targetTokens
+            : targetTokens - measureMessages([carried]),
         models: options.models,
         ...(options.summaryWordCap === undefined
             ? {}
@@ -414,6 +419,9 @@ async function attemptCompaction(
             return { result: { outcome: "cancelled" }, retry: false };
         }
         projection = validateProposal(proposal, request);
+        if (carried !== undefined) {
+            projection = [...projection, carried];
+        }
         proposalModel = proposal.model;
         proposalProvider = proposal.provider;
         proposalUsage = proposal.usage;
@@ -534,6 +542,57 @@ async function attemptCompaction(
         },
         retry: false,
     };
+}
+
+// While a turn runs, its latest user message stays word for word if the plan would summarize it and a summary still fits beside it.
+function carriedMessage(
+    active: readonly SessionMessageEntry[],
+    plan: BoundaryPlan,
+    targetTokens: number,
+): ModelMessage | undefined {
+    let latest: SessionMessageEntry | undefined;
+    let latestIndex = -1;
+    for (let index = active.length - 1; index >= 0; index -= 1) {
+        const message = active[index]?.message;
+        if (
+            message?.role === "user"
+            && message.internal !== true
+            && message.compactionBarrier !== true
+            && message.contextSource === undefined
+        ) {
+            latest = active[index];
+            latestIndex = index;
+            break;
+        }
+    }
+    if (latest === undefined || latestIndex > plan.boundaryIndex) {
+        return undefined;
+    }
+    // An answered prompt is the summary's to carry; a copy would only make the result bigger.
+    const answered = active.slice(latestIndex + 1).some((entry) =>
+        entry.message.role === "assistant"
+        && entry.message.stopReason === "stop"
+    );
+    if (answered) {
+        return undefined;
+    }
+    const message = latest.message;
+    if (message.role !== "user") {
+        return undefined;
+    }
+    // A projection cannot carry attachment references, so only the words survive.
+    const content = message.content.filter((block) => block.type === "text");
+    if (content.length === 0) {
+        return undefined;
+    }
+    const copy: ModelMessage = {
+        role: "user",
+        content: structuredClone(content),
+        ...(message.arrivedDuringTurn === true ? { arrivedDuringTurn: true } : {}),
+    };
+    return targetTokens - measureMessages([copy]) >= MIN_SUMMARY_TOKENS
+        ? copy
+        : undefined;
 }
 
 function contextTokens(
