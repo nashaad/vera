@@ -239,12 +239,23 @@ async function persistContextRecipe(
 
 const MAX_CONTEXT_SCALE = 3;
 
+// A resumed session has made no request yet, so the last recorded request stands in for the system prompt and tools.
+function recordedOverhead(store: SessionMessageStore): number {
+    if (!(store instanceof SessionStore)) {
+        return 0;
+    }
+    const components = store.latestContextMeasurement()?.projection?.components ?? [];
+    return components
+        .filter((component) => component.kind !== "message")
+        .reduce((total, component) => total + component.estimatedTokens, 0);
+}
+
 export interface ContextWatch {
-    measurement?: ContextMeasurement;
+    // The system prompt and tool schemas of the last request; compaction does not change them.
+    overheadTokens?: number;
     scale?: number;
     // Another model has its own tokenizer, so a scale applies only to the model it was measured on.
     scaleModel?: string;
-    messageTokens?: number;
     refusedForSize?: boolean;
 }
 
@@ -774,7 +785,6 @@ export async function runHeadlessLoop(
     let automaticCompactionBlocked = false;
     let automaticCompactionBlockedAt: number | undefined;
     let latchedAssignmentKey: string | undefined;
-    let automaticCompactionRetryAfterPending = false;
     const compactionCapacity = (
         context?: CompactionContext,
     ): number | undefined => {
@@ -782,21 +792,18 @@ export async function runHeadlessLoop(
             return context.capacity;
         }
         const settings = readModelSettings?.();
-        return settings?.contextWindow
+        const declared = settings?.contextWindow
             ?? contextWindowForModel(
                 settings?.provider,
                 settings?.model ?? model,
             );
+        return budgetContextWindow(declared, settings?.contextLimit);
     };
     const fixedOverhead = (): number => {
-        const watched = contextWatch.measurement;
-        return watched === undefined
-            ? 0
-            : Math.max(
-                0,
-                watched.tokens
-                    - (contextWatch.messageTokens ?? watched.tokens),
-            );
+        if (contextWatch.overheadTokens === undefined) {
+            contextWatch.overheadTokens = recordedOverhead(store);
+        }
+        return contextWatch.overheadTokens;
     };
     const spillDirectory = join(scratchDir, SPILL_DIRECTORY_NAME);
     const agingPolicy = (
@@ -833,12 +840,12 @@ export async function runHeadlessLoop(
         const modelContext = store.modelContext(
             agingPolicy(context, pendingMessages),
         );
-        const overheadTokens = fixedOverhead();
         const measuredModel = context?.model ?? readModelSettings?.().model ?? model;
-        const estimate = measureMessages(
-            [...modelContext, ...pendingMessages],
-            measuredModel,
-        ) + overheadTokens;
+        // Pending messages are not in the store yet, so a compaction plan can only budget for them as overhead.
+        const overheadTokens = fixedOverhead()
+            + measureMessages(pendingMessages, measuredModel);
+        const estimate = measureMessages(modelContext, measuredModel)
+            + overheadTokens;
         lastRawEstimate = estimate;
         return {
             overheadTokens,
@@ -876,13 +883,6 @@ export async function runHeadlessLoop(
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
             );
-            if (
-                !force
-                && pendingMessages.length === 0
-                && automaticCompactionRetryAfterPending
-            ) {
-                automaticCompactionRetryAfterPending = false;
-            }
             const measurement = measureContextNow(pendingMessages, context);
             const announced = boundary.readState().compaction;
             const assignmentKey = compactionAssignmentKey(compaction, announced);
@@ -970,6 +970,7 @@ export async function runHeadlessLoop(
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
                 ...(estimateScale === undefined ? {} : { estimateScale }),
+                ...(hasPendingUserTurn ? { pendingPrompt: true } : {}),
             };
             if (turn !== undefined) {
                 inbound.beginAutomaticCompaction(turn.controller);
@@ -1010,9 +1011,6 @@ export async function runHeadlessLoop(
                     ? { before: result.before, after: result.after }
                     : {}),
             });
-            if (result.outcome === "no_boundary" && hasPendingUserTurn) {
-                automaticCompactionRetryAfterPending = true;
-            }
             const stoppedWithTurn = result.outcome === "cancelled"
                 && turn?.turnSignal.aborted === true;
             if (
@@ -1028,6 +1026,9 @@ export async function runHeadlessLoop(
                 latchedAssignmentKey = assignmentKey;
             }
             if (result.outcome === "compacted") {
+                automaticCompactionBlocked = false;
+                automaticCompactionBlockedAt = undefined;
+                latchedAssignmentKey = undefined;
                 injectedRulePaths.clear();
                 const todoAdded = await injectScratchTodo(state);
                 const hookContextAdded = await injectSessionStartContext(state, "compacted");
@@ -1053,8 +1054,6 @@ export async function runHeadlessLoop(
                     model: compactionModel,
                     measurement: refreshedMeasurement,
                 });
-                contextWatch.measurement = undefined;
-                contextWatch.messageTokens = undefined;
             }
         };
     compactOnRequest = async (turnActive, signal) => {
@@ -1419,6 +1418,15 @@ export async function runTurn(
                 );
                 state.toolRuntime.allowedTools = applied.allowedTools;
             }
+            // The check above sized the turn for the configured model; a smaller one may not fit.
+            if (activeModel !== modelSettings.model) {
+                await compactDuringTurn(
+                    state,
+                    turn.signal,
+                    [],
+                    compactionContextForSettings(modelSettings, activeModel),
+                );
+            }
         }
 
         const catalogModels = availableModels();
@@ -1645,10 +1653,10 @@ export async function runTurn(
             });
             await persistContextRecipe(state.store, shownMeasurement);
             if (state.contextWatch !== undefined) {
-                state.contextWatch.measurement = measurement;
-                state.contextWatch.messageTokens = measureMessages(
-                    request.messages,
-                    request.model,
+                state.contextWatch.overheadTokens = Math.max(
+                    0,
+                    measurement.tokens
+                        - measureMessages(request.messages, request.model),
                 );
             }
             const substitutions: ModelSubstitution[] = pendingSubstitutions
@@ -1811,9 +1819,6 @@ export async function runTurn(
                                 watchedScale(state.contextWatch, activeModel),
                             ),
                         });
-                        if (state.contextWatch !== undefined) {
-                            state.contextWatch.measurement = remeasured;
-                        }
                     },
                     ...fallbackFor(
                         state.modelFallback,
@@ -1898,6 +1903,13 @@ export async function runTurn(
                 await commitMessage(state, continuationMessage);
                 maxTokens = continuation.nextMaxTokens;
                 lengthContinuations = continuation.continuation;
+                const continuationCapacity = capacityForModel(activeModel);
+                await compactDuringTurn(state, turn.signal, [], {
+                    model: activeModel,
+                    ...(continuationCapacity === undefined
+                        ? {}
+                        : { capacity: continuationCapacity }),
+                });
                 continue;
             }
 

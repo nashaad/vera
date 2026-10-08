@@ -78,6 +78,8 @@ export interface CompactionSchedulerOptions {
     readonly retainedUserTurns?: number;
     // The correction already applied to measurement.tokens; kept messages must be sized in the same units.
     readonly estimateScale?: number;
+    // A prompt not yet in the store, already counted in the measurement's overhead.
+    readonly pendingPrompt?: boolean;
 }
 
 export function compactionTargetBudget(
@@ -115,18 +117,59 @@ export function shouldCompact(
     if (measurement === undefined) {
         return false;
     }
-    const triggerTokens = effectiveTriggerTokens(
-        measurement.capacity,
-        trigger,
-    );
-    if (triggerTokens !== undefined && measurement.tokens >= triggerTokens) {
-        return true;
+    const triggerTokens = compactionTriggerTokens(measurement.capacity, trigger);
+    return triggerTokens !== undefined && measurement.tokens >= triggerTokens;
+}
+
+function compactionTriggerTokens(
+    capacity: number | undefined,
+    trigger?: CompactionTrigger,
+): number | undefined {
+    const tokens = effectiveTriggerTokens(capacity, trigger);
+    if (capacity === undefined) {
+        return tokens;
     }
-    if (measurement.capacity === undefined) {
-        return false;
+    const share = capacity * (trigger?.fraction ?? COMPACTION_TRIGGER_FRACTION);
+    return tokens === undefined ? share : Math.min(tokens, share);
+}
+
+function noBoundaryReason(
+    hasCandidate: boolean,
+    leanestKeptTokens: number | undefined,
+    overhead: number,
+    triggerTokens: number | undefined,
+    capacity: number | undefined,
+): string {
+    if (!hasCandidate) {
+        return "There is not enough finished history to compact yet.";
     }
-    const fraction = trigger?.fraction ?? COMPACTION_TRIGGER_FRACTION;
-    return measurement.tokens >= measurement.capacity * fraction;
+    if (triggerTokens === undefined) {
+        return "The compaction target is too small for a summary.";
+    }
+    const count = (tokens: number): string =>
+        Math.round(tokens).toLocaleString("en-US");
+    const raise = capacity === undefined
+        ? "Raise compaction.trigger_tokens."
+        : "Raise the context limit, or use a model with a larger window.";
+    if (overhead >= triggerTokens) {
+        return `Instructions and tool definitions take ${count(overhead)}`
+            + ` tokens, more than the ${count(triggerTokens)}-token compaction`
+            + ` trigger. ${raise}`;
+    }
+    if (leanestKeptTokens === undefined) {
+        return `What must stay word for word plus instructions and tool`
+            + ` definitions (${count(overhead)} tokens) leave no room for a`
+            + ` summary under the ${count(triggerTokens)}-token compaction`
+            + ` trigger. ${raise}`;
+    }
+    if (overhead + leanestKeptTokens + MIN_SUMMARY_TOKENS >= triggerTokens) {
+        return `Instructions and tool definitions (${count(overhead)} tokens)`
+            + ` plus the latest messages, which stay word for word`
+            + ` (${count(leanestKeptTokens)} tokens), leave no room for a`
+            + ` summary under the ${count(triggerTokens)}-token compaction`
+            + ` trigger. ${raise}`;
+    }
+    return "The compaction target is too small for a summary.";
 }
 
 export function compactionBudgetWarning(
@@ -213,7 +256,8 @@ export async function compactSession(
     );
 
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
-    let sawCandidate = false;
+    let leanest: { plan: BoundaryPlan; keptTokens: number } | undefined;
+    let hasCandidate = false;
     for (
         const candidate of candidateBoundaries(
             active,
@@ -221,13 +265,21 @@ export async function compactSession(
             options.retainedUserTurns ?? RETAINED_USER_TURNS,
         )
     ) {
-        sawCandidate = true;
         const kept = active.slice(candidate.boundaryIndex + 1)
             .map((entry) => entry.message);
         const keptContext = options.projectModelContext === undefined
             ? kept
             : options.projectModelContext(previousProjection, kept);
-        const room = budget - overhead - contextTokens(keptContext, options);
+        const keptTokens = contextTokens(keptContext, options);
+        hasCandidate = true;
+        // Missing the target is only worth it if the prompt being worked on stays word for word.
+        const firstKept = active[candidate.boundaryIndex + 1]?.message;
+        const keepsTurn = options.pendingPrompt === true
+            || (firstKept?.role === "user" && firstKept.internal !== true);
+        if (keepsTurn && (leanest === undefined || keptTokens <= leanest.keptTokens)) {
+            leanest = { plan: candidate, keptTokens };
+        }
+        const room = budget - overhead - keptTokens;
         if (room < MIN_SUMMARY_TOKENS) {
             continue;
         }
@@ -246,14 +298,27 @@ export async function compactSession(
             ...viable.slice(-1),
         ]
         : viable;
+    const triggerTokens = compactionTriggerTokens(capacity, options.trigger);
+    // Overhead or a large prompt can fill the target by itself. Keeping as little as possible still helps if it lands under the trigger.
+    if (
+        attempts.length === 0
+        && leanest !== undefined
+        && budget >= MIN_SUMMARY_TOKENS
+        && triggerTokens !== undefined
+        && overhead + leanest.keptTokens + MIN_SUMMARY_TOKENS < triggerTokens
+    ) {
+        attempts.push({ plan: leanest.plan, targetTokens: MIN_SUMMARY_TOKENS });
+    }
     if (attempts.length === 0) {
         return {
             outcome: "no_boundary",
-            reason: sawCandidate
-                ? "No boundary leaves room for a usable summary: what must "
-                    + "be kept verbatim plus the fixed request overhead "
-                    + "already fills the compaction target."
-                : "There is not enough finished history to compact yet.",
+            reason: noBoundaryReason(
+                hasCandidate,
+                leanest?.keptTokens,
+                overhead,
+                triggerTokens,
+                capacity,
+            ),
         };
     }
 
@@ -521,8 +586,11 @@ function* candidateBoundaries(
         }
         return;
     }
+    // Reminders, attachments and continuations ride inside a turn; counting them would let the real prompt be summarized.
     const userStarts = active.flatMap((entry, index) =>
-        entry.message.role === "user" && index > previousBoundary
+        entry.message.role === "user"
+            && entry.message.internal !== true
+            && index > previousBoundary
             ? [index]
             : []
     );
