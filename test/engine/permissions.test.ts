@@ -1049,3 +1049,53 @@ test.skipIf(!MEMORY_ENABLED)(
 test("memory.write is a configurable operation", () => {
     expect(CORE_PERMISSION_OPERATIONS.has("memory.write")).toBe(true);
 });
+
+test("web.search is a core operation", () => {
+    expect(CORE_PERMISSION_OPERATIONS.has("web.search")).toBe(true);
+});
+
+test("web fetch is allowed in ask and auto and refused in readonly", () => {
+    const call = toolCall("web_fetch", { url: "https://example.com/page" });
+    for (const mode of ["ask", "auto"] as const) {
+        expect(decide(mode, call)).toEqual({
+            behavior: "allow",
+            actions: [
+                {
+                    action: {
+                        tool: "web_fetch",
+                        verb: "unknown",
+                        operation: "web.fetch",
+                    },
+                    outcome: "allow",
+                    rule: "routine.web_fetch",
+                },
+                {
+                    action: {
+                        tool: "web_fetch",
+                        verb: "read",
+                        path: "https://example.com/page",
+                        scope: "outside_workspace",
+                    },
+                    outcome: "allow",
+                    rule: "routine.read",
+                },
+            ],
+        });
+    }
+    expect(decide("readonly", call)).toMatchObject({
+        behavior: "deny",
+        source: "mode",
+        actions: [
+            {
+                action: { operation: "web.fetch", verb: "unknown" },
+                outcome: "deny",
+                rule: "readonly.default",
+            },
+            {
+                action: { verb: "read", path: "https://example.com/page" },
+                outcome: "allow",
+                rule: "readonly.read",
+            },
+        ],
+    });
+});

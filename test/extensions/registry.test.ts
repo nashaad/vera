@@ -190,8 +190,12 @@ test("registry exposes extension tools through the ordinary tool and permission 
         [],
         { extensionTools: tools },
     )).toMatchObject({
-        behavior: "ask",
-        actions: [{ action: { operation: "web.search" } }],
+        behavior: "allow",
+        actions: [{
+            action: { operation: "web.search" },
+            outcome: "allow",
+            rule: "routine.web_search",
+        }],
     });
     await expect(executeToolHandler(
         {

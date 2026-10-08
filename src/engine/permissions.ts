@@ -213,6 +213,16 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.web_search",
+        when: { operation: "web.search" },
+        then: "allow",
+    },
+    {
+        name: "routine.web_fetch",
+        when: { operation: "web.fetch" },
+        then: "allow",
+    },
+    {
         name: "routine.read",
         when: { verb: "read" },
         then: "allow",
@@ -397,6 +407,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "process.kill",
     "process.read",
     "web.fetch",
+    "web.search",
 ]);
 
 const GIT_OPTIONS_WITH_VALUE = new Set([
