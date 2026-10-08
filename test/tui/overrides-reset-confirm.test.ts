@@ -42,7 +42,10 @@ test("the card names what is about to be cleared", async () => {
     const view = createTuiOverridesResetConfirmView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    view.update(["Compaction trigger", "Tool result ceiling"]);
+    view.update({
+        kind: "reset",
+        levers: ["Compaction trigger", "Tool result ceiling"],
+    });
     try {
         await setup.flush();
         const frame = setup.captureCharFrame();
@@ -60,10 +63,34 @@ test("one lever reads as a sentence, not as a count of one", async () => {
     const view = createTuiOverridesResetConfirmView(setup.renderer);
     setup.renderer.root.add(view.box);
     view.box.visible = true;
-    view.update(["Aging level"]);
+    view.update({ kind: "reset", levers: ["Aging level"] });
     try {
         await setup.flush();
         expect(setup.captureCharFrame()).toContain("Aging level is set.");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a target not under the trigger asks before it saves", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiOverridesResetConfirmView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update({
+        kind: "caution",
+        text: "A 0.45 summary target is not under the 0.30 trigger.",
+        patch: { postCompactionTargetFraction: 0.45 },
+        next: undefined,
+    });
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("Save a target that is not under the trigger?");
+        expect(frame).toContain("A 0.45 summary target is not under the 0.30");
+        expect(frame).toContain("[1] save anyway");
+        expect(frame).toContain("[esc] back");
+        expect(frame).not.toContain("Reset every override");
     } finally {
         setup.renderer.destroy();
     }

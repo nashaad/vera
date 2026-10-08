@@ -920,7 +920,7 @@ test("a route that failed for any other reason stops the ladder", async () => {
 test("a known window sizes the target, whatever the configured tokens say", () => {
     expect(compactionTargetBudget(measurement(9_000))).toBe(4_500);
     expect(compactionTargetBudget(measurement(9_000), {
-        trigger: { tokens: 1_000 },
+        trigger: { tokens: 8_000 },
         targetTokens: 700,
     })).toBe(4_500);
 });
@@ -999,20 +999,12 @@ test("a derived target too small for a summary asks for none", async () => {
     expect(result.outcome).toBe("no_boundary");
 });
 
-test("a target above the token trigger is reported rather than clamped", () => {
-    // The wasteful case: a low floor on a large window leaves the target above
-    // the trigger, so compacting cannot get the request back under it.
-    const warning = compactionBudgetWarning(
-        { tokens: 5_000, capacity: 200_000, estimated: true },
-        { trigger: { tokens: 5_000 } },
-    );
-
-    expect(warning).toContain("90000");
-    expect(warning).toContain("5000");
-    expect(compactionBudgetWarning(
-        measurement(9_000),
-        { trigger: { tokens: 5_000 } },
-    )).toBeUndefined();
+test("a target above the token trigger is pulled under it, not reported", () => {
+    const large = { tokens: 5_000, capacity: 200_000, estimated: true };
+    expect(compactionTargetBudget(large, { trigger: { tokens: 5_000 } }))
+        .toBe(Math.floor(5_000 * UNKNOWN_CAPACITY_TARGET_FRACTION));
+    expect(compactionBudgetWarning(large, { trigger: { tokens: 5_000 } }))
+        .toBeUndefined();
     expect(compactionBudgetWarning(measurement(9_000))).toBeUndefined();
 });
 
@@ -1040,16 +1032,67 @@ test("an unknown window uses target_tokens, so there is nothing to report",
         })).toBeUndefined();
     });
 
-test("both budget faults reach the user in one warning", () => {
-    // Known window, so target_tokens is ignored, and the share of the window
-    // it is ignored in favour of still sits above the token trigger.
+test("an ignored target_tokens is still reported when the trigger pulls the target down", () => {
     const warning = compactionBudgetWarning(
         { tokens: 5_000, capacity: 200_000, estimated: true },
         { targetTokens: 2_000, trigger: { tokens: 5_000 } },
     );
 
     expect(warning).toContain("compaction.target_tokens (2000) is ignored");
-    expect(warning).toContain("above trigger_tokens");
+    expect(warning).toContain("(1750 tokens)");
+});
+
+test("a trigger below the target pulls the target under the trigger", () => {
+    const pulled = Math.floor(3_000 * UNKNOWN_CAPACITY_TARGET_FRACTION);
+    expect(compactionTargetBudget(measurement(9_000), {
+        trigger: { fraction: 0.3 },
+    })).toBe(pulled);
+    expect(compactionTargetBudget(measurement(9_000), {
+        trigger: { tokens: 3_000 },
+    })).toBe(pulled);
+    expect(compactionTargetBudget({ tokens: 9_000, estimated: true }, {
+        trigger: { tokens: 3_000 },
+        targetTokens: 4_000,
+    })).toBe(pulled);
+    expect(compactionBudgetWarning(measurement(9_000), {
+        trigger: { fraction: 0.3 },
+    })).toBeUndefined();
+});
+
+test("a low trigger compacts once and lands under it", async () => {
+    const store = await session(12);
+    const perCharacter = measureMessages([summary("s".repeat(4_000))]) / 4_000;
+    const result = await compactSession(
+        options(store, (request) => ({
+            projection: [summary("s".repeat(
+                Math.floor((request.targetTokens - 20) / perCharacter),
+            ))],
+        }), { trigger: { fraction: 0.3 } }),
+        pressure(store, 20_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(shouldCompact(pressure(store, 20_000), { fraction: 0.3 }))
+        .toBe(false);
+});
+
+test("a trigger too small to land under still compacts, at the configured target", async () => {
+    const store = await session(12);
+    const before = measureMessages(store.modelContext());
+    let asked: number | undefined;
+    const result = await compactSession(
+        options(store, (request) => {
+            asked = request.targetTokens;
+            return { projection: [summary()] };
+        }, { trigger: { tokens: 300 } }),
+        pressure(store, 20_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(asked).toBeGreaterThan(Math.floor(300 * UNKNOWN_CAPACITY_TARGET_FRACTION));
+    expect(measureMessages(store.modelContext())).toBeLessThan(before);
 });
 
 test("a configured target fraction replaces the built-in share of the window", () => {

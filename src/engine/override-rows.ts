@@ -2,6 +2,7 @@ import {
     COMPACTION_TRIGGER_FRACTION,
     POST_COMPACTION_TARGET_FRACTION,
     RETAINED_USER_TURNS,
+    UNKNOWN_CAPACITY_TARGET_FRACTION,
     UNKNOWN_CAPACITY_TRIGGER_TOKENS,
 } from "./compaction-scheduler.ts";
 import { MAX_SUMMARY_WORDS } from "./compaction-full-summary.ts";
@@ -220,15 +221,6 @@ export function overrideConflict(
     patch: OverridePick,
 ): string | undefined {
     const configured = configuredAfter(rows, patch);
-    const target = numberAt(configured.postCompactionTargetFraction);
-    if (target !== undefined) {
-        const trigger = numberAt(configured.compactionTriggerFraction)
-            ?? COMPACTION_TRIGGER_FRACTION;
-        if (target >= trigger) {
-            return `A ${target.toFixed(2)} summary target is not under the`
-                + ` ${trigger.toFixed(2)} trigger.`;
-        }
-    }
     const ceiling = numberAt(configured.toolResultCeilingBytes)
         ?? TOOL_RESULT_CEILING_BYTES;
     const total = numberAt(configured.toolResultTotalBudgetBytes)
@@ -238,4 +230,23 @@ export function overrideConflict(
             + ` ${asBytes(ceiling)} one-result ceiling.`;
     }
     return undefined;
+}
+
+/** A target at or above the trigger loads, but compaction then aims lower than the target says, so the pane asks first. */
+export function overrideCaution(
+    rows: readonly OverrideRow[],
+    patch: OverridePick,
+): string | undefined {
+    const configured = configuredAfter(rows, patch);
+    const target = numberAt(configured.postCompactionTargetFraction)
+        ?? POST_COMPACTION_TARGET_FRACTION;
+    const trigger = numberAt(configured.compactionTriggerFraction)
+        ?? COMPACTION_TRIGGER_FRACTION;
+    if (target < trigger) {
+        return undefined;
+    }
+    const pulled = trigger * UNKNOWN_CAPACITY_TARGET_FRACTION;
+    return `A ${target.toFixed(2)} summary target is not under the`
+        + ` ${trigger.toFixed(2)} trigger. Compaction will aim for`
+        + ` ${pulled.toFixed(2)} of the window instead.`;
 }

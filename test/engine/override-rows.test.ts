@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    overrideCaution,
     overrideConflict,
     overrideRows,
     type ConfiguredOverrides,
@@ -115,14 +116,25 @@ test("a pick that stands beside what is set is not refused", () => {
 
     expect(overrideConflict(rows, { postCompactionTargetFraction: 0.45 }))
         .toBeUndefined();
+    expect(overrideCaution(rows, { postCompactionTargetFraction: 0.45 }))
+        .toBeUndefined();
     expect(overrideConflict(rows, { summaryWordCap: 500 })).toBeUndefined();
 });
 
-test("a refusal names both levers, not only the one just picked", () => {
+test("a target not under the trigger is asked about, not refused", () => {
     const rows = overrideRows({ compactionTriggerFraction: 0.3 }, 200_000);
 
     expect(overrideConflict(rows, { postCompactionTargetFraction: 0.45 }))
-        .toBe("A 0.45 summary target is not under the 0.30 trigger.");
+        .toBeUndefined();
+    expect(overrideCaution(rows, { postCompactionTargetFraction: 0.45 }))
+        .toBe("A 0.45 summary target is not under the 0.30 trigger."
+            + " Compaction will aim for 0.10 of the window instead.");
+});
+
+test("a low trigger is asked about against the shipped target", () => {
+    expect(overrideCaution(overrideRows({}, 200_000), {
+        compactionTriggerFraction: 0.3,
+    })).toContain("A 0.45 summary target is not under the 0.30 trigger.");
 });
 
 test("a lever left at its shipped default is still one side of a rule", () => {
