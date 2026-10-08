@@ -116,26 +116,14 @@ export interface VeraModelFallbackConfig {
 }
 
 /**
- * Model used by the automatic approval reviewer in `auto`. Every
- * boundary crossing costs one of these calls, so it is configured separately
- * from the agent model rather than inheriting it.
+ * How the classifier reviews. Which models it uses is the `reviewer` model
+ * assignment; this block never names them.
  *
  * If two_tier is enabled, high/critical risk allows and denials get a
- * second review. The second pass uses the same model unless escalation fields
- * override it.
- *
- * The fallback fields name a second reviewer, tried only when the first cannot
- * answer at all: it is missing, unreachable, or returns something unreadable.
- * It is not a second opinion. Without it, an unreachable reviewer leaves every
- * reviewed action with no verdict.
+ * second review. The second pass uses the assigned primary unless escalation
+ * fields override it.
  */
 export interface VeraReviewerConfig {
-    readonly provider?: VeraProviderId;
-    readonly model: string;
-    readonly reasoning_effort?: ModelReasoningEffort;
-    readonly fallback_model?: string;
-    readonly fallback_provider?: VeraProviderId;
-    readonly fallback_reasoning_effort?: ModelReasoningEffort;
     readonly timeout_ms?: number;
     readonly two_tier?: boolean;
     readonly escalation_model?: string;
@@ -392,10 +380,7 @@ export interface VeraConfigDefaultsPatch {
     /** `null` returns context sizing to the model's declared maximum. */
     readonly context_limit?: number | null;
     readonly approval_mode?: ApprovalMode;
-    /**
-     * Reviewer slots, written whole. `null` clears the reviewer entirely,
-     * which returns auto mode to reviewing on the agent's own model.
-     */
+    /** Review settings, written whole. `null` removes them. */
     readonly reviewer?: VeraReviewerConfig | null;
     /**
      * One assignment, written whole. `null` unbinds it, which returns it to
@@ -513,6 +498,15 @@ export function loadVeraConfig(
     }
 
     const migrated = migrateShippedProviderDeclarations(path, value);
+    const movedReviewerKeys = reviewerRouteKeys(migrated);
+    if (movedReviewerKeys.length > 0) {
+        throw new VeraConfigError(
+            path,
+            `reviewer.${movedReviewerKeys.join(", reviewer.")} no longer`
+                + " set the classifier. Remove them and assign the classifier"
+                + " from Defaults in /models (model_assignments.reviewer).",
+        );
+    }
     const config = parseVeraConfig(migrated);
     if (config === undefined) {
         throw new VeraConfigError(
@@ -1996,30 +1990,28 @@ function isJsonValue(value: unknown): value is JsonValue {
     return Object.values(value).every(isJsonValue);
 }
 
+const REVIEWER_ROUTE_KEYS = [
+    "model", "provider", "reasoning_effort",
+    "fallback_model", "fallback_provider", "fallback_reasoning_effort",
+] as const;
+
+function reviewerRouteKeys(config: unknown): readonly string[] {
+    if (typeof config !== "object" || config === null) return [];
+    const reviewer = (config as Record<string, unknown>).reviewer;
+    if (typeof reviewer !== "object" || reviewer === null) return [];
+    return REVIEWER_ROUTE_KEYS.filter((key) => Object.hasOwn(reviewer, key));
+}
+
 function parseReviewer(
     value: unknown,
     providers: Readonly<Record<string, VeraCustomProviderConfig>>,
 ): VeraReviewerConfig | undefined {
-    if (typeof value !== "object" || value === null) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return undefined;
     }
     const reviewer = value as Record<string, unknown>;
     if (
-        typeof reviewer.model !== "string"
-        || reviewer.model.trim().length === 0
-        || (reviewer.provider !== undefined
-            && (typeof reviewer.provider !== "string"
-                || !isConfiguredProviderId(reviewer.provider, providers)))
-        || (reviewer.reasoning_effort !== undefined
-            && !isReasoningEffort(reviewer.reasoning_effort))
-        || (reviewer.fallback_model !== undefined
-            && (typeof reviewer.fallback_model !== "string"
-                || reviewer.fallback_model.trim().length === 0))
-        || (reviewer.fallback_provider !== undefined
-            && (typeof reviewer.fallback_provider !== "string"
-                || !isConfiguredProviderId(reviewer.fallback_provider, providers)))
-        || (reviewer.fallback_reasoning_effort !== undefined
-            && !isReasoningEffort(reviewer.fallback_reasoning_effort))
+        REVIEWER_ROUTE_KEYS.some((key) => Object.hasOwn(reviewer, key))
         || (reviewer.timeout_ms !== undefined
             && (typeof reviewer.timeout_ms !== "number"
                 || !Number.isInteger(reviewer.timeout_ms)
@@ -2039,22 +2031,6 @@ function parseReviewer(
         return undefined;
     }
     return {
-        model: reviewer.model.trim(),
-        ...(reviewer.provider === undefined
-            ? {}
-            : { provider: reviewer.provider as VeraProviderId }),
-        ...(reviewer.reasoning_effort === undefined
-            ? {}
-            : { reasoning_effort: reviewer.reasoning_effort }),
-        ...(reviewer.fallback_model === undefined
-            ? {}
-            : { fallback_model: reviewer.fallback_model.trim() }),
-        ...(reviewer.fallback_provider === undefined
-            ? {}
-            : { fallback_provider: reviewer.fallback_provider as VeraProviderId }),
-        ...(reviewer.fallback_reasoning_effort === undefined
-            ? {}
-            : { fallback_reasoning_effort: reviewer.fallback_reasoning_effort }),
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeout_ms: reviewer.timeout_ms }),
@@ -2411,58 +2387,30 @@ export function configuredReviewers(
         }
     }
 
+    if (
+        configured.default === undefined
+        && assignment.models.length > 0
+    ) {
+        configured.default = {
+            models: assignment.models.map((model) => ({
+                provider: model.provider,
+                model: model.model,
+                ...(model.reasoning_effort === undefined
+                    ? {}
+                    : { reasoningEffort: model.reasoning_effort }),
+            })),
+        };
+    }
     const reviewer = config.reviewer;
-    // The legacy plain block is still written by the direct classifier picker,
-    // so it overrides only the default profile's route while preserving that
-    // profile's policy. Clearing it reveals the named profile or assignment.
-    if (reviewer === undefined) {
-        if (
-            configured.default === undefined
-            && assignment.models.length > 0
-        ) {
-            configured.default = {
-                models: assignment.models.map((model) => ({
-                    provider: model.provider,
-                    model: model.model,
-                    ...(model.reasoning_effort === undefined
-                        ? {}
-                        : { reasoningEffort: model.reasoning_effort }),
-                })),
-            };
-        }
+    const primary = configured.default?.models[0];
+    if (reviewer === undefined || configured.default === undefined || primary === undefined) {
         return configured;
     }
     const escalationConfigured = reviewer.escalation_model !== undefined
         || reviewer.escalation_provider !== undefined
         || reviewer.escalation_reasoning_effort !== undefined;
     configured.default = {
-        // A hand-written default profile may still supply the policy and any
-        // timeout the direct picker did not override.
         ...configured.default,
-        // Ordered route: the router walks it and moves on when a reviewer
-        // cannot answer, so the fallback is simply the second entry.
-        models: [
-            {
-                model: reviewer.model,
-                ...(reviewer.provider === undefined
-                    ? {}
-                    : { provider: reviewer.provider }),
-                ...(reviewer.reasoning_effort === undefined
-                    ? {}
-                    : { reasoningEffort: reviewer.reasoning_effort }),
-            },
-            ...(reviewer.fallback_model === undefined ? [] : [{
-                model: reviewer.fallback_model,
-                ...(reviewer.fallback_provider === undefined
-                    ? reviewer.provider === undefined
-                        ? {}
-                        : { provider: reviewer.provider }
-                    : { provider: reviewer.fallback_provider }),
-                ...(reviewer.fallback_reasoning_effort === undefined
-                    ? {}
-                    : { reasoningEffort: reviewer.fallback_reasoning_effort }),
-            }]),
-        ],
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),
@@ -2473,11 +2421,11 @@ export function configuredReviewers(
             ? {}
             : {
                 escalationModel: {
-                    model: reviewer.escalation_model ?? reviewer.model,
+                    model: reviewer.escalation_model ?? primary.model,
                     ...(reviewer.escalation_provider === undefined
-                        ? reviewer.provider === undefined
+                        ? primary.provider === undefined
                             ? {}
-                            : { provider: reviewer.provider }
+                            : { provider: primary.provider }
                         : { provider: reviewer.escalation_provider }),
                     ...(reviewer.escalation_reasoning_effort === undefined
                         ? {}

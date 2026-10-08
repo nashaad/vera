@@ -339,9 +339,12 @@ test("Vera config carries reviewer two-tier settings", () => {
         schema_version: 1,
         provider: "openrouter",
         model: "anthropic/example-model",
+        model_assignments: {
+            reviewer: {
+                models: [{ name: "classifier", provider: "openrouter", model: "anthropic/review-model" }],
+            },
+        },
         reviewer: {
-            provider: "openrouter",
-            model: "anthropic/review-model",
             two_tier: true,
             escalation_reasoning_effort: "high",
         },
@@ -350,8 +353,6 @@ test("Vera config carries reviewer two-tier settings", () => {
     const config = loadVeraConfig({ path });
 
     expect(config.reviewer).toEqual({
-        provider: "openrouter",
-        model: "anthropic/review-model",
         two_tier: true,
         escalation_reasoning_effort: "high",
     });
@@ -374,16 +375,52 @@ test("Vera config leaves reviewer two-tier off by default", () => {
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
+        model_assignments: {
+            reviewer: {
+                models: [{ name: "classifier", provider: "openrouter", model: "anthropic/review-model" }],
+            },
+        },
         reviewer: {
-            model: "anthropic/review-model",
             escalation_model: "anthropic/second-review-model",
         },
     }));
 
     expect(configuredReviewer(loadVeraConfig({ path }))).toEqual({
-        models: [{ model: "anthropic/review-model" }],
-        escalationModel: { model: "anthropic/second-review-model" },
+        models: [{ provider: "openrouter", model: "anthropic/review-model" }],
+        escalationModel: {
+            provider: "openrouter",
+            model: "anthropic/second-review-model",
+        },
     });
+});
+
+test("reviewer settings without a classifier assignment pick no classifier", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reviewer: { two_tier: true, timeout_ms: 30_000 },
+    }));
+
+    expect(configuredReviewer(loadVeraConfig({ path }))).toBeUndefined();
+});
+
+test("naming a classifier model in the reviewer block fails the load with where it moved", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        reviewer: {
+            provider: "openrouter",
+            model: "anthropic/review-model",
+            fallback_model: "anthropic/backup-model",
+        },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow(
+        "reviewer.model, reviewer.provider, reviewer.fallback_model no longer set the classifier",
+    );
+    expect(() => loadVeraConfig({ path })).toThrow("model_assignments.reviewer");
 });
 
 test("a damaged reviewer two-tier flag fails the load", () => {
@@ -392,7 +429,6 @@ test("a damaged reviewer two-tier flag fails the load", () => {
         schema_version: 1,
         model: "anthropic/example-model",
         reviewer: {
-            model: "anthropic/review-model",
             two_tier: "yes",
         },
     }));
@@ -1308,7 +1344,7 @@ test("a damaged config names the file and the parse problem", () => {
     );
 });
 
-test("a plain reviewer block is the default profile beside a catalog", () => {
+test("the classifier assignment is the default profile beside a catalog", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
@@ -1324,10 +1360,13 @@ test("a plain reviewer block is the default profile beside a catalog", () => {
         reviewer_profiles: {
             deep: { model_route: "deep", policy: "Be careful." },
         },
-        reviewer: {
-            model: "haiku",
-            provider: "openrouter",
-            fallback_model: "sonnet",
+        model_assignments: {
+            reviewer: {
+                models: [
+                    { name: "haiku", provider: "openrouter", model: "haiku" },
+                    { name: "sonnet", provider: "openrouter", model: "sonnet" },
+                ],
+            },
         },
     }));
 
@@ -1366,7 +1405,7 @@ test("an inline classifier assignment supplies the default reviewer", () => {
     });
 });
 
-test("the direct classifier picker overrides a default profile route", () => {
+test("a default profile without a route keeps its policy and uses the classifier assignment", () => {
     const config: VeraConfig = {
         schema_version: 1,
         provider: "openrouter",
@@ -1387,16 +1426,12 @@ test("the direct classifier picker overrides a default profile route", () => {
                 timeout_ms: 12_000,
             },
         },
-        reviewer: {
-            provider: "openrouter",
-            model: "picker-classifier",
-        },
     };
 
     expect(configuredReviewer(config)).toEqual({
         models: [{
             provider: "openrouter",
-            model: "picker-classifier",
+            model: "assigned-classifier",
         }],
         policy: "Keep this policy.",
         timeoutMs: 12_000,

@@ -151,3 +151,41 @@ test("assigning a default runs no verification unless the setting asks for it", 
         else process.env.VERA_POOL_FILE = previousPool;
     }
 }, 15_000);
+
+test("assigning the classifier from Defaults keeps its failsafe", async () => {
+    let configPath = "";
+    const previousPool = process.env.VERA_POOL_FILE;
+    const session = await startTuiTestSession({
+        home: mkdtempSync(join(tmpdir(), "vera-default-failsafe-")), width: 120, height: 40,
+        dependencies: () => {
+            configPath = defaultVeraConfigPath();
+            process.env.VERA_POOL_FILE = join(configPath, "..", "pool.json");
+            writeFileSync(configPath, JSON.stringify({ schema_version: 1, provider: "openrouter", model: "one/model", approval_mode: "ask",
+                model_assignments: { reviewer: { models: [
+                    { name: "prior", provider: "openrouter", model: "prior" },
+                    { name: "backup", provider: "openrouter", model: "backup" },
+                ] } },
+            }));
+            return createTuiCatalogRefreshDependencies({ pooled: [] });
+        },
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("assign model");
+        await session.waitForVisiblePane("Assign model defaults");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("classifier");
+        session.sendKey("Down"); session.sendKey("Down"); session.sendKey("Down"); session.sendKey("Enter");
+        await session.waitForVisiblePane("Assign a model to classifier");
+        session.sendText("One"); session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(() => loadVeraConfig({ path: configPath }).model_assignments?.reviewer?.models?.[0]?.model === "one/model", "assignment saved");
+        expect(loadVeraConfig({ path: configPath }).model_assignments?.reviewer?.models?.map((entry) => entry.model))
+            .toEqual(["one/model", "backup"]);
+    } finally {
+        await session.close();
+        if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
+        else process.env.VERA_POOL_FILE = previousPool;
+    }
+}, 15_000);

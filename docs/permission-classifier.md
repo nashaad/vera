@@ -25,7 +25,7 @@ conversation model does not change the configured classifier.
 
 ## Choose a classifier
 
-1. Open `/settings` and choose **Defaults**.
+1. Open `/models` and choose **Defaults**.
 2. Under Dedicated jobs, choose **classifier**.
 3. Select its model and reasoning effort.
 
@@ -38,14 +38,18 @@ conversations. No host restart is needed.
 > **Intelligence cutoff** in the model picker's Filter and sort (see
 > [Models](models.md)) so that only well-ranked models are listed.
 
-### Override the default
+### Set a failsafe
 
-The **Classifier** entry in `/settings` can set a primary and optional failsafe
-model. **Use configured default** clears this override and returns to the
-available default assignment or session-model fallback.
+The **Classifier** entry in `/settings` sets the same classifier as Defaults,
+plus an optional failsafe model. Changing the classifier in Defaults keeps the
+failsafe. **Use configured default** clears the classifier, so the session
+model reviews actions instead.
 
-The stored assignment key is `model_assignments.reviewer` for compatibility.
-The interface calls the job classifier.
+The stored key is `model_assignments.reviewer`: the first model is the
+classifier and the second is the failsafe. The interface calls the job
+classifier. The `reviewer` block in `config.json` holds only review settings
+such as `timeout_ms` and `two_tier`. A `reviewer` block that names a model
+fails to load, with a message that says to remove it.
 
 ## Understand the result
 
@@ -64,9 +68,10 @@ results.
 
 ## Recover from an unavailable classifier
 
-A failsafe handles a reviewer that errors or cannot be reached. Configure it in
-`/settings` under Classifier, or use `fallback_model`, `fallback_provider`, and
-`fallback_reasoning_effort` in the reviewer configuration.
+A failsafe handles a classifier that errors or cannot be reached. Set it in
+`/settings` under Classifier. If the provider itself is the problem, such as
+an exhausted credit balance, pick a classifier on another provider there or in
+Defaults.
 
 ## Inspect review logs
 
