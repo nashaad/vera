@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { startTui, type TuiAgentClient } from "../../clients/tui/main.ts";
 import { saveTuiThemePreference } from "../../clients/tui/theme-preference.ts";
@@ -177,6 +180,12 @@ async function startSubscriptionTurn(width: number): Promise<SubscriptionTurn> {
 }
 
 test("a subscription turn keeps the composer still and its status beside its bar", async () => {
+    // The footer shows the process folder; make it long enough to shorten from any checkout.
+    const previousCwd = process.cwd();
+    const root = mkdtempSync(join(tmpdir(), "vera-footer-"));
+    const longPlace = join(root, "crows-nest", "harbour", "raids", "black-sail", "plot-a-course");
+    mkdirSync(longPlace, { recursive: true });
+    process.chdir(longPlace);
     const { setup, exit, model, rowWith, row, border } = await startSubscriptionTurn(100);
     try {
         await until(setup, (frame) => frame.includes("5h 72% left · week 96% left")
@@ -225,6 +234,8 @@ test("a subscription turn keeps the composer still and its status beside its bar
     } finally {
         setup.renderer.destroy();
         await exit;
+        process.chdir(previousCwd);
+        rmSync(root, { recursive: true, force: true });
     }
 }, 30_000);
 
