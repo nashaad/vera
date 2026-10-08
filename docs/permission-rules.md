@@ -84,6 +84,7 @@ A `when` must name at least one field, and every field it names must match.
 | `verb` | `read`, `write`, `delete`, or `unknown`. |
 | `path` | That absolute path or anything under it. |
 | `path_glob` | The file name; `*` matches any run of characters. |
+| `host` | The website a URL points at, such as `github.com`. `*.github.com` matches its subdomains but not `github.com` itself. |
 | `path_scope` | `workspace` or `outside_workspace`. |
 | `operation` | An operation such as `git.push`, or a prefix ending in `*` such as `git.*`. |
 | `executable` | A shell command name, such as `make`. |
@@ -94,9 +95,34 @@ anywhere needs a `reviewer_profile` naming an entry in `reviewer_profiles`.
 Operations you can name: `agent.close`, `agent.inbox`, `agent.message`,
 `agent.roster`, `agent.spawn`, `git.clone`, `git.commit`, `git.fetch`,
 `git.ls_remote`, `git.pull`, `git.push`, `git.remote_update`, `memory.write`,
-`process.kill`, `process.read`, `web.fetch`, `web.search`.
+`process.kill`, `process.read`, `web.download`, `web.fetch`, `web.search`.
 
 > [!WARNING]
 > A mistake in any custom mode stops the whole config from loading. Mode names
 > use lowercase letters, digits, `-`, and `_`. A custom mode cannot replace a
 > built-in one.
+
+### Websites
+
+`host` lets a rule name a website. On shore leave the crow may download
+from GitHub without asking, and the navy is refused outright:
+
+```json
+"permission_modes": {
+  "shore-leave": {
+    "default": "ask",
+    "rules": [
+      { "when": { "host": "royal-navy.example" }, "then": "deny" },
+      { "when": { "operation": "web.download", "host": "github.com" }, "then": "allow" },
+      { "when": { "operation": "web.download", "host": "*.github.com" }, "then": "allow" },
+      { "when": { "verb": "read" }, "then": "allow" }
+    ]
+  }
+}
+```
+
+Put a host `deny` before any rule that would allow the same request.
+Write international names in their `xn--` form, without a port or path.
+
+A host rule checks the address Vera asked for. A redirect to another site
+is not checked again, and shell commands such as `curl` are not covered.

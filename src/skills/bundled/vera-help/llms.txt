@@ -96,11 +96,12 @@ The transcript animates while work runs. The footer shows a small activity strip
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Pairing panes from `/btw` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=17]
+## Tools, permissions, and agents [lines=18]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 The permission modes are readonly, ask, auto, and full access. Home config can add named custom modes with their own rules.
+A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
 Always on an approval prompt saves an allow rule for every conversation. Review granted permissions in the command palette lists and removes them.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
 Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in.
