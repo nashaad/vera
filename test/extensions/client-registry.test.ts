@@ -288,6 +288,42 @@ test("client picker rejects a non-string subtitle", async () => {
     await registry.close();
 });
 
+for (const [name, request, error] of [
+    ["an unknown size", `{ title: "Recap", size: "huge", rows: [{ id: "one", label: "One" }] }`, "request"],
+    ["a blank heading", `{ title: "Recap", rows: [{ id: "one", label: "One", heading: " " }] }`, "row"],
+] as const) {
+    test(`client picker rejects ${name}`, async () => {
+        const extension = createExtension(
+            "client.invalid-picker-shape",
+            ["client.commands.register", "client.ui.picker"],
+            `
+                export function activateClient(vera) {
+                    vera.commands.register({
+                        name: "pick",
+                        description: "Pick",
+                        usage: "/pick",
+                        async run() {
+                            await vera.ui.requestPicker({
+                                ...${request},
+                                actions: [{ id: "jump", label: "jump", keys: ["enter"] }],
+                            });
+                            return { kind: "text", text: "unreachable" };
+                        },
+                    });
+                }
+            `,
+        );
+        const registry = await startClientExtensionRegistry({
+            extensions: [configured(extension)],
+            ...createHarness().adapters,
+        });
+
+        await expect(registry.invokeCommand("pick", "", createDirectory()))
+            .rejects.toThrow(`Invalid client extension picker ${error}`);
+        await registry.close();
+    });
+}
+
 test("client registry keeps command and keybinding ownership atomic", async () => {
     const first = createExtension("client.first", [
         "client.commands.register",
@@ -1522,6 +1558,108 @@ test("an extension writes a labeled block into the transcript", async () => {
         label: "m1 (claude-opus-5)",
         text: "a longer answer\n\nwith paragraphs",
     }]);
+    await registry.close();
+});
+
+test("an extension reads thread entries and reveals one", async () => {
+    const extension = createExtension("client.trail", [
+        "client.commands.register",
+        "client.thread.read",
+        "client.ui.reveal",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "trail",
+                description: "follow the crow",
+                usage: "/trail",
+                run() {
+                    const entries = vera.thread.entries();
+                    const landed = vera.ui.reveal({ entryId: entries[0].id });
+                    const end = vera.ui.reveal({ end: true });
+                    return { kind: "text", text: JSON.stringify({ entries, landed, end }) };
+                },
+            });
+        }
+    `);
+    const reveals: unknown[] = [];
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        thread: {
+            read: () => [],
+            entries: () => [{ kind: "user", text: "bury the gold", id: "m1#0", at: 1_000 }],
+        },
+        reveal: {
+            reveal(extensionId, target) {
+                reveals.push({ extensionId, target });
+                return "entryId" in target;
+            },
+        },
+    });
+
+    const result = await registry.invokeCommand("trail", "", "/tmp/workspace");
+    expect(result?.body).toEqual({
+        kind: "text",
+        text: JSON.stringify({
+            entries: [{ kind: "user", text: "bury the gold", id: "m1#0", at: 1_000 }],
+            landed: true,
+            end: false,
+        }),
+    });
+    expect(reveals).toEqual([
+        { extensionId: "client.trail", target: { entryId: "m1#0" } },
+        { extensionId: "client.trail", target: { end: true } },
+    ]);
+    await registry.close();
+});
+
+test("ui.reveal needs its own capability and a real target", async () => {
+    const extension = createExtension("client.blind", [
+        "client.commands.register",
+        "client.thread.read",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "look",
+                description: "look",
+                usage: "/look",
+                run(request) {
+                    vera.ui.reveal(request.argumentsText === "bad" ? { entryId: "" } : { end: true });
+                },
+            });
+        }
+    `);
+    const blind = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+        reveal: { reveal() { throw new Error("must not be reached"); } },
+    });
+    await expect(blind.invokeCommand("look", "", "/tmp/workspace"))
+        .rejects.toThrow("client.ui.reveal");
+    await blind.close();
+
+    const sighted = createExtension("client.sighted", [
+        "client.commands.register",
+        "client.ui.reveal",
+    ], `
+        export function activateClient(vera) {
+            vera.commands.register({
+                name: "look",
+                description: "look",
+                usage: "/look",
+                run() {
+                    vera.ui.reveal({ entryId: "" });
+                },
+            });
+        }
+    `);
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(sighted)],
+        ...createHarness().adapters,
+        reveal: { reveal() { throw new Error("must not be reached"); } },
+    });
+    await expect(registry.invokeCommand("look", "", "/tmp/workspace"))
+        .rejects.toThrow("Reveal needs an entryId or end: true");
     await registry.close();
 });
 

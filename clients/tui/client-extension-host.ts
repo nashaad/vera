@@ -17,6 +17,7 @@ import {
     type ClientExtensionRegistryFailure,
     type ClientExtensionSidebarAdapter,
     type ClientExtensionThreadAdapter,
+    type ClientExtensionRevealAdapter,
     type ClientExtensionSessionsAdapter,
     type ClientExtensionTranscriptAdapter,
 } from "../../src/extensions/client-registry.ts";
@@ -26,6 +27,8 @@ import type {
     VeraClientPickerRequest,
     VeraClientPickerResult,
     VeraClientThreadTurn,
+    VeraClientThreadEntry,
+    VeraClientRevealTarget,
     VeraClientSessionListRequest,
     VeraClientSessionPage,
     VeraClientTranscriptBlock,
@@ -62,6 +65,8 @@ export interface StartTuiClientExtensionHostOptions {
     readonly agents: ClientExtensionAgentsAdapter;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: ClientExtensionThreadAdapter["read"];
+    readonly readThreadEntries: ClientExtensionThreadAdapter["entries"];
+    readonly reveal: ClientExtensionRevealAdapter["reveal"];
     readonly listSessions?: ClientExtensionSessionsAdapter["list"];
     readonly appendTranscript: (
         block: VeraClientTranscriptBlock,
@@ -104,6 +109,8 @@ export interface TuiClientExtensionHostBindings {
     readonly agents: ClientExtensionAgentsAdapter;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: () => readonly VeraClientThreadTurn[];
+    readonly readThreadEntries: () => readonly VeraClientThreadEntry[];
+    readonly reveal: (target: VeraClientRevealTarget) => boolean;
     readonly listSessions?: (
         request: VeraClientSessionListRequest,
     ) => Promise<VeraClientSessionPage>;
@@ -159,6 +166,8 @@ export function createTuiClientExtensionHostStarter(
             agents: options.agents,
             experimentalTui: options.experimentalTui,
             readThread: (_extensionId) => options.readThread(),
+            readThreadEntries: (_extensionId) => options.readThreadEntries(),
+            reveal: (_extensionId, target) => options.reveal(target),
             ...(options.listSessions === undefined ? {} : {
                 listSessions: (
                     _extensionId: string,
@@ -282,7 +291,8 @@ export async function startTuiClientExtensionHost(
         addressing: { set: options.setAddressing },
         agents: options.agents,
         experimentalTui: options.experimentalTui,
-        thread: { read: options.readThread },
+        thread: { read: options.readThread, entries: options.readThreadEntries },
+        reveal: { reveal: options.reveal },
         ...(options.listSessions === undefined
             ? {}
             : { sessions: { list: options.listSessions } }),

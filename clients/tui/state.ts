@@ -7,6 +7,11 @@ import { bg, bold, fg, italic, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
+import {
+    applyThreadUpdate,
+    EMPTY_THREAD_FACTS,
+    type ThreadFacts,
+} from "../shared/thread-facts.ts";
 import { formatModelSubstitution } from "../../src/engine/protocol.ts";
 import type {
     CompactionUpdate,
@@ -138,6 +143,8 @@ export interface TuiQueuedPrompt {
 
 export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
+    /** What `thread.entries()` hands extensions; kept apart from the rendered rows. */
+    readonly threadFacts?: ThreadFacts;
     readonly working: boolean;
     readonly transcriptStarted?: boolean;
     readonly reopenedTurnFinishedAt?: number;
@@ -319,6 +326,13 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
 }
 
 export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
+    const next = applyTuiUpdate(state, update);
+    const before = state.threadFacts ?? EMPTY_THREAD_FACTS;
+    const threadFacts = applyThreadUpdate(before, update, Date.now());
+    return threadFacts === before ? next : { ...next, threadFacts };
+}
+
+function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
     if (update.type === "prompt_queue") {
         return {
             ...state,

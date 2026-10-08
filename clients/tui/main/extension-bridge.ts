@@ -220,7 +220,7 @@ export function requestExtensionPicker(rt: TuiRuntime,
         actions,
         request.subtitle,
         request.searchable,
-        { layout: request.layout, searchPlaceholder: request.searchPlaceholder },
+        { layout: request.layout, size: request.size, searchPlaceholder: request.searchPlaceholder },
     );
     rt.composer.blur();
     renderState(rt);

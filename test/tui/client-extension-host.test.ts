@@ -182,6 +182,8 @@ test("the TUI extension host binds a configured extension to client surfaces", a
             },
         },
         readThread: () => [],
+        readThreadEntries: () => [],
+        reveal: () => false,
         appendTranscript: () => {},
         postNotice: (text) => notices.push(text),
         commandRegistry,

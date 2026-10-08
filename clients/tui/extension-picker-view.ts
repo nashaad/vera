@@ -8,7 +8,13 @@ import { dialogSearchHeight } from "./dialog-search.ts";
 import { listWindowSlice } from "./list-window.ts";
 import { TUI_ELEMENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import { mixHex } from "./theme.ts";
-import type { TuiExtensionPickerState } from "./settings-picker-types.ts";
+import type { TuiExtensionPickerRow, TuiExtensionPickerState } from "./settings-picker-types.ts";
+
+type PickerLine =
+    | { readonly kind: "option"; readonly index: number; readonly row: TuiExtensionPickerRow }
+    | { readonly kind: "divider" }
+    | { readonly kind: "space" }
+    | { readonly kind: "heading"; readonly text: string };
 
 export function extensionPickerButtons(state: TuiExtensionPickerState) {
     return state.extensionActions.filter((action) => action.button);
@@ -20,8 +26,9 @@ export function renderExtensionPicker(
     pointer: DialogRowPointer | undefined, railInset: number,
 ): void {
     const menu = state.layout === "menu";
+    const full = state.size === "full";
     const compact = renderer.height < 30;
-    const width = menu ? Math.min(64, renderer.width - 4) : Math.floor((renderer.width - railInset) * 0.96);
+    const width = menu && !full ? Math.min(64, renderer.width - 4) : Math.floor((renderer.width - railInset) * 0.96);
     const contentWidth = Math.max(1, width - DIALOG_CARD_PADDING * 2);
     const add = (node: Renderable): void => { box.add(node); nodes.push(node); };
     const text = (content: string, height = 1) => new TextRenderable(renderer, {
@@ -47,7 +54,7 @@ export function renderExtensionPicker(
     }
     const buttons = extensionPickerButtons(state);
     const selected = state.extensionRows.find((row) => row.id === state.options[state.selectedIndex]?.value);
-    const detailWidth = Math.max(28, Math.floor(contentWidth * 0.4));
+    const detailWidth = Math.max(28, Math.floor(contentWidth * (full ? 0.3 : 0.4)));
     const split = !menu && contentWidth - detailWidth - 3 >= 30;
     const details = (lines: readonly string[], width: number): string[] => lines.filter((line) => !compact || line.length > 0).flatMap((line) => wrapLines(line, width));
     const detailLines = details(selected?.details ?? [], split ? detailWidth : contentWidth);
@@ -56,30 +63,35 @@ export function renderExtensionPicker(
         + (subtitle.length ? subtitle.length + (compact ? 0 : state.searchable ? 1 : 2) : 0)
         + (buttons.length ? buttons.length + 2 : 0) + (helperHeight ? helperHeight + 1 : 0);
     const room = Math.max(1, renderer.height - chrome - 2);
-    const rows = state.options.flatMap((option, index) => {
-        const row = state.extensionRows.find((row) => row.id === option.value)!;
-        const previous = state.extensionRows.find((row) => row.id === state.options[index - 1]?.value);
-        return index > 0 && row.group !== previous?.group
-            ? [{ index: -1, row }, { index, row }] : [{ index, row }];
-    });
-    const cursor = rows.findIndex((row) => row.index === state.selectedIndex);
+    const rows = pickerLines(state);
+    const isOption = (line: PickerLine): boolean => line.kind === "option";
+    const cursor = rows.findIndex((line) => line.kind === "option" && line.index === state.selectedIndex);
     const scrolling = rows.length > room;
     const bodyRoom = Math.max(1, room - (scrolling ? 1 : 0));
     const visible = listWindowSlice(rows, cursor, bodyRoom);
-    const bodyHeight = Math.max(1, Math.min(bodyRoom, Math.max(visible.length, split ? detailLines.length : 0)));
+    const bodyHeight = full ? bodyRoom : Math.max(1, Math.min(bodyRoom, Math.max(visible.length, split ? detailLines.length : 0)));
     const body = new BoxRenderable(renderer, { width: "100%", height: bodyHeight, flexDirection: "row", flexShrink: 0 });
     const listWidth = split ? contentWidth - detailWidth - 3 : contentWidth;
     const list = new BoxRenderable(renderer, { width: listWidth, height: bodyHeight, flexDirection: "column", flexShrink: 0, paddingRight: split ? 2 : 0 });
     body.add(list);
     add(body);
     if (!visible.length) list.add(text("No matching providers"));
-    for (const { index, row } of visible) {
-        if (index < 0) {
+    for (const line of visible) {
+        if (line.kind === "divider") {
             const divider = text(` ${"╌".repeat(Math.max(1, listWidth - (split ? 4 : 2)))}`);
             divider.fg = mixHex(TUI_PANEL, TUI_TEXT, 0.30);
             list.add(divider);
             continue;
         }
+        if (line.kind === "space") {
+            list.add(text(""));
+            continue;
+        }
+        if (line.kind === "heading") {
+            list.add(text(` ${line.text}`));
+            continue;
+        }
+        const { index, row } = line;
         list.add(dialogOptionRow(renderer, {
             label: row.label, meta: row.meta,
             active: index === state.selectedIndex,
@@ -103,8 +115,8 @@ export function renderExtensionPicker(
     }
     if (scrolling) {
         const start = rows.indexOf(visible[0]!);
-        const above = rows.slice(0, start).filter((row) => row.index >= 0).length;
-        const below = rows.slice(start + visible.length).filter((row) => row.index >= 0).length;
+        const above = rows.slice(0, start).filter(isOption).length;
+        const below = rows.slice(start + visible.length).filter(isOption).length;
         add(text(`↑ ${above} above · ↓ ${below} below`));
     }
     if (buttons.length) {
@@ -123,6 +135,26 @@ export function renderExtensionPicker(
     const footer = dialogFooterNode(renderer, `${hint}\n${buttons.length || state.searchable ? "Tab sections · " : ""}Esc back`);
     footer.height = 2;
     add(footer);
+}
+
+// A heading replaces the group rule and gets a blank line above it, except at the top.
+function pickerLines(state: TuiExtensionPickerState): PickerLine[] {
+    const lines: PickerLine[] = [];
+    let previous: TuiExtensionPickerRow | undefined;
+    state.options.forEach((option, index) => {
+        const row = state.extensionRows.find((candidate) => candidate.id === option.value)!;
+        const fresh = row.heading !== previous?.heading || row.group !== previous?.group;
+        const heading = row.heading !== undefined && fresh ? row.heading : undefined;
+        if (heading !== undefined) {
+            if (index > 0) lines.push({ kind: "space" });
+            lines.push({ kind: "heading", text: heading });
+        } else if (index > 0 && row.group !== previous?.group) {
+            lines.push({ kind: "divider" });
+        }
+        lines.push({ kind: "option", index, row });
+        previous = row;
+    });
+    return lines;
 }
 
 function wrapLines(text: string, width: number): string[] {
