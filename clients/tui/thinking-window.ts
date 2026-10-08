@@ -1,5 +1,5 @@
-import { BoxRenderable, fg, StyledText, TextRenderable } from "@opentui/core";
-import type { CliRenderer } from "@opentui/core";
+import { BoxRenderable, fg, Renderable, RGBA, StyledText, TextRenderable } from "@opentui/core";
+import type { CliRenderer, OptimizedBuffer } from "@opentui/core";
 
 import { tuiBrailleSpinner } from "./activity-pulse.ts";
 import type { TuiTextTranscriptEntry } from "./state.ts";
@@ -13,9 +13,10 @@ import {
 // Enough text to fill the widest pane at the most rows; older text is cut first.
 const TAIL_CHARACTERS = 4_000;
 export const ELLIPSIS_COLUMNS = LIVE_THINKING_ELLIPSIS.length + 1;
+const RAIL = "│";
 
 interface ThinkingWindowParts {
-    readonly ellipsis: TextRenderable;
+    readonly gutter: ThinkingGutterRenderable;
     readonly body: TailTextRenderable;
 }
 
@@ -32,6 +33,26 @@ class TailTextRenderable extends TextRenderable {
             this.updateViewportOffset();
         }
         super.renderSelf(buffer);
+    }
+}
+
+// One rail per shown row, with the mark on the newest; wrapped rows count as rows.
+class ThinkingGutterRenderable extends Renderable {
+    mark = LIVE_THINKING_ELLIPSIS;
+
+    constructor(renderer: CliRenderer, id: string, private readonly body: TailTextRenderable) {
+        super(renderer, { id, width: ELLIPSIS_COLUMNS, flexShrink: 0 });
+    }
+
+    protected override renderSelf(buffer: OptimizedBuffer): void {
+        const color = RGBA.fromHex(TUI_MUTED);
+        const rows = this.body.visible
+            ? Math.max(1, Math.min(this.body.virtualLineCount, this.body.height))
+            : 1;
+        for (let row = 0; row < rows - 1; row++) {
+            buffer.drawText(RAIL, this.x, this.y + row, color);
+        }
+        buffer.drawText(this.mark, this.x, this.y + rows - 1, color);
     }
 }
 
@@ -52,13 +73,6 @@ export function createTuiThinkingWindow(
         flexDirection: "row",
         marginTop,
     });
-    const ellipsis = new TextRenderable(renderer, {
-        id: `${id}-ellipsis`,
-        width: ELLIPSIS_COLUMNS,
-        flexShrink: 0,
-        content: new StyledText([fg(TUI_MUTED)(LIVE_THINKING_ELLIPSIS)]),
-        selectable: false,
-    });
     const body = new TailTextRenderable(renderer, {
         id: `${id}-body`,
         flexGrow: 1,
@@ -68,9 +82,10 @@ export function createTuiThinkingWindow(
         overflow: "hidden",
         selectable: true,
     });
-    box.add(ellipsis);
+    const gutter = new ThinkingGutterRenderable(renderer, `${id}-gutter`, body);
+    box.add(gutter);
     box.add(body);
-    windowParts.set(box, { ellipsis, body });
+    windowParts.set(box, { gutter, body });
     updateTuiThinkingWindow(box, entry, rows);
     return box;
 }
@@ -95,8 +110,8 @@ export function updateTuiThinkingWindow(
 export function animateTuiThinkingWindow(node: BoxRenderable, frame: number): void {
     const parts = windowParts.get(node);
     if (parts === undefined) return;
-    const mark = tuiBrailleSpinner(frame).padEnd(LIVE_THINKING_ELLIPSIS.length);
-    parts.ellipsis.content = new StyledText([fg(TUI_MUTED)(mark)]);
+    parts.gutter.mark = tuiBrailleSpinner(frame).padEnd(LIVE_THINKING_ELLIPSIS.length);
+    parts.gutter.requestRender();
 }
 
 export function liveReasoningText(text: string, whole: boolean): string {
