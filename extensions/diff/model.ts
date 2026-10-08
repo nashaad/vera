@@ -142,9 +142,11 @@ export async function listWorktrees(workspace: string, signal: AbortSignal): Pro
     return worktrees;
 }
 
-export function findWorktree(worktrees: readonly Worktree[], query: string, workspace: string): Worktree[] {
-    const absolute = resolve(workspace, query);
-    const byPath = worktrees.filter((worktree) => worktree.path === absolute);
+export async function findWorktree(worktrees: readonly Worktree[], query: string, workspace: string): Promise<Worktree[]> {
+    const real = (path: string): Promise<string> => realpath(path).catch(() => path);
+    const absolute = await real(resolve(workspace, query));
+    const byPath: Worktree[] = [];
+    for (const worktree of worktrees) if (await real(worktree.path) === absolute) byPath.push(worktree);
     if (byPath.length) return byPath;
     return worktrees.filter((worktree) => worktree.name === query || worktree.branch === query);
 }

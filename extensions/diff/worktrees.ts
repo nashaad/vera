@@ -24,9 +24,12 @@ export function worktreeLabel(worktree: Worktree): string {
 export function createWorktreePicker(renderer: CliRenderer, worktrees: readonly Worktree[], options: WorktreePickerOptions): WorktreePicker {
     const root = new BoxRenderable(renderer, { id: "diff-worktrees", width: "100%", height: "100%", backgroundColor: TUI_BACKGROUND, flexDirection: "column", focusable: true });
     const heading = new TextRenderable(renderer, { content: " Diff  Choose a worktree", fg: TUI_TEXT, height: 1, flexShrink: 0 });
-    const list = new ScrollBoxRenderable(renderer, { id: "diff-worktree-list", flexGrow: 1, minHeight: 0, paddingTop: 1, paddingLeft: 1, paddingRight: 1, border: ["top", "bottom"], borderColor: TUI_MUTED, scrollX: false, scrollY: true, verticalScrollbarOptions: { visible: false }, horizontalScrollbarOptions: { visible: false } });
+    // Padding lives on the body, not the scroll box, so row index equals content line in reveal().
+    const body = new BoxRenderable(renderer, { flexGrow: 1, minHeight: 0, flexDirection: "column", paddingTop: 1, paddingLeft: 1, paddingRight: 1, border: ["top", "bottom"], borderColor: TUI_MUTED });
+    const list = new ScrollBoxRenderable(renderer, { id: "diff-worktree-list", flexGrow: 1, minHeight: 0, scrollX: false, scrollY: true, verticalScrollbarOptions: { visible: false }, horizontalScrollbarOptions: { visible: false } });
     const footer = new TextRenderable(renderer, { content: " ↑↓ choose · enter open · esc back", fg: TUI_MUTED, height: 1, flexShrink: 0, wrapMode: "none" });
-    root.add(heading); root.add(list); root.add(footer);
+    root.add(heading); root.add(body); root.add(footer);
+    body.add(list);
     const counts = new Map<number, number | Error>();
     const names = worktrees.map((worktree) => worktree.name);
     let highlight = Math.max(0, Math.min(options.shown, worktrees.length - 1));
@@ -50,9 +53,16 @@ export function createWorktreePicker(renderer: CliRenderer, worktrees: readonly 
             }));
         });
         if (message) list.add(new TextRenderable(renderer, { content: `\n ${message}`, fg: TUI_MUTED, wrapMode: "word", width: "100%" }));
-        if (highlight < list.scrollTop) list.scrollTo(highlight);
-        if (highlight >= list.scrollTop + list.viewport.height) list.scrollTo(Math.max(0, highlight - list.viewport.height + 1));
+        reveal();
     }
+    function reveal(): void {
+        const height = list.viewport.height;
+        if (height <= 0) return;
+        if (highlight < list.scrollTop) list.scrollTo(highlight);
+        if (highlight >= list.scrollTop + height) list.scrollTo(highlight - height + 1);
+    }
+    // The first draw runs before layout, when the viewport has no height yet; content resizes last.
+    list.content.on("resize", reveal);
     draw();
     return {
         root,

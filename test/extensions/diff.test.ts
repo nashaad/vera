@@ -105,8 +105,14 @@ test("worktrees list every checkout with its branch, mark the session's own, and
     expect(await countChangedFiles(sibling, signal)).toBe(2);
     expect(await countChangedFiles(root, signal)).toBe(0);
 
-    expect(findWorktree(worktrees, "plunder", root).map((worktree) => worktree.name)).toEqual(["plunder"]);
-    expect(findWorktree(worktrees, "feat/plunder", root).map((worktree) => worktree.name)).toEqual(["plunder"]);
-    expect(findWorktree(worktrees, ".worktrees/lookout", main.path).map((worktree) => worktree.name)).toEqual(["lookout"]);
-    expect(findWorktree(worktrees, "kraken", root)).toEqual([]);
+    const names = async (query: string, workspace: string): Promise<string[]> => (await findWorktree(worktrees, query, workspace)).map((worktree) => worktree.name);
+    expect(await names("plunder", root)).toEqual(["plunder"]);
+    expect(await names("feat/plunder", root)).toEqual(["plunder"]);
+    expect(await names(".worktrees/lookout", main.path)).toEqual(["lookout"]);
+    expect(await names("kraken", root)).toEqual([]);
+    const harbor = mkdtempSync(join(tmpdir(), "vera-diff-harbor-"));
+    directories.push(harbor);
+    symlinkSync(root, join(harbor, "ship"));
+    expect(await names(".worktrees/lookout", join(harbor, "ship"))).toEqual(["lookout"]);
+    expect(await names(join(harbor, "ship", ".worktrees", "plunder"), harbor)).toEqual(["plunder"]);
 });

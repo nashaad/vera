@@ -123,13 +123,16 @@ test("worktree picker lists worktrees with branch and change counts, marks this 
         setup.renderer.root.add(picker.root);
         picker.setCount(0, 0); picker.setCount(1, 3); picker.setCount(2, new Error("gone"));
         await setup.flush();
-        const frame = setup.captureCharFrame();
+        let frame = setup.captureCharFrame();
         expect(frame).toContain("Choose a worktree");
         expect(frame).toMatch(/› vera · main · this session\s+no changes/);
         picker.onKey(press("down")); await setup.flush();
-        expect(setup.captureCharFrame()).toMatch(/• vera · main/);
-        expect(setup.captureCharFrame()).toMatch(/› plunder · feat\/plunder/);
-        picker.onKey(press("up"));
+        frame = setup.captureCharFrame();
+        expect(frame).toMatch(/• vera · main/);
+        expect(frame).toMatch(/› plunder · feat\/plunder/);
+        picker.onKey(press("up")); await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toMatch(/› vera · main/);
         expect(frame).toMatch(/plunder · feat\/plunder · \/ship\/vera\/\.worktrees\/plunder\s+3 files/);
         expect(frame).toMatch(/lookout · detached at abcdef0\s+unreadable/);
         expect(frame).toMatch(/plunder · feat\/other · \/other\/plunder\s+…/);
@@ -146,5 +149,30 @@ test("worktree picker lists worktrees with branch and change counts, marks this 
         expect(setup.captureCharFrame()).toContain("Reading plunder…");
         picker.onKey(press("escape"));
         expect(back).toBe(1);
+    } finally { setup.renderer.destroy(); }
+});
+
+test("worktree picker keeps the highlighted row on screen when the list is longer than the pane", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 12 });
+    const worktrees: Worktree[] = Array.from({ length: 30 }, (_, index) => ({
+        path: `/ship/wt${index}`, name: `crow${String(index).padStart(2, "0")}`, branch: `feat/crow${index}`, current: index === 20,
+    }));
+    const highlighted = (): string | undefined => setup.captureCharFrame().match(/› (crow\d\d)/)?.[1];
+    try {
+        const picker = createWorktreePicker(setup.renderer, worktrees, { shown: 20, choose() {}, back() {} });
+        setup.renderer.root.add(picker.root);
+        await setup.flush(); await setup.flush();
+        expect(highlighted()).toBe("crow20");
+        for (let i = 0; i < 9; i++) picker.onKey(press("down"));
+        await setup.flush();
+        expect(highlighted()).toBe("crow29");
+        for (let i = 0; i < 29; i++) picker.onKey(press("up"));
+        await setup.flush();
+        expect(highlighted()).toBe("crow00");
+        expect(setup.captureCharFrame()).toMatch(/Choose a worktree.*\n─+\s*\n\s*\n › crow00/);
+        for (let i = 0; i < 8; i++) picker.onKey(press("down"));
+        picker.setCount(3, 2);
+        await setup.flush();
+        expect(highlighted()).toBe("crow08");
     } finally { setup.renderer.destroy(); }
 });

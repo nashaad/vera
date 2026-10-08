@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
@@ -117,5 +117,33 @@ test("a repository with one worktree keeps the plain diff and no worktree hint",
         expect(await vera.frame()).not.toContain("Choose a worktree");
         vera.host.handleKey({ name: "escape" });
         expect(await invocation).toMatchObject({ body: { kind: "handled" } });
+    } finally { await vera.close(); }
+});
+
+test("choosing a second worktree while the first is still reading shows the second", async () => {
+    const { root } = ship();
+    const slow = join(root, ".worktrees", "wreck");
+    git(root, "worktree", "add", "-q", "-b", "feat/wreck", slow);
+    mkdirSync(join(slow, "barnacles"));
+    for (let index = 0; index < 3000; index++) writeFileSync(join(slow, "barnacles", `b${index}.txt`), "x\n");
+    writeFileSync(join(slow, "aaa.txt"), "sunken gold\n");
+    const vera = await session(root);
+    try {
+        const invocation = vera.invoke("");
+        await vera.waitFor(/the crow sees land/);
+        vera.host.handleKey({ name: "w" });
+        const text = await vera.waitFor(/wreck · feat\/wreck\s+\d+ files/);
+        const rows = text.split("\n").filter((line) => /plunder · |wreck · /.test(line));
+        const plunderFirst = rows[0]!.includes("plunder");
+        const order = plunderFirst ? ["plunder", "wreck"] : ["wreck", "plunder"];
+        vera.host.handleKey({ name: "down" }); vera.host.handleKey({ name: "return" });
+        vera.host.handleKey({ name: "down" }); vera.host.handleKey({ name: "return" });
+        const last = order[1]!;
+        await vera.waitFor(new RegExp(`Diff  ${last} · `));
+        await Bun.sleep(1000);
+        expect((await vera.frame()).split("\n")[0]).toContain(`Diff  ${last} · `);
+        vera.host.handleKey({ name: "escape" });
+        expect(await invocation).toMatchObject({ body: { kind: "handled" } });
+        expect(vera.failures).toEqual([]);
     } finally { await vera.close(); }
 });

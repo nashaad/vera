@@ -38,7 +38,7 @@ export function activateClient(vera: VeraClientExtensionApi): void {
                 catch (error) { if (query) throw error; }
                 let shown = worktrees.findIndex((worktree) => worktree.current);
                 if (query) {
-                    const matches = findWorktree(worktrees, query, workspace);
+                    const matches = await findWorktree(worktrees, query, workspace);
                     if (matches.length === 0) return { kind: "text", text: `No worktree matches "${query}". Open /diff and press w to choose one.` };
                     if (matches.length > 1) return { kind: "text", text: `Several worktrees match "${query}":\n${matches.map((worktree) => `  ${worktree.path}`).join("\n")}\nUse the folder path to choose one.` };
                     shown = worktrees.indexOf(matches[0]!);
@@ -52,6 +52,7 @@ export function activateClient(vera: VeraClientExtensionApi): void {
                 let picker: WorktreePicker | undefined;
                 let load: AbortController | undefined;
                 let pick: AbortController | undefined;
+                let reading: AbortController | undefined;
                 let finish: () => void = () => {};
                 const closed = new Promise<void>((resolve) => { finish = resolve; });
                 controller.signal.addEventListener("abort", finish, { once: true });
@@ -84,19 +85,24 @@ export function activateClient(vera: VeraClientExtensionApi): void {
                     picker = undefined;
                     if (view) view.root.visible = true;
                 };
+                // The latest choice wins: each Enter cancels the read still running for the previous one.
                 const choose = async (index: number, reads: AbortController): Promise<void> => {
                     const worktree = worktrees[index];
                     if (!worktree) return;
+                    reading?.abort();
                     if (index === shown) { closePicker(); return; }
+                    const read = new AbortController();
+                    reading = read;
+                    const signal = AbortSignal.any([reads.signal, read.signal]);
                     picker?.setMessage(`Reading ${worktree.name}…`);
                     try {
-                        const snapshot = await readWorkspaceDiff(worktree.path, reads.signal);
-                        if (reads.signal.aborted) return;
+                        const snapshot = await readWorkspaceDiff(worktree.path, signal);
+                        if (signal.aborted) return;
                         shown = index;
                         closePicker();
                         showDiff(snapshot);
                     } catch (error) {
-                        if (!reads.signal.aborted) picker?.setMessage(`Could not read ${worktree.name}: ${errorText(error)}`);
+                        if (!signal.aborted) picker?.setMessage(`Could not read ${worktree.name}: ${errorText(error)}`);
                     }
                 };
                 function openPicker(): void {
