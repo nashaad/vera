@@ -109,6 +109,7 @@ import {
 import {
     measureMessages,
     measureProjectedRequest,
+    scaleProjectionTo,
     measureToolResultBytes,
     type ContextMeasurement,
 } from "./context-measurement.ts";
@@ -238,10 +239,23 @@ async function persistContextRecipe(
 
 const MAX_CONTEXT_SCALE = 3;
 
+// A resumed session has made no request yet, so the last recorded request stands in for the system prompt and tools.
+function recordedOverhead(store: SessionMessageStore): number {
+    if (!(store instanceof SessionStore)) {
+        return 0;
+    }
+    const components = store.latestContextMeasurement()?.projection?.components ?? [];
+    return components
+        .filter((component) => component.kind !== "message")
+        .reduce((total, component) => total + component.estimatedTokens, 0);
+}
+
 export interface ContextWatch {
-    measurement?: ContextMeasurement;
+    // The system prompt and tool schemas of the last request; compaction does not change them.
+    overheadTokens?: number;
     scale?: number;
-    messageTokens?: number;
+    // Another model has its own tokenizer, so a scale applies only to the model it was measured on.
+    scaleModel?: string;
     refusedForSize?: boolean;
 }
 
@@ -771,7 +785,7 @@ export async function runHeadlessLoop(
     let automaticCompactionBlocked = false;
     let automaticCompactionBlockedAt: number | undefined;
     let latchedAssignmentKey: string | undefined;
-    let automaticCompactionRetryAfterPending = false;
+    let latchedCapacity: number | undefined;
     const compactionCapacity = (
         context?: CompactionContext,
     ): number | undefined => {
@@ -779,21 +793,18 @@ export async function runHeadlessLoop(
             return context.capacity;
         }
         const settings = readModelSettings?.();
-        return settings?.contextWindow
+        const declared = settings?.contextWindow
             ?? contextWindowForModel(
                 settings?.provider,
                 settings?.model ?? model,
             );
+        return budgetContextWindow(declared, settings?.contextLimit);
     };
     const fixedOverhead = (): number => {
-        const watched = contextWatch.measurement;
-        return watched === undefined
-            ? 0
-            : Math.max(
-                0,
-                watched.tokens
-                    - (contextWatch.messageTokens ?? watched.tokens),
-            );
+        if (contextWatch.overheadTokens === undefined) {
+            contextWatch.overheadTokens = recordedOverhead(store);
+        }
+        return contextWatch.overheadTokens;
     };
     const spillDirectory = join(scratchDir, SPILL_DIRECTORY_NAME);
     const agingPolicy = (
@@ -830,15 +841,16 @@ export async function runHeadlessLoop(
         const modelContext = store.modelContext(
             agingPolicy(context, pendingMessages),
         );
-        const overheadTokens = fixedOverhead();
-        const estimate = measureMessages([
-            ...modelContext,
-            ...pendingMessages,
-        ]) + overheadTokens;
+        const measuredModel = context?.model ?? readModelSettings?.().model ?? model;
+        // Pending messages are not in the store yet, so a compaction plan can only budget for them as overhead.
+        const overheadTokens = fixedOverhead()
+            + measureMessages(pendingMessages, measuredModel);
+        const estimate = measureMessages(modelContext, measuredModel)
+            + overheadTokens;
         lastRawEstimate = estimate;
         return {
             overheadTokens,
-            tokens: Math.ceil(estimate * (contextWatch.scale ?? 1)),
+            tokens: Math.ceil(estimate * (watchedScale(contextWatch, measuredModel) ?? 1)),
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
@@ -872,24 +884,17 @@ export async function runHeadlessLoop(
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
             );
-            if (
-                !force
-                && pendingMessages.length === 0
-                && automaticCompactionRetryAfterPending
-            ) {
-                automaticCompactionRetryAfterPending = false;
-            }
             const measurement = measureContextNow(pendingMessages, context);
             const announced = boundary.readState().compaction;
             const assignmentKey = compactionAssignmentKey(compaction, announced);
             // A failed automatic compaction stops the retry loop, but it must not stop compaction for the rest of the session.
+            // Being over the window is not a change: it is what failed, and retrying it at every tool step is the loop.
             if (!force && automaticCompactionBlocked) {
-                const overWindow = measurement.capacity !== undefined
-                    && measurement.tokens >= measurement.capacity;
                 const assignmentChanged = latchedAssignmentKey !== assignmentKey;
+                const capacityChanged = latchedCapacity !== measurement.capacity;
                 if (
                     !assignmentChanged
-                    && !overWindow
+                    && !capacityChanged
                     && !contextWatch.refusedForSize
                     && (automaticCompactionBlockedAt === undefined
                         || lastRawEstimate < automaticCompactionBlockedAt
@@ -900,6 +905,7 @@ export async function runHeadlessLoop(
                 automaticCompactionBlocked = false;
                 automaticCompactionBlockedAt = undefined;
                 latchedAssignmentKey = undefined;
+                latchedCapacity = undefined;
             }
             const compactionModel = context?.model
                 ?? readModelSettings?.().model
@@ -929,6 +935,7 @@ export async function runHeadlessLoop(
             const modelContext = store.modelContext(
                 agingPolicy(context, pendingMessages),
             );
+            const estimateScale = watchedScale(contextWatch, compactionModel);
             const compactionRequest:
                 Parameters<typeof compactSession>[0] = {
                 store,
@@ -964,6 +971,8 @@ export async function runHeadlessLoop(
                 ...(compaction.retainedUserTurns === undefined
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
+                ...(estimateScale === undefined ? {} : { estimateScale }),
+                ...(hasPendingUserTurn ? { pendingPrompt: true } : {}),
             };
             if (turn !== undefined) {
                 inbound.beginAutomaticCompaction(turn.controller);
@@ -1004,9 +1013,6 @@ export async function runHeadlessLoop(
                     ? { before: result.before, after: result.after }
                     : {}),
             });
-            if (result.outcome === "no_boundary" && hasPendingUserTurn) {
-                automaticCompactionRetryAfterPending = true;
-            }
             const stoppedWithTurn = result.outcome === "cancelled"
                 && turn?.turnSignal.aborted === true;
             if (
@@ -1020,8 +1026,13 @@ export async function runHeadlessLoop(
                 automaticCompactionBlocked = true;
                 automaticCompactionBlockedAt = lastRawEstimate;
                 latchedAssignmentKey = assignmentKey;
+                latchedCapacity = measurement.capacity;
             }
             if (result.outcome === "compacted") {
+                automaticCompactionBlocked = false;
+                automaticCompactionBlockedAt = undefined;
+                latchedAssignmentKey = undefined;
+                latchedCapacity = undefined;
                 injectedRulePaths.clear();
                 const todoAdded = await injectScratchTodo(state);
                 const hookContextAdded = await injectSessionStartContext(state, "compacted");
@@ -1047,8 +1058,6 @@ export async function runHeadlessLoop(
                     model: compactionModel,
                     measurement: refreshedMeasurement,
                 });
-                contextWatch.measurement = undefined;
-                contextWatch.messageTokens = undefined;
             }
         };
     compactOnRequest = async (turnActive, signal) => {
@@ -1414,6 +1423,15 @@ export async function runTurn(
                 );
                 state.toolRuntime.allowedTools = applied.allowedTools;
             }
+            // The check above sized the turn for the configured model; a smaller one may not fit.
+            if (activeModel !== modelSettings.model) {
+                await compactDuringTurn(
+                    state,
+                    turn.signal,
+                    [],
+                    compactionContextForSettings(modelSettings, activeModel),
+                );
+            }
         }
 
         const catalogModels = availableModels();
@@ -1629,16 +1647,21 @@ export async function runTurn(
                         }),
                 },
             );
+            const shownMeasurement = correctedMeasurement(
+                measurement,
+                watchedScale(state.contextWatch, activeModel),
+            );
             state.events.emit({
                 type: "context_measured",
                 model: activeModel,
-                measurement,
+                measurement: shownMeasurement,
             });
-            await persistContextRecipe(state.store, measurement);
+            await persistContextRecipe(state.store, shownMeasurement);
             if (state.contextWatch !== undefined) {
-                state.contextWatch.measurement = measurement;
-                state.contextWatch.messageTokens = measureMessages(
-                    request.messages,
+                state.contextWatch.overheadTokens = Math.max(
+                    0,
+                    measurement.tokens
+                        - measureMessages(request.messages, request.model),
                 );
             }
             const substitutions: ModelSubstitution[] = pendingSubstitutions
@@ -1796,11 +1819,11 @@ export async function runTurn(
                         state.events.emit({
                             type: "context_measured",
                             model: activeModel,
-                            measurement: remeasured,
+                            measurement: correctedMeasurement(
+                                remeasured,
+                                watchedScale(state.contextWatch, activeModel),
+                            ),
                         });
-                        if (state.contextWatch !== undefined) {
-                            state.contextWatch.measurement = remeasured;
-                        }
                     },
                     ...fallbackFor(
                         state.modelFallback,
@@ -1858,7 +1881,7 @@ export async function runTurn(
                     || nextLengthContinuation(maxTokens, lengthContinuations) === undefined)) {
                 assistantMessage = withTurnTiming(assistantMessage);
             }
-            calibrateContextWatch(state, measurement, assistantMessage);
+            calibrateContextWatch(state, measurement, assistantMessage, activeModel);
             await commitMessage(state, assistantMessage);
 
             if (assistantMessage.stopReason === "length") {
@@ -1885,6 +1908,13 @@ export async function runTurn(
                 await commitMessage(state, continuationMessage);
                 maxTokens = continuation.nextMaxTokens;
                 lengthContinuations = continuation.continuation;
+                const continuationCapacity = capacityForModel(activeModel);
+                await compactDuringTurn(state, turn.signal, [], {
+                    model: activeModel,
+                    ...(continuationCapacity === undefined
+                        ? {}
+                        : { capacity: continuationCapacity }),
+                });
                 continue;
             }
 
@@ -3255,6 +3285,24 @@ function scratchAlternativeNote(
         : undefined;
 }
 
+// The watch keeps the raw estimate for calibration; everything shown or persisted carries the correction the trigger uses.
+function correctedMeasurement(
+    measurement: ContextMeasurement,
+    scale: number | undefined,
+): ContextMeasurement {
+    if (scale === undefined || !(scale > 1)) {
+        return measurement;
+    }
+    const tokens = Math.ceil(measurement.tokens * scale);
+    return {
+        ...measurement,
+        tokens,
+        ...(measurement.projection === undefined
+            ? {}
+            : { projection: scaleProjectionTo(measurement.projection, tokens) }),
+    };
+}
+
 function remeasuredAgainst(
     measurement: ContextMeasurement,
     capacity: number | undefined,
@@ -3284,10 +3332,18 @@ function acceptsImageInput(
         ?? adapter.supportsImageInput !== false;
 }
 
+function watchedScale(
+    watch: ContextWatch | undefined,
+    model: string,
+): number | undefined {
+    return watch?.scaleModel === model ? watch.scale : undefined;
+}
+
 function calibrateContextWatch(
     state: RunTurnState,
     measurement: ContextMeasurement,
     message: ModelMessage,
+    model: string,
 ): void {
     const watch = state.contextWatch;
     if (watch === undefined || message.role !== "assistant") {
@@ -3298,9 +3354,12 @@ function calibrateContextWatch(
         !Number.isSafeInteger(reported)
         || reported <= 0
         || measurement.tokens <= 0
-        || reported <= measurement.tokens
     ) {
         return;
     }
-    watch.scale = Math.min(MAX_CONTEXT_SCALE, reported / measurement.tokens);
+    // A stale factor from before a compaction would inflate a context that no longer holds what was undercounted.
+    watch.scale = reported <= measurement.tokens
+        ? undefined
+        : Math.min(MAX_CONTEXT_SCALE, reported / measurement.tokens);
+    watch.scaleModel = model;
 }

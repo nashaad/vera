@@ -22,7 +22,9 @@ Vera makes room in two ways. Once the context passes a threshold (60% on a
 typical model window), big tool results from a few turns back are trimmed to a
 short note that says where the full output is saved. If the context still
 passes 82%, older messages become one summary in one go. Your last two
-messages stay as they were.
+messages stay as they were. When the current turn alone is too big to keep,
+its work is summarized too, but your latest message stays word for word next
+to the summary. Images in it are not kept.
 
 A single tool result is also capped on arrival, so one large read cannot fill
 the context by itself. The cap is a share of the model's window, which means a

@@ -23,8 +23,12 @@ not need to send another message to make the report valid.
 ### Understand the measurement
 
 Tool results update the used count as they arrive. Rewinding updates it for
-the remaining conversation. After resume, the loaded-file list describes the
-last measured request.
+the remaining conversation. Between replies the count is an estimate that Vera
+corrects with the provider's count for the last request, including reasoning
+the provider carries forward, so it stays close to what the next request uses.
+Each attached image counts as about 1,600 tokens until the provider reports
+its real size. After resume, the loaded-file list describes the last measured
+request.
 
 The maximum comes from the model's known context window. If a local server
 does not publish a window, Vera leaves it unknown rather than estimating one.

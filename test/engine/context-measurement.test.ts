@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 
 import {
+    IMAGE_TOKENS,
     isContextMeasurement,
+    measureMessages,
     measureProjectedRequest,
     measureReportedUsage,
 } from "../../src/engine/context-measurement.ts";
@@ -307,6 +309,67 @@ test("a measurement is rejected unless it says how it was arrived at", () => {
         .toBe(false);
     expect(isContextMeasurement(undefined)).toBe(false);
 });
+
+test("signed reasoning counts at what the provider bills for it", () => {
+    const signed = reasoningMessage("luna", "sealed");
+    const plain = reasoningMessage("luna", undefined);
+
+    expect(measureMessages([signed], "luna") - measureMessages([plain], "luna"))
+        .toBeGreaterThan(1_900);
+    expect(measureProjectedRequest(request({ messages: [signed] })).tokens)
+        .toBeLessThan(100);
+    expect(measureProjectedRequest({
+        ...request({ messages: [signed] }),
+        model: "luna",
+    }).tokens).toBeGreaterThan(1_900);
+});
+
+test("signed reasoning from another model is not counted", () => {
+    // Providers replay a reasoning item only to the model that produced it.
+    const signed = reasoningMessage("luna", "sealed");
+
+    expect(measureMessages([signed], "kestrel"))
+        .toBe(measureMessages([reasoningMessage("luna", undefined)], "kestrel"));
+});
+
+test("an attached image counts at a flat estimate, not as nothing", () => {
+    const words: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "a map of the cove" }],
+    };
+    const withImage: ModelMessage = {
+        role: "user",
+        content: [
+            { type: "text", text: "a map of the cove" },
+            { type: "image_attachment", attachmentId: "map-1" },
+        ],
+    };
+
+    expect(measureMessages([withImage]) - measureMessages([words]))
+        .toBe(IMAGE_TOKENS);
+    expect(measureProjectedRequest(request({ messages: [withImage] })).tokens)
+        .toBeGreaterThanOrEqual(IMAGE_TOKENS);
+});
+
+function reasoningMessage(
+    model: string,
+    signature: string | undefined,
+): ModelMessage {
+    return {
+        role: "assistant",
+        content: [
+            {
+                type: "thinking",
+                text: "plotting a course",
+                ...(signature === undefined ? {} : { signature }),
+            },
+            { type: "text", text: "aye" },
+        ],
+        source: { provider: "faux", api: "test", model },
+        usage: { ...emptyUsage(), reasoningTokens: 2_000 },
+        stopReason: "stop",
+    };
+}
 
 function request(
     overrides: {

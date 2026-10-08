@@ -832,7 +832,7 @@ function applyCompaction(
     if (update.outcome === "no_boundary") {
         return appendTuiNotice(
             state,
-            `Nothing to summarize yet${
+            `Could not summarize${
                 update.reason === undefined ? "" : `: ${update.reason}`
             }`,
         );

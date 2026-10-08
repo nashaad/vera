@@ -51,6 +51,9 @@ const CHARACTERS_PER_TOKEN = 4;
 
 const TOKENS_PER_MESSAGE = 4;
 
+// Providers bill an image by its pixels, not its bytes; this is a typical screenshot.
+export const IMAGE_TOKENS = 1_600;
+
 export function measureProjectedRequest(
     request: ProjectedModelRequest,
     capacity?: number,
@@ -82,12 +85,13 @@ export function measureProjectedRequest(
             displayName: messageDisplayName(message, request.messages),
             count: 1,
             characters: measureMessage(message),
-            fixedTokens: TOKENS_PER_MESSAGE,
+            fixedTokens: TOKENS_PER_MESSAGE
+                + replayedReasoningTokens(message, request.model),
         })),
     ];
     const characters = parts.reduce((total, part) => total + part.characters, 0);
-    const tokens = Math.ceil(characters / CHARACTERS_PER_TOKEN)
-        + request.messages.length * TOKENS_PER_MESSAGE;
+    const fixedTokens = parts.reduce((total, part) => total + part.fixedTokens, 0);
+    const tokens = Math.ceil(characters / CHARACTERS_PER_TOKEN) + fixedTokens;
     return {
         tokens,
         ...(capacity === undefined ? {} : { capacity }),
@@ -110,13 +114,48 @@ export function measureProjectedRequest(
     };
 }
 
-export function measureMessages(messages: readonly ModelMessage[]): number {
+// Pass the model the request goes to: providers replay signed reasoning only to the model that produced it.
+export function measureMessages(
+    messages: readonly ModelMessage[],
+    model?: string,
+): number {
     let characters = 0;
+    let reasoning = 0;
     for (const message of messages) {
         characters += measureMessage(message);
+        reasoning += replayedReasoningTokens(message, model);
     }
     return Math.ceil(characters / CHARACTERS_PER_TOKEN)
-        + messages.length * TOKENS_PER_MESSAGE;
+        + messages.length * TOKENS_PER_MESSAGE
+        + reasoning;
+}
+
+// A signed thinking block is replayed as the provider's own reasoning item, billed at its reasoning tokens, not the visible summary.
+function replayedReasoningTokens(
+    message: ModelMessage,
+    model: string | undefined,
+): number {
+    if (
+        message.role !== "assistant"
+        || (model !== undefined && message.source.model !== model)
+    ) {
+        return 0;
+    }
+    let summaryCharacters = 0;
+    let signed = false;
+    for (const block of message.content) {
+        if (block.type !== "thinking") continue;
+        summaryCharacters += block.text.length;
+        signed ||= block.signature !== undefined && block.signature.length > 0;
+    }
+    const reasoningTokens = message.usage.reasoningTokens;
+    if (!signed || !Number.isSafeInteger(reasoningTokens)) {
+        return 0;
+    }
+    return Math.max(
+        0,
+        reasoningTokens - Math.ceil(summaryCharacters / CHARACTERS_PER_TOKEN),
+    );
 }
 
 export function measureCompletedAssistant(message: AssistantMessage): number {
@@ -454,7 +493,9 @@ function measureMessage(message: ModelMessage): number {
     if (message.role === "user") {
         return sum(
             message.content,
-            (block) => block.type === "text" ? block.text.length : 0,
+            (block) => block.type === "text"
+                ? block.text.length
+                : IMAGE_TOKENS * CHARACTERS_PER_TOKEN,
         );
     }
     return sum(message.content, (block) => {

@@ -213,7 +213,7 @@ test("compaction never crosses a marked context barrier", async () => {
     expect(store.modelContext()).toContainEqual(barrier);
 });
 
-test("a session with nothing behind the kept turns has no boundary to use", async () => {
+test("a session whose overhead fills the target keeps the latest turn when it compacts", async () => {
     const store = await session(2);
     const result = await compactSession(
         options(store, () => ({ projection: [summary()] })),
@@ -221,7 +221,31 @@ test("a session with nothing behind the kept turns has no boundary to use", asyn
         new AbortController().signal,
     );
 
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext().map(text)).toContain("turn 2");
+});
+
+test("a session with only one turn has nothing to summarize under overhead pressure", async () => {
+    const store = await session(1);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+
     expect(result.outcome).toBe("no_boundary");
+});
+
+test("a pending prompt lets overhead pressure summarize the whole store, since the prompt is not in it", async () => {
+    const store = await session(1);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { pendingPrompt: true }),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary()]);
 });
 
 test("a projection that does not shrink the context is refused", async () => {
@@ -608,7 +632,7 @@ test("overhead that fills the target is reported, not silently declined", async 
     expect(result.outcome).toBe("no_boundary");
     expect(result).toHaveProperty("reason");
     if (result.outcome === "no_boundary") {
-        expect(result.reason).toContain("verbatim");
+        expect(result.reason).toContain("Raise the context limit");
     }
 });
 
@@ -709,6 +733,7 @@ async function appendToolRounds(
 async function appendToolTurn(
     store: SessionStore,
     turn: number,
+    answered = true,
 ): Promise<void> {
     await store.appendMessage({
         role: "user",
@@ -738,6 +763,9 @@ async function appendToolTurn(
             content: [{ type: "text", text: `output ${"x ".repeat(300)}` }],
             isError: false,
         });
+    }
+    if (!answered) {
+        return;
     }
     await store.appendMessage({
         role: "assistant",
@@ -1028,4 +1056,245 @@ test("a configured target fraction replaces the built-in share of the window", (
     expect(compactionTargetBudget(measurement(9_000), {
         postCompactionTargetFraction: 0.2,
     })).toBe(2_000);
+});
+
+test("kept messages are sized in the same corrected units as the trigger", async () => {
+    // Sizing the tail in raw estimates against a corrected total keeps almost
+    // everything, and the next step compacts again.
+    const store = await session(6);
+    const raw = measureMessages(store.modelContext());
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { estimateScale: 2 }),
+        { tokens: raw * 2 + FIXED_OVERHEAD, capacity: 20_000, estimated: true },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(measureMessages(store.modelContext()) * 2 + FIXED_OVERHEAD)
+        .toBeLessThanOrEqual(9_000);
+});
+
+test("a summary that leaves the context over the trigger is not accepted", async () => {
+    const store = await session(12);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            return {
+                projection: [summary(calls === 1 ? "s".repeat(34_000) : "short")],
+            };
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(calls).toBe(2);
+    expect(result.outcome).toBe("compacted");
+    expect(shouldCompact({
+        tokens: measureMessages(store.modelContext()) + FIXED_OVERHEAD,
+        capacity: 10_000,
+        estimated: true,
+    })).toBe(false);
+});
+
+test("a rule reminder is not a user turn, so the real prompt stays verbatim", async () => {
+    const store = await session(1);
+    await store.appendMessage(summary("the current prompt, word for word"));
+    for (let round = 1; round <= 3; round += 1) {
+        const id = `call-${round}`;
+        await store.appendMessage({
+            role: "assistant",
+            content: [
+                { type: "text", text: `step ${round} ${"detail ".repeat(300)}` },
+                { type: "tool_call", id, name: "read", input: { path: "a.ts" } },
+            ],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        });
+        await store.appendMessage({
+            role: "tool_result",
+            toolCallId: id,
+            toolName: "read",
+            content: [{ type: "text", text: `output ${"x ".repeat(300)}` }],
+            isError: false,
+        });
+        await store.appendMessage({
+            role: "user",
+            internal: true,
+            content: [{ type: "text", text: `rule reminder ${round}` }],
+        });
+    }
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 1 }),
+        { tokens: 90_000, capacity: 100_000, estimated: true, overheadTokens: 200 },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext().map(text))
+        .toContain("the current prompt, word for word");
+});
+
+test("a seam inside a running turn keeps its prompt word for word", async () => {
+    const store = await session(3);
+    await appendToolTurn(store, 4, false);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        pressure(store, 6_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    const context = store.modelContext();
+    expect(context[0]).toEqual(summary());
+    expect(context[1]).toEqual(summary("turn 4"));
+    expect(context[2]?.role).toBe("assistant");
+    expect(context.map(text).filter((line) => line === "turn 4")).toHaveLength(1);
+});
+
+test("the last rung keeps the running turn's prompt word for word", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    const requests: CompactionRequest[] = [];
+    const result = await compactSession(
+        options(store, (request) => {
+            requests.push(request);
+            return { projection: [summary()] };
+        }, { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary(), summary("turn 3")]);
+    // The copy is paid for out of the summary's room.
+    const room = compactionTargetBudget(pressure(store, 8_000), {})! - FIXED_OVERHEAD;
+    expect(requests[0]?.targetTokens)
+        .toBeLessThanOrEqual(room - measureMessages([summary("turn 3")]));
+});
+
+test("an answered prompt is left to the summary", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary()]);
+});
+
+test("a message sent during the turn is the one kept word for word", async () => {
+    const store = await session(1);
+    await appendToolTurn(store, 2, false);
+    await store.appendMessage({
+        role: "user",
+        arrivedDuringTurn: true,
+        content: [{ type: "text", text: "and bury the doubloons twice" }],
+    });
+    await appendToolRounds(store, 2);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    const context = store.modelContext();
+    expect(context.map(text)).toEqual([
+        "a summary of what came before",
+        "and bury the doubloons twice",
+    ]);
+    expect(context[1]).toMatchObject({ arrivedDuringTurn: true });
+});
+
+test("the kept copy survives a second compaction", async () => {
+    const store = await session(2);
+    await appendToolTurn(store, 3, false);
+    const first = await compactSession(
+        options(store, () => ({ projection: [summary("first")] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+    expect(first.outcome).toBe("compacted");
+    await appendToolRounds(store, 3);
+    const second = await compactSession(
+        options(store, () => ({ projection: [summary("second")] }), { retainedUserTurns: 0 }),
+        pressure(store, 4_000),
+        new AbortController().signal,
+    );
+
+    expect(second.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary("second"), summary("turn 3")]);
+});
+
+test("a prompt too large to copy beside a summary is summarized as before", async () => {
+    const store = await session(1);
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: `turn 2 ${"plank ".repeat(2_000)}` }],
+    });
+    await appendToolRounds(store, 2);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { retainedUserTurns: 0 }),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary()]);
+});
+
+test("overhead that fills the target still compacts when the leanest plan lands under the trigger", async () => {
+    const store = await session(6);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        { tokens: 11_600, capacity: 10_000, estimated: true, overheadTokens: 4_200 },
+        new AbortController().signal,
+    );
+    expect(result.outcome).toBe("compacted");
+    if (result.outcome === "compacted") {
+        expect(result.after).toBeLessThan(8_200);
+    }
+});
+
+test("overhead too large for any plan to land under the trigger asks for no summary and says why", async () => {
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            return { projection: [summary()] };
+        }),
+        { tokens: 15_300, capacity: 10_000, estimated: true, overheadTokens: 7_900 },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("no_boundary");
+    expect(calls).toBe(0);
+    if (result.outcome === "no_boundary") {
+        expect(result.reason).toContain("(7,900 tokens)");
+        expect(result.reason).toContain("8,200-token compaction trigger");
+    }
+});
+
+test("overhead over the trigger by itself is named in the reason", async () => {
+    const store = await session(6);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        { tokens: 12_000, capacity: 8_192, estimated: true, overheadTokens: 7_300 },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("no_boundary");
+    if (result.outcome === "no_boundary") {
+        expect(result.reason).toBe(
+            "Instructions and tool definitions take 7,300 tokens, more than the"
+                + " 6,717-token compaction trigger. Raise the context limit, or"
+                + " use a model with a larger window.",
+        );
+    }
 });

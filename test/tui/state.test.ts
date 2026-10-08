@@ -3027,6 +3027,22 @@ test("a running compaction is marked on state and cleared by any finish", () => 
     expect(failTuiConnection(started).compactingSince).toBeUndefined();
 });
 
+test("a refused compaction says why it could not summarize", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "no_boundary",
+        reason: "Instructions and tool definitions take 7,300 tokens.",
+        seq: 1,
+    });
+
+    expect(state.entries.at(-1)).toMatchObject({
+        kind: "notice",
+        text: "Could not summarize: Instructions and tool definitions take 7,300 tokens.",
+    });
+});
+
 test("dropping an admission takes its checklist entry with it", () => {
     let state = beginTuiAdmission(createTuiState(), "pool-3", "or/glm");
     state = applyAgentUpdate(state, {

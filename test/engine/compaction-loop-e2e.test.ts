@@ -11,6 +11,7 @@ import {
 import { createRoutedCompletionService } from
     "../../src/engine/completion-service.ts";
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
+import { ToolHooks } from "../../src/engine/hooks.ts";
 import { createInProcessChannel } from
     "../../src/engine/message-channel.ts";
 import { measureMessages } from "../../src/engine/context-measurement.ts";
@@ -533,6 +534,89 @@ test("a failed automatic compaction is not retried on a turn that adds nothing",
     expect(started(seen)).toBe(afterFirst);
 });
 
+test("a failed compaction over the window is not retried at every tool step", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-over-window", cwd: workspace },
+    );
+    const script: AssistantMessage[] = [];
+    for (let round = 1; round <= 3; round += 1) {
+        writeFileSync(join(workspace, `notes-${round}.txt`), `chunk ${round} `.repeat(500));
+        script.push(toolCall(`over-call-${round}`, round));
+    }
+    script.push(assistantText("finished over the limit"));
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, new FauxAdapter(script), "test", undefined, {
+        approvalMode: "auto",
+    }, {
+        sessionStore: store,
+        eventBus: events,
+        compaction: unavailableCompactionOptions(),
+        readModelSettings: () => ({ model: "test", contextWindow: 8_000 }),
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+
+    channel.client.send({ type: "prompt", content: "plank ".repeat(6_000) });
+    await drain(channel);
+
+    // The check before the prompt has no history yet; the failure after the first step is the one that latches.
+    expect(seen.flatMap((event) =>
+        event.type === "compaction_finished" ? [event.outcome] : []
+    )).toEqual(["no_boundary", "unavailable"]);
+});
+
+test("a changed context limit reopens a latched automatic compaction", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-limit-change", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk 1 ".repeat(500));
+    let contextWindow = 8_000;
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, new FauxAdapter([
+        toolCall("limit-call-1", 1),
+        assistantText("first done"),
+        assistantText("still here"),
+        assistantText("second done"),
+    ]), "test", undefined, {
+        approvalMode: "auto",
+    }, {
+        sessionStore: store,
+        eventBus: events,
+        compaction: unavailableCompactionOptions(),
+        readModelSettings: () => ({ model: "test", contextWindow }),
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+
+    channel.client.send({ type: "prompt", content: "plank ".repeat(6_000) });
+    await drain(channel);
+    const afterFirst = started(seen);
+
+    channel.client.send({ type: "prompt", content: "still there?" });
+    await drain(channel);
+    const unchanged = started(seen);
+
+    contextWindow = 9_000;
+    channel.client.send({ type: "prompt", content: "ok" });
+    await drain(channel);
+
+    expect(unchanged).toBe(afterFirst);
+    expect(started(seen)).toBeGreaterThan(unchanged);
+});
+
 test("a new compaction assignment reopens a latched automatic compaction", async () => {
     // The latch is for the route that failed. A different assignment is not
     // that route, so waiting for growth would leave the session on the
@@ -935,6 +1019,385 @@ async function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
     await new Promise<void>((resolve) => {
         signal.addEventListener("abort", () => resolve(), { once: true });
     });
+}
+
+test("a successful /compact reopens a latched automatic compaction", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-latch-manual", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(4_000));
+    writeFileSync(join(workspace, "notes-2.txt"), "chunk ".repeat(4_000));
+    let available = false;
+    const summarizer: ModelAdapter = {
+        stream(request) {
+            if (!available) {
+                throw new Error("summarizer unavailable");
+            }
+            return new FauxAdapter([
+                assistantText("# Task\nRead the notes.\n\n# State\nReading."),
+            ]).stream(request);
+        },
+    };
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([
+            toolCall("manual-call-1", 1),
+            assistantText("first done"),
+            toolCall("manual-call-2", 2),
+            assistantText("second done"),
+        ]),
+        "test",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            compaction: {
+                strategy: fullSummaryStrategy,
+                models: {
+                    [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                        summarizer,
+                        { models: [{ provider: "faux", model: "flaky" }] },
+                    ),
+                },
+                diagnostics: {
+                    strategy: FULL_SUMMARY_STRATEGY_ID,
+                    provider: "faux",
+                    model: "flaky",
+                },
+                trigger: { tokens: 2_000 },
+            },
+            readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+
+    channel.client.send({ type: "prompt", content: "first job" });
+    await drain(channel);
+    expect(started(seen)).toBeGreaterThan(0);
+
+    available = true;
+    channel.client.send({ type: "compact", requestId: "manual-compact" });
+    await drainUntil(channel, (update) =>
+        update.type === "compaction" && update.phase === "finished"
+    );
+    expect(seen.filter((event) =>
+        event.type === "compaction_finished" && event.outcome === "compacted"
+    )).toHaveLength(1);
+    const afterManual = started(seen);
+
+    // The second read grows the context past the trigger but far less than the retry growth.
+    channel.client.send({ type: "prompt", content: "second job" });
+    await drain(channel);
+
+    expect(started(seen)).toBeGreaterThan(afterManual);
+});
+
+test("a large pasted prompt compacts once, not again a few tool steps later", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-pasted-prompt", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(3_500));
+    writeFileSync(join(workspace, "notes-2.txt"), "chunk ".repeat(3_500));
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([
+            assistantText("first done"),
+            assistantText("second done"),
+            toolCall("pasted-call-1", 1),
+            toolCall("pasted-call-2", 2),
+            assistantText("third done"),
+        ]),
+        "test",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            compaction: compactionOptions(),
+            readModelSettings: () => ({ model: "test", contextWindow: 20_000 }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+
+    channel.client.send({ type: "prompt", content: "map ".repeat(4_000) });
+    await drain(channel);
+    channel.client.send({ type: "prompt", content: "chart ".repeat(2_700) });
+    await drain(channel);
+    expect(started(seen)).toBe(0);
+
+    // Pasted on top of the history, it crosses the trigger before the turn starts.
+    channel.client.send({ type: "prompt", content: "plunder ".repeat(2_750) });
+    await drain(channel);
+
+    expect(seen.filter((event) => event.type === "compaction_finished")
+        .map((event) => event.type === "compaction_finished" ? event.outcome : ""))
+        .toEqual(["compacted"]);
+    // The reading shown after compaction already counts the prompt, so it matches the request that follows.
+    const finished = seen.findIndex((event) => event.type === "compaction_finished");
+    const readings = seen.slice(finished).flatMap((event) =>
+        event.type === "context_measured" ? [event.measurement.tokens] : []
+    );
+    expect(readings[0]).toBe(readings[1]);
+});
+
+test("the check before a prompt counts the system prompt and tools right after a compaction", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-overhead-compacted", cwd: workspace },
+    );
+    const seen: EngineEvent[] = [];
+    const channel = startOverheadLoop(store, seen, 4);
+    for (const word of ["gold ", "silver ", "pearl "]) {
+        channel.client.send({ type: "prompt", content: word.repeat(16_000 / word.length) });
+        await drain(channel);
+    }
+    channel.client.send({ type: "compact", requestId: "overhead-compact" });
+    await drainUntil(channel, (update) =>
+        update.type === "compaction" && update.phase === "finished"
+    );
+    const mark = seen.length;
+
+    channel.client.send({ type: "prompt", content: "rum ".repeat(9_500) });
+    await drain(channel);
+
+    expect(compactedBeforeFirstRequest(seen.slice(mark))).toBe(true);
+});
+
+test("the check before the first prompt after a resume counts the system prompt and tools", async () => {
+    const workspace = temporaryDirectory();
+    const path = join(workspace, "session.jsonl");
+    const first = await SessionStore.create(
+        path,
+        { sessionId: "loop-overhead-resumed", cwd: workspace },
+    );
+    const before: EngineEvent[] = [];
+    const firstChannel = startOverheadLoop(first, before, 3);
+    for (const word of ["gold ", "silver ", "pearl "]) {
+        firstChannel.client.send({ type: "prompt", content: word.repeat(10_000 / word.length) });
+        await drain(firstChannel);
+    }
+    expect(started(before)).toBe(0);
+
+    const seen: EngineEvent[] = [];
+    const channel = startOverheadLoop(await SessionStore.open(path), seen, 1);
+    channel.client.send({ type: "prompt", content: "rum ".repeat(6_500) });
+    await drain(channel);
+
+    expect(compactedBeforeFirstRequest(seen)).toBe(true);
+});
+
+test("a reply cut off by the length limit is checked for compaction before it continues", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-length-continuation", cwd: workspace },
+    );
+    const cutOff: AssistantMessage = {
+        ...assistantText("the ballad of the crow ".repeat(800)),
+        stopReason: "length",
+    };
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([
+            assistantText("first haul stowed"),
+            assistantText("second haul stowed"),
+            cutOff,
+            assistantText("and so the crow sailed on"),
+        ]),
+        "test",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            compaction: compactionOptions(),
+            readModelSettings: () => ({ model: "test", contextWindow: 20_000 }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+    for (const word of ["gold ", "silver "]) {
+        channel.client.send({ type: "prompt", content: word.repeat(20_000 / word.length) });
+        await drain(channel);
+    }
+    const mark = seen.length;
+
+    channel.client.send({ type: "prompt", content: "sing the whole ballad" });
+    await drain(channel);
+
+    const turn = seen.slice(mark).flatMap((event) =>
+        event.type === "model_request" || event.type === "compaction_started"
+            ? [event.type]
+            : []
+    );
+    expect(turn).toEqual(["model_request", "compaction_started", "model_request"]);
+});
+
+for (const contextWindow of [undefined, 1_000_000]) {
+    test(`/compact sizes against context_limit with ${contextWindow === undefined ? "an unknown" : "a known"} window`, async () => {
+        const workspace = temporaryDirectory();
+        const store = await SessionStore.create(
+            join(workspace, "session.jsonl"),
+            { sessionId: "loop-compact-limit", cwd: workspace },
+        );
+        const events = new EngineEventBus();
+        const seen: EngineEvent[] = [];
+        events.subscribe((event) => void seen.push(event));
+        const channel = createInProcessChannel();
+        void runHeadlessLoop(
+            channel.engine,
+            new FauxAdapter([1, 2, 3].map((haul) => assistantText(`haul ${haul} stowed`))),
+            "test",
+            undefined,
+            { approvalMode: "auto" },
+            {
+                sessionStore: store,
+                eventBus: events,
+                compaction: compactionOptions(),
+                readModelSettings: () => ({
+                    model: "test",
+                    ...(contextWindow === undefined ? {} : { contextWindow }),
+                    contextLimit: 20_000,
+                }),
+                readApprovalMode: () => "auto",
+                updateApprovalMode: async () => undefined,
+                router: { updateModelSettings: async () => undefined },
+            },
+        );
+        for (const word of ["gold ", "silver ", "pearl "]) {
+            channel.client.send({ type: "prompt", content: word.repeat(16_000 / word.length) });
+            await drain(channel);
+        }
+
+        channel.client.send({ type: "compact", requestId: "limit-compact" });
+        await drainUntil(channel, (update) =>
+            update.type === "compaction" && update.phase === "finished"
+        );
+
+        const finished = seen.find((event) => event.type === "compaction_finished");
+        expect(finished).toMatchObject({ outcome: "compacted" });
+        // 45% of the 20000 limit, not of the model's window.
+        expect(finished?.type === "compaction_finished" ? finished.after : undefined)
+            .toBeLessThanOrEqual(9_000);
+    });
+}
+
+test("a pre_turn hook that moves the turn to a smaller model is checked against that model's window", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-hook-switch", cwd: workspace },
+    );
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn((payload) =>
+        payload.prompt === "row for the cove"
+            ? { power: "mutate", model: "dinghy" }
+            : { power: "observe" }
+    );
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([1, 2, 3, 4].map((haul) => assistantText(`haul ${haul} stowed`))),
+        "galleon",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            hooks,
+            compaction: compactionOptions(),
+            readModelSettings: () => ({
+                provider: "faux",
+                model: "galleon",
+                contextWindow: 100_000,
+                availableModels: [{
+                    provider: "faux",
+                    model: "dinghy",
+                    label: "Dinghy",
+                    description: "A small boat",
+                    levels: [],
+                    contextWindow: 20_000,
+                }],
+            }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+    for (const word of ["gold ", "silver ", "pearl "]) {
+        channel.client.send({ type: "prompt", content: word.repeat(18_000 / word.length) });
+        await drain(channel);
+    }
+    expect(started(seen)).toBe(0);
+    const mark = seen.length;
+
+    channel.client.send({ type: "prompt", content: "row for the cove" });
+    await drain(channel);
+
+    expect(compactedBeforeFirstRequest(seen.slice(mark))).toBe(true);
+});
+
+function startOverheadLoop(
+    store: SessionStore,
+    seen: EngineEvent[],
+    turns: number,
+): ReturnType<typeof createInProcessChannel> {
+    const events = new EngineEventBus();
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter(Array.from({ length: turns }, (_, index) =>
+            assistantText(`haul ${index + 1} stowed`)
+        )),
+        "test",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            compaction: compactionOptions(),
+            readModelSettings: () => ({ model: "test", contextWindow: 20_000 }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+    return channel;
+}
+
+function compactedBeforeFirstRequest(seen: readonly EngineEvent[]): boolean {
+    const compaction = seen.findIndex((event) =>
+        event.type === "compaction_finished" && event.outcome === "compacted"
+    );
+    const request = seen.findIndex((event) => event.type === "model_request");
+    return compaction !== -1 && request !== -1 && compaction < request;
 }
 
 function started(seen: readonly EngineEvent[]): number {
