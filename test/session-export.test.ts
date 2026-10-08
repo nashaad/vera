@@ -45,11 +45,13 @@ test("session export is read-only and follows the active conversation branch", a
             transcript: [
                 {
                     id: expect.any(String),
+                    recordedAt: expect.any(Number),
                     kind: "user",
                     text: "keep this prompt",
                 },
                 {
                     id: expect.any(String),
+                    recordedAt: expect.any(Number),
                     kind: "assistant",
                     text: "Keep this reply.",
                 },
@@ -123,6 +125,7 @@ test("session export preserves a durable terminal model error", async () => {
         const json = JSON.parse(await exportSession(path, "json"));
         expect(json.transcript.at(-1)).toEqual({
             id: expect.any(String),
+            recordedAt: expect.any(Number),
             kind: "error",
             outcome: "error",
             detail: "rate limited after retries",

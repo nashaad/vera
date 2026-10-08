@@ -67,6 +67,7 @@ const CAPABILITY_LABELS: Readonly<Record<string, string>> = {
     "client.ui.mentions": "mentions",
     "client.ui.notice": "notice",
     "client.ui.picker": "picker",
+    "client.ui.reveal": "reveal",
     "client.ui.sidebar": "sidebar",
     "client.ui.transcript": "transcript",
     "commands.register": "commands",

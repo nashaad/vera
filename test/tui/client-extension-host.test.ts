@@ -19,6 +19,7 @@ const DISABLED_BUILTINS = [
     "vera.diff",
     "vera.web-search",
     "vera.context",
+    "vera.recap",
 ] as const;
 
 function fakeRegistry(
@@ -182,6 +183,8 @@ test("the TUI extension host binds a configured extension to client surfaces", a
             },
         },
         readThread: () => [],
+        readThreadEntries: () => [],
+        reveal: () => false,
         appendTranscript: () => {},
         postNotice: (text) => notices.push(text),
         commandRegistry,

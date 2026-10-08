@@ -104,3 +104,34 @@ test("provider actions separate groups with dashed rules and put verification he
         expect(frame).toContain("API charges may apply.");
     } finally { setup.renderer.destroy(); }
 });
+
+test("full size fills the screen and headings sit above their rows without taking the cursor", async () => {
+    const setup = await createTestRenderer({ width: 120, height: 40 });
+    try {
+        const view = createTuiSettingsPickerView(setup.renderer);
+        setup.renderer.root.add(view.surface);
+        view.surface.visible = true;
+        let state = startTuiExtensionPicker("Recap", [
+            { id: "whistle", heading: "15:45", label: "Teach the crow to whistle", meta: "8s ✓", details: ["Teach the crow to whistle"] },
+            { id: "commit", heading: "15:45", label: "  ● feat: whistle", meta: "1a2b3c4" },
+            { id: "kraken", heading: "15:52", label: "Plot a course past the kraken", meta: "4s" },
+            { id: "reef", heading: "15:52", group: "reef", label: "Chart the reef", meta: "2s" },
+        ], "whistle", [{ id: "jump", label: "jump", key: "enter" }], "2 phases · 12s working", true, { layout: "list-detail", size: "full" });
+        view.update(state);
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const at = (needle: string) => lines.findIndex((line) => line.includes(needle));
+        expect(lines.filter((line) => line.includes("15:45"))).toHaveLength(1);
+        expect(at("15:45") + 1).toBe(at("8s ✓"));
+        expect(at("1a2b3c4")).toBe(at("8s ✓") + 1);
+        expect(lines[at("15:52") - 1]!.replace(/[│ ]/g, "")).toBe("");
+        expect(at("Plot a course")).toBe(at("15:52") + 1);
+        expect(lines.filter((line) => line.includes("15:52"))).toHaveLength(2);
+        expect(lines[at("8s ✓")]!.indexOf("│")).toBeGreaterThan(75);
+        expect(at("Esc back")).toBeGreaterThan(34);
+
+        state = handleTuiExtensionPickerKey(state, { name: "down" }).state as TuiExtensionPickerState;
+        state = handleTuiExtensionPickerKey(state, { name: "down" }).state as TuiExtensionPickerState;
+        expect(state.options[state.selectedIndex]?.value).toBe("kraken");
+    } finally { setup.renderer.destroy(); }
+});

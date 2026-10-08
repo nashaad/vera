@@ -295,6 +295,7 @@ export interface TuiExtensionPickerRow {
     readonly current?: boolean;
     readonly meta?: string;
     readonly group?: string;
+    readonly heading?: string;
     readonly details?: readonly string[];
 }
 
@@ -412,6 +413,7 @@ export interface TuiPendingModelChoice {
 
 export interface TuiExtensionPickerState {
     readonly layout?: "list-detail" | "menu";
+    readonly size?: "fit" | "full";
     readonly searchPlaceholder?: string;
     readonly focusedButton?: number;
     readonly kind: "extension";

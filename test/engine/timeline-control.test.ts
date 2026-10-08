@@ -125,8 +125,18 @@ test("timeline list, preview, and apply keep replies requester-owned", async () 
     expect(broadcasts.map(withoutSessionUsage)).toEqual([{
         type: "history",
         entries: [
-            { id: "message-1#0", kind: "user", text: "first request" },
-            { id: "message-2#0", kind: "assistant", text: "first answer" },
+            {
+                id: "message-1#0",
+                kind: "user",
+                text: "first request",
+                recordedAt: Date.parse("2026-07-19T12:00:01.000Z"),
+            },
+            {
+                id: "message-2#0",
+                kind: "assistant",
+                text: "first answer",
+                recordedAt: Date.parse("2026-07-19T12:00:02.000Z"),
+            },
         ],
         seq: 0,
     }]);

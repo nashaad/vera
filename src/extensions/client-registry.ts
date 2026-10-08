@@ -19,6 +19,8 @@ import type {
     VeraClientMessageDecision,
     VeraClientOneshotRequest,
     VeraClientThreadTurn,
+    VeraClientThreadEntry,
+    VeraClientRevealTarget,
     VeraClientSessionListRequest,
     VeraClientSessionPage,
     VeraClientTranscriptBlock,
@@ -97,6 +99,7 @@ const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
+const CLIENT_REVEAL_CAPABILITY = "client.ui.reveal";
 const CLIENT_SESSIONS_CAPABILITY = "client.sessions.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
 const CLIENT_COMPOSE_SUGGESTER_CAPABILITY = "client.compose.suggester";
@@ -254,6 +257,11 @@ export interface ClientExtensionAddressingAdapter {
 
 export interface ClientExtensionThreadAdapter {
     read(extensionId: string): readonly VeraClientThreadTurn[];
+    entries(extensionId: string): readonly VeraClientThreadEntry[];
+}
+
+export interface ClientExtensionRevealAdapter {
+    reveal(extensionId: string, target: VeraClientRevealTarget): boolean;
 }
 
 export interface ClientExtensionSessionsAdapter {
@@ -336,6 +344,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly mentions?: ClientExtensionMentionsAdapter;
     readonly addressing?: ClientExtensionAddressingAdapter;
     readonly thread?: ClientExtensionThreadAdapter;
+    readonly reveal?: ClientExtensionRevealAdapter;
     readonly sessions?: ClientExtensionSessionsAdapter;
     readonly agents?: ClientExtensionAgentsAdapter;
     readonly experimentalTui?: ClientExtensionExperimentalTuiAdapter;
@@ -524,6 +533,7 @@ export async function startClientExtensionRegistry(
                 mentions: options.mentions,
                 addressing: options.addressing,
                 thread: options.thread,
+                reveal: options.reveal,
                 sessions: options.sessions,
                 agents: options.agents,
                 experimentalTui: options.experimentalTui,
@@ -906,6 +916,7 @@ interface ActivateClientExtensionOptions {
     readonly mentions: ClientExtensionMentionsAdapter | undefined;
     readonly addressing: ClientExtensionAddressingAdapter | undefined;
     readonly thread: ClientExtensionThreadAdapter | undefined;
+    readonly reveal: ClientExtensionRevealAdapter | undefined;
     readonly sessions: ClientExtensionSessionsAdapter | undefined;
     readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
@@ -1201,6 +1212,15 @@ async function activateClientExtension(
                     throw new Error("This client has no transcript to write to");
                 }
                 options.transcript.append(options.id, validated);
+            },
+            reveal(target: VeraClientRevealTarget): boolean {
+                requireAvailable();
+                requireCapability(CLIENT_REVEAL_CAPABILITY);
+                const validated = validateRevealTarget(target);
+                if (options.reveal === undefined) {
+                    throw new Error("This client has no transcript to reveal");
+                }
+                return options.reveal.reveal(options.id, validated);
             },
             sidebar: Object.freeze({
                 registerSummary(render: VeraClientSidebarSummaryRenderer): void {
@@ -1654,6 +1674,9 @@ async function activateClientExtension(
         thread: Object.freeze({
             read(): readonly VeraClientThreadTurn[] {
                 return requireThread().read(options.id);
+            },
+            entries(): readonly VeraClientThreadEntry[] {
+                return structuredClone(requireThread().entries(options.id));
             },
         }),
         sessions: Object.freeze({
@@ -2114,6 +2137,7 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
                 || request.subtitle.trim().length === 0))
         || (request.searchable !== undefined && typeof request.searchable !== "boolean")
         || (request.layout !== undefined && !["list-detail", "menu"].includes(request.layout))
+        || (request.size !== undefined && !["fit", "full"].includes(request.size))
         || (request.searchPlaceholder !== undefined && typeof request.searchPlaceholder !== "string")
         || !Array.isArray(request.rows)
         || request.rows.length === 0
@@ -2130,6 +2154,7 @@ function validatePickerRequest(request: VeraClientPickerRequest): void {
             || typeof row.label !== "string"
             || row.label.trim().length === 0
             || (row.group !== undefined && typeof row.group !== "string")
+            || (row.heading !== undefined && (typeof row.heading !== "string" || row.heading.trim().length === 0))
             || (row.details !== undefined && (!Array.isArray(row.details) || row.details.some((line: unknown) => typeof line !== "string")))
         ) {
             throw new Error("Invalid client extension picker row");
@@ -2575,6 +2600,16 @@ function validateOneshotRequest(request: VeraClientOneshotRequest): void {
             throw new Error("Oneshot message content must not be empty");
         }
     }
+}
+
+function validateRevealTarget(target: VeraClientRevealTarget): VeraClientRevealTarget {
+    if (typeof target === "object" && target !== null) {
+        if ("entryId" in target && typeof target.entryId === "string" && target.entryId.length > 0) {
+            return { entryId: target.entryId };
+        }
+        if ("end" in target && target.end === true) return { end: true };
+    }
+    throw new Error("Reveal needs an entryId or end: true");
 }
 
 function validateTranscriptBlock(

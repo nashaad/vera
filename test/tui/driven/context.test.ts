@@ -125,7 +125,7 @@ for (const enabled of [false, true]) {
         const session = await startTuiTestSession({
             home,
             width: 100,
-            height: 40,
+            height: 48,
             dependencies: () => ({
                 ...createTuiChildDependencies({
                     clientExtensions: [{
@@ -160,7 +160,7 @@ test("closing Dashboard returns every following character to the composer", asyn
     const session = await startTuiTestSession({
         home,
         width: 100,
-        height: 40,
+        height: 48,
         dependencies: () => createTuiChildDependencies(),
     });
     try {

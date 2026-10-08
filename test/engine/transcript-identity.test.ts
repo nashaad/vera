@@ -111,11 +111,33 @@ test("a rewind keeps the IDs of the messages it leaves standing", async () => {
     expect(identities(store)).toEqual(survivors);
 });
 
+test("each entry carries the time its stored message was written", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-transcript-identity-"));
+    temporaryDirectories.push(directory);
+    const times = ["2026-10-08T09:12:00.000Z", "2026-10-08T09:12:00.000Z", "2026-10-08T09:31:00.000Z"];
+    let next = 1;
+    const store = await SessionStore.create(join(directory, "session.jsonl"), {
+        sessionId: "session-1",
+        cwd: directory,
+        createId: () => `message-${next++}`,
+        now: () => new Date(times.shift() ?? "2026-10-08T10:00:00.000Z"),
+    });
+    await store.appendMessage(userMessage("where did the crow bury the map"));
+    await store.appendMessage(assistantMessage("under the third mast"));
+
+    const transcript = projectTranscript(store.messages(), undefined, store.activeMessageStamps());
+
+    expect(transcript.map((entry) => entry.recordedAt)).toEqual([
+        Date.parse("2026-10-08T09:12:00.000Z"),
+        Date.parse("2026-10-08T09:31:00.000Z"),
+    ]);
+});
+
 function identities(store: SessionStore): [string | undefined, string][] {
     return projectTranscript(
         store.messages(),
         undefined,
-        store.activeMessageIds(),
+        store.activeMessageStamps(),
     ).map((entry) => [entry.id, entry.kind]);
 }
 

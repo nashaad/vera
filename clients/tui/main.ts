@@ -278,7 +278,8 @@ export type {
     TuiStartTarget,
 } from "./session-target.ts";
 import { createTuiTimelinePickerView } from "./timeline-picker.ts";
-import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, createTuiState, setTuiWorkspaceRoot, type TuiState, type TuiTranscriptEntry } from "./state.ts";
+import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, createTuiState, setTuiWorkspaceRoot, transcriptMessageId, type TuiState, type TuiTranscriptEntry } from "./state.ts";
+import { EMPTY_THREAD_FACTS, threadFactEntries } from "../shared/thread-facts.ts";
 import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
@@ -1260,6 +1261,26 @@ export async function startTui(
                         role: entry.kind as "user" | "assistant",
                         text: entry.text,
                     }));
+            },
+            readThreadEntries() {
+                return threadFactEntries(rt.state.threadFacts ?? EMPTY_THREAD_FACTS);
+            },
+            reveal(target) {
+                if ("end" in target) {
+                    clearSearchLanding(rt);
+                    applyTranscriptScroll(rt, "jump_to_bottom");
+                    return true;
+                }
+                // Rows are keyed by stored message, so an entry lands on the first row its message drew.
+                const messageId = transcriptMessageId(target.entryId);
+                const shown = rt.state.entries.some((entry) =>
+                    entry.kind !== "diff" && transcriptMessageId(entry.entryId) === messageId);
+                const sessionId = rt.client.agentId;
+                if (messageId === undefined || sessionId === undefined || !shown) return false;
+                clearSearchLanding(rt);
+                rt.pendingSearchTarget = { sessionId, entryId: messageId };
+                showSearchTarget(rt);
+                return true;
             },
             appendTranscript(block) {
                 rt.state = appendTuiExtensionBlock(rt.state, block.label, block.text);

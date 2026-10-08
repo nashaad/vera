@@ -62,7 +62,7 @@ export async function exportSession(
         transcript: projectTranscript(
             snapshot.messages,
             undefined,
-            snapshot.messageIds,
+            snapshot.messageStamps,
             snapshot.harnessMessages,
         ),
         ...(snapshot.agentFailure === undefined

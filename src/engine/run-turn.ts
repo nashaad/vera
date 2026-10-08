@@ -736,7 +736,7 @@ export async function runHeadlessLoop(
         afterCompacted: async () => {
             const contextAdded = await restoreContextAfterCompaction(state);
             if (contextAdded) {
-                protocol.checkpoint(messages, store.activeMessageIds());
+                protocol.checkpoint(messages, store.activeMessageStamps());
             }
             return contextAdded;
         },
@@ -840,7 +840,7 @@ export async function runHeadlessLoop(
         : compactionContextForSettings(startupSettings);
     protocol.checkpoint(
         state.messages,
-        store.activeMessageIds(),
+        store.activeMessageStamps(),
         latestCompactionContext(
             store,
             startupContext,
@@ -856,7 +856,7 @@ export async function runHeadlessLoop(
                 ?? (data.resumeSessionPath !== undefined ? "resume" : "start"),
         );
         if (await sessionStartReady) {
-            protocol.checkpoint(state.messages, store.activeMessageIds());
+            protocol.checkpoint(state.messages, store.activeMessageStamps());
         }
         while (true) {
             const checkpointMessages = [...state.messages];
@@ -867,7 +867,7 @@ export async function runHeadlessLoop(
                     message !== checkpointMessages[index]
                 )
             ) {
-                protocol.checkpoint(state.messages, store.activeMessageIds());
+                protocol.checkpoint(state.messages, store.activeMessageStamps());
             }
         }
     } finally {

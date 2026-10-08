@@ -110,7 +110,7 @@ function reads(store: SessionStore): Record<string, unknown> {
         entries: store.entries(),
         activeEntries: store.activeEntries(),
         messages: store.messages(),
-        activeMessageIds: [...store.activeMessageIds().values()],
+        activeMessageIds: [...store.activeMessageStamps().values()].map((stamp) => stamp.id),
         activeHeadId: store.activeHeadId(),
         pendingDeliveries: store.pendingDeliveries(),
         hasUnansweredDeliveryTurn: store.hasUnansweredDeliveryTurn(),

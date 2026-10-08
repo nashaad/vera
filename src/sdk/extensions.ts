@@ -591,6 +591,8 @@ export interface VeraClientPickerRow {
     readonly meta?: string;
     readonly current?: boolean;
     readonly group?: string;
+    // Shown once above each run of rows with the same heading and group; the cursor skips it.
+    readonly heading?: string;
     readonly details?: readonly string[];
 }
 
@@ -603,6 +605,8 @@ export interface VeraClientPickerAction {
 
 export interface VeraClientPickerRequest {
     readonly layout?: "list-detail" | "menu";
+    // "full" takes the whole screen even when the rows are few.
+    readonly size?: "fit" | "full";
     readonly searchPlaceholder?: string;
     readonly searchable?: boolean;
     readonly title: string;
@@ -655,6 +659,13 @@ export interface VeraClientExtensionUi {
      * Capability: `client.ui.transcript`.
      */
     transcript(block: VeraClientTranscriptBlock): void;
+    /**
+     * Scroll the transcript to an entry from `thread.entries()`, or to its end.
+     * Returns false when this conversation has no such entry.
+     *
+     * Capability: `client.ui.reveal`.
+     */
+    reveal(target: VeraClientRevealTarget): boolean;
     /**
      * A region beside the transcript that this extension owns while it is
      * open. One extension holds it at a time; opening it while another has it
@@ -915,12 +926,81 @@ export interface VeraClientExtensionThread {
      * agent answered. Tool calls, notices, and extension output are not in it.
      */
     read(): readonly VeraClientThreadTurn[];
+    /**
+     * The same thread as facts, oldest first, with the work in between: tool
+     * calls and results, edits, checklist writes, failed turns. Notices and
+     * extension output are not in it.
+     */
+    entries(): readonly VeraClientThreadEntry[];
 }
 
 export interface VeraClientThreadTurn {
     readonly role: "user" | "assistant";
     readonly text: string;
 }
+
+export interface VeraClientThreadEntryFacts {
+    /** Absent on the turn still running. Pass it to `ui.reveal` to show the entry. */
+    readonly id?: string;
+    /** Epoch ms. Stored entries carry the host's write time; the running turn carries when this client saw it. */
+    readonly at?: number;
+    /** On the last entry of a finished turn. */
+    readonly turnDurationMs?: number;
+}
+
+export interface VeraClientThreadMessage extends VeraClientThreadEntryFacts {
+    readonly kind: "user" | "assistant";
+    readonly text: string;
+}
+
+export interface VeraClientThreadToolCall extends VeraClientThreadEntryFacts {
+    readonly kind: "tool_call";
+    readonly tool: string;
+    readonly args: Readonly<Record<string, unknown>>;
+}
+
+export interface VeraClientThreadToolResult extends VeraClientThreadEntryFacts {
+    readonly kind: "tool_result";
+    readonly tool: string;
+    readonly output: string;
+    readonly isError: boolean;
+}
+
+export interface VeraClientThreadEdit extends VeraClientThreadEntryFacts {
+    readonly kind: "edit";
+    readonly path: string;
+}
+
+export interface VeraClientThreadChecklistItem {
+    readonly text: string;
+    readonly done: boolean;
+    /** Done by this write and open before it. */
+    readonly justDone?: true;
+}
+
+export interface VeraClientThreadChecklist extends VeraClientThreadEntryFacts {
+    readonly kind: "checklist";
+    readonly path: string;
+    readonly items: readonly VeraClientThreadChecklistItem[];
+}
+
+export interface VeraClientThreadFailure extends VeraClientThreadEntryFacts {
+    readonly kind: "failure";
+    readonly outcome: "error" | "aborted";
+}
+
+export type VeraClientThreadEntry =
+    | VeraClientThreadMessage
+    | VeraClientThreadToolCall
+    | VeraClientThreadToolResult
+    | VeraClientThreadEdit
+    | VeraClientThreadChecklist
+    | VeraClientThreadFailure;
+
+/** Where `ui.reveal` scrolls: one entry by its `id`, or the end of the thread. */
+export type VeraClientRevealTarget =
+    | { readonly entryId: string }
+    | { readonly end: true };
 
 /**
  * Every session in the active profile, as plain immutable facts.

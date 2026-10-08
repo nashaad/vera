@@ -1467,7 +1467,11 @@ export function startTuiExtensionPicker(
     actions: readonly TuiExtensionPickerAction[] = [],
     subtitle: string | undefined = undefined,
     searchable = false,
-    presentation: { readonly layout?: "list-detail" | "menu"; readonly searchPlaceholder?: string } = {},
+    presentation: {
+        readonly layout?: "list-detail" | "menu";
+        readonly size?: "fit" | "full";
+        readonly searchPlaceholder?: string;
+    } = {},
 ): TuiExtensionPickerState {
     const options = rows.map((row) => ({
         value: row.id,

@@ -1058,6 +1058,7 @@ process.stdout.write(JSON.stringify({
                     id: expect.any(String),
                     kind: "user",
                     text: "stored prompt",
+                    recordedAt: expect.any(Number),
                 }],
                 usage: { rows: [] },
                 seq: 0,
