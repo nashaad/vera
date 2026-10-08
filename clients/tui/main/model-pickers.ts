@@ -16,7 +16,7 @@ import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
 import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
-import { configuredProviders, findConfiguredProvider, isProviderConnected, type ProviderDescriptor } from "../../../src/providers/registry.ts";
+import { configuredProviders, findConfiguredProvider, isProviderConnected, setupProviders, type ProviderDescriptor } from "../../../src/providers/registry.ts";
 import { openFileInEditor, veraConfigPath } from "../../editor.ts";
 import { isHomeClient } from "../home-client.ts";
 import { closeSettingsPickerSurface, defaultLoginProvider, requestCatalogRefresh, showModeToast } from "../main.ts";
@@ -644,7 +644,7 @@ export function onboardingInput(
     config = loadOptionalVeraConfig(),
 ): OnboardingInput {
     return {
-        providers: configuredProviders(config),
+        providers: setupProviders(config),
         pool: loadPoolFile({ projectRoot: process.cwd() }).merged,
         ...(config === undefined ? {} : { config }),
         authStorage: rt.authStorage,
@@ -713,8 +713,10 @@ export function openProviderPicker(rt: TuiRuntime,
     const config = loadOptionalVeraConfig();
     const connected = new Set(connectedProviderCatalogs(config, { authStorage: rt.authStorage }).map((row) => row.id));
     const declared = new Set(Object.keys(config?.providers ?? {}));
+    const available = setupProviders(config);
+    const hasLocalRuntime = available.some((provider) => provider.localRuntime !== undefined);
     const rows = providerPickerRows(
-        configuredProviders(config),
+        available,
         onboardingInput(rt, config),
         {
             connected,
@@ -731,7 +733,9 @@ export function openProviderPicker(rt: TuiRuntime,
             {
                 ...options,
                 subtitle: options.subtitle ?? (connected.size ? undefined : "No provider connected. Choose one below, or add an endpoint of your own."),
-                ...(rt.localRuntime === undefined ? {} : { localRuntime: rt.localRuntime }),
+                ...(!hasLocalRuntime || rt.localRuntime === undefined
+                    ? {}
+                    : { localRuntime: rt.localRuntime }),
             },
         ),
         parent,
@@ -741,7 +745,7 @@ export function openProviderPicker(rt: TuiRuntime,
     focusActiveSurface(rt);
     // The reading is slower than the screen, so it lands into the section once
     // it arrives rather than holding the screen shut.
-    void refreshLocalRuntimeStatus(rt);
+    if (hasLocalRuntime) void refreshLocalRuntimeStatus(rt);
 }
 
 export function refreshProviderPicker(rt: TuiRuntime, notice?: string): void {
@@ -763,10 +767,8 @@ export function connectProvider(rt: TuiRuntime,
     providerId: string,
     pane: TuiSettingsPickerState | undefined,
 ): "key" | "none" | "sign_in" | "install" | undefined {
-    const provider = findConfiguredProvider(
-        providerId,
-        loadOptionalVeraConfig(),
-    );
+    const provider = setupProviders(loadOptionalVeraConfig())
+        .find((row) => row.id === providerId);
     if (provider === undefined) {
         return undefined;
     }

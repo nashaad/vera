@@ -323,7 +323,7 @@ function chooseProvider(
     session: WizardSession,
     id: string,
 ): void {
-    const provider = findConfiguredProvider(id, loadOptionalVeraConfig());
+    const provider = onboardingInput(rt).providers.find((entry) => entry.id === id);
     if (provider === undefined) return;
     // Whatever the last provider's runtime was doing is no longer this
     // wizard's business, so the answer is dropped with the step.

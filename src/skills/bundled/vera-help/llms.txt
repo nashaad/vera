@@ -9,7 +9,7 @@ Match the ask to one row, then follow that row. Rows are intent, not wording; a 
 Explain how something works: read the one section that names it and answer in two or three sentences. Name the surface if one exists.
 Find where to do something: name the exact slash command and what it opens, in one line. The user is about to look at it.
 Set something up: name the surface that validates. Never edit a configuration file, never give a file path as the way to change a setting, and never repeat a key back in an answer.
-Install or download a model: provider connection expects a running endpoint. It does not install or download models.
+Install or download a model: provider connection expects a running endpoint. Outrider guided setup can install and download when `experimental.outrider_onboarding` is enabled in Home config.
 Find a command or a flag: `vera --help` prints the whole reference, and `vera <command> --help` shows one command and its manual page. `/palette` browses them in the TUI.
 Something is not working: run one bounded check, report what it actually said, then offer at most one recovery. Do not loop.
 Report a problem: `/failure-report` writes a shareable report of recorded model failures. Vera has no general bug-report path.
@@ -49,12 +49,14 @@ A mistyped slash command, such as `/modle`, is not sent to the model; the TUI na
 `/theme` picks the TUI theme. Add your own themes in the home's `tui-themes.json`; `extends` starts one from an existing theme so you set only the colors you change.
 Manual: `docs/commands.md`, `docs/themes.md`.
 
-## First-run setup [lines=7]
+## First-run setup [lines=9]
 Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add provider.
 Enter the provider name, endpoint, and API key. Known API providers prefill the endpoint; custom endpoints also expose protocol and credential choices.
 Save reads the catalog immediately. It discovers models without keeping, verifying, assigning, or selecting them.
 A failed save names the cause and preserves the input. Endpoints must use HTTP or HTTPS.
 Open Switch model, type to search the connected models, then press Enter on one to open a conversation.
+Outrider guided setup is hidden by default; enable `experimental.outrider_onboarding` in Home config through `/configure` to offer it.
+A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
 Manual: `docs/first-run-setup.md`.
 
 ## Models and providers [lines=24]

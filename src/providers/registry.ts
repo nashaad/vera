@@ -70,6 +70,16 @@ export function configuredProviders(
     }).map((provider) => descriptorFromResolved(provider));
 }
 
+export function setupProviders(
+    config: Partial<Pick<VeraConfig, "providers" | "provider_endpoints" | "provider" | "experimental">> | undefined,
+): readonly ProviderDescriptor[] {
+    const providers = configuredProviders(config);
+    if (config?.experimental?.outrider_onboarding === true || config?.provider === "outrider") {
+        return providers;
+    }
+    return providers.filter((provider) => provider.id !== "outrider");
+}
+
 function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[number]): ProviderDescriptor {
     return {
         id: provider.id,

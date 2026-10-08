@@ -15,7 +15,7 @@ import type { ProviderDescriptor } from "./registry.ts";
 export type OnboardingGate = "provider" | "key" | "model" | "ready";
 
 /** What a provider has done, in the three words a row can show without color. */
-export type ProviderAnswerState = "connected" | "key stored" | "not answering";
+export type ProviderAnswerState = "connected" | "key stored" | "unverified";
 
 export interface OnboardingInput {
     readonly providers: readonly ProviderDescriptor[];
@@ -65,7 +65,7 @@ export function providerAnswerState(
     if (hasProviderAnswered(provider.id, input.pool)) {
         return "connected";
     }
-    return holdsCredential(provider, input) ? "key stored" : "not answering";
+    return holdsCredential(provider, input) ? "key stored" : "unverified";
 }
 
 /** The word a provider row shows, or nothing at all. A provider that could hold a key and holds none has been left alone, and silence says that better than a verdict. */
@@ -74,7 +74,7 @@ export function providerAnswerLabel(
     input: OnboardingInput,
 ): ProviderAnswerState | undefined {
     const state = providerAnswerState(provider, input);
-    return state === "not answering" && provider.credential !== "none"
+    return state === "unverified" && provider.credential !== "none"
         ? undefined
         : state;
 }

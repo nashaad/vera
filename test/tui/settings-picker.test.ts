@@ -2752,7 +2752,7 @@ test("a stored key that has never answered says so, not connected", async () => 
                 label: "Cerebras",
                 group: "API keys" as const,
                 hasCredential: false,
-                answerState: "not answering" as const,
+                answerState: "unverified" as const,
             },
         ]),
         modelPickerWithPool(),
@@ -2761,7 +2761,7 @@ test("a stored key that has never answered says so, not connected", async () => 
 
     expect(frame).toMatch(/gemini.*key stored/);
     expect(frame).not.toMatch(/gemini.*connected/);
-    expect(frame).toMatch(/Cerebras.*not answering/);
+    expect(frame).toMatch(/Cerebras.*unverified/);
     // A provider nobody has touched stays quiet rather than reading as broken.
     expect(frame).not.toMatch(/OpenRouter.*(connected|stored|answering)/);
 });

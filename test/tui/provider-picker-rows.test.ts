@@ -2,7 +2,7 @@
 
 import { expect, test } from "bun:test";
 import { providerPickerRows } from "../../clients/tui/main/model-pickers.ts";
-import { configuredProviders } from "../../src/providers/registry.ts";
+import { configuredProviders, setupProviders } from "../../src/providers/registry.ts";
 import type { OnboardingInput } from "../../src/providers/onboarding.ts";
 
 const EMPTY_FACTS = {
@@ -23,10 +23,19 @@ test("a home with nothing connected is still offered every provider", () => {
     expect(rows.map((row) => row.id)).toEqual(providers.map((row) => row.id));
 });
 
-test("the local runtime is among them, because installing it is what the row is for", () => {
-    const providers = configuredProviders(undefined);
+test("an untouched local provider reads unverified", () => {
+    const providers = setupProviders(undefined);
     const rows = providerPickerRows(providers, answers(providers), EMPTY_FACTS);
-    expect(rows.some((row) => row.id === "outrider")).toBe(true);
+    expect(rows.find((row) => row.id === "ollama")?.answerState).toBe("unverified");
+});
+
+test("the provider picker offers Outrider only when setup is enabled", () => {
+    const hidden = setupProviders(undefined);
+    const enabled = setupProviders({ experimental: { outrider_onboarding: true } });
+    expect(providerPickerRows(hidden, answers(hidden), EMPTY_FACTS)
+        .some((row) => row.id === "outrider")).toBe(false);
+    expect(providerPickerRows(enabled, answers(enabled), EMPTY_FACTS)
+        .some((row) => row.id === "outrider")).toBe(true);
 });
 
 test("a provider that has not connected says nothing about a catalog", () => {

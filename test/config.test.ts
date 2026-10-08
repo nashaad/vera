@@ -659,6 +659,33 @@ test("Vera config rejects a non-boolean experimental inbox flag", () => {
     expect(() => loadVeraConfig({ path })).toThrow();
 });
 
+test("Vera config reads the experimental Outrider onboarding flag", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        experimental: { inbox: true, outrider_onboarding: true },
+    }));
+
+    expect(loadVeraConfig({ path }).experimental).toEqual({
+        inbox: true,
+        outrider_onboarding: true,
+    });
+    updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
+    expect(loadVeraConfig({ path }).experimental?.outrider_onboarding).toBe(true);
+});
+
+test("Vera config rejects a non-boolean Outrider onboarding flag", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        experimental: { outrider_onboarding: "yes" },
+    }));
+
+    expect(() => loadVeraConfig({ path })).toThrow();
+});
+
 test("Vera config reads source-family inbox admission", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

@@ -63,10 +63,11 @@ selects another endpoint. For another server, add its endpoint through
 > with Vera. Ollama expects to configure the coding tools it supports itself,
 > through `ollama launch`, and a plain API connection does not get that setup.
 >
-> For local models, use Outrider instead. More details will follow as the
-> Outrider provider rolls out further.
+Outrider's guided setup is experimental. It is hidden from provider setup
+unless `experimental.outrider_onboarding` is `true` in Home config. Enable it
+through `/configure` if you want Vera to offer the Outrider installer and model
+download. An existing home with Outrider selected keeps showing it.
 
-The legacy local installation wizard is separate from this connection form.
 Selecting a model changes the current conversation. Use **Defaults** to choose
 models for later conversations.
 
@@ -74,7 +75,8 @@ models for later conversations.
 
 **Configure providers** groups connections under Subscriptions, API keys,
 Local, and Added in config. Status distinguishes a catalog or model that
-answered, a stored key, and a provider that has not answered.
+answered, a stored key, and `unverified`, which means no model has passed
+verification. Opening the list does not test the provider.
 
 It is a separate screen, including when opened from Switch model. Escape
 returns to the screen you came from.

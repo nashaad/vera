@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import type { PoolFile } from "../../src/model/pool-file.ts";
 import type { OnboardingInput } from "../../src/providers/onboarding.ts";
 import type { MachineFacts } from "../../src/providers/recommendation.ts";
-import { configuredProviders } from "../../src/providers/registry.ts";
+import { configuredProviders, setupProviders } from "../../src/providers/registry.ts";
 import {
     onboardingCardLines,
     type OnboardingLine,
@@ -43,6 +43,20 @@ test("the first step recommends before it lists", () => {
     expect(groups[0]?.rows[0]?.id).toBe("openrouter");
     expect(groups[1]?.label).toBe("OTHER");
     expect(groups[1]?.rows.some((row) => row.id === "openrouter")).toBe(false);
+});
+
+test("the first step hides Outrider until setup is enabled", () => {
+    const hidden = wizardScreen({ ...COLD, providers: setupProviders(undefined) },
+        newWizardSession("provider"), MAC);
+    const enabled = wizardScreen({
+        ...COLD,
+        providers: setupProviders({ experimental: { outrider_onboarding: true } }),
+    }, newWizardSession("provider"), MAC);
+    const ids = (screen: typeof hidden) => screen.body.kind === "choice"
+        ? screen.body.groups.flatMap((group) => group.rows.map((row) => row.id))
+        : [];
+    expect(ids(hidden)).not.toContain("outrider");
+    expect(ids(enabled)).toContain("outrider");
 });
 
 test("the first step names a few providers and says how many it left out", () => {

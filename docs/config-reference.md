@@ -29,6 +29,10 @@ definitions, skills, and extensions.
 Home settings apply to this Vera home. An existing project configuration at
 `.vera/config.json` appears separately in `/configure`.
 
+Outrider's guided setup is off by default. To offer it in provider setup, add
+`"experimental": { "outrider_onboarding": true }` to Home config through
+`/configure`.
+
 ## Files you can customize
 
 These paths are inside `~/.vera`:

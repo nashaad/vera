@@ -132,17 +132,17 @@ test("connected means one of that provider's models answered", () => {
         pool: poolWith("openrouter/one/model", true),
         authStorage: storage({ openrouter: "stored" }),
         env: NO_ENV,
-    })).toBe("not answering");
+    })).toBe("unverified");
 });
 
-test("a local provider with nothing listening reads not answering", () => {
+test("an unprobed local provider is unverified", () => {
     // It needs no key, so it holds none, and it has not answered either.
     expect(providerAnswerState(findProvider("ollama")!, {
         providers: PROVIDERS,
         pool: EMPTY_POOL,
         authStorage: storage({}),
         env: { OLLAMA_HOST: "http://localhost:11434" },
-    })).toBe("not answering");
+    })).toBe("unverified");
 });
 
 test("a denied model is not an answer", () => {
@@ -174,7 +174,7 @@ test("a provider whose key is optional shows no word until it is touched", () =>
         pool: EMPTY_POOL,
         authStorage: storage({}),
         env: NO_ENV,
-    })).toBe("not answering");
+    })).toBe("unverified");
 });
 
 function stateOf(steps: readonly { id: string; state: string }[], id: string) {

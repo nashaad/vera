@@ -335,6 +335,7 @@ export interface VeraEventLogConfig {
  */
 export interface VeraExperimentalConfig {
     readonly inbox?: boolean;
+    readonly outrider_onboarding?: boolean;
 }
 
 /**
@@ -1659,10 +1660,19 @@ function parseExperimental(
         return undefined;
     }
     const raw = value as Record<string, unknown>;
-    if (raw.inbox !== undefined && typeof raw.inbox !== "boolean") {
+    if (
+        (raw.inbox !== undefined && typeof raw.inbox !== "boolean")
+        || (raw.outrider_onboarding !== undefined
+            && typeof raw.outrider_onboarding !== "boolean")
+    ) {
         return undefined;
     }
-    return raw.inbox === undefined ? {} : { inbox: raw.inbox };
+    return {
+        ...(raw.inbox === undefined ? {} : { inbox: raw.inbox }),
+        ...(raw.outrider_onboarding === undefined
+            ? {}
+            : { outrider_onboarding: raw.outrider_onboarding }),
+    };
 }
 
 const TOOL_RESULT_BYTE_KEYS = [

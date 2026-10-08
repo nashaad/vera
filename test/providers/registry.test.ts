@@ -7,6 +7,7 @@ import {
     configuredProviders,
     findProvider,
     isProviderConnected,
+    setupProviders,
 } from "../../src/providers/registry.ts";
 
 const PROVIDERS = configuredProviders(undefined);
@@ -39,6 +40,18 @@ test("every listed provider has an adapter behind it", () => {
             { authStorage: storage({ [provider.id]: "token" }), env: NO_ENV },
         )).not.toThrow();
     }
+});
+
+test("Outrider setup requires an opt-in unless it is already selected", () => {
+    expect(setupProviders(undefined).some((provider) => provider.id === "outrider")).toBe(false);
+    expect(setupProviders({ experimental: { outrider_onboarding: false } })
+        .some((provider) => provider.id === "outrider")).toBe(false);
+    expect(setupProviders({ experimental: { outrider_onboarding: true } })
+        .some((provider) => provider.id === "outrider")).toBe(true);
+    expect(setupProviders({ provider: "outrider" })
+        .some((provider) => provider.id === "outrider")).toBe(true);
+    expect(configuredProviders(undefined).some((provider) => provider.id === "outrider"))
+        .toBe(true);
 });
 
 test("a stored key is used ahead of the environment", () => {
