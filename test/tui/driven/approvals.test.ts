@@ -42,6 +42,19 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         expect(pane).toContain("auto");
         expect(pane).not.toContain("Permission required");
         expect(pane).not.toContain("Allow once");
+
+        const lines = pane.split("\n");
+        const row = lines.findIndex((line) => line.includes("─ 1 auto-approved ─"));
+        const column = lines[row]?.indexOf("auto-approved") ?? -1;
+        await session.sendMouseClick(column, row);
+        pane = await session.waitForVisiblePane(
+            "env AUTO_REVIEW=ran   Routine command requested by the user.",
+        );
+        await session.sendMouseClick(column, row);
+        pane = await session.waitForVisiblePaneWhere(
+            (current) => !current.includes("Routine command requested"),
+            "closed auto-approved list",
+        );
     } finally {
         await session.close();
     }

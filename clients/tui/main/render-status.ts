@@ -136,9 +136,9 @@ export function renderStatus(rt: TuiRuntime): void {
                 + ` · ${focusedElapsed}`
             : `${modelActivity === undefined ? focusedActivity : "thinking"}`
                 + ` · ${focusedElapsed}`
-                + (statusState.autoApproved === undefined
+                + (statusState.autoApprovals === undefined
                     ? ""
-                    : ` · ${statusState.autoApproved} auto-approved`);
+                    : ` · ${statusState.autoApprovals.length} auto-approved`);
     } else if (rt.pendingImages.some((image) => image.id === undefined)) {
         lifecycleHint = "attaching image…";
     } else if (rt.promptSubmitting) {

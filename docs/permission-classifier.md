@@ -51,8 +51,11 @@ The interface calls the job classifier.
 
 An allow notice for a medium-risk or higher action includes the assessed
 risk, authorization, and reason. Low-risk allows are counted instead. While
-the turn runs, the status line shows the count. The count is not saved, so a
-reopened conversation does not show it.
+the turn runs, the status line shows the count. Click the count at the end of
+the turn to list each auto-approved action with the classifier's reason, and
+click it again to close the list. Ctrl+T opens or closes every list along with
+the tool details. The count and its list are not saved, so a reopened
+conversation does not show them.
 A denial says the action was denied. A timeout or provider error names the
 tool and confirms that the action did not run.
 
