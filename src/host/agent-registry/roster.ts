@@ -10,6 +10,7 @@ import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "../inbox-d
 import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, parsePeerRead, type PeerMessagePayload } from "../local-participation.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
+import type { VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
 
 export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
@@ -287,6 +288,20 @@ export async function updateSessionName(reg: AgentRegistry, id: string, name: st
         }
         await entry.store.appendName(name);
         return entry.store.name() ?? null;
+    }
+
+// A name the user set, or cleared, always beats a suggested one.
+export async function setTitleIfUnnamed(reg: AgentRegistry, id: string, title: string): Promise<VeraSessionTitleOutcome> {
+        const entry = reg.agents.get(id);
+        if (entry === undefined || entry.ephemeral || entry.agent.closed || entry.agent.failed) {
+            return "not_found";
+        }
+        const written = await entry.store.appendFirstName(title);
+        if (written === undefined) {
+            return "named";
+        }
+        reg.notifyRosterChanged();
+        return "set";
     }
 
 export function onRosterChanged(reg: AgentRegistry, listener: () => void): () => void {

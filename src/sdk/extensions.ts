@@ -5,6 +5,7 @@ import type {
     PreToolUseHook,
     PreTurnHook,
     SessionStartHook,
+    TurnFinishedHook,
 } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type {
@@ -27,8 +28,39 @@ export interface VeraExtensionApi {
     readonly sessions: VeraExtensionSessions;
     readonly search: VeraExtensionSearch;
     readonly requests: VeraExtensionRequests;
+    readonly model: VeraExtensionModel;
     readonly storage: VeraExtensionStorage;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+/** The intent slots an extension may borrow. Job slots stay with their jobs. */
+export type VeraExtensionModelAssignment = "snappy" | "eco" | "extra";
+
+export interface VeraExtensionOneshotMessage {
+    readonly role: "user" | "assistant";
+    readonly text: string;
+}
+
+export interface VeraExtensionOneshotRequest {
+    readonly assignment: VeraExtensionModelAssignment;
+    readonly systemPrompt?: string;
+    readonly messages: readonly VeraExtensionOneshotMessage[];
+    readonly maxTokens?: number;
+    readonly signal?: AbortSignal;
+}
+
+export interface VeraExtensionOneshotResult {
+    readonly text: string;
+    readonly model: string;
+    readonly provider?: string;
+}
+
+export interface VeraExtensionModel {
+    /**
+     * Needs `model.oneshot`. Rejects when the slot has no reachable model; it
+     * never falls back to a session's model. Only usable after activation.
+     */
+    oneshot(request: VeraExtensionOneshotRequest): Promise<VeraExtensionOneshotResult>;
 }
 
 export interface VeraSearchResult {
@@ -98,9 +130,14 @@ export interface SessionIdentityProvider {
     keyOf?(value: string): string | null;
 }
 
+/** `named` means the session already has a name, or once had one the user cleared. */
+export type VeraSessionTitleOutcome = "set" | "named" | "not_found";
+
 export interface VeraExtensionSessions {
     registerState(read: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionState): VeraExtensionDisposer;
     registerIdentity(provider: SessionIdentityProvider): VeraExtensionDisposer;
+    /** Needs `sessions.title`. Names a session that has never been named. Only usable after activation. */
+    setTitle(sessionId: string, title: string): Promise<VeraSessionTitleOutcome>;
 }
 
 /**
@@ -165,6 +202,8 @@ export interface VeraExtensionHooks {
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
     registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer;
     registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer;
+    /** Needs `hooks.turn_finished`. */
+    registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer;
     registerModelRequest(
         namespace: string,
         hook: ModelRequestHook,

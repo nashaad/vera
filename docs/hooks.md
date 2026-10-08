@@ -285,6 +285,13 @@ each queued prompt that joins the running turn. For a joining prompt it can
 narrow the tools or block the prompt, which ends the turn, but it cannot
 change the model or reasoning effort.
 
+An extension can run a function after each turn ends with
+`registerTurnFinished`, after declaring `hooks.turn_finished`. It gets the
+session ID, workspace, outcome, how many prompts the session has had, whether
+another agent started the session, and the turn's prompt and reply text. It
+only observes: nothing waits for it, and a failure is logged without touching
+the session.
+
 The included `vera.command-hooks` extension reads a `hooks` list from its own
 configuration and runs nothing until that list is set. The host runs the
 `config.json` list itself, so disabling this extension does not stop it. An `extensions` entry

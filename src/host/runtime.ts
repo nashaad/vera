@@ -191,6 +191,8 @@ import {
     markImportedSessions,
 } from "./session-import-service.ts";
 import { createCommandHook } from "../extensions/command-hook.ts";
+import { notifyTurnFinished } from "../extensions/host-services.ts";
+import { createExtensionHostServices } from "./extension-host-services.ts";
 import type {
     PostToolUseHook,
     PreToolUseHook,
@@ -888,7 +890,23 @@ export async function startResidentHost(
         ...(options.trashSessionArtifacts === undefined
             ? {}
             : { trashSessionArtifacts: options.trashSessionArtifacts }),
+        onTurnFinished: (payload) => notifyTurnFinished(
+            extensions.turnFinishedHooks(),
+            payload,
+            (extensionId, message) => hostLog({
+                type: "turn_finished_hook_failed",
+                level: "warn",
+                extensionId,
+                message,
+            }),
+        ),
     });
+    extensions.bindHost(createExtensionHostServices({
+        registry,
+        currentConfig,
+        reachability: currentReachability,
+        createAdapter: () => createAdapter(),
+    }));
 
     let server: HostServer;
     let annex: AnnexProcess | undefined;

@@ -19,7 +19,7 @@ import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import { BUNDLED_COMPACTION_STRATEGIES, bindCompaction } from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile, VeraCatalogModel } from "../config/model-catalog.ts";
 import { createSubagentEffectApplier, type MissingSubagentConfigurationRequest, type SpawnModelResolution } from "../engine/subagent.ts";
-import { type ToolApprovalUiRequestUpdate } from "../engine/protocol.ts";
+import { type ToolApprovalUiRequestUpdate, type TurnFinishedUpdate } from "../engine/protocol.ts";
 import { DEFAULT_MAX_CONCURRENT_CHILD_AGENTS, validChildAgentLimit } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import type { ReviewerModelDefault, ReviewerSettingsPatch } from "../engine/model-settings.ts";
@@ -40,7 +40,8 @@ import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
-import type { SessionIdentity, SessionIdentityProvider } from "../sdk/extensions.ts";
+import type { SessionIdentity, SessionIdentityProvider, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
+import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
@@ -560,6 +561,13 @@ export class AgentRegistry {
         return registryRoster.updateSessionName(this, id, name);
     }
 
+    async setTitleIfUnnamed(
+        id: string,
+        title: string,
+    ): Promise<VeraSessionTitleOutcome> {
+        return registryRoster.setTitleIfUnnamed(this, id, title);
+    }
+
     onRosterChanged(listener: () => void): () => void {
         return registryRoster.onRosterChanged(this, listener);
     }
@@ -674,6 +682,12 @@ export class AgentRegistry {
             attachImage: (path, signal, sourcePath) =>
                 imageAttachments.attachFile(path, signal, sourcePath),
             onRunStateChanged: () => this.notifyRosterChanged(),
+            ...(ephemeral || this.options.onTurnFinished === undefined
+                ? {}
+                : {
+                    onTurnFinished: (update: TurnFinishedUpdate) =>
+                        this.options.onTurnFinished?.(turnFinishedPayload(store, update)),
+                }),
             onClientPrompt: () => {
                 const woken = this.agents.get(store.header.id);
                 if (woken !== undefined) {

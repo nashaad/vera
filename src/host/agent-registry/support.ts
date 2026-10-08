@@ -171,6 +171,7 @@ import {
 } from "../../startup-profile.ts";
 import type { UserMessage } from "../../model/types.ts";
 import type { OneshotMessage } from "../../engine/protocol.ts";
+import type { TurnFinishedHookPayload } from "../../sdk/hooks.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { loopCompactionState, type LoopState } from "../../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../../config.ts";
@@ -299,6 +300,7 @@ export function importedSessionSummary(
 }
 
 export interface AgentRegistryOptions {
+    readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").ModelMiddleware[];
     readonly createAdapter: (
         provider?: string,
