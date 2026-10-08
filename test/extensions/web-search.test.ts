@@ -34,8 +34,27 @@ test("included search uses permissions and returns a visible failure followed by
         const tools = registry.tools();
         expect(tools.map((tool) => tool.definition.name)).toEqual(["web_search"]);
         const call = { type: "tool_call" as const, id: "search", name: "web_search", input: { query: "graph" } };
-        expect(decideToolPermission("ask", call, process.cwd(), [], { extensionTools: tools }))
-            .toMatchObject({ behavior: "ask", actions: [{ action: { operation: "web.search" } }] });
+        const searchPermission = { extensionTools: tools };
+        expect(decideToolPermission("ask", call, process.cwd(), [], searchPermission))
+            .toMatchObject({
+                behavior: "allow",
+                actions: [{
+                    action: { operation: "web.search" },
+                    outcome: "allow",
+                    rule: "routine.web_search",
+                }],
+            });
+        expect(decideToolPermission("auto", call, process.cwd(), [], searchPermission))
+            .toMatchObject({
+                behavior: "allow",
+                actions: [{
+                    action: { operation: "web.search" },
+                    outcome: "allow",
+                    rule: "routine.web_search",
+                }],
+            });
+        expect(decideToolPermission("readonly", call, process.cwd(), [], searchPermission).behavior)
+            .toBe("deny");
         const runtime = new ToolRuntime(process.cwd());
         expect(await executeToolHandler(call, runtime, signal, tools)).toMatchObject({
             isError: true, output: expect.stringContaining("BRAVE_API_KEY"),

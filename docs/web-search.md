@@ -5,9 +5,9 @@ description: "Connect search services and let Vera find sources for a task."
 
 # Search the web
 
-Ask Vera to search for a topic and approve the action if prompted. The included
-search tool returns titles, URLs, and snippets. Vera uses a separate fetch tool
-to read a returned page.
+Ask Vera to search for a topic. In ask and auto, a search runs without a
+prompt. Readonly refuses it. The included search tool returns titles, URLs,
+and snippets. Vera uses a separate fetch tool to read a returned page.
 
 Search supports Brave and Exa, which both need an API key. Other extensions can
 add providers. With no provider ready, a search fails and says so: connect Brave
