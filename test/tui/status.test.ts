@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { homedir } from "node:os";
 
 import {
     needsYouChipColumns,
@@ -91,15 +92,13 @@ test("TUI status line shows host-reported reasoning off", () => {
     );
 });
 
-test("TUI status shows no context share before anything is measured", () => {
-    // Zero would be a number nobody measured: the system prompt and the tool
-    // definitions occupy the window before the first request is even built.
+test("TUI status marks context as unknown before anything is measured", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gemma4:26b",
         reasoningEffort: "low",
         contextWindow: 131_072,
     }, "auto", undefined, "/workspace")).toBe(
-        "default · auto · gemma4:26b · low\n/workspace",
+        "default · auto · ctx ?% · gemma4:26b · low\n/workspace",
     );
 });
 
@@ -449,7 +448,7 @@ test("the attention hint is the caller's, so it can name the jump chord", () => 
     expect(needsYouChipColumns(chord, 1))
         .toBe("1 need you · Ctrl+Shift+J".length);
     // An empty hint leaves the count alone rather than a dangling separator.
-    expect(text(rows(""))).toContain("1 need you · default · auto · test");
+    expect(text(rows(""))).toContain("1 need you · default · auto · ctx ?% · test");
     expect(needsYouChipColumns(rows(""), 1)).toBe("1 need you".length);
 });
 
@@ -573,4 +572,72 @@ test("activity_strip_position composer puts the strip after agent and access", (
     expect(first?.length).toBe(60);
     expect(first?.startsWith("build · ask  ▒▓█ ")).toBe(true);
     expect(second).toBe("/workspace");
+});
+
+test("any measured context fills at least one meter cell", () => {
+    const line = (tokens: number) => renderTuiStatusDetailsLine({
+        model: "gpt-6-luna",
+        reasoningEffort: "low",
+        contextWindow: 272_000,
+    }, "auto", { tokens, capacity: 272_000, estimated: true }, "/workspace");
+    expect(line(4_800)).toContain("ctx ~4.8k/272k ▰▱▱▱▱▱▱▱▱▱  2%");
+    expect(line(0)).toContain("ctx ~0/272k ▱▱▱▱▱▱▱▱▱▱  0%");
+});
+
+test("a narrow composer row drops token counts before model or effort", () => {
+    const rows = (width: number) => renderTuiStatusDetailsRows(
+        { model: "gpt-6-luna", reasoningEffort: "low", contextWindow: 272_000 },
+        "auto",
+        { tokens: 4_800, capacity: 272_000, estimated: true },
+        "/workspace",
+        0,
+        undefined,
+        true,
+        undefined,
+        {},
+        0,
+        width,
+    )[0]!.map((chunk) => chunk.text).join("");
+    expect(rows(92)).toContain("ctx ~4.8k/272k ▰▱▱▱▱▱▱▱▱▱  2%");
+    const narrow = rows(60);
+    expect(Bun.stringWidth(narrow)).toBe(60);
+    expect(narrow).not.toContain("4.8k");
+    expect(narrow).toContain("ctx ▰▱▱▱▱▱▱▱▱▱  2%");
+    expect(narrow.endsWith("gpt-6-luna · low")).toBe(true);
+});
+
+test("a narrow workspace row shortens the path and keeps it when a turn starts", () => {
+    const place = (activity: readonly { text: string; tone: "accent" }[]) => renderTuiStatusDetailsRows(
+        { model: "gpt-6-luna", reasoningEffort: "low" },
+        "auto",
+        undefined,
+        `${homedir()}/Projects/vera/.worktrees/limits`,
+        0,
+        undefined,
+        true,
+        "feat/subscription-limits",
+        {},
+        0,
+        62,
+        undefined,
+        activity,
+        "corner",
+        "ready · Ctrl+P commands".length,
+    )[1]!.map((chunk) => chunk.text).join("");
+    expect(place([])).toBe("…/limits · feat/subscription-limits");
+    const working = place([{ text: "▒██▓░░", tone: "accent" }]);
+    expect(working.startsWith("…/limits · feat/subscription-limits ")).toBe(true);
+    expect(working.endsWith(" ▒██▓░░")).toBe(true);
+    expect(Bun.stringWidth(working)).toBe(62);
+    const wide = renderTuiStatusDetailsRows(
+        undefined, "auto", undefined, `${homedir()}/Projects/vera/.worktrees/limits`,
+        0, undefined, true, "feat/subscription-limits", {}, 0, 92, undefined, [], "corner", 23,
+    )[1]!.map((chunk) => chunk.text).join("");
+    expect(wide).toBe("~/Projects/vera/.worktrees/limits · feat/subscription-limits");
+    const tiny = renderTuiStatusDetailsRows(
+        undefined, "auto", undefined, `${homedir()}/Projects/vera/.worktrees/limits`,
+        0, undefined, true, "feat/subscription-limits", {}, 0, 50, undefined, [], "corner", 23,
+    )[1]!.map((chunk) => chunk.text).join("");
+    expect(tiny).toBe("…/limits · feat/subscrip…");
+    expect(Bun.stringWidth(tiny)).toBe(50 - 23 - 2);
 });

@@ -176,6 +176,7 @@ export function renderTuiStatusDetailsRows(
     needsYouHint = "/work",
     activity: readonly TuiStatusChunk[] = [],
     activityPosition: TuiActivityStripPosition = "corner",
+    placeCornerColumns = 0,
 ): TuiStatusChunk[][] {
     const inComposer = activityPosition === "composer" && activity.length > 0;
     const providerLabel = settings?.provider === undefined
@@ -234,41 +235,45 @@ export function renderTuiStatusDetailsRows(
             : []),
         ...(inComposer ? [muted("  "), ...activity] : []),
     ];
-    const ctxChunks = contextChunks(context, settings);
-    const right: TuiStatusChunk[] = [
-        ...(ctxChunks.length === 0 ? [] : [...ctxChunks.slice(1), separator]),
-        {
-            text: dials.fallbackTo === undefined
-                ? model
-                : `${model}→${dials.fallbackTo}`,
-            tone: "text",
-        },
-        separator,
-        muted(thinking),
-    ];
-    const rowWidth = (chunks: readonly TuiStatusChunk[]): number =>
-        chunks.reduce((total, chunk) => total + chunk.text.length, 0);
+    const right = (tokenCounts: boolean): TuiStatusChunk[] => {
+        const ctxChunks = contextChunks(context, settings, tokenCounts);
+        return [
+            ...(ctxChunks.length === 0 ? [] : [...ctxChunks.slice(1), separator]),
+            {
+                text: dials.fallbackTo === undefined
+                    ? model
+                    : `${model}→${dials.fallbackTo}`,
+                tone: "text",
+            },
+            separator,
+            muted(thinking),
+        ];
+    };
     // Without a width there is no room to pad against, so the two ends read as
     // one sentence instead.
-    const gap = (lead: readonly TuiStatusChunk[]): TuiStatusChunk[] => {
-        if (width === undefined) return [separator];
-        const room = width - rowWidth(lead) - rowWidth(right);
-        return room < 3 ? [separator] : [muted(" ".repeat(room))];
-    };
-    const row = (hint: boolean): TuiStatusChunk[] => {
+    const row = (hint: boolean, tokenCounts: boolean): TuiStatusChunk[] => {
         const lead = [...attention(hint), ...left];
-        return [...lead, ...gap(lead), ...right];
+        const tail = right(tokenCounts);
+        if (width === undefined) return [...lead, separator, ...tail];
+        const room = width - rowWidth(lead) - rowWidth(tail);
+        return [...lead, room < 3 ? separator : muted(" ".repeat(room)), ...tail];
     };
-    let first = row(true);
+    let first = row(true, true);
     if (width !== undefined && needsYou > 0 && rowWidth(first) > width) {
-        first = row(false);
+        first = row(false, true);
     }
-    const place: TuiStatusChunk[] = [
-        muted(compactWorkspace(workspace)),
-        ...(branch === undefined
-            ? []
-            : [separator, { text: branch, tone: "accent" } as TuiStatusChunk]),
-    ];
+    if (width !== undefined && rowWidth(first) > width) {
+        first = row(false, false);
+    }
+    // The corner holds the ready label or the activity bar; reserving the wider
+    // of the two keeps the path from changing when a turn starts.
+    const place = placeChunks(
+        workspace,
+        branch,
+        width === undefined
+            ? undefined
+            : width - Math.max(placeCornerColumns, rowWidth(activity)) - 2,
+    );
     if (activity.length === 0 || inComposer) return [first, place];
     const room = width === undefined ? 2 : width - rowWidth(place) - rowWidth(activity);
     const second = [...place, muted(" ".repeat(Math.max(2, room))), ...activity];
@@ -341,19 +346,21 @@ export function visibleContextCapacity(
 function contextChunks(
     context: ContextMeasurement | undefined,
     settings: ModelTurnSettings | undefined,
+    tokenCounts = true,
 ): TuiStatusChunk[] {
     const capacity = visibleContextCapacity(settings, context);
-    if (context === undefined || capacity === undefined) return [];
+    if (capacity === undefined) return [];
+    if (context === undefined) return [separator, muted("ctx ?%")];
     const { tokens, estimated } = context;
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
-    const filled = Math.min(10, Math.round(percent / 100 * 10));
+    const filled = contextMeterCells(tokens, capacity);
     return [
         separator,
-        muted(
-            `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${
+        muted(tokenCounts
+            ? `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${
                 formatTokenCount(capacity)
-            } `,
-        ),
+            } `
+            : "ctx "),
         { text: "▰".repeat(filled), tone: "meter" },
         { text: "▱".repeat(10 - filled), tone: "meterEmpty" },
         muted(`  ${percent}%`),
@@ -423,6 +430,55 @@ export function renderTuiCompactionHint(
         + ` · ${seconds}s`;
 }
 
+// Any measured use fills one cell: rounding 2% of ten cells to zero read as an empty window.
+function contextMeterCells(tokens: number, capacity: number): number {
+    if (tokens <= 0) return 0;
+    return Math.min(10, Math.max(1, Math.round(tokens / capacity * 10)));
+}
+
+function rowWidth(chunks: readonly TuiStatusChunk[]): number {
+    return chunks.reduce((total, chunk) => total + Bun.stringWidth(chunk.text), 0);
+}
+
+// The path gives up leading segments first; the branch is cut only when even
+// the last path segment leaves it no room.
+function placeChunks(
+    workspace: string,
+    branch: string | undefined,
+    room: number | undefined,
+): TuiStatusChunk[] {
+    const branchChunks: TuiStatusChunk[] = branch === undefined
+        ? []
+        : [separator, { text: branch, tone: "accent" }];
+    const full = compactWorkspace(workspace);
+    const fits = (path: string) =>
+        room === undefined || Bun.stringWidth(path) + rowWidth(branchChunks) <= room;
+    if (fits(full)) return [muted(full), ...branchChunks];
+    const segments = full.split("/").filter((segment) => segment.length > 0);
+    for (let start = 1; start < segments.length; start += 1) {
+        const path = `…/${segments.slice(start).join("/")}`;
+        if (fits(path)) return [muted(path), ...branchChunks];
+    }
+    const path = segments.length > 1 ? `…/${segments.at(-1)}` : full;
+    if (branch === undefined || room === undefined) return [muted(path)];
+    const branchRoom = room - Bun.stringWidth(path) - separator.text.length;
+    return [
+        muted(path),
+        separator,
+        { text: truncateEnd(branch, Math.max(1, branchRoom)), tone: "accent" },
+    ];
+}
+
+function truncateEnd(text: string, columns: number): string {
+    if (Bun.stringWidth(text) <= columns) return text;
+    let out = "";
+    for (const character of text) {
+        if (Bun.stringWidth(`${out}${character}…`) > columns) break;
+        out += character;
+    }
+    return `${out}…`;
+}
+
 function compactWorkspace(workspace: string): string {
     const home = homedir();
     return workspace === home
@@ -438,7 +494,7 @@ function contextUsage(
     estimated: boolean,
 ): string {
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
-    const filled = Math.min(10, Math.round(percent / 100 * 10));
+    const filled = contextMeterCells(tokens, capacity);
     const meter = `${"▰".repeat(filled)}${"▱".repeat(10 - filled)}`;
     return `ctx ${estimated ? "~" : ""}${formatTokenCount(tokens)}/${formatTokenCount(capacity)} ${meter}  ${percent}%`;
 }

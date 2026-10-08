@@ -219,7 +219,7 @@ function authorizationOf(
 }
 
 export function readOpenAICodexCredentials(
-    authStorage: AuthStorage,
+    authStorage: Pick<AuthStorage, "getCredential">,
 ): OpenAICodexCredentials | undefined {
     return readCredentials(authStorage);
 }
@@ -333,7 +333,7 @@ function credentialsFromTokens(
 }
 
 function readCredentials(
-    authStorage: AuthStorage,
+    authStorage: Pick<AuthStorage, "getCredential">,
 ): OpenAICodexCredentials | undefined {
     const stored = oauthToken(authStorage, OPENAI_CODEX_PROVIDER_ID);
     if (stored === undefined) {

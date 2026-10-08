@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 
 import { startAnnexServer } from "../../src/annex/server.ts";
 import type { ModelMessage } from "../../src/model/types.ts";
+import { OPENAI_CODEX_PROVIDER_ID } from "../../src/providers/openai-codex-oauth.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { packWebAssets } from "../pack-web.ts";
 import { captureFullPage } from "./chrome.ts";
@@ -134,6 +135,14 @@ async function main(): Promise<void> {
             sessionDirectory,
             catalogCacheDir: join(root, "catalog"),
             webRoot,
+            readSubscriptionLimits: async () => [{
+                provider: OPENAI_CODEX_PROVIDER_ID,
+                fetchedAt: now,
+                windows: [
+                    { windowMinutes: 300, usedPercent: 23, resetsAt: now + 3_600_000 },
+                    { windowMinutes: 10_080, usedPercent: 81, resetsAt: now + 3 * DAY },
+                ],
+            }],
         });
         try {
             await captureFullPage({

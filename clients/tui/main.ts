@@ -202,6 +202,8 @@ import {
     readAnnexUrlThroughHost,
     type AnnexUrlResult,
 } from "../../src/annex/host-client.ts";
+import type { SubscriptionLimits } from "../../src/providers/subscription-limits.ts";
+import { readAnnexSubscriptionLimits, SubscriptionLimitsPoller } from "./subscription-limits.ts";
 import { createHomeState, createTuiHomeView } from "./home-screen.ts";
 import { createTuiOnboardingView } from "./onboarding-screen.ts";
 import { wizardFieldIsOpen } from "./onboarding-wizard.ts";
@@ -231,7 +233,7 @@ import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, handleTuiSetti
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
-import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
+import { tuiKeyHint } from "./keymap.ts";
 
 import { modelBrowseScope, modelBrowseSort } from "./model-browse.ts";
 import {
@@ -365,13 +367,6 @@ export function confirmManualReconnectUpgrade(error: Error): boolean {
     return error instanceof HostUnresponsiveError;
 }
 
-export const MODEL_PICKER_HINT = `${tuiKeyChordLabel("open_model_prefix")} then ${tuiKeyHint("model_prefix_open")}`;
-export const HUD_HINT = tuiKeyHint("dials.open");
-export const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
-
-export function quietHintColumns(): number {
-    return HUD_HINT.length + MODEL_PICKER_HINT.length + SIDEBAR_HINT.length + 6;
-}
 export const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 export const STOPPING_HINT = "stopping…";
 const CONNECTION_FAILURE_HINT_LIMIT = 44;
@@ -586,6 +581,7 @@ export interface TuiDependencies {
     };
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly openUsagePage?: () => Promise<AnnexUrlResult>;
+    readonly readSubscriptionLimits?: (signal: AbortSignal) => Promise<readonly SubscriptionLimits[]>;
     /** Test override for `~/.vera/auth.json`. */
     readonly authStorage?: AuthStorage;
     readonly probeHealthRung?: (
@@ -842,6 +838,9 @@ export async function startConfiguredTui(
                 hostStartedAt: host.started_at,
             },
             openUsagePage: () => readAnnexUrlThroughHost(host.socket_path),
+            readSubscriptionLimits: (signal) => readAnnexSubscriptionLimits(
+                () => readAnnexUrlThroughHost(host.socket_path), signal,
+            ),
             flightRecorder,
         });
         process.stdout.write(renderResumeHint(exit.agentId));
@@ -1490,8 +1489,7 @@ export async function startTui(
         content: READY_HINT,
         fg: TUI_MUTED,
         height: 1,
-        flexGrow: 1,
-        flexShrink: 1,
+        flexShrink: 0,
     });
     rt.activityHintText = new TextRenderable(rt.renderer, {
         id: "activity-hint",
@@ -1595,6 +1593,17 @@ export async function startTui(
         height: 1,
         flexDirection: "row",
     });
+    // The limits grow to fill the row, which pushes the live status to the right corner.
+    rt.subscriptionLimitsText = new TextRenderable(rt.renderer, {
+        id: "subscription-limits",
+        content: "",
+        fg: TUI_MUTED,
+        height: 1,
+        flexGrow: 1,
+        flexShrink: 1,
+        wrapMode: "none",
+    });
+    rt.activityRow.add(rt.subscriptionLimitsText);
     rt.activityRow.add(rt.statusText);
     rt.activityRow.add(rt.activityHintText);
     rt.statusBand.add(rt.activityRow);
@@ -1917,6 +1926,12 @@ export async function startTui(
     });
     rt.composerBox = composerBox;
     rt.composerStatusText = composerStatusText;
+    rt.subscriptionLimits = new SubscriptionLimitsPoller({
+        read: rt.dependencies.readSubscriptionLimits ?? (async () => []),
+        onChange: () => {
+            if (rt.clientSurfaceReady && !rt.shuttingDown) renderStatus(rt);
+        },
+    });
     rt.composerRule = composerRule;
     rt.slashArgumentHint = slashArgumentHint;
     rt.resumeOverlay = createTuiResumeOverlayView(rt.renderer, () => {
@@ -2417,6 +2432,7 @@ export async function startTui(
         rt.stopWatchingTerminal();
         rt.flightRecorder?.record({ type: "renderer_destroyed" });
         rt.shuttingDown = true;
+        rt.subscriptionLimits.stop();
         stopAutoModeAnimation(rt);
         stopModeToastTimers(rt);
         rt.renderCoalescer.stop();
@@ -2896,6 +2912,7 @@ export async function startTui(
             accentColor: activeTheme.accent,
         }),
         tuiThemeProperties(rt.composerStatusText, { fg: "muted" }),
+        tuiThemeProperties(rt.subscriptionLimitsText, { fg: "muted" }),
         tuiThemeProperties(rt.slashArgumentHint, {
             fg: "muted",
             bg: "input",

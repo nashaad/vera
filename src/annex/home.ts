@@ -5,6 +5,7 @@ export function annexPathsFromHome(veraHome: string): {
     readonly catalogCacheDir: string;
     readonly reviewLogPath: string;
     readonly workflowDirectory: string;
+    readonly authStoragePath: string;
 } {
     const runtime = join(veraHome, "runtime");
     return {
@@ -12,5 +13,6 @@ export function annexPathsFromHome(veraHome: string): {
         catalogCacheDir: join(runtime, "cache"),
         reviewLogPath: join(runtime, "logs", "reviewer.jsonl"),
         workflowDirectory: join(veraHome, "workflows"),
+        authStoragePath: join(veraHome, "machine", "auth.json"),
     };
 }

@@ -1,6 +1,9 @@
 import { join } from "node:path";
 
 import { packedAnnexRoot } from "../release/layout.ts";
+import { createAuthStorage } from "../providers/auth-storage.ts";
+import { createOpenAICodexLimitsReader } from "../providers/openai-codex-limits.ts";
+import type { SubscriptionLimits } from "../providers/subscription-limits.ts";
 import { foldRunDetail, foldRunRows, readRunBlob } from "./runs-report.ts";
 import {
     dispatchAnnexRoute,
@@ -26,6 +29,8 @@ export interface StartAnnexServerOptions {
     readonly sessionDirectory: string;
     readonly catalogCacheDir?: string;
     readonly reviewLogPath?: string;
+    readonly authStoragePath?: string;
+    readonly readSubscriptionLimits?: () => Promise<readonly SubscriptionLimits[]>;
     /** Halcyon file journals. Without it the runs page lists nothing. */
     readonly workflowDirectory?: string;
     readonly webRoot?: string;
@@ -87,6 +92,7 @@ function usageRoutes(
     assets: PackedAnnexAssets,
     fold: (window: UsageWindowId) => Promise<UsageReport>,
 ): readonly AnnexRoute[] {
+    const readLimits = options.readSubscriptionLimits ?? subscriptionReader(options.authStoragePath);
     return [
         exactRoute("/usage", () => new Response(assets.html, {
             headers: { "content-type": "text/html; charset=utf-8" },
@@ -107,6 +113,16 @@ function usageRoutes(
             }
             const report = await fold(raw);
             return Response.json(report, {
+                headers: { "cache-control": "no-store" },
+            });
+        }),
+        exactRoute("/api/usage/subscriptions", async () => {
+            let limits: readonly SubscriptionLimits[] = [];
+            try {
+                limits = await readLimits();
+            } catch {
+            }
+            return Response.json({ limits }, {
                 headers: { "cache-control": "no-store" },
             });
         }),
@@ -146,6 +162,19 @@ function usageRoutes(
             });
         }),
     ];
+}
+
+function subscriptionReader(
+    authStoragePath: string | undefined,
+): () => Promise<readonly SubscriptionLimits[]> {
+    if (authStoragePath === undefined) return async () => [];
+    const read = createOpenAICodexLimitsReader({
+        authStorage: createAuthStorage({ path: authStoragePath }),
+    });
+    return async () => {
+        const limits = await read();
+        return limits === null ? [] : [limits];
+    };
 }
 
 function runRoutes(

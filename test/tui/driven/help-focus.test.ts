@@ -26,22 +26,10 @@ test("turn completion keeps focus in the open Help surface", async () => {
         await session.waitForVisiblePane(
             "Every key, grouped by where it works",
         );
-        // Two rows since the status split across footer lines: the model
-        // shortcut above, then the persistent ready and command controls.
-        pane = await session.waitForVisiblePane(
-            "Shift+Tab HUD · Ctrl+X then m Models",
-        );
+        pane = await session.waitForVisiblePane("ready · Ctrl+P commands");
         expect(pane).toContain("ready · Ctrl+P commands");
-        const footerLines = pane.split("\n");
-        const modelHintLine = footerLines.findIndex((line) =>
-            line.includes("Shift+Tab HUD · Ctrl+X then m Models")
-        );
-        const readyLine = footerLines.findIndex((line) =>
-            line.includes("ready · Ctrl+P commands")
-        );
-        expect(modelHintLine).toBe(readyLine - 1);
-        expect(Bun.stringWidth(footerLines[modelHintLine]!))
-            .toBeLessThanOrEqual(100);
+        expect(pane).not.toContain("Shift+Tab HUD");
+        expect(pane).not.toContain("Ctrl+X m Models");
         // One key at a time, each waiting for the card it opened. Sending
         // both and typing straight after raced the redraw, and a key that
         // lands mid-redraw is a key the surface never sees.

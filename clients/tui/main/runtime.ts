@@ -62,6 +62,7 @@ import type { TuiAnySettingsPickerState, TuiLocalRuntimeStatus, TuiProviderFormS
 import type { TuiSidebar } from "../sidebar.ts";
 import type { TuiExtensionsListState, TuiExtensionsListView } from "../extensions-list.ts";
 import type { TuiStandingNudgesState, TuiStandingNudgesView } from "../standing-nudges.ts";
+import type { SubscriptionLimitsPoller } from "../subscription-limits.ts";
 import type { TuiState, TuiTranscriptEntry } from "../state.ts";
 import type { TuiThemeBinding } from "../theme-bindings.ts";
 import type { TuiTheme, TuiThemeName } from "../theme.ts";
@@ -467,6 +468,8 @@ export interface TuiRuntime {
     } | undefined;
     composerBox: BoxRenderable;
     composerStatusText: TextRenderable;
+    subscriptionLimitsText: TextRenderable;
+    subscriptionLimits: SubscriptionLimitsPoller;
     composerRule: BoxRenderable;
     slashArgumentHint: TextRenderable;
     homeState: HomeState;

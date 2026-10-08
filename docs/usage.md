@@ -18,6 +18,29 @@ not appear as conversations in the table. The `/runs` page shows them per run.
 The page is served locally by the helper started with your host. Opening it
 leaves your conversation running.
 
+## Check subscription limits
+
+When ChatGPT is connected, the page asks the subscription service for your
+current limits using Vera's saved sign-in. The Subscription limits section
+shows the percentage left in each window and its reset time in your local
+timezone. These limits cover the whole account, including work outside Vera.
+
+The section refreshes once a minute while the overview is open. Changing the
+report's time range or filters does not change subscription limits. They are
+separate from recorded tokens and cost.
+
+When a Codex model is selected, the terminal shows the 5-hour and weekly
+percentages left on the row below the composer, on the left, for example
+`5h 72% left · week 96% left`. While Vera is working, that row also shows what
+it is doing and how to stop it. If the window is too narrow for both, the
+limits step aside until the turn ends. The composer does not move either way.
+The limits refresh once a minute. Open `/usage` for the reset times and the
+full account limits.
+
+If the saved sign-in has expired, or the service returns no usable limits,
+the section is hidden. Vera's normal connection flow handles sign-in and token
+refresh. The local usage report remains available.
+
 ## Choose a time range
 
 The page starts with the last seven days. Choose Today, 30 days, or All at the

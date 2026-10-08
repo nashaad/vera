@@ -30,6 +30,13 @@ The maximum comes from the model's known context window. If a local server
 does not publish a window, Vera leaves it unknown rather than estimating one.
 Used, free, and reserved space remain distinguishable without color.
 
+The composer shows `ctx ?%` when the model's window is known but the current
+conversation has no measured context yet. It replaces the question mark with
+the measured percentage after a turn. Saved sample conversations may have no
+measurement even when they contain messages. Any measured use fills at least
+one cell of the meter. In a narrow terminal the composer drops the token
+counts and keeps the meter, the percentage, the model, and the effort.
+
 ## Large instruction files
 
 Everything in the INSTRUCTIONS section is sent with every request: home and

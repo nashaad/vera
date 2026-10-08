@@ -80,6 +80,7 @@ Provider catalogs distinguish never-refreshed, empty, failed, and unavailable en
 `/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has.
 Shift+Tab opens the HUD, which holds Agent and Access. Tab or Up/Down move between the two; Left/Right change values. Enter applies; Escape cancels. Model and effort are not in the HUD.
 The composer footer always carries all four: agent and access on the left, provider/model and effort on the right.
+When a Codex model is selected, the terminal shows the account's subscription percentages left below the composer; `/usage` shows their reset times. Manual: `docs/usage.md`.
 Manual: `docs/models.md`.
 
 ## Conversations and background work [lines=10]
@@ -120,6 +121,7 @@ Rules are markdown files kept in the home and in the project. A rule with no fro
 Standing nudges are short home-level preferences. They can match an agent or workspace and apply every turn or at a chosen frequency.
 `/customize` browses Agents, Skills, Instructions, Memory, and Extensions through vertical menus, search, and read-only previews. Select Open in editor for a writable source; bundled skills and included extensions have no edit action. A Markdown preview opens rendered and `s` switches it to the numbered source.
 Context is included by default. `/context` shows usage and loaded sources. Ctrl+O opens their previews in Customize; `/context sources` opens that list directly. Loading refers to the last measured request; previews show current saved contents. When the loaded instructions are large together, Vera warns once per conversation after the first reply as a brief overlay that types the message quickly and marks it done with a tick; press Escape to close it when no dialog is open, otherwise it clears on its own. `/context` shows it in red under INSTRUCTIONS with the biggest source. `instruction_budget_tokens` in the `vera.context` extension config changes when the warning starts; `0` turns it off.
+With a known model window, the composer shows `ctx ?%` until the conversation has a context measurement, then shows the measured percentage. Manual: `docs/context-usage.md`.
 Manual: `docs/skills.md`, `docs/rules.md`.
 
 ## Extensions [lines=14]
@@ -158,7 +160,7 @@ An absent or dead host is started and reattached. A live process behind a silent
 A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it, it is not force-killed, and the composer stays usable.
 After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, typed `/reconnect` is the next move.
 If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
-Use `/usage` for local session usage and cost. It reads session files and Python workflow runs from the current Vera home and does not contact an account portal. Workflow calls count toward the totals only.
+Use `/usage` for local session usage and cost, plus current ChatGPT subscription limits when connected. It reads session files and Python workflow runs from the current Vera home and uses the saved ChatGPT sign-in to check subscription limits. Workflow calls count toward the totals only. Manual: `docs/usage.md`.
 
 The included Budget extension counts reported conversation cost. Missing prices count as a known subtotal. `/budget 5` sets a $5 conversation budget, `/budget .5` sets $0.50, and `/budget` with no amount turns it off. At 50% and 80%, the next request receives spend and remaining-budget information; you see the same notice. At or above the budget, work pauses. Choose Increase budget and continue to enter a higher total, Ignore budget and continue to keep working without more prompts for this session, or Stop. Setting a budget again clears Ignore. Escape stops work without another request. Settings survive reconnect and resume. There are no reservations or separate runs to start and end.
 Treat request captures, session files, reviewer logs, and inspected model requests as sensitive local data.

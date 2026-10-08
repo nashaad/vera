@@ -81,6 +81,7 @@ if (import.meta.main) {
             catalogCacheDir: paths.catalogCacheDir,
             reviewLogPath: paths.reviewLogPath,
             workflowDirectory: paths.workflowDirectory,
+            authStoragePath: paths.authStoragePath,
             port,
             ...(assets === undefined ? {} : { webRoot: assets }),
         });

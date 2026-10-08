@@ -8,7 +8,7 @@ import { DIAL_EXIT_SEPARATOR, renderDialStrip } from "../dials.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
-import { HUD_HINT, MODEL_PICKER_HINT, QUESTION_HINT, READY_HINT, SIDEBAR_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, quietHintColumns, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
+import { QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { setComposerMargin } from "../main/chrome.ts";
 import { paneHeaderText, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
@@ -296,9 +296,6 @@ export function renderStatus(rt: TuiRuntime): void {
             fg(hudMuted)(dialHintParts[0] ?? ""),
             fg(hudNotice)(dialHintParts[1] ?? ""),
         ]));
-    setTextContent(rt.activityHintText, activityHint);
-    rt.activityHintText.visible = rt.statusText.visible
-        && activityHint.length > 0;
     const extensionSegments = rt.clientExtensionRegistry?.renderStatusLine(
         tuiStatusSnapshot(
             statusState.modelSettings,
@@ -347,6 +344,7 @@ export function renderStatus(rt: TuiRuntime): void {
                     focusedAbort, focusedActivity, focusedSide?.state.reasoning ?? rt.reasoning,
                     focusedSide === undefined ? rt.quietSince : focusedSide.state.quietSince),
                 rt.activityStripPosition,
+                Bun.stringWidth(tuiPlaceRowModeLine(READY_HINT, true, hostedControls)),
             )
         : [[{
                 tone: "muted",
@@ -402,7 +400,10 @@ export function renderStatus(rt: TuiRuntime): void {
         );
     const rule = (glyph: string) =>
         fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
+    rt.subscriptionLimits.selectProvider(isWorkerFreeClient(rt.client)
+        ? undefined : statusState.modelSettings?.provider);
     const insideRow = detailsRows[0] ?? [];
+    const limitsText = rt.subscriptionLimits.text();
     const outsideRows = detailsRows.slice(1);
     setTextContent(rt.composerStatusText, new StyledText(
         insideRow.map((chunk) => fg(statusChunkColor(chunk))(chunk.text)),
@@ -457,24 +458,26 @@ export function renderStatus(rt: TuiRuntime): void {
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
     const cardRows = Math.max(1, outsideRows.length * 2 - 1);
     rt.backgroundStatusText.height = cardRows;
-    setComposerMargin(rt, 
-        cardRows + 1,
-    );
-    const quietHint = [
-        fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
-        fg(TUI_ACCENT)("HUD"),
-        fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
-    ];
-    if (
-        rt.workspaceSidebar === undefined
-        && quietHintColumns() <= rt.renderer.width - rt.composerHorizontalInset
-    ) {
-        quietHint.push(fg(TUI_MUTED)(` · ${SIDEBAR_HINT}`));
-    }
+    setComposerMargin(rt, cardRows + 1);
+    const modelPrefixHint = `${tuiKeyHint("model_prefix_open")} · esc cancel`;
+    const liveStatus = rt.modelPrefixPending
+        ? modelPrefixHint
+        : quietActivity ? "" : statusLine;
+    const liveHint = activityHint.length === 0 || liveStatus.length === 0
+        ? activityHint
+        : ` · ${activityHint}`;
+    setTextContent(rt.activityHintText, liveHint);
+    rt.activityHintText.visible = rt.statusText.visible && liveHint.length > 0;
+    // Live status keeps the row; the limits give way rather than push it off the edge.
+    const liveColumns = Bun.stringWidth(liveStatus) + Bun.stringWidth(liveHint);
+    const limitsFit = Bun.stringWidth(limitsText)
+        + (liveColumns === 0 ? 0 : liveColumns + 2) <= cardWidth;
+    setTextContent(rt.subscriptionLimitsText,
+        rt.statusText.visible && limitsFit ? limitsText : "");
     setTextContent(rt.statusText, rt.modelPrefixPending
-        ? new StyledText([fg(TUI_ACCENT)(`${tuiKeyHint("model_prefix_open")} · esc cancel`)])
+        ? new StyledText([fg(TUI_ACCENT)(modelPrefixHint)])
         : quietActivity
-        ? new StyledText(quietHint)
+        ? ""
         : statusState.working
             && rt.statusNotice === undefined
             && uiRequest === undefined

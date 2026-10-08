@@ -22,6 +22,7 @@ import {
     type SessionSortKey,
 } from "./sessions-table.ts";
 import { money } from "./money.ts";
+import { SubscriptionLimitsPanel } from "./SubscriptionLimits.tsx";
 
 const WINDOWS: readonly { readonly id: UsageWindowId; readonly label: string }[] = [
     { id: "today", label: "Today" },
@@ -359,6 +360,7 @@ export function UsageApp() {
     return (
         <div className="page">
             <AnnexChrome page="usage" onHome={() => setSessionId(undefined)} />
+            <SubscriptionLimitsPanel />
             <div className="toolbar">
                 <div className="seg">
                     {WINDOWS.map((entry) => (
