@@ -27,7 +27,12 @@ export interface RecapMark {
 }
 
 export interface RecapPhase {
+    /** Absent while any of its entries is still unsaved. */
+    readonly key?: string;
     readonly title: string;
+    readonly prompts: readonly string[];
+    readonly doneItems: readonly string[];
+    readonly reply?: string;
     readonly startedAt?: number;
     /** Time spent working, without the idle time between turns. */
     readonly activeMs: number;
@@ -152,8 +157,14 @@ function buildPhase(chunks: readonly Chunk[], now: number): RecapPhase {
         ?? (userText !== undefined && !isShortReply(userText) ? shorten(userText) : undefined)
         ?? first.openItem
         ?? (userText === undefined ? "Session start" : shorten(userText));
+    const key = phaseKey(entries);
+    const reply = entries.findLast((entry) => entry.kind === "assistant");
     return {
+        ...(key === undefined ? {} : { key }),
         title,
+        prompts: entries.flatMap((entry) => entry.kind === "user" ? [entry.text] : []),
+        doneItems: chunks.flatMap((chunk) => chunk.closedItem === undefined ? [] : [chunk.closedItem]),
+        ...(reply?.kind === "assistant" ? { reply: reply.text } : {}),
         ...(first.startedAt === undefined ? {} : { startedAt: first.startedAt }),
         activeMs,
         toolCalls: steps.length,
@@ -293,6 +304,13 @@ function lastAt(chunk: Chunk): number | undefined {
         if (at !== undefined) return at;
     }
     return undefined;
+}
+
+function phaseKey(entries: readonly VeraClientThreadEntry[]): string | undefined {
+    const first = entries[0]?.id;
+    const last = entries.at(-1)?.id;
+    if (first === undefined || last === undefined || entries.some((entry) => entry.id === undefined)) return undefined;
+    return `${first}..${last}`;
 }
 
 // Tool results share a row with their call in the transcript, so they are never a jump target.

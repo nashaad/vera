@@ -361,10 +361,10 @@ export function tuiDevInstancePrefix(): string {
 
 export function reconnectBusyMessage(): string {
     return "Could not restart the host: other work is still using it. "
-        + "Run vera host stop --force then /reconnect.";
+        + "Run vera host stop --force, then choose Reconnect host from Ctrl+P.";
 }
 
-/** Typed `/reconnect` force-stops a wedge. It does not kill a busy answering host. */
+/** Manual reconnect force-stops a wedge. It does not kill a busy answering host. */
 export function confirmManualReconnectUpgrade(error: Error): boolean {
     return error instanceof HostUnresponsiveError;
 }
@@ -795,7 +795,7 @@ export async function startConfiguredTui(
             searchSessions: (query) =>
                 searchSessionsThroughHost(host.socket_path, query),
             reconnectSession: async (currentAgentId, options) => {
-                // Typed /reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
+                // Manual reconnect confirms a wedge. Auto-restart after a drop does not. A busy host must refuse.
                 const replaceExisting = options?.replaceExisting === true;
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: replaceExisting

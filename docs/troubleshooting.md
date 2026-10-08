@@ -11,13 +11,14 @@ context usage without sending a model request.
 
 ## The client lost its host
 
-If the TUI says disconnected, run `/reconnect`. Vera makes one automatic
-restart attempt after a dropped connection; this command provides explicit
-recovery if that attempt did not succeed.
+If the TUI says disconnected, press Ctrl+P and choose **Reconnect host**. Vera
+makes one automatic restart attempt after a dropped connection; Reconnect host
+provides explicit recovery if that attempt did not succeed. It is not a slash
+command.
 
-`/reconnect` uses the host associated with this Vera home. It can replace the
+Reconnect host uses the host associated with this Vera home. It can replace the
 process and return to the same conversation without changing the installed
-build. Running the command authorizes that recovery; there is no second prompt.
+build. Choosing it authorizes that recovery; there is no second prompt.
 
 ### What recovery does
 

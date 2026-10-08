@@ -54,7 +54,7 @@ have no divider.
 
 Session files live in `~/.vera/runtime/sessions/`. One host owns the home's
 runtime directory at a time. Replacing that host preserves conversation
-identity; `/reconnect` returns to the same conversation.
+identity; **Reconnect host** (Ctrl+P) returns to the same conversation.
 
 `VERA_HOME` relocates the whole home for tests and development. There is no
 separate runtime-directory selector or daily profile flag. See

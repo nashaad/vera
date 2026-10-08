@@ -43,7 +43,7 @@ export interface EnsureResidentHostOptions {
         identity: HostIdentity,
         requesterProtocolVersion: number,
     ) => Promise<ShutdownForReplacementResponse | undefined>;
-    /** Replace a healthy answering host. Manual `/reconnect` sets this. */
+    /** Replace a healthy answering host. Manual reconnect sets this. */
     readonly replaceExisting?: boolean;
     readonly confirmBusyUpgrade?: (
         error:

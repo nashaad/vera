@@ -499,12 +499,6 @@ const PARENT_COMMAND = {
     usage: "/parent",
 } as const satisfies TuiCommandCatalogEntry;
 
-const RECONNECT_COMMAND = {
-    name: "reconnect",
-    description: "Restart the host and reconnect this conversation",
-    usage: "/reconnect",
-} as const satisfies TuiCommandCatalogEntry;
-
 const CLEAR_COMMAND = {
     name: "clear",
     description: "Start a new conversation",
@@ -607,7 +601,6 @@ export const BUILTIN_COMMANDS = [
     SUBAGENTS_COMMAND,
     PARENT_COMMAND,
     BACK_COMMAND,
-    RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
     IMPORT_COMMAND,
@@ -1482,17 +1475,12 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             action: { type: "go_back" },
         },
     });
-    registry.registerCommand({
-        ...RECONNECT_COMMAND,
+    registry.registerPaletteAction({
+        name: "reconnect",
+        label: "Reconnect host",
+        description: "restart the host after a connection failure",
+        group: "Session",
         action: { type: "reconnect" },
-        palette: {
-            name: "reconnect",
-            label: "Reconnect host",
-            description: "restart the host after a connection failure",
-            group: "Session",
-            slashName: "reconnect",
-            action: { type: "reconnect" },
-        },
     });
     registry.registerCommand({
         ...CLEAR_COMMAND,
