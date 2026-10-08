@@ -4,7 +4,7 @@ import { assistantFollowsTools, reseedTranscriptNodes } from "../main.ts";
 import { createTuiEntryNode, mainTranscriptWidth } from "../main/sidebar-pane.ts";
 import { tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { updateTuiNoticeCard } from "../notice-card.ts";
-import { renderTuiEntry, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
+import { renderTuiEntry, tuiEntryMarginTop, tuiWorkedRowText, type TuiTranscriptEntry } from "../state.ts";
 import { animateTuiThinkingWindow, ELLIPSIS_COLUMNS, liveReasoningHeight, liveReasoningText, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
@@ -178,7 +178,7 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
     wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
     const existing = tuiGutterContent(wrapper);
     if (entry.kind === "worked" && existing instanceof BoxRenderable) {
-        updateTuiWorkedDivider(existing, entry.text);
+        updateTuiWorkedDivider(existing, tuiWorkedRowText(entry));
     }
     if (existing instanceof MarkdownRenderable) {
         if (existing.streaming && !rt.state.working) {

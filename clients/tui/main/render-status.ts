@@ -135,7 +135,10 @@ export function renderStatus(rt: TuiRuntime): void {
             ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
                 + ` · ${focusedElapsed}`
             : `${modelActivity === undefined ? focusedActivity : "thinking"}`
-                + ` · ${focusedElapsed}`;
+                + ` · ${focusedElapsed}`
+                + (statusState.autoApproved === undefined
+                    ? ""
+                    : ` · ${statusState.autoApproved} auto-approved`);
     } else if (rt.pendingImages.some((image) => image.id === undefined)) {
         lifecycleHint = "attaching image…";
     } else if (rt.promptSubmitting) {

@@ -10,7 +10,7 @@ import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } fr
 import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
-import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
+import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, tuiEntryMarginTop, tuiWorkedRowText, type TuiTranscriptEntry } from "../state.ts";
 import { tuiHandleActiveColor, tuiHandleColor } from "../theme.ts";
 import { createTuiNoticeCard, repaintTuiNoticeCard, updateTuiNoticeCard } from "../notice-card.ts";
 import { createTuiThinkingWindow, updateTuiThinkingWindow } from "../thinking-window.ts";
@@ -87,7 +87,7 @@ export function createTuiEntryNode(rt: TuiRuntime,
             streaming,
         );
     const node = entry.kind === "worked"
-        ? createTuiWorkedDivider(rt.renderer, id, entry.text)
+        ? createTuiWorkedDivider(rt.renderer, id, tuiWorkedRowText(entry))
         : entry.kind === "tool"
         ? createTuiToolRow(rt.renderer, id, entry, inner)
         : entry.kind === "tool_header"
@@ -208,7 +208,7 @@ export function renderSidebarAgent(rt: TuiRuntime,
             ) {
                 updateTuiThinkingWindow(existing, entry, rt.liveReasoningRows);
             } else if (entry.kind === "worked" && existing instanceof BoxRenderable) {
-                updateTuiWorkedDivider(existing, entry.text);
+                updateTuiWorkedDivider(existing, tuiWorkedRowText(entry));
             } else if (existing instanceof TextRenderable) {
                 existing.content = renderTuiEntry(entry);
             }

@@ -45,6 +45,9 @@ A **Worked for** divider records elapsed time after turns that ran at least
 five minutes, whether they finished, failed or were interrupted. Shorter
 turns omit it during live conversation.
 Reopening finished work shows its final divider even for a short turn.
+When the classifier allowed low-risk actions during a turn, the divider also
+shows how many, such as `Worked for 6m 00s · 3 auto-approved`. A short turn's
+divider then shows only the count.
 
 For work finished more than 24 hours ago, the divider also shows the saved
 finish date and time in your local timezone. Older turns without timing data

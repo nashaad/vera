@@ -116,6 +116,9 @@ export interface TuiTextTranscriptEntry {
     readonly card?: boolean;
     readonly summary?: string;
     readonly checklist?: ChecklistPresentation;
+    readonly autoApproved?: number;
+    // A group restarted under a review row; history never has it, so comparisons skip it.
+    readonly reviewSplit?: boolean;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -163,6 +166,8 @@ export interface TuiState {
     readonly modelFallback?: { readonly from: string; readonly to: string };
     readonly thinkingExpanded?: boolean;
     readonly toolDetailsExpanded?: boolean;
+    // Low-risk classifier allows since the last turn ended; shown as a count, not rows.
+    readonly autoApproved?: number;
     readonly admission?: TuiAdmissionState;
     readonly modelSettingsHistory?: readonly {
         readonly settings: ModelTurnSettings;
@@ -362,6 +367,9 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         };
     }
     if (update.type === "tool_review") {
+        if (update.decision === "allow" && update.riskLevel === "low") {
+            return { ...state, autoApproved: (state.autoApproved ?? 0) + 1 };
+        }
         if (update.decision === "allow") {
             return appendEntry(state, {
                 kind: "review",
@@ -417,6 +425,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             )),
             working: false,
             transcriptStarted: true,
+            autoApproved: undefined,
             modelActivity: undefined,
             compactingSince: undefined,
             compactionStrategy: undefined,
@@ -449,10 +458,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                 );
             }
         }
-        return update.turnTiming !== undefined
-            && update.turnTiming.durationMs >= WORKED_DIVIDER_THRESHOLD_MS
-            ? appendWorkedDivider(finished, update.turnTiming)
-            : finished;
+        return appendWorkedDivider(finished, update.turnTiming, state.autoApproved ?? 0);
     }
     if (update.type === "agent_failed") {
         return appendTuiDiagnostic({
@@ -464,6 +470,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             working: false,
             queuedPrompts: [],
             queueDraining: false,
+            autoApproved: undefined,
             modelActivity: undefined,
             compactingSince: undefined,
             compactionStrategy: undefined,
@@ -1935,24 +1942,26 @@ function withToolEntry(
     const header = toolHeader(tool, active);
     const row = toolRowText(tool, args);
     const activity = active ? toolActivity(tool, args) : undefined;
-    if (
-        !active
-        && previous?.kind === "tool"
+    const repeated = previous?.kind === "tool"
         && previous.header === header
-        && previous.text === row
-    ) {
-        const repeated: TuiTranscriptEntry = {
+        && previous.text === row;
+    if (!active && repeated) {
+        const counted: TuiTranscriptEntry = {
             ...previous,
             repeat: (previous.repeat ?? 1) + 1,
         };
         return entries.map((entry, index) =>
-            index === previousIndex ? repeated : entry
+            index === previousIndex ? counted : entry
         );
     }
     const open = (previous?.kind === "tool" || previous?.kind === "tool_header")
         && previous.header !== undefined
         && toolHeaderGroup(previous.header) === toolHeaderGroup(header);
-    if (open) {
+    // A repeat is never split, because history would fold it into the row above.
+    const reviewSplit = open && !repeated && entries.findLast((entry) =>
+        entry.kind !== "thought" && entry.kind !== "thinking"
+    )?.kind === "review";
+    if (open && !reviewSplit) {
         const joined = [...entries, {
             kind: "tool",
             header,
@@ -1990,6 +1999,7 @@ function withToolEntry(
             kind: "tool_header",
             header,
             ...(active ? { active: true } : {}),
+            ...(reviewSplit ? { reviewSplit: true } : {}),
             text: header,
         },
         {
@@ -2432,12 +2442,31 @@ function workedDividerEntry(timing: TurnTiming): TuiTextTranscriptEntry {
     return { kind: "worked", text: workedDividerText(timing) };
 }
 
-function appendWorkedDivider(state: TuiState, timing: TurnTiming): TuiState {
-    const entry = workedDividerEntry(timing);
+// A short turn gets the row only to carry its approval count; history never rebuilds that row.
+function appendWorkedDivider(
+    state: TuiState,
+    timing: TurnTiming | undefined,
+    autoApproved: number,
+): TuiState {
+    const long = timing !== undefined && timing.durationMs >= WORKED_DIVIDER_THRESHOLD_MS;
+    if (!long && autoApproved === 0) return state;
+    const entry: TuiTextTranscriptEntry = {
+        kind: "worked",
+        text: long ? workedDividerText(timing) : "",
+        ...(autoApproved === 0 ? {} : { autoApproved }),
+        ...(long ? {} : { liveOnly: true }),
+    };
     const last = state.entries.at(-1);
     return last?.kind === "worked" && last.text === entry.text
+        && last.autoApproved === entry.autoApproved
         ? state
         : appendEntry(state, entry);
+}
+
+export function tuiWorkedRowText(entry: TuiTranscriptEntry): string {
+    if (entry.kind === "diff") return entry.text;
+    const approved = entry.autoApproved === undefined ? "" : `${entry.autoApproved} auto-approved`;
+    return [entry.text, approved].filter((part) => part.length > 0).join(" · ");
 }
 
 function emptyTurnEntry(): TuiTranscriptEntry {
@@ -2589,8 +2618,13 @@ function preserveLiveReviewEntries(
     const withoutTransientEntries = current.filter((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
         && entry.kind !== "thinking"
+        && (entry.kind === "diff"
+            || (entry.liveOnly !== true && entry.reviewSplit !== true))
     );
-    const base = current.some((entry) => entry.kind === "review")
+    const base = current.some((entry) =>
+        entry.kind === "review"
+        || (entry.kind !== "diff" && entry.autoApproved !== undefined)
+    )
             && transcriptEntriesEqual(withoutTransientEntries, canonical)
         ? current.filter((entry) =>
             entry.kind !== "thought" && entry.kind !== "thinking"
@@ -2639,7 +2673,10 @@ function anchoredReasoningEntries(
             || (entry.kind !== "diff" && entry.liveOnly === true)
         ) {
             anchored.push({ after: durable, entry });
-        } else if (entry.kind !== "review" && entry.kind !== "thinking") {
+        } else if (
+            entry.kind !== "review" && entry.kind !== "thinking"
+            && (entry.kind === "diff" || entry.reviewSplit !== true)
+        ) {
             durable += 1;
         }
     }
@@ -2666,7 +2703,10 @@ function restoreReasoningEntries(
     takeAnchored();
     for (const entry of base) {
         restored.push(entry);
-        if (entry.kind !== "review") {
+        if (
+            entry.kind !== "review"
+            && (entry.kind === "diff" || entry.reviewSplit !== true)
+        ) {
             durable += 1;
             takeAnchored();
         }

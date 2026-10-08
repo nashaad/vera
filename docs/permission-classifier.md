@@ -9,8 +9,10 @@ In auto mode, Vera checks tool actions against permission rules. When those
 rules cannot decide, a separate classifier evaluates whether to allow the
 action. If it cannot return a usable decision, the tool does not run.
 
-An action the rules allow runs without a notice. Only the classifier's
-decisions add a line to the conversation.
+An action the rules allow runs without a notice. So does a low-risk allow
+from the classifier; the end of the turn shows how many there were, such as
+`2 auto-approved`. Other classifier decisions add a line to the conversation.
+An allow line sits just above the action it allowed.
 
 The classifier is separate from the model working on your task. Changing the
 conversation model does not change the configured classifier.
@@ -47,7 +49,10 @@ The interface calls the job classifier.
 
 ## Understand the result
 
-An allow notice includes the assessed risk, authorization, and reason.
+An allow notice for a medium-risk or higher action includes the assessed
+risk, authorization, and reason. Low-risk allows are counted instead. While
+the turn runs, the status line shows the count. The count is not saved, so a
+reopened conversation does not show it.
 A denial says the action was denied. A timeout or provider error names the
 tool and confirms that the action did not run.
 
