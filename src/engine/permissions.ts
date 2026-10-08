@@ -34,6 +34,7 @@ import {
     permissionPredicateMatches,
     type PermissionGrant,
 } from "./permission-grants.ts";
+import { urlHost } from "./permission-host.ts";
 import {
     applyPermissionPreference,
     isPermissionPreference,
@@ -71,6 +72,7 @@ export interface PermissionAction {
     readonly tool: string;
     readonly verb: PermissionVerb;
     readonly path?: string;
+    readonly host?: string;
     readonly scope?: PermissionScope;
     readonly operation?: string;
     readonly executable?: string;
@@ -87,6 +89,7 @@ export interface PermissionPredicate {
     readonly verb?: PermissionVerb;
     readonly path?: string;
     readonly pathGlob?: string;
+    readonly host?: string;
     readonly scope?: PermissionScope;
     readonly operation?: string;
     readonly executable?: string;
@@ -406,6 +409,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "memory.write",
     "process.kill",
     "process.read",
+    "web.download",
     "web.fetch",
     "web.search",
 ]);
@@ -665,12 +669,21 @@ export function extractPermissionActions(
             ? [{ tool: toolCall.name, verb: "unknown" }]
             : actions;
     }
-    return [
-        ...actions,
-        ...declaredInputs.map((spec) =>
-            structuredInputAction(toolCall, spec, workspace)
-        ),
-    ];
+    const inputActions = declaredInputs.map((spec) =>
+        structuredInputAction(toolCall, spec, workspace)
+    );
+    const urlIndexes = declaredInputs.flatMap((spec, index) =>
+        spec.kind === "url" ? [index] : []
+    );
+    const urlIndex = urlIndexes.length === 1 ? urlIndexes[0] : undefined;
+    const operationHost = urlIndex !== undefined
+        && declaredInputs[urlIndex]!.verb === "read"
+        ? inputActions[urlIndex]!.host
+        : undefined;
+    const operationActions = operationHost === undefined
+        ? actions
+        : actions.map((action) => ({ ...action, host: operationHost }));
+    return [...operationActions, ...inputActions];
 }
 
 export function evaluateAction(
@@ -724,11 +737,13 @@ function structuredInputAction(
         return { tool: toolCall.name, verb: "unknown" };
     }
     if (spec.kind === "url") {
+        const host = urlHost(raw);
         return {
             tool: toolCall.name,
             verb: spec.verb,
             path: raw,
             scope: "outside_workspace",
+            ...(host === undefined ? {} : { host }),
         };
     }
     if (raw.length === 0 && spec.verb !== "read") {

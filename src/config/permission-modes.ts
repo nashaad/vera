@@ -20,6 +20,7 @@ const PREDICATE_FIELDS = new Set([
     "operation",
     "path",
     "path_glob",
+    "host",
     "scope",
     "executable",
     "capability",
