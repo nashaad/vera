@@ -1,5 +1,3 @@
-import { COMPACTION_TRIGGER_FRACTION } from
-    "../engine/compaction-scheduler.ts";
 import type { ModelReasoningEffort } from "../model/types.ts";
 import { isVeraProviderId, type VeraProviderId } from "../config.ts";
 
@@ -253,20 +251,6 @@ export function parseCompactionConfig(
                 || assumedWindow < 1))
     ) {
         return undefined;
-    }
-    // Both are fractions of the same window, so a target at or above the
-    // trigger compacts straight back to the point that started it. A target
-    // set alone is measured against the standing trigger; a trigger set alone
-    // is not measured against the standing target, because that would reject
-    // a low trigger, which is a shape configs already carry and which only
-    // makes compaction eager rather than repeating.
-    if (typeof targetFraction === "number") {
-        const trigger = typeof triggerFraction === "number"
-            ? triggerFraction
-            : COMPACTION_TRIGGER_FRACTION;
-        if (targetFraction >= trigger) {
-            return undefined;
-        }
     }
     const slots: Record<string, string> = {};
     for (const [slot, route] of Object.entries(models ?? {})) {

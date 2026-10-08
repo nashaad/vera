@@ -261,12 +261,6 @@ test("out-of-range compaction numbers are rejected", () => {
         { assumed_window_tokens: 1.5 },
         { min_summary_tokens: Number.MAX_SAFE_INTEGER + 1 },
         { assumed_window_tokens: Number.MAX_SAFE_INTEGER + 1 },
-        // A summary aimed at or above the point that triggers one.
-        { trigger_fraction: 0.5, target_fraction: 0.5 },
-        { trigger_fraction: 0.2, target_fraction: 0.9 },
-        // Alone, the target is measured against the standing trigger of 0.82.
-        { target_fraction: 0.9 },
-        { target_fraction: 0.82 },
     ]) {
         expect(parseCompactionConfig(value, routes)).toBeUndefined();
     }
@@ -274,8 +268,17 @@ test("out-of-range compaction numbers are rejected", () => {
         { trigger_fraction: 0.82, target_fraction: 0.45 },
         routes,
     )).toEqual({ trigger_fraction: 0.82, target_fraction: 0.45 });
-    // A trigger set alone keeps parsing whatever it is. Measuring it against
-    // the standing target would reject blocks that load today.
     expect(parseCompactionConfig({ trigger_fraction: 0.2 }, routes))
         .toEqual({ trigger_fraction: 0.2 });
+});
+
+test("a target at or above the trigger loads, since compaction pulls it under", () => {
+    const routes = { summarizer: ["primary"] };
+    for (const value of [
+        { trigger_fraction: 0.5, target_fraction: 0.5 },
+        { trigger_fraction: 0.2, target_fraction: 0.9 },
+        { target_fraction: 0.9 },
+    ]) {
+        expect(parseCompactionConfig(value, routes)).toEqual(value);
+    }
 });

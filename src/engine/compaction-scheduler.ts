@@ -86,6 +86,24 @@ export function compactionTargetBudget(
     measurement: ContextMeasurement,
     budget?: CompactionBudget,
 ): number | undefined {
+    const target = configuredTargetBudget(measurement, budget);
+    const triggerTokens = compactionTriggerTokens(
+        measurement.capacity,
+        budget?.trigger,
+    );
+    if (target === undefined || triggerTokens === undefined) {
+        return target;
+    }
+    // A summary sized to a target at or above the trigger fires the trigger again on the next step.
+    return target < triggerTokens
+        ? target
+        : Math.floor(triggerTokens * UNKNOWN_CAPACITY_TARGET_FRACTION);
+}
+
+function configuredTargetBudget(
+    measurement: ContextMeasurement,
+    budget?: CompactionBudget,
+): number | undefined {
     if (measurement.capacity !== undefined) {
         return Math.floor(
             measurement.capacity
@@ -176,16 +194,8 @@ export function compactionBudgetWarning(
     measurement: ContextMeasurement,
     budget?: CompactionBudget,
 ): string | undefined {
-    const triggerTokens = effectiveTriggerTokens(
-        measurement.capacity,
-        budget?.trigger,
-    );
     const target = compactionTargetBudget(measurement, budget);
-    const parts = [
-        ignoredTargetWarning(measurement, budget, target),
-        targetAboveTriggerWarning(triggerTokens, target),
-    ].filter((part): part is string => part !== undefined);
-    return parts.length === 0 ? undefined : parts.join(" ");
+    return ignoredTargetWarning(measurement, budget, target);
 }
 
 function ignoredTargetWarning(
@@ -207,23 +217,6 @@ function ignoredTargetWarning(
         + ` and the share is not configurable. Remove it, or use`
         + ` trigger_fraction and trigger_tokens to change when compaction`
         + ` fires.`;
-}
-
-function targetAboveTriggerWarning(
-    triggerTokens: number | undefined,
-    target: number | undefined,
-): string | undefined {
-    if (
-        triggerTokens === undefined
-        || target === undefined
-        || target <= triggerTokens
-    ) {
-        return undefined;
-    }
-    return `Compaction targets ${target} tokens, above trigger_tokens`
-        + ` (${triggerTokens}). A summary that fits the target can still sit`
-        + ` above the trigger, so the next turn compacts again. Raise`
-        + ` trigger_tokens above ${target}.`;
 }
 
 export async function compactSession(
@@ -255,6 +248,90 @@ export async function compactSession(
             : scaledTokens(measurement.overheadTokens, options),
     );
 
+    const triggerTokens = compactionTriggerTokens(capacity, options.trigger);
+    const planInput = {
+        active,
+        previousBoundary,
+        previousProjection,
+        overhead,
+        triggerTokens,
+        options,
+    };
+    let planned = planAttempts(planInput, budget);
+    const unpulled = configuredTargetBudget(measurement, options);
+    // A trigger too small to land under is a request to compact anyway, at the target as configured.
+    if (
+        planned.attempts.length === 0
+        && unpulled !== undefined
+        && unpulled !== budget
+    ) {
+        planned = planAttempts(planInput, unpulled);
+    }
+    const { attempts, leanest, hasCandidate } = planned;
+    if (attempts.length === 0) {
+        return {
+            outcome: "no_boundary",
+            reason: noBoundaryReason(
+                hasCandidate,
+                leanest?.keptTokens,
+                overhead,
+                triggerTokens,
+                capacity,
+            ),
+        };
+    }
+
+    let retryable: CompactionOutcome | undefined;
+    for (const [index, attempt] of attempts.entries()) {
+        if (signal.aborted) {
+            return { outcome: "cancelled" };
+        }
+        const outcome = await attemptCompaction({
+            attempt,
+            active,
+            previousProjection,
+            previousBoundary,
+            modelContext,
+            overhead,
+            capacity,
+            measurement,
+            options,
+            store,
+            signal,
+            lastAttempt: index === attempts.length - 1,
+        });
+        if (!outcome.retry) {
+            return outcome.result;
+        }
+        retryable = outcome.result;
+    }
+    return retryable ?? { outcome: "cancelled" };
+}
+
+interface PlanInput {
+    readonly active: readonly SessionMessageEntry[];
+    readonly previousBoundary: number;
+    readonly previousProjection: readonly ModelMessage[];
+    readonly overhead: number;
+    readonly triggerTokens: number | undefined;
+    readonly options: CompactionSchedulerOptions;
+}
+
+interface PlannedAttempts {
+    readonly attempts: readonly { plan: BoundaryPlan; targetTokens: number }[];
+    readonly leanest: { plan: BoundaryPlan; keptTokens: number } | undefined;
+    readonly hasCandidate: boolean;
+}
+
+function planAttempts(input: PlanInput, budget: number): PlannedAttempts {
+    const {
+        active,
+        previousBoundary,
+        previousProjection,
+        overhead,
+        triggerTokens,
+        options,
+    } = input;
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
     let leanest: { plan: BoundaryPlan; keptTokens: number } | undefined;
     let hasCandidate = false;
@@ -298,7 +375,6 @@ export async function compactSession(
             ...viable.slice(-1),
         ]
         : viable;
-    const triggerTokens = compactionTriggerTokens(capacity, options.trigger);
     // Overhead or a large prompt can fill the target by itself. Keeping as little as possible still helps if it lands under the trigger.
     if (
         attempts.length === 0
@@ -309,44 +385,7 @@ export async function compactSession(
     ) {
         attempts.push({ plan: leanest.plan, targetTokens: MIN_SUMMARY_TOKENS });
     }
-    if (attempts.length === 0) {
-        return {
-            outcome: "no_boundary",
-            reason: noBoundaryReason(
-                hasCandidate,
-                leanest?.keptTokens,
-                overhead,
-                triggerTokens,
-                capacity,
-            ),
-        };
-    }
-
-    let retryable: CompactionOutcome | undefined;
-    for (const [index, attempt] of attempts.entries()) {
-        if (signal.aborted) {
-            return { outcome: "cancelled" };
-        }
-        const outcome = await attemptCompaction({
-            attempt,
-            active,
-            previousProjection,
-            previousBoundary,
-            modelContext,
-            overhead,
-            capacity,
-            measurement,
-            options,
-            store,
-            signal,
-            lastAttempt: index === attempts.length - 1,
-        });
-        if (!outcome.retry) {
-            return outcome.result;
-        }
-        retryable = outcome.result;
-    }
-    return retryable ?? { outcome: "cancelled" };
+    return { attempts, leanest, hasCandidate };
 }
 
 export const MAX_COMPACTION_ATTEMPTS = 3;

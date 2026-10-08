@@ -18,9 +18,30 @@ import {
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 import { OVERRIDE_VALUE_ROWS } from "./settings-picker-starters.ts";
-import type { OverrideRow } from "../../src/engine/override-rows.ts";
+import type {
+    OverridePick,
+    OverrideRow,
+} from "../../src/engine/override-rows.ts";
+import type { TuiAnySettingsPickerState } from "./settings-picker-types.ts";
 
 export type TuiOverridesResetConfirmResult = "confirm" | "cancel" | undefined;
+
+export interface TuiOverridesResetConfirm {
+    readonly kind: "reset";
+    readonly levers: readonly string[];
+}
+
+/** A pick that loads but will not do what its number says. `next` is where the pane goes once the user saves it anyway. */
+export interface TuiOverridesCautionConfirm {
+    readonly kind: "caution";
+    readonly text: string;
+    readonly patch: OverridePick;
+    readonly next: TuiAnySettingsPickerState | undefined;
+}
+
+export type TuiOverridesConfirm =
+    | TuiOverridesResetConfirm
+    | TuiOverridesCautionConfirm;
 
 /** The levers a reset would clear, named as the pane names them. A count alone does not tell the user whether they meant it. */
 export function tuiOverridesResetLevers(
@@ -35,7 +56,7 @@ export interface TuiOverridesResetConfirmView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
-    update(levers: readonly string[]): void;
+    update(confirm: TuiOverridesConfirm): void;
 }
 
 export function handleTuiOverridesResetConfirmKey(
@@ -68,7 +89,7 @@ export function createTuiOverridesResetConfirmView(
     renderer: RenderContext,
 ): TuiOverridesResetConfirmView {
     const title = new TextRenderable(renderer, {
-        content: "Reset every override to its default?",
+        content: "",
         fg: TUI_NOTICE,
         width: "100%",
         height: 1,
@@ -82,7 +103,7 @@ export function createTuiOverridesResetConfirmView(
         marginTop: 1,
     });
     const detail = new TextRenderable(renderer, {
-        content: "These drop out of your config and go back to the values Vera ships with. Nothing else in the config is touched.",
+        content: "",
         fg: TUI_MUTED,
         width: "100%",
         height: "auto",
@@ -90,7 +111,7 @@ export function createTuiOverridesResetConfirmView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: "[1] reset · [esc] keep them",
+        content: "",
         fg: TUI_NOTICE,
         width: "100%",
         height: 1,
@@ -128,10 +149,23 @@ export function createTuiOverridesResetConfirmView(
             tuiThemeProperties(footer, { fg: "notice" }),
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
-        update(chosen): void {
+        update(confirm): void {
+            if (confirm.kind === "caution") {
+                title.content = "Save a target that is not under the trigger?";
+                levers.content = confirm.text;
+                detail.content = "For compaction to aim at the target as set,"
+                    + " keep it lower than the trigger.";
+                footer.content = "[1] save anyway · [esc] back";
+                return;
+            }
+            const chosen = confirm.levers;
+            title.content = "Reset every override to its default?";
             levers.content = chosen.length === 1
                 ? `${chosen[0]} is set.`
                 : `${chosen.length} set: ${chosen.join(", ")}.`;
+            detail.content = "These drop out of your config and go back to the"
+                + " values Vera ships with. Nothing else in the config is touched.";
+            footer.content = "[1] reset · [esc] keep them";
         },
     };
 }

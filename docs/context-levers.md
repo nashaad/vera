@@ -76,12 +76,17 @@ Both sets stay visible so you can tell which values currently apply.
 
 ## Resolve conflicting values
 
-The summary target must be below the compaction trigger. The limit for one
-tool result must not exceed the total tool-result budget.
-
+The limit for one tool result must not exceed the total tool-result budget.
 Vera refuses a conflicting choice before saving it. The value screen shows
 **Not set** with the two values involved. Adjust the other limit or choose
 a compatible value.
+
+A summary target at or above the compaction trigger is allowed, which helps
+when you want compaction to happen early, for example while testing it.
+Vera asks first and shows both values. Press 1 to save anyway or Escape to
+go back to the list. While the target is not under the trigger, compaction
+aims for about a third of the trigger instead, so one compaction does not
+set off the next.
 
 ## Reset overrides
 

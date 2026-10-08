@@ -102,7 +102,7 @@ export function renderState(rt: TuiRuntime): void {
         && !rt.confirmingFullAccess
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
-        && rt.overridesResetCandidate === undefined
+        && rt.overridesConfirm === undefined
         && rt.secretPrompt === undefined
         && rt.namePrompt === undefined
         && rt.requestOptionsEditor === undefined
@@ -305,7 +305,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.timelinePicker === undefined
         && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
         && rt.providerForgetCandidate === undefined
-        && rt.overridesResetCandidate !== undefined;
+        && rt.overridesConfirm !== undefined;
     const overlayVisible = rt.dialStrip !== undefined
         || rt.jumpMenuBox.visible
         || rt.approvalView.box.visible
@@ -476,8 +476,8 @@ export function renderState(rt: TuiRuntime): void {
     if (rt.providerForgetCandidate !== undefined) {
         rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === rt.providerForgetCandidate?.providerId).length);
     }
-    if (rt.overridesResetCandidate !== undefined) {
-        rt.overridesResetConfirmView.update(rt.overridesResetCandidate);
+    if (rt.overridesConfirm !== undefined) {
+        rt.overridesResetConfirmView.update(rt.overridesConfirm);
     }
     if (rt.admissionDialog !== undefined) {
         rt.admissionDialogView.update(rt.admissionDialog, dialogAdmission(rt));

@@ -20,7 +20,10 @@ import { readSessionPreview } from "../session-preview.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
 import type { TuiRuntime } from "./runtime.ts";
-import { overrideConflict } from "../../../src/engine/override-rows.ts";
+import {
+    overrideCaution,
+    overrideConflict,
+} from "../../../src/engine/override-rows.ts";
 import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile } from "./outrider-control.ts";
 import { randomUUID } from "node:crypto";
@@ -597,6 +600,28 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 renderState(rt);
                 return;
             }
+            const caution = valuePane === undefined || selection.patch === null
+                ? undefined
+                : overrideCaution(
+                    valuePane.overrides?.rows ?? [],
+                    selection.patch,
+                );
+            if (valuePane !== undefined && selection.patch !== null && caution !== undefined) {
+                // Nothing is written until the answer comes back, and Escape lands back on this value list.
+                rt.overridesConfirm = {
+                    kind: "caution",
+                    text: caution,
+                    patch: selection.patch,
+                    next: tuiPickerAfterSelection(selection, valuePane),
+                };
+                rt.settingsPicker = valuePane;
+                rt.settingsPickerView.update(valuePane);
+                rt.composer.blur();
+                rt.overridesResetConfirmView.update(rt.overridesConfirm);
+                rt.overridesResetConfirmView.box.focus();
+                renderState(rt);
+                return;
+            }
             const clearing = selection.patch === null
                 ? tuiOverridesResetLevers(
                     previousPicker?.kind === "overrides_settings"
@@ -607,7 +632,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
             if (clearing.length > 0) {
                 // Nothing is written until the answer comes back. The pane
                 // behind stays as it was, so cancelling leaves no trace.
-                rt.overridesResetCandidate = clearing;
+                rt.overridesConfirm = { kind: "reset", levers: clearing };
             } else {
                 requestModelSettingsChange(rt, 
                     { overrides: selection.patch },
@@ -774,9 +799,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.composer.blur();
         rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === rt.providerForgetCandidate?.providerId).length);
         rt.providerForgetConfirmView.box.focus();
-    } else if (rt.overridesResetCandidate !== undefined) {
+    } else if (rt.overridesConfirm !== undefined) {
         rt.composer.blur();
-        rt.overridesResetConfirmView.update(rt.overridesResetCandidate);
+        rt.overridesResetConfirmView.update(rt.overridesConfirm);
         rt.overridesResetConfirmView.box.focus();
     } else if (rt.settingsPicker === undefined) {
         closeSettingsPickerSurface(rt);
@@ -827,12 +852,36 @@ function applySessionPreviewLines(
 
 /** The reset was confirmed: clear every lever the card named. The pane behind the card stays open, and the cleared rows arrive on it. */
 export function applyOverridesReset(rt: TuiRuntime): void {
-    rt.overridesResetCandidate = undefined;
+    rt.overridesConfirm = undefined;
     requestModelSettingsChange(
         rt,
         { overrides: null },
         overrideChangeLabel(null),
         overrideChangeLabel(null),
+        rt.settingsPickerAgent,
+    );
+    focusActiveSurface(rt);
+    renderState(rt);
+}
+
+/** The cautioned pick was confirmed: write it and move on as an ordinary pick would. */
+export function applyOverrideCaution(rt: TuiRuntime): void {
+    const confirm = rt.overridesConfirm;
+    rt.overridesConfirm = undefined;
+    if (confirm?.kind !== "caution") {
+        return;
+    }
+    rt.settingsPicker = confirm.next;
+    if (rt.settingsPicker === undefined) {
+        closeSettingsPickerSurface(rt);
+    } else {
+        rt.settingsPickerView.update(rt.settingsPicker);
+    }
+    requestModelSettingsChange(
+        rt,
+        { overrides: confirm.patch },
+        overrideChangeLabel(confirm.patch),
+        overrideChangeLabel(confirm.patch),
         rt.settingsPickerAgent,
     );
     focusActiveSurface(rt);
