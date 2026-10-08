@@ -83,6 +83,7 @@ your first conversation.
 - [Manage extensions](extensions.md)
 - [Included extensions](included-extensions.md)
 - [Extension credentials](extension-credentials.md)
+- [Permission modes and rules](permission-rules.md)
 - [Configure automatic approval](permission-classifier.md)
 - [Choose a configuration file](configuration-files.md)
 - [Themes](themes.md)
