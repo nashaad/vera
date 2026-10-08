@@ -33,7 +33,9 @@ working. Home means no conversation is open.
 | `/close` or Ctrl+W from the composer | Park the live conversation and keep its saved history. |
 
 `/clear` starts a new conversation and asks Close this conversation or Keep
-running. Keep running stays idle for ten minutes, then closes.
+running. Keep running stays idle for ten minutes, then closes. `/clear stop`
+and `/clear keep` make that choice without asking. `/new` is the same command
+as `/clear`.
 
 Other conversations can remain running after the TUI exits.
 

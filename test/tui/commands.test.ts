@@ -432,6 +432,8 @@ test("typing slash exposes the built-in rewind command", () => {
         0,
     ))).toContain("› /rewind");
     expect(registry.completion("/rew")).toBe("/rewind");
+    expect(registry.suggestions("/new").map((command) => command.name)).toEqual(["clear"]);
+    expect(registry.completion("/new")).toBeUndefined();
     expect(registry.completion("/mod")).toBe("/model");
     expect(registry.suggestions("/mod").map((command) => command.name)).toEqual(["model", "models"]);
     // Favorites, defaults and providers are sections of /models, reachable from
@@ -592,13 +594,26 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         type: "create_session",
     });
     expect(registry.dispatch("/fresh")).toBeUndefined();
+    expect(registry.dispatch("/clear stop")).toEqual({
+        type: "create_session",
+        sourceDisposition: "stop",
+    });
+    expect(registry.dispatch("/clear keep")).toEqual({
+        type: "create_session",
+        sourceDisposition: "keep_running",
+    });
+    expect(registry.dispatch("/new")).toEqual({ type: "create_session" });
+    expect(registry.dispatch("/new keep")).toEqual({
+        type: "create_session",
+        sourceDisposition: "keep_running",
+    });
     expect(registry.dispatch("/clear --background")).toEqual({
         type: "command_error",
-        message: "Usage: /clear",
+        message: "Usage: /clear [stop|keep]",
     });
     expect(registry.dispatch("/clear later")).toEqual({
         type: "command_error",
-        message: "Usage: /clear",
+        message: "Usage: /clear [stop|keep]",
     });
     expect(registry.dispatch("/c")).toBeUndefined();
     expect(registry.dispatch("/cle")).toEqual({ type: "create_session" });

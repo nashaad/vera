@@ -391,7 +391,10 @@ export function resumeJsonlView(rt: TuiRuntime): void {
 
 export function requestCreateSession(
     rt: TuiRuntime,
-    options: { readonly ignoreEnter?: boolean } = {},
+    options: {
+        readonly ignoreEnter?: boolean;
+        readonly sourceDisposition?: TuiSessionLeaveDisposition;
+    } = {},
 ): void {
     if (isHomeClient(rt.client) || isWorkerFreeClient(rt.client)) {
         beginCreateSession(
@@ -401,6 +404,10 @@ export function requestCreateSession(
         return;
     }
     if (rt.sessionSwitchPending) return;
+    if (options.sourceDisposition !== undefined) {
+        beginCreateSession(rt, options.sourceDisposition);
+        return;
+    }
     rt.settingsPicker = startTuiCreateLeavePicker(options.ignoreEnter === true);
     focusActiveSurface(rt);
     renderState(rt);

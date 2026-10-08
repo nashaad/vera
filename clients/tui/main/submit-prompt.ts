@@ -1007,7 +1007,10 @@ export function submitPrompt(rt: TuiRuntime,
         return;
     }
     if (commandAction?.type === "create_session") {
-        requestCreateSession(rt, { ignoreEnter: true });
+        requestCreateSession(rt, {
+            ignoreEnter: true,
+            sourceDisposition: commandAction.sourceDisposition,
+        });
         return;
     }
     if (commandAction?.type === "close_session") {

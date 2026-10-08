@@ -225,6 +225,38 @@ test("keep running leaves the source idle", async () => {
     }
 }, 15_000);
 
+test("new and clear with a leave word skip the leave menu", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-new-word-"));
+    const scenario = createTuiNewSessionScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/new stop");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane(
+            "Could not start a new session: host refused creation",
+        );
+        expect(pane).not.toContain("Close this conversation");
+        session.sendText("/clear keep");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("fresh-model");
+        expect(pane).not.toContain("Close this conversation");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
+            "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera"
+                + "\nclosed new-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("clear keeps a multiply-attached source running and says why", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-clear-shared-"));
     const scenario = createTuiNewSessionScenario({

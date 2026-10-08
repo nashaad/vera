@@ -508,7 +508,7 @@ const RECONNECT_COMMAND = {
 const CLEAR_COMMAND = {
     name: "clear",
     description: "Start a new conversation",
-    usage: "/clear",
+    usage: "/clear [stop|keep]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const RENAME_COMMAND = {
@@ -708,6 +708,8 @@ export class TuiCommandRegistry {
         const prefix = text.slice(1);
         const matching = this.registeredCommands().filter((command) =>
             command.name.startsWith(prefix)
+            || (this.commands.get(command.name)?.aliases ?? [])
+                .some((alias) => alias.startsWith(prefix))
         );
         return TUI_SLASH_GROUPS.flatMap((group) =>
             matching.filter((command) => slashGroup(command) === group)
@@ -736,7 +738,8 @@ export class TuiCommandRegistry {
         const completedName = sharedPrefix(
             suggestions.map((command) => command.name),
         );
-        if (completedName === prefix) {
+        // An alias match can share less with the typed text than the text itself.
+        if (completedName === prefix || !completedName.startsWith(prefix)) {
             return undefined;
         }
 
@@ -1493,12 +1496,17 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     registry.registerCommand({
         ...CLEAR_COMMAND,
-        parse: (argumentsText) => argumentsText.length === 0
-            ? { type: "create_session" }
-            : {
-                type: "command_error",
-                message: `Usage: ${CLEAR_COMMAND.usage}`,
-            },
+        aliases: ["new"],
+        parse: (argumentsText) => {
+            if (argumentsText.length === 0) return { type: "create_session" };
+            if (argumentsText === "stop") {
+                return { type: "create_session", sourceDisposition: "stop" };
+            }
+            if (argumentsText === "keep") {
+                return { type: "create_session", sourceDisposition: "keep_running" };
+            }
+            return { type: "command_error", message: `Usage: ${CLEAR_COMMAND.usage}` };
+        },
         palette: {
             name: "clear",
             label: "New conversation",
