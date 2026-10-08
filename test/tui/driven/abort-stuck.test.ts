@@ -26,7 +26,7 @@ const READY = "ready · Ctrl+P";
 
 function chromeIsBusy(pane: string): boolean {
     return pane.includes("stopping…")
-        || pane.includes("thinking")
+        || /\bthinking · \d/.test(pane)
         || pane.includes("esc stop");
 }
 
