@@ -54,7 +54,7 @@ describe("model switcher ordering", () => {
         expect(new Set(keys).size).toBe(keys.length);
     });
 
-    test("a model nobody asked for is left to Compare models", () => {
+    test("a model nobody asked for is left to More models", () => {
         const state = started();
         expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5", "GPT-5.6"]);
         expect(state.hidden).toBe(rows.length - 2);
@@ -101,10 +101,10 @@ describe("model switcher search", () => {
         const searching = typed("gpt");
         expect(searching.rows.map((row) => row.label)).toEqual(["GPT-5.6", "GPT-5.6 mini"]);
         expect(searching.hidden).toBe(0);
-        expect(browseRowLabel(searching)).toBe("Compare models");
+        expect(browseRowLabel(searching)).toBe("More models");
     });
 
-    test("a search past its limit says how many matches Compare models holds", () => {
+    test("a search past its limit says how many matches More models holds", () => {
         const many = Array.from({ length: MODEL_SWITCHER_MATCHES + 3 }, (_, at) => ({
             provider: "openrouter",
             model: `glm-${at}`,
@@ -112,7 +112,7 @@ describe("model switcher search", () => {
         }));
         const searching = searchedTuiModelSwitcher(startTuiModelSwitcher(many), "glm");
         expect(searching.rows.length).toBe(MODEL_SWITCHER_MATCHES);
-        expect(browseRowLabel(searching)).toBe("Compare models · 3 more matches");
+        expect(browseRowLabel(searching)).toBe("More models · 3 more matches");
     });
 
     test("a match on the model id reaches a model the label does not name", () => {
@@ -317,7 +317,7 @@ describe("model switcher card", () => {
                 const lines = setup.captureCharFrame().split("\n");
                 return [
                     lines.findIndex((line) => line.includes("Switch model")),
-                    lines.findIndex((line) => line.includes("Compare models")),
+                    lines.findIndex((line) => line.includes("More models")),
                 ];
             };
             const resting = startTuiModelSwitcher(rows, {
@@ -531,7 +531,7 @@ describe("model switcher rendering", () => {
             const frame = setup.captureCharFrame();
             const lines = frame.split("\n").map((line) => line.trim()).filter(Boolean);
             // The caret marks it as the one button among the model rows.
-            const at = lines.findIndex((line) => line.startsWith("\u203a Compare models"));
+            const at = lines.findIndex((line) => line.startsWith("\u203a More models"));
             expect(at).toBeGreaterThan(0);
             // A rule separates it from the models, and the footer follows it.
             expect(lines[at - 1]).toMatch(/^\u2500+$/);

@@ -70,7 +70,7 @@ test("the manage menu carries verify all, so no chord is the only way in", async
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/models");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Compare models");
+        await session.waitForVisiblePane("More models");
         for (let step = 0; step < 4; step += 1) session.sendKey("Tab");
         await session.waitForVisiblePane("⏎ manage models");
         session.sendKey("Enter");
@@ -302,7 +302,7 @@ test("the pinned browse row opens the browse page", async () => {
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");
         session.sendText("switch model"); await session.waitForVisiblePane("Switch model");
         session.sendKey("Enter"); await session.waitForVisiblePane("models land here");
-        expect(session.captureVisiblePane()).toContain("Compare models");
+        expect(session.captureVisiblePane()).toContain("More models");
         // The pinned row is the last thing the cursor reaches, and it opens the page.
         session.sendKey("NPage"); session.sendKey("Enter");
         const browse = await session.waitForVisiblePane("Filter and sort");
@@ -320,11 +320,11 @@ test("clicking the pinned browse row opens the browse page", async () => {
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("models land here");
         const lines = pane.split("\n");
-        const row = lines.findIndex((line) => line.includes("Compare models"));
+        const row = lines.findIndex((line) => line.includes("More models"));
         // The hit grid lags the dialog by a frame, so settle before clicking.
         await session.settle();
-        await session.sendMouseClick(lines[row]!.indexOf("Compare models") + 2, row);
-        const browse = await session.waitForVisiblePane("Compare models · ");
+        await session.sendMouseClick(lines[row]!.indexOf("More models") + 2, row);
+        const browse = await session.waitForVisiblePane("More models · ");
         expect(browse).not.toContain("⏎ switch");
     } finally { await session.close(); }
 }, 15_000);
@@ -342,7 +342,7 @@ test("tab and the arrows walk search, the list and the browse row", async () => 
         session.sendKey("Left"); await session.waitForVisiblePane("↓ list");
         session.sendKey("Tab"); await session.waitForVisiblePane("↑↓ move");
         session.sendKey("Right"); await session.waitForVisiblePane("⏎ browse");
-        session.sendKey("Enter"); await session.waitForVisiblePane("Compare models · ");
+        session.sendKey("Enter"); await session.waitForVisiblePane("More models · ");
     } finally { await session.close(); }
 }, 15_000);
 
@@ -420,7 +420,7 @@ test("clicking a cutoff tick filters browse without switching models", async () 
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/models"); session.sendKey("Enter");
-        await session.waitForVisiblePane("Compare models");
+        await session.waitForVisiblePane("More models");
         session.sendKey("Tab"); session.sendKey("Tab"); session.sendKey("Enter");
         const before = await session.waitForVisiblePane("Intelligence cutoff: any");
         const lines = before.split("\n");
@@ -432,7 +432,7 @@ test("clicking a cutoff tick filters browse without switching models", async () 
         expect(nextRow).toBe(tickRow);
         await session.sendMouseClick(filteredLines[nextRow]!.indexOf("any"), nextRow);
         await session.waitForVisiblePane("Intelligence cutoff: any");
-        session.sendKey("Escape"); await session.waitForVisiblePane("Compare models");
+        session.sendKey("Escape"); await session.waitForVisiblePane("More models");
         expect(commands).not.toContain("update_model_settings");
     } finally { await session.close(); }
 }, 15_000);
@@ -455,14 +455,14 @@ test("Ctrl+K opens the manage menu and Escape restores the browse page untouched
         expect(before).toContain("Ctrl+K manage highlighted model");
         session.sendKey("C-k"); await session.waitForVisiblePane("One · openrouter");
         expect(session.captureVisiblePane()).not.toContain("Refresh model catalog");
-        session.sendKey("Escape"); await session.waitForVisiblePane("Compare models");
+        session.sendKey("Escape"); await session.waitForVisiblePane("More models");
         await session.settle();
         expect(session.captureVisiblePane()).toBe(before);
         for (let step = 0; step < 4; step += 1) session.sendKey("Tab");
         await session.waitForVisiblePane("⏎ manage models");
         session.sendKey("Enter"); await session.waitForVisiblePane("Show extra variants and older models");
         session.sendKey("Down"); session.sendKey("Enter");
-        await session.waitForVisiblePane("Compare models");
+        await session.waitForVisiblePane("More models");
         session.sendKey("Enter"); await session.waitForVisiblePane("Hide extra variants and older models");
     } finally { await session.close(); }
 }, 15_000);

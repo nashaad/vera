@@ -174,7 +174,7 @@ test("help renders the menu, general guidance, and extension attribution", async
         expect(frame).not.toContain("workspace list");
 
         const keys = state;
-        for (const [query, detail] of [["ctrl+end", "Transcript"], ["show all", "Compare models"], ["search and the model list", "Favorites"]]) {
+        for (const [query, detail] of [["ctrl+end", "Transcript"], ["show all", "More models"], ["search and the model list", "Favorites"]]) {
             view.update(keys);
             state = view.handleEditorPaste(keys, query!);
             view.update(state);

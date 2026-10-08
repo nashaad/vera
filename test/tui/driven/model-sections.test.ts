@@ -40,7 +40,7 @@ test("browse keeps the search text while Tab walks its sections, and Enter favor
         const filtersY = lines.findIndex((line) => line.includes("Filter and sort"));
         await session.sendMouseClick(lines[filtersY]!.indexOf("Filter and sort"), filtersY);
         await session.waitForVisiblePane("Known price only");
-        session.sendKey("Escape"); await session.waitForVisiblePane("Compare models · Search all connected models");
+        session.sendKey("Escape"); await session.waitForVisiblePane("More models · Search all connected models");
         // The query survives the trip into filters and back.
         expect(session.captureVisiblePane()).toContain("one");
         session.sendKey("BTab"); await session.waitForVisiblePane("⏎ favorite");
@@ -52,7 +52,7 @@ test("browse keeps the search text while Tab walks its sections, and Enter favor
         expect(commands).not.toContain("update_model_settings");
         expect(commands).not.toContain("prompt");
         session.sendKey("Escape");
-        await session.waitForVisiblePaneWhere((pane) => !pane.includes("Compare models"), "the browse page to close");
+        await session.waitForVisiblePaneWhere((pane) => !pane.includes("More models"), "the browse page to close");
     } finally { await session.close(); }
 }, 20_000);
 

@@ -28,7 +28,7 @@ test("the manage menu reaches the defaults, which name the job slots", async () 
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/models");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Compare models");
+        await session.waitForVisiblePane("More models");
         // Ctrl+K is the browse page's own menu; the defaults live under it.
         session.sendKey("C-k");
         await session.waitForVisiblePane("Manage models");
