@@ -59,7 +59,7 @@ Outrider guided setup is hidden by default; enable `experimental.outrider_onboar
 A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
 Manual: `docs/first-run-setup.md`.
 
-## Models and providers [lines=24]
+## Models and providers [lines=25]
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
 The list shows your favorites, your current model, and what you used recently. With no favorites it stays empty. Typing searches every connected model.
@@ -115,7 +115,7 @@ The subagent tool lists available agent names and descriptions so the parent can
 A delegated child starts without the parent conversation; put the task in the spawn description.
 Manual: `docs/agents.md`, `docs/permission-rules.md`.
 
-## Skills, rules, and standing instructions [lines=12]
+## Skills, rules, and standing instructions [lines=13]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
 The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
