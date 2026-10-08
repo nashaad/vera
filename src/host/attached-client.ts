@@ -49,6 +49,7 @@ export interface AttachmentReleaseResult {
 export interface AttachedAgentClient {
     readonly agentId: string;
     readonly workspace: string;
+    readonly scratchDirectory?: string;
     readonly failed?: boolean;
     readonly lastSequence: number | undefined;
     readonly capabilities: readonly string[];
@@ -197,6 +198,10 @@ export async function attachAgent(
             connection,
             response.agent_id,
             response.workspace,
+            typeof response.scratch_directory === "string"
+                && response.scratch_directory.length > 0
+                ? response.scratch_directory
+                : undefined,
             response.failed === true,
             backgroundAgents,
             capabilities,
@@ -213,6 +218,7 @@ function createAttachedClient(
     connection: HostConnection,
     agentId: string,
     workspace: string,
+    scratchDirectory: string | undefined,
     initiallyFailed: boolean,
     initialBackgroundAgents: BackgroundAgentsSnapshot,
     negotiatedCapabilities: readonly string[],
@@ -266,6 +272,7 @@ function createAttachedClient(
     return {
         agentId,
         workspace,
+        ...(scratchDirectory === undefined ? {} : { scratchDirectory }),
         get failed(): boolean {
             return failed;
         },
@@ -657,6 +664,7 @@ function isAttached(
     readonly type: "attached";
     readonly agent_id: string;
     readonly workspace: string;
+    readonly scratch_directory?: unknown;
     readonly failed?: unknown;
     readonly background_agents: unknown;
     readonly capabilities?: unknown;

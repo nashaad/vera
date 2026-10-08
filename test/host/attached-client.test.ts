@@ -1099,3 +1099,35 @@ function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
         }
     },
 );
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "attached client exposes the session scratch directory when the host sends one",
+    async () => {
+        for (const scratch of ["/tmp/vera/agent-1", undefined]) {
+            const directory = temporaryDirectory();
+            const socketPath = join(directory, "host.sock");
+            const server = createServer((socket) => {
+                socket.once("data", () => {
+                    socket.write(`${JSON.stringify({
+                        type: "attached",
+                        agent_id: "agent-1",
+                        workspace: "/work/one",
+                        ...(scratch === undefined ? {} : { scratch_directory: scratch }),
+                        background_agents: NO_BACKGROUND_AGENTS,
+                    })}\n{"type":"history","entries":[],"seq":0}\n`);
+                });
+            });
+            await new Promise<void>((resolve, reject) => {
+                server.once("error", reject);
+                server.listen(socketPath, resolve);
+            });
+            const client = await attachAgent({ socketPath, agentId: "agent-1" });
+            try {
+                expect(client.scratchDirectory).toBe(scratch);
+            } finally {
+                client.close();
+                await closeServer(server);
+            }
+        }
+    },
+);

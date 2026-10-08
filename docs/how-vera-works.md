@@ -38,6 +38,11 @@ changes with `/diff` and stop the active turn with Ctrl+C. Messages you submit
 during a turn are queued. See [Queue messages](queued-messages.md) for the
 controls that send them.
 
+Each conversation has a scratch folder for Vera's own working notes. When Vera
+keeps a task list there, the transcript shows it as a checklist with a done
+count instead of a file diff. Other notes in that folder show as one
+`Updated notes` line, and their paths read `notes/<file>`.
+
 ### Models and definitions
 
 The model generates responses and tool requests. The definition sets the

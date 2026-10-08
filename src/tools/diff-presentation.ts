@@ -1,11 +1,64 @@
+import { extname, isAbsolute, relative } from "node:path";
+
 import { createTwoFilesPatch } from "diff";
 
 import type { ToolPresentation } from "../model/types.ts";
+import { markJustDone, parseChecklist } from "./checklist.ts";
 
 const MAX_DIFF_BYTES = 64 * 1024;
 const MAX_DIFF_LINES = 400;
 
 const DESTRUCTIVE_LOSS_PERCENT = 50;
+
+/**
+ * Presents a file change. Writes inside the scratch directory are working
+ * notes: a markdown task list there becomes a checklist, anything else a
+ * diff marked as scratch.
+ */
+export function fileChangePresentation(
+    requestedPath: string,
+    resolvedPath: string,
+    before: string,
+    after: string,
+    directories: {
+        readonly stashDirectory: string | undefined;
+        readonly scratchDirectory: string | undefined;
+    },
+): ToolPresentation {
+    const diff = editDiffPresentation(
+        requestedPath,
+        before,
+        after,
+        directories.stashDirectory,
+    );
+    if (!isInside(resolvedPath, directories.scratchDirectory)) {
+        return diff;
+    }
+    if (extname(resolvedPath).toLowerCase() === ".md") {
+        const checklist = parseChecklist(after);
+        if (checklist !== undefined) {
+            // A new list was written, not ticked, so nothing in it is just done.
+            const previous = parseChecklist(before);
+            return {
+                kind: "checklist",
+                path: requestedPath,
+                ...(checklist.title === undefined
+                    ? {}
+                    : { title: checklist.title }),
+                items: previous === undefined
+                    ? checklist.items
+                    : markJustDone(previous.items, checklist.items),
+            };
+        }
+    }
+    return diff.kind === "unified_diff" ? { ...diff, scratch: true } : diff;
+}
+
+function isInside(path: string, directory: string | undefined): boolean {
+    if (directory === undefined) return false;
+    const rel = relative(directory, path);
+    return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
 
 export function editDiffPresentation(
     path: string,

@@ -14,6 +14,7 @@ export class ToolRuntime {
     readonly workspace: string;
     readonly instructionRoot: string;
     readonly stashDirectory: string | undefined;
+    readonly scratchDirectory: string | undefined;
     readonly env: Readonly<Record<string, string>> | undefined;
     readonly processes: ManagedProcessScope;
     allowedSkills: readonly string[] | undefined;
@@ -34,8 +35,10 @@ export class ToolRuntime {
         instructionRoot?: string,
         processes?: ManagedProcessScope,
         isSubagent = false,
+        scratchDirectory?: string,
     ) {
         this.isSubagent = isSubagent;
+        this.scratchDirectory = scratchDirectory;
         this.invocation = isSubagent ? "subagent" : "top_level";
         this.workspace = workspace;
         this.instructionRoot = instructionRoot ?? workspace;

@@ -14,6 +14,7 @@ import { connectHost } from "../../src/host/connection.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { sessionScratchDir } from "../../src/engine/run-turn.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
@@ -688,6 +689,7 @@ afterEach(() => {
                 type: "attached",
                 agent_id: agent.id,
                 workspace: "/work/one",
+                scratch_directory: sessionScratchDir(agent.id),
                 background_agents: {
                     running: 0,
                     children: [],

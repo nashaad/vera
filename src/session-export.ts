@@ -129,6 +129,13 @@ export function renderSessionMarkdown(exported: SessionExport): string {
                     entry.presentation.patch.trimEnd(),
                     fence,
                 );
+            } else if (entry.presentation.kind === "checklist") {
+                if (entry.presentation.title !== undefined) {
+                    lines.push(`**${entry.presentation.title}**`, "");
+                }
+                for (const item of entry.presentation.items) {
+                    lines.push(`- [${item.done ? "x" : " "}] ${item.text}`);
+                }
             } else {
                 lines.push(quoteMarkdown(entry.presentation.text));
             }

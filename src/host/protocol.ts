@@ -414,6 +414,8 @@ export interface AttachedResponse {
     readonly type: "attached";
     readonly agent_id: string;
     readonly workspace: string;
+    /** The session's scratch directory, so clients can tell working notes from user files. */
+    readonly scratch_directory?: string;
     /** Present when this attachment can only replay a terminal failure. */
     readonly failed?: true;
     /**

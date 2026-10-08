@@ -1,5 +1,5 @@
 import { resolveReadPath } from "./files.ts";
-import { editDiffPresentation } from "./diff-presentation.ts";
+import { fileChangePresentation } from "./diff-presentation.ts";
 import type { ToolRuntime } from "./runtime.ts";
 import type { RegisteredTool, ToolExecutionResult } from "./types.ts";
 
@@ -78,11 +78,12 @@ async function editFileInWorkspace(
             kind: "output",
             output: `Applied ${edits.length} edit${edits.length === 1 ? "" : "s"} to ${requestedPath}`,
             isError: false,
-            presentation: editDiffPresentation(
+            presentation: fileChangePresentation(
                 requestedPath,
+                path,
                 originalContent,
                 editedContent,
-                runtime.stashDirectory,
+                runtime,
             ),
         };
     });

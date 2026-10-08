@@ -80,6 +80,9 @@ export function createReconnectingAgentClient(
         get workspace(): string {
             return current.workspace;
         },
+        get scratchDirectory(): string | undefined {
+            return current.scratchDirectory;
+        },
         get failed(): boolean {
             return current.failed === true;
         },

@@ -874,7 +874,10 @@ export async function startTui(
     rt.flightRecorder?.sessionEntered(rt.client.agentId ?? "unknown");
     rt.configuredAppearance = rt.dependencies.appearance
         ?? resolveTuiAppearance();
-    setTuiWorkspaceRoot(rt.client.workspace ?? process.cwd());
+    setTuiWorkspaceRoot(
+        rt.client.workspace ?? process.cwd(),
+        rt.client.scratchDirectory,
+    );
     rt.renderer = await (rt.dependencies.createRenderer?.()
         ?? createCliRenderer({
             exitOnCtrlC: false,

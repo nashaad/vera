@@ -1,7 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { editDiffPresentation } from "./diff-presentation.ts";
+import { fileChangePresentation } from "./diff-presentation.ts";
 import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import { findSkillByPath, loadSkillCatalog } from "../skills/catalog.ts";
@@ -223,11 +223,12 @@ export const writeTool: RegisteredTool = {
                     previousContent,
                 ),
                 isError: false,
-                presentation: editDiffPresentation(
+                presentation: fileChangePresentation(
                     path,
+                    safePath,
                     previousContent,
                     content,
-                    context.stashDirectory,
+                    context,
                 ),
             };
         });
