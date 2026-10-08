@@ -109,6 +109,7 @@ import {
 import {
     measureMessages,
     measureProjectedRequest,
+    scaleProjectionTo,
     measureToolResultBytes,
     type ContextMeasurement,
 } from "./context-measurement.ts";
@@ -241,6 +242,8 @@ const MAX_CONTEXT_SCALE = 3;
 export interface ContextWatch {
     measurement?: ContextMeasurement;
     scale?: number;
+    // Another model has its own tokenizer, so a scale applies only to the model it was measured on.
+    scaleModel?: string;
     messageTokens?: number;
     refusedForSize?: boolean;
 }
@@ -831,14 +834,15 @@ export async function runHeadlessLoop(
             agingPolicy(context, pendingMessages),
         );
         const overheadTokens = fixedOverhead();
-        const estimate = measureMessages([
-            ...modelContext,
-            ...pendingMessages,
-        ]) + overheadTokens;
+        const measuredModel = context?.model ?? readModelSettings?.().model ?? model;
+        const estimate = measureMessages(
+            [...modelContext, ...pendingMessages],
+            measuredModel,
+        ) + overheadTokens;
         lastRawEstimate = estimate;
         return {
             overheadTokens,
-            tokens: Math.ceil(estimate * (contextWatch.scale ?? 1)),
+            tokens: Math.ceil(estimate * (watchedScale(contextWatch, measuredModel) ?? 1)),
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
@@ -929,6 +933,7 @@ export async function runHeadlessLoop(
             const modelContext = store.modelContext(
                 agingPolicy(context, pendingMessages),
             );
+            const estimateScale = watchedScale(contextWatch, compactionModel);
             const compactionRequest:
                 Parameters<typeof compactSession>[0] = {
                 store,
@@ -964,6 +969,7 @@ export async function runHeadlessLoop(
                 ...(compaction.retainedUserTurns === undefined
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
+                ...(estimateScale === undefined ? {} : { estimateScale }),
             };
             if (turn !== undefined) {
                 inbound.beginAutomaticCompaction(turn.controller);
@@ -1628,16 +1634,21 @@ export async function runTurn(
                         }),
                 },
             );
+            const shownMeasurement = correctedMeasurement(
+                measurement,
+                watchedScale(state.contextWatch, activeModel),
+            );
             state.events.emit({
                 type: "context_measured",
                 model: activeModel,
-                measurement,
+                measurement: shownMeasurement,
             });
-            await persistContextRecipe(state.store, measurement);
+            await persistContextRecipe(state.store, shownMeasurement);
             if (state.contextWatch !== undefined) {
                 state.contextWatch.measurement = measurement;
                 state.contextWatch.messageTokens = measureMessages(
                     request.messages,
+                    request.model,
                 );
             }
             const substitutions: ModelSubstitution[] = pendingSubstitutions
@@ -1795,7 +1806,10 @@ export async function runTurn(
                         state.events.emit({
                             type: "context_measured",
                             model: activeModel,
-                            measurement: remeasured,
+                            measurement: correctedMeasurement(
+                                remeasured,
+                                watchedScale(state.contextWatch, activeModel),
+                            ),
                         });
                         if (state.contextWatch !== undefined) {
                             state.contextWatch.measurement = remeasured;
@@ -1857,7 +1871,7 @@ export async function runTurn(
                     || nextLengthContinuation(maxTokens, lengthContinuations) === undefined)) {
                 assistantMessage = withTurnTiming(assistantMessage);
             }
-            calibrateContextWatch(state, measurement, assistantMessage);
+            calibrateContextWatch(state, measurement, assistantMessage, activeModel);
             await commitMessage(state, assistantMessage);
 
             if (assistantMessage.stopReason === "length") {
@@ -3254,6 +3268,24 @@ function scratchAlternativeNote(
         : undefined;
 }
 
+// The watch keeps the raw estimate for calibration; everything shown or persisted carries the correction the trigger uses.
+function correctedMeasurement(
+    measurement: ContextMeasurement,
+    scale: number | undefined,
+): ContextMeasurement {
+    if (scale === undefined || !(scale > 1)) {
+        return measurement;
+    }
+    const tokens = Math.ceil(measurement.tokens * scale);
+    return {
+        ...measurement,
+        tokens,
+        ...(measurement.projection === undefined
+            ? {}
+            : { projection: scaleProjectionTo(measurement.projection, tokens) }),
+    };
+}
+
 function remeasuredAgainst(
     measurement: ContextMeasurement,
     capacity: number | undefined,
@@ -3283,10 +3315,18 @@ function acceptsImageInput(
         ?? adapter.supportsImageInput !== false;
 }
 
+function watchedScale(
+    watch: ContextWatch | undefined,
+    model: string,
+): number | undefined {
+    return watch?.scaleModel === model ? watch.scale : undefined;
+}
+
 function calibrateContextWatch(
     state: RunTurnState,
     measurement: ContextMeasurement,
     message: ModelMessage,
+    model: string,
 ): void {
     const watch = state.contextWatch;
     if (watch === undefined || message.role !== "assistant") {
@@ -3297,9 +3337,12 @@ function calibrateContextWatch(
         !Number.isSafeInteger(reported)
         || reported <= 0
         || measurement.tokens <= 0
-        || reported <= measurement.tokens
     ) {
         return;
     }
-    watch.scale = Math.min(MAX_CONTEXT_SCALE, reported / measurement.tokens);
+    // A stale factor from before a compaction would inflate a context that no longer holds what was undercounted.
+    watch.scale = reported <= measurement.tokens
+        ? undefined
+        : Math.min(MAX_CONTEXT_SCALE, reported / measurement.tokens);
+    watch.scaleModel = model;
 }

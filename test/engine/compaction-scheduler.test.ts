@@ -1029,3 +1029,42 @@ test("a configured target fraction replaces the built-in share of the window", (
         postCompactionTargetFraction: 0.2,
     })).toBe(2_000);
 });
+
+test("kept messages are sized in the same corrected units as the trigger", async () => {
+    // Sizing the tail in raw estimates against a corrected total keeps almost
+    // everything, and the next step compacts again.
+    const store = await session(6);
+    const raw = measureMessages(store.modelContext());
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), { estimateScale: 2 }),
+        { tokens: raw * 2 + FIXED_OVERHEAD, capacity: 20_000, estimated: true },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(measureMessages(store.modelContext()) * 2 + FIXED_OVERHEAD)
+        .toBeLessThanOrEqual(9_000);
+});
+
+test("a summary that leaves the context over the trigger is not accepted", async () => {
+    const store = await session(12);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            return {
+                projection: [summary(calls === 1 ? "s".repeat(34_000) : "short")],
+            };
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(calls).toBe(2);
+    expect(result.outcome).toBe("compacted");
+    expect(shouldCompact({
+        tokens: measureMessages(store.modelContext()) + FIXED_OVERHEAD,
+        capacity: 10_000,
+        estimated: true,
+    })).toBe(false);
+});

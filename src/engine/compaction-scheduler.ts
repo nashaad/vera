@@ -76,6 +76,8 @@ export interface CompactionSchedulerOptions {
     readonly postCompactionTargetFraction?: number;
     readonly summaryWordCap?: number;
     readonly retainedUserTurns?: number;
+    // The correction already applied to measurement.tokens; kept messages must be sized in the same units.
+    readonly estimateScale?: number;
 }
 
 export function compactionTargetBudget(
@@ -205,8 +207,9 @@ export async function compactSession(
     ];
     const overhead = Math.max(
         0,
-        measurement.overheadTokens
-            ?? measurement.tokens - measureMessages(modelContext),
+        measurement.overheadTokens === undefined
+            ? measurement.tokens - contextTokens(modelContext, options)
+            : scaledTokens(measurement.overheadTokens, options),
     );
 
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
@@ -224,7 +227,7 @@ export async function compactSession(
         const keptContext = options.projectModelContext === undefined
             ? kept
             : options.projectModelContext(previousProjection, kept);
-        const room = budget - overhead - measureMessages(keptContext);
+        const room = budget - overhead - contextTokens(keptContext, options);
         if (room < MIN_SUMMARY_TOKENS) {
             continue;
         }
@@ -255,7 +258,7 @@ export async function compactSession(
     }
 
     let retryable: CompactionOutcome | undefined;
-    for (const attempt of attempts) {
+    for (const [index, attempt] of attempts.entries()) {
         if (signal.aborted) {
             return { outcome: "cancelled" };
         }
@@ -271,6 +274,7 @@ export async function compactSession(
             options,
             store,
             signal,
+            lastAttempt: index === attempts.length - 1,
         });
         if (!outcome.retry) {
             return outcome.result;
@@ -294,6 +298,7 @@ interface AttemptOptions {
     readonly options: CompactionSchedulerOptions;
     readonly store: SessionStore;
     readonly signal: AbortSignal;
+    readonly lastAttempt: boolean;
 }
 
 interface AttemptResult {
@@ -372,17 +377,36 @@ async function attemptCompaction(
         };
     }
 
-    const before = measureMessages(modelContext) + overhead;
+    const before = contextTokens(modelContext, options) + overhead;
     const afterContext = options.projectModelContext === undefined
         ? [...projection, ...suffix]
         : options.projectModelContext(projection, suffix);
-    const after = measureMessages(afterContext) + overhead;
+    const after = contextTokens(afterContext, options) + overhead;
     if (after >= before) {
         return {
             result: {
                 outcome: "rejected",
                 reason: "The compacted context is no smaller than the one it "
                     + "would replace.",
+            },
+            retry: true,
+        };
+    }
+    // The last rung is kept even over the trigger: an unreachable trigger would otherwise block compaction for good.
+    if (!input.lastAttempt && shouldCompact(
+        {
+            tokens: after,
+            ...(capacity === undefined ? {} : { capacity }),
+            estimated: measurement.estimated,
+        },
+        options.trigger,
+    )) {
+        return {
+            result: {
+                outcome: "rejected",
+                reason: "The compacted context would still be over the "
+                    + "compaction trigger, so the next step would compact "
+                    + "again.",
             },
             retry: true,
         };
@@ -445,6 +469,23 @@ async function attemptCompaction(
         },
         retry: false,
     };
+}
+
+function contextTokens(
+    messages: readonly ModelMessage[],
+    options: CompactionSchedulerOptions,
+): number {
+    return scaledTokens(measureMessages(messages, options.model), options);
+}
+
+function scaledTokens(
+    tokens: number,
+    options: CompactionSchedulerOptions,
+): number {
+    const scale = options.estimateScale;
+    return scale === undefined || !(scale > 1)
+        ? tokens
+        : Math.ceil(tokens * scale);
 }
 
 function deepFreeze<T>(value: T): T {
