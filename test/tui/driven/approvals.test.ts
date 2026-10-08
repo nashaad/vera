@@ -33,12 +33,8 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         pane = await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
         expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
             .toBe("allowed\n");
-        expect(pane).toContain(
-            "Classifier allowed bash (risk: low, authorization: high):",
-        );
-        expect(pane.replace(/\s+/g, " ")).toContain(
-            "Routine command requested by the user.",
-        );
+        expect(pane).toContain("─ 1 auto-approved ─");
+        expect(pane).not.toContain("Classifier allowed");
         // `env` prints as many lines as the machine has variables, so
         // the row is pinned by its command and its details hint.
         expect(pane).toContain("Ran  env AUTO_REVIEW=ran");
@@ -46,6 +42,19 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         expect(pane).toContain("auto");
         expect(pane).not.toContain("Permission required");
         expect(pane).not.toContain("Allow once");
+
+        const lines = pane.split("\n");
+        const row = lines.findIndex((line) => line.includes("─ 1 auto-approved ─"));
+        const column = lines[row]?.indexOf("auto-approved") ?? -1;
+        await session.sendMouseClick(column, row);
+        pane = await session.waitForVisiblePane(
+            "env AUTO_REVIEW=ran   Routine command requested by the user.",
+        );
+        await session.sendMouseClick(column, row);
+        pane = await session.waitForVisiblePaneWhere(
+            (current) => !current.includes("Routine command requested"),
+            "closed auto-approved list",
+        );
     } finally {
         await session.close();
     }

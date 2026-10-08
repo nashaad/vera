@@ -1,4 +1,4 @@
-import { updateTuiWorkedDivider } from "../worked-divider.ts";
+import { tuiWorkedDividerView, updateTuiWorkedDivider } from "../worked-divider.ts";
 import { tuiGutterContent, tuiGutterWidth } from "../gutter.ts";
 import { assistantFollowsTools, reseedTranscriptNodes } from "../main.ts";
 import { createTuiEntryNode, mainTranscriptWidth } from "../main/sidebar-pane.ts";
@@ -178,7 +178,7 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
     wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
     const existing = tuiGutterContent(wrapper);
     if (entry.kind === "worked" && existing instanceof BoxRenderable) {
-        updateTuiWorkedDivider(existing, entry.text);
+        updateTuiWorkedDivider(existing, tuiWorkedDividerView(entry));
     }
     if (existing instanceof MarkdownRenderable) {
         if (existing.streaming && !rt.state.working) {

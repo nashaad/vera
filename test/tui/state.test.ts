@@ -1920,7 +1920,7 @@ test("a checkpoint over a reviewed run keeps the run and the review", () => {
         tool: "read",
         decision: "allow",
         reason: "Reads only.",
-        riskLevel: "low",
+        riskLevel: "medium",
         userAuthorization: "high",
         seq: 2,
     });
@@ -2369,7 +2369,7 @@ test("classifier decisions and failures use distinct visible language", () => {
         tool: "bash",
         decision: "allow",
         reason: "Read-only listing of a sibling project.",
-        riskLevel: "low",
+        riskLevel: "medium",
         userAuthorization: "unknown",
         seq: 1,
     });
@@ -2403,7 +2403,7 @@ test("classifier decisions and failures use distinct visible language", () => {
 
     expect(state.entries[0]).toEqual({
         kind: "review",
-        text: "Classifier allowed bash (risk: low, authorization: unknown):"
+        text: "Classifier allowed bash (risk: medium, authorization: unknown):"
             + " Read-only listing of a sibling project.",
     });
     expect(state.entries[1]).toEqual({
@@ -2443,7 +2443,7 @@ function autoReviewEntry(
         tool: "bash",
         decision: "allow",
         reason,
-        riskLevel: "low",
+        riskLevel: "medium",
         userAuthorization,
         seq: 1,
     });
@@ -2477,7 +2477,7 @@ test("auto-review approval uses semantic status colors", () => {
         + " network access and matches an allow-list entry.")?.fg)
         .toEqual(parseColor(TUI_MUTED));
     expect(chunkFor("Classifier ")?.fg).toEqual(parseColor(TUI_MUTED));
-    expect(chunkFor(" bash (risk: low, ")?.fg)
+    expect(chunkFor(" bash (risk: medium, ")?.fg)
         .toEqual(parseColor(TUI_MUTED));
 });
 
@@ -2539,7 +2539,7 @@ test("a matching history checkpoint preserves a live auto-review notice", () => 
         tool: "bash",
         decision: "allow",
         reason: "The command matches the request.",
-        riskLevel: "low",
+        riskLevel: "medium",
         userAuthorization: "high",
         seq: 2,
     });
@@ -2585,7 +2585,7 @@ test("a divergent history checkpoint drops stale auto-review notices", () => {
         tool: "bash",
         decision: "allow",
         reason: "Allowed before rewind.",
-        riskLevel: "low",
+        riskLevel: "medium",
         userAuthorization: "high",
         seq: 1,
     });

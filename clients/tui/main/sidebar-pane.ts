@@ -1,4 +1,4 @@
-import { createTuiWorkedDivider, updateTuiWorkedDivider } from "../worked-divider.ts";
+import { createTuiWorkedDivider, tuiWorkedDividerView, updateTuiWorkedDivider } from "../worked-divider.ts";
 import { isConfigurationRequiredUiRequestUpdate, type AgentUpdate } from "../../../src/engine/protocol.ts";
 import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import { resolveTuiHostedAgentAddressing, type TuiHostedAgentAddressing } from "../agent-message-routing.ts";
@@ -10,7 +10,7 @@ import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } fr
 import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
-import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
+import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, toggleTuiWorkedRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
 import { tuiHandleActiveColor, tuiHandleColor } from "../theme.ts";
 import { createTuiNoticeCard, repaintTuiNoticeCard, updateTuiNoticeCard } from "../notice-card.ts";
 import { createTuiThinkingWindow, updateTuiThinkingWindow } from "../thinking-window.ts";
@@ -18,7 +18,7 @@ import { createTuiToolHeader, createTuiToolRow, updateTuiToolHeader, updateTuiTo
 import { tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams } from "../transcript-window.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "../user-entry.ts";
 import type { TuiRuntime } from "./runtime.ts";
-import { BoxRenderable, MarkdownRenderable, TextRenderable } from "@opentui/core";
+import { BoxRenderable, MarkdownRenderable, TextRenderable, type Renderable } from "@opentui/core";
 
 export function hostedAgentAddressing(rt: TuiRuntime): TuiHostedAgentAddressing {
     const declared = rt.clientExtensionRegistry
@@ -64,6 +64,22 @@ export function forgetPersistedAgentPane(rt: TuiRuntime, mainAgentId = rt.client
     rt.hostedPanePersistence.forget(mainAgentId);
 }
 
+function toggleWorkedDivider(rt: TuiRuntime, node: BoxRenderable): void {
+    const holds = (wrapper: Renderable | undefined): boolean =>
+        wrapper !== undefined && tuiGutterContent(wrapper) === node;
+    const main = rt.entryNodes.findIndex(holds);
+    if (main !== -1) {
+        rt.state = toggleTuiWorkedRow(rt.state, main);
+        renderState(rt);
+        return;
+    }
+    const pane = rt.hostedSidebar.pane;
+    const side = rt.sidebarEntryNodes.findIndex(holds);
+    if (pane === undefined || side === -1) return;
+    pane.state.state = toggleTuiWorkedRow(pane.state.state, side);
+    renderSidebarAgent(rt, pane);
+}
+
 export function createTuiEntryNode(rt: TuiRuntime, 
     id: string,
     entry: TuiTranscriptEntry,
@@ -87,7 +103,7 @@ export function createTuiEntryNode(rt: TuiRuntime,
             streaming,
         );
     const node = entry.kind === "worked"
-        ? createTuiWorkedDivider(rt.renderer, id, entry.text)
+        ? createTuiWorkedDivider(rt.renderer, id, tuiWorkedDividerView(entry), (node) => toggleWorkedDivider(rt, node))
         : entry.kind === "tool"
         ? createTuiToolRow(rt.renderer, id, entry, inner)
         : entry.kind === "tool_header"
@@ -208,7 +224,7 @@ export function renderSidebarAgent(rt: TuiRuntime,
             ) {
                 updateTuiThinkingWindow(existing, entry, rt.liveReasoningRows);
             } else if (entry.kind === "worked" && existing instanceof BoxRenderable) {
-                updateTuiWorkedDivider(existing, entry.text);
+                updateTuiWorkedDivider(existing, tuiWorkedDividerView(entry));
             } else if (existing instanceof TextRenderable) {
                 existing.content = renderTuiEntry(entry);
             }
