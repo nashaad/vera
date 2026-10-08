@@ -164,3 +164,23 @@ export type SessionStartHookResult = ObserveHookResult | MutateSessionStartHookR
 export type SessionStartHook = (
     payload: SessionStartHookPayload,
 ) => SessionStartHookResult | Promise<SessionStartHookResult>;
+
+export interface TurnFinishedHookPayload {
+    readonly type: "turn_finished";
+    readonly sessionId: string;
+    readonly workspace: string;
+    readonly outcome: "completed" | "error" | "aborted";
+    /** User prompts in the session so far, this turn's included. */
+    readonly turns: number;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
+    /** The user's text for this turn. Empty for turns with no user prompt. */
+    readonly prompt: string;
+    /** The assistant's text for this turn. Empty when it only used tools or failed. */
+    readonly reply: string;
+}
+
+/** Observe only. Runs after clients have the update and never delays the next turn. */
+export type TurnFinishedHook = (
+    payload: TurnFinishedHookPayload,
+) => void | Promise<void>;

@@ -31,6 +31,7 @@ import type {
     SessionIdentityProvider,
     VeraSearchProvider,
     VeraExtensionRequestHandler,
+    VeraExtensionOneshotRequest,
 } from "../sdk/extensions.ts";
 import type {
     ModelRequestHook,
@@ -42,6 +43,7 @@ import type {
     PreToolUseHookResult,
     PreTurnHook,
     SessionStartHook,
+    TurnFinishedHook,
     PreTurnHookPayload,
     PreTurnHookResult,
     RegisteredModelRequestHook,
@@ -51,6 +53,11 @@ import { createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
+import {
+    ExtensionHostSlot,
+    type ExtensionHostServices,
+    type RegisteredTurnFinishedHook,
+} from "./host-services.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
     ExtensionCommandUnavailableError,
@@ -87,6 +94,9 @@ const SESSION_IDENTITY_CAPABILITY = "sessions.identity";
 const SEARCH_PROVIDERS_REGISTER_CAPABILITY = "search.providers.register";
 const SEARCH_PROVIDERS_USE_CAPABILITY = "search.providers.use";
 const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
+const TURN_FINISHED_HOOK_CAPABILITY = "hooks.turn_finished";
+const SESSION_TITLE_CAPABILITY = "sessions.title";
+const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
 const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_RESULT_LIMIT = 1_000_000;
 
@@ -125,7 +135,10 @@ export interface ExtensionRegistry {
     postToolUseHooks(): readonly PostToolUseHook[];
     preTurnHooks(): readonly PreTurnHook[];
     sessionStartHooks(): readonly SessionStartHook[];
+    turnFinishedHooks(): readonly RegisteredTurnFinishedHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
+    /** Lends the host's model and session services to extensions. Bind once. */
+    bindHost(services: ExtensionHostServices): void;
     sessionIdentity(): SessionIdentityProvider | undefined;
     contributions(): HostContributionSet;
     invokeCommand(
@@ -169,6 +182,7 @@ interface LoadedRegistryExtension {
     readonly postToolUseHooks: readonly PostToolUseHook[];
     readonly preTurnHooks: readonly PreTurnHook[];
     readonly sessionStartHooks: readonly SessionStartHook[];
+    readonly turnFinishedHooks: readonly RegisteredTurnFinishedHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly requestHandlers: ReadonlyMap<string, VeraExtensionRequestHandler>;
@@ -204,6 +218,7 @@ export async function startExtensionRegistry(
     let identityOwner: string | undefined;
     const searchProviders = new SearchProviderSet();
     const contributions = createHostContributionSet();
+    const host = new ExtensionHostSlot();
     let closing: Promise<void> | undefined;
 
     for (const configured of options.extensions) {
@@ -257,6 +272,7 @@ export async function startExtensionRegistry(
                 handlerTimeoutMs,
                 disposeTimeoutMs,
                 searchProviders,
+                host,
             );
             validateCommandOwnership(extension, commands);
             validateToolOwnership(extension, tools);
@@ -353,6 +369,12 @@ export async function startExtensionRegistry(
         },
         preTurnHooks(): readonly PreTurnHook[] {
             return loaded.flatMap((extension) => extension.preTurnHooks);
+        },
+        turnFinishedHooks(): readonly RegisteredTurnFinishedHook[] {
+            return loaded.flatMap((extension) => extension.turnFinishedHooks);
+        },
+        bindHost(services: ExtensionHostServices): void {
+            host.bind(services);
         },
         modelRequestHooks(): readonly RegisteredModelRequestHook[] {
             return loaded.flatMap((extension) => extension.modelRequestHooks);
@@ -501,6 +523,7 @@ export async function startExtensionRegistry(
     };
 
     async function close(): Promise<void> {
+        host.close();
         commands.clear();
         tools.clear();
         const failures: string[] = [];
@@ -531,6 +554,7 @@ async function activateExtension(
     handlerTimeoutMs: number,
     disposeTimeoutMs: number,
     searchProviders: SearchProviderSet,
+    host: ExtensionHostSlot,
 ): Promise<LoadedRegistryExtension> {
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
@@ -541,6 +565,7 @@ async function activateExtension(
     const postToolUseHooks: PostToolUseHook[] = [];
     const preTurnHooks: PreTurnHook[] = [];
     const sessionStartHooks: SessionStartHook[] = [];
+    const turnFinishedHooks: RegisteredTurnFinishedHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
@@ -652,6 +677,20 @@ async function activateExtension(
                         identityProvider = undefined;
                     }
                 };
+            },
+            async setTitle(sessionId: string, title: string) {
+                if (!loaded.manifest.capabilities.includes(SESSION_TITLE_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_TITLE_CAPABILITY}`);
+                }
+                return host.setTitle(sessionId, title);
+            },
+        }),
+        model: Object.freeze({
+            async oneshot(request: VeraExtensionOneshotRequest) {
+                if (!loaded.manifest.capabilities.includes(MODEL_ONESHOT_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${MODEL_ONESHOT_CAPABILITY}`);
+                }
+                return host.oneshot(request);
             },
         }),
         search: Object.freeze({
@@ -768,6 +807,20 @@ async function activateExtension(
                 preTurnHooks.push(safe);
                 return () => removeHook(preTurnHooks, safe);
             },
+            registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Extension hooks must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(TURN_FINISHED_HOOK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${TURN_FINISHED_HOOK_CAPABILITY}`);
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid turn-finished hook registration");
+                }
+                const registered = { extensionId: loaded.manifest.id, run: hook };
+                turnFinishedHooks.push(registered);
+                return () => removeHook(turnFinishedHooks, registered);
+            },
             registerModelRequest(
                 namespace: string,
                 hook: ModelRequestHook,
@@ -876,6 +929,7 @@ async function activateExtension(
             postToolUseHooks,
             preTurnHooks,
             sessionStartHooks,
+            turnFinishedHooks,
             modelRequestHooks,
             sessionState,
             modelMiddleware,

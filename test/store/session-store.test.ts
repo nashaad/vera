@@ -834,6 +834,40 @@ test("session names are append-only and clearing restores the fallback", async (
     expect(reopened.name()).toBeUndefined();
 });
 
+test("a first name is written only when the session was never named", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+
+    const [renamed, suggested] = await Promise.all([
+        store.appendName("Captain's choice"),
+        store.appendFirstName("Crow's guess"),
+    ]);
+    expect(renamed.name).toBe("Captain's choice");
+    expect(suggested).toBeUndefined();
+    expect(store.name()).toBe("Captain's choice");
+
+    await store.appendName(null);
+    expect(await store.appendFirstName("Crow's guess")).toBeUndefined();
+    expect(store.name()).toBeUndefined();
+
+    const freshPath = join(directory, "fresh.jsonl");
+    const fresh = await SessionStore.create(freshPath, {
+        sessionId: "session-2",
+        cwd: directory,
+    });
+    expect((await fresh.appendFirstName("Shiny button heist"))?.name)
+        .toBe("Shiny button heist");
+    expect(await fresh.appendFirstName("Second guess")).toBeUndefined();
+
+    const reopened = await SessionStore.open(freshPath);
+    expect(reopened.name()).toBe("Shiny button heist");
+    expect(await reopened.appendFirstName("Third guess")).toBeUndefined();
+});
+
 test("session names reject empty, oversized, and malformed values", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

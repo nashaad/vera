@@ -12,6 +12,7 @@ import type {
     ImageAttachedUpdate,
     SessionNameReplyUpdate,
     TimelineReplyUpdate,
+    TurnFinishedUpdate,
 } from "../engine/protocol.ts";
 import {
     isTimelineCommand,
@@ -60,6 +61,8 @@ export interface ResidentAgentOptions {
         sourcePath?: string,
     ) => Promise<ImageAttachedUpdate["attachment"]>;
     readonly onRunStateChanged?: () => void;
+    /** Called after attached clients have the update. */
+    readonly onTurnFinished?: (update: TurnFinishedUpdate) => void;
 }
 
 interface QueuedCommand {
@@ -576,6 +579,13 @@ export class ResidentAgent {
             && snapshot.type !== "agent_failed"
         ) {
             this.notifyRunStateChanged();
+        }
+        if (snapshot.type === "turn_finished") {
+            try {
+                this.options.onTurnFinished?.(clone(snapshot));
+            } catch {
+                // A listener that throws must not break the update it observed.
+            }
         }
     }
 

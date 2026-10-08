@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
+import type { TurnFinishedHookPayload } from "../../src/sdk/hooks.ts";
 import {
     mkdir,
     mkdtemp,
@@ -1032,6 +1034,96 @@ test("a parent close effect replaces the child's completion delivery", async () 
         expect(parentStore.pendingDeliveries()).toEqual([]);
         expect(await readFile(parentPath, "utf8"))
             .not.toContain(`completion:${child!.id}`);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a suggested title lands only on a session nobody has named", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-title-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    let rosterChanges = 0;
+    registry.onRosterChanged(() => {
+        rosterChanges += 1;
+    });
+
+    try {
+        await registry.create({
+            id: "ship",
+            workspace: root,
+            sessionPath: join(root, "ship.jsonl"),
+        });
+        const attachment = registry.find("ship")!.attach();
+        const before = rosterChanges;
+        expect(await registry.setTitleIfUnnamed("ship", "Button heist"))
+            .toBe("set");
+        expect(rosterChanges).toBeGreaterThan(before);
+        expect(registry.list()).toMatchObject([
+            { id: "ship", title: "Button heist" },
+        ]);
+        expect(await registry.setTitleIfUnnamed("ship", "Another guess"))
+            .toBe("named");
+        expect(await registry.setTitleIfUnnamed("missing", "Lost at sea"))
+            .toBe("not_found");
+        attachment.detach();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("turn-finished observers get the prompt, the reply, and the turn count", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-turn-finished-"));
+    const payloads: TurnFinishedHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            textResponse("Course set for the button factory."),
+            textResponse("Sails trimmed."),
+        ]),
+        model: "faux/test",
+        approvalMode: "auto",
+        onTurnFinished: (payload) => payloads.push(payload),
+    });
+
+    try {
+        await registry.create({
+            id: "ship",
+            workspace: root,
+            sessionPath: join(root, "ship.jsonl"),
+        });
+        const attachment = registry.find("ship")!.attach();
+        await runPrompt(attachment, "plot a course");
+        await runPrompt(attachment, "trim the sails", false);
+        attachment.detach();
+
+        const workspace = realpathSync(root);
+        expect(payloads).toEqual([
+            {
+                type: "turn_finished",
+                sessionId: "ship",
+                workspace,
+                outcome: "completed",
+                turns: 1,
+                spawned: false,
+                prompt: "plot a course",
+                reply: "Course set for the button factory.",
+            },
+            {
+                type: "turn_finished",
+                sessionId: "ship",
+                workspace,
+                outcome: "completed",
+                turns: 2,
+                spawned: false,
+                prompt: "trim the sails",
+                reply: "Sails trimmed.",
+            },
+        ]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

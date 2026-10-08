@@ -685,6 +685,22 @@ export class SessionStore {
         return result;
     }
 
+    // Checked inside the append queue so a rename queued earlier always wins.
+    appendFirstName(name: string): Promise<SessionNameEntry | undefined> {
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            if (this.projection.nameEntries.length > 0) {
+                return undefined;
+            }
+            return this.commitName(name);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
     appendIdentity(identity: {
         readonly name: string;
         readonly key: string;
