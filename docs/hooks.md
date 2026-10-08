@@ -279,8 +279,11 @@ after declaring `hooks.command`. It can also register a function with
 `api.hooks.registerPreToolUse`, `registerPostToolUse`, or
 `registerSessionStart`, after declaring `hooks.pre_tool_use`,
 `hooks.post_tool_use`, or `hooks.session_start`. An extension can also run a
-function once per user turn, before the first model call, with
-`registerPreTurn` and `hooks.pre_turn`.
+function before each user prompt starts its work, with `registerPreTurn` and
+`hooks.pre_turn`. It runs before the first model call of a turn, and again for
+each queued prompt that joins the running turn. For a joining prompt it can
+narrow the tools or block the prompt, which ends the turn, but it cannot
+change the model or reasoning effort.
 
 The included `vera.command-hooks` extension reads a `hooks` list from its own
 configuration and runs nothing until that list is set. The host runs the
