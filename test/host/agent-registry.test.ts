@@ -2084,11 +2084,17 @@ test("a registry resumes the same resident agent from its session", async () => 
             throw new Error("Expected resumed history");
         }
         expect(history.entries).toEqual([
-            { id: expect.any(String), kind: "user", text: "first prompt" },
+            {
+                id: expect.any(String),
+                kind: "user",
+                text: "first prompt",
+                recordedAt: expect.any(Number),
+            },
             {
                 id: expect.any(String),
                 kind: "assistant",
                 text: "first reply",
+                recordedAt: expect.any(Number),
                 turnTiming: expect.any(Object),
             },
         ]);

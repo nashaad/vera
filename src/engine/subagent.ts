@@ -761,7 +761,7 @@ export async function runSubagent(
             afterCompacted: async () => {
                 const contextAdded = await restoreContextAfterCompaction(state);
                 if (contextAdded) {
-                    protocol.checkpoint(state.messages, store.activeMessageIds());
+                    protocol.checkpoint(state.messages, store.activeMessageStamps());
                 }
                 return contextAdded;
             },
@@ -823,7 +823,7 @@ export async function runSubagent(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         };
-        protocol.checkpoint(state.messages, store.activeMessageIds());
+        protocol.checkpoint(state.messages, store.activeMessageStamps());
         channel.client.send({
             type: "prompt",
             content: options.description,

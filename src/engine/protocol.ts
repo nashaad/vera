@@ -45,7 +45,7 @@ import type {
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
-import type { SessionSettingOrigin } from "../store/session-store.ts";
+import type { MessageStamp, SessionSettingOrigin } from "../store/session-store.ts";
 import type { PromptQueueState } from "./prompt-queue.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
@@ -131,6 +131,8 @@ export interface HarnessTranscriptEntry {
 
 export interface TranscriptTurnTiming {
     readonly turnTiming?: TurnTiming;
+    /** When the stored message behind this entry was written, in epoch ms. */
+    readonly recordedAt?: number;
 }
 
 /**
@@ -1127,7 +1129,7 @@ export interface AgentUpdateSender {
 export interface ProtocolEncoder extends EngineEventSubscriber {
     checkpoint(
         messages: readonly ModelMessage[],
-        messageIds?: MessageIdLookup,
+        messageStamps?: MessageStampLookup,
         context?: ContextMeasurement,
         recipe?: ContextMeasurement,
     ): void;
@@ -2218,7 +2220,7 @@ export function createProtocolEncoder(
     return Object.assign(encode, {
         checkpoint(
             messages: readonly ModelMessage[],
-            messageIds?: MessageIdLookup,
+            messageStamps?: MessageStampLookup,
             checkpointContext?: ContextMeasurement,
             recipe?: ContextMeasurement,
         ): void {
@@ -2265,7 +2267,7 @@ export function createProtocolEncoder(
                 entries: projectTranscript(
                     messages,
                     attachmentName,
-                    messageIds,
+                    messageStamps,
                     harnessMessages(),
                 ),
                 ...(context === undefined ? {} : { context }),
@@ -2483,17 +2485,13 @@ export function isEmptyAssistantMessage(message: ModelMessage): boolean {
         );
 }
 
-/**
- * Maps a projected message back to the ID of the stored record it came from.
- * Keyed by object identity rather than position so a caller cannot silently
- * misalign the two lists.
- */
-export type MessageIdLookup = ReadonlyMap<ModelMessage, string>;
+// Keyed by object identity rather than position so a caller cannot silently misalign the two lists.
+export type MessageStampLookup = ReadonlyMap<ModelMessage, MessageStamp>;
 
 export function projectTranscript(
     messages: readonly ModelMessage[],
     attachmentName?: AttachmentNameLookup,
-    messageIds?: MessageIdLookup,
+    messageStamps?: MessageStampLookup,
     harnessMessages: readonly {
         readonly afterMessage: number;
         readonly text: string;
@@ -2516,14 +2514,20 @@ export function projectTranscript(
     appendHarnessMessages(0);
     for (let index = 0; index < messages.length; index += 1) {
         const message = messages[index]!;
-        const messageId = messageIds?.get(message);
+        const stamp = messageStamps?.get(message);
         const entryStart = entries.length;
         let subIndex = 0;
         const push = (entry: TranscriptEntry): void => {
             entries.push(
-                messageId === undefined
+                stamp === undefined
                     ? entry
-                    : { ...entry, id: `${messageId}#${subIndex++}` },
+                    : {
+                        ...entry,
+                        id: `${stamp.id}#${subIndex++}`,
+                        ...(Number.isFinite(stamp.recordedAt)
+                            ? { recordedAt: stamp.recordedAt }
+                            : {}),
+                    },
             );
         };
         if (message.internal === true) {

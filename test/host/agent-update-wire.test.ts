@@ -950,3 +950,16 @@ test("history accepts transcript notices and rejects malformed ones", () => {
         expect(parseAgentUpdate({ type: "history", seq: 1, entries: [entry] })).toBeUndefined();
     }
 });
+
+test("host wire carries when a transcript entry was recorded and rejects a non-number", () => {
+    const history = {
+        type: "history" as const,
+        entries: [{ id: "m1#0", kind: "user" as const, text: "hoist the crow flag", recordedAt: 1_791_480_000_000 }],
+        seq: 1,
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ ...history.entries[0], recordedAt: "09:12" }],
+    })).toBeUndefined();
+});

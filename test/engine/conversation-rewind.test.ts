@@ -80,7 +80,7 @@ test("conversation rewind publishes active history without changing files", asyn
         entries: projectTranscript(
             store.messages(),
             undefined,
-            store.activeMessageIds(),
+            store.activeMessageStamps(),
         ),
         seq: 0,
     }]);

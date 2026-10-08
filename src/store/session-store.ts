@@ -283,10 +283,16 @@ export interface SessionMessageStore {
     appendMessage(message: ModelMessage): Promise<StoredMessage>;
 }
 
+/** The stored record a message came from: its ID and when it was written, in epoch ms. */
+export interface MessageStamp {
+    readonly id: string;
+    readonly recordedAt: number;
+}
+
 export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
-    readonly messageIds: ReadonlyMap<ModelMessage, string>;
+    readonly messageStamps: ReadonlyMap<ModelMessage, MessageStamp>;
     readonly harnessMessages: readonly {
         readonly afterMessage: number;
         readonly text: string;
@@ -445,12 +451,8 @@ export class SessionStore {
         return [...replies, ...compactions];
     }
 
-    activeMessageIds(): ReadonlyMap<ModelMessage, string> {
-        const ids = new Map<ModelMessage, string>();
-        for (const entry of this.activeEntries()) {
-            ids.set(entry.message, entry.id);
-        }
-        return ids;
+    activeMessageStamps(): ReadonlyMap<ModelMessage, MessageStamp> {
+        return messageStamps(this.activeEntries());
     }
 
     activeHeadId(): string | null {
@@ -1438,6 +1440,15 @@ export function defaultSessionDirectory(): string {
     return join(veraRuntimeDirectory(), "sessions");
 }
 
+function messageStamps(
+    entries: readonly SessionMessageEntry[],
+): ReadonlyMap<ModelMessage, MessageStamp> {
+    return new Map(entries.map((entry) => [
+        entry.message,
+        { id: entry.id, recordedAt: Date.parse(entry.timestamp) },
+    ]));
+}
+
 export async function readSessionSnapshot(
     path: string,
 ): Promise<ReadonlySessionSnapshot> {
@@ -1450,7 +1461,7 @@ export async function readSessionSnapshot(
     return {
         header: loaded.header,
         messages: active.map((entry) => entry.message),
-        messageIds: new Map(active.map((entry) => [entry.message, entry.id])),
+        messageStamps: messageStamps(active),
         harnessMessages: projectHarnessMessages(
             loaded.state.harnessMessageEntries,
             active,

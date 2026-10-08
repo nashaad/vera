@@ -60,7 +60,7 @@ test("an imported session records where it came from and chains its messages", a
             lastMessageId: "m2",
         });
         expect(snapshot.header.cwd).toBe("/work");
-        expect([...snapshot.messageIds.values()]).toEqual(["m1", "m2"]);
+        expect([...snapshot.messageStamps.values()].map((stamp) => stamp.id)).toEqual(["m1", "m2"]);
         expect(snapshot.messages.map((message) => message.role))
             .toEqual(["user", "assistant"]);
         expect((await SessionStore.open(path)).name()).toBe("Fix the build");

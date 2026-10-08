@@ -117,7 +117,7 @@ export async function readSessionPreview(
     return sessionPreviewLines(projectTranscript(
         snapshot.messages,
         undefined,
-        snapshot.messageIds,
+        snapshot.messageStamps,
         snapshot.harnessMessages,
     ));
 }

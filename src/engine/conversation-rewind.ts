@@ -22,7 +22,7 @@ export async function rewindConversationBefore(
     protocol.restoreContext(onBranch);
     protocol.checkpoint(
         state.messages,
-        state.store.activeMessageIds(),
+        state.store.activeMessageStamps(),
         onBranch,
         onBranch,
     );

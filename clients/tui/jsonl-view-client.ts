@@ -33,7 +33,7 @@ export async function createJsonlViewClient(
         entries: projectTranscript(
             snapshot.messages,
             undefined,
-            snapshot.messageIds,
+            snapshot.messageStamps,
             snapshot.harnessMessages,
         ),
         seq: 0,

@@ -934,7 +934,7 @@ test("session identity is durable, immutable, and model-visible only", async () 
     expect(projectTranscript(
         store.messages(),
         undefined,
-        store.activeMessageIds(),
+        store.activeMessageStamps(),
         store.projectedHarnessMessages(),
     )).toMatchObject([
         { kind: "user", text: "visible request" },

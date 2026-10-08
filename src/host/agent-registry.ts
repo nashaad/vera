@@ -755,7 +755,7 @@ export class AgentRegistry {
                 entries: projectTranscript(
                     store.messages(),
                     sessionAttachmentName(store),
-                    store.activeMessageIds(),
+                    store.activeMessageStamps(),
                     store.projectedHarnessMessages(),
                 ),
                 seq: 0,

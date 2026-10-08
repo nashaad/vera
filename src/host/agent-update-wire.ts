@@ -844,6 +844,8 @@ function isTimelinePlan(value: unknown): boolean {
 function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     const entry = asRecord(value);
     if (entry?.turnTiming !== undefined && !isTurnTiming(entry.turnTiming)) return false;
+    if (entry?.recordedAt !== undefined
+        && (typeof entry.recordedAt !== "number" || !Number.isFinite(entry.recordedAt))) return false;
     if (entry?.kind === "harness") {
         return typeof entry.text === "string"
             && (entry.tone === "primary" || entry.tone === "soft" || entry.tone === "error");
