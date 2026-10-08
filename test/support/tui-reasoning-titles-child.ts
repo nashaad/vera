@@ -24,6 +24,7 @@ export function createReasoningTitlesDependencies(): TuiDependencies {
             updates.push({ type: "assistant_thinking", text: "**Plotting the course**", seq: seq++ });
             updates.push({ type: "assistant_thinking", text: "\n\n**Counting the doubloons**", seq: seq++ });
             updates.push({ type: "assistant_thinking", text: "\n\n**Raising the black flag**", seq: seq++ });
+            updates.push({ type: "assistant_thinking", text: "\n\n**Raising the black flag**", seq: seq++ });
             await Bun.sleep(300);
             updates.push({ type: "tool_started", tool: "bash", args: { command: "ls treasure/" }, seq: seq++ });
             updates.push({ type: "tool_finished", tool: "bash", output: "map.txt", seq: seq++ });

@@ -24,6 +24,7 @@ import {
     dropTuiThinking,
     failTuiConnection,
     queueTuiPrompt,
+    openedReasoningText,
     renderTuiEntry,
     renderTuiQueuedPrompt,
     setTuiWorkspaceRoot,
@@ -377,7 +378,8 @@ test("toggling reasoning opens every fold and every later one", () => {
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("Reasoning summary: 12.4s  Ctrl+O hide reasoning\n\nweighing the two orderings");
+        .toBe("Reasoning summary: 12.4s  Ctrl+O hide reasoning");
+    expect(openedReasoningText(state.entries[0]!)).toBe("weighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -409,10 +411,8 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     });
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "Reasoning summary: 3.3s  Ctrl+O hide reasoning"
-        + "\n\nEstimating remaining work\n\nChecking shipped slices",
-    );
+    expect(openedReasoningText(state.entries[0]!))
+        .toBe("Estimating remaining work\n\nChecking shipped slices");
 });
 
 test("expanded reasoning stacks bare titles and keeps a gap before body text", () => {
@@ -424,11 +424,35 @@ test("expanded reasoning stacks bare titles and keeps a gap before body text", (
     });
     state = toggleTuiThinking(appendTuiThought(state, 2.1));
 
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "Reasoning summary: 2.1s  Ctrl+O hide reasoning"
-        + "\n\nPlotting the course\nCounting the doubloons\nRaising the black flag"
+    expect(openedReasoningText(state.entries[0]!)).toBe(
+        "Plotting the course\nCounting the doubloons\nRaising the black flag"
         + "\n\nThe crow wants the flag up before dawn.",
     );
+});
+
+test("opened reasoning shows a repeated title once", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "**Checking the map**\n\n**Checking the map**\n\n**Digging the chest**"
+            + "\n\n**Checking the map**",
+        seq: 1,
+    });
+    state = toggleTuiThinking(appendTuiThought(state, 4.2));
+
+    expect(openedReasoningText(state.entries[0]!))
+        .toBe("Checking the map\nDigging the chest\nChecking the map");
+});
+
+test("only an opened thought has text under its header", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "**Plotting the course**",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 1.1);
+
+    expect(openedReasoningText(state.entries[0]!)).toBe("");
+    expect(openedReasoningText({ kind: "assistant", text: "hello" })).toBe("");
 });
 
 test("dropping live reasoning leaves settled rows alone", () => {

@@ -13,7 +13,7 @@ import {
 // Enough text to fill the widest pane at the most rows; older text is cut first.
 const TAIL_CHARACTERS = 4_000;
 export const ELLIPSIS_COLUMNS = LIVE_THINKING_ELLIPSIS.length + 1;
-const RAIL = "│";
+export const RAIL = "│";
 
 interface ThinkingWindowParts {
     readonly gutter: ThinkingGutterRenderable;

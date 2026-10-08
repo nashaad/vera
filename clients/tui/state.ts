@@ -1431,13 +1431,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
                 ? `  ${tuiKeyChordLabel("toggle_thinking")} hide reasoning`
                 : `  ${tuiKeyHint("toggle_thinking")}`,
         );
-        return entry.expanded === true
-            ? new StyledText([
-                summary,
-                hint,
-                fg(TUI_MUTED)(`\n\n${plainReasoningSummary(stackReasoningTitles(entry.reasoning))}`),
-            ])
-            : new StyledText([summary, hint]);
+        return new StyledText([summary, hint]);
     }
     if (entry.kind === "thinking") {
         const tail = liveThinkingTail(entry.text);
@@ -1466,17 +1460,27 @@ function liveThinkingTail(text: string): string {
 
 const REASONING_TITLE = /^[ \t]*(?:(?:\*\*|__).*(?:\*\*|__)|#{1,6}[ \t]+.*)[ \t]*$/;
 
-// Back-to-back titles stack one per line; a title followed by body text keeps its blank line.
+// Back-to-back titles stack one per line and a repeated title shows once; a title
+// followed by body text keeps its blank line.
 export function stackReasoningTitles(reasoning: string): string {
     const paragraphs = reasoning.split(/\n(?:[ \t]*\n)+/);
     let text = paragraphs[0] ?? "";
     for (let index = 1; index < paragraphs.length; index += 1) {
         const previous = paragraphs[index - 1] ?? "";
         const current = paragraphs[index] ?? "";
+        if (REASONING_TITLE.test(current) && current.trim() === previous.trim()) continue;
         const stacked = REASONING_TITLE.test(previous) && REASONING_TITLE.test(current);
         text += (stacked ? "\n" : "\n\n") + current;
     }
     return text;
+}
+
+// The text under an opened thought's header; the client draws it behind a rail.
+export function openedReasoningText(entry: TuiTranscriptEntry): string {
+    if (entry.kind !== "thought" || entry.expanded !== true || entry.reasoning === undefined) {
+        return "";
+    }
+    return plainReasoningSummary(stackReasoningTitles(entry.reasoning)).trim();
 }
 
 export function plainReasoningSummary(reasoning: string): string {
