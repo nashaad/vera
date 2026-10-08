@@ -2,9 +2,28 @@ import type {
     VeraClientExtensionApi,
     VeraClientExtensionCommandHandler,
     VeraClientPickerRow,
+    VeraExtensionApi,
 } from "../../src/sdk/extensions.ts";
-import { buildRecap } from "./model.ts";
+import { LABEL_PROMPT, labelMessage, labelRequest, MAX_LABELLED_PHASES, parseLabels, readLabelRequest } from "./labels.ts";
+import { buildRecap, type RecapPhase } from "./model.ts";
 import { recapRows, recapSubtitle } from "./rows.ts";
+
+const LABEL_REQUEST = "label";
+const LABEL_TIMEOUT_MS = 15_000;
+
+export function activate(vera: VeraExtensionApi): void {
+    vera.requests.handle(LABEL_REQUEST, async (payload, { signal }) => {
+        const request = readLabelRequest(payload);
+        if (request === undefined) throw new Error("Malformed recap label request.");
+        const result = await vera.model.oneshot({
+            assignment: "snappy",
+            systemPrompt: LABEL_PROMPT,
+            messages: [{ role: "user", text: labelMessage(request) }],
+            signal,
+        });
+        return parseLabels(result.text, request.phases.length).map((label) => label ?? null);
+    });
+}
 
 export function activateClient(vera: VeraClientExtensionApi): void {
     // Per conversation, so reopening starts where the last jump landed.
@@ -12,13 +31,47 @@ export function activateClient(vera: VeraClientExtensionApi): void {
     vera.conversation.onChanged(() => {
         lastJumped = undefined;
     });
+    // Phase keys are entry ids, so titles stay valid across conversation switches.
+    const labels = new Map<string, string>();
+
+    const label = async (phases: readonly RecapPhase[], signal: AbortSignal): Promise<void> => {
+        const wanted = phases
+            .filter((phase) => phase.key !== undefined && !labels.has(phase.key))
+            .slice(-MAX_LABELLED_PHASES);
+        if (wanted.length === 0) return;
+        const first = phases.indexOf(wanted[0]!);
+        const earlier = phases.slice(0, first).flatMap((phase) => {
+            const known = phase.key === undefined ? undefined : labels.get(phase.key);
+            return known === undefined ? [] : [known];
+        });
+        try {
+            const answer = await vera.host.request(
+                LABEL_REQUEST,
+                labelRequest(wanted, earlier),
+                AbortSignal.any([signal, AbortSignal.timeout(LABEL_TIMEOUT_MS)]),
+            );
+            if (!Array.isArray(answer)) return;
+            wanted.forEach((phase, index) => {
+                const text = answer[index];
+                if (typeof text === "string" && phase.key !== undefined) labels.set(phase.key, text);
+            });
+        } catch {
+            // No snappy model, a timeout or a bad answer all leave the built titles.
+        }
+    };
 
     const open: VeraClientExtensionCommandHandler = async ({ signal }) => {
-        const phases = buildRecap(vera.thread.entries(), Date.now());
-        if (phases.length === 0) return { kind: "text", text: "Nothing to recap yet." };
+        const built = buildRecap(vera.thread.entries(), Date.now());
+        if (built.length === 0) return { kind: "text", text: "Nothing to recap yet." };
+        await label(built, signal);
+        if (signal.aborted) return { kind: "handled" };
+        const phases = built.map((phase) => {
+            const known = phase.key === undefined ? undefined : labels.get(phase.key);
+            return known === undefined ? phase : { ...phase, title: known };
+        });
         const rows = recapRows(phases);
         const pickerRows: VeraClientPickerRow[] = rows.map(({ target: _target, ...row }) => row);
-        const selectedId = rows.some((row) => row.id === lastJumped) ? lastJumped : rows.at(-1)?.id;
+        const selectedId = rows.some((row) => row.id === lastJumped) ? lastJumped : rows[0]?.id;
         const result = await vera.ui.requestPicker({
             title: "Recap",
             subtitle: recapSubtitle(phases),

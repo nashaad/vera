@@ -55,16 +55,25 @@ provides `/dashboard`; disabling it removes both commands.
 
 ## Recap a conversation
 
-`/recap` opens a full-screen list of the conversation's phases in time order,
-each under the time it started, with how long Vera worked on it and whether
-its last test run passed. `/timeline`
-does the same. Commits, questions Vera asked you, long steps, side questions
-and interruptions sit under the phase they happened in. The right pane shows the
-selected row's details, including the files it edited.
+`/recap` opens a full-screen list of the conversation's phases, newest first.
+Each row starts with the time the phase began, followed by its title, how long
+Vera worked on it, and whether its last test run passed. `/timeline` does the
+same. Commits, questions Vera asked you, long steps, side questions and
+interruptions sit under the phase they happened in, each with its own time.
+The right pane shows the selected row's details, including the files it
+edited.
+
+Phases are built from the conversation itself. Their titles come from the
+snappy model (see [Assign defaults](models.md#assign-defaults)): when you open
+`/recap`, Vera sends each finished phase that has no title yet (your
+requests, the checklist items it ticked, the files it edited, its commits and
+test result, and the end of its reply) and asks for a one-line title. Titles
+are kept until the client exits. With no snappy model, or if it does not
+answer, a phase is titled with the first words of your request. A phase still
+running keeps that title too.
 
 Type to filter. Enter scrolls the transcript to that point, and the next
-`/recap` starts on the row you jumped to. The recap is built from the
-conversation itself, with no model call. Time between turns, while Vera was
+`/recap` starts on the row you jumped to. Time between turns, while Vera was
 waiting on you, does not count toward a phase.
 
 ## Run command hooks

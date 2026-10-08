@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { labelMessage, labelRequest, parseLabels, readLabelRequest } from "../../extensions/recap/labels.ts";
 import { buildRecap } from "../../extensions/recap/model.ts";
 import { formatDuration, recapRows, recapSubtitle } from "../../extensions/recap/rows.ts";
 import type { VeraClientThreadEntry } from "../../src/sdk/extensions.ts";
@@ -182,7 +183,7 @@ test("the turn still running has no ids and jumps to the end", () => {
     expect(phases[1]!.marks[0]).toMatchObject({ kind: "long_step", durationMs: 14 * MINUTE, target: { end: true } });
 });
 
-test("rows line marks up under phase titles and read without colour", () => {
+test("rows put the time in a column and line marks up under phase titles, without colour", () => {
     const entries = [
         user(0, "Teach the crow to whistle"),
         edit(3, "crow.ts"),
@@ -195,8 +196,8 @@ test("rows line marks up under phase titles and read without colour", () => {
     const rows = recapRows(phases, utcClock);
 
     expect(rows.map((row) => [row.heading, row.group, row.label, row.meta])).toEqual([
-        ["09:00", "phase-0", "Teach the crow to whistle", "8m ✓"],
-        ["09:00", "phase-0", "  ● feat: whistle", "abc1234"],
+        [undefined, undefined, "09:00  Teach the crow to whistle", "8m ✓"],
+        [undefined, undefined, "09:07    ● feat: whistle", "abc1234"],
     ]);
     expect(rows[0]!.details).toEqual([
         "Teach the crow to whistle",
@@ -209,6 +210,66 @@ test("rows line marks up under phase titles and read without colour", () => {
     ]);
     expect(recapSubtitle(phases)).toBe("1 phase · 8m working");
     expect([formatDuration(40_000), formatDuration(125 * MINUTE)]).toEqual(["40s", "2h 05m"]);
+});
+
+test("the newest phase comes first and its marks stay in time order", () => {
+    const entries = [
+        user(0, "Hoist the black flag over the brig"),
+        answer(5),
+        user(10, "Bury the parrot's biscuits on Skull Isle"),
+        ...bash(11, 12, "git commit -m 'feat: dig'", "[main aaa1111] feat: dig"),
+        ...bash(13, 14, "git commit -m 'feat: bury'", "[main bbb2222] feat: bury"),
+        answer(15),
+    ];
+
+    const labels = recapRows(buildRecap(entries, NINE + 20 * MINUTE), utcClock).map((row) => row.label);
+
+    expect(labels).toEqual([
+        "09:10  Bury the parrot's biscuits on Skull Isle",
+        "09:12    ● feat: dig",
+        "09:14    ● feat: bury",
+        "09:00  Hoist the black flag over the brig",
+    ]);
+});
+
+test("label requests carry phase facts and the answer maps back one line per phase", () => {
+    const entries = [
+        user(0, "the crow keeps dropping the map, sort it out"),
+        edit(2, "src/crow/grip.ts"),
+        ...bash(3, 4, "bun test", "ok"),
+        ...bash(5, 6, "git commit -m 'fix: tighten the talon grip'", "[main ccc3333] fix: tighten the talon grip"),
+        answer(7, "Tightened the grip so the map stays put."),
+        user(20, "Teach it to sing shanties"),
+        answer(25),
+    ];
+    const phases = buildRecap(entries, NINE + 30 * MINUTE);
+
+    const request = labelRequest(phases, ["Swabbed the deck"]);
+
+    expect(phases.every((phase) => phase.key !== undefined)).toBe(true);
+    expect(readLabelRequest(JSON.parse(JSON.stringify(request)))).toEqual(request);
+    expect(readLabelRequest({ earlier: [], phases: [{ prompts: "nope" }] })).toBeUndefined();
+    expect(labelMessage(request)).toContain([
+        "Phase 1",
+        "User: the crow keeps dropping the map, sort it out",
+        "Edited: src/crow/grip.ts",
+        "Committed: fix: tighten the talon grip",
+        "Tests: passed",
+        "Last reply: Tightened the grip so the map stays put.",
+    ].join("\n"));
+    expect(labelMessage(request).startsWith("Earlier titles:\n- Swabbed the deck")).toBe(true);
+    expect(parseLabels("1: \"Fixed the crow's map grip.\"\n\n**2. Taught shanties**\n3: extra", 2))
+        .toEqual(["Fixed the crow's map grip", "Taught shanties"]);
+    expect(parseLabels("Sure! Here you go", 2)).toEqual([undefined, undefined]);
+});
+
+test("a phase still running has no key, so its title is never cached", () => {
+    const entries: VeraClientThreadEntry[] = [
+        user(0, "Count the cannonballs"),
+        { kind: "tool_call", tool: "bash", args: { command: "count" }, at: NINE + MINUTE },
+    ];
+
+    expect(buildRecap(entries, NINE + 2 * MINUTE)[0]!.key).toBeUndefined();
 });
 
 test("a long session builds quickly", () => {

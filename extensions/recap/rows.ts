@@ -11,6 +11,7 @@ const MARK_GLYPH: Readonly<Record<RecapMarkKind, string>> = {
 
 const MARK_INDENT = "  ";
 const NO_CLOCK = "--:--";
+const BLANK_CLOCK = "     ";
 const MAX_LISTED_FILES = 6;
 
 export interface RecapRow extends VeraClientPickerRow {
@@ -24,16 +25,22 @@ export function localClock(epochMs: number): string {
     return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+// Newest phase first; marks keep time order under their phase.
 export function recapRows(phases: readonly RecapPhase[], clock: ClockFormat = localClock): RecapRow[] {
-    return phases.flatMap((phase, phaseIndex) => {
-        const heading = phase.startedAt === undefined ? NO_CLOCK : clock(phase.startedAt);
-        return [
-            { ...phaseRow(phase, `phase-${phaseIndex}`, clock), heading, group: `phase-${phaseIndex}` },
-            ...phase.marks.map((mark, markIndex) => ({
-                ...markRow(mark, `phase-${phaseIndex}-${markIndex}`, clock), heading, group: `phase-${phaseIndex}`,
-            })),
-        ];
-    });
+    const rows: RecapRow[] = [];
+    for (let phaseIndex = phases.length - 1; phaseIndex >= 0; phaseIndex--) {
+        const phase = phases[phaseIndex]!;
+        const id = `phase-${phaseIndex}`;
+        rows.push(phaseRow(phase, id, clock));
+        phase.marks.forEach((mark, markIndex) => {
+            rows.push(markRow(mark, `${id}-${markIndex}`, clock));
+        });
+    }
+    return rows;
+}
+
+function clockColumn(at: number | undefined, clock: ClockFormat, missing: string): string {
+    return at === undefined ? missing : clock(at);
 }
 
 export function recapSubtitle(phases: readonly RecapPhase[]): string {
@@ -45,7 +52,8 @@ export function recapSubtitle(phases: readonly RecapPhase[]): string {
 function phaseRow(phase: RecapPhase, id: string, clock: ClockFormat): RecapRow {
     const outcome = phase.tests === "passed" ? " ✓" : phase.tests === "failed" ? " ✗" : "";
     const meta = phase.running ? "running" : `${formatDuration(phase.activeMs)}${outcome}`;
-    return { id, label: phase.title, meta, details: phaseDetails(phase, clock), target: phase.target };
+    const time = clockColumn(phase.startedAt, clock, NO_CLOCK);
+    return { id, label: `${time}  ${phase.title}`, meta, details: phaseDetails(phase, clock), target: phase.target };
 }
 
 function markRow(mark: RecapMark, id: string, clock: ClockFormat): RecapRow {
@@ -58,7 +66,7 @@ function markRow(mark: RecapMark, id: string, clock: ClockFormat): RecapRow {
         : formatDuration(mark.durationMs);
     return {
         id,
-        label: `${MARK_INDENT}${MARK_GLYPH[mark.kind]} ${mark.text}`,
+        label: `${clockColumn(mark.at, clock, BLANK_CLOCK)}  ${MARK_INDENT}${MARK_GLYPH[mark.kind]} ${mark.text}`,
         ...(meta === undefined ? {} : { meta }),
         details: markDetails(mark, clock),
         target: mark.target,
