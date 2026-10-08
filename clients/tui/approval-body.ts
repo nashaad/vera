@@ -192,6 +192,7 @@ export function describeGrantPredicate(
     const parts = [
         when.verb,
         when.operation,
+        when.host,
         when.executable,
         when.tool !== undefined && when.executable === undefined
             ? when.tool

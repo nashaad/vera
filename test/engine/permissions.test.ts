@@ -8,12 +8,14 @@ import {
     decideToolPermission,
     extractPermissionActions,
     inspectPermissions,
+    isPermissionPredicate,
     permissionGrantProposals,
     type ApprovalMode,
     type PermissionGrant,
 } from "../../src/engine/permissions.ts";
 import type { HookToolCall, JsonObject } from "../../src/sdk/hooks.ts";
 import { skillScriptTool } from "../../src/skills/script.ts";
+import type { RegisteredTool } from "../../src/tools/types.ts";
 
 const workspace = "/Users/nash/Projects/vera";
 const homeDirectory = "/Users/nash";
@@ -1054,6 +1056,206 @@ test("web.search is a core operation", () => {
     expect(CORE_PERMISSION_OPERATIONS.has("web.search")).toBe(true);
 });
 
+test("web download and fetch carry the URL host on both actions", () => {
+    expect(CORE_PERMISSION_OPERATIONS.has("web.download")).toBe(true);
+    expect(extractPermissionActions({
+        toolCall: toolCall("web_download", {
+            url: "https://github.com/a.zip",
+        }),
+        workspace,
+        homeDirectory,
+    })).toEqual([
+        {
+            tool: "web_download",
+            verb: "unknown",
+            operation: "web.download",
+            host: "github.com",
+        },
+        {
+            tool: "web_download",
+            verb: "read",
+            path: "https://github.com/a.zip",
+            scope: "outside_workspace",
+            host: "github.com",
+        },
+    ]);
+    expect(extractPermissionActions({
+        toolCall: toolCall("web_fetch", { url: "https://github.com/a.zip" }),
+        workspace,
+        homeDirectory,
+    })).toEqual([
+        {
+            tool: "web_fetch",
+            verb: "unknown",
+            operation: "web.fetch",
+            host: "github.com",
+        },
+        {
+            tool: "web_fetch",
+            verb: "read",
+            path: "https://github.com/a.zip",
+            scope: "outside_workspace",
+            host: "github.com",
+        },
+    ]);
+    expect(extractPermissionActions({
+        toolCall: toolCall("web_fetch", { url: "ftp://github.com/x" }),
+        workspace,
+        homeDirectory,
+    })).toEqual([
+        {
+            tool: "web_fetch",
+            verb: "unknown",
+            operation: "web.fetch",
+        },
+        {
+            tool: "web_fetch",
+            verb: "read",
+            path: "ftp://github.com/x",
+            scope: "outside_workspace",
+        },
+    ]);
+});
+
+test("a write URL does not put its host on the operation action", () => {
+    const demoPush: RegisteredTool = {
+        definition: {
+            name: "demo_push",
+            description: "Send a URL.",
+            inputSchema: {
+                type: "object",
+                properties: { url: { type: "string" } },
+                required: ["url"],
+                additionalProperties: false,
+            },
+        },
+        permissionOperation: "demo.push",
+        permissionInputs: [{ field: "url", kind: "url", verb: "write" }],
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    };
+    expect(extractPermissionActions({
+        toolCall: toolCall("demo_push", { url: "https://github.com/x" }),
+        workspace,
+        homeDirectory,
+    }, [demoPush])).toEqual([
+        {
+            tool: "demo_push",
+            verb: "unknown",
+            operation: "demo.push",
+        },
+        {
+            tool: "demo_push",
+            verb: "write",
+            path: "https://github.com/x",
+            scope: "outside_workspace",
+            host: "github.com",
+        },
+    ]);
+});
+
+test("a host predicate is valid only when the pattern would match as written", () => {
+    expect(isPermissionPredicate({ host: "github.com" })).toBe(true);
+    expect(isPermissionPredicate({ host: "git*.com" })).toBe(false);
+});
+
+test("a saved host preference allows that download in ask and auto", () => {
+    const preference = {
+        id: "p1",
+        when: { operation: "web.download", host: "github.com" },
+        createdAt: "2026-10-08T00:00:00.000Z",
+    };
+    const github = toolCall("web_download", { url: "https://github.com/a.zip" });
+    const example = toolCall("web_download", {
+        url: "https://example.com/a.zip",
+    });
+    const withPreference = { homeDirectory, permissionPreferences: [preference] };
+    expect(decideToolPermission(
+        "ask",
+        github,
+        workspace,
+        [],
+        withPreference,
+    ).behavior).toBe("allow");
+    expect(decideToolPermission(
+        "ask",
+        example,
+        workspace,
+        [],
+        withPreference,
+    ).behavior).toBe("ask");
+    expect(decideToolPermission(
+        "auto",
+        github,
+        workspace,
+        [],
+        withPreference,
+    ).behavior).toBe("allow");
+    expect(decideToolPermission(
+        "auto",
+        github,
+        workspace,
+        [],
+        { homeDirectory },
+    ).behavior).toBe("review");
+    expect(decideToolPermission(
+        "readonly",
+        github,
+        workspace,
+        [],
+        withPreference,
+    ).behavior).toBe("deny");
+});
+
+test("a custom mode can deny a host and allow its subdomains", () => {
+    const hosty = {
+        hosty: {
+            name: "hosty",
+            rules: [
+                {
+                    name: "hosty.0",
+                    when: { host: "evil.example" },
+                    then: "deny" as const,
+                },
+                {
+                    name: "hosty.1",
+                    when: { operation: "web.download", host: "*.github.com" },
+                    then: "allow" as const,
+                },
+                {
+                    name: "hosty.2",
+                    when: { verb: "read" as const },
+                    then: "allow" as const,
+                },
+            ],
+            defaultOutcome: "ask" as const,
+        },
+    };
+    const options = { homeDirectory, permissionModes: hosty };
+    expect(decideToolPermission(
+        "hosty",
+        toolCall("web_download", { url: "https://objects.github.com/a.zip" }),
+        workspace,
+        [],
+        options,
+    ).behavior).toBe("allow");
+    expect(decideToolPermission(
+        "hosty",
+        toolCall("web_download", { url: "https://github.com/a.zip" }),
+        workspace,
+        [],
+        options,
+    ).behavior).toBe("ask");
+    expect(decideToolPermission(
+        "hosty",
+        toolCall("web_fetch", { url: "https://evil.example/" }),
+        workspace,
+        [],
+        options,
+    ).behavior).toBe("deny");
+});
+
 test("web fetch is allowed in ask and auto and refused in readonly", () => {
     const call = toolCall("web_fetch", { url: "https://example.com/page" });
     for (const mode of ["ask", "auto"] as const) {
@@ -1065,6 +1267,7 @@ test("web fetch is allowed in ask and auto and refused in readonly", () => {
                         tool: "web_fetch",
                         verb: "unknown",
                         operation: "web.fetch",
+                        host: "example.com",
                     },
                     outcome: "allow",
                     rule: "routine.web_fetch",
@@ -1075,6 +1278,7 @@ test("web fetch is allowed in ask and auto and refused in readonly", () => {
                         verb: "read",
                         path: "https://example.com/page",
                         scope: "outside_workspace",
+                        host: "example.com",
                     },
                     outcome: "allow",
                     rule: "routine.read",

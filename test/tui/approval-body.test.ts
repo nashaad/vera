@@ -3,6 +3,7 @@ import { fg } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
+    describeGrantPredicate,
     tuiApprovalBody,
     tuiApprovalBodyText,
     TUI_APPROVAL_BODY_LINES,
@@ -281,4 +282,11 @@ test("a described bash call is approved by its command alone", () => {
 
     expect(body).toContain("rm -rf build");
     expect(body).not.toContain("Tidy up a little");
+});
+
+test("a grant description includes the host", () => {
+    expect(describeGrantPredicate({
+        operation: "web.download",
+        host: "github.com",
+    })).toBe("web.download github.com");
 });

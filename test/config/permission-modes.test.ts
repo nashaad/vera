@@ -141,3 +141,31 @@ test("custom modes cannot replace built-in names", () => {
         }, reviewers)).toBeUndefined();
     }
 });
+
+test("a custom mode can name a download host", () => {
+    expect(parsePermissionModes({
+        shore: {
+            default: "ask",
+            rules: [{
+                when: { operation: "web.download", host: "*.github.com" },
+                then: "allow",
+            }],
+        },
+    }, reviewers)?.shore?.rules).toEqual([{
+        name: "shore.rules.0",
+        when: { operation: "web.download", host: "*.github.com" },
+        then: "allow",
+    }]);
+});
+
+test("a custom mode rejects a host pattern URL parsing would rewrite", () => {
+    expect(parsePermissionModes({
+        broken: {
+            default: "allow",
+            rules: [{
+                when: { host: "git*.com" },
+                then: "ask",
+            }],
+        },
+    }, reviewers)).toBeUndefined();
+});

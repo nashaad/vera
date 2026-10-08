@@ -1,5 +1,6 @@
 import { basename, sep } from "node:path";
 
+import { hostMatches, isHostPattern } from "./permission-host.ts";
 import type {
     PermissionAction,
     PermissionActionDecision,
@@ -29,6 +30,7 @@ const PREDICATE_FIELDS = [
     "verb",
     "path",
     "pathGlob",
+    "host",
     "scope",
     "operation",
     "executable",
@@ -122,6 +124,7 @@ export function isPermissionPredicate(
             || isNonEmptyString(value.operation))
         && (value.path === undefined || isNonEmptyString(value.path))
         && (value.pathGlob === undefined || isNonEmptyString(value.pathGlob))
+        && (value.host === undefined || isHostPattern(value.host))
         && (value.scope === undefined
             || value.scope === "workspace"
             || value.scope === "outside_workspace")
@@ -142,6 +145,8 @@ export function permissionPredicateMatches(
             || action.path?.startsWith(`${predicate.path}${sep}`) === true)
         && (predicate.pathGlob === undefined
             || pathBasenameMatchesGlob(predicate.pathGlob, action.path))
+        && (predicate.host === undefined
+            || hostMatches(predicate.host, action.host))
         && (predicate.scope === undefined || predicate.scope === action.scope)
         && (predicate.executable === undefined
             || predicate.executable === action.executable);
