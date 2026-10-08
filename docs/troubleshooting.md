@@ -52,6 +52,7 @@ can prevent it from loading. See
 ## Capture a model failure
 
 Use `/failure-report` for a shareable report of recorded model failures.
+Failed compactions are recorded too, with the reason the summary did not land.
 This is a model-failure report, not a general bug-report system.
 
 Session files, request captures, and classifier logs can contain private

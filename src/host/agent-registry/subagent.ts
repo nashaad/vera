@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { VeraExtensionConfig } from "../../config.ts";
 import { AsyncQueue } from "../../engine/async-queue.ts";
 import { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
+import { createModelFailureRecorder } from "../../engine/model-failure-recorder.ts";
 import type { RunHeadlessLoopData, RunHeadlessLoopServices } from "../../engine/loop-services.ts";
 import { isOneshotReplyUpdate, isSessionNameReplyUpdate, isTimelineReplyUpdate, isToolApprovalUiRequestUpdate, type ToolApprovalUiRequestUpdate } from "../../engine/protocol.ts";
 import { resolveSpawnModelChoice, subagentModelBoundary, type MissingSubagentConfigurationRequest, type SpawnModelResolution, type SubagentPoolPolicy } from "../../engine/subagent.ts";
@@ -128,6 +129,14 @@ export async function runInWorker(reg: AgentRegistry, options: {
         });
         options.entry.worker = handle;
         store.watchRecords(handle.server.pushRecord);
+        // The ledger stays in the host; the worker's events reach it on this bus.
+        const stopRecordingFailures = services.modelFailureLedger === undefined
+                || services.eventBus === undefined
+            ? undefined
+            : services.eventBus.subscribe(createModelFailureRecorder({
+                ledger: services.modelFailureLedger,
+                sessionId: store.header.id,
+            }));
         const pumping = new AbortController();
         let stopping = false;
         const ownerCommands = new AsyncQueue<EngineCommand>();
@@ -185,6 +194,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
             }
             throw new Error(workerOutcomeDetail(outcome));
         } finally {
+            stopRecordingFailures?.();
             pumping.abort();
             ownerCommands.fail(new Error("The worker owner channel closed"));
             options.entry.workerOwnerRouter = undefined;

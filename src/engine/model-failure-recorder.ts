@@ -1,4 +1,8 @@
-import type { EngineEvent, EngineEventSubscriber } from "./events.ts";
+import type {
+    CompactionFinishedEvent,
+    EngineEvent,
+    EngineEventSubscriber,
+} from "./events.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import {
     type ModelFailureLedger,
@@ -10,6 +14,10 @@ export interface ModelFailureRecorderOptions {
     readonly sessionId: string;
     readonly now?: () => Date;
 }
+
+// Cancelled and busy are the user's or the loop's doing, not the summarizer's.
+const RECORDED_COMPACTION_OUTCOMES: ReadonlySet<CompactionFinishedEvent["outcome"]> =
+    new Set(["unavailable", "rejected", "no_boundary"]);
 
 export function createModelFailureRecorder(
     options: ModelFailureRecorderOptions,
@@ -36,6 +44,20 @@ export function createModelFailureRecorder(
         }
         if (event.type === "model_stream_error") {
             pendingFailure = event.failure;
+            return;
+        }
+        if (event.type === "compaction_finished") {
+            if (!RECORDED_COMPACTION_OUTCOMES.has(event.outcome)) return;
+            options.ledger.record({
+                at: now().toISOString(),
+                provider: event.provider ?? "unknown",
+                model: event.model ?? event.strategy,
+                kind: "compaction_failed",
+                detail: event.reason === undefined
+                    ? event.outcome
+                    : `${event.outcome}: ${event.reason}`,
+                sessionId: options.sessionId,
+            });
             return;
         }
         if (event.type !== "turn_finished") return;

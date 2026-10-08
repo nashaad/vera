@@ -175,3 +175,32 @@ test("a stream error from an earlier turn does not colour a later failure", () =
     expect(records[0]?.kind).toBe("no_visible_response");
     expect(records[0]?.requestTokens).toBeUndefined();
 });
+
+test("a compaction the summarizer could not finish is recorded with its reason", () => {
+    const records = recorded([{
+        type: "compaction_finished",
+        strategy: "full-summary",
+        provider: "openrouter",
+        model: "qwen/qwen3.8-max",
+        outcome: "unavailable",
+        reason: "qwen/qwen3.8-max timed out: no output for 120s",
+    }]);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+        provider: "openrouter",
+        model: "qwen/qwen3.8-max",
+        kind: "compaction_failed",
+        detail: "unavailable: qwen/qwen3.8-max timed out: no output for 120s",
+        sessionId: "session-a",
+    });
+});
+
+test("a compaction that landed, was not needed, or was stopped is not recorded", () => {
+    const outcomes = ["compacted", "not_needed", "cancelled", "busy"] as const;
+    expect(recorded(outcomes.map((outcome) => ({
+        type: "compaction_finished",
+        strategy: "full-summary",
+        model: "qwen/qwen3.8-max",
+        outcome,
+    })))).toEqual([]);
+});

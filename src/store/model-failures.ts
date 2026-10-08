@@ -11,6 +11,7 @@ export type ModelFailureKind =
     | "unavailable_tool_call"
     | "stream_error"
     | "provider_failure"
+    | "compaction_failed"
     | "other";
 
 export interface ModelFailureRecord {

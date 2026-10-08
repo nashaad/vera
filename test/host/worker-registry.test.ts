@@ -11,6 +11,7 @@ import {
 } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { ModelFailureLedger } from "../../src/store/model-failures.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -794,3 +795,46 @@ test("a session runs in a worker when a spec is offered, and in the host when it
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
+
+test("a model failure inside a worker reaches the host's failure ledger", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-ledger-"));
+    const ledgerPath = join(root, "failures.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: () => ({
+            module: ADAPTER,
+            options: { script: [], pidPath: join(root, "crow.pid") },
+        }),
+        modelFailureLedger: new ModelFailureLedger(ledgerPath),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+    try {
+        const agent = await registry.create({
+            id: "crow",
+            workspace: root,
+            sessionPath: join(root, "crow.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "plunder the empty script" });
+        await receiveUntil(client, (update) => update.type === "turn_finished");
+        expect(registry.list().find((row) => row.id === "crow")?.worker_pid)
+            .toEqual(expect.any(Number));
+
+        const records = (await readFile(ledgerPath, "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
+        expect(records).toEqual([
+            expect.objectContaining({
+                sessionId: "crow",
+                provider: "faux",
+                detail: "Faux adapter has no scripted response left",
+            }),
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 30_000);
