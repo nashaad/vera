@@ -1421,7 +1421,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ? new StyledText([
                 summary,
                 hint,
-                fg(TUI_MUTED)(`\n\n${plainReasoningSummary(entry.reasoning)}`),
+                fg(TUI_MUTED)(`\n\n${plainReasoningSummary(stackReasoningTitles(entry.reasoning))}`),
             ])
             : new StyledText([summary, hint]);
     }
@@ -1448,6 +1448,21 @@ function liveThinkingTail(text: string): string {
         .map((line) => line.trimEnd())
         .filter((line) => line.length > 0);
     return lines.slice(-LIVE_THINKING_ROWS).join("\n");
+}
+
+const REASONING_TITLE = /^[ \t]*(?:(?:\*\*|__).*(?:\*\*|__)|#{1,6}[ \t]+.*)[ \t]*$/;
+
+// Back-to-back titles stack one per line; a title followed by body text keeps its blank line.
+export function stackReasoningTitles(reasoning: string): string {
+    const paragraphs = reasoning.split(/\n(?:[ \t]*\n)+/);
+    let text = paragraphs[0] ?? "";
+    for (let index = 1; index < paragraphs.length; index += 1) {
+        const previous = paragraphs[index - 1] ?? "";
+        const current = paragraphs[index] ?? "";
+        const stacked = REASONING_TITLE.test(previous) && REASONING_TITLE.test(current);
+        text += (stacked ? "\n" : "\n\n") + current;
+    }
+    return text;
 }
 
 export function plainReasoningSummary(reasoning: string): string {

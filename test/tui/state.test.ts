@@ -415,6 +415,22 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     );
 });
 
+test("expanded reasoning stacks bare titles and keeps a gap before body text", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "**Plotting the course**\n\n**Counting the doubloons**"
+            + "\n\n**Raising the black flag**\n\nThe crow wants the flag up before dawn.",
+        seq: 1,
+    });
+    state = toggleTuiThinking(appendTuiThought(state, 2.1));
+
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
+        "Reasoning summary: 2.1s  Ctrl+O hide reasoning"
+        + "\n\nPlotting the course\nCounting the doubloons\nRaising the black flag"
+        + "\n\nThe crow wants the flag up before dawn.",
+    );
+});
+
 test("dropping live reasoning leaves settled rows alone", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "assistant_delta",

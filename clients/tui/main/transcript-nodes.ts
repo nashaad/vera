@@ -242,6 +242,18 @@ export function createTranscriptEntryNode(rt: TuiRuntime,
     return node;
 }
 
+// A tool row is built before Ctrl+O changes the gap below the thought above it.
+function refreshToolEntryMargin(rt: TuiRuntime,
+    node: TextRenderable | MarkdownRenderable | BoxRenderable,
+    entries: readonly TuiTranscriptEntry[],
+    index: number,
+): void {
+    const kind = entries[index]?.kind;
+    if (kind !== "tool" && kind !== "tool_header") return;
+    const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
+    if (node.marginTop !== margin) node.marginTop = margin;
+}
+
 export function destroyTranscriptEntryNode(rt: TuiRuntime, index: number): void {
     rt.entryNodes[index]?.destroyRecursively();
     delete rt.entryNodes[index];
@@ -393,6 +405,7 @@ export function renderTranscriptEntries(rt: TuiRuntime,
         const entry = entries[index];
         if (node !== undefined && entry !== undefined) {
             updateTranscriptEntryNode(rt, node, entry);
+            refreshToolEntryMargin(rt, node, entries, index);
             rt.entryNodeSources.set(node, entry);
         }
     }
