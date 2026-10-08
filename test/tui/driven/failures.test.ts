@@ -29,7 +29,7 @@ function occurrences(text: string, value: string): number {
     return text.split(value).length - 1;
 }
 
-test("resident stream failure auto-reconnects without /reconnect", async () => {
+test("resident stream failure auto-reconnects without a manual reconnect", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-connection-error-"));
     const session = await startTuiTestSession({
         home,
@@ -41,7 +41,7 @@ test("resident stream failure auto-reconnects without /reconnect", async () => {
         pane = await session.waitForVisiblePane("Host reconnected.");
         expect(pane).toContain("ready · Ctrl+P commands");
         expect(pane).not.toContain("disconnected:");
-        expect(pane).not.toContain("· /reconnect ·");
+        expect(pane).not.toContain("· Ctrl+P reconnect ·");
         expect(pane).not.toContain("Connection error");
         expect(pane).not.toContain("working…");
 
@@ -76,13 +76,13 @@ test("resident stream failure shows restarting host while reconnecting", async (
         const pane = await session.waitForVisiblePane("Host reconnected.");
         expect(pane).toContain("ready · Ctrl+P commands");
         expect(pane).not.toContain("restarting host…");
-        expect(pane).not.toContain("· /reconnect ·");
+        expect(pane).not.toContain("· Ctrl+P reconnect ·");
     } finally {
         await session.close();
     }
 }, 15_000);
 
-test("failed auto-reconnect stays disconnected and /reconnect still works", async () => {
+test("failed auto-reconnect stays disconnected and Reconnect host from the palette still works", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-retry-"));
     const session = await startTuiTestSession({
         home,
@@ -94,15 +94,14 @@ test("failed auto-reconnect stays disconnected and /reconnect still works", asyn
 
     try {
         pane = await session.waitForVisiblePane("disconnected: could not start host");
-        expect(pane).toContain("· /reconnect · Ctrl+C quit");
+        expect(pane).toContain("· Ctrl+P reconnect · Ctrl+C quit");
         expect(pane).not.toContain("working…");
         expect(pane).not.toContain("stopping");
 
-        session.sendText("/reconnect");
-        session.sendKey("Enter");
+        await reconnectFromPalette(session);
         pane = await session.waitForVisiblePane("Host reconnected.");
         expect(pane).toContain("ready · Ctrl+P commands");
-        expect(pane).not.toContain("· /reconnect ·");
+        expect(pane).not.toContain("· Ctrl+P reconnect ·");
     } finally {
         await session.close();
     }
@@ -119,7 +118,7 @@ test("a reconnected session that dies again does not restart the host in a loop"
 
     try {
         const pane = await session.waitForVisiblePane("disconnected:");
-        expect(pane).toContain("· /reconnect · Ctrl+C quit");
+        expect(pane).toContain("· Ctrl+P reconnect · Ctrl+C quit");
         expect(pane).not.toContain("restarting host");
         await session.settle(200);
         const still = session.captureVisiblePane();
@@ -145,7 +144,7 @@ test("stream failure without reconnectSession stays disconnected", async () => {
         const pane = await session.waitForVisiblePane(
             "disconnected: Host sent a non-contiguous agent",
         );
-        expect(pane).toContain("· /reconnect · Ctrl+C quit");
+        expect(pane).toContain("· Ctrl+P reconnect · Ctrl+C quit");
         expect(pane).not.toContain("Host reconnected.");
         expect(pane).not.toContain("working…");
     } finally {
@@ -194,7 +193,7 @@ test("host shutdown after agent death becomes recoverable disconnection", async 
             "disconnected: host connection closed",
         );
         expect(pane).toContain("Resident agent stopped unexpectedly");
-        expect(pane).toContain("· /reconnect · Ctrl+C quit");
+        expect(pane).toContain("· Ctrl+P reconnect · Ctrl+C quit");
     } finally {
         await session.close();
     }
@@ -219,7 +218,7 @@ test("agent death does not restart the host in a loop", async () => {
             "disconnected: host connection closed",
         );
         expect(pane).toContain("Resident agent stopped unexpectedly");
-        expect(pane).toContain("· /reconnect · Ctrl+C quit");
+        expect(pane).toContain("· Ctrl+P reconnect · Ctrl+C quit");
         expect(pane).not.toContain("restarting host");
         expect(reconnects).toBe(0);
         session.sendKey("C-c");
@@ -284,7 +283,7 @@ function createIdleClient(text: string): TuiAgentClient {
     };
 }
 
-test("/reconnect while connected restarts the host instead of saying already active", async () => {
+test("Reconnect host while connected restarts the host instead of saying already active", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-healthy-"));
     let replaceExisting: boolean | undefined;
     const session = await startTuiTestSession({
@@ -300,8 +299,7 @@ test("/reconnect while connected restarts the host instead of saying already act
 
     try {
         await session.waitForVisiblePane("Still connected.");
-        session.sendText("/reconnect");
-        session.sendKey("Enter");
+        await reconnectFromPalette(session);
         const pane = await session.waitForVisiblePane("Host reconnected.");
         expect(replaceExisting).toBe(true);
         expect(pane).toContain("ready · Ctrl+P commands");
@@ -312,7 +310,7 @@ test("/reconnect while connected restarts the host instead of saying already act
     }
 }, 15_000);
 
-test("/reconnect while connected shows restarting host then the same session", async () => {
+test("Reconnect host while connected shows restarting host then the same session", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-healthy-wait-"));
     const session = await startTuiTestSession({
         home,
@@ -327,8 +325,7 @@ test("/reconnect while connected shows restarting host then the same session", a
 
     try {
         await session.waitForVisiblePane("Still connected.");
-        session.sendText("/reconnect");
-        session.sendKey("Enter");
+        await reconnectFromPalette(session);
         const restarting = await session.waitForVisiblePane("restarting host…");
         expect(restarting).not.toContain("already active");
         const pane = await session.waitForVisiblePane("Host reconnected.");
@@ -340,7 +337,7 @@ test("/reconnect while connected shows restarting host then the same session", a
     }
 }, 15_000);
 
-test("busy /reconnect names force-stop and leaves the composer usable", async () => {
+test("busy Reconnect host names force-stop and leaves the composer usable", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-busy-"));
     const session = await startTuiTestSession({
         home,
@@ -354,13 +351,12 @@ test("busy /reconnect names force-stop and leaves the composer usable", async ()
 
     try {
         await session.waitForVisiblePane("Still connected.");
-        session.sendText("/reconnect");
-        session.sendKey("Enter");
+        await reconnectFromPalette(session);
         const pane = await session.waitForVisiblePane(
             "Could not restart the host: other work is still using it.",
         );
         expect(pane).toContain("vera host stop --force");
-        expect(pane.replace(/\s+/g, "")).toContain("then/reconnect.");
+        expect(pane.replace(/\s+/g, "")).toContain("thenchooseReconnecthostfromCtrl+P.");
         expect(pane).toContain("Still connected.");
         expect(pane).toContain("ready · Ctrl+P commands");
         expect(pane).not.toContain("disconnected:");
@@ -393,7 +389,7 @@ test("auto-restart after a drop does not request host replacement", async () => 
     }
 }, 15_000);
 
-test("typed /reconnect only auto-confirms a wedged host", () => {
+test("manual reconnect only auto-confirms a wedged host", () => {
     expect(confirmManualReconnectUpgrade(new HostUnresponsiveError(101))).toBe(
         true,
     );
@@ -401,3 +397,10 @@ test("typed /reconnect only auto-confirms a wedged host", () => {
         .toBe(false);
     expect(confirmManualReconnectUpgrade(new Error("other"))).toBe(false);
 });
+
+async function reconnectFromPalette(session: Awaited<ReturnType<typeof startTuiTestSession>>): Promise<void> {
+    session.sendKey("C-p");
+    await session.waitForVisiblePane("Reconnect host");
+    session.sendText("reconnect host");
+    session.sendKey("Enter");
+}

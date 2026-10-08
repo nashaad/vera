@@ -34,7 +34,7 @@ Manual: `docs/how-vera-works.md`.
 ## Start, development, and upgrades [lines=9]
 Run `vera` for the installed daily Vera using `~/.vera`.
 Run `bun run dev:tui` from a checkout worktree for an isolated development instance with a private factory home. It stops a leftover host of that instance from an older build before launching; `bun run dev:tui --stop` stops that host, while `vera host stop` in a plain shell stops the daily host. A development host stops itself once its worktree is deleted.
-Restarting the TUI does not run edited checkout code. Neither does `/reconnect` or `vera host stop`; they restart or replace processes and install nothing.
+Restarting the TUI does not run edited checkout code. Neither does Reconnect host or `vera host stop`; they restart or replace processes and install nothing.
 To run edited checkout code under the installed `vera` command, run `bun run install:local` from that checkout to pack, verify, and activate the build.
 You have one home at `~/.vera`. There is no profile flag and no runtime-directory switch, and `VERA_HOME` relocates the whole tree for tests and development instances rather than selecting one day to day.
 Use development instances to test a branch. Install only when intentionally promoting a tested build to daily use.
@@ -162,11 +162,11 @@ Manual: `docs/context-levers.md`.
 Vera automatically retries rate-limit and server failures with increasing waits; retry activity stays visible and Escape cancels the pending retry.
 Completed web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
-If a client loses its host connection, use `/reconnect`. This attaches to or replaces the host process while preserving the same installed build.
-`/reconnect` does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
+If a client loses its host connection, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process while preserving the same installed build.
+Reconnect host does not search for a host. The socket in the home's runtime directory is the address, and a socket file on disk is not proof that anything is answering.
 An absent or dead host is started and reattached. A live process behind a silent socket is force-stopped first. A healthy host is asked to shut down for replacement.
 A healthy host that refuses with `busy` is a guard, not a fault. Other work is using it, it is not force-killed, and the composer stays usable.
-After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, typed `/reconnect` is the next move.
+After a dropped connection Vera makes one automatic restart attempt. That attempt will not force-kill a wedged host and will not replace a healthy one. If it cannot get a host, Reconnect host from Ctrl+P is the next move.
 If provider settings changed but discovery still shows stale models, refresh the catalog and verify the provider endpoint. Restarting the TUI alone cannot repair stale host-held provider state.
 Use `/usage` for local session usage and cost, plus current ChatGPT subscription limits when connected. It reads session files and Python workflow runs from the current Vera home and uses the saved ChatGPT sign-in to check subscription limits. Workflow calls count toward the totals only. Manual: `docs/usage.md`.
 

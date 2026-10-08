@@ -108,7 +108,7 @@ export function renderStatus(rt: TuiRuntime): void {
             rt.connectionFailure === undefined
                 ? ""
                 : `: ${shortConnectionFailure(rt.connectionFailure)}`
-        } · /reconnect · Ctrl+C quit`;
+        } · Ctrl+P reconnect · Ctrl+C quit`;
     } else if (focusedAbort) {
         lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
     } else if (

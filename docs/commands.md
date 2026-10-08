@@ -72,7 +72,6 @@ compaction controls.
 | `/nudges` | Manage standing preferences. |
 | `/extensions` | Inspect and manage extension copies. |
 | `/diagnostics` | Inspect the current session or resident host. |
-| `/reconnect` | Reconnect through the host recovery flow. |
 | `/usage` | Open recorded usage and cost. |
 | `/failure-report` | Write a report of recorded model failures. |
 

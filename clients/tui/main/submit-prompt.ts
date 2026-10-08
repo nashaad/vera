@@ -9,7 +9,7 @@ import { clientExtensionReloadFailed, clientExtensionReloadStarted, clientExtens
 import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
-import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginHostReconnect, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
+import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
@@ -684,12 +684,11 @@ export function submitPrompt(rt: TuiRuntime,
         && commandAction?.type !== "open_animations_preview"
         && commandAction?.type !== "create_session"
         && commandAction?.type !== "close_session"
-        && commandAction?.type !== "reconnect"
     ) {
         rt.state = appendTuiError(
             rt.state,
-            "Disconnected from the host. Run /reconnect to restore this"
-                + " session, or Ctrl+C to quit.",
+            "Disconnected from the host. Choose Reconnect host from Ctrl+P"
+                + " to restore this session, or Ctrl+C to quit.",
         );
         renderState(rt);
         return;
@@ -983,27 +982,6 @@ export function submitPrompt(rt: TuiRuntime,
             );
             renderState(rt);
         });
-        return;
-    }
-    if (commandAction?.type === "reconnect") {
-        rt.composer.clearComposer();
-        if (rt.sessionSwitchPending) {
-            renderState(rt);
-            return;
-        }
-        const currentAgentId = rt.client.agentId;
-        if (
-            rt.dependencies.reconnectSession === undefined
-            || currentAgentId === undefined
-        ) {
-            rt.state = appendTuiError(
-                rt.state,
-                "Reconnecting this session is unavailable",
-            );
-            renderState(rt);
-            return;
-        }
-        beginHostReconnect(rt, { clearComposer: true, replaceExisting: true });
         return;
     }
     if (commandAction?.type === "create_session") {

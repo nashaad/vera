@@ -62,8 +62,8 @@ launcher to stop a trial.
 
 ## Recover a host connection
 
-`/reconnect` starts or replaces the current home's host and reattaches the
-conversation. It refuses to replace a healthy busy host. See
+**Reconnect host** in the Ctrl+P palette starts or replaces the current home's
+host and reattaches the conversation. It refuses to replace a healthy busy host. See
 [Troubleshooting](troubleshooting.md#the-client-lost-its-host).
 
 If you intend to terminate that host despite active work, `vera host stop
