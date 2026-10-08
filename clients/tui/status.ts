@@ -396,10 +396,13 @@ export function tuiPlaceRowModeLine(
         .join(" · ");
 }
 
-const COMPACTION_BAR_CELLS = 12;
+const COMPACTION_BAR_CELLS = 10;
 
-const COMPACTION_BAR_HALF_LIFE_MS = 20_000;
+const COMPACTION_SWEEP_CELLS = 3;
 
+const COMPACTION_SWEEP_STEP_MS = 100;
+
+// Compaction reports no progress, so the bar sweeps instead of filling.
 export function renderTuiCompactionHint(
     elapsedMs: number,
     details: {
@@ -407,16 +410,17 @@ export function renderTuiCompactionHint(
         readonly provider?: string;
         readonly model?: string;
     } = {},
+    animate = true,
 ): string {
-    const fraction = Math.max(0, elapsedMs)
-        / (Math.max(0, elapsedMs) + COMPACTION_BAR_HALF_LIFE_MS);
-    const filled = Math.min(
-        COMPACTION_BAR_CELLS - 1,
-        Math.round(fraction * COMPACTION_BAR_CELLS),
-    );
-    const bar = `${"█".repeat(filled)}${
-        "░".repeat(COMPACTION_BAR_CELLS - filled)
-    }`;
+    const lastStart = COMPACTION_BAR_CELLS - COMPACTION_SWEEP_CELLS;
+    const step = Math.floor(Math.max(0, elapsedMs) / COMPACTION_SWEEP_STEP_MS);
+    const phase = step % (lastStart * 2);
+    const start = phase <= lastStart ? phase : lastStart * 2 - phase;
+    const bar = animate
+        ? ` ${"─".repeat(start)}${"━".repeat(COMPACTION_SWEEP_CELLS)}${
+            "─".repeat(lastStart - start)
+        }`
+        : "";
     const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
     const model = details.model === undefined
         ? undefined
@@ -426,7 +430,7 @@ export function renderTuiCompactionHint(
     const label = [details.strategy, model]
         .filter((part): part is string => part !== undefined)
         .join(" · ");
-    return `compacting [${bar}]${label.length === 0 ? "" : ` · ${label}`}`
+    return `compacting${bar}${label.length === 0 ? "" : ` · ${label}`}`
         + ` · ${seconds}s`;
 }
 

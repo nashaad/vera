@@ -126,6 +126,7 @@ export function renderStatus(rt: TuiRuntime): void {
                 provider: statusState.compactionProvider,
                 model: statusState.compactionModel,
             },
+            rt.animationLevel > 0,
         );
     } else if (statusState.working) {
         const modelActivity = statusState.modelActivity;
@@ -463,17 +464,16 @@ export function renderStatus(rt: TuiRuntime): void {
     const liveStatus = rt.modelPrefixPending
         ? modelPrefixHint
         : quietActivity ? "" : statusLine;
-    const liveHint = activityHint.length === 0 || liveStatus.length === 0
-        ? activityHint
-        : ` · ${activityHint}`;
-    setTextContent(rt.activityHintText, liveHint);
-    rt.activityHintText.visible = rt.statusText.visible && liveHint.length > 0;
-    // Live status keeps the row; the limits give way rather than push it off the edge.
-    const liveColumns = Bun.stringWidth(liveStatus) + Bun.stringWidth(liveHint);
-    const limitsFit = Bun.stringWidth(limitsText)
-        + (liveColumns === 0 ? 0 : liveColumns + 2) <= cardWidth;
-    setTextContent(rt.subscriptionLimitsText,
-        rt.statusText.visible && limitsFit ? limitsText : "");
+    setTextContent(rt.activityHintText, activityHint);
+    rt.activityHintText.visible = rt.statusText.visible && activityHint.length > 0;
+    // Live status replaces the limits, so whichever shows starts at the left edge.
+    const liveColumns = Bun.stringWidth(liveStatus) + Bun.stringWidth(activityHint);
+    const limitsShown = rt.statusText.visible
+        && liveColumns === 0
+        && limitsText.length > 0
+        && Bun.stringWidth(limitsText) <= cardWidth;
+    setTextContent(rt.subscriptionLimitsText, limitsShown ? limitsText : "");
+    rt.subscriptionLimitsText.visible = limitsShown;
     setTextContent(rt.statusText, rt.modelPrefixPending
         ? new StyledText([fg(TUI_ACCENT)(modelPrefixHint)])
         : quietActivity

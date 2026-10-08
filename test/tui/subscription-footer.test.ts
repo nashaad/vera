@@ -179,7 +179,7 @@ async function startSubscriptionTurn(width: number): Promise<SubscriptionTurn> {
     };
 }
 
-test("a subscription turn keeps the composer still and its status beside its bar", async () => {
+test("a subscription turn keeps the composer still and its status in place of the limits", async () => {
     // The footer shows the process folder; make it long enough to shorten from any checkout.
     const previousCwd = process.cwd();
     const root = mkdtempSync(join(tmpdir(), "vera-footer-"));
@@ -203,8 +203,8 @@ test("a subscription turn keeps the composer still and its status beside its bar
         await until(setup, (frame) => frame.includes("esc stop"));
         expect(border()).toBe(top);
         expect(rowWith("esc stop")).toBe(footer + 2);
-        expect(rowWith("72% left")).toBe(footer + 2);
-        expect(row(footer + 2)).toMatch(/^ {4}5h 72% left · week 96% left {2,}\S.* · esc stop · /);
+        expect(rowWith("72% left")).toBe(-1);
+        expect(row(footer + 2).trimEnd()).toMatch(/^ {4}\S.* {2,}esc stop · \S+ stop$/);
         expect(row(footer + 3).startsWith(idlePlace)).toBe(true);
         expect(row(footer + 3)).not.toContain("ready");
         expect(row(footer + 3).trimEnd()).toMatch(/ {2,}\S+$/);
@@ -253,7 +253,7 @@ test("a long dev label keeps the live status and drops the limits for the turn",
         expect(border()).toBe(top);
         expect(rowWith("72% left")).toBe(-1);
         expect(rowWith("[DEV limits")).toBe(footer + 2);
-        expect(row(footer + 2)).toContain(" · esc stop · ");
+        expect(row(footer + 2)).toContain("esc stop · ");
         await until(setup, (frame) => frame.includes("ready · Ctrl+P commands"));
         expect(rowWith("72% left")).toBe(footer + 2);
         expect(border()).toBe(top);

@@ -8,6 +8,7 @@ export type TuiChecklistLine =
     | {
         readonly kind: "title";
         readonly title: string;
+        readonly file?: string;
         readonly done: number;
         readonly total: number;
     }
@@ -24,6 +25,7 @@ const DEFAULT_TITLE = "Todo";
 
 export function tuiChecklistLines(
     checklist: ChecklistPresentation,
+    file?: string,
 ): TuiChecklistLine[] {
     const items = checklist.items;
     const done = items.filter((item) => item.done).length;
@@ -31,6 +33,7 @@ export function tuiChecklistLines(
     const title: TuiChecklistLine = {
         kind: "title",
         title: checklist.title ?? DEFAULT_TITLE,
+        ...(file === undefined ? {} : { file }),
         done,
         total: items.length,
     };
@@ -67,21 +70,27 @@ export function tuiChecklistLines(
     return lines;
 }
 
-export function tuiChecklistText(checklist: ChecklistPresentation): string {
-    return tuiChecklistLines(checklist).map(lineText).join("\n");
+export function tuiChecklistText(
+    checklist: ChecklistPresentation,
+    file?: string,
+): string {
+    return tuiChecklistLines(checklist, file).map(lineText).join("\n");
 }
 
 export function renderTuiChecklist(
     checklist: ChecklistPresentation,
+    file?: string,
 ): TextChunk[] {
-    return tuiChecklistLines(checklist).flatMap((line, index) => {
+    return tuiChecklistLines(checklist, file).flatMap((line, index) => {
         const chunks = lineChunks(line);
         return index === 0 ? chunks : [fg(TUI_MUTED)("\n"), ...chunks];
     });
 }
 
 function lineText(line: TuiChecklistLine): string {
-    if (line.kind === "title") return `${line.title}  ${line.done}/${line.total}`;
+    if (line.kind === "title") {
+        return `${line.title}  ${line.done}/${line.total}${fileSuffix(line.file)}`;
+    }
     if (line.kind === "folded_done") return `✓ ${line.count} done`;
     if (line.kind === "more_open") return `○ ${line.count} more`;
     return `${itemMarker(line.state)} ${line.text}`;
@@ -91,7 +100,7 @@ function lineChunks(line: TuiChecklistLine): TextChunk[] {
     if (line.kind === "title") {
         return [
             bold(fg(TUI_TEXT)(line.title)),
-            fg(TUI_MUTED)(`  ${line.done}/${line.total}`),
+            fg(TUI_MUTED)(`  ${line.done}/${line.total}${fileSuffix(line.file)}`),
         ];
     }
     if (line.kind === "folded_done" || line.kind === "more_open") {
@@ -103,6 +112,10 @@ function lineChunks(line: TuiChecklistLine): TextChunk[] {
         ? TUI_TEXT
         : TUI_MUTED;
     return [fg(color)(`${itemMarker(line.state)} ${line.text}`)];
+}
+
+function fileSuffix(file: string | undefined): string {
+    return file === undefined ? "" : ` · ${file}`;
 }
 
 function itemMarker(state: TuiChecklistItemState): string {

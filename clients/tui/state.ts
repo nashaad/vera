@@ -1381,7 +1381,10 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "notice") {
         if (entry.checklist !== undefined) {
-            return new StyledText(renderTuiChecklist(entry.checklist));
+            return new StyledText(renderTuiChecklist(
+                entry.checklist,
+                basename(entry.checklist.path),
+            ));
         }
         if (entry.card === true) {
             return entry.expanded === true
@@ -2471,7 +2474,7 @@ function presentationEntry(
         : presentation.kind === "checklist"
         ? {
             kind: "notice",
-            text: tuiChecklistText(presentation),
+            text: tuiChecklistText(presentation, basename(presentation.path)),
             checklist: presentation,
         }
         : { kind: "notice", text: presentation.text };
