@@ -47,9 +47,14 @@ import {
 } from "./reviewer.ts";
 import {
     createReviewerProfileRouter,
+    restoreContextAfterCompaction,
     runTurn,
+    sessionScratchDir,
     type RunTurnState,
+    type SessionCompactionOptions,
 } from "./run-turn.ts";
+import { createCompactionController } from "./compaction-controller.ts";
+import type { ToolResultLimits } from "./tool-result-history.ts";
 import { newStashingToolRuntime } from "./preimage.ts";
 import type {
     ApplyToolEffect,
@@ -96,6 +101,10 @@ export interface CreateSubagentEffectApplierOptions {
     /** The window the child derives its own budgets from; the parent's catalog and limit, not its model. */
     readonly readWindowSettings?: () =>
         Pick<ModelTurnSettings, "availableModels" | "contextLimit">;
+    readonly bindCompaction?: (
+        route: SubagentModelRoute,
+    ) => SessionCompactionOptions | undefined;
+    readonly readToolResults?: () => ToolResultLimits | undefined;
     readonly subagentModel?: SpawnModelDefault;
     readonly readPolicy?: () => SubagentPoolPolicy;
     readonly requestMissingConfiguration?: RequestMissingSubagentConfiguration;
@@ -107,6 +116,11 @@ export interface CreateSubagentEffectApplierOptions {
     readonly loadAgent?: (
         name: string,
     ) => Promise<AgentDefinition | undefined>;
+}
+
+export interface SubagentModelRoute {
+    readonly provider?: string;
+    readonly model: string;
 }
 
 export interface SpawnModelDefault {
@@ -398,6 +412,8 @@ export interface RunSubagentOptions {
     readonly clampPermissionMode?: ApprovalMode;
     readonly availableModels?: ModelTurnSettings["availableModels"];
     readonly contextLimit?: number;
+    readonly compaction?: SessionCompactionOptions;
+    readonly toolResults?: ToolResultLimits;
 }
 
 export type ChildToolApprovalRelay = (
@@ -546,6 +562,13 @@ export function createSubagentEffectApplier(
         } = options;
         const parentSessionId = context.sessionId ?? options.parentSessionId;
         const parentWindow = options.readWindowSettings?.() ?? {};
+        const compaction = options.bindCompaction?.({
+            ...(resolved.provider === undefined
+                ? {}
+                : { provider: resolved.provider }),
+            model: resolved.model,
+        });
+        const toolResults = options.readToolResults?.();
         try {
             const result = await runSubagent({
                 adapter: options.adapter,
@@ -595,6 +618,8 @@ export function createSubagentEffectApplier(
                 ...(parentWindow.contextLimit === undefined
                     ? {}
                     : { contextLimit: parentWindow.contextLimit }),
+                ...(compaction === undefined ? {} : { compaction }),
+                ...(toolResults === undefined ? {} : { toolResults }),
                 ...(options.relayToolApproval === undefined
                     ? {}
                     : { relayToolApproval: options.relayToolApproval }),
@@ -710,13 +735,54 @@ export async function runSubagent(
             true,
             options.scratchDir,
         );
+        const inbound = new InboundCommandRouter(channel.engine, events);
+        const readModelSettings = (): ModelTurnSettings => ({
+            ...(options.provider === undefined ? {} : { provider: options.provider }),
+            model: options.model,
+            ...(options.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: options.reasoningEffort }),
+            ...(options.availableModels === undefined
+                ? {}
+                : { availableModels: options.availableModels }),
+            ...(options.contextLimit === undefined
+                ? {}
+                : { contextLimit: options.contextLimit }),
+        });
+        const compaction = createCompactionController({
+            store,
+            model: options.model,
+            scratchDir: options.scratchDir ?? sessionScratchDir(sessionId),
+            events,
+            readCompaction: () => options.compaction,
+            readToolResults: () => options.toolResults,
+            readModelSettings,
+            inbound,
+            afterCompacted: async () => {
+                const contextAdded = await restoreContextAfterCompaction(state);
+                if (contextAdded) {
+                    protocol.checkpoint(state.messages, store.activeMessageIds());
+                }
+                return contextAdded;
+            },
+        });
         const state: RunTurnState = {
             sessionId,
             messages: [],
             store,
+            modelContext: compaction.modelContext,
+            contextWatch: compaction.contextWatch,
+            ...(options.compaction === undefined
+                ? {}
+                : { compactionPolicy: options.compaction }),
+            compact: (signal, pendingMessages, context, turn) =>
+                compaction.compact(signal, false, pendingMessages, context, turn),
+            ...(options.toolResults === undefined
+                ? {}
+                : { toolResults: options.toolResults }),
             toolRuntime,
             instructionRoot,
-            inbound: new InboundCommandRouter(channel.engine, events),
+            inbound,
             events,
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
@@ -795,22 +861,7 @@ export async function runSubagent(
         const finalMessage = await runTurn(
             adapter,
             options.model,
-            {
-                ...state,
-                readModelSettings: () => ({
-                    ...(options.provider === undefined ? {} : { provider: options.provider }),
-                    model: options.model,
-                    ...(options.reasoningEffort === undefined
-                        ? {}
-                        : { reasoningEffort: options.reasoningEffort }),
-                    ...(options.availableModels === undefined
-                        ? {}
-                        : { availableModels: options.availableModels }),
-                    ...(options.contextLimit === undefined
-                        ? {}
-                        : { contextLimit: options.contextLimit }),
-                }),
-            },
+            { ...state, readModelSettings },
             options.reasoningEffort,
         );
         await updates;

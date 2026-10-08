@@ -31,6 +31,8 @@ the context by itself. The cap is a share of the model's window, which means a
 small window gets a smaller cap. What was cut is saved to a file the result
 points at.
 
+A subagent's conversation compacts the same way, with the same settings.
+
 Here is the same raid twice, first without compaction, then with it. Sizes
 are in made-up crow words, and the model fits 100 of them. Real models count
 tokens and fit hundreds of thousands.

@@ -797,6 +797,18 @@ export class AgentRegistry {
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             readWindowSettings: readModelSettings,
+            // The child's own model summarizes its session unless compaction slots name another.
+            bindCompaction: (route) => bindCompaction(
+                this.options.compaction,
+                adapter,
+                route,
+                BUNDLED_COMPACTION_STRATEGIES,
+                this.options.compactionModels,
+                this.options.compactionOverrides,
+            ),
+            ...(this.options.toolResults === undefined
+                ? {}
+                : { readToolResults: () => this.options.toolResults }),
             loadAgent: async (name) => (await loadAgents())
                 .find((definition) => definition.name === name),
             workspace: store.header.cwd,
