@@ -75,6 +75,8 @@ test("included host extensions start with a bounded Explorer and no command hook
             });
         expect(registry.preToolUseHooks()).toEqual([]);
         expect(registry.postToolUseHooks()).toEqual([]);
+        expect(registry.turnFinishedHooks().map((hook) => hook.extensionId))
+            .toEqual(["vera.titles"]);
     } finally {
         await registry.close();
     }
@@ -100,7 +102,7 @@ test("included client extensions register commands without starting work", async
 });
 
 test("each included extension can be disabled", () => {
-    const disabled = ["vera.command-hooks", "vera.budget", "vera.btw", "vera.diff", "vera.context"];
+    const disabled = ["vera.command-hooks", "vera.budget", "vera.btw", "vera.diff", "vera.context", "vera.titles"];
     for (const id of disabled) {
         expect(ids(includedExtensionConfigs(disabled))).not.toContain(id);
     }
@@ -197,5 +199,6 @@ test("core and shipped extensions load from their own folders", () => {
     expect(core).toContain("vera.session-identity");
     expect(shipped).toContain("vera.btw");
     expect(shipped).toContain("vera.mcp");
+    expect(shipped).toContain("vera.titles");
     expect(core.filter((id) => shipped.includes(id))).toEqual([]);
 });
