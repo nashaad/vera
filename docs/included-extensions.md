@@ -27,7 +27,8 @@ The core and optional extensions are:
 ```text
 core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
            vera.reasoning-cycle, vera.session-identity, vera.web-search
-included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.titles
+included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.recap,
+           vera.titles
 ```
 
 ## BTW and Pair
@@ -51,6 +52,20 @@ Ctrl+G changes focus. Ctrl+\ cycles split and single-pane layouts.
 Use `/diff` to [review workspace changes](workspace-diff.md). Use `/context`
 to [inspect context usage](context-usage.md). The Context extension also
 provides `/dashboard`; disabling it removes both commands.
+
+## Recap a conversation
+
+`/recap` opens a full-screen list of the conversation's phases in time order,
+each under the time it started, with how long Vera worked on it and whether
+its last test run passed. `/timeline`
+does the same. Commits, questions Vera asked you, long steps, side questions
+and interruptions sit under the phase they happened in. The right pane shows the
+selected row's details, including the files it edited.
+
+Type to filter. Enter scrolls the transcript to that point, and the next
+`/recap` starts on the row you jumped to. The recap is built from the
+conversation itself, with no model call. Time between turns, while Vera was
+waiting on you, does not count toward a phase.
 
 ## Run command hooks
 
