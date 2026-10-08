@@ -103,3 +103,38 @@ test("zero rows shows only the ellipsis", async () => {
     expect(frame[0]?.trim()).toBe("···");
     expect(frame[1]?.trim()).toBe("");
 });
+
+test("earlier rows carry the rail and the newest row carries the mark", async () => {
+    const frame = await drawWindow("all", REASONING, 60);
+    expect(frame.slice(0, 3).map((row) => row.slice(0, 4))).toEqual(["│   ", "│   ", "│   "]);
+    expect(frame[3]?.startsWith("··· Finally it flies off")).toBe(true);
+});
+
+test("wrapped rows carry the rail too", async () => {
+    const frame = await drawWindow("all", "The crow counts every cannon on the deck twice\nThen it naps", 24);
+    expect(frame[0]?.startsWith("│")).toBe(true);
+    expect(frame[1]?.startsWith("│")).toBe(true);
+    expect(frame.findIndex((row) => row.includes("Then it naps"))).toBe(frame.findIndex((row) => row.startsWith("···")));
+});
+
+test("reserved rows below the text stay blank", async () => {
+    const frame = await drawWindow(8, "The crow checks the chart first.\nThen it counts the cannons on deck.", 60);
+    expect(frame[0]?.startsWith("│   The crow")).toBe(true);
+    expect(frame[1]?.startsWith("··· Then it counts")).toBe(true);
+    expect(frame.slice(2, 8).every((row) => row.trim() === "")).toBe(true);
+});
+
+test("the spinner sits on the newest row", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 12 });
+    const node = createTuiThinkingWindow(setup.renderer, "entry-thinking", { kind: "thinking", text: REASONING }, 0, "all");
+    setup.renderer.root.add(node);
+    try {
+        animateTuiThinkingWindow(node, 1);
+        await setup.flush();
+        const frame = setup.captureCharFrame().split("\n");
+        expect(frame[0]?.startsWith("│")).toBe(true);
+        expect(frame[3]?.startsWith("⠙   Finally")).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
+});

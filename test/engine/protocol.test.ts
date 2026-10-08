@@ -1446,3 +1446,30 @@ test("no substitution sentence ever prints the word undefined", () => {
         expect(sentence.endsWith(".")).toBe(true);
     }
 });
+
+test("each new thinking block in one run starts on its own paragraph", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({ type: "model_stream", event: { type: "thinking_start", contentIndex: 0 } });
+    protocol({ type: "model_stream", event: { type: "thinking_delta", contentIndex: 0, text: "**Plotting the course**" } });
+    protocol({ type: "model_stream", event: { type: "thinking_delta", contentIndex: 0, text: "\n\n**Counting the doubloons**" } });
+    protocol({ type: "model_stream", event: { type: "thinking_end", contentIndex: 0 } });
+    protocol({ type: "model_stream", event: { type: "thinking_start", contentIndex: 1 } });
+    protocol({ type: "model_stream", event: { type: "thinking_delta", contentIndex: 1, text: "**Raising the black flag**" } });
+    protocol({ type: "model_stream", event: { type: "thinking_end", contentIndex: 1 } });
+    protocol({ type: "model_stream", event: { type: "text_delta", contentIndex: 2, text: "Caw." } });
+    protocol({ type: "model_stream", event: { type: "thinking_delta", contentIndex: 3, text: "**Hiding the map**" } });
+
+    expect(updates.map((update) => update.type === "assistant_thinking" ? update.text : update.type)).toEqual([
+        "**Plotting the course**",
+        "\n\n**Counting the doubloons**",
+        "\n\n**Raising the black flag**",
+        "assistant_delta",
+        "**Hiding the map**",
+    ]);
+});
