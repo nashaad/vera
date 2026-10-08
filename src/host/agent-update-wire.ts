@@ -1,5 +1,5 @@
 import { isExtensionSessionStates } from "../extensions/session-state.ts";
-import { isTurnTiming } from "../model/types.ts";
+import { isToolPresentation, isTurnTiming } from "../model/types.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -496,18 +496,6 @@ function parseModelActivity(
         : undefined;
 }
 
-function isToolPresentation(value: unknown): boolean {
-    const presentation = asRecord(value);
-    if (presentation?.kind === "unified_diff") {
-        return typeof presentation.path === "string"
-            && presentation.path.length > 0
-            && typeof presentation.patch === "string"
-            && presentation.patch.length > 0;
-    }
-    return presentation?.kind === "tool_notice"
-        && typeof presentation.text === "string"
-        && presentation.text.trim().length > 0;
-}
 
 function withPermissionInspection(
     value: unknown,

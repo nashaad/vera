@@ -11,6 +11,7 @@ export function newStashingToolRuntime(
     instructionRoot?: string,
     processRegistry?: ManagedProcessRegistry,
     isSubagent?: boolean,
+    scratchDirectory?: string,
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -25,5 +26,6 @@ export function newStashingToolRuntime(
         instructionRoot,
         processRegistry?.scope(sessionId),
         isSubagent,
+        scratchDirectory,
     );
 }

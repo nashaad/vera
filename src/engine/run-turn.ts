@@ -1096,6 +1096,7 @@ export async function runHeadlessLoop(
             instructionRoot.path,
             processRegistry,
             sessionIsSubagent(store.header),
+            scratchDir,
         ),
         instructionRoot,
         inbound,

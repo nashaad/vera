@@ -708,6 +708,7 @@ export async function runSubagent(
             instructionRoot.path,
             options.processRegistry,
             true,
+            options.scratchDir,
         );
         const state: RunTurnState = {
             sessionId,

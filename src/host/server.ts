@@ -2,6 +2,7 @@ import type { JsonValue } from "../sdk/hooks.ts";
 import type { ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
+import { sessionScratchDir } from "../engine/run-turn.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmod, mkdir, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -1669,6 +1670,7 @@ function receiveConnection(
             type: "attached",
             agent_id: attachedId,
             workspace: agent.workspace,
+            scratch_directory: sessionScratchDir(attachedId),
             ...(agent.failed ? { failed: true as const } : {}),
             background_agents: sentBackgroundAgents,
             capabilities: negotiated,

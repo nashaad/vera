@@ -178,6 +178,8 @@ export interface UnifiedDiffPresentation {
     readonly kind: "unified_diff";
     readonly path: string;
     readonly patch: string;
+    // The file sits in the session's scratch directory: working notes, not user files.
+    readonly scratch?: true;
 }
 
 export interface ToolNoticePresentation {
@@ -185,9 +187,57 @@ export interface ToolNoticePresentation {
     readonly text: string;
 }
 
+export interface ChecklistItem {
+    readonly text: string;
+    readonly done: boolean;
+    // Done after this write and open (or absent) before it.
+    readonly justDone?: true;
+}
+
+export interface ChecklistPresentation {
+    readonly kind: "checklist";
+    readonly path: string;
+    readonly title?: string;
+    readonly items: readonly ChecklistItem[];
+}
+
 export type ToolPresentation =
     | UnifiedDiffPresentation
-    | ToolNoticePresentation;
+    | ToolNoticePresentation
+    | ChecklistPresentation;
+
+export function isToolPresentation(value: unknown): value is ToolPresentation {
+    if (typeof value !== "object" || value === null) return false;
+    const presentation = value as Record<string, unknown>;
+    if (presentation.kind === "unified_diff") {
+        return typeof presentation.path === "string"
+            && presentation.path.length > 0
+            && typeof presentation.patch === "string"
+            && presentation.patch.length > 0
+            && (presentation.scratch === undefined
+                || presentation.scratch === true);
+    }
+    if (presentation.kind === "checklist") {
+        return typeof presentation.path === "string"
+            && presentation.path.length > 0
+            && (presentation.title === undefined
+                || typeof presentation.title === "string")
+            && Array.isArray(presentation.items)
+            && presentation.items.length > 0
+            && presentation.items.every(isChecklistItem);
+    }
+    return presentation.kind === "tool_notice"
+        && typeof presentation.text === "string"
+        && presentation.text.trim().length > 0;
+}
+
+function isChecklistItem(value: unknown): value is ChecklistItem {
+    if (typeof value !== "object" || value === null) return false;
+    const item = value as Record<string, unknown>;
+    return typeof item.text === "string"
+        && typeof item.done === "boolean"
+        && (item.justDone === undefined || item.justDone === true);
+}
 
 export type ModelMessage = UserMessage | AssistantMessage | ToolResultMessage;
 

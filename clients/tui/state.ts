@@ -1,6 +1,7 @@
 import { workedDividerText } from "./worked-divider.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
+import { basename } from "node:path";
 
 import { bg, bold, fg, italic, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
@@ -17,7 +18,10 @@ import type {
 } from "../../src/engine/protocol.ts";
 import type { PoolAdmissionVerdict } from "../../src/engine/events.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
-import type { ToolPresentation } from "../../src/model/types.ts";
+import type {
+    ChecklistPresentation,
+    ToolPresentation,
+} from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type {
@@ -26,6 +30,7 @@ import type {
 } from "../../src/engine/permissions.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
 import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
+import { renderTuiChecklist, tuiChecklistText } from "./checklist.ts";
 import { tuiShimmerChunks } from "./activity-pulse.ts";
 import {
     resolveTuiDiagnostic,
@@ -105,6 +110,7 @@ export interface TuiTextTranscriptEntry {
     readonly tone?: "primary" | "soft" | "error" | "success";
     readonly card?: boolean;
     readonly summary?: string;
+    readonly checklist?: ChecklistPresentation;
 }
 
 export interface TuiDiffTranscriptEntry {
@@ -1360,6 +1366,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText(renderTuiReview(entry.text));
     }
     if (entry.kind === "notice") {
+        if (entry.checklist !== undefined) {
+            return new StyledText(renderTuiChecklist(entry.checklist));
+        }
         if (entry.card === true) {
             return entry.expanded === true
                 ? new StyledText([fg(TUI_MUTED)(entry.text)])
@@ -1787,8 +1796,14 @@ function stringArg(
 }
 
 let tuiWorkspaceRoots: readonly string[] = [process.cwd()];
+let tuiScratchPrefix: string | undefined;
 
-export function setTuiWorkspaceRoot(workspace: string): void {
+const SCRATCH_DISPLAY_PREFIX = "notes/";
+
+export function setTuiWorkspaceRoot(
+    workspace: string,
+    scratchDirectory?: string,
+): void {
     const roots = [workspace];
     try {
         const resolved = realpathSync(workspace);
@@ -1798,16 +1813,33 @@ export function setTuiWorkspaceRoot(workspace: string): void {
     } catch {
     }
     tuiWorkspaceRoots = roots;
+    tuiScratchPrefix = scratchDirectory === undefined
+        ? undefined
+        : withTrailingSlash(scratchDirectory);
 }
 
 export function tuiDisplayPath(path: string): string {
+    if (tuiScratchPrefix !== undefined && path.startsWith(tuiScratchPrefix)) {
+        return `${SCRATCH_DISPLAY_PREFIX}${path.slice(tuiScratchPrefix.length)}`;
+    }
     for (const root of tuiWorkspaceRoots) {
-        const prefix = root.endsWith("/") ? root : `${root}/`;
+        const prefix = withTrailingSlash(root);
         if (path.startsWith(prefix)) {
             return path.slice(prefix.length);
         }
     }
     return path;
+}
+
+// Tool output is what the model saw; only the displayed copy is shortened.
+function withScratchPathsShortened(text: string): string {
+    return tuiScratchPrefix === undefined
+        ? text
+        : text.replaceAll(tuiScratchPrefix, SCRATCH_DISPLAY_PREFIX);
+}
+
+function withTrailingSlash(path: string): string {
+    return path.endsWith("/") ? path : `${path}/`;
 }
 
 function toolRowText(
@@ -2038,7 +2070,9 @@ function toolResultText(output: string, tool?: string): string {
     if (tool === "ask_user") {
         return formatAskUserResult(text);
     }
-    return text.length === 0 ? "(no output)" : bounded(text);
+    return text.length === 0
+        ? "(no output)"
+        : bounded(withScratchPathsShortened(text));
 }
 
 export function formatAskUserResult(output: string): string {
@@ -2391,12 +2425,25 @@ function appendPresentation(
 function presentationEntry(
     presentation: ToolPresentation,
 ): TuiTranscriptEntry {
+    if (presentation.kind === "unified_diff" && presentation.scratch === true) {
+        return {
+            kind: "notice",
+            tone: "soft",
+            text: `Updated notes · ${basename(presentation.path)}`,
+        };
+    }
     return presentation.kind === "unified_diff"
         ? {
             kind: "diff",
             text: tuiDisplayPath(presentation.path),
             path: presentation.path,
             patch: presentation.patch,
+        }
+        : presentation.kind === "checklist"
+        ? {
+            kind: "notice",
+            text: tuiChecklistText(presentation),
+            checklist: presentation,
         }
         : { kind: "notice", text: presentation.text };
 }

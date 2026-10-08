@@ -7,6 +7,7 @@ import type {
 export interface TuiAgentClient {
     readonly agentId?: string;
     readonly workspace?: string;
+    readonly scratchDirectory?: string;
     readonly failed?: boolean;
     readonly viewOnly?: boolean;
     readonly home?: boolean;

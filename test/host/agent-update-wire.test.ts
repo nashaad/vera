@@ -127,6 +127,49 @@ test("host wire accepts only complete tool presentations", () => {
     })).toBeUndefined();
 });
 
+test("host wire accepts checklists and scratch diffs and rejects malformed ones", () => {
+    const checklist = {
+        type: "tool_presentation" as const,
+        tool: "write",
+        presentation: {
+            kind: "checklist" as const,
+            path: "/tmp/vera/s/todo.md",
+            title: "Raid",
+            items: [{ text: "Chart the reef", done: true, justDone: true as const }],
+        },
+        seq: 1,
+    };
+    expect(parseAgentUpdate(checklist)).toEqual(checklist);
+    expect(parseAgentUpdate({
+        ...checklist,
+        presentation: { ...checklist.presentation, items: [] },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...checklist,
+        presentation: {
+            ...checklist.presentation,
+            items: [{ text: "Chart the reef", done: "yes" }],
+        },
+    })).toBeUndefined();
+
+    const scratch = {
+        type: "tool_presentation" as const,
+        tool: "write",
+        presentation: {
+            kind: "unified_diff" as const,
+            path: "/tmp/vera/s/notes.md",
+            patch: "--- a\n+++ b\n",
+            scratch: true as const,
+        },
+        seq: 2,
+    };
+    expect(parseAgentUpdate(scratch)).toEqual(scratch);
+    expect(parseAgentUpdate({
+        ...scratch,
+        presentation: { ...scratch.presentation, scratch: false },
+    })).toBeUndefined();
+});
+
 test("host wire carries managed process identity on Bash completion", () => {
     const update = {
         type: "tool_finished" as const,

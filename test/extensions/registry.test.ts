@@ -146,6 +146,54 @@ test("registry reports one activation timing for each enabled host extension", a
     await registry.close();
 });
 
+test("extension tools may return checklist presentations", async () => {
+    const workspace = createDirectory();
+    const extension = createExtension("crow.extension", `
+        export function activate(vera) {
+            for (const [name, items] of [
+                ["good_list", [{ text: "Chart the reef", done: true, justDone: true }]],
+                ["bad_list", [{ text: "Chart the reef", done: "yes" }]],
+            ]) {
+                vera.tools.register({
+                    name,
+                    description: "List",
+                    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+                    run() {
+                        return {
+                            output: "ok",
+                            presentation: { kind: "checklist", path: "raid.md", title: "Raid", items },
+                        };
+                    },
+                });
+            }
+        }
+    `, ["tools.register"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const tools = registry.tools();
+    const run = (name: string) => executeToolHandler(
+        { type: "tool_call", id: name, name, input: {} },
+        new ToolRuntime(workspace),
+        new AbortController().signal,
+        tools,
+    );
+
+    await expect(run("good_list")).resolves.toMatchObject({
+        presentation: {
+            kind: "checklist",
+            path: "raid.md",
+            title: "Raid",
+            items: [{ text: "Chart the reef", done: true, justDone: true }],
+        },
+    });
+    await expect(run("bad_list")).resolves.toMatchObject({
+        isError: true,
+        output: expect.stringContaining("returned an invalid result"),
+    });
+    await registry.close();
+});
+
 test("registry exposes extension tools through the ordinary tool and permission paths", async () => {
     const workspace = createDirectory();
     const extension = createExtension("search.extension", `

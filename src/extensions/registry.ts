@@ -3,8 +3,9 @@ import { pathToFileURL } from "node:url";
 import type { ModelMiddleware } from "../sdk/model-middleware.ts";
 
 import type { VeraExtensionConfig } from "../config.ts";
-import type {
-    ToolPresentation,
+import {
+    isToolPresentation,
+    type ToolPresentation,
 } from "../model/types.ts";
 import {
     applyWatchConfigOverrides,
@@ -1073,14 +1074,11 @@ function registerTool(
 }
 
 function parseToolPresentation(value: unknown): ToolPresentation | undefined {
-    if (!isPlainObject(value)) return undefined;
+    if (!isPlainObject(value) || !isToolPresentation(value)) return undefined;
     if (
         value.kind === "unified_diff"
-        && hasExactKeys(value, ["kind", "path", "patch"])
-        && typeof value.path === "string"
-        && value.path.length > 0
-        && typeof value.patch === "string"
-        && value.patch.length > 0
+        && (hasExactKeys(value, ["kind", "path", "patch"])
+            || hasExactKeys(value, ["kind", "path", "patch", "scratch"]))
         && Buffer.byteLength(value.patch) <= MAX_EXTENSION_PRESENTATION_BYTES
         && value.patch.split("\n").length <= MAX_EXTENSION_DIFF_LINES
     ) {
@@ -1088,6 +1086,26 @@ function parseToolPresentation(value: unknown): ToolPresentation | undefined {
             kind: "unified_diff",
             path: value.path,
             patch: value.patch,
+            ...(value.scratch === true ? { scratch: true } : {}),
+        };
+    }
+    if (
+        value.kind === "checklist"
+        && Object.keys(value).every((key) =>
+            key === "kind" || key === "path" || key === "title" || key === "items"
+        )
+        && Buffer.byteLength(JSON.stringify(value))
+            <= MAX_EXTENSION_PRESENTATION_BYTES
+    ) {
+        return {
+            kind: "checklist",
+            path: value.path,
+            ...(value.title === undefined ? {} : { title: value.title }),
+            items: value.items.map((item) => ({
+                text: item.text,
+                done: item.done,
+                ...(item.justDone === true ? { justDone: true } : {}),
+            })),
         };
     }
     if (

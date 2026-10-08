@@ -107,6 +107,59 @@ test("session store creates a header and reloads one message chain", async () =>
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
 });
 
+test("session store reloads checklist and scratch diff presentations", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "sessions", "session.jsonl");
+    const checklist: ModelMessage = {
+        role: "tool_result",
+        toolCallId: "call-1",
+        toolName: "write",
+        content: [{ type: "text", text: "Wrote todo.md" }],
+        isError: false,
+        presentation: {
+            kind: "checklist",
+            path: "/tmp/vera/session-1/todo.md",
+            title: "Raid",
+            items: [
+                { text: "Chart the reef", done: true, justDone: true },
+                { text: "Steal the lantern", done: false },
+            ],
+        },
+    };
+    const note: ModelMessage = {
+        role: "tool_result",
+        toolCallId: "call-2",
+        toolName: "write",
+        content: [{ type: "text", text: "Wrote findings.md" }],
+        isError: false,
+        presentation: {
+            kind: "unified_diff",
+            path: "/tmp/vera/session-1/findings.md",
+            patch: "--- a\n+++ b\n@@ -0,0 +1,1 @@\n+gulls\n",
+            scratch: true,
+        },
+    };
+    const assistant: ModelMessage = {
+        role: "assistant",
+        content: [
+            { type: "tool_call", id: "call-1", name: "write", input: {} },
+            { type: "tool_call", id: "call-2", name: "write", input: {} },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+
+    const store = await SessionStore.create(path, { sessionId: "session-1", cwd: "/work/vera" });
+    await store.appendMessage({ role: "user", content: [{ type: "text", text: "raid" }] });
+    await store.appendMessage(assistant);
+    await store.appendMessage(checklist);
+    await store.appendMessage(note);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.messages().slice(2)).toEqual([checklist, note]);
+});
+
 test("context assembly mode persists in the session header", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "bare.jsonl");

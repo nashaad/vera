@@ -223,6 +223,7 @@ export function createWorkerBoundaryServer(
                                 runtime.instructionRoot,
                                 runtime.processes,
                                 runtime.isSubagent,
+                                runtime.scratchDirectory,
                             );
                             runtime.userInvokedSkill = request.userInvokedSkill;
                             runtime.allowedSkills = request.allowedSkills;

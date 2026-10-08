@@ -1,4 +1,4 @@
-import { isTurnTiming } from "../model/types.ts";
+import { isToolPresentation, isTurnTiming } from "../model/types.ts";
 import { randomUUID } from "node:crypto";
 import {
     chmod,
@@ -2776,18 +2776,6 @@ function isToolResultSource(value: unknown): boolean {
                 && value.spillPath.length > 0));
 }
 
-function isToolPresentation(value: unknown): boolean {
-    if (!isRecord(value)) return false;
-    if (value.kind === "unified_diff") {
-        return typeof value.path === "string"
-            && value.path.length > 0
-            && typeof value.patch === "string"
-            && value.patch.length > 0;
-    }
-    return value.kind === "tool_notice"
-        && typeof value.text === "string"
-        && value.text.trim().length > 0;
-}
 
 function isModelSource(value: unknown): boolean {
     if (!isRecord(value)) {
