@@ -683,8 +683,9 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     showStatusNotice(rt, "Verification is unavailable. The default was not changed.");
                     renderState(rt); return;
                 }
-                const pending = { ...previousPicker, loading: true, subtitle: "Verifying model before assignment. Esc cancels assignment." };
-                rt.settingsPicker = pending;
+                // A settings snapshot can rebuild the picker mid-check, so match by id, not identity.
+                const verificationId = randomUUID();
+                rt.settingsPicker = { ...previousPicker, loading: true, subtitle: "Verifying model before assignment. Esc cancels assignment.", verificationId };
                 renderState(rt); focusActiveSurface(rt);
                 let passed = false;
                 let reason = "Verification failed. The default was not changed.";
@@ -692,17 +693,20 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     passed = result.status === "passed";
                     reason = result.reason?.trim() || reason;
                 }, focusedAgentClient(rt).workspace).then(() => {
-                    if (rt.settingsPicker !== pending) return;
-                    rt.settingsPicker = previousPicker;
+                    const current = rt.settingsPicker;
+                    if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
+                    const restored = { ...current, loading: previousPicker.loading, subtitle: previousPicker.subtitle, verificationId: undefined };
+                    rt.settingsPicker = restored;
                     if (passed && eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider!, model: selection.model! })) applySettingsPickerTransition(rt, transition);
                     else {
                         if (passed) reason = "Verification could not be confirmed or the model is not permitted. The default was not changed.";
-                        rt.settingsPicker = { ...previousPicker, subtitle: reason };
+                        rt.settingsPicker = { ...restored, subtitle: reason };
                         showStatusNotice(rt, reason); renderState(rt); focusActiveSurface(rt);
                     }
                 }).catch((error) => {
-                    if (rt.settingsPicker !== pending) return;
-                    rt.settingsPicker = { ...previousPicker, subtitle: `Verification failed: ${String(error)}` };
+                    const current = rt.settingsPicker;
+                    if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
+                    rt.settingsPicker = { ...current, loading: previousPicker.loading, subtitle: `Verification failed: ${String(error)}`, verificationId: undefined };
                     renderState(rt); focusActiveSurface(rt);
                 });
                 return;

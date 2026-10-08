@@ -346,6 +346,7 @@ export interface TuiSettingsPickerState {
     readonly verificationTargets?: readonly import("./model-verification.ts").VerificationTarget[];
     readonly onlyUnverified?: boolean;
     readonly loading?: boolean;
+    readonly verificationId?: string;
     readonly tab?: TuiModelPickerTab;
     /** Which level holds the keyboard: the row of tabs, or the page under it. A page always has a focused section; the strip is where the page as a whole is being chosen. */
     readonly modelFocus?:
