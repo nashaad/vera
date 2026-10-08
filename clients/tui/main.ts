@@ -1514,7 +1514,8 @@ export async function startTui(
         content: READY_HINT,
         fg: TUI_MUTED,
         height: 1,
-        flexShrink: 0,
+        flexGrow: 1,
+        flexShrink: 1,
     });
     rt.activityHintText = new TextRenderable(rt.renderer, {
         id: "activity-hint",
@@ -1618,13 +1619,11 @@ export async function startTui(
         height: 1,
         flexDirection: "row",
     });
-    // The limits grow to fill the row, which pushes the live status to the right corner.
     rt.subscriptionLimitsText = new TextRenderable(rt.renderer, {
         id: "subscription-limits",
         content: "",
         fg: TUI_MUTED,
         height: 1,
-        flexGrow: 1,
         flexShrink: 1,
         wrapMode: "none",
     });

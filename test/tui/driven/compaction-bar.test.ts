@@ -18,6 +18,11 @@ test("the status line sweeps a bar while compaction runs", async () => {
     try {
         const pane = await session.waitForVisiblePane("compacting ");
         expect(pane).toMatch(/compacting ─*━━━─*/);
+        // It starts on the left, in line with the path below it.
+        const rows = pane.split("\n");
+        const compactingRow = rows.findIndex((row) => row.includes("compacting"));
+        expect(rows[compactingRow]!.search(/\S/))
+            .toBe(rows[compactingRow + 1]!.search(/\S/));
     } finally {
         await session.close();
     }
