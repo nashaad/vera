@@ -1684,8 +1684,13 @@ export function createProtocolEncoder(
     let measuredModel: string | undefined;
     let pendingCheckpointFloor: ContextMeasurement | undefined;
     let promptQueue: PromptQueueState | undefined;
+    // Clients concatenate thinking text, so a new block in the same run needs its own break.
+    let thinkingBlock: number | undefined;
 
     const encode = (event: Parameters<EngineEventSubscriber>[0]): void => {
+        if (event.type !== "model_stream" || !event.event.type.startsWith("thinking_")) {
+            thinkingBlock = undefined;
+        }
         if (event.type === "prompt_queue_changed") {
             promptQueue = structuredClone(event.queue);
             seq += 1;
@@ -1755,10 +1760,13 @@ export function createProtocolEncoder(
             event.type === "model_stream"
             && event.event.type === "thinking_delta"
         ) {
+            const startsBlock = thinkingBlock !== undefined
+                && thinkingBlock !== event.event.contentIndex;
+            thinkingBlock = event.event.contentIndex;
             seq += 1;
             sender.send({
                 type: "assistant_thinking",
-                text: event.event.text,
+                text: startsBlock ? `\n\n${event.event.text}` : event.event.text,
                 seq,
             });
             return;
