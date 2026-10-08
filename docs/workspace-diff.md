@@ -1,6 +1,6 @@
 ---
 title: "Review workspace changes"
-description: "Inspect changed files and patches in the current Git worktree."
+description: "Inspect changed files and patches in the current Git worktree or another worktree of the same repository."
 ---
 
 # Review workspace changes
@@ -26,6 +26,7 @@ File headers show additions and deletions.
 | S | Switch between one patch and all patches. |
 | V | Switch split / unified view when space permits. |
 | M | Mark the file reviewed for this view. |
+| W | Choose another worktree. |
 | Escape or Q | Return to the conversation. |
 
 Close and reopen `/diff` to refresh the changes.
@@ -35,8 +36,23 @@ Close and reopen `/diff` to refresh the changes.
 Tracked changes are compared against HEAD. Untracked files appear as
 additions. Binary files and oversized untracked files show preview notices.
 
-The view covers this worktree only. It does not identify who made an edit
-or include changes in other worktrees.
+The view shows one worktree at a time. It does not identify who made an
+edit.
+
+## Look at another worktree
+
+If the repository has more than one worktree, press W in the diff view. A list
+shows each worktree with its branch and how many files have changed, and marks
+the one this session works in. Choose one with Up/Down and press Enter. The
+heading names the worktree you are looking at and says `other worktree` when
+it is not this session's. Escape returns to the diff you were on.
+
+To open another worktree directly, give its folder or branch name:
+
+```text
+/diff plunder
+/diff feat/plunder
+```
 
 ## Disable the viewer
 

@@ -4,7 +4,8 @@ import { DiffRenderable, type Renderable, ScrollBoxRenderable } from "@opentui/c
 import { createDiffView } from "../../extensions/diff/view.ts";
 import { createTuiExperimentalHost } from "../../clients/tui/experimental-tui-host.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
-import type { WorkspaceDiff } from "../../extensions/diff/model.ts";
+import type { WorkspaceDiff, Worktree } from "../../extensions/diff/model.ts";
+import { createWorktreePicker } from "../../extensions/diff/worktrees.ts";
 
 const snapshot: WorkspaceDiff = {
     root: "/workspace", base: "HEAD",
@@ -72,4 +73,78 @@ test("full-screen extension overlays mount without dialog chrome and dispose cle
         expect(setup.captureCharFrame()).not.toContain("working tree");
         expect(failures).toEqual([]);
     } finally { await host.close(); setup.renderer.destroy(); }
+});
+
+const press = (name: string) => ({ name, chord: name, ctrl: false, meta: false, shift: false });
+
+test("diff names the worktree it shows, offers w only when there is another worktree, and says so when clean", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 20 });
+    let chosen = 0;
+    try {
+        const clean: WorkspaceDiff = { root: "/workspace", base: "HEAD", files: [] };
+        const view = createDiffView(setup.renderer, clean, () => {}, { label: "plunder · feat/plunder · other worktree", chooseWorktree: () => { chosen++; } });
+        setup.renderer.root.add(view.root);
+        await setup.flush();
+        let frame = setup.captureCharFrame();
+        expect(frame.split("\n")[0]).toContain("Diff  plunder · feat/plunder · other worktree");
+        expect(frame).toContain("No changes in this worktree.");
+        expect(frame).toContain("Press w to view another worktree.");
+        view.onKey(press("?")); await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("w worktrees");
+        for (const line of frame.split("\n")) expect(Bun.stringWidth(line.trimEnd())).toBeLessThanOrEqual(80);
+        expect(view.onKey(press("w"))).toBe(true);
+        expect(chosen).toBe(1);
+        view.root.destroyRecursively();
+
+        const alone = createDiffView(setup.renderer, clean, () => {});
+        setup.renderer.root.add(alone.root);
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("No changes in this worktree.");
+        expect(frame).not.toContain("Press w");
+        alone.onKey(press("?")); await setup.flush();
+        expect(setup.captureCharFrame()).not.toContain("w worktrees");
+    } finally { setup.renderer.destroy(); }
+});
+
+test("worktree picker lists worktrees with branch and change counts, marks this session, and keys stay inside it", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 16 });
+    const worktrees: Worktree[] = [
+        { path: "/ship/vera", name: "vera", branch: "main", current: true },
+        { path: "/ship/vera/.worktrees/plunder", name: "plunder", branch: "feat/plunder", current: false },
+        { path: "/ship/vera/.worktrees/lookout", name: "lookout", head: "abcdef0123456789", current: false },
+        { path: "/other/plunder", name: "plunder", branch: "feat/other", current: false },
+    ];
+    const chosen: number[] = [];
+    let back = 0;
+    try {
+        const picker = createWorktreePicker(setup.renderer, worktrees, { shown: 0, choose: (index) => chosen.push(index), back: () => { back++; } });
+        setup.renderer.root.add(picker.root);
+        picker.setCount(0, 0); picker.setCount(1, 3); picker.setCount(2, new Error("gone"));
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("Choose a worktree");
+        expect(frame).toMatch(/› vera · main · this session\s+no changes/);
+        picker.onKey(press("down")); await setup.flush();
+        expect(setup.captureCharFrame()).toMatch(/• vera · main/);
+        expect(setup.captureCharFrame()).toMatch(/› plunder · feat\/plunder/);
+        picker.onKey(press("up"));
+        expect(frame).toMatch(/plunder · feat\/plunder · \/ship\/vera\/\.worktrees\/plunder\s+3 files/);
+        expect(frame).toMatch(/lookout · detached at abcdef0\s+unreadable/);
+        expect(frame).toMatch(/plunder · feat\/other · \/other\/plunder\s+…/);
+        expect(frame).toContain("enter open · esc back");
+        picker.onKey(press("up")); picker.onKey(press("down")); picker.onKey(press("down"));
+        expect(picker.onKey(press("x"))).toBe(true);
+        picker.onKey(press("enter"));
+        expect(chosen).toEqual([2]);
+        for (let i = 0; i < 6; i++) picker.onKey(press("down"));
+        picker.onKey(press("return"));
+        expect(chosen).toEqual([2, 3]);
+        expect(picker.onKey({ name: "c", chord: "ctrl+c", ctrl: true, meta: false, shift: false })).toBe(false);
+        picker.setMessage("Reading plunder…"); await setup.flush();
+        expect(setup.captureCharFrame()).toContain("Reading plunder…");
+        picker.onKey(press("escape"));
+        expect(back).toBe(1);
+    } finally { setup.renderer.destroy(); }
 });

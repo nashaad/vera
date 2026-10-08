@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { lstat, readFile, readlink } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, readFile, readlink, realpath } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { createTwoFilesPatch } from "diff";
 
@@ -42,17 +42,36 @@ async function untrackedContent(root: string, path: string): Promise<{ text?: st
     return { text: bytes.toString("utf8"), binary: false };
 }
 
-export async function readWorkspaceDiff(workspace: string, signal: AbortSignal): Promise<WorkspaceDiff> {
-    let root: string;
+export interface Worktree {
+    path: string;
+    name: string;
+    branch?: string;
+    head?: string;
+    current: boolean;
+}
+
+interface ChangeEntry {
+    path: string;
+    code: string;
+    counts?: { additions: number; deletions: number; binary: boolean };
+}
+
+async function repositoryRoot(workspace: string, signal: AbortSignal): Promise<string> {
     try {
-        root = (await git(workspace, ["rev-parse", "--show-toplevel"], signal)).trimEnd();
+        return (await git(workspace, ["rev-parse", "--show-toplevel"], signal)).trimEnd();
     } catch (error) {
         signal.throwIfAborted();
         throw new Error("This workspace is not an accessible Git repository.", { cause: error });
     }
-    let base = "HEAD";
-    try { await git(root, ["rev-parse", "--verify", "HEAD"], signal); }
-    catch { signal.throwIfAborted(); base = EMPTY_TREE; }
+}
+
+async function headOrEmpty(root: string, signal: AbortSignal): Promise<string> {
+    try { await git(root, ["rev-parse", "--verify", "HEAD"], signal); return "HEAD"; }
+    catch { signal.throwIfAborted(); return EMPTY_TREE; }
+}
+
+// A status entry without numstat counts is dropped: an index change that the working file undoes nets to nothing against HEAD.
+async function changeEntries(root: string, base: string, signal: AbortSignal): Promise<ChangeEntry[]> {
     const [statusText, statsText] = await Promise.all([
         git(root, ["-c", "status.renames=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"], signal),
         git(root, ["diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--numstat", "-z", base, "--"], signal),
@@ -63,14 +82,24 @@ export async function readWorkspaceDiff(workspace: string, signal: AbortSignal):
         if (!match) continue;
         stats.set(match[3]!, { additions: Number(match[1]) || 0, deletions: Number(match[2]) || 0, binary: match[1] === "-" });
     }
-    const files: ChangedFile[] = [];
+    const entries: ChangeEntry[] = [];
     for (const entry of statusText.split("\0").filter(Boolean)) {
-        signal.throwIfAborted();
         const code = entry.slice(0, 2);
         const path = entry.slice(3);
-        const untracked = code === "??";
         const counts = stats.get(path);
-        if (!untracked && counts === undefined && !code.includes("U")) continue;
+        if (code !== "??" && counts === undefined && !code.includes("U")) continue;
+        entries.push({ path, code, counts });
+    }
+    return entries;
+}
+
+export async function readWorkspaceDiff(workspace: string, signal: AbortSignal): Promise<WorkspaceDiff> {
+    const root = await repositoryRoot(workspace, signal);
+    const base = await headOrEmpty(root, signal);
+    const files: ChangedFile[] = [];
+    for (const { path, code, counts } of await changeEntries(root, base, signal)) {
+        signal.throwIfAborted();
+        const untracked = code === "??";
         const status = untracked ? "Untracked" : code.includes("U") || code === "AA" || code === "DD" ? "Conflict"
             : code.includes("D") ? "Deleted" : code.includes("A") ? "Added" : "Modified";
         const file: ChangedFile = { path, status, untracked, additions: 0, deletions: 0, binary: false, ...counts };
@@ -86,6 +115,38 @@ export async function readWorkspaceDiff(workspace: string, signal: AbortSignal):
         files.push(file);
     }
     return { root, base, files: files.sort((a, b) => a.path.localeCompare(b.path)) };
+}
+
+export async function countChangedFiles(path: string, signal: AbortSignal): Promise<number> {
+    const root = await repositoryRoot(path, signal);
+    return (await changeEntries(root, await headOrEmpty(root, signal), signal)).length;
+}
+
+// Bare and prunable entries have no working files to diff, so they are left out.
+export async function listWorktrees(workspace: string, signal: AbortSignal): Promise<Worktree[]> {
+    const root = await realpath(await repositoryRoot(workspace, signal));
+    const text = await git(root, ["worktree", "list", "--porcelain", "-z"], signal);
+    const worktrees: Worktree[] = [];
+    for (const record of text.split("\0\0").filter(Boolean)) {
+        const fields = new Map<string, string>();
+        for (const line of record.split("\0").filter(Boolean)) {
+            const space = line.indexOf(" ");
+            fields.set(space < 0 ? line : line.slice(0, space), space < 0 ? "" : line.slice(space + 1));
+        }
+        const path = fields.get("worktree");
+        if (path === undefined || fields.has("bare") || fields.has("prunable")) continue;
+        const branch = fields.get("branch")?.replace(/^refs\/heads\//, "");
+        const resolved = await realpath(path).catch(() => path);
+        worktrees.push({ path, name: basename(path), branch, head: fields.get("HEAD"), current: resolved === root });
+    }
+    return worktrees;
+}
+
+export function findWorktree(worktrees: readonly Worktree[], query: string, workspace: string): Worktree[] {
+    const absolute = resolve(workspace, query);
+    const byPath = worktrees.filter((worktree) => worktree.path === absolute);
+    if (byPath.length) return byPath;
+    return worktrees.filter((worktree) => worktree.name === query || worktree.branch === query);
 }
 
 export async function readFilePatch(snapshot: WorkspaceDiff, file: ChangedFile, signal: AbortSignal): Promise<string> {

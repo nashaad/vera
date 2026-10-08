@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readFilePatch, readWorkspaceDiff } from "../../extensions/diff/model.ts";
+import { countChangedFiles, findWorktree, listWorktrees, readFilePatch, readWorkspaceDiff } from "../../extensions/diff/model.ts";
 
 const directories: string[] = [];
 const signal = new AbortController().signal;
@@ -73,4 +73,40 @@ test("non-repositories and cancellation are explicit", async () => {
     const controller = new AbortController();
     controller.abort();
     await expect(readWorkspaceDiff(root, controller.signal)).rejects.toThrow();
+});
+
+test("worktrees list every checkout with its branch, mark the session's own, and count changes like the diff does", async () => {
+    const root = repository();
+    writeFileSync(join(root, "crow.txt"), "caw\n");
+    writeFileSync(join(root, ".gitignore"), ".worktrees/\n");
+    commit(root);
+    const sibling = join(root, ".worktrees", "plunder");
+    git(root, "worktree", "add", "-q", "-b", "feat/plunder", sibling);
+    const detached = join(root, ".worktrees", "lookout");
+    git(root, "worktree", "add", "-q", "--detach", detached);
+    const missing = join(root, ".worktrees", "sunk");
+    git(root, "worktree", "add", "-q", "-b", "sunk", missing);
+    rmSync(missing, { recursive: true, force: true });
+    writeFileSync(join(sibling, "crow.txt"), "caw caw\n");
+    writeFileSync(join(sibling, "map.txt"), "x marks\n");
+    writeFileSync(join(sibling, "crow.txt.bak"), "caw\n");
+    git(sibling, "add", "crow.txt.bak");
+    unlinkSync(join(sibling, "crow.txt.bak"));
+
+    const worktrees = await listWorktrees(join(sibling), signal);
+    const main = worktrees.find((worktree) => worktree.path === git(root, "rev-parse", "--show-toplevel").trimEnd())!;
+    const lookout = worktrees.find((worktree) => worktree.name === "lookout")!;
+    expect(worktrees).toHaveLength(3);
+    expect(main.current).toBe(false);
+    expect(worktrees.find((worktree) => worktree.name === "plunder")).toMatchObject({ branch: "feat/plunder", current: true });
+    expect(lookout).toMatchObject({ branch: undefined, current: false });
+    expect(lookout.head).toMatch(/^[0-9a-f]{40}$/);
+    expect(await countChangedFiles(sibling, signal)).toBe((await readWorkspaceDiff(sibling, signal)).files.length);
+    expect(await countChangedFiles(sibling, signal)).toBe(2);
+    expect(await countChangedFiles(root, signal)).toBe(0);
+
+    expect(findWorktree(worktrees, "plunder", root).map((worktree) => worktree.name)).toEqual(["plunder"]);
+    expect(findWorktree(worktrees, "feat/plunder", root).map((worktree) => worktree.name)).toEqual(["plunder"]);
+    expect(findWorktree(worktrees, ".worktrees/lookout", main.path).map((worktree) => worktree.name)).toEqual(["lookout"]);
+    expect(findWorktree(worktrees, "kraken", root)).toEqual([]);
 });

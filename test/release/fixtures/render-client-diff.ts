@@ -34,7 +34,7 @@ try {
             }
             assert.equal(result, undefined, JSON.stringify(result));
             assert.equal(host.hasModal(), true);
-            assert.match(frame, /Diff  working tree/);
+            assert.match(frame, /Diff  workspace · /);
             assert.match(frame, /hello from workspace/);
             assert.deepEqual(failures, []);
         } finally {

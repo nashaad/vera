@@ -12,9 +12,14 @@ export interface DiffView {
     onKey(key: VeraExperimentalTuiKey): boolean;
 }
 
-export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, close: () => void): DiffView {
+export interface DiffViewOptions {
+    label?: string;
+    chooseWorktree?: () => void;
+}
+
+export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, close: () => void, options: DiffViewOptions = {}): DiffView {
     const root = new BoxRenderable(renderer, { id: "workspace-diff", width: "100%", height: "100%", backgroundColor: TUI_BACKGROUND, flexDirection: "column", focusable: true });
-    const heading = new TextRenderable(renderer, { content: ` Diff  working tree${snapshot.files.length ? `   ${snapshot.files.length} files` : ""}`, fg: TUI_TEXT, height: 1, flexShrink: 0 });
+    const heading = new TextRenderable(renderer, { content: ` Diff  ${options.label ?? "working tree"}${snapshot.files.length ? `   ${snapshot.files.length} files` : ""}`, fg: TUI_TEXT, height: 1, flexShrink: 0 });
     const body = new BoxRenderable(renderer, { flexDirection: "row", flexGrow: 1, minHeight: 0, border: ["top", "bottom"], borderColor: TUI_MUTED });
     const patches = new ScrollBoxRenderable(renderer, { id: "diff-patches", flexGrow: 1, minWidth: 0, minHeight: 0, paddingLeft: 1, paddingRight: 1, scrollX: false, scrollY: true, verticalScrollbarOptions: { visible: false }, horizontalScrollbarOptions: { visible: false } });
     const sidebar = new ScrollBoxRenderable(renderer, { id: "diff-files", width: 32, flexShrink: 0, border: ["left"], borderColor: TUI_MUTED, scrollX: false, scrollY: true, verticalScrollbarOptions: { visible: false }, horizontalScrollbarOptions: { visible: false }, backgroundColor: TUI_PANEL });
@@ -50,7 +55,7 @@ export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, c
     function updateFooter(): void {
         footer.height = help ? 2 : 1;
         footer.content = help
-            ? " n/p file · [ prev hunk · ] next hunk · b sidebar · s single/all\n v split/unified · m reviewed · E expand all · ? back · esc close"
+            ? ` n/p file · [ prev hunk · ] next hunk · b sidebar · s single/all\n v split/unified · m reviewed · E expand all${options.chooseWorktree ? " · w worktrees" : ""} · ? back · esc close`
             : ` [${focus === "files" ? "Files" : "Patches"}] ↑↓ scroll · tab focus · enter open · n/p file · ? help · esc close`;
     }
     function drawTree(): void {
@@ -134,7 +139,7 @@ export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, c
         patches.add(section);
         section.add(new TextRenderable(renderer, { content: `${file.path}  ${fileCounts(file)}\nLoading diff…`, fg: TUI_MUTED }));
     });
-    if (snapshot.files.length === 0) patches.add(new TextRenderable(renderer, { content: "No changes in this worktree.\n\nOnly changes in the current worktree are shown. Changes in other worktrees won’t appear here.", fg: TUI_MUTED, width: "100%", wrapMode: "word" }));
+    if (snapshot.files.length === 0) patches.add(new TextRenderable(renderer, { content: options.chooseWorktree ? "No changes in this worktree.\n\nPress w to view another worktree." : "No changes in this worktree.", fg: TUI_MUTED, width: "100%", wrapMode: "word" }));
     const resize = (): void => { for (const diff of diffNodes.values()) diff.view = splitView(); };
     renderer.on("resize", resize);
     root.once("destroyed", () => { renderer.off("resize", resize); style.destroy(); });
@@ -165,6 +170,7 @@ export function createDiffView(renderer: CliRenderer, snapshot: WorkspaceDiff, c
             }
             if (name === "escape" || name === "q") { if (help) { help = false; updateFooter(); } else close(); return true; }
             if (name === "tab" || name === "backtab") { if (sidebar.visible) focus = focus === "files" ? "patches" : "files"; drawTree(); return true; }
+            if (name === "w" && options.chooseWorktree) { options.chooseWorktree(); return true; }
             if (name === "?") { help = !help; updateFooter(); return true; }
             if (name === "b") { sidebar.visible = !sidebar.visible; if (!sidebar.visible) focus = "patches"; resize(); updateFooter(); return true; }
             if (name === "v") { viewOverride = splitView() === "split" ? "unified" : "split"; resize(); return true; }
