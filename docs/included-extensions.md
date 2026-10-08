@@ -71,7 +71,7 @@ path. Malformed supplied configuration prevents activation.
 your first message and the start of the reply to the snappy model (see
 [Assign defaults](models.md#assign-defaults)) and asks for a title of six
 words or fewer. The title shows in `/resume` and in the terminal window
-title.
+title, including a window that already has the conversation open.
 
 It only names a conversation that has never had a name, so a `/rename`
 always wins, even one that cleared the name. It skips conversations another

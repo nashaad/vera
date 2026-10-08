@@ -6,7 +6,7 @@ import type { TuiAgentClient } from "../agent-client.ts";
 import { createHomeClient, isHomeClient } from "../home-client.ts";
 import { createHomeState, type HomeAction } from "../home-screen.ts";
 import { createJsonlViewClient, isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
-import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPickerOption, renderCommandSuggestions, renderStatus, requestPoolAdmission, requireIdentifiedClient, showStatusNotice, watchBackgroundAgents, watchWorkIndex, type TuiDraft } from "../main.ts";
+import { SESSION_SWITCH_TIMEOUT_MS, recentSessionSaveFailure, removeSessionPickerOption, renderCommandSuggestions, renderStatus, requestPoolAdmission, requireIdentifiedClient, showStatusNotice, watchBackgroundAgents, watchSessionTitle, watchWorkIndex, type TuiDraft } from "../main.ts";
 import { receiveAgentUpdates } from "../main/agent-updates.ts";
 import { focusedAgentClient, focusedAgentState, openExtensionAgent, setSidebarFocused } from "../main/agents-dials.ts";
 import { homeNeedsProvider, openProviderPicker } from "../main/model-pickers.ts";
@@ -138,6 +138,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.skillCommandsLoading = supportsSkillCommands(rt, next);
     watchBackgroundAgents(rt, next);
     watchWorkIndex(rt, next);
+    watchSessionTitle(rt, next);
     rt.sessionTitle = undefined;
     rt.mainHeaderVisible = true;
     rt.sidebarHeaderVisible = true;

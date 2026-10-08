@@ -72,6 +72,11 @@ export function createReconnectingAgentClient(
     >();
     let workIndex = current.workIndex;
     let stopWorkIndexUpdates = subscribeToWorkIndexUpdates(current);
+    const sessionTitleListeners = new Set<
+        Parameters<AttachedAgentClient["onSessionTitle"]>[0]
+    >();
+    let sessionTitle = current.sessionTitle;
+    let stopSessionTitleUpdates = current.onSessionTitle(publishSessionTitle);
 
     const client: AttachedAgentClient = {
         get agentId(): string {
@@ -111,6 +116,15 @@ export function createReconnectingAgentClient(
             workIndexListeners.add(listener);
             return (): void => {
                 workIndexListeners.delete(listener);
+            };
+        },
+        get sessionTitle() {
+            return sessionTitle;
+        },
+        onSessionTitle(listener) {
+            sessionTitleListeners.add(listener);
+            return (): void => {
+                sessionTitleListeners.delete(listener);
             };
         },
         send(command) {
@@ -182,6 +196,7 @@ export function createReconnectingAgentClient(
             lifecycle.abort(new Error("Agent attachment is released"));
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
+            stopSessionTitleUpdates();
             return release.call(current, policy);
         },
         async detach(): Promise<void> {
@@ -190,6 +205,7 @@ export function createReconnectingAgentClient(
             lifecycle.abort(new Error("Agent attachment is detached"));
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
+            stopSessionTitleUpdates();
             if (!current.closed) await current.detach();
         },
         close(): void {
@@ -198,6 +214,7 @@ export function createReconnectingAgentClient(
             lifecycle.abort(new Error("Agent attachment is closed"));
             stopBackgroundAgentUpdates();
             stopWorkIndexUpdates();
+            stopSessionTitleUpdates();
             current.close();
         },
         get closed(): boolean {
@@ -219,6 +236,16 @@ export function createReconnectingAgentClient(
         for (const listener of workIndexListeners) {
             try {
                 listener(index);
+            } catch {
+            }
+        }
+    }
+
+    function publishSessionTitle(title: string | undefined): void {
+        sessionTitle = title;
+        for (const listener of sessionTitleListeners) {
+            try {
+                listener(title);
             } catch {
             }
         }
@@ -273,6 +300,10 @@ export function createReconnectingAgentClient(
                 if (next.workIndex !== undefined) {
                     publishWorkIndex(next.workIndex);
                 }
+                stopSessionTitleUpdates();
+                stopSessionTitleUpdates = next.onSessionTitle(
+                    publishSessionTitle,
+                );
                 for (const listener of backgroundAgentListeners) {
                     try {
                         listener(next.backgroundAgents);

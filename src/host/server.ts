@@ -80,6 +80,7 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+    HOST_CAPABILITY_SESSION_TITLE,
     HOST_CAPABILITY_WORK_INDEX,
     negotiateHostCapabilities,
     parseHostCapabilities,
@@ -627,6 +628,7 @@ function receiveConnection(
     let stopWatchingRoster: (() => void) | undefined;
     let sentWorkIndex: WorkIndexSnapshot | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
+    let sentSessionTitle: { readonly title: string | undefined } | undefined;
     const extensionRequests = new Set<AbortController>();
     const extensionRequestIds = new Set<string>();
     let pendingBranchId: string | undefined;
@@ -1662,9 +1664,13 @@ function receiveConnection(
             );
         }
         const wantsWorkIndex = negotiated.includes(HOST_CAPABILITY_WORK_INDEX);
+        const wantsSessionTitle = negotiated.includes(
+            HOST_CAPABILITY_SESSION_TITLE,
+        );
         stopWatchingRoster = onRosterChanged(() => {
             sendBackgroundAgents(attachedId);
             if (wantsWorkIndex) sendWorkIndex();
+            if (wantsSessionTitle) sendSessionTitle(attachedId);
         });
         void send({
             type: "attached",
@@ -1677,6 +1683,7 @@ function receiveConnection(
         }).then(
             () => {
                 if (wantsWorkIndex) sendWorkIndex();
+                if (wantsSessionTitle) sendSessionTitle(attachedId);
                 return forwardAgentUpdates(agent, attached);
             },
             () => socket.destroy(),
@@ -1755,6 +1762,29 @@ function receiveConnection(
         sentWorkIndex = next;
         void send({ type: "work_index", index: next },
             () => !finished && attachment !== undefined)
+            .catch(() => socket.destroy());
+    }
+
+    function sendSessionTitle(attachedAgentId: string): void {
+        if (finished || attachment === undefined) {
+            return;
+        }
+        let title: string | undefined;
+        try {
+            title = listBackgroundAgents()
+                .find((summary) => summary.id === attachedAgentId)?.title;
+        } catch {
+            return;
+        }
+        if (sentSessionTitle !== undefined && sentSessionTitle.title === title) {
+            return;
+        }
+        sentSessionTitle = { title };
+        void send({
+            type: "session_title",
+            agent_id: attachedAgentId,
+            ...(title === undefined ? {} : { title }),
+        }, () => !finished && attachment !== undefined)
             .catch(() => socket.destroy());
     }
 

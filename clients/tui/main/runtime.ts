@@ -208,6 +208,7 @@ export interface TuiRuntime {
     backOriginTitle: string | undefined;
     terminalFocused: boolean;
     stopWatchingWorkIndex: (() => void) | undefined;
+    stopWatchingSessionTitle: (() => void) | undefined;
     searchInFlight: boolean;
     pendingSearchTarget: {
         readonly sessionId: string;
