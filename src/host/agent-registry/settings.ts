@@ -4,12 +4,13 @@ import type { PoolAdmissionVerdict } from "../../engine/events.ts";
 import { isModelReasoningEffort, publishedReasoningLevels, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../../engine/model-settings.ts";
 import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import { admittedEffortIds } from "../../model/catalog-view.ts";
+import { isSessionOnlyEffort } from "../../model/effort-ladder.ts";
 import { inferReasoningSelection } from "../../model/reasoning-effort.ts";
 import type { SuggestedModel } from "../../model/supported-models.ts";
 import type { ModelReasoningEffort } from "../../model/types.ts";
 import type { SessionSettingOrigin } from "../../store/session-store.ts";
 import type { ToolOutput } from "../../tools/types.ts";
-import { delegationAllows, reviewerDefaultOf, settingsForClient } from "./helpers.ts";
+import { delegationAllows, reviewerDefaultOf, settingsForClient, supportedModelSettings } from "./helpers.ts";
 import { samePair, type AgentRegistryOptions, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import { OVERRIDE_KEYS, type OverrideKey } from "../../engine/override-rows.ts";
@@ -22,6 +23,27 @@ function clearedOverrides(): OverrideSettingsPatch {
         cleared[key] = null;
     }
     return cleared;
+}
+
+/**
+ * What a settings change saves as the default for new sessions. A
+ * session-only effort keeps the model change but leaves the stored effort
+ * alone, unless the new model no longer offers it.
+ */
+function savedDefaults(reg: AgentRegistry, settings: ModelTurnSettings): ModelTurnSettings {
+    if (!isSessionOnlyEffort(settings.reasoningEffort)) {
+        return settings;
+    }
+    const { reasoningEffort: _sessionOnly, ...model } = settings;
+    return supportedModelSettings(
+        {
+            ...model,
+            ...(reg.defaultReasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: reg.defaultReasoningEffort }),
+        },
+        reg.catalog,
+    );
 }
 
 export function modelsForClient(reg: AgentRegistry): readonly SuggestedModel[] {
@@ -295,10 +317,11 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             settings,
             reg.originFor(entry, settings),
         );
-        reg.options.updateModelDefaults?.(settings);
-        reg.defaultModel = settings.model;
-        reg.defaultProvider = settings.provider ?? reg.defaultProvider;
-        reg.defaultReasoningEffort = settings.reasoningEffort;
+        const saved = savedDefaults(reg, settings);
+        reg.options.updateModelDefaults?.(saved);
+        reg.defaultModel = saved.model;
+        reg.defaultProvider = saved.provider ?? reg.defaultProvider;
+        reg.defaultReasoningEffort = saved.reasoningEffort;
         entry.modelSettings = settings;
         entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
         return settingsForClient(

@@ -4,6 +4,7 @@ import {
     coarsenOneStep,
     EFFORT_LADDER,
     effortWentStale,
+    isSessionOnlyEffort,
     supportedLevels,
 } from "../../src/model/effort-ladder.ts";
 
@@ -95,5 +96,14 @@ describe("effortWentStale", () => {
 
     test("a model with no levels leaves any effort stale", () => {
         expect(effortWentStale([], "high")).toBe(true);
+    });
+});
+
+describe("session-only efforts", () => {
+    test("only max is kept out of the saved default", () => {
+        expect(EFFORT_LADDER.filter((level) => isSessionOnlyEffort(level)))
+            .toEqual(["max"]);
+        expect(isSessionOnlyEffort(undefined)).toBe(false);
+        expect(isSessionOnlyEffort("ultra")).toBe(false);
     });
 });

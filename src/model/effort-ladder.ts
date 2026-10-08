@@ -10,6 +10,14 @@ export const EFFORT_LADDER = [
 
 export type EffortLevel = typeof EFFORT_LADDER[number];
 
+/** Levels that apply to the current session only and never become the default for new ones. */
+export const SESSION_ONLY_EFFORTS: readonly EffortLevel[] = ["max"];
+
+export function isSessionOnlyEffort(level: string | undefined): boolean {
+    return level !== undefined
+        && (SESSION_ONLY_EFFORTS as readonly string[]).includes(level);
+}
+
 export type EffortMap = Readonly<Record<string, string | null | undefined>>;
 
 export type RelativeEffort = "lowest" | "equal" | EffortLevel;

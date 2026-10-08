@@ -79,7 +79,7 @@ Bulk verification covers Favorites. Tab toggles unverified-only/all; Enter start
 Assign model defaults offers any connected model. New assignments need successful verification and must be permitted by policy, but need not be favorites. The screen discloses that verification can cost money. A failed or canceled assignment keeps the previous value; Escape cancels assignment, not an already-started verification request.
 Removing a favorite preserves verification evidence and all default assignments. An empty Favorites list does not invalidate explicit subagent defaults. Subagents still use only their assigned list and the separately enabled spawning-session fallback.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
-`/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has.
+`/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has. A level you choose becomes the default for new conversations, except `max`, which applies to the current conversation only.
 Shift+Tab opens the HUD, which holds Agent and Access. Tab or Up/Down move between the two; Left/Right change values. Enter applies; Escape cancels. Model and effort are not in the HUD.
 The composer footer always carries all four: agent and access on the left, provider/model and effort on the right.
 When a Codex model is selected, the terminal shows the account's subscription percentages left below the composer; `/usage` shows their reset times. Manual: `docs/usage.md`.
