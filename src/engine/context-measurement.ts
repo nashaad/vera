@@ -51,6 +51,9 @@ const CHARACTERS_PER_TOKEN = 4;
 
 const TOKENS_PER_MESSAGE = 4;
 
+// Providers bill an image by its pixels, not its bytes; this is a typical screenshot.
+export const IMAGE_TOKENS = 1_600;
+
 export function measureProjectedRequest(
     request: ProjectedModelRequest,
     capacity?: number,
@@ -490,7 +493,9 @@ function measureMessage(message: ModelMessage): number {
     if (message.role === "user") {
         return sum(
             message.content,
-            (block) => block.type === "text" ? block.text.length : 0,
+            (block) => block.type === "text"
+                ? block.text.length
+                : IMAGE_TOKENS * CHARACTERS_PER_TOKEN,
         );
     }
     return sum(message.content, (block) => {

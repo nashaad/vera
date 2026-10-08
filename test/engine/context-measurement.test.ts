@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+    IMAGE_TOKENS,
     isContextMeasurement,
     measureMessages,
     measureProjectedRequest,
@@ -329,6 +330,25 @@ test("signed reasoning from another model is not counted", () => {
 
     expect(measureMessages([signed], "kestrel"))
         .toBe(measureMessages([reasoningMessage("luna", undefined)], "kestrel"));
+});
+
+test("an attached image counts at a flat estimate, not as nothing", () => {
+    const words: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "a map of the cove" }],
+    };
+    const withImage: ModelMessage = {
+        role: "user",
+        content: [
+            { type: "text", text: "a map of the cove" },
+            { type: "image_attachment", attachmentId: "map-1" },
+        ],
+    };
+
+    expect(measureMessages([withImage]) - measureMessages([words]))
+        .toBe(IMAGE_TOKENS);
+    expect(measureProjectedRequest(request({ messages: [withImage] })).tokens)
+        .toBeGreaterThanOrEqual(IMAGE_TOKENS);
 });
 
 function reasoningMessage(
