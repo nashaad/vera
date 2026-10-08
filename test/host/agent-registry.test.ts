@@ -1778,6 +1778,61 @@ test("accepted settings become defaults for new agents in the live host", async 
     }
 });
 
+test("a session-only effort changes the session but not the saved default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-session-only-effort-"));
+    const defaultWrites: ModelSettingsUpdate["settings"][] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: "first-model",
+        reasoningEffort: "low",
+        approvalMode: "auto",
+        updateModelDefaults: (settings) => defaultWrites.push(settings),
+    });
+    try {
+        const first = await registry.create({
+            id: "session-only-first",
+            workspace: root,
+            sessionPath: join(root, "first.jsonl"),
+        });
+        expect(await registry.updateModelSettings(first.id, {
+            provider: "openrouter",
+            model: "first-model",
+            reasoningEffort: "max",
+        })).toMatchObject({ model: "first-model", reasoningEffort: "max" });
+        expect(defaultWrites).toEqual([
+            { provider: "openrouter", model: "first-model", reasoningEffort: "low" },
+        ]);
+
+        expect(await registry.updateModelSettings(first.id, {
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "max",
+        })).toMatchObject({ model: "z-ai/glm-5.2", reasoningEffort: "max" });
+        expect(defaultWrites.at(-1)).toEqual({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "low",
+        });
+
+        const future = await registry.create({
+            id: "session-only-future",
+            workspace: root,
+            sessionPath: join(root, "future.jsonl"),
+        });
+        expect(await readAgentSettings(future, "future")).toMatchObject({
+            model: "z-ai/glm-5.2",
+            reasoningEffort: "low",
+        });
+        expect(await readAgentSettings(first, "first-live")).toMatchObject({
+            reasoningEffort: "max",
+        });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("session model changes update global defaults but not other or resumed sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-model-defaults-boundary-"));
     const firstPath = join(root, "first.jsonl");

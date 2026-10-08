@@ -31,6 +31,7 @@ import {
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../../src/engine/model-settings.ts";
+import { isSessionOnlyEffort } from "../../src/model/effort-ladder.ts";
 import type { ModelReasoningEffort, UserMessage } from "../../src/model/types.ts";
 import type {
     ReasoningLevel,
@@ -3096,9 +3097,12 @@ export function defaultModelChangeNotice(
             : `${Math.round(settings.contextLimit / 1_024)}k`;
         return `Changed the context limit to ${label}`;
     }
+    const sessionOnly = isSessionOnlyEffort(settings.reasoningEffort);
     if (patch.model === undefined) {
         const effort = settings.reasoningEffort ?? "the model default";
-        return `Changed the reasoning effort to ${effort}; new conversations will use it by default`;
+        return sessionOnly
+            ? `Changed the reasoning effort to ${effort} for this conversation only; new conversations keep their default`
+            : `Changed the reasoning effort to ${effort}; new conversations will use it by default`;
     }
     const effectivePatch: ModelSettingsPatch = {
         provider: settings.provider,
@@ -3107,5 +3111,7 @@ export function defaultModelChangeNotice(
             ? {}
             : { reasoningEffort: settings.reasoningEffort }),
     };
-    return `Changed ${modelPatchSubject(effectivePatch)}; new conversations will use it by default`;
+    return sessionOnly
+        ? `Changed ${modelPatchSubject(effectivePatch)}; new conversations will use the model, but ${settings.reasoningEffort} applies to this conversation only`
+        : `Changed ${modelPatchSubject(effectivePatch)}; new conversations will use it by default`;
 }

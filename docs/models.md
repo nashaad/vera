@@ -164,6 +164,10 @@ and not every model has an off setting.
 Switching models keeps your effort level when the new model also supports it.
 You are asked to choose again only when it does not.
 
+Choosing a level saves it as the default for new conversations, except `max`.
+`max` applies to the current conversation only, and new conversations keep the
+level they had before. Vera says which of the two happened when you choose.
+
 ## Refresh or recover a connection
 
 Choose **Refresh model catalog** from Manage models (the row under the list on

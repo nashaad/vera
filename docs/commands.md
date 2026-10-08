@@ -64,7 +64,7 @@ compaction controls.
 | --- | --- |
 | `/model` | Open Switch model. |
 | `/models` | Browse every model, with favorites, defaults, and providers. |
-| `/effort [level]` | Set the next turn's reasoning effort; supported levels depend on the model. |
+| `/effort [level]` | Set the next turn's reasoning effort; supported levels depend on the model. Every level but `max` also becomes the default for new conversations. |
 | `/agent [name]` | Choose a definition, or switch to the named one. |
 | `/settings` | Open settings controls. |
 | `/configure` | Choose a configuration file to open in your editor. |
