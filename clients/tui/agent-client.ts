@@ -17,6 +17,7 @@ export interface TuiAgentClient {
     onBackgroundAgents?: AttachedAgentClient["onBackgroundAgents"];
     readonly workIndex?: AttachedAgentClient["workIndex"];
     onWorkIndex?: AttachedAgentClient["onWorkIndex"];
+    onSessionTitle?: AttachedAgentClient["onSessionTitle"];
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];

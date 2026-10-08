@@ -354,6 +354,45 @@ test("a reconnect publishes a replacement work index already received", async ()
     client.close();
 });
 
+test("session titles come from the current attachment only", async () => {
+    const initialListeners = new Set<(title: string | undefined) => void>();
+    const recoveredListeners = new Set<(title: string | undefined) => void>();
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 4),
+        onSessionTitle(listener) {
+            initialListeners.add(listener);
+            return () => initialListeners.delete(listener);
+        },
+    };
+    const recovered: AttachedAgentClient = {
+        ...fakeClient([
+            { type: "assistant_delta", text: "continued", seq: 5 },
+        ], 4),
+        onSessionTitle(listener) {
+            recoveredListeners.add(listener);
+            return () => recoveredListeners.delete(listener);
+        },
+    };
+    const client = createReconnectingAgentClient(initial, async () => recovered);
+    const titles: (string | undefined)[] = [];
+    client.onSessionTitle(() => {
+        throw new Error("observer failed");
+    });
+    client.onSessionTitle((title) => titles.push(title));
+
+    for (const listener of initialListeners) listener("Crow's nest");
+    await client.receive();
+    for (const listener of initialListeners) listener("Stale");
+    for (const listener of recoveredListeners) listener("Buried treasure map");
+    for (const listener of recoveredListeners) listener(undefined);
+
+    expect(initialListeners.size).toBe(0);
+    expect(titles).toEqual(["Crow's nest", "Buried treasure map", undefined]);
+    expect(client.sessionTitle).toBeUndefined();
+    client.close();
+    expect(recoveredListeners.size).toBe(0);
+});
+
 test("a second concurrent receive is rejected explicitly", async () => {
     const updates = new AsyncQueue<AgentUpdate>();
     const initial = fakeClientFromQueue(updates);
@@ -447,6 +486,8 @@ function fakeClientFromQueue(
         onBackgroundAgents: () => () => undefined,
         workIndex,
         onWorkIndex: () => () => undefined,
+        sessionTitle: undefined,
+        onSessionTitle: () => () => undefined,
         send: async () => undefined,
         async receive(signal) {
             const update = await updates.receive(signal);

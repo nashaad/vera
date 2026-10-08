@@ -61,6 +61,9 @@ export interface AttachedAgentClient {
     /** The machine-wide work inbox as the host last reported it, undefined until the first report and on any attachment that did not negotiate `work.index.v1`. */
     readonly workIndex: WorkIndexSnapshot | undefined;
     onWorkIndex(listener: (index: WorkIndexSnapshot) => void): () => void;
+    // Undefined both before the first report and when the session has no title.
+    readonly sessionTitle: string | undefined;
+    onSessionTitle(listener: (title: string | undefined) => void): () => void;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands(): Promise<readonly ExtensionCommandDescriptor[]>;
@@ -232,6 +235,10 @@ function createAttachedClient(
     >();
     let workIndex: WorkIndexSnapshot | undefined;
     const workIndexListeners = new Set<(index: WorkIndexSnapshot) => void>();
+    let sessionTitle: string | undefined;
+    const sessionTitleListeners = new Set<
+        (title: string | undefined) => void
+    >();
     let isClosed = false;
     let failed = initiallyFailed;
     let isDetaching = false;
@@ -299,6 +306,15 @@ function createAttachedClient(
             workIndexListeners.add(listener);
             return (): void => {
                 workIndexListeners.delete(listener);
+            };
+        },
+        get sessionTitle(): string | undefined {
+            return sessionTitle;
+        },
+        onSessionTitle(listener): () => void {
+            sessionTitleListeners.add(listener);
+            return (): void => {
+                sessionTitleListeners.delete(listener);
             };
         },
         send(command): Promise<void> {
@@ -454,6 +470,9 @@ function createAttachedClient(
                     continue;
                 }
                 if (receiveBackgroundAgents(value)) {
+                    continue;
+                }
+                if (receiveSessionTitle(value)) {
                     continue;
                 }
                 const update = parseAgentUpdate(value);
@@ -628,6 +647,30 @@ function createAttachedClient(
         for (const listener of [...backgroundAgentListeners]) {
             try {
                 listener(snapshot);
+            } catch {
+                // A listener that throws must not close the attachment.
+            }
+        }
+        return true;
+    }
+
+    function receiveSessionTitle(value: unknown): boolean {
+        const record = asRecord(value);
+        if (record?.type !== "session_title") {
+            return false;
+        }
+        const title = record.title;
+        if (
+            record.agent_id !== agentId
+            || (title !== undefined
+                && (typeof title !== "string" || title.length === 0))
+        ) {
+            throw new Error("Host sent an invalid session title");
+        }
+        sessionTitle = title;
+        for (const listener of [...sessionTitleListeners]) {
+            try {
+                listener(title);
             } catch {
                 // A listener that throws must not close the attachment.
             }

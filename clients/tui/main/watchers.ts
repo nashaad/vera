@@ -4,6 +4,7 @@ import type { WorkIndexSnapshot } from "../../../src/host/work-index.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
 import { attentionNotice, attentionNoticeSequence, newAttentionRows } from "../attention-notice.ts";
 import { DEFAULT_ACTIVITY_FRAME_INTERVAL_MS, SHIMMER_FRAME_INTERVAL_MS, SYMMETRIC_WAVE_FRAME_INTERVAL_MS } from "../main.ts";
+import { applyTerminalTitle } from "../main/chrome.ts";
 import { renderState } from "../main/render-state.ts";
 import { renderStatus } from "../main/render-status.ts";
 import { refreshWorkspaceSidebarRoster } from "../main/workspace-ops.ts";
@@ -33,6 +34,16 @@ export function watchWorkIndex(rt: TuiRuntime, next: TuiAgentClient): void {
     rt.stopWatchingWorkIndex = next.onWorkIndex?.((index) => {
         if (rt.client !== next || rt.shuttingDown) return;
         applyWorkIndexSnapshot(rt, index, true);
+    });
+}
+
+export function watchSessionTitle(rt: TuiRuntime, next: TuiAgentClient): void {
+    rt.stopWatchingSessionTitle?.();
+    rt.stopWatchingSessionTitle = next.onSessionTitle?.((title) => {
+        if (rt.client !== next || rt.shuttingDown) return;
+        rt.sessionTitle = title;
+        applyTerminalTitle(rt);
+        if (rt.clientSurfaceReady) renderState(rt);
     });
 }
 

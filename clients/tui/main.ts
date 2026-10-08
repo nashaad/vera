@@ -311,8 +311,8 @@ import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeCom
 import { showStatusNotice, showModeToast, hideModeToast, stopModeToastTimers, modeToastTakesEscape, layoutModeToastBand, MODE_TOAST_FILL_ROLE, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
 import { renderStatus } from "./main/render-status.ts";
 import { startStatusTimer } from "./main/animation-level.ts";
-import { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
-export { watchBackgroundAgents, watchWorkIndex, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
+import { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent } from "./main/watchers.ts";
+export { watchBackgroundAgents, watchWorkIndex, watchSessionTitle, applyWorkIndexSnapshot, writeTerminal, applyBackgroundAgents, observeActivity, finishThoughtPhase, elapsedWorkingTime, activityFrame, emitExperimentalAgentEvent };
 export { renderStatus };
 export { showStatusNotice, showModeToast, hideModeToast, modeToastTakesEscape, layoutModeToastBand, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
@@ -2444,6 +2444,8 @@ export async function startTui(
         rt.stopWatchingBackgroundAgents = undefined;
         rt.stopWatchingWorkIndex?.();
         rt.stopWatchingWorkIndex = undefined;
+        rt.stopWatchingSessionTitle?.();
+        rt.stopWatchingSessionTitle = undefined;
         rt.disposeSkillCommands();
         rt.disposeSkillCommands = () => {};
         rt.pendingSkillInvocations.clear();
@@ -2503,6 +2505,7 @@ export async function startTui(
     startStatusTimer(rt);
     watchBackgroundAgents(rt, rt.dependencies.client);
     watchWorkIndex(rt, rt.dependencies.client);
+    watchSessionTitle(rt, rt.dependencies.client);
     writeTerminal(rt, FOCUS_REPORTING_ON);
 
     rt.renderer.on(CliRenderEvents.RESIZE, () => {

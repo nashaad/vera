@@ -686,6 +686,12 @@ class FakeAttachedAgentClient implements AttachedAgentClient {
         return () => this.workIndexListeners.delete(listener);
     }
 
+    readonly sessionTitle = undefined;
+
+    onSessionTitle(): () => void {
+        return () => undefined;
+    }
+
     setWorkIndex(index: WorkIndexSnapshot): void {
         this.currentWorkIndex = index;
     }

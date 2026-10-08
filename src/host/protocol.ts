@@ -450,6 +450,16 @@ export interface WorkIndexResponse {
     readonly index: WorkIndexSnapshot;
 }
 
+/**
+ * Sent after `attached` and whenever the attached session's title changes, to
+ * clients that asked for it. `title` is absent while the session has none.
+ */
+export interface SessionTitleResponse {
+    readonly type: "session_title";
+    readonly agent_id: string;
+    readonly title?: string;
+}
+
 export interface AttachFailedResponse {
     readonly type: "attach_failed";
     readonly agent_id: string;
@@ -715,6 +725,7 @@ export type HostResponse =
     | AttachedResponse
     | BackgroundAgentsResponse
     | WorkIndexResponse
+    | SessionTitleResponse
     | AttachFailedResponse
     | DetachedResponse
     | AttachmentReleasedResponse

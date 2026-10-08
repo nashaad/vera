@@ -27,7 +27,7 @@ The core and optional extensions are:
 ```text
 core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
            vera.reasoning-cycle, vera.session-identity, vera.web-search
-included   vera.btw, vera.budget, vera.diff, vera.mcp
+included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.titles
 ```
 
 ## BTW and Pair
@@ -64,6 +64,19 @@ To configure this extension's list, add an `extensions` entry
 whose path is the absolute directory shown for `vera.command-hooks` in
 `/customize`. That entry replaces the included copy. Its `argv` is an absolute
 path. Malformed supplied configuration prevents activation.
+
+## Title new conversations
+
+`vera.titles` names a conversation after its first turn finishes. It sends
+your first message and the start of the reply to the snappy model (see
+[Assign defaults](models.md#assign-defaults)) and asks for a title of six
+words or fewer. The title shows in `/resume` and in the terminal window
+title, including a window that already has the conversation open.
+
+It only names a conversation that has never had a name, so a `/rename`
+always wins, even one that cleared the name. It skips conversations another
+agent started, and turns that were interrupted or failed. With no snappy
+model assigned it does nothing. Disable it with `/extension disable vera.titles`.
 
 ## Configure or disable included copies
 
