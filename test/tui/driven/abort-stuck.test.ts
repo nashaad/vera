@@ -286,6 +286,51 @@ test("queued prompts run automatically after replies without another key press",
     }
 }, 20_000);
 
+test("a prompt queued during tool work joins the running turn at the next tool boundary", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-queue-steer-"));
+    const sent: ClientCommand[] = [];
+    const requests: ModelRequest[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => slowTurnDependencies([
+            toolStep("LOOKING", "call_1"),
+            "RIGGING CHECKED",
+        ], sent, false, requests),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("hoist the sails");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("esc stop");
+        session.sendText("check the rigging");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("queued · check the rigging");
+
+        const pane = await session.waitForVisiblePaneWhere(
+            (candidate) => candidate.includes("RIGGING CHECKED")
+                && candidate.includes("ready · Ctrl+P commands"),
+            "the joined prompt answered in the same turn",
+        );
+        expect(pane).not.toContain("queued ·");
+        const looking = pane.indexOf("LOOKING");
+        const joined = pane.indexOf("check the rigging");
+        const answer = pane.indexOf("RIGGING CHECKED");
+        expect(looking).toBeGreaterThan(-1);
+        expect(joined).toBeGreaterThan(looking);
+        expect(answer).toBeGreaterThan(joined);
+        expect(requests).toHaveLength(2);
+        expect(requests[1]?.messages.map((message) => message.role)).toEqual([
+            "user", "assistant", "tool_result", "user",
+        ]);
+        expect(sent.some((command) => command.type === "release_queued_prompts")).toBe(false);
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
 test("a legacy host still advances its client-owned prompt queue", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-legacy-queue-"));
     const sent: ClientCommand[] = [];
@@ -316,13 +361,15 @@ test("a legacy host still advances its client-owned prompt queue", async () => {
 }, 15_000);
 
 function slowTurnDependencies(
-    answers: readonly string[],
+    answers: readonly (string | AssistantMessage)[],
     sent: ClientCommand[],
     legacyQueue = false,
     requests?: ModelRequest[],
 ): TuiDependencies {
     const channel = createInProcessChannel();
-    const faux = new FauxAdapter(answers.map(response), {
+    const faux = new FauxAdapter(answers.map((answer) =>
+        typeof answer === "string" ? response(answer) : answer
+    ), {
         chunkSize: 1,
         delayMs: 250,
     });
@@ -396,5 +443,18 @@ function response(text: string): AssistantMessage {
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "stop",
+    };
+}
+
+function toolStep(text: string, id: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [
+            { type: "text", text },
+            { type: "tool_call", id, name: "list", input: { path: "." } },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
     };
 }

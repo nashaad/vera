@@ -235,6 +235,7 @@ interface ActiveQueueTurn {
     readonly releaseId: number;
     readonly final: boolean;
     readonly queuedPrompt: boolean;
+    readonly modelSettings?: ModelTurnSettings;
 }
 
 export type InboundTurnOutcome = "completed" | "aborted" | "failed";
@@ -533,6 +534,9 @@ export class InboundCommandRouter {
                 ? true
                 : claimedRelease.boundary === claimedItem,
             queuedPrompt: claimedItem.prompt !== undefined,
+            ...(queued.modelSettings === undefined
+                ? {}
+                : { modelSettings: queued.modelSettings }),
         };
         this.claimedQueueRelease = undefined;
         if (this.queuedDirectAbortId === claimedRelease.id) {
@@ -593,6 +597,49 @@ export class InboundCommandRouter {
         }
         this.emitPromptQueue();
         this.signalTurnAvailable();
+    }
+
+    // Prompts may pass held controls, as they would at a turn boundary; they never pass an earlier prompt that has to wait.
+    takeHeldPrompts(
+        accepts: (prompt: PromptCommand) => boolean,
+    ): readonly PromptCommand[] {
+        const active = this.activeQueueTurn;
+        if (
+            this.activeTurn === undefined
+            || active === undefined
+            || this.activeTurn.signal.aborted
+            || this.queuedDirectAbortId !== undefined
+            || this.queuedDirectFollowUp !== undefined
+        ) {
+            return [];
+        }
+        const boundaryIndex = this.release === undefined
+            ? -1
+            : this.queuedTurns.indexOf(this.release.boundary);
+        const taken: PromptCommand[] = [];
+        const kept: QueuedTurn[] = [];
+        let blocked = false;
+        for (const [index, queued] of this.queuedTurns.entries()) {
+            if (index <= boundaryIndex || queued.prompt === undefined) {
+                kept.push(queued);
+                continue;
+            }
+            if (
+                !blocked
+                && sameTurnModel(queued.modelSettings, active.modelSettings)
+                && accepts(queued.prompt)
+            ) {
+                taken.push(queued.prompt);
+                continue;
+            }
+            blocked = true;
+            kept.push(queued);
+        }
+        if (taken.length === 0) return [];
+        this.queuedTurns.splice(0, this.queuedTurns.length, ...kept);
+        this.pendingPromptCount -= taken.length;
+        this.emitPromptQueue();
+        return taken;
     }
 
     private enqueueTurn(queued: QueuedTurn): void {
@@ -2261,6 +2308,16 @@ function copyPermissionGrantProposal(
         scope: proposal.scope,
         lifetime: proposal.lifetime,
     };
+}
+
+function sameTurnModel(
+    left: ModelTurnSettings | undefined,
+    right: ModelTurnSettings | undefined,
+): boolean {
+    return left?.provider === right?.provider
+        && left?.model === right?.model
+        && left?.reasoningEffort === right?.reasoningEffort
+        && left?.requestedReasoningEffort === right?.requestedReasoningEffort;
 }
 
 function samePromptQueueState(

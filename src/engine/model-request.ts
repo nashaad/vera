@@ -3,6 +3,7 @@ import type {
     ModelReasoningEffort,
     ModelRequest,
     ModelTool,
+    UserMessage,
 } from "../model/types.ts";
 import { projectSystemPrompt } from "./assemble.ts";
 import {
@@ -65,6 +66,9 @@ export function projectModelRequest(
         .filter(isReplayableModelMessage)
         .map(
             (message): ModelMessage => {
+                if (message.role === "user" && message.arrivedDuringTurn === true) {
+                    return wrapArrivedDuringTurn(message);
+                }
                 if (message.role !== "tool_result") return message;
                 return {
                     role: "tool_result",
@@ -128,6 +132,26 @@ export function projectModelRequest(
         request,
         promptContributions: prompt.contributions,
     });
+}
+
+function wrapArrivedDuringTurn(message: UserMessage): UserMessage {
+    const { arrivedDuringTurn: _arrived, ...rest } = message;
+    return {
+        ...rest,
+        content: message.content.map((block) =>
+            block.type === "text"
+                ? {
+                    type: "text",
+                    text: "<system-reminder>\n"
+                        + "The user sent a new message while you were working:\n"
+                        + `${block.text}\n\n`
+                        + "IMPORTANT: After completing your current task, you MUST"
+                        + " address the user's message above. Do not ignore it.\n"
+                        + "</system-reminder>",
+                }
+                : block
+        ),
+    };
 }
 
 function isReplayableModelMessage(message: ModelMessage): boolean {

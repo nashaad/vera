@@ -2728,6 +2728,8 @@ function isModelMessage(value: unknown): value is ModelMessage {
                 || typeof message.internal === "boolean")
             && (message.compactionBarrier === undefined
                 || typeof message.compactionBarrier === "boolean")
+            && (message.arrivedDuringTurn === undefined
+                || typeof message.arrivedDuringTurn === "boolean")
             && message.content.every((content) =>
                 isTextContent(content) || isImageAttachmentContent(content)
             );

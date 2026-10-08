@@ -281,6 +281,142 @@ test("successful replies automatically run FIFO follow-ups and persist separate 
     expect(reopened.messages()).toEqual(state.messages);
 });
 
+test("a prompt queued during a tool batch joins the turn before the next request", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-steer-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "steer",
+        cwd: workspace,
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf hoist" }),
+        assistantText("sails up, rigging checked"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push({ ...request, messages: structuredClone(request.messages) });
+            if (requests.length === 1) {
+                channel.client.send({ type: "prompt", content: "check the rigging too" });
+            }
+            return faux.stream(request);
+        },
+    };
+    const preTurnPrompts: string[] = [];
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn((payload) => {
+        preTurnPrompts.push(payload.prompt);
+        return { power: "observe" };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "hoist the sails" });
+    await runTurn(adapter, "test", state);
+
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.messages.map((message) => message.role)).toEqual([
+        "user", "assistant", "tool_result", "user",
+    ]);
+    expect(requests[1]?.messages.at(-1)).toEqual({
+        role: "user",
+        content: [{
+            type: "text",
+            text: "<system-reminder>\n"
+                + "The user sent a new message while you were working:\n"
+                + "check the rigging too\n\n"
+                + "IMPORTANT: After completing your current task, you MUST"
+                + " address the user's message above. Do not ignore it.\n"
+                + "</system-reminder>",
+        }],
+    });
+    expect(preTurnPrompts).toEqual(["hoist the sails", "check the rigging too"]);
+    expect(updates.filter((update) => update.type === "user_prompt").map((update) =>
+        update.type === "user_prompt" ? update.content : ""
+    )).toEqual(["hoist the sails", "check the rigging too"]);
+    expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+    expect(updates.filter((update) => update.type === "prompt_queue").at(-1)).toMatchObject({
+        queue: { prompts: [], draining: false },
+    });
+
+    const reopened = await SessionStore.open(sessionPath);
+    expect(reopened.messages()).toEqual(state.messages);
+    expect(reopened.messages()[3]).toEqual({
+        role: "user",
+        content: [{ type: "text", text: "check the rigging too" }],
+        arrivedDuringTurn: true,
+    });
+
+    const idle = state.inbound.startTurn();
+    expect(await Promise.race([
+        idle.then(() => "started"),
+        Bun.sleep(10).then(() => "idle"),
+    ])).toBe("idle");
+    channel.client.send({ type: "prompt", content: "drop anchor" });
+    await idle;
+    state.inbound.finishTurn();
+});
+
+test("a pre_turn block on a joining prompt ends the running turn", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf hoist" }),
+        assistantText("never sent"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            channel.client.send({ type: "prompt", content: "scuttle the ship" });
+            return faux.stream(request);
+        },
+    };
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn((payload) =>
+        payload.prompt === "scuttle the ship"
+            ? { power: "block", reason: "no scuttling" }
+            : { power: "observe" }
+    );
+    const store = new InMemorySessionStore();
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "hoist the sails" });
+    const finished = await runTurn(adapter, "test", state);
+
+    expect(requests).toHaveLength(1);
+    expect(finished).toMatchObject({
+        stopReason: "error",
+        errorMessage: "pre_turn hook blocked this turn: no scuttling",
+    });
+    expect(store.messages.map((message) => message.role)).toEqual([
+        "user", "assistant", "tool_result", "user", "assistant",
+    ]);
+    expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+});
+
 test("a failed send-all turn consumes its batch and holds later prompts", async () => {
     const response: AssistantMessage = {
         role: "assistant",

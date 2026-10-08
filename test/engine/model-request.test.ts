@@ -54,6 +54,48 @@ test("model request uses one frozen message and tool snapshot", () => {
     expect(request.systemPrompt).not.toContain("- change:");
 });
 
+test("a prompt that arrived during a turn is wrapped only in the request", () => {
+    const stored: ModelMessage = {
+        role: "user",
+        content: [
+            { type: "text", text: "check the rigging too" },
+            { type: "image_attachment", attachmentId: "crow-map" },
+        ],
+        arrivedDuringTurn: true,
+    };
+
+    const request = buildModelRequest({
+        model: "test-model",
+        maxTokens: 4096,
+        messages: [stored],
+        tools: [],
+        workspace: "/work/vera",
+        date: new Date(2026, 6, 21),
+        projectInstructions: { files: [], warnings: [] },
+        signal: new AbortController().signal,
+    });
+
+    expect(request.messages).toEqual([{
+        role: "user",
+        content: [
+            {
+                type: "text",
+                text: "<system-reminder>\n"
+                    + "The user sent a new message while you were working:\n"
+                    + "check the rigging too\n\n"
+                    + "IMPORTANT: After completing your current task, you MUST"
+                    + " address the user's message above. Do not ignore it.\n"
+                    + "</system-reminder>",
+            },
+            { type: "image_attachment", attachmentId: "crow-map" },
+        ],
+    }]);
+    expect(stored.content[0]).toEqual({
+        type: "text",
+        text: "check the rigging too",
+    });
+});
+
 test("model requests strip durable tool presentation metadata", () => {
     const request = buildModelRequest({
         model: "test-model",

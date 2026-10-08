@@ -1978,6 +1978,67 @@ export async function runTurn(
                 await commitMessage(state, assistantMessage);
                 break;
             }
+            const joined = turn.signal.aborted
+                ? []
+                : state.inbound.takeHeldPrompts((prompt) =>
+                    (prompt.attachmentIds ?? []).length === 0
+                    || acceptsImageInput(
+                        adapter,
+                        modelSettings.provider,
+                        activeModel,
+                    )
+                );
+            for (const prompt of joined) {
+                const message: UserMessage = {
+                    role: "user",
+                    content: [
+                        { type: "text", text: prompt.content },
+                        ...(prompt.attachmentIds ?? []).map((attachmentId) => ({
+                            type: "image_attachment" as const,
+                            attachmentId,
+                        })),
+                    ],
+                    arrivedDuringTurn: true,
+                };
+                await commitMessage(state, message);
+                state.events.emit({ type: "turn_started", message });
+            }
+            // Same gate as a later prompt in a send-all batch: it may narrow tools or block, never switch the model.
+            for (const prompt of joined) {
+                const applied = await applyPreTurnHook(
+                    state,
+                    {
+                        type: "pre_turn",
+                        ...(state.sessionId === undefined
+                            ? {}
+                            : { sessionId: state.sessionId }),
+                        workspace: state.toolRuntime.workspace,
+                        prompt: prompt.content,
+                        model: activeModel,
+                        tools: scopedTools.map((tool) => tool.name),
+                        ...(turnReasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: turnReasoningEffort }),
+                    },
+                );
+                if (applied.blocked !== undefined) {
+                    assistantMessage = preTurnBlockedMessage(
+                        activeModel,
+                        applied.blocked,
+                    );
+                    assistantMessage = withTurnTiming(assistantMessage);
+                    await commitMessage(state, assistantMessage);
+                    state.events.emit({
+                        type: "turn_finished",
+                        message: assistantMessage,
+                    });
+                    return assistantMessage;
+                }
+                scopedTools = scopedTools.filter((tool) =>
+                    applied.tools.includes(tool.name)
+                );
+                state.toolRuntime.allowedTools = applied.allowedTools;
+            }
             const capacity = capacityForModel(activeModel);
             await compactDuringTurn(state, turn.signal, [], {
                 model: activeModel,

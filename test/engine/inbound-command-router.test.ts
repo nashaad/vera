@@ -457,6 +457,154 @@ test("send all batches ordinary prompts across queued controls", async () => {
     router.finishTurn();
 });
 
+test("held prompts join the active turn in FIFO order and leave the queue", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const observed: EngineEvent[] = [];
+    events.subscribe((event) => observed.push(event));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await router.startTurn();
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({
+        type: "prompt",
+        content: "beta",
+        attachmentIds: ["crow-map"],
+    });
+    await Bun.sleep(0);
+
+    const joined = router.takeHeldPrompts(() => true);
+    expect(joined).toEqual([
+        { type: "prompt", content: "alpha" },
+        { type: "prompt", content: "beta", attachmentIds: ["crow-map"] },
+    ]);
+    expect(active.signal.aborted).toBe(false);
+    expect(observed.at(-1)).toEqual({
+        type: "prompt_queue_changed",
+        queue: { prompts: [], draining: false },
+    });
+    expect(router.takeHeldPrompts(() => true)).toEqual([]);
+    router.finishTurn();
+
+    const next = router.startTurn();
+    expect(await Promise.race([
+        next.then(() => "started"),
+        Bun.sleep(10).then(() => "idle"),
+    ])).toBe("idle");
+    channel.client.send({ type: "prompt", content: "fresh" });
+    expect((await next).prompt.content).toBe("fresh");
+    router.finishTurn();
+});
+
+test("held prompts pass queued controls but never an earlier prompt that must wait", async () => {
+    const channel = createInProcessChannel();
+    let selected: string | undefined;
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+        {
+            selectAgent: async (name) => {
+                selected = name;
+                return { name };
+            },
+        },
+    );
+
+    channel.client.send({ type: "prompt", content: "active" });
+    await router.startTurn();
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({
+        type: "select_agent",
+        requestId: "select-quartermaster",
+        name: "quartermaster",
+    });
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "prompt", content: "spyglass" });
+    channel.client.send({ type: "prompt", content: "gamma" });
+    await Bun.sleep(0);
+
+    const joined = router.takeHeldPrompts(
+        (prompt) => prompt.content !== "spyglass",
+    );
+    expect(joined.map((prompt) => prompt.content)).toEqual(["alpha", "beta"]);
+    router.finishTurn();
+
+    const next = await router.startTurn();
+    expect(selected).toBe("quartermaster");
+    expect(next.prompt.content).toBe("spyglass");
+    router.finishTurn();
+    expect((await router.startTurn()).prompt.content).toBe("gamma");
+    router.finishTurn();
+});
+
+test("a prompt queued under other model settings waits for its own turn", async () => {
+    const channel = createInProcessChannel();
+    let settings: ModelTurnSettings = { model: "crow-small" };
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus(), {
+        readModelSettings: () => settings,
+    });
+
+    channel.client.send({ type: "prompt", content: "active" });
+    await router.startTurn();
+    channel.client.send({ type: "prompt", content: "same model" });
+    await Bun.sleep(0);
+    settings = { model: "crow-large" };
+    channel.client.send({ type: "prompt", content: "other model" });
+    await Bun.sleep(0);
+
+    expect(router.takeHeldPrompts(() => true).map((prompt) => prompt.content))
+        .toEqual(["same model"]);
+    router.finishTurn();
+    const next = await router.startTurn();
+    expect(next.prompt.content).toBe("other model");
+    expect(next.modelSettings).toEqual({ model: "crow-large" });
+    router.finishTurn();
+});
+
+test("nothing joins a turn that a release is stopping", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus());
+
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await router.startTurn();
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    expect(router.takeHeldPrompts(() => true)).toEqual([]);
+    router.finishTurn("aborted");
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("alpha");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual(["beta"]);
+    router.finishTurn();
+});
+
+test("held prompts join a turn that send one started", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(channel.engine, new EngineEventBus());
+
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await router.startTurn();
+    for (const content of ["one", "two", "three"]) {
+        channel.client.send({ type: "prompt", content });
+    }
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn("aborted");
+
+    const released = await router.startTurn();
+    expect(released.prompt.content).toBe("one");
+    expect(router.takeHeldPrompts(() => true).map((prompt) => prompt.content))
+        .toEqual(["two", "three"]);
+    router.finishTurn();
+});
+
 test("send all does not extend queued skill authority to ordinary prompts", async () => {
     const channel = createInProcessChannel();
     const router = new InboundCommandRouter(

@@ -52,6 +52,8 @@ export interface UserMessage {
     readonly contextSource?: "session_start";
     /** Compaction may summarize history before this message, never across it. */
     readonly compactionBarrier?: boolean;
+    /** Stored raw; the model request wraps it as a message sent while the turn was running. */
+    readonly arrivedDuringTurn?: boolean;
 }
 
 export interface ModelInputUserMessage {
