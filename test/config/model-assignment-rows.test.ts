@@ -238,7 +238,7 @@ test("a assignment is bound only from the pool", async () => {
     expect(pane.options.at(-1)?.value).toBe(MODEL_ASSIGNMENT_BROWSE_VALUE);
     // The intent names the pane, and the unset row says what unset does.
     expect(pane.title).toBe("Assign a model to extra");
-    expect(pane.subtitle).toContain("verification request");
+    expect(pane.subtitle).toBe("Choose any connected model.");
     expect(pane.options[0]?.description).toBe("unset, no model bound");
 });
 

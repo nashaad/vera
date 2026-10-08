@@ -563,7 +563,7 @@ export function openSettingsDestination(rt: TuiRuntime,
         }));
         rt.settingsPicker = { kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 0,
             allOptions: rows, options: rows, parent: options.parent,
-            subtitle: "Only verified models in your favorites are eligible. Assigning leaves the conversation model unchanged." };
+            subtitle: `${loadOptionalVeraConfig()?.verify_model_assignments === true ? "New assignments are verified first." : "Any permitted model can be assigned."} Assigning leaves the conversation model unchanged.` };
         renderState(rt);
         focusActiveSurface(rt);
     } else {

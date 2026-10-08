@@ -282,6 +282,7 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
             row?.allowSelf === true,
             parentModel,
             selectedValue,
+            loadOptionalVeraConfig()?.verify_model_assignments === true,
         ),
         parent,
     );
@@ -302,7 +303,12 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     },
 ): string | undefined {
     if (selection.model !== undefined && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined) {
-        if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider ?? "", model: selection.model })) return "Verify this model before assigning it as a default.";
+        const requireVerified = loadOptionalVeraConfig()?.verify_model_assignments === true;
+        if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider ?? "", model: selection.model }, { requireVerified })) {
+            return requireVerified
+                ? "Verify this model before assigning it as a default."
+                : "This model is not permitted by your model policy.";
+        }
     }
     const subagents = selection.assignment === "subagents";
     const row = subagents

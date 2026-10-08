@@ -292,6 +292,8 @@ export interface VeraConfig {
      * wanted. It stays opt-in until there is evidence it can be trusted on.
      */
     readonly model_picker_collapse_versions?: boolean;
+    /** Probe a model before it is newly assigned as a default. Off when absent. */
+    readonly verify_model_assignments?: boolean;
     /**
      * How many days a discovered model list answers for before the provider is
      * asked again. Absent means the built-in week. `0` asks on every start,
@@ -714,10 +716,11 @@ export function updateVeraConfigDefaults(
             ...current.model_assignments, [assignment]: patch.model_assignment.binding,
         } }).find((row) => row.assignment === assignment)?.declared ?? [];
         const pool = loadAssignmentPool({ userPath: join(dirname(path), "pool.json") }).merged;
+        const requireVerified = current.verify_model_assignments === true;
         for (const model of after) {
             if (before.some((previous) => previous.provider === model.provider && previous.model === model.model)) continue;
-            if (!eligibleForDefault(pool, model)) throw new VeraConfigError(path,
-                `${model.provider}/${model.model} must be verified and permitted before assigning ${assignment}.`);
+            if (!eligibleForDefault(pool, model, { requireVerified })) throw new VeraConfigError(path,
+                `${model.provider}/${model.model} must be ${requireVerified ? "verified and permitted" : "permitted"} before assigning ${assignment}.`);
         }
     }
     const updated: VeraConfig = {
@@ -1198,6 +1201,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         : parseModelFeedUrl(config.curated_models_url);
     const maxAgeMonths = parseNonNegativeCount(config.model_picker_max_age_months);
     const collapseVersions = config.model_picker_collapse_versions;
+    const verifyAssignments = config.verify_model_assignments;
     const catalogMaxAgeDays = parseNonNegativeCount(
         config.model_catalog_max_age_days,
     );
@@ -1235,6 +1239,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && maxAgeMonths === undefined)
         || (collapseVersions !== undefined
             && typeof collapseVersions !== "boolean")
+        || (verifyAssignments !== undefined
+            && typeof verifyAssignments !== "boolean")
         || (config.model_catalog_max_age_days !== undefined
             && catalogMaxAgeDays === undefined)
         || (config.compaction !== undefined && compaction === undefined)
@@ -1328,6 +1334,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : { model_picker_max_age_months: maxAgeMonths }),
         ...(typeof collapseVersions === "boolean"
             ? { model_picker_collapse_versions: collapseVersions }
+            : {}),
+        ...(typeof verifyAssignments === "boolean"
+            ? { verify_model_assignments: verifyAssignments }
             : {}),
         ...(catalogMaxAgeDays === undefined
             ? {}

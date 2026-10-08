@@ -75,8 +75,9 @@ test("null unbinds only the named assignment", () => {
     });
 });
 
-test("new assignments require verification but not favorite membership", () => {
+test("with verification on, new assignments require it but not favorite membership", () => {
     withConfigFile((path) => {
+        writeFileSync(path, JSON.stringify({ schema_version: 1, model: "seed", verify_model_assignments: true }));
         writeFileSync(join(path, "..", "pool.json"), JSON.stringify({ models: {
             "openrouter/not-kept": { added: false, learned: { probe: { ok: true, seen: "2026-09-06" } } },
             "openrouter/not-verified": { added: true },
@@ -92,4 +93,31 @@ test("new assignments require verification but not favorite membership", () => {
         }
         expect(loadVeraConfig({ path })).toEqual(before);
     });
+});
+
+test("by default, new assignments need only be permitted", () => {
+    withConfigFile((path) => {
+        writeFileSync(join(path, "..", "pool.json"), JSON.stringify({
+            defaults: { deny: ["openrouter/denied"] },
+            models: { "openrouter/not-verified": { added: false } },
+        }));
+        for (const model of ["not-verified", "never-probed"]) {
+            updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
+                models: [{ name: model, provider: "openrouter", model }],
+            } } }, { path });
+            expect(loadVeraConfig({ path }).model_assignments?.eco?.models?.[0]?.model).toBe(model);
+        }
+        expect(() => updateVeraConfigDefaults({ model_assignment: { assignment: "eco", binding: {
+            models: [{ name: "denied", provider: "openrouter", model: "denied" }],
+        } } }, { path })).toThrow("must be permitted");
+    });
+});
+
+test("the verification setting must be a flag", () => {
+    for (const value of ["true", 1, null]) {
+        withConfigFile((path) => {
+            writeFileSync(path, JSON.stringify({ schema_version: 1, model: "seed", verify_model_assignments: value }));
+            expect(() => loadVeraConfig({ path })).toThrow();
+        });
+    }
 });

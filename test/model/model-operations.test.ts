@@ -23,13 +23,13 @@ test("keep, rename, unkeep preserve independent evidence through real store relo
     expect(isCuratedPoolEntry(entry(opts))).toBe(true);
     expect(isVerifiedPoolEntry(entry(opts))).toBe(false);
     recordModelVerification("test/one", { probe: { ok: true, seen: "2026-09-06" } }, opts);
-    expect(eligibleForDefault(readUserPoolFile(opts), model)).toBe(true);
+    expect(eligibleForDefault(readUserPoolFile(opts), model, { requireVerified: true })).toBe(true);
     await applyModelOperation({ operation: "rename", models: [model], displayName: "My Daily Model" }, opts);
     await applyModelOperation({ operation: "unkeep", models: [model] }, opts);
     expect(isCuratedPoolEntry(entry(opts))).toBe(false);
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
     expect(entry(opts).displayName).toBe("My Daily Model");
-    expect(eligibleForDefault(readUserPoolFile(opts), model)).toBe(true);
+    expect(eligibleForDefault(readUserPoolFile(opts), model, { requireVerified: true })).toBe(true);
     await applyModelOperation({ operation: "keep", models: [model] }, opts);
     expect(entry(opts).displayName).toBe("My Daily Model");
     expect(isVerifiedPoolEntry(entry(opts))).toBe(true);
@@ -55,7 +55,7 @@ test("bulk unkeep leaves assigned models eligible", async () => {
     });
     expect(result.every((row) => row.status !== "failed")).toBe(true);
     expect(isCuratedPoolEntry(entry(opts))).toBe(false);
-    expect(eligibleForDefault(readUserPoolFile(opts), model)).toBe(true);
+    expect(eligibleForDefault(readUserPoolFile(opts), model, { requireVerified: true })).toBe(true);
 });
 
 test("verification makes real adapter requests and does not keep a model", async () => {
@@ -137,3 +137,12 @@ for (const fails of [false, true]) {
         expect(calls).not.toContain("two");
     });
 }
+
+test("without required verification, a permitted model is eligible before any probe", () => {
+    const opts = options();
+    const pool = readUserPoolFile(opts);
+    expect(eligibleForDefault(pool, model, { requireVerified: false })).toBe(true);
+    expect(eligibleForDefault(pool, model, { requireVerified: true })).toBe(false);
+    const denied = { ...pool, defaults: { ...pool.defaults, deny: ["test/*"] } };
+    expect(eligibleForDefault(denied, model, { requireVerified: false })).toBe(false);
+});

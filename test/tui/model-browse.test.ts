@@ -298,14 +298,17 @@ test("live library search accepts spaces and row actions do not appear as anothe
     } finally { setup.renderer.destroy(); }
 });
 
-test("default assignment offers connected models and discloses verification", async () => {
+test("default assignment offers connected models and discloses verification only when on", async () => {
     const { startTuiModelAssignmentPicker } = await import("../../clients/tui/settings-picker.ts");
-    const pane = startTuiModelAssignmentPicker("eco", "eco", "", [
+    const pooled = [
         { provider: "p", model: "a", label: "A", available: true, verified: false, levels: [] },
         { provider: "p", model: "b", label: "B", available: true, verified: true, levels: [] },
-    ]);
+    ];
+    const pane = startTuiModelAssignmentPicker("eco", "eco", "", pooled);
     expect(pane.options.filter((row) => row.model !== undefined).map((row) => row.model)).toEqual(["a", "b"]);
-    expect(pane.subtitle).toContain("cost");
+    expect(pane.subtitle).not.toContain("cost");
+    const verifying = startTuiModelAssignmentPicker("eco", "eco", "", pooled, [], false, undefined, undefined, true);
+    expect(verifying.subtitle).toContain("cost");
     expect(pane.options.some((row) => row.label === "Favorites")).toBe(true);
 });
 

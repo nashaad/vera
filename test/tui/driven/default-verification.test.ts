@@ -18,7 +18,7 @@ for (const outcome of ["passed", "failed", "canceled"] as const) {
             dependencies: () => {
                 configPath = defaultVeraConfigPath();
                 process.env.VERA_POOL_FILE = join(configPath, "..", "pool.json");
-                writeFileSync(configPath, JSON.stringify({ schema_version: 1, provider: "openrouter", model: "one/model", approval_mode: "ask",
+                writeFileSync(configPath, JSON.stringify({ schema_version: 1, provider: "openrouter", model: "one/model", approval_mode: "ask", verify_model_assignments: true,
                     model_assignments: { eco: { models: [{ name: "prior", provider: "openrouter", model: "prior" }] } },
                 }));
                 return { ...createTuiCatalogRefreshDependencies({ pooled: [] }),
@@ -72,7 +72,7 @@ test("default verification finishes when model settings arrive while it runs", a
         dependencies: () => {
             configPath = defaultVeraConfigPath();
             process.env.VERA_POOL_FILE = join(configPath, "..", "pool.json");
-            writeFileSync(configPath, JSON.stringify({ schema_version: 1, provider: "openrouter", model: "one/model", approval_mode: "ask",
+            writeFileSync(configPath, JSON.stringify({ schema_version: 1, provider: "openrouter", model: "one/model", approval_mode: "ask", verify_model_assignments: true,
                 model_assignments: { eco: { models: [{ name: "prior", provider: "openrouter", model: "prior" }] } },
             }));
             const dependencies = createTuiCatalogRefreshDependencies({ pooled: [] });
@@ -109,6 +109,44 @@ test("default verification finishes when model settings arrive while it runs", a
         expect(loadVeraConfig({ path: configPath }).model_assignments?.eco?.models?.[0]?.model).toBe("one/model");
     } finally {
         gate.resolve(); await session.close();
+        if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
+        else process.env.VERA_POOL_FILE = previousPool;
+    }
+}, 15_000);
+
+test("assigning a default runs no verification unless the setting asks for it", async () => {
+    let configPath = "";
+    let calls = 0;
+    const previousPool = process.env.VERA_POOL_FILE;
+    const session = await startTuiTestSession({
+        home: mkdtempSync(join(tmpdir(), "vera-default-nocheck-")), width: 120, height: 40,
+        dependencies: () => {
+            configPath = defaultVeraConfigPath();
+            process.env.VERA_POOL_FILE = join(configPath, "..", "pool.json");
+            writeFileSync(configPath, JSON.stringify({ schema_version: 1, provider: "openrouter", model: "one/model", approval_mode: "ask",
+                model_assignments: { eco: { models: [{ name: "prior", provider: "openrouter", model: "prior" }] } },
+            }));
+            return { ...createTuiCatalogRefreshDependencies({ pooled: [] }),
+                operateModels: async () => { calls++; return undefined; },
+            };
+        },
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("assign model");
+        await session.waitForVisiblePane("Assign model defaults");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("eco");
+        session.sendKey("Down"); session.sendKey("Enter");
+        await session.waitForVisiblePane("Assign a model to eco");
+        session.sendText("One"); session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(() => loadVeraConfig({ path: configPath }).model_assignments?.eco?.models?.[0]?.model === "one/model", "assignment saved");
+        expect(session.captureVisiblePane()).not.toContain("Verifying model before assignment");
+        expect(calls).toBe(0);
+    } finally {
+        await session.close();
         if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
         else process.env.VERA_POOL_FILE = previousPool;
     }
