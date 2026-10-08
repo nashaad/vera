@@ -24,6 +24,13 @@ test("finished and live thinking add up to whole seconds", () => {
     expect(turnMeterSegments(thought, 1_000, 1_500)).toEqual(["thought 4s"]);
 });
 
+test("a minute or more of thinking rolls up into minutes", () => {
+    expect(turnMeterSegments(meterThought(EMPTY_TURN_METER, 1_000, 60_000), 1_000, 0))
+        .toEqual(["thought 1m00s"]);
+    expect(turnMeterSegments(meterThought(EMPTY_TURN_METER, 1_000, 1_902_400), 1_000, 0))
+        .toEqual(["thought 31m42s"]);
+});
+
 test("a meter from an earlier turn counts as empty", () => {
     const earlier = meterThought(meterStreamedText(EMPTY_TURN_METER, 1_000, "ahoy matey"), 1_000, 5_000);
     expect(turnMeterSegments(earlier, 9_000, 0)).toEqual([]);

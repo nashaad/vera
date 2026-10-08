@@ -48,8 +48,17 @@ export function turnMeterSegments(
     const tokens = Math.round(current.streamedCharacters / CHARACTERS_PER_TOKEN);
     if (tokens > 0) segments.push(`↓ ~${formatTokenCount(tokens)} ${tokens === 1 ? "token" : "tokens"}`);
     const thoughtSeconds = Math.floor((current.thoughtMs + Math.max(0, liveThoughtMs)) / 1_000);
-    if (thoughtSeconds > 0) segments.push(`thought ${thoughtSeconds}s`);
+    if (thoughtSeconds > 0) segments.push(`thought ${formatThoughtTime(thoughtSeconds)}`);
     return segments;
+}
+
+// Same shape as the elapsed time beside it.
+function formatThoughtTime(totalSeconds: number): string {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return minutes === 0
+        ? `${seconds}s`
+        : `${minutes}m${String(seconds).padStart(2, "0")}s`;
 }
 
 function formatTokenCount(tokens: number): string {
