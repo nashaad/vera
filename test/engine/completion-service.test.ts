@@ -13,6 +13,7 @@ import type {
     AssistantMessage,
     ModelAdapter,
     ModelRequest,
+    ModelStreamEvent,
 } from "../../src/model/types.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 
@@ -293,6 +294,70 @@ test("a deadline is reported as a timeout, not as the model's stop reason", asyn
         new AbortController().signal,
     )).rejects.toThrow("slow timed out");
 });
+
+test("a model that keeps writing is not cut off, however long it takes", async () => {
+    const service = createRoutedCompletionService(
+        streaming(async function* () {
+            for (let index = 0; index < 8; index += 1) {
+                await delay(10);
+                yield { type: "text_delta", contentIndex: 0, text: "x" };
+            }
+        }),
+        { models: [{ model: "slow" }], timeoutMs: 30 },
+    );
+
+    const result = await service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    );
+
+    expect(result.text).toBe("summary");
+});
+
+test("a stream that goes quiet past the idle limit times out", async () => {
+    const service = createRoutedCompletionService(
+        streaming(async function* (signal) {
+            yield { type: "text_delta", contentIndex: 0, text: "x" };
+            await new Promise((resolve) => {
+                signal.addEventListener("abort", resolve, { once: true });
+            });
+        }),
+        { models: [{ model: "stuck" }], timeoutMs: 20 },
+    );
+
+    await expect(service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    )).rejects.toThrow("stuck timed out: no output for 0.02s");
+});
+
+function streaming(
+    events: (signal: AbortSignal) => AsyncGenerator<ModelStreamEvent>,
+): ModelAdapter {
+    return {
+        stream: (request: ModelRequest) => {
+            let ended = false;
+            return {
+                [Symbol.asyncIterator]: async function* () {
+                    yield* events(request.signal!);
+                    ended = true;
+                },
+                result: async () => {
+                    while (!ended) {
+                        await delay(1);
+                    }
+                    return request.signal?.aborted
+                        ? assistant("", "aborted")
+                        : assistant("summary");
+                },
+            };
+        },
+    } as unknown as ModelAdapter;
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function adapter(
     respond: (request: ModelRequest) => AssistantMessage,

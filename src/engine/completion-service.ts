@@ -38,7 +38,8 @@ export interface CompletionServiceSettings {
     readonly maxOutputTokens?: number;
 }
 
-export const COMPLETION_TIMEOUT_MS = 120_000;
+// How long a call may go without a stream event. Some providers send nothing while the model reasons.
+export const COMPLETION_IDLE_TIMEOUT_MS = 120_000;
 export const COMPLETION_MAX_OUTPUT_TOKENS = 8_192;
 
 export class CompletionUnavailableError extends Error {
@@ -55,7 +56,7 @@ export function createRoutedCompletionService(
     adapter: ModelAdapter,
     settings: CompletionServiceSettings,
 ): CompleteText {
-    const timeoutMs = settings.timeoutMs ?? COMPLETION_TIMEOUT_MS;
+    const idleMs = settings.timeoutMs ?? COMPLETION_IDLE_TIMEOUT_MS;
     const ceiling = settings.maxOutputTokens ?? COMPLETION_MAX_OUTPUT_TOKENS;
 
     return async (request, signal) => {
@@ -89,16 +90,13 @@ export function createRoutedCompletionService(
                 );
                 continue;
             }
-            const timeout = AbortSignal.timeout(timeoutMs);
-            const combined = AbortSignal.any([signal, timeout]);
             let outcome = await attempt(
                 adapter,
                 candidate,
                 request,
                 maxTokens,
                 signal,
-                combined,
-                timeout,
+                idleMs,
             );
             if (
                 outcome.kind === "failed"
@@ -111,8 +109,7 @@ export function createRoutedCompletionService(
                     request,
                     outcome.allowance,
                     signal,
-                    combined,
-                    timeout,
+                    idleMs,
                 );
             }
             if (outcome.kind === "answered") {
@@ -152,9 +149,20 @@ async function attempt(
     request: CompletionRequest,
     maxTokens: number,
     signal: AbortSignal,
-    combined: AbortSignal,
-    timeout: AbortSignal,
+    idleMs: number,
 ): Promise<AttemptOutcome> {
+    const idle = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const rearm = (): void => {
+        clearTimeout(timer);
+        timer = setTimeout(() => idle.abort(), idleMs);
+    };
+    const combined = AbortSignal.any([signal, idle.signal]);
+    const timedOut = (): AttemptOutcome => ({
+        kind: "failed",
+        reason: `${candidate.model} timed out: no output for ${idleMs / 1_000}s`,
+    });
+    rearm();
     try {
         const stream = adapter.stream({
             ...(candidate.provider === undefined
@@ -169,13 +177,16 @@ async function attempt(
             messages: request.messages,
             signal: combined,
         });
+        for await (const _event of stream) {
+            rearm();
+        }
         const message = await stream.result();
         if (signal.aborted) {
             throw new CompletionUnavailableError("Cancelled.");
         }
         // An adapter that turns the deadline into an aborted message rather than a throw would otherwise be reported as the model's own stop reason, which names the symptom and hides.
-        if (timeout.aborted) {
-            return { kind: "failed", reason: `${candidate.model} timed out` };
+        if (idle.signal.aborted) {
+            return timedOut();
         }
         if (message.stopReason !== "stop") {
             return {
@@ -212,8 +223,8 @@ async function attempt(
         if (error instanceof CompletionUnavailableError) {
             throw error;
         }
-        if (timeout.aborted) {
-            return { kind: "failed", reason: `${candidate.model} timed out` };
+        if (idle.signal.aborted) {
+            return timedOut();
         }
         const allowance = error instanceof ProviderFailureError
             ? error.failure.allowance
@@ -227,5 +238,7 @@ async function attempt(
                 ? { allowance: allowance.available }
                 : {}),
         };
+    } finally {
+        clearTimeout(timer);
     }
 }
