@@ -307,28 +307,26 @@ test("the place row keeps ready off the band while a turn is live", () => {
     );
 });
 
-test("the compaction hint fills with time and never completes on its own", () => {
-    expect(renderTuiCompactionHint(0)).toBe("compacting [░░░░░░░░░░░░] · 0s");
-    // Half life: 20s of elapsed time fills half the bar.
-    expect(renderTuiCompactionHint(20_000))
-        .toBe("compacting [██████░░░░░░] · 20s");
-    // The fill grows monotonically with elapsed time.
-    const fills = [1_000, 5_000, 30_000, 120_000, 600_000].map((ms) =>
-        renderTuiCompactionHint(ms).split("█").length - 1
-    );
-    expect([...fills].sort((a, b) => a - b)).toEqual(fills);
-    // Only the finish completes the bar: elapsed time alone leaves a gap.
-    expect(renderTuiCompactionHint(Number.MAX_SAFE_INTEGER))
-        .toContain("░");
+test("the compaction hint sweeps a segment left and right", () => {
+    expect(renderTuiCompactionHint(0)).toBe("compacting ━━━─────── · 0s");
+    expect(renderTuiCompactionHint(300)).toBe("compacting ───━━━──── · 0s");
+    expect(renderTuiCompactionHint(700)).toBe("compacting ───────━━━ · 0s");
+    // Past the right edge it turns back.
+    expect(renderTuiCompactionHint(1_000)).toBe("compacting ────━━━─── · 1s");
+    expect(renderTuiCompactionHint(1_400)).toBe("compacting ━━━─────── · 1s");
+});
+
+test("the compaction hint drops the sweep when animation is off", () => {
+    expect(renderTuiCompactionHint(5_000, {}, false)).toBe("compacting · 5s");
 });
 
 test("the compaction hint names its strategy and summarizer model", () => {
-    expect(renderTuiCompactionHint(2_000, {
+    expect(renderTuiCompactionHint(2_800, {
         strategy: "vera/full-summary",
         provider: "openrouter",
         model: "openai/gpt-5.6-terra",
     })).toBe(
-        "compacting [█░░░░░░░░░░░] · vera/full-summary"
+        "compacting ━━━─────── · vera/full-summary"
             + " · openrouter/openai/gpt-5.6-terra · 2s",
     );
 });

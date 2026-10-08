@@ -126,6 +126,7 @@ export function renderStatus(rt: TuiRuntime): void {
                 provider: statusState.compactionProvider,
                 model: statusState.compactionModel,
             },
+            rt.animationLevel > 0,
         );
     } else if (statusState.working) {
         const modelActivity = statusState.modelActivity;

@@ -8,7 +8,7 @@ import {
 } from "../../support/tui-compaction-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-test("the status line fills a bar while compaction runs", async () => {
+test("the status line sweeps a bar while compaction runs", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-compaction-bar-"));
     const session = await startTuiTestSession({
         home,
@@ -16,9 +16,8 @@ test("the status line fills a bar while compaction runs", async () => {
     });
 
     try {
-        const pane = await session.waitForVisiblePane("compacting [");
-        expect(pane).toContain("compacting [");
-        expect(pane).toContain("░");
+        const pane = await session.waitForVisiblePane("compacting ");
+        expect(pane).toMatch(/compacting ─*━━━─*/);
     } finally {
         await session.close();
     }
