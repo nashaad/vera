@@ -898,7 +898,7 @@ test("TUI shows scratch checklists and scratch notes live and from history", () 
     expect(live.entries).toEqual([
         {
             kind: "notice",
-            text: "Raid  1/2\n✓ Chart the reef\n○ Steal the lantern",
+            text: "Raid  1/2 · todo.md\n✓ Chart the reef\n○ Steal the lantern",
             checklist,
         },
         { kind: "notice", tone: "soft", text: "Updated notes · findings.md" },
