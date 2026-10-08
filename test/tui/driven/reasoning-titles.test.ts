@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createReasoningTitlesDependencies } from "../../support/tui-reasoning-titles-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-test("opened reasoning stacks its titles and keeps a gap above the tool row", async () => {
+test("opened reasoning sits behind a rail, shows a repeated title once, and keeps a gap above the tool row", async () => {
     const session = await startTuiTestSession({
         home: mkdtempSync(join(tmpdir(), "vera-reasoning-titles-")),
         height: 40,
@@ -19,12 +19,15 @@ test("opened reasoning stacks its titles and keeps a gap above the tool row", as
         session.sendKey("C-o");
         const pane = await session.waitForVisiblePane("Raising the black flag");
         const lines = pane.split("\n").map((line) => line.trim());
-        const first = lines.indexOf("Plotting the course");
-        expect(lines.slice(first, first + 4)).toEqual([
-            "Plotting the course",
-            "Counting the doubloons",
-            "Raising the black flag",
+        const header = lines.findIndex((line) => line.startsWith("Reasoning summary:"));
+        expect(lines.slice(header, header + 7)).toEqual([
+            "Reasoning summary: 0.3s  Ctrl+O hide reasoning",
             "",
+            "│ Plotting the course",
+            "│ Counting the doubloons",
+            "│ Raising the black flag",
+            "",
+            expect.stringMatching(/^Ran {2}ls treasure\//),
         ]);
     } finally {
         await session.close();

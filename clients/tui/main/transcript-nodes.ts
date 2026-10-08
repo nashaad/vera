@@ -4,6 +4,7 @@ import { assistantFollowsTools, reseedTranscriptNodes } from "../main.ts";
 import { createTuiEntryNode, mainTranscriptWidth } from "../main/sidebar-pane.ts";
 import { tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { updateTuiNoticeCard } from "../notice-card.ts";
+import { updateTuiReasoningBlock } from "../reasoning-block.ts";
 import { renderTuiEntry, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
 import { animateTuiThinkingWindow, ELLIPSIS_COLUMNS, liveReasoningHeight, liveReasoningText, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { saveTuiTipState } from "../tips-store.ts";
@@ -210,8 +211,13 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
         updateTuiNoticeCard(existing, entry);
     }
     if (
-        (entry.kind === "thought"
-            || entry.kind === "notice"
+        entry.kind === "thought"
+        && existing instanceof BoxRenderable
+    ) {
+        updateTuiReasoningBlock(existing, entry);
+    }
+    if (
+        (entry.kind === "notice"
             || entry.kind === "inbox")
         && existing instanceof TextRenderable
     ) {
