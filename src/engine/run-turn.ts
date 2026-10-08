@@ -785,6 +785,7 @@ export async function runHeadlessLoop(
     let automaticCompactionBlocked = false;
     let automaticCompactionBlockedAt: number | undefined;
     let latchedAssignmentKey: string | undefined;
+    let latchedCapacity: number | undefined;
     const compactionCapacity = (
         context?: CompactionContext,
     ): number | undefined => {
@@ -887,13 +888,13 @@ export async function runHeadlessLoop(
             const announced = boundary.readState().compaction;
             const assignmentKey = compactionAssignmentKey(compaction, announced);
             // A failed automatic compaction stops the retry loop, but it must not stop compaction for the rest of the session.
+            // Being over the window is not a change: it is what failed, and retrying it at every tool step is the loop.
             if (!force && automaticCompactionBlocked) {
-                const overWindow = measurement.capacity !== undefined
-                    && measurement.tokens >= measurement.capacity;
                 const assignmentChanged = latchedAssignmentKey !== assignmentKey;
+                const capacityChanged = latchedCapacity !== measurement.capacity;
                 if (
                     !assignmentChanged
-                    && !overWindow
+                    && !capacityChanged
                     && !contextWatch.refusedForSize
                     && (automaticCompactionBlockedAt === undefined
                         || lastRawEstimate < automaticCompactionBlockedAt
@@ -904,6 +905,7 @@ export async function runHeadlessLoop(
                 automaticCompactionBlocked = false;
                 automaticCompactionBlockedAt = undefined;
                 latchedAssignmentKey = undefined;
+                latchedCapacity = undefined;
             }
             const compactionModel = context?.model
                 ?? readModelSettings?.().model
@@ -1024,11 +1026,13 @@ export async function runHeadlessLoop(
                 automaticCompactionBlocked = true;
                 automaticCompactionBlockedAt = lastRawEstimate;
                 latchedAssignmentKey = assignmentKey;
+                latchedCapacity = measurement.capacity;
             }
             if (result.outcome === "compacted") {
                 automaticCompactionBlocked = false;
                 automaticCompactionBlockedAt = undefined;
                 latchedAssignmentKey = undefined;
+                latchedCapacity = undefined;
                 injectedRulePaths.clear();
                 const todoAdded = await injectScratchTodo(state);
                 const hookContextAdded = await injectSessionStartContext(state, "compacted");

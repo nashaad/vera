@@ -534,6 +534,89 @@ test("a failed automatic compaction is not retried on a turn that adds nothing",
     expect(started(seen)).toBe(afterFirst);
 });
 
+test("a failed compaction over the window is not retried at every tool step", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-over-window", cwd: workspace },
+    );
+    const script: AssistantMessage[] = [];
+    for (let round = 1; round <= 3; round += 1) {
+        writeFileSync(join(workspace, `notes-${round}.txt`), `chunk ${round} `.repeat(500));
+        script.push(toolCall(`over-call-${round}`, round));
+    }
+    script.push(assistantText("finished over the limit"));
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, new FauxAdapter(script), "test", undefined, {
+        approvalMode: "auto",
+    }, {
+        sessionStore: store,
+        eventBus: events,
+        compaction: unavailableCompactionOptions(),
+        readModelSettings: () => ({ model: "test", contextWindow: 8_000 }),
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+
+    channel.client.send({ type: "prompt", content: "plank ".repeat(6_000) });
+    await drain(channel);
+
+    // The check before the prompt has no history yet; the failure after the first step is the one that latches.
+    expect(seen.flatMap((event) =>
+        event.type === "compaction_finished" ? [event.outcome] : []
+    )).toEqual(["no_boundary", "unavailable"]);
+});
+
+test("a changed context limit reopens a latched automatic compaction", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-limit-change", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk 1 ".repeat(500));
+    let contextWindow = 8_000;
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, new FauxAdapter([
+        toolCall("limit-call-1", 1),
+        assistantText("first done"),
+        assistantText("still here"),
+        assistantText("second done"),
+    ]), "test", undefined, {
+        approvalMode: "auto",
+    }, {
+        sessionStore: store,
+        eventBus: events,
+        compaction: unavailableCompactionOptions(),
+        readModelSettings: () => ({ model: "test", contextWindow }),
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+        router: { updateModelSettings: async () => undefined },
+    });
+
+    channel.client.send({ type: "prompt", content: "plank ".repeat(6_000) });
+    await drain(channel);
+    const afterFirst = started(seen);
+
+    channel.client.send({ type: "prompt", content: "still there?" });
+    await drain(channel);
+    const unchanged = started(seen);
+
+    contextWindow = 9_000;
+    channel.client.send({ type: "prompt", content: "ok" });
+    await drain(channel);
+
+    expect(unchanged).toBe(afterFirst);
+    expect(started(seen)).toBeGreaterThan(unchanged);
+});
+
 test("a new compaction assignment reopens a latched automatic compaction", async () => {
     // The latch is for the route that failed. A different assignment is not
     // that route, so waiting for growth would leave the session on the
