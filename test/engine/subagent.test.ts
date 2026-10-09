@@ -10,6 +10,7 @@ import {
 } from "../../src/engine/subagent.ts";
 import { EngineEventBus } from "../../src/engine/events.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import type { SubagentFinishedHookPayload } from "../../src/sdk/hooks.ts";
 import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import {
@@ -829,6 +830,105 @@ test("a failed child model request returns an error tool result", async () => {
             output: "Agent: none\nModel: test\nReasoning effort: provider default\n\nFaux adapter has no scripted response left",
             isError: true,
         });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a waiting child runs the parent's hooks and reports subagent_finished", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-hooks-"));
+    const hooks = new ToolHooks();
+    const spawned: boolean[] = [];
+    hooks.registerPreTurn((payload) => {
+        spawned.push(payload.spawned);
+        return { power: "mutate", context: "Never trust a parrot with the map." };
+    }, "rules.extension");
+    const starts: string[] = [];
+    hooks.registerSessionStart((payload) => {
+        starts.push(payload.reason);
+        return { power: "mutate", context: "The crew answers to the crow." };
+    });
+    const finished: SubagentFinishedHookPayload[] = [];
+    hooks.registerSubagentFinished((payload) => {
+        finished.push(payload);
+    });
+    const faux = new FauxAdapter([{
+        role: "assistant",
+        content: [{ type: "text", text: "Buried under the third palm." }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    }]);
+    const requests: ModelRequest[] = [];
+    const applyEffect = createSubagentEffectApplier({
+        adapter: {
+            stream(request) {
+                requests.push(request);
+                return faux.stream(request);
+            },
+        },
+        workspace: root,
+        hooks,
+        parentSessionId: "parent-crow",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        await applyEffect({
+            type: "spawn_subagent",
+            description: "find the treasure",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "test",
+        });
+        await Bun.sleep(0);
+
+        expect(spawned).toEqual([true]);
+        expect(starts).toEqual(["start"]);
+        const childInput = JSON.stringify(requests[0]?.messages);
+        expect(childInput).toContain("The crew answers to the crow.");
+        expect(childInput).toContain("Never trust a parrot with the map.");
+        expect(finished).toHaveLength(1);
+        expect(finished[0]).toMatchObject({
+            type: "subagent_finished",
+            parentSessionId: "parent-crow",
+            workspace: root,
+            background: false,
+            outcome: "completed",
+            text: "Buried under the third palm.",
+        });
+        expect(finished[0]?.subagentId).toBeString();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a failed waiting child reports an error outcome", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-hooks-error-"));
+    const hooks = new ToolHooks();
+    const finished: SubagentFinishedHookPayload[] = [];
+    hooks.registerSubagentFinished((payload) => {
+        finished.push(payload);
+    });
+    const applyEffect = createSubagentEffectApplier({
+        adapter: new FauxAdapter([]),
+        workspace: root,
+        hooks,
+        parentSessionId: "parent-crow",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        await applyEffect({
+            type: "spawn_subagent",
+            description: "sail into the storm",
+        }, new AbortController().signal, {
+            approvalMode: "auto",
+            model: "test",
+        });
+        await Bun.sleep(0);
+
+        expect(finished.map((payload) => payload.outcome)).toEqual(["error"]);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

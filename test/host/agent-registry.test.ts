@@ -4,6 +4,7 @@ import type {
     PreCompactHookPayload,
     SessionEndHookPayload,
     SessionEndReason,
+    SubagentFinishedHookPayload,
     TurnFinishedHookPayload,
 } from "../../src/sdk/hooks.ts";
 import {
@@ -945,7 +946,9 @@ test("a parent close effect replaces the child's completion delivery", async () 
     const parentPath = join(root, "parent.jsonl");
     const closeInput = { subagent_id: "pending" };
     let adapterNumber = 0;
+    const finished: SubagentFinishedHookPayload[] = [];
     const registry = new AgentRegistry({
+        onSubagentFinished: (payload) => finished.push(payload),
         createAdapter() {
             adapterNumber += 1;
             if (adapterNumber === 1) {
@@ -1039,6 +1042,7 @@ test("a parent close effect replaces the child's completion delivery", async () 
         expect(parentStore.pendingDeliveries()).toEqual([]);
         expect(await readFile(parentPath, "utf8"))
             .not.toContain(`completion:${child!.id}`);
+        expect(finished).toEqual([]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -2762,7 +2766,9 @@ test("an async subagent returns immediately and delivers its final summary", asy
     const root = await mkdtemp(join(tmpdir(), "vera-agent-background-"));
     const parentSession = join(root, "parent.jsonl");
     let adapterNumber = 0;
+    const finished: SubagentFinishedHookPayload[] = [];
     const registry = new AgentRegistry({
+        onSubagentFinished: (payload) => finished.push(payload),
         createAdapter() {
             adapterNumber += 1;
             if (adapterNumber === 1) {
@@ -2849,6 +2855,15 @@ test("an async subagent returns immediately and delivers its final summary", asy
         expect(await finishTurnText(parentAttachment)).toBe(
             "I incorporated the background result.",
         );
+        expect(finished).toEqual([{
+            type: "subagent_finished",
+            parentSessionId: "parent",
+            subagentId: child!.id,
+            workspace: realpathSync(root),
+            background: true,
+            outcome: "completed",
+            text: "All integration tests pass.",
+        }]);
         expect((await SessionStore.open(parentSession)).pendingDeliveries())
             .toEqual([]);
         const parentEvents = (await readFile(

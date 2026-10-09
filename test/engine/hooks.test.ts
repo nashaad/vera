@@ -198,6 +198,7 @@ const preTurnPayload = {
     workspace: "/work/vera",
     prompt: "review this patch",
     arrivedDuringTurn: false,
+    spawned: false,
     model: "reviewer",
     tools: ["read", "write", "bash"],
     reasoningEffort: "high",
@@ -227,6 +228,7 @@ test("pre-turn mutations accumulate in order and cannot add tools", async () => 
         workspace: "/work/vera",
         prompt: "review this patch",
         arrivedDuringTurn: false,
+        spawned: false,
         model: "cheap",
         tools: ["bash"],
         reasoningEffort: "high",
@@ -419,3 +421,32 @@ test("a turn_ending result with empty context or another power fails", async () 
 function roundTrip<Value>(value: Value): Value {
     return JSON.parse(JSON.stringify(value)) as Value;
 }
+
+test("a failing subagent_finished observer does not stop the next one", async () => {
+    const hooks = new ToolHooks();
+    const seen: string[] = [];
+    hooks.registerSubagentFinished(() => {
+        throw new Error("the parrot ate the ledger");
+    });
+    hooks.registerSubagentFinished((payload) => {
+        seen.push(payload.text);
+    });
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+        hooks.notifySubagentFinished({
+            type: "subagent_finished",
+            parentSessionId: "captain",
+            subagentId: "scout",
+            workspace: "/deck",
+            background: false,
+            outcome: "completed",
+            text: "land ho",
+        });
+        expect(seen).toEqual([]);
+        await Bun.sleep(0);
+        expect(seen).toEqual(["land ho"]);
+    } finally {
+        console.warn = warn;
+    }
+});

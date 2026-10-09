@@ -15,6 +15,7 @@ const turn = {
     workspace: "/ship",
     prompt: "where is the treasure?",
     arrivedDuringTurn: false,
+    spawned: false,
     model: "crow",
     tools: ["read"],
 };

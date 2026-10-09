@@ -10,8 +10,9 @@ executable in the home's `hooks/` directory and name it from the `hooks` list
 in `config.json`. With no hooks configured, nothing runs.
 
 Hooks run in list order. Entries in `config.json` run before hooks registered
-by extensions. Sessions started with `--bare` or `--prompt-only` run no hooks,
-and neither do their subagents.
+by extensions. A subagent runs the hooks of the session that started it.
+Sessions started with `--bare` or `--prompt-only` run no hooks, and neither do
+their subagents.
 
 > [!WARNING]
 > **Safety**
@@ -284,7 +285,8 @@ function before each user prompt starts its work, with `registerPreTurn` and
 each queued prompt that joins the running turn. For a joining prompt it can
 narrow the tools or block the prompt, which ends the turn, but it cannot
 change the model or reasoning effort. The payload's `arrivedDuringTurn` is
-true for a joining prompt.
+true for a joining prompt, and `spawned` is true when another agent started
+the session, so a function can tell a subagent's turn from yours.
 
 A `pre_turn` function can also return `context`. Vera adds that text after
 your message, as a message of its own, before the model sees the turn. The
@@ -399,6 +401,21 @@ after a crash.
 ```js
 vera.hooks.registerSessionEnd((session) => {
     if (session.turns > 0) logbook.push(`${session.sessionId} dropped anchor: ${session.reason}`);
+});
+```
+
+An extension can run a function each time a subagent hands its result back
+with `registerSubagentFinished`, after declaring `hooks.subagent_finished`. It
+gets `parentSessionId`, `subagentId`, `workspace`, `background` (false for a
+subagent the parent waited on), `outcome` (`completed` or `error`), and
+`text`, the subagent's final text. A background subagent that is sent more
+work fires again when it hands back the next result. A subagent stopped with
+Esc, or closed before its result arrives, does not fire. It only observes: the
+parent gets the result without waiting for it.
+
+```js
+vera.hooks.registerSubagentFinished((scout) => {
+    crewLedger.push(`${scout.subagentId} (${scout.outcome}): ${scout.text}`);
 });
 ```
 

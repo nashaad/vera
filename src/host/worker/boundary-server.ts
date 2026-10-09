@@ -7,6 +7,7 @@ import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ReviewLogEntry } from "../../engine/review-log.ts";
 import type { SessionStore } from "../../store/session-store.ts";
+import type { SubagentFinishedHookPayload } from "../../sdk/hooks.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
 import { ToolRuntime } from "../../tools/runtime.ts";
 import { skillScriptTool } from "../../skills/script.ts";
@@ -372,6 +373,13 @@ export function createWorkerBoundaryServer(
                 } finally {
                     ingesting = false;
                 }
+                return;
+            }
+            if (message.method === "hook.subagentFinished") {
+                const { payload } = body as {
+                    readonly payload: SubagentFinishedHookPayload;
+                };
+                services.hooks?.notifySubagentFinished(payload);
                 return;
             }
             if (message.method === "reviewLog.append") {

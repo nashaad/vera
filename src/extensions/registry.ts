@@ -49,6 +49,7 @@ import type {
     TurnFinishedHook,
     PreCompactHook,
     SessionEndHook,
+    SubagentFinishedHook,
     PreTurnHookPayload,
     PreTurnHookResult,
     TurnEndingHook,
@@ -66,6 +67,7 @@ import {
     type ExtensionHostServices,
     type RegisteredPreCompactHook,
     type RegisteredSessionEndHook,
+    type RegisteredSubagentFinishedHook,
     type RegisteredTurnFinishedHook,
 } from "./host-services.ts";
 import {
@@ -108,6 +110,7 @@ const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
 const TURN_FINISHED_HOOK_CAPABILITY = "hooks.turn_finished";
 const PRE_COMPACT_HOOK_CAPABILITY = "hooks.pre_compact";
 const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
+const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
@@ -163,6 +166,7 @@ export interface ExtensionRegistry {
     turnFinishedHooks(): readonly RegisteredTurnFinishedHook[];
     preCompactHooks(): readonly RegisteredPreCompactHook[];
     sessionEndHooks(): readonly RegisteredSessionEndHook[];
+    subagentFinishedHooks(): readonly RegisteredSubagentFinishedHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
     /** Lends the host's model and session services to extensions. Bind once. */
     bindHost(services: ExtensionHostServices): void;
@@ -213,6 +217,7 @@ interface LoadedRegistryExtension {
     readonly turnFinishedHooks: readonly RegisteredTurnFinishedHook[];
     readonly preCompactHooks: readonly RegisteredPreCompactHook[];
     readonly sessionEndHooks: readonly RegisteredSessionEndHook[];
+    readonly subagentFinishedHooks: readonly RegisteredSubagentFinishedHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly requestHandlers: ReadonlyMap<string, VeraExtensionRequestHandler>;
@@ -412,6 +417,9 @@ export async function startExtensionRegistry(
         sessionEndHooks(): readonly RegisteredSessionEndHook[] {
             return loaded.flatMap((extension) => extension.sessionEndHooks);
         },
+        subagentFinishedHooks(): readonly RegisteredSubagentFinishedHook[] {
+            return loaded.flatMap((extension) => extension.subagentFinishedHooks);
+        },
         bindHost(services: ExtensionHostServices): void {
             host.bind(services);
         },
@@ -608,6 +616,7 @@ async function activateExtension(
     const turnFinishedHooks: RegisteredTurnFinishedHook[] = [];
     const preCompactHooks: RegisteredPreCompactHook[] = [];
     const sessionEndHooks: RegisteredSessionEndHook[] = [];
+    const subagentFinishedHooks: RegisteredSubagentFinishedHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
@@ -921,6 +930,20 @@ async function activateExtension(
                 sessionEndHooks.push(registered);
                 return () => removeHook(sessionEndHooks, registered);
             },
+            registerSubagentFinished(hook: SubagentFinishedHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Extension hooks must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(SUBAGENT_FINISHED_HOOK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SUBAGENT_FINISHED_HOOK_CAPABILITY}`);
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid subagent-finished hook registration");
+                }
+                const registered = { extensionId: loaded.manifest.id, run: hook };
+                subagentFinishedHooks.push(registered);
+                return () => removeHook(subagentFinishedHooks, registered);
+            },
             registerModelRequest(
                 namespace: string,
                 hook: ModelRequestHook,
@@ -1033,6 +1056,7 @@ async function activateExtension(
             turnFinishedHooks,
             preCompactHooks,
             sessionEndHooks,
+            subagentFinishedHooks,
             modelRequestHooks,
             sessionState,
             modelMiddleware,

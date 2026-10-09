@@ -13,6 +13,8 @@ import type {
     PreTurnHook,
     PreTurnHookPayload,
     PreTurnHookResult,
+    SubagentFinishedHook,
+    SubagentFinishedHookPayload,
     TurnEndingHook,
     TurnEndingHookPayload,
     TurnEndingHookResult,
@@ -72,6 +74,7 @@ export class ToolHooks {
     private readonly preTurn: SourcedHook<PreTurnHook>[] = [];
     private readonly sessionStart: SessionStartHook[] = [];
     private readonly turnEnding: SourcedHook<TurnEndingHook>[] = [];
+    private readonly subagentFinished: SubagentFinishedHook[] = [];
 
     constructor(
         private readonly onSessionStartFailure?: (failure: SessionStartHookFailure) => void,
@@ -138,6 +141,22 @@ export class ToolHooks {
         const entry = source === undefined ? { run: hook } : { run: hook, source };
         this.turnEnding.push(entry);
         return () => removeHook(this.turnEnding, entry);
+    }
+
+    registerSubagentFinished(hook: SubagentFinishedHook): () => void {
+        this.subagentFinished.push(hook);
+        return () => removeHook(this.subagentFinished, hook);
+    }
+
+    /** Fire and forget: a slow or failing observer never holds up the parent. */
+    notifySubagentFinished(payload: SubagentFinishedHookPayload): void {
+        for (const hook of [...this.subagentFinished]) {
+            void Promise.resolve()
+                .then(() => hook(cloneHookData(payload)))
+                .catch((error: unknown) => {
+                    console.warn(`subagent_finished hook failed: ${String(error)}`);
+                });
+        }
     }
 
     async runPreToolUse(

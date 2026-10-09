@@ -47,6 +47,7 @@ import {
 } from "./reviewer.ts";
 import {
     createReviewerProfileRouter,
+    injectSessionStartContext,
     restoreContextAfterCompaction,
     runTurn,
     sessionScratchDir,
@@ -80,6 +81,8 @@ export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
     readonly parentSessionId?: string;
+    /** The parent's hooks. The child runs on them, and they hear `subagent_finished`. */
+    readonly hooks?: ToolHooks;
     readonly instructionRoot?: InstructionRoot;
     readonly scratchDir?: string;
     readonly processRegistry?: ManagedProcessRegistry;
@@ -383,6 +386,7 @@ export interface RunSubagentOptions {
     readonly description: string;
     readonly workspace: string;
     readonly parentSessionId?: string;
+    readonly hooks?: ToolHooks;
     readonly instructionRoot?: InstructionRoot;
     readonly scratchDir?: string;
     readonly processRegistry?: ManagedProcessRegistry;
@@ -578,6 +582,7 @@ export function createSubagentEffectApplier(
                 model: resolved.model,
                 description: effect.description,
                 workspace: options.workspace,
+                ...(options.hooks === undefined ? {} : { hooks: options.hooks }),
                 ...(options.instructionRoot === undefined
                     ? {}
                     : { instructionRoot: options.instructionRoot }),
@@ -641,6 +646,17 @@ export function createSubagentEffectApplier(
                 ...(selected === undefined ? {} : { selectedAgent: selected }),
                 clampPermissionMode: context.approvalMode,
             });
+            if (parentSessionId !== undefined) {
+                options.hooks?.notifySubagentFinished({
+                    type: "subagent_finished",
+                    parentSessionId,
+                    subagentId: result.sessionId,
+                    workspace: options.workspace,
+                    background: false,
+                    outcome: result.isError ? "error" : "completed",
+                    text: result.text,
+                });
+            }
             const output = formatSubagentResult(result.text, result.execution);
             return {
                 kind: "output",
@@ -784,7 +800,7 @@ export async function runSubagent(
             instructionRoot,
             inbound,
             events,
-            hooks: new ToolHooks(),
+            hooks: options.hooks ?? new ToolHooks(),
             approvalMode: options.approvalMode,
             ...(options.selectedAgent === undefined ? {} : {
                 readSelectedAgent: () => options.selectedAgent,
@@ -823,6 +839,7 @@ export async function runSubagent(
                 ? {}
                 : { modelFallback: options.modelFallback }),
         };
+        await injectSessionStartContext(state, "start");
         protocol.checkpoint(state.messages, store.activeMessageStamps());
         channel.client.send({
             type: "prompt",

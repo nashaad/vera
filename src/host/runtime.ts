@@ -198,6 +198,7 @@ import type {
     PostToolUseHook,
     PreToolUseHook,
     SessionStartHook,
+    SubagentFinishedHookPayload,
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
@@ -471,6 +472,16 @@ export async function startResidentHost(
                 ? defaultEventLogPath(agentId, cwd)
                 : join(eventLogDirectory, `${agentId}.jsonl`)
         : undefined;
+    const notifySubagentFinished = (payload: SubagentFinishedHookPayload): void => notifyObservers(
+        extensions.subagentFinishedHooks(),
+        payload,
+        (extensionId, message) => hostLog({
+            type: "subagent_finished_hook_failed",
+            level: "warn",
+            extensionId,
+            message,
+        }),
+    );
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) => adapterCacheFingerprint(
             currentConfig(),
@@ -818,6 +829,7 @@ export async function startResidentHost(
             for (const hook of extensions.turnEndingHooks()) {
                 hooks.registerTurnEnding(hook.run, hook.extensionId);
             }
+            hooks.registerSubagentFinished(notifySubagentFinished);
             return hooks;
         },
         prepareModelRequest: ({ sessionId, workspace }) => async (request, provider) => {
@@ -904,6 +916,7 @@ export async function startResidentHost(
                 message,
             }),
         ),
+        onSubagentFinished: notifySubagentFinished,
     });
     extensions.bindHost(createExtensionHostServices({
         registry,

@@ -377,6 +377,7 @@ test("pre-turn hook registration is capability-gated and can mutate the payload"
         workspace: "/work",
         prompt: "review this",
         arrivedDuringTurn: false,
+        spawned: false,
         model: "reviewer",
         tools: ["read", "write"],
     }, { timeoutMs: 100 });
@@ -402,6 +403,7 @@ test("a throwing extension pre-turn hook does not break the engine chain", async
         workspace: "/work",
         prompt: "review this",
         arrivedDuringTurn: false,
+        spawned: false,
         model: "reviewer",
         tools: ["read"],
     }, { timeoutMs: 100 });
@@ -432,6 +434,7 @@ test("an extension pre-turn context carries the extension id, and an invalid one
         workspace: "/work",
         prompt: "where is the treasure",
         arrivedDuringTurn: false,
+        spawned: false,
         model: "reviewer",
         tools: ["read"],
     }, { timeoutMs: 100 });

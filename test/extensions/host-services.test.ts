@@ -17,6 +17,7 @@ import {
 import type {
     PreCompactHookPayload,
     SessionEndHookPayload,
+    SubagentFinishedHookPayload,
     TurnFinishedHookPayload,
 } from "../../src/sdk/hooks.ts";
 
@@ -380,5 +381,47 @@ test("session-end hooks need their capability and get the payload", async () => 
     notifyObservers(registry.sessionEndHooks(), ended, () => {});
     await waitFor(() => globals().__endSeen !== undefined);
     expect(globals().__endSeen).toBe("detached 3");
+    await registry.close();
+});
+
+test("subagent-finished hooks need their capability and get the payload", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-subagent.extension", `
+        export function activate(vera) {
+            vera.hooks.registerSubagentFinished(() => {});
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.subagentFinishedHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.subagent_finished");
+    await deniedRegistry.close();
+
+    const ledger = createExtension("crew-ledger.extension", `
+        export function activate(vera) {
+            vera.hooks.registerSubagentFinished((payload) => {
+                globalThis.__subagentSeen = payload.subagentId + " " + payload.outcome + " " + payload.text;
+            });
+        }
+    `, ["hooks.subagent_finished"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(ledger)],
+    });
+    const finished: SubagentFinishedHookPayload = {
+        type: "subagent_finished",
+        parentSessionId: "captain",
+        subagentId: "scout",
+        workspace: "/deck",
+        background: true,
+        outcome: "completed",
+        text: "the wreck lies east",
+    };
+    expect(registry.subagentFinishedHooks().map((hook) => hook.extensionId))
+        .toEqual(["crew-ledger.extension"]);
+    notifyObservers(registry.subagentFinishedHooks(), finished, () => {});
+    await waitFor(() => globals().__subagentSeen !== undefined);
+    expect(globals().__subagentSeen).toBe("scout completed the wreck lies east");
     await registry.close();
 });

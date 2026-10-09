@@ -797,8 +797,12 @@ export class AgentRegistry {
                 this.options.refreshableProviders?.(),
                 this.options.providerCatalogs?.(),
             );
+        const hooks = startupProfile === "default"
+            ? this.options.createToolHooks?.() ?? new ToolHooks()
+            : new ToolHooks();
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
+            hooks,
             readWindowSettings: readModelSettings,
             // The child's own model summarizes its session unless compaction slots name another.
             bindCompaction: (route) => bindCompaction(
@@ -975,9 +979,6 @@ export class AgentRegistry {
                 offerTools: startupProfile !== "prompt_only",
                 loadOptionalContext: startupProfile === "default",
         };
-        const hooks = startupProfile === "default"
-            ? this.options.createToolHooks?.() ?? new ToolHooks()
-            : new ToolHooks();
         const loopServices: RunHeadlessLoopServices = {
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
