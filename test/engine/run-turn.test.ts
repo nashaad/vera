@@ -612,6 +612,115 @@ test("a failing turn_ending hook ends the turn as if none were registered", asyn
     expect(engineEvents.filter((event) => event.type === "turn_finished")).toHaveLength(1);
 });
 
+test("turn_ending does not fire once the turn is aborted", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const hooks = new ToolHooks();
+    let fired = 0;
+    hooks.registerTurnEnding(() => {
+        fired += 1;
+        return { power: "observe" };
+    });
+    const faux = new FauxAdapter([assistantText("done")]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            const inner = faux.stream(request);
+            return {
+                async *[Symbol.asyncIterator]() {
+                    const streamed = [];
+                    for await (const event of inner) streamed.push(event);
+                    yield* streamed.slice(0, -1);
+                    channel.client.send({ type: "abort" });
+                    await Bun.sleep(10);
+                    yield* streamed.slice(-1);
+                },
+                result: () => inner.result(),
+            };
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    await runTurn(adapter, "test", state);
+
+    expect(fired).toBe(0);
+});
+
+test("Esc stops waiting on a slow turn_ending hook and keeps the reply", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const engineEvents: EngineEvent[] = [];
+    events.subscribe((event) => engineEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerTurnEnding(async () => {
+        channel.client.send({ type: "abort" });
+        await Bun.sleep(3_000);
+        return { power: "continue", context: "too late" };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const started = performance.now();
+    const final = await runTurn(new FauxAdapter([assistantText("done"), assistantText("never sent")]), "test", state);
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(final.content).toEqual([{ type: "text", text: "done" }]);
+    expect(state.messages.some((message) => message.role === "user" && message.contextSource !== undefined)).toBe(false);
+    expect(engineEvents.filter((event) => event.type === "turn_finished")).toHaveLength(1);
+});
+
+test("Esc stops waiting on a slow pre_turn hook and adds no context", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([assistantText("never sent")]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(async () => {
+        channel.client.send({ type: "abort" });
+        await Bun.sleep(3_000);
+        return { power: "mutate", context: "too late" };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const started = performance.now();
+    const final = await runTurn(adapter, "test", state);
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(final.stopReason).toBe("aborted");
+    expect(state.messages.some((message) => message.role === "user" && message.contextSource !== undefined)).toBe(false);
+});
+
 test("turn_ending does not fire on an error reply", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

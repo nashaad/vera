@@ -317,7 +317,8 @@ continuation. The first `continue` wins and later functions do not run for that
 reply. Once a turn has been continued, the functions still run but `continue`
 is ignored. The text cannot be empty. A function that throws, returns something
 invalid, or takes longer than 60 seconds lets the turn end as if it were not
-registered.
+registered. Esc never waits for a hook: the turn stops at once and whatever
+the hook returns later is dropped.
 
 ```js
 export function activate(vera) {

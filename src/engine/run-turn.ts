@@ -1083,6 +1083,7 @@ export async function runTurn(
                             : { reasoningEffort: turnReasoningEffort }),
                         arrivedDuringTurn: false,
                     },
+                    turn.signal,
                 );
                 if (applied.blocked !== undefined) {
                     assistantMessage = preTurnBlockedMessage(
@@ -1768,6 +1769,7 @@ export async function runTurn(
                             : { reasoningEffort: turnReasoningEffort }),
                         arrivedDuringTurn: true,
                     },
+                    turn.signal,
                 );
                 if (applied.blocked !== undefined) {
                     assistantMessage = preTurnBlockedMessage(
@@ -1945,6 +1947,7 @@ interface AppliedPreTurn {
 async function applyPreTurnHook(
     state: RunTurnState,
     payload: PreTurnHookPayload,
+    signal: AbortSignal,
 ): Promise<AppliedPreTurn> {
     const unchanged = {
         activeModel: payload.model,
@@ -1953,11 +1956,12 @@ async function applyPreTurnHook(
         allowedTools: state.toolRuntime.allowedTools,
         contexts: [],
     };
+    if (signal.aborted) return unchanged;
     let outcome;
     try {
-        outcome = await state.hooks.runPreTurn(payload, {
+        outcome = await untilAborted(state.hooks.runPreTurn(payload, {
             timeoutMs: PRE_TURN_HOOK_TIMEOUT_MS,
-        });
+        }), signal);
     } catch (error) {
         const message = errorMessage(error);
         state.events.emit({
@@ -1970,6 +1974,7 @@ async function applyPreTurnHook(
             blocked: `pre_turn hook failed: ${message}`,
         };
     }
+    if (outcome === undefined) return unchanged;
     if (outcome.result.power === "block") {
         return {
             ...unchanged,
@@ -2022,11 +2027,12 @@ async function runTurnEndingHook(
     payload: TurnEndingHookPayload,
     signal: AbortSignal,
 ): Promise<HookContext | undefined> {
+    if (signal.aborted) return undefined;
     let outcome;
     try {
-        outcome = await state.hooks.runTurnEnding(payload, {
+        outcome = await untilAborted(state.hooks.runTurnEnding(payload, {
             timeoutMs: TURN_ENDING_HOOK_TIMEOUT_MS,
-        });
+        }), signal);
     } catch (error) {
         state.events.emit({
             type: "turn_hook_failed",
@@ -2035,10 +2041,35 @@ async function runTurnEndingHook(
         });
         return undefined;
     }
-    if (signal.aborted || payload.continuations >= MAX_TURN_CONTINUATIONS) {
+    if (outcome === undefined || signal.aborted || payload.continuations >= MAX_TURN_CONTINUATIONS) {
         return undefined;
     }
     return outcome.continuation;
+}
+
+// Esc must not wait on a slow hook: resolve undefined on abort and drop the late result.
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+    if (signal.aborted) {
+        work.catch(() => undefined);
+        return Promise.resolve(undefined);
+    }
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            work.catch(() => undefined);
+            resolve(undefined);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        work.then(
+            (value) => {
+                signal.removeEventListener("abort", onAbort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                signal.removeEventListener("abort", onAbort);
+                reject(error);
+            },
+        );
+    });
 }
 
 function replyText(message: AssistantMessage): string {
