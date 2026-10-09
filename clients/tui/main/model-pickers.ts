@@ -97,10 +97,10 @@ export function reviewerPatchFor(rt: TuiRuntime,
 export function reviewerToast(rt: TuiRuntime, 
     selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
 ): string {
-    const name = selection.model === undefined
-        ? "configured default"
-        : selection.model;
-    return selection.slot === "primary" ? name : `failsafe ${name}`;
+    if (selection.model === undefined) {
+        return selection.slot === "primary" ? "session model" : "no failsafe";
+    }
+    return selection.slot === "primary" ? selection.model : `failsafe ${selection.model}`;
 }
 
 export function openModelPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {

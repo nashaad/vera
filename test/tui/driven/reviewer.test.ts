@@ -45,7 +45,7 @@ test("the reviewer pane sets and clears both slots", async () => {
         // Clearing the primary drops the whole reviewer, failsafe included.
         session.sendKey("Up");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Use configured default");
+        await session.waitForVisiblePane("Use the session model");
         session.sendKey("Up");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("the agent's own model");
