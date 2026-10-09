@@ -260,6 +260,7 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
     assignment: ModelAssignmentId,
     parent?: TuiSettingsPickerState,
     selectedValue?: string,
+    query = "",
 ): void {
     const targetState = focusedAgentState(rt);
     const row = currentModelAssignmentRows(rt).find((entry) => entry.assignment === assignment);
@@ -271,23 +272,36 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
                 : { provider: targetState.modelSettings.provider }),
             model: targetState.modelSettings.model,
         };
+    const started = startTuiModelAssignmentPicker(
+        assignment,
+        row?.label ?? assignment,
+        row?.intent ?? "",
+        targetState.modelSettings?.availableModels?.map((entry) => ({ ...entry, available: true, verified: entry.verified === true })),
+        row?.declared.map((entry) =>
+            `${entry.provider}/${entry.model}`) ?? [],
+        row?.allowSelf === true,
+        parentModel,
+        selectedValue,
+        loadOptionalVeraConfig()?.verify_model_assignments === true,
+    );
     rt.settingsPicker = withTuiPickerParent(
-        startTuiModelAssignmentPicker(
-            assignment,
-            row?.label ?? assignment,
-            row?.intent ?? "",
-            targetState.modelSettings?.availableModels?.map((entry) => ({ ...entry, available: true, verified: entry.verified === true })),
-            row?.declared.map((entry) =>
-                `${entry.provider}/${entry.model}`) ?? [],
-            row?.allowSelf === true,
-            parentModel,
-            selectedValue,
-            loadOptionalVeraConfig()?.verify_model_assignments === true,
-        ),
+        query === "" ? started : withKeptSearch(started, query, selectedValue),
         parent,
     );
     renderState(rt);
     focusActiveSurface(rt);
+}
+
+// The rebuilt list starts unfiltered; re-apply the search so the user stays where they were.
+function withKeptSearch(
+    state: TuiSettingsPickerState,
+    query: string,
+    selectedValue: string | undefined,
+): TuiSettingsPickerState {
+    const searched = updateTuiSettingsPickerSearch(state, query).state ?? state;
+    const index = searched.options.findIndex((option) =>
+        option.value === selectedValue);
+    return index === -1 ? searched : { ...searched, selectedIndex: index };
 }
 
 export function bindModelAssignmentFromPicker(rt: TuiRuntime, 
@@ -296,7 +310,6 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
         readonly provider?: string;
         readonly model?: string;
         readonly reasoningEffort?: ModelReasoningEffort;
-        readonly acceptDefaultReasoning?: true;
         readonly remove?: boolean;
         readonly clear?: boolean;
         readonly allowSelf?: boolean;

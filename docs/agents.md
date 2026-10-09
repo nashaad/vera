@@ -36,7 +36,9 @@ instructions and tools. It leaves the conversation model unchanged.
 ## Allow models for subagents
 
 Open Defaults from `/models` and choose **Subagents**. Add the models delegated tasks may
-use, in fallback order. Models can come from different connected providers.
+use, in fallback order. Models can come from different connected providers. Type to
+search the list, then press Enter to add the highlighted model, or to remove it if it
+is already assigned.
 
 **Spawning session model** is a separate option. Turn it on to allow the
 parent conversation's model after the assigned list. It is off by default.

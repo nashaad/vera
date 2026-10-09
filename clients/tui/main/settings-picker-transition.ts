@@ -769,6 +769,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     "subagents",
                     assignmentPane?.parent,
                     selectedValue,
+                    assignmentPane?.query,
                 );
                 return;
             }

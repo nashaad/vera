@@ -67,6 +67,7 @@ import {
 import {
     LISTED_FACTS_FOOTNOTE,
     MODEL_ARROW_HINT,
+    pickerIsSearchable,
 } from "../../clients/tui/settings-picker-model.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
@@ -3915,10 +3916,10 @@ test("the subagent picker separates assigned, available, and parent fallback", a
     expect(frame).toContain("Parent model fallback");
     expect(frame).toContain(`currently ${parentRef}`);
     expect(frame).not.toContain("currently openrouter/google/…");
-    expect(frame).not.toContain("Search");
+    expect(frame).toContain("Search");
 });
 
-test("p toggles subagent assignment without turning into search text", () => {
+test("Enter assigns, removes, or toggles in the subagent picker", () => {
     const assignedRef = "openai-codex/gpt-5.6-sol";
     const pane = startTuiModelAssignmentPicker(
         "subagents",
@@ -3930,73 +3931,73 @@ test("p toggles subagent assignment without turning into search text", () => {
         { provider: "openrouter", model: "z-ai/glm-5.2" },
     );
 
-    const remove = handleTuiSettingsPickerKey(pane, { name: "p" });
-    expect(remove.selection).toEqual({
-        kind: "model_assignment",
-        assignment: "subagents",
-        provider: "openai-codex",
-        model: "gpt-5.6-sol",
-        remove: true,
-    });
-    expect(remove.state?.query).toBe("");
-    expect(pickerFooter(pane)).toContain("p remove");
+    expect(handleTuiSettingsPickerKey(pane, { name: "return" }).selection)
+        .toEqual({
+            kind: "model_assignment",
+            assignment: "subagents",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            remove: true,
+        });
+    expect(pickerFooter(pane)).toContain("⏎ remove");
 
     const availableIndex = pane.options.findIndex((option) =>
         option.value === "openrouter/z-ai/glm-5.2");
     const addPane = { ...pane, selectedIndex: availableIndex };
-    expect(handleTuiSettingsPickerKey(addPane, { name: "p" }).selection)
+    expect(handleTuiSettingsPickerKey(addPane, { name: "return" }).selection)
         .toEqual({
             kind: "model_assignment",
             assignment: "subagents",
             provider: "openrouter",
             model: "z-ai/glm-5.2",
-            acceptDefaultReasoning: true,
         });
-    expect(pickerFooter(addPane)).toContain("p assign");
+    expect(pickerFooter(addPane)).toContain("⏎ assign");
+    expect(pickerFooter(addPane)).not.toContain("p assign");
 
     const parentIndex = pane.options.findIndex((option) =>
         option.value === MODEL_ASSIGNMENT_SELF_VALUE);
-    expect(handleTuiSettingsPickerKey(
-        { ...pane, selectedIndex: parentIndex },
-        { name: "p" },
-    ).selection).toEqual({
-        kind: "model_assignment",
-        assignment: "subagents",
-        allowSelf: true,
-    });
+    const parentPane = { ...pane, selectedIndex: parentIndex };
+    expect(handleTuiSettingsPickerKey(parentPane, { name: "return" }).selection)
+        .toEqual({
+            kind: "model_assignment",
+            assignment: "subagents",
+            allowSelf: true,
+        });
+    expect(pickerFooter(parentPane)).toContain("⏎ toggle");
+
+    expect(handleTuiSettingsPickerKey(addPane, { name: "p" }).selection)
+        .toBeUndefined();
 });
 
-test("p accepts provider-default reasoning without pinning a level", () => {
+test("typing filters the subagent picker and Enter assigns the filtered row", () => {
     const pane = startTuiModelAssignmentPicker(
         "subagents",
         "subagents",
         "delegated work",
-        [{
-            provider: "openrouter",
-            model: "x-ai/grok-4.20",
-            label: "Grok 4.20",
-            available: true,
-            verified: true,
-            levels: [
-                { id: "high", label: "High" },
-                { id: "medium", label: "Medium" },
-            ],
-            defaultLevel: "medium",
-        }],
+        pooledModels.map((row) => ({ ...row, available: true })),
+        ["openai-codex/gpt-5.6-sol"],
+        false,
+        { provider: "openrouter", model: "z-ai/glm-5.2" },
     );
-    const modelIndex = pane.options.findIndex((option) =>
-        option.value === "openrouter/x-ai/grok-4.20");
+    expect(pickerIsSearchable(pane)).toBe(true);
 
-    expect(handleTuiSettingsPickerKey(
-        { ...pane, selectedIndex: modelIndex },
-        { name: "p" },
-    ).selection).toEqual({
-        kind: "model_assignment",
-        assignment: "subagents",
-        provider: "openrouter",
-        model: "x-ai/grok-4.20",
-        acceptDefaultReasoning: true,
-    });
+    const searched = updateTuiSettingsPickerSearch(pane, "glm").state!;
+    expect(searched.query).toBe("glm");
+    expect(searched.options.map((option) => option.value))
+        .toEqual(["openrouter/z-ai/glm-5.2"]);
+    expect(handleTuiSettingsPickerKey(searched, { name: "return" }).selection)
+        .toEqual({
+            kind: "model_assignment",
+            assignment: "subagents",
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
+
+    const escaped = handleTuiSettingsPickerKey(
+        withTuiPickerParent(searched, pane),
+        { name: "escape" },
+    );
+    expect(escaped.state).toBe(pane);
 });
 
 test("the subagent assignment says Not set only while its model list is empty", () => {

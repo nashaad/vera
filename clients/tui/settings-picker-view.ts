@@ -1988,10 +1988,10 @@ export function pickerFooterText(
             return "↑↓ move · esc done";
         }
         const action = selected?.value === MODEL_ASSIGNMENT_SELF_VALUE
-            ? "p toggle"
+            ? "⏎ toggle"
             : state.assignedModels?.includes(selected?.value ?? "") === true
-            ? "p remove"
-            : "p assign";
+            ? "⏎ remove"
+            : "⏎ assign";
         return `↑↓ move · ${action} · esc done`;
     }
     if (

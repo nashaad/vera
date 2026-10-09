@@ -125,7 +125,6 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "check_provider_health",
     // Each opens a screen or changes a label already on screen.
     "journey_more",
-    "toggle_subagent_assignment",
     "import_scope",
     "diff_page_down",
     "diff_page_up",
