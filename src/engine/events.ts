@@ -351,6 +351,7 @@ export interface PermissionsRejectedEvent {
 
 export interface ModelRequestEvent {
     readonly type: "model_request";
+    readonly provider?: string;
     readonly model: string;
     readonly maxTokens: number;
     readonly reasoningEffort?: ModelReasoningEffort;

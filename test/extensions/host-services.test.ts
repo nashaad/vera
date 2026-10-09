@@ -7,6 +7,7 @@ import {
     notifyTurnFinished,
     type ExtensionHostServices,
     type ExtensionOneshotCall,
+    type ExtensionSessionAskCall,
 } from "../../src/extensions/host-services.ts";
 import {
     startExtensionRegistry,
@@ -95,12 +96,12 @@ test("each turn-finished hook gets its own copy of the payload", async () => {
     expect(prompts).toEqual([payload.prompt]);
 });
 
-test("model and title calls are capability-gated, wait for the host, and stop at close", async () => {
+test("model, title and ask calls are capability-gated, wait for the host, and stop at close", async () => {
     const extension = createExtension("host.extension", `
         export function activate(vera) {
             globalThis.__hostApi = vera;
         }
-    `, ["model.oneshot", "sessions.title"]);
+    `, ["model.oneshot", "sessions.title", "sessions.ask"]);
     const bare = createExtension("bare.extension", `
         export function activate(vera) {
             globalThis.__bareApi = vera;
@@ -120,9 +121,13 @@ test("model and title calls are capability-gated, wait for the host, and stop at
     await expect(bareApi.sessions.setTitle("session-1", "Loot")).rejects.toThrow("sessions.title");
     await expect(api.model.oneshot(request)).rejects.toThrow("not ready");
     await expect(api.sessions.setTitle("session-1", "Loot")).rejects.toThrow("not ready");
+    const ask = { sessionId: "session-1", question: "Where did the crow bury the buttons?" };
+    await expect(bareApi.sessions.ask(ask)).rejects.toThrow("sessions.ask");
+    await expect(api.sessions.ask(ask)).rejects.toThrow("not ready");
 
     const calls: ExtensionOneshotCall[] = [];
     const titles: string[] = [];
+    const asks: ExtensionSessionAskCall[] = [];
     const services: ExtensionHostServices = {
         async oneshot(call) {
             calls.push(call);
@@ -131,6 +136,10 @@ test("model and title calls are capability-gated, wait for the host, and stop at
         async setSessionTitle(sessionId, title) {
             titles.push(`${sessionId}=${title}`);
             return "set";
+        },
+        async askSession(call) {
+            asks.push(call);
+            return { text: "Under the lighthouse", model: "crow-large", provider: "rookery" };
         },
     };
     registry.bindHost(services);
@@ -148,18 +157,25 @@ test("model and title calls are capability-gated, wait for the host, and stop at
     });
     expect(await api.sessions.setTitle("session-1", "  Raid on\nthe   factory ")).toBe("set");
     expect(titles).toEqual(["session-1=Raid on the factory"]);
+    expect(await api.sessions.ask({ ...ask, maxTokens: 64 })).toEqual({
+        text: "Under the lighthouse",
+        model: "crow-large",
+        provider: "rookery",
+    });
+    expect(asks).toEqual([{ ...ask, maxTokens: 64 }]);
 
     await registry.close();
     await expect(api.model.oneshot(request)).rejects.toThrow("closed");
     await expect(api.sessions.setTitle("session-1", "Loot")).rejects.toThrow("closed");
+    await expect(api.sessions.ask(ask)).rejects.toThrow("closed");
 });
 
-test("bad oneshot and title requests are refused before reaching the host", async () => {
+test("bad oneshot, title and ask requests are refused before reaching the host", async () => {
     const extension = createExtension("strict.extension", `
         export function activate(vera) {
             globalThis.__strictApi = vera;
         }
-    `, ["model.oneshot", "sessions.title"]);
+    `, ["model.oneshot", "sessions.title", "sessions.ask"]);
     const registry = await startExtensionRegistry({
         extensions: [configured(extension)],
     });
@@ -173,6 +189,10 @@ test("bad oneshot and title requests are refused before reaching the host", asyn
             reached += 1;
             return "set";
         },
+        async askSession() {
+            reached += 1;
+            return { text: "", model: "crow-large" };
+        },
     });
     const api = globals().__strictApi as HostApi;
     const user = [{ role: "user", text: "caw" }];
@@ -185,6 +205,11 @@ test("bad oneshot and title requests are refused before reaching the host", asyn
     await expect(api.sessions.setTitle("session-1", "   ")).rejects.toThrow("1 to 200 bytes");
     await expect(api.sessions.setTitle("session-1", "x".repeat(201))).rejects.toThrow("1 to 200 bytes");
     await expect(api.sessions.setTitle("", "Loot")).rejects.toThrow("session ID");
+    await expect(api.sessions.ask({ sessionId: "", question: "caw" })).rejects.toThrow("session ID");
+    await expect(api.sessions.ask({ sessionId: "session-1", question: "  " })).rejects.toThrow("needs a question");
+    await expect(api.sessions.ask({ sessionId: "session-1", question: "x".repeat(256 * 1024 + 1) })).rejects.toThrow("exceeds");
+    await expect(api.sessions.ask({ sessionId: "session-1", question: "caw", maxTokens: 1.5 })).rejects.toThrow("maxTokens");
+    await expect(api.sessions.ask({ sessionId: "session-1", question: "caw", signal: "stop" })).rejects.toThrow("AbortSignal");
     expect(reached).toBe(0);
     await registry.close();
 });
@@ -209,6 +234,11 @@ test("closing the registry cancels a oneshot in flight", async () => {
         async setSessionTitle() {
             return "set";
         },
+        askSession(_call, signal) {
+            return new Promise((_resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason));
+            });
+        },
     });
     const api = globals().__cancelApi as HostApi;
     const pending = api.model.oneshot({
@@ -222,7 +252,10 @@ test("closing the registry cancels a oneshot in flight", async () => {
 
 interface HostApi {
     readonly model: { oneshot(request: unknown): Promise<unknown> };
-    readonly sessions: { setTitle(sessionId: string, title: string): Promise<unknown> };
+    readonly sessions: {
+        setTitle(sessionId: string, title: string): Promise<unknown>;
+        ask(request: unknown): Promise<unknown>;
+    };
 }
 
 function globals(): Record<string, unknown> {

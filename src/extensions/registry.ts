@@ -32,6 +32,7 @@ import type {
     VeraSearchProvider,
     VeraExtensionRequestHandler,
     VeraExtensionOneshotRequest,
+    VeraSessionAskRequest,
 } from "../sdk/extensions.ts";
 import type {
     ModelRequestHook,
@@ -96,6 +97,7 @@ const SEARCH_PROVIDERS_USE_CAPABILITY = "search.providers.use";
 const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
 const TURN_FINISHED_HOOK_CAPABILITY = "hooks.turn_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
+const SESSION_ASK_CAPABILITY = "sessions.ask";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
 const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_RESULT_LIMIT = 1_000_000;
@@ -683,6 +685,12 @@ async function activateExtension(
                     throw new Error(`Extension did not declare ${SESSION_TITLE_CAPABILITY}`);
                 }
                 return host.setTitle(sessionId, title);
+            },
+            async ask(request: VeraSessionAskRequest) {
+                if (!loaded.manifest.capabilities.includes(SESSION_ASK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_ASK_CAPABILITY}`);
+                }
+                return host.askSession(request);
             },
         }),
         model: Object.freeze({

@@ -133,11 +133,30 @@ export interface SessionIdentityProvider {
 /** `named` means the session already has a name, or once had one the user cleared. */
 export type VeraSessionTitleOutcome = "set" | "named" | "not_found";
 
+export interface VeraSessionAskRequest {
+    readonly sessionId: string;
+    readonly question: string;
+    readonly maxTokens?: number;
+    readonly signal?: AbortSignal;
+}
+
+export interface VeraSessionAskResult {
+    readonly text: string;
+    readonly model: string;
+    readonly provider?: string;
+}
+
 export interface VeraExtensionSessions {
     registerState(read: (sessionId: string) => import("../extensions/session-state.ts").ExtensionSessionState): VeraExtensionDisposer;
     registerIdentity(provider: SessionIdentityProvider): VeraExtensionDisposer;
     /** Needs `sessions.title`. Names a session that has never been named. Only usable after activation. */
     setTitle(sessionId: string, title: string): Promise<VeraSessionTitleOutcome>;
+    /**
+     * Needs `sessions.ask`. Asks an open session's own model one question on
+     * top of its last request. Nothing is added to the session but billing,
+     * no tool runs, and it never falls back to another model.
+     */
+    ask(request: VeraSessionAskRequest): Promise<VeraSessionAskResult>;
 }
 
 /**

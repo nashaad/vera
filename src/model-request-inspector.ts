@@ -24,10 +24,11 @@ export interface InspectedModelRequest {
     };
 }
 
-interface LoggedModelRequest {
+export interface LoggedModelRequest {
     readonly type: "model_request";
     readonly timestamp: string;
     readonly sessionId: string;
+    readonly provider?: string;
     readonly model: string;
     readonly maxTokens: number;
     readonly reasoningEffort?: string;
@@ -75,29 +76,39 @@ async function readModelRequest(
     path: string,
     sessionId: string,
 ): Promise<LoggedModelRequest> {
-    const snapshotPath = modelRequestSnapshotPath(path);
+    const snapshot = await readModelRequestSnapshot(path, sessionId);
+    if (snapshot !== undefined) {
+        return snapshot;
+    }
+    const source = await readFile(path, "utf8");
+    return latestModelRequest(source, sessionId, path);
+}
+
+/** The full last request a session sent, or undefined when none was saved. */
+export async function readModelRequestSnapshot(
+    eventLogPath: string,
+    sessionId: string,
+): Promise<LoggedModelRequest | undefined> {
+    const snapshotPath = modelRequestSnapshotPath(eventLogPath);
     const snapshot = await readFile(snapshotPath, "utf8").catch(
         (error: NodeJS.ErrnoException) => {
             if (error.code === "ENOENT") return undefined;
             throw error;
         },
     );
-    if (snapshot !== undefined) {
-        let value: unknown;
-        try {
-            value = JSON.parse(snapshot);
-        } catch {
-            throw new Error(`${snapshotPath} contains malformed JSON`);
-        }
-        if (!isLoggedModelRequest(value)) {
-            throw new Error(`${snapshotPath} contains an invalid model request`);
-        }
-        if (value.sessionId === sessionId) {
-            return value;
-        }
+    if (snapshot === undefined) {
+        return undefined;
     }
-    const source = await readFile(path, "utf8");
-    return latestModelRequest(source, sessionId, path);
+    let value: unknown;
+    try {
+        value = JSON.parse(snapshot);
+    } catch {
+        throw new Error(`${snapshotPath} contains malformed JSON`);
+    }
+    if (!isLoggedModelRequest(value)) {
+        throw new Error(`${snapshotPath} contains an invalid model request`);
+    }
+    return value.sessionId === sessionId ? value : undefined;
 }
 
 function latestModelRequest(
@@ -141,6 +152,8 @@ function isLoggedModelRequest(value: unknown): value is LoggedModelRequest {
     return value.type === "model_request"
         && typeof value.timestamp === "string"
         && typeof value.sessionId === "string"
+        && (value.provider === undefined
+            || (typeof value.provider === "string" && value.provider.length > 0))
         && typeof value.model === "string"
         && value.model.length > 0
         && typeof value.maxTokens === "number"

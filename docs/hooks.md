@@ -292,6 +292,22 @@ another agent started the session, and the turn's prompt and reply text. It
 only observes: nothing waits for it, and a failure is logged without touching
 the session.
 
+From host code, an extension that declared `sessions.ask` can ask an open
+session one side question with `vera.sessions.ask({ sessionId, question })`.
+Vera sends the session's last model request again, with the question added
+as one more user message, to the same provider and model. The answer comes
+back as text and the session gains nothing but a billing record, so `/usage`
+counts the call as `ask`. Tools are offered but never run: a reply that asks
+for a tool rejects. The call does not wait for a running turn, and it rejects
+instead of trying another model when the session's model is unreachable.
+
+```js
+const reply = await vera.sessions.ask({
+    sessionId,
+    question: "Which island did the crow hide the stolen buttons on?",
+});
+```
+
 The included `vera.command-hooks` extension reads a `hooks` list from its own
 configuration and runs nothing until that list is set. The host runs the
 `config.json` list itself, so disabling this extension does not stop it. An `extensions` entry

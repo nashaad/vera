@@ -55,7 +55,7 @@ table do not change these totals.
 | Card | Meaning |
 | --- | --- |
 | Spend | Reported billed cost plus available estimates, with unpriced calls counted separately. |
-| Requests | Recorded model calls, including compaction and classification when usage was saved. |
+| Requests | Recorded model calls, including compaction, classification, and extension side questions when usage was saved. |
 | Tokens | Input plus output tokens, with each shown separately. |
 | Cache hit | Cached input as a proportion of input tokens. |
 | Blended $ / M | Priced spending per million tokens. Blank when there are no tokens. |
