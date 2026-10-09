@@ -125,7 +125,12 @@ import {
     contextWindowForModel,
     budgetContextWindow,
 } from "./model-settings.ts";
-import { ToolHooks, type PreToolUseOutcome, type SessionStartContribution } from "./hooks.ts";
+import {
+    ToolHooks,
+    type HookContext,
+    type PreToolUseOutcome,
+    type SessionStartContribution,
+} from "./hooks.ts";
 import {
     InboundCommandRouter,
     type InboundTurnOutcome,
@@ -1070,6 +1075,7 @@ export async function runTurn(
                         ...(turnReasoningEffort === undefined
                             ? {}
                             : { reasoningEffort: turnReasoningEffort }),
+                        arrivedDuringTurn: false,
                     },
                 );
                 if (applied.blocked !== undefined) {
@@ -1085,6 +1091,7 @@ export async function runTurn(
                     });
                     return assistantMessage;
                 }
+                await commitHookContexts(state, "pre_turn", applied.contexts);
                 if (promptIndex === 0) {
                     activeModel = applied.activeModel;
                     turnReasoningEffort = applied.turnReasoningEffort;
@@ -1724,6 +1731,7 @@ export async function runTurn(
                         ...(turnReasoningEffort === undefined
                             ? {}
                             : { reasoningEffort: turnReasoningEffort }),
+                        arrivedDuringTurn: true,
                     },
                 );
                 if (applied.blocked !== undefined) {
@@ -1739,6 +1747,7 @@ export async function runTurn(
                     });
                     return assistantMessage;
                 }
+                await commitHookContexts(state, "pre_turn", applied.contexts);
                 scopedTools = scopedTools.filter((tool) =>
                     applied.tools.includes(tool.name)
                 );
@@ -1894,6 +1903,7 @@ interface AppliedPreTurn {
     readonly turnReasoningEffort: ModelReasoningEffort | undefined;
     readonly tools: readonly string[];
     readonly allowedTools: readonly string[] | undefined;
+    readonly contexts: readonly HookContext[];
     readonly blocked?: string;
 }
 
@@ -1906,6 +1916,7 @@ async function applyPreTurnHook(
         turnReasoningEffort: payload.reasoningEffort as ModelReasoningEffort | undefined,
         tools: payload.tools,
         allowedTools: state.toolRuntime.allowedTools,
+        contexts: [],
     };
     let outcome;
     try {
@@ -1942,7 +1953,30 @@ async function applyPreTurnHook(
                 ? []
                 : turnToolExecutionScope({ tools: next.tools }))
             : state.toolRuntime.allowedTools,
+        contexts: outcome.contexts,
     };
+}
+
+// Each context is its own message after the prompts, so the cached prefix before them never changes.
+async function commitHookContexts(
+    state: RunTurnState,
+    phase: "pre_turn",
+    contexts: readonly HookContext[],
+): Promise<void> {
+    for (const entry of contexts) {
+        await commitMessage(state, {
+            role: "user",
+            internal: true,
+            contextSource: phase,
+            ...(entry.source === undefined ? {} : { hookSource: entry.source }),
+            content: [{ type: "text", text: entry.context }],
+        });
+        state.events.emit({
+            type: "hook_context_added",
+            phase,
+            ...(entry.source === undefined ? {} : { source: entry.source }),
+        });
+    }
 }
 
 async function drainPendingDeliveries(state: RunTurnState): Promise<void> {

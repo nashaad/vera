@@ -282,6 +282,7 @@ export function createWorkerBoundaryServer(
                     ) ?? {
                         payload: request.payload,
                         result: { power: "observe" },
+                        contexts: [],
                     };
                     return { outcome };
                 }

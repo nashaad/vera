@@ -1,4 +1,4 @@
-import type { TurnTiming } from "../model/types.ts";
+import type { HookContextPhase, TurnTiming } from "../model/types.ts";
 import type {
     ConfigurationRequiredUiRequest,
     EngineEventSubscriber,
@@ -98,7 +98,8 @@ export interface ModelSubstitutionTranscriptEntry {
 // Re-exported from where `ModelSubstitution` itself lives, so the ladder in
 // `src/model` and every client reach the same sentence without a client
 // importing the engine.
-export { formatModelSubstitution } from "../model/types.ts";
+export { formatHookContext, formatModelSubstitution } from "../model/types.ts";
+export type { HookContextPhase } from "../model/types.ts";
 
 export interface PresentationTranscriptEntry {
     readonly id?: string;
@@ -129,6 +130,15 @@ export interface HarnessTranscriptEntry {
     readonly tone: "primary" | "soft" | "error";
 }
 
+/** A hook added context to the session; the text itself stays out of the transcript. */
+export interface HookContextTranscriptEntry {
+    readonly id?: string;
+    readonly kind: "hook_context";
+    readonly phase: HookContextPhase;
+    /** The extension that added it. Absent for hooks with no extension, such as SDK hooks. */
+    readonly source?: string;
+}
+
 export interface TranscriptTurnTiming {
     readonly turnTiming?: TurnTiming;
     /** When the stored message behind this entry was written, in epoch ms. */
@@ -152,6 +162,7 @@ export type TranscriptEntry = (
     | ErrorTranscriptEntry
     | EmptyTranscriptEntry
     | HarnessTranscriptEntry
+    | HookContextTranscriptEntry
 ) & TranscriptTurnTiming;
 
 export interface PromptCommand {
@@ -739,6 +750,13 @@ export interface TaskNotificationUpdate {
     readonly seq: number;
 }
 
+export interface HookContextUpdate {
+    readonly type: "hook_context";
+    readonly phase: HookContextPhase;
+    readonly source?: string;
+    readonly seq: number;
+}
+
 export interface NoticeUpdate {
     readonly text?: string;
     readonly type: "notice";
@@ -1099,6 +1117,7 @@ export type AgentUpdate =
     | StatusUpdate
     | TaskNotificationUpdate
     | NoticeUpdate
+    | HookContextUpdate
     | UiRequestUpdate
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
@@ -1730,6 +1749,16 @@ export function createProtocolEncoder(
                 sourceAgentId: event.sourceAgentId,
                 content: event.content,
                 ...(event.kind === undefined ? {} : { kind: event.kind }),
+                seq,
+            });
+            return;
+        }
+        if (event.type === "hook_context_added") {
+            seq += 1;
+            sender.send({
+                type: "hook_context",
+                phase: event.phase,
+                ...(event.source === undefined ? {} : { source: event.source }),
                 seq,
             });
             return;
@@ -2533,6 +2562,12 @@ export function projectTranscript(
         if (message.internal === true) {
             if (message.role === "user" && message.contextSource === "session_start") {
                 push({ kind: "harness", text: textContent(message.content), tone: "soft" });
+            } else if (message.role === "user" && message.contextSource === "pre_turn") {
+                push({
+                    kind: "hook_context",
+                    phase: message.contextSource,
+                    ...(message.hookSource === undefined ? {} : { source: message.hookSource }),
+                });
             }
             appendHarnessMessages(index + 1);
             continue;

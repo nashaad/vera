@@ -819,7 +819,7 @@ export async function startResidentHost(
                 hooks.registerSessionStart(hook);
             }
             for (const hook of extensions.preTurnHooks()) {
-                hooks.registerPreTurn(hook);
+                hooks.registerPreTurn(hook.run, hook.extensionId);
             }
             return hooks;
         },

@@ -1,4 +1,5 @@
 import {
+    formatHookContext,
     formatModelSubstitution,
     projectTranscript,
     type TranscriptEntry,
@@ -177,9 +178,10 @@ function markdownFence(content: string): string {
 function renderTranscriptText(
     entry: Extract<
         TranscriptEntry,
-        { kind: "user" | "assistant" | "model_substitution" | "harness" }
+        { kind: "user" | "assistant" | "model_substitution" | "harness" | "hook_context" }
     >,
 ): string {
+    if (entry.kind === "hook_context") return formatHookContext(entry.phase, entry.source);
     if (entry.kind === "model_substitution") {
         return formatModelSubstitution(entry.substitution);
     }
@@ -204,7 +206,7 @@ function transcriptHeading(entry: TranscriptEntry): string {
     if (entry.kind === "model_substitution") {
         return "## Model substitution";
     }
-    if (entry.kind === "harness") {
+    if (entry.kind === "harness" || entry.kind === "hook_context") {
         return "## Vera";
     }
     if (entry.kind === "presentation") {

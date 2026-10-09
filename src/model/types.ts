@@ -49,7 +49,9 @@ export interface UserMessage {
     readonly role: "user";
     readonly content: readonly UserContent[];
     readonly internal?: boolean;
-    readonly contextSource?: "session_start";
+    readonly contextSource?: "session_start" | HookContextPhase;
+    /** The extension whose hook added this context, when one is known. */
+    readonly hookSource?: string;
     /** Compaction may summarize history before this message, never across it. */
     readonly compactionBarrier?: boolean;
     /** Stored raw; the model request wraps it as a message sent while the turn was running. */
@@ -108,6 +110,17 @@ export function formatModelSubstitution(
             + ` reasoning level at all, because ${reason}.`
         : `Requested reasoning effort "${requested}"${on}, ran at`
             + ` "${using}" instead, because ${reason}.`;
+}
+
+/** Hook phases whose added context is stored as its own message. */
+export type HookContextPhase = "pre_turn";
+
+export function formatHookContext(
+    phase: HookContextPhase,
+    source: string | undefined,
+): string {
+    const who = source ?? "A hook";
+    return `${who} added context`;
 }
 
 export interface TurnTiming {

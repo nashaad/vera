@@ -11,7 +11,7 @@ import {
     EMPTY_THREAD_FACTS,
     type ThreadFacts,
 } from "../shared/thread-facts.ts";
-import { formatModelSubstitution } from "../../src/engine/protocol.ts";
+import { formatHookContext, formatModelSubstitution } from "../../src/engine/protocol.ts";
 import type {
     CompactionUpdate,
     ModelActivityUpdate,
@@ -539,6 +539,13 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
     }
     if (update.type === "notice") {
         return update.text === undefined ? state : appendEntry(state, { kind: "notice", text: update.text });
+    }
+    if (update.type === "hook_context") {
+        return appendEntry(state, {
+            kind: "notice",
+            text: formatHookContext(update.phase, update.source),
+            tone: "soft",
+        });
     }
     if (update.type === "history") {
         const reopenedTurnFinishedAt = state.transcriptStarted === true
@@ -2409,6 +2416,13 @@ function toSingleTuiTranscriptEntry(
     }
     if (entry.kind === "harness") {
         return { kind: "notice", text: entry.text, tone: entry.tone };
+    }
+    if (entry.kind === "hook_context") {
+        return {
+            kind: "notice",
+            text: formatHookContext(entry.phase, entry.source),
+            tone: "soft",
+        };
     }
     return entry.kind === "user"
         ? userEntry(entry.text, entry.attachments)

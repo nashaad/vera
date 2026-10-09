@@ -140,8 +140,8 @@ keeps the plain text result shape.
 
 `prepareTurn` runs once after the prompt is saved and before the first model
 call. It can watch, drop tools from this turn, pick a different model or
-effort, or refuse the turn. It cannot edit the prompt or the system
-instructions.
+effort, add context after the prompt, or refuse the turn. It cannot edit the
+prompt or the system instructions.
 
 ```ts
 const result = await vera.agent(reviewer).run(changeText, {
@@ -156,6 +156,15 @@ const result = await vera.agent(reviewer).run(changeText, {
 
 A blocked turn is a failed run. A tools list may only name tools this turn
 already offered. It cannot add a tool that was unavailable to the run.
+
+`context` is text the model reads right after the prompt, as a message of its
+own. It stays in the session:
+
+```ts
+await vera.agent(reviewer).run(changeText, {
+    prepareTurn: () => ({ power: "mutate", context: "the crow guards the main branch" }),
+});
+```
 
 ### Set the role's default model
 

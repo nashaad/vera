@@ -106,6 +106,8 @@ export interface PreTurnHookPayload {
     /** Tool names this turn would offer before the hook runs. */
     readonly tools: readonly string[];
     readonly reasoningEffort?: string;
+    /** True for a queued prompt that joined a running turn at a tool boundary. */
+    readonly arrivedDuringTurn: boolean;
 }
 
 export interface MutatePreTurnHookResult {
@@ -114,6 +116,8 @@ export interface MutatePreTurnHookResult {
     readonly tools?: readonly string[];
     readonly model?: string;
     readonly reasoningEffort?: string;
+    /** Stored after the prompt as its own message. Empty text adds nothing. */
+    readonly context?: string;
 }
 
 export type PreTurnHookResult =

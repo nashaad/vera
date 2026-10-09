@@ -283,7 +283,23 @@ function before each user prompt starts its work, with `registerPreTurn` and
 `hooks.pre_turn`. It runs before the first model call of a turn, and again for
 each queued prompt that joins the running turn. For a joining prompt it can
 narrow the tools or block the prompt, which ends the turn, but it cannot
-change the model or reasoning effort.
+change the model or reasoning effort. The payload's `arrivedDuringTurn` is
+true for a joining prompt.
+
+A `pre_turn` function can also return `context`. Vera adds that text after
+your message, as a message of its own, before the model sees the turn. The
+transcript shows one row naming the extension, such as "lookout added
+context", but not the text. The context stays in the conversation, counts in
+`/context`, and is still there after a restart. Empty text adds nothing.
+
+```js
+export function activate(vera) {
+    vera.hooks.registerPreTurn((turn) => {
+        if (!/treasure/i.test(turn.prompt)) return { power: "observe" };
+        return { power: "mutate", context: "the crow buried it under the third palm" };
+    });
+}
+```
 
 An extension can run a function after each turn ends with
 `registerTurnFinished`, after declaring `hooks.turn_finished`. It gets the

@@ -963,3 +963,23 @@ test("host wire carries when a transcript entry was recorded and rejects a non-n
         entries: [{ ...history.entries[0], recordedAt: "09:12" }],
     })).toBeUndefined();
 });
+
+test("host wire carries hook context facts live and in history", () => {
+    const live = { type: "hook_context" as const, phase: "pre_turn" as const, source: "lookout", seq: 4 };
+    expect(parseAgentUpdate(live)).toEqual(live);
+    const { source: _source, ...sourceless } = live;
+    expect(parseAgentUpdate(sourceless)).toEqual(sourceless);
+    expect(parseAgentUpdate({ ...live, phase: "guess" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...live, source: "" })).toBeUndefined();
+
+    const history = {
+        type: "history" as const,
+        seq: 5,
+        entries: [{ kind: "hook_context" as const, phase: "pre_turn" as const, source: "lookout" }],
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ kind: "hook_context", phase: "pre_turn", source: 7 }],
+    })).toBeUndefined();
+});

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { ToolHooks } from "../../src/engine/hooks.ts";
+import { MAX_HOOK_CONTEXT_BYTES, ToolHooks } from "../../src/engine/hooks.ts";
 import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
@@ -195,6 +195,7 @@ const preTurnPayload = {
     type: "pre_turn" as const,
     workspace: "/work/vera",
     prompt: "review this patch",
+    arrivedDuringTurn: false,
     model: "reviewer",
     tools: ["read", "write", "bash"],
     reasoningEffort: "high",
@@ -223,6 +224,7 @@ test("pre-turn mutations accumulate in order and cannot add tools", async () => 
         type: "pre_turn",
         workspace: "/work/vera",
         prompt: "review this patch",
+        arrivedDuringTurn: false,
         model: "cheap",
         tools: ["bash"],
         reasoningEffort: "high",
@@ -246,6 +248,7 @@ test("pre-turn block stops later handlers", async () => {
             model: "cheap",
         },
         result: { power: "block", reason: "not this turn" },
+        contexts: [],
     });
     expect(afterBlock).toBe(false);
 });
@@ -270,6 +273,49 @@ test("pre-turn hooks share the declared timeout budget", async () => {
     await expect(hooks.runPreTurn(preTurnPayload, { timeoutMs: 5 })).rejects.toThrow(
         "pre_turn hooks timed out after 5ms",
     );
+});
+
+test("pre-turn context is collected in order with its source, and empty text adds nothing", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "the crow buried it under the third palm" }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "" }), "quiet");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "mind the kraken" }));
+
+    const outcome = await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 });
+
+    expect(outcome.contexts).toEqual([
+        { source: "lookout", context: "the crow buried it under the third palm" },
+        { context: "mind the kraken" },
+    ]);
+});
+
+test("a pre-turn block drops context gathered before it", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "early note" }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "block", reason: "not this turn" }));
+
+    expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([]);
+});
+
+test("pre-turn context that is not a string or is too large fails closed", async () => {
+    const wrongType = new ToolHooks();
+    wrongType.registerPreTurn(() => ({ power: "mutate", context: 7 }) as never);
+    await expect(wrongType.runPreTurn(preTurnPayload, { timeoutMs: 100 })).rejects.toThrow("context");
+
+    const tooLarge = new ToolHooks();
+    tooLarge.registerPreTurn(() => ({ power: "mutate", context: "x".repeat(MAX_HOOK_CONTEXT_BYTES + 1) }));
+    await expect(tooLarge.runPreTurn(preTurnPayload, { timeoutMs: 100 })).rejects.toThrow("context");
+});
+
+test("disposing a sourced pre-turn hook removes only that hook", async () => {
+    const hooks = new ToolHooks();
+    const dispose = hooks.registerPreTurn(() => ({ power: "mutate", context: "gone" }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "kept" }), "lookout");
+    dispose();
+
+    expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([
+        { source: "lookout", context: "kept" },
+    ]);
 });
 
 function roundTrip<Value>(value: Value): Value {

@@ -3337,3 +3337,23 @@ test("a queued prompt names its images", () => {
     expect(queued([{ content: "x".repeat(60), attachmentIds: ["a"] }]).length)
         .toBe("queued · ".length + 48);
 });
+
+test("hook context gets one soft row naming the extension, live and on replay", () => {
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "hook_context",
+        phase: "pre_turn",
+        source: "lookout",
+        seq: 1,
+    });
+    expect(live.entries).toEqual([{ kind: "notice", text: "lookout added context", tone: "soft" }]);
+
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 1,
+        entries: [{ kind: "hook_context", phase: "pre_turn", source: "lookout" }],
+    });
+    expect(replayed.entries).toEqual(live.entries);
+
+    const unnamed = applyAgentUpdate(createTuiState(), { type: "hook_context", phase: "pre_turn", seq: 1 });
+    expect(unnamed.entries).toEqual([{ kind: "notice", text: "A hook added context", tone: "soft" }]);
+});

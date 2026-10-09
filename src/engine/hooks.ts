@@ -16,6 +16,7 @@ import type {
 } from "../sdk/hooks.ts";
 
 export const MAX_SESSION_START_CONTEXT_BYTES = 128 * 1024;
+export const MAX_HOOK_CONTEXT_BYTES = MAX_SESSION_START_CONTEXT_BYTES;
 
 export interface SessionStartContribution {
     readonly index: number;
@@ -38,15 +39,27 @@ export interface PreToolUseOutcome {
     readonly result: PreToolUseHookResult;
 }
 
+/** Text a hook asked to add to the session, with the extension that asked when known. */
+export interface HookContext {
+    readonly source?: string;
+    readonly context: string;
+}
+
 export interface PreTurnOutcome {
     readonly payload: PreTurnHookPayload;
     readonly result: PreTurnHookResult;
+    readonly contexts: readonly HookContext[];
+}
+
+interface SourcedHook<Hook> {
+    readonly run: Hook;
+    readonly source?: string;
 }
 
 export class ToolHooks {
     private readonly preToolUse: PreToolUseHook[] = [];
     private readonly postToolUse: PostToolUseHook[] = [];
-    private readonly preTurn: PreTurnHook[] = [];
+    private readonly preTurn: SourcedHook<PreTurnHook>[] = [];
     private readonly sessionStart: SessionStartHook[] = [];
 
     constructor(
@@ -102,9 +115,11 @@ export class ToolHooks {
         return () => removeHook(this.postToolUse, hook);
     }
 
-    registerPreTurn(hook: PreTurnHook): () => void {
-        this.preTurn.push(hook);
-        return () => removeHook(this.preTurn, hook);
+    /** `source` names the extension in the transcript row for any context it adds. */
+    registerPreTurn(hook: PreTurnHook, source?: string): () => void {
+        const entry = source === undefined ? { run: hook } : { run: hook, source };
+        this.preTurn.push(entry);
+        return () => removeHook(this.preTurn, entry);
     }
 
     async runPreToolUse(
@@ -196,11 +211,12 @@ export class ToolHooks {
         const deadline = hookDeadline(options.timeoutMs);
         let currentPayload = cloneHookData(payload);
         let currentResult: PreTurnHookResult = { power: "observe" };
+        const contexts: HookContext[] = [];
         remainingTime(deadline, options.timeoutMs, payload.type);
-        for (const hook of this.preTurn) {
+        for (const hook of [...this.preTurn]) {
             const result = await callHook(
                 async () => cloneHookData(
-                    await hook(cloneHookData(currentPayload)),
+                    await hook.run(cloneHookData(currentPayload)),
                 ),
                 remainingTime(deadline, options.timeoutMs, payload.type),
                 options.timeoutMs,
@@ -209,6 +225,11 @@ export class ToolHooks {
             assertPreTurnHookResult(result);
             remainingTime(deadline, options.timeoutMs, payload.type);
             if (result.power === "mutate") {
+                if (result.context !== undefined && result.context.length > 0) {
+                    contexts.push(hook.source === undefined
+                        ? { context: result.context }
+                        : { source: hook.source, context: result.context });
+                }
                 currentPayload = applyPreTurnMutate(currentPayload, result);
                 currentResult = {
                     power: "mutate",
@@ -226,12 +247,14 @@ export class ToolHooks {
                 return {
                     payload: currentPayload,
                     result,
+                    contexts: [],
                 };
             }
         }
         return {
             payload: currentPayload,
             result: currentResult,
+            contexts,
         };
     }
 }
@@ -371,6 +394,18 @@ function assertPreTurnHookResult(
                 "pre_turn mutate reasoningEffort must be a non-empty string",
             );
         }
+    }
+    if (result.context !== undefined) {
+        assertHookContext(result.context, "pre_turn");
+    }
+}
+
+function assertHookContext(context: unknown, hookType: string): void {
+    if (typeof context !== "string") {
+        throw new Error(`${hookType} context must be a string`);
+    }
+    if (Buffer.byteLength(context, "utf8") > MAX_HOOK_CONTEXT_BYTES) {
+        throw new Error(`${hookType} context exceeds 128 KiB`);
     }
 }
 

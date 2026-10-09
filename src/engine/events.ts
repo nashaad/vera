@@ -492,6 +492,12 @@ export interface ToolHookFailedEvent {
     readonly error: string;
 }
 
+export interface HookContextAddedEvent {
+    readonly type: "hook_context_added";
+    readonly phase: "pre_turn";
+    readonly source?: string;
+}
+
 export interface TurnHookFailedEvent {
     readonly type: "turn_hook_failed";
     readonly phase: "pre_turn";
@@ -575,6 +581,7 @@ export type EngineEvent =
     | ToolExecutionReplacedEvent
     | ToolHookFailedEvent
     | TurnHookFailedEvent
+    | HookContextAddedEvent
     | ToolResultChangedEvent
     | ToolExecutionStartedEvent
     | ToolReviewDecidedEvent
@@ -690,6 +697,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     tool_review_decided: "info",
     turn_finished: "info",
     turn_hook_failed: "error",
+    hook_context_added: "info",
     turn_started: "info",
     ui_request: "info",
     ui_request_closed: "info",

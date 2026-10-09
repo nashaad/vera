@@ -201,6 +201,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "hook_context") {
+        return isHookContextFacts(update) ? value as AgentUpdate : undefined;
+    }
     if (update.type === "notice") {
         return typeof update.key === "string"
                 && (update.text === undefined || (typeof update.text === "string" && update.text.length > 0))
@@ -850,6 +853,9 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return typeof entry.text === "string"
             && (entry.tone === "primary" || entry.tone === "soft" || entry.tone === "error");
     }
+    if (entry?.kind === "hook_context") {
+        return isHookContextFacts(entry);
+    }
     if (entry?.kind === "user") {
         return typeof entry.text === "string"
             && isOptionalAttachments(entry.attachments);
@@ -886,6 +892,12 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
         && asRecord(entry.args) !== undefined;
+}
+
+function isHookContextFacts(value: Record<string, unknown>): boolean {
+    return value.phase === "pre_turn"
+        && (value.source === undefined
+            || (typeof value.source === "string" && value.source.length > 0));
 }
 
 function isModelSubstitution(value: unknown): boolean {

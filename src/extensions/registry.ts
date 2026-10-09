@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import type { ModelMiddleware } from "../sdk/model-middleware.ts";
 
 import type { VeraExtensionConfig } from "../config.ts";
+import { MAX_HOOK_CONTEXT_BYTES } from "../engine/hooks.ts";
 import {
     isToolPresentation,
     type ToolPresentation,
@@ -102,6 +103,11 @@ const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
 const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_RESULT_LIMIT = 1_000_000;
 
+export interface RegisteredPreTurnHook {
+    readonly extensionId: string;
+    readonly run: PreTurnHook;
+}
+
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
     readonly activationTimeoutMs?: number;
@@ -135,7 +141,7 @@ export interface ExtensionRegistry {
     agents(): readonly AgentDefinition[];
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
-    preTurnHooks(): readonly PreTurnHook[];
+    preTurnHooks(): readonly RegisteredPreTurnHook[];
     sessionStartHooks(): readonly SessionStartHook[];
     turnFinishedHooks(): readonly RegisteredTurnFinishedHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
@@ -182,7 +188,7 @@ interface LoadedRegistryExtension {
     readonly agents: readonly AgentDefinition[];
     readonly preToolUseHooks: readonly PreToolUseHook[];
     readonly postToolUseHooks: readonly PostToolUseHook[];
-    readonly preTurnHooks: readonly PreTurnHook[];
+    readonly preTurnHooks: readonly RegisteredPreTurnHook[];
     readonly sessionStartHooks: readonly SessionStartHook[];
     readonly turnFinishedHooks: readonly RegisteredTurnFinishedHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
@@ -369,7 +375,7 @@ export async function startExtensionRegistry(
         sessionStartHooks(): readonly SessionStartHook[] {
             return loaded.flatMap((extension) => extension.sessionStartHooks);
         },
-        preTurnHooks(): readonly PreTurnHook[] {
+        preTurnHooks(): readonly RegisteredPreTurnHook[] {
             return loaded.flatMap((extension) => extension.preTurnHooks);
         },
         turnFinishedHooks(): readonly RegisteredTurnFinishedHook[] {
@@ -565,7 +571,7 @@ async function activateExtension(
     const agentNames = new Set<string>();
     const preToolUseHooks: PreToolUseHook[] = [];
     const postToolUseHooks: PostToolUseHook[] = [];
-    const preTurnHooks: PreTurnHook[] = [];
+    const preTurnHooks: RegisteredPreTurnHook[] = [];
     const sessionStartHooks: SessionStartHook[] = [];
     const turnFinishedHooks: RegisteredTurnFinishedHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
@@ -811,9 +817,12 @@ async function activateExtension(
                 if (typeof hook !== "function") {
                     throw new Error("Invalid pre-turn hook registration");
                 }
-                const safe = safePreTurnHook(hook);
-                preTurnHooks.push(safe);
-                return () => removeHook(preTurnHooks, safe);
+                const registered = {
+                    extensionId: loaded.manifest.id,
+                    run: safePreTurnHook(hook),
+                };
+                preTurnHooks.push(registered);
+                return () => removeHook(preTurnHooks, registered);
             },
             registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer {
                 if (phase !== "activating") {
@@ -1479,6 +1488,14 @@ function isPreTurnResult(value: unknown): value is PreTurnHookResult {
         if (
             typeof value.reasoningEffort !== "string"
             || value.reasoningEffort.length === 0
+        ) {
+            return false;
+        }
+    }
+    if (value.context !== undefined) {
+        if (
+            typeof value.context !== "string"
+            || Buffer.byteLength(value.context, "utf8") > MAX_HOOK_CONTEXT_BYTES
         ) {
             return false;
         }

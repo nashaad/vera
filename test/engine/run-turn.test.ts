@@ -369,6 +369,84 @@ test("a prompt queued during a tool batch joins the turn before the next request
     state.inbound.finishTurn();
 });
 
+test("pre-turn context lands after each prompt and survives a reopen", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-hook-context-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "lookout",
+        cwd: workspace,
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf dig" }),
+        assistantText("chest found"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push({ ...request, messages: structuredClone(request.messages) });
+            if (requests.length === 1) {
+                channel.client.send({ type: "prompt", content: "and the rum?" });
+            }
+            return faux.stream(request);
+        },
+    };
+    const joined: boolean[] = [];
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn((payload) => {
+        joined.push(payload.arrivedDuringTurn);
+        return payload.prompt.includes("treasure")
+            ? { power: "mutate", context: "the crow buried it under the third palm" }
+            : { power: "mutate", context: "the rum is gone" };
+    }, "lookout");
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    await runTurn(adapter, "test", state);
+
+    expect(joined).toEqual([false, true]);
+    const palm = {
+        role: "user",
+        internal: true,
+        contextSource: "pre_turn",
+        hookSource: "lookout",
+        content: [{ type: "text", text: "the crow buried it under the third palm" }],
+    };
+    expect(requests[0]?.messages).toEqual([
+        { role: "user", content: [{ type: "text", text: "find the treasure" }] },
+        palm,
+    ] as ModelMessage[]);
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+        internal: true,
+        contextSource: "pre_turn",
+        content: [{ type: "text", text: "the rum is gone" }],
+    });
+    expect(state.messages[1]).toEqual(palm as ModelMessage);
+    expect(updates.filter((update) => update.type === "hook_context")).toEqual([
+        expect.objectContaining({ type: "hook_context", phase: "pre_turn", source: "lookout" }),
+        expect.objectContaining({ type: "hook_context", phase: "pre_turn", source: "lookout" }),
+    ]);
+
+    const reopened = await SessionStore.open(sessionPath);
+    expect(reopened.messages()).toEqual(state.messages);
+    expect(projectTranscript(reopened.messages()).filter((entry) => entry.kind === "hook_context")).toEqual([
+        { kind: "hook_context", phase: "pre_turn", source: "lookout" },
+        { kind: "hook_context", phase: "pre_turn", source: "lookout" },
+    ]);
+});
+
 test("a pre_turn block on a joining prompt ends the running turn", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

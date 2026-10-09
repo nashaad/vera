@@ -186,3 +186,17 @@ function assistant(text: string): AssistantMessage {
         stopReason: "stop",
     };
 }
+
+test("Markdown export names the extension that added context", () => {
+    const markdown = renderSessionMarkdown({
+        format_version: 4,
+        session: { id: "lookout", started_at: "2026-10-09T20:00:00.000Z", workspace: "/work/vera" },
+        transcript: [
+            { kind: "user", text: "where is the treasure?" },
+            { kind: "hook_context", phase: "pre_turn", source: "lookout" },
+        ],
+    });
+
+    expect(markdown).toContain("## Vera\n\n> lookout added context");
+    expect(markdown).not.toContain("third palm");
+});

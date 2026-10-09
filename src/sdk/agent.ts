@@ -128,8 +128,9 @@ export interface AgentRunOptions<Output = never> {
     readonly output?: AgentOutputSchema<Output>;
     /**
      * Once per user turn, after the prompt is committed and before the first
-     * model call. May observe, restrict tools, change model or effort, or
-     * block the turn. It cannot rewrite messages or the system prompt.
+     * model call. May observe, restrict tools, change model or effort, add
+     * context after the prompt, or block the turn. It cannot rewrite messages
+     * or the system prompt.
      */
     readonly prepareTurn?: PreTurnHook;
     /** Durable SessionStore path. Omitted means a temporary file that is deleted. */
