@@ -42,8 +42,8 @@ conversations. No host restart is needed.
 
 The **Classifier** entry in `/settings` sets the same classifier as Defaults,
 plus an optional failsafe model. Changing the classifier in Defaults keeps the
-failsafe. **Use configured default** clears the classifier, so the session
-model reviews actions instead.
+failsafe. **Use the session model** clears the classifier and its failsafe,
+so the session model reviews actions instead.
 
 The stored key is `model_assignments.reviewer`: the first model is the
 classifier and the second is the failsafe. The interface calls the job

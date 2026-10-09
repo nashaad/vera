@@ -1046,9 +1046,9 @@ export function startTuiReviewerPicker(
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
-        label: slot === "primary" ? "Use configured default" : "None",
+        label: slot === "primary" ? "Use the session model" : "None",
         description: slot === "primary"
-            ? "clear this override; use Defaults or the session model"
+            ? "clear the classifier and its failsafe"
             : "no failsafe classifier",
     };
     const options = [clearRow, ...rows];
