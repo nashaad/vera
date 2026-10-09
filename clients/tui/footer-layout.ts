@@ -5,8 +5,7 @@ export type FooterItemId =
     | "status"
     | "keys"
     | "limits"
-    | "folder"
-    | "branch"
+    | "place"
     | "activity"
     | "panes";
 
@@ -29,8 +28,7 @@ export const FOOTER_ITEM_IDS: readonly FooterItemId[] = [
     "status",
     "keys",
     "limits",
-    "folder",
-    "branch",
+    "place",
     "activity",
     "panes",
 ];
@@ -39,8 +37,7 @@ export const FOOTER_ITEM_LABELS: Readonly<Record<FooterItemId, string>> = {
     status: "live status",
     keys: "key hints",
     limits: "limits",
-    folder: "folder",
-    branch: "branch",
+    place: "folder, branch",
     activity: "activity strip",
     panes: "pane controls",
 };
@@ -51,7 +48,7 @@ export const FOOTER_LOCKED_SHOWN: ReadonlySet<FooterItemId> = new Set(["keys"]);
 export const DEFAULT_FOOTER_LAYOUT: FooterLayout = {
     slots: [
         "status", "limits", null, "keys",
-        "folder", "branch", "panes", "activity",
+        "place", null, "panes", "activity",
         null, null, null, null,
     ],
     hidden: [],

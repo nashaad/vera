@@ -41,9 +41,9 @@ test("idle, the live status reads ready and the key hints lead with commands", (
 });
 
 test("idle, a lone item keeps to the side its slot is on", () => {
-    const left = withSlots(["status", null, null, "keys", "folder", "branch", "panes", "activity", "limits", null, null, null]);
+    const left = withSlots(["status", null, null, "keys", "place", null, "panes", "activity", "limits", null, null, null]);
     expect(rows(left, footerItemContents(facts(false)), false, 80)[2]).toBe("5h 72% left · week 96% left");
-    const right = withSlots(["status", null, null, "keys", "folder", "branch", "panes", "activity", null, null, "limits", null]);
+    const right = withSlots(["status", null, null, "keys", "place", null, "panes", "activity", null, null, "limits", null]);
     const third = rows(right, footerItemContents(facts(false)), false, 80)[2]!;
     expect(third.endsWith("5h 72% left · week 96% left")).toBe(true);
     expect(Bun.stringWidth(third)).toBe(80);
@@ -52,11 +52,19 @@ test("idle, a lone item keeps to the side its slot is on", () => {
 test("the strip holds its cell while idle, so nothing shifts when a turn starts", () => {
     const idle = fitFooter(DEFAULT_FOOTER_LAYOUT, footerItemContents(facts(false)), false, 80);
     const working = fitFooter(DEFAULT_FOOTER_LAYOUT, footerItemContents(facts(true)), true, 80);
-    for (const item of ["folder", "branch", "activity", "panes"] as const) {
+    for (const item of ["place", "activity", "panes"] as const) {
         expect(working.spans.get(item)).toEqual(idle.spans.get(item));
     }
     expect(idle.fates.get("activity")).toBe("empty");
     expect(working.fates.get("activity")).toBe("shown");
+});
+
+test("the folder and branch sit together, and the path shortens before the branch", () => {
+    const [, second] = rows(DEFAULT_FOOTER_LAYOUT, footerItemContents(facts(false)), false, 80);
+    expect(second!.startsWith("/srv/crows-nest/harbour/black-sail · plunder")).toBe(true);
+    const narrow = rows(DEFAULT_FOOTER_LAYOUT, footerItemContents(facts(false, { panes: [] })), false, 40)[1]!;
+    expect(narrow).toMatch(/^…\/\S+ · plunder/);
+    expect(narrow).not.toContain("/srv");
 });
 
 test("a full row shortens the highest slot first, then drops it, never the key hints", () => {
@@ -74,7 +82,7 @@ test("a full row shortens the highest slot first, then drops it, never the key h
 });
 
 test("the last item standing is cut with an ellipsis", () => {
-    const layout = withSlots(["status", null, null, null, "folder", "branch", "activity", "panes", null, "limits", null, "keys"]);
+    const layout = withSlots(["status", null, null, null, "place", null, "activity", "panes", null, "limits", null, "keys"]);
     const fit = fitFooter(layout, footerItemContents(facts(true, {
         status: { text: "[DEV a-very-long-dev-instance-label] thinking · 4s", color: "#ffffff" },
     })), true, 20);
@@ -83,9 +91,9 @@ test("the last item standing is cut with an ellipsis", () => {
 });
 
 test("hidden and empty items say why they are missing", () => {
-    const layout: FooterLayout = { ...DEFAULT_FOOTER_LAYOUT, hidden: ["branch"] };
+    const layout: FooterLayout = { ...DEFAULT_FOOTER_LAYOUT, hidden: ["place"] };
     const fit = fitFooter(layout, footerItemContents(facts(false)), false, 80);
-    expect(fit.fates.get("branch")).toBe("hidden");
+    expect(fit.fates.get("place")).toBe("hidden");
     expect(fit.fates.get("activity")).toBe("empty");
     expect(fit.rows[1]!.map((chunk) => chunk.text).join("")).not.toContain("plunder");
 });
@@ -98,8 +106,8 @@ test("the key hints cannot be hidden", () => {
 
 test("the row count is the last row holding a shown item", () => {
     expect(footerRowCount(DEFAULT_FOOTER_LAYOUT)).toBe(2);
-    expect(footerRowCount({ ...DEFAULT_FOOTER_LAYOUT, hidden: ["folder", "branch", "panes", "activity"] })).toBe(1);
-    const gap = withSlots(["status", "limits", null, "keys", null, null, null, null, "folder", "branch", "panes", "activity"]);
+    expect(footerRowCount({ ...DEFAULT_FOOTER_LAYOUT, hidden: ["place", "panes", "activity"] })).toBe(1);
+    const gap = withSlots(["status", "limits", null, "keys", null, null, null, null, "place", null, "panes", "activity"]);
     expect(footerRowCount(gap)).toBe(3);
     const drawn = rows(gap, footerItemContents(facts(false)), false, 80);
     expect(drawn).toHaveLength(3);

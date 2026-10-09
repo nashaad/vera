@@ -30,11 +30,12 @@ export function footerItemContents(facts: FooterItemFacts): FooterItemContents {
         panes: { forms: dotForms(facts.panes.join(" · "), "muted") },
     };
     if (facts.place !== undefined) {
-        contents.folder = {
-            forms: tuiWorkspaceForms(facts.place.workspace).map((form) => [muted(form)]),
-        };
-        contents.branch = {
-            forms: facts.place.branch === undefined ? [] : [[{ text: facts.place.branch, tone: "accent" }]],
+        const branch = facts.place.branch;
+        // The path gives up leading folders first; the branch is kept whole.
+        contents.place = {
+            forms: tuiWorkspaceForms(facts.place.workspace).map((form) => branch === undefined
+                ? [muted(form)]
+                : [muted(form), muted(" · "), { text: branch, tone: "accent" }]),
         };
     }
     return contents;

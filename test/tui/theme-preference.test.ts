@@ -347,7 +347,7 @@ test("a saved footer layout comes back the same and drops the old strip key", ()
     const layout: FooterLayout = {
         slots: [
             "status", null, null, "keys",
-            "folder", "branch", null, "panes",
+            "place", null, null, "panes",
             null, "limits", null, "activity",
         ],
         hidden: ["status"],
@@ -371,23 +371,23 @@ test("a hand-edited footer layout keeps what it can and fills in the rest", () =
     const path = join(mkdtempSync(join(tmpdir(), "vera-footer-layout-")), "tui.json");
     writeFileSync(path, JSON.stringify({ footer_layout: {
         rows: [
-            ["branch", "parrot", "branch", "folder", "status"],
+            ["place", "parrot", "place", "limits", "status"],
             [null, "ready"],
             [],
             ["status"],
         ],
         hidden: ["keys", "limits"],
-        show_when: { branch: "working" },
+        show_when: { place: "working" },
     } }));
     const layout = loadTuiFooterLayout(path);
     expect(layout.slots).toEqual([
-        "branch", "status", "keys", "folder",
-        "limits", null, "panes", "activity",
+        "place", "status", "keys", "limits",
+        null, null, "panes", "activity",
         null, null, null, null,
     ]);
     expect(layout.hidden).toEqual(["limits"]);
     expect(layout).not.toHaveProperty("showWhen");
 
-    writeFileSync(path, JSON.stringify({ footer_layout: { rows: 7, items: [{ item: "branch", row: 1 }] } }));
+    writeFileSync(path, JSON.stringify({ footer_layout: { rows: 7, items: [{ item: "place", row: 1 }] } }));
     expect(loadTuiFooterLayout(path)).toEqual(DEFAULT_FOOTER_LAYOUT);
 });
