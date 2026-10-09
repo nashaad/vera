@@ -117,11 +117,11 @@ test("checklist rows color the newly done item, dim done ones, and keep the next
     expect(colorOf("Sail at dawn")).toEqual(parseColor(TUI_MUTED));
 });
 
-test("the title row names the checklist's file", () => {
+test("the title row shows the checklist's path", () => {
     expect(tuiChecklistText({
         kind: "checklist",
         path: "/scratch/crow-raid.md",
         title: "Raid",
         items: items(1, 2),
-    }, "crow-raid.md").split("\n")[0]).toBe("Raid  1/2 · crow-raid.md");
+    }, "/scratch/crow-raid.md").split("\n")[0]).toBe("Raid  1/2 · /scratch/crow-raid.md");
 });

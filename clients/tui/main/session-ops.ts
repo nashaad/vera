@@ -54,7 +54,7 @@ export function switchToClient(rt: TuiRuntime,
     if (next.agentId !== undefined) {
         rt.flightRecorder?.sessionEntered(next.agentId);
     }
-    setTuiWorkspaceRoot(next.workspace ?? process.cwd(), next.scratchDirectory);
+    setTuiWorkspaceRoot(next.workspace ?? process.cwd());
     void previous.detach().catch(() => previous.close());
 
     if (options.preserveSidebar !== true) {

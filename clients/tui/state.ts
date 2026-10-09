@@ -1,7 +1,6 @@
 import { workedDividerText } from "./worked-divider.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
-import { basename } from "node:path";
 
 import { bg, bold, fg, italic, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
@@ -1409,7 +1408,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         if (entry.checklist !== undefined) {
             return new StyledText(renderTuiChecklist(
                 entry.checklist,
-                basename(entry.checklist.path),
+                entry.checklist.path,
             ));
         }
         if (entry.card === true) {
@@ -1858,14 +1857,8 @@ function stringArg(
 }
 
 let tuiWorkspaceRoots: readonly string[] = [process.cwd()];
-let tuiScratchPrefix: string | undefined;
 
-const SCRATCH_DISPLAY_PREFIX = "notes/";
-
-export function setTuiWorkspaceRoot(
-    workspace: string,
-    scratchDirectory?: string,
-): void {
+export function setTuiWorkspaceRoot(workspace: string): void {
     const roots = [workspace];
     try {
         const resolved = realpathSync(workspace);
@@ -1875,15 +1868,9 @@ export function setTuiWorkspaceRoot(
     } catch {
     }
     tuiWorkspaceRoots = roots;
-    tuiScratchPrefix = scratchDirectory === undefined
-        ? undefined
-        : withTrailingSlash(scratchDirectory);
 }
 
 export function tuiDisplayPath(path: string): string {
-    if (tuiScratchPrefix !== undefined && path.startsWith(tuiScratchPrefix)) {
-        return `${SCRATCH_DISPLAY_PREFIX}${path.slice(tuiScratchPrefix.length)}`;
-    }
     for (const root of tuiWorkspaceRoots) {
         const prefix = withTrailingSlash(root);
         if (path.startsWith(prefix)) {
@@ -1891,13 +1878,6 @@ export function tuiDisplayPath(path: string): string {
         }
     }
     return path;
-}
-
-// Tool output is what the model saw; only the displayed copy is shortened.
-function withScratchPathsShortened(text: string): string {
-    return tuiScratchPrefix === undefined
-        ? text
-        : text.replaceAll(tuiScratchPrefix, SCRATCH_DISPLAY_PREFIX);
 }
 
 function withTrailingSlash(path: string): string {
@@ -2137,7 +2117,7 @@ function toolResultText(output: string, tool?: string): string {
     }
     return text.length === 0
         ? "(no output)"
-        : bounded(withScratchPathsShortened(text));
+        : bounded(text);
 }
 
 export function formatAskUserResult(output: string): string {
@@ -2544,7 +2524,7 @@ function presentationEntry(
         return {
             kind: "notice",
             tone: "soft",
-            text: `Updated notes · ${basename(presentation.path)}`,
+            text: `Updated notes · ${presentation.path}`,
         };
     }
     return presentation.kind === "unified_diff"
@@ -2557,7 +2537,7 @@ function presentationEntry(
         : presentation.kind === "checklist"
         ? {
             kind: "notice",
-            text: tuiChecklistText(presentation, basename(presentation.path)),
+            text: tuiChecklistText(presentation, presentation.path),
             checklist: presentation,
         }
         : { kind: "notice", text: presentation.text };
