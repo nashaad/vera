@@ -497,6 +497,7 @@ export interface HookContextAddedEvent {
     readonly type: "hook_context_added";
     readonly phase: HookContextPhase;
     readonly source?: string;
+    readonly display?: string;
 }
 
 export interface TurnHookFailedEvent {

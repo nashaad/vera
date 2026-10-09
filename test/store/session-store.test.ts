@@ -2625,6 +2625,12 @@ test("hook context messages need a known source phase and an internal flag", asy
     await expect(open({ ...palm, hookSource: "" })).rejects.toThrow();
     const { contextSource: _phase, ...sourceOnly } = palm;
     await expect(open(sourceOnly)).rejects.toThrow();
+
+    const shown = { ...palm, hookDisplay: "Spotted: treasure under the third palm" };
+    expect((await open(shown)).messages()).toEqual([shown as ModelMessage]);
+    await expect(open({ ...shown, hookDisplay: "" })).rejects.toThrow();
+    await expect(open({ ...shown, hookDisplay: "two\nlines" })).rejects.toThrow();
+    await expect(open({ ...shown, contextSource: "session_start" })).rejects.toThrow();
 });
 
 test("a turn_ending continuation reopens as an internal hook message", async () => {
@@ -2636,6 +2642,7 @@ test("a turn_ending continuation reopens as an internal hook message", async () 
         internal: true,
         contextSource: "turn_ending" as const,
         hookSource: "lookout",
+        hookDisplay: "Back to digging: no map drawn",
         content: [{ type: "text" as const, text: "no map, no treasure" }],
     };
     await store.appendMessage(nudge);

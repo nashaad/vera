@@ -181,7 +181,7 @@ function renderTranscriptText(
         { kind: "user" | "assistant" | "model_substitution" | "harness" | "hook_context" }
     >,
 ): string {
-    if (entry.kind === "hook_context") return formatHookContext(entry.phase, entry.source);
+    if (entry.kind === "hook_context") return formatHookContext(entry.phase, entry.source, entry.display);
     if (entry.kind === "model_substitution") {
         return formatModelSubstitution(entry.substitution);
     }

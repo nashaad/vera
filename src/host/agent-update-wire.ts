@@ -1,5 +1,5 @@
 import { isExtensionSessionStates } from "../extensions/session-state.ts";
-import { isToolPresentation, isTurnTiming } from "../model/types.ts";
+import { isHookDisplay, isToolPresentation, isTurnTiming } from "../model/types.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -897,7 +897,8 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
 function isHookContextFacts(value: Record<string, unknown>): boolean {
     return (value.phase === "pre_turn" || value.phase === "turn_ending")
         && (value.source === undefined
-            || (typeof value.source === "string" && value.source.length > 0));
+            || (typeof value.source === "string" && value.source.length > 0))
+        && (value.display === undefined || isHookDisplay(value.display));
 }
 
 function isModelSubstitution(value: unknown): boolean {

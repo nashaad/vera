@@ -1,4 +1,4 @@
-import { isToolPresentation, isTurnTiming } from "../model/types.ts";
+import { isHookDisplay, isToolPresentation, isTurnTiming } from "../model/types.ts";
 import { randomUUID } from "node:crypto";
 import {
     chmod,
@@ -2827,6 +2827,10 @@ function isModelMessage(value: unknown): value is ModelMessage {
                 || (typeof message.hookSource === "string"
                     && message.hookSource.length > 0
                     && message.contextSource !== undefined))
+            && (message.hookDisplay === undefined
+                || (isHookDisplay(message.hookDisplay)
+                    && (message.contextSource === "pre_turn"
+                        || message.contextSource === "turn_ending")))
             && (message.internal === undefined
                 || typeof message.internal === "boolean")
             && (message.compactionBarrier === undefined

@@ -402,7 +402,7 @@ test("pre-turn context lands after each prompt and survives a reopen", async () 
         joined.push(payload.arrivedDuringTurn);
         return payload.prompt.includes("treasure")
             ? { power: "mutate", context: "the crow buried it under the third palm" }
-            : { power: "mutate", context: "the rum is gone" };
+            : { power: "mutate", context: "the rum is gone", display: "Rum check: gone" };
     }, "lookout");
     const state: RunTurnState = {
         messages: [],
@@ -429,22 +429,37 @@ test("pre-turn context lands after each prompt and survives a reopen", async () 
         { role: "user", content: [{ type: "text", text: "find the treasure" }] },
         palm,
     ] as ModelMessage[]);
-    expect(requests[1]?.messages.at(-1)).toMatchObject({
+    expect(requests[1]?.messages.at(-1)).toEqual({
+        role: "user",
         internal: true,
         contextSource: "pre_turn",
+        hookSource: "lookout",
+        hookDisplay: "Rum check: gone",
         content: [{ type: "text", text: "the rum is gone" }],
-    });
+    } as ModelMessage);
     expect(state.messages[1]).toEqual(palm as ModelMessage);
-    expect(updates.filter((update) => update.type === "hook_context")).toEqual([
+    const contextUpdates = updates.filter((update) => update.type === "hook_context");
+    expect(contextUpdates).toEqual([
         expect.objectContaining({ type: "hook_context", phase: "pre_turn", source: "lookout" }),
-        expect.objectContaining({ type: "hook_context", phase: "pre_turn", source: "lookout" }),
+        expect.objectContaining({
+            type: "hook_context",
+            phase: "pre_turn",
+            source: "lookout",
+            display: "Rum check: gone",
+        }),
     ]);
+    expect(contextUpdates[0]).not.toHaveProperty("display");
 
     const reopened = await SessionStore.open(sessionPath);
     expect(reopened.messages()).toEqual(state.messages);
     expect(projectTranscript(reopened.messages()).filter((entry) => entry.kind === "hook_context")).toEqual([
-        { kind: "hook_context", phase: "pre_turn", source: "lookout" },
-        { kind: "hook_context", phase: "pre_turn", source: "lookout" },
+        expect.objectContaining({ kind: "hook_context", phase: "pre_turn", source: "lookout" }),
+        expect.objectContaining({
+            kind: "hook_context",
+            phase: "pre_turn",
+            source: "lookout",
+            display: "Rum check: gone",
+        }),
     ]);
 });
 
@@ -476,7 +491,7 @@ test("turn_ending continues a turn once, keeps the first reply, and survives a r
     const hooks = new ToolHooks();
     hooks.registerTurnEnding((payload) => {
         payloads.push(payload);
-        return { power: "continue", context: "no map, no treasure" };
+        return { power: "continue", context: "no map, no treasure", display: "Back to digging: no map drawn" };
     }, "lookout");
     const state: RunTurnState = {
         sessionId: "lookout",
@@ -518,6 +533,7 @@ test("turn_ending continues a turn once, keeps the first reply, and survives a r
         internal: true,
         contextSource: "turn_ending",
         hookSource: "lookout",
+        hookDisplay: "Back to digging: no map drawn",
         content: [{ type: "text", text: "no map, no treasure" }],
     };
     expect(requests[2]?.messages.slice(-2)).toEqual([
@@ -531,7 +547,11 @@ test("turn_ending continues a turn once, keeps the first reply, and survives a r
     ]);
     expect((state.messages[3] as AssistantMessage).turnTiming).toBeUndefined();
     expect(updates.filter((update) => update.type === "hook_context")).toEqual([
-        expect.objectContaining({ phase: "turn_ending", source: "lookout" }),
+        expect.objectContaining({
+            phase: "turn_ending",
+            source: "lookout",
+            display: "Back to digging: no map drawn",
+        }),
     ]);
     expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
 
@@ -541,7 +561,12 @@ test("turn_ending continues a turn once, keeps the first reply, and survives a r
         "user", "tool", "tool_result", "assistant", "hook_context", "assistant",
     ]);
     expect(projectTranscript(reopened.messages())).toContainEqual(
-        expect.objectContaining({ kind: "hook_context", phase: "turn_ending", source: "lookout" }),
+        expect.objectContaining({
+            kind: "hook_context",
+            phase: "turn_ending",
+            source: "lookout",
+            display: "Back to digging: no map drawn",
+        }),
     );
 });
 

@@ -17,6 +17,7 @@ import type {
     TurnEndingHookPayload,
     TurnEndingHookResult,
 } from "../sdk/hooks.ts";
+import { isHookDisplay, MAX_HOOK_DISPLAY_CHARS } from "../model/types.ts";
 
 export const MAX_SESSION_START_CONTEXT_BYTES = 128 * 1024;
 export const MAX_HOOK_CONTEXT_BYTES = MAX_SESSION_START_CONTEXT_BYTES;
@@ -46,6 +47,7 @@ export interface PreToolUseOutcome {
 export interface HookContext {
     readonly source?: string;
     readonly context: string;
+    readonly display?: string;
 }
 
 export interface PreTurnOutcome {
@@ -242,9 +244,7 @@ export class ToolHooks {
             remainingTime(deadline, options.timeoutMs, payload.type);
             if (result.power === "mutate") {
                 if (result.context !== undefined && result.context.length > 0) {
-                    contexts.push(hook.source === undefined
-                        ? { context: result.context }
-                        : { source: hook.source, context: result.context });
+                    contexts.push(hookContext(hook.source, result.context, result.display));
                 }
                 currentPayload = applyPreTurnMutate(currentPayload, result);
                 currentResult = {
@@ -290,9 +290,7 @@ export class ToolHooks {
             remainingTime(deadline, options.timeoutMs, payload.type);
             if (result.power === "continue") {
                 return {
-                    continuation: hook.source === undefined
-                        ? { context: result.context }
-                        : { source: hook.source, context: result.context },
+                    continuation: hookContext(hook.source, result.context, result.display),
                 };
             }
         }
@@ -439,6 +437,7 @@ function assertPreTurnHookResult(
     if (result.context !== undefined) {
         assertHookContext(result.context, "pre_turn");
     }
+    assertHookDisplay(result.display, "pre_turn");
 }
 
 function assertTurnEndingHookResult(
@@ -455,6 +454,27 @@ function assertTurnEndingHookResult(
     if (result.context.length === 0) {
         throw new Error("turn_ending continue context must not be empty");
     }
+    assertHookDisplay(result.display, "turn_ending");
+}
+
+// An empty display means the default row.
+function assertHookDisplay(display: unknown, hookType: string): void {
+    if (display === undefined || display === "" || isHookDisplay(display)) return;
+    throw new Error(
+        `${hookType} display must be one line of at most ${MAX_HOOK_DISPLAY_CHARS} characters`,
+    );
+}
+
+function hookContext(
+    source: string | undefined,
+    context: string,
+    display: string | undefined,
+): HookContext {
+    return {
+        ...(source === undefined ? {} : { source }),
+        context,
+        ...(display === undefined || display === "" ? {} : { display }),
+    };
 }
 
 function assertHookContext(context: unknown, hookType: string): asserts context is string {

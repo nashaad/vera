@@ -4,6 +4,7 @@ import type { ModelMiddleware } from "../sdk/model-middleware.ts";
 
 import type { VeraExtensionConfig } from "../config.ts";
 import { MAX_HOOK_CONTEXT_BYTES } from "../engine/hooks.ts";
+import { isHookDisplay } from "../model/types.ts";
 import {
     isToolPresentation,
     type ToolPresentation,
@@ -1488,7 +1489,12 @@ function isTurnEndingResult(value: unknown): value is TurnEndingHookResult {
     return value.power === "continue"
         && typeof value.context === "string"
         && value.context.length > 0
-        && Buffer.byteLength(value.context, "utf8") <= MAX_HOOK_CONTEXT_BYTES;
+        && Buffer.byteLength(value.context, "utf8") <= MAX_HOOK_CONTEXT_BYTES
+        && isOptionalHookDisplay(value.display);
+}
+
+function isOptionalHookDisplay(value: unknown): boolean {
+    return value === undefined || value === "" || isHookDisplay(value);
 }
 
 function isPreToolUseResult(value: unknown): value is PreToolUseHookResult {
@@ -1557,7 +1563,7 @@ function isPreTurnResult(value: unknown): value is PreTurnHookResult {
             return false;
         }
     }
-    return true;
+    return isOptionalHookDisplay(value.display);
 }
 
 function boundedHookData(value: unknown): boolean {

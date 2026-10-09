@@ -185,6 +185,10 @@ const result = await vera.agent(reviewer).run(changeText, {
 });
 ```
 
+Both `prepareTurn` and `beforeTurnEnds` can also return `display`, one line of
+up to 200 characters. It is stored with the context, and a client that opens
+the session shows it as the row in place of the default text.
+
 ### Set the role's default model
 
 An agent can name a model-pool entry without putting provider logic in the

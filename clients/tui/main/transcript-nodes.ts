@@ -64,9 +64,8 @@ export function takeTip(rt: TuiRuntime, inModelPicker: boolean): string | undefi
 }
 
 export function transcriptEntryText(rt: TuiRuntime, entry: TuiTranscriptEntry): string {
-    return entry.kind === "diff"
-        ? `${entry.path}\n${entry.patch}`
-        : entry.text;
+    if (entry.kind === "diff") return `${entry.path}\n${entry.patch}`;
+    return entry.suffix === undefined ? entry.text : `${entry.text} · ${entry.suffix}`;
 }
 
 export function transcriptEstimatedRows(rt: TuiRuntime, text: string, width: number): number {

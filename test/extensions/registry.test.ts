@@ -412,9 +412,14 @@ test("a throwing extension pre-turn hook does not break the engine chain", async
 test("an extension pre-turn context carries the extension id, and an invalid one is observed", async () => {
     const extension = createExtension("lookout.extension", `
         export function activate(vera) {
-            vera.hooks.registerPreTurn(() => ({ power: "mutate", context: "the crow buried it under the third palm" }));
+            vera.hooks.registerPreTurn(() => ({
+                power: "mutate",
+                context: "the crow buried it under the third palm",
+                display: "Spotted: treasure under the third palm",
+            }));
             vera.hooks.registerPreTurn(() => ({ power: "mutate", context: 42 }));
             vera.hooks.registerPreTurn(() => ({ power: "mutate", context: "x".repeat(200 * 1024) }));
+            vera.hooks.registerPreTurn(() => ({ power: "mutate", context: "two lines", display: "a\\nb" }));
         }
     `, ["hooks.pre_turn"]);
     const registry = await startExtensionRegistry({
@@ -431,7 +436,11 @@ test("an extension pre-turn context carries the extension id, and an invalid one
         tools: ["read"],
     }, { timeoutMs: 100 });
     expect(outcome.contexts).toEqual([
-        { source: "lookout.extension", context: "the crow buried it under the third palm" },
+        {
+            source: "lookout.extension",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        },
     ]);
     await registry.close();
 });
@@ -456,8 +465,9 @@ test("a turn_ending hook is capability-gated, carries the extension id, and an i
             vera.hooks.registerTurnEnding(() => { throw new Error("the crow dropped the map"); });
             vera.hooks.registerTurnEnding(() => ({ power: "continue", context: "" }));
             vera.hooks.registerTurnEnding(() => ({ power: "continue", context: 42 }));
+            vera.hooks.registerTurnEnding(() => ({ power: "continue", context: "long", display: "x".repeat(201) }));
             vera.hooks.registerTurnEnding((payload) => payload.reply === "done"
-                ? { power: "continue", context: "no map, no treasure" }
+                ? { power: "continue", context: "no map, no treasure", display: "Back to digging: no map drawn" }
                 : { power: "observe" });
         }
     `, ["hooks.turn_ending"]);
@@ -475,7 +485,11 @@ test("a turn_ending hook is capability-gated, carries the extension id, and an i
         continuations: 0,
     }, { timeoutMs: 100 });
     expect(outcome).toEqual({
-        continuation: { source: "lookout.extension", context: "no map, no treasure" },
+        continuation: {
+            source: "lookout.extension",
+            context: "no map, no treasure",
+            display: "Back to digging: no map drawn",
+        },
     });
     await registry.close();
 });

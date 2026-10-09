@@ -137,6 +137,8 @@ export interface HookContextTranscriptEntry {
     readonly phase: HookContextPhase;
     /** The extension that added it. Absent for hooks with no extension, such as SDK hooks. */
     readonly source?: string;
+    /** The hook's own row text. Absent means the client's default row. */
+    readonly display?: string;
 }
 
 export interface TranscriptTurnTiming {
@@ -754,6 +756,7 @@ export interface HookContextUpdate {
     readonly type: "hook_context";
     readonly phase: HookContextPhase;
     readonly source?: string;
+    readonly display?: string;
     readonly seq: number;
 }
 
@@ -1759,6 +1762,7 @@ export function createProtocolEncoder(
                 type: "hook_context",
                 phase: event.phase,
                 ...(event.source === undefined ? {} : { source: event.source }),
+                ...(event.display === undefined ? {} : { display: event.display }),
                 seq,
             });
             return;
@@ -2570,6 +2574,7 @@ export function projectTranscript(
                     kind: "hook_context",
                     phase: message.contextSource,
                     ...(message.hookSource === undefined ? {} : { source: message.hookSource }),
+                    ...(message.hookDisplay === undefined ? {} : { display: message.hookDisplay }),
                 });
             }
             appendHarnessMessages(index + 1);

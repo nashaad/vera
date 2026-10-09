@@ -3358,6 +3358,47 @@ test("hook context gets one soft row naming the extension, live and on replay", 
     expect(unnamed.entries).toEqual([{ kind: "notice", text: "A hook added context", tone: "soft" }]);
 });
 
+test("a hook's own display line is the row, with the extension name dim after it", () => {
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "hook_context",
+        phase: "pre_turn",
+        source: "lookout",
+        display: "Spotted: treasure under the third palm",
+        seq: 1,
+    });
+    expect(live.entries).toEqual([{
+        kind: "notice",
+        text: "Spotted: treasure under the third palm",
+        tone: "soft",
+        suffix: "lookout",
+    }]);
+    const rendered = renderTuiEntry(live.entries[0]!);
+    expect(plainText(rendered)).toBe("Spotted: treasure under the third palm · lookout");
+    expect(rendered.chunks[0]?.attributes).toBe(TextAttributes.ITALIC);
+    expect(rendered.chunks[1]?.text).toBe(" · lookout");
+    expect(rendered.chunks[1]?.attributes).toBe(TextAttributes.DIM);
+
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 1,
+        entries: [{
+            kind: "hook_context",
+            phase: "pre_turn",
+            source: "lookout",
+            display: "Spotted: treasure under the third palm",
+        }],
+    });
+    expect(replayed.entries).toEqual(live.entries);
+
+    const unnamed = applyAgentUpdate(createTuiState(), {
+        type: "hook_context",
+        phase: "turn_ending",
+        display: "Back to digging: no map drawn",
+        seq: 1,
+    });
+    expect(unnamed.entries).toEqual([{ kind: "notice", text: "Back to digging: no map drawn", tone: "soft" }]);
+});
+
 test("a turn_ending continuation says the extension continued the turn, live and on replay", () => {
     const live = applyAgentUpdate(createTuiState(), {
         type: "hook_context",

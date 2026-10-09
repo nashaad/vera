@@ -158,7 +158,7 @@ export interface AgentRunModelIdentity {
 
 export interface AgentRunResult<Output = never> {
     readonly outcome: AgentRunOutcome;
-    /** What the agent answered: the assistant text after its last tool call. */
+    /** What the agent answered: the text of its last reply. */
     readonly text: string;
     /** Every word the agent said, including narration between tool calls. */
     readonly transcript: string;

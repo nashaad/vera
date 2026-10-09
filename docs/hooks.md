@@ -330,6 +330,24 @@ export function activate(vera) {
 }
 ```
 
+Either function can also return `display`, one line of up to 200 characters
+that the transcript shows in place of the default row. The extension's name
+stays after it, dimmed, as in "Spotted: treasure under the third palm ·
+lookout". The context text is still not shown. Leave `display` out, or empty,
+for the default row. A `display` with a line break or over the limit makes the
+whole result invalid. To let people change the words without editing code,
+read them from the extension's own `config` in its `config.json` `extensions`
+entry, as the lookout example does:
+
+```json
+{
+    "extensions": [{
+        "path": "/absolute/path/to/examples/extensions/lookout",
+        "config": { "rows": { "spotted": "Land ho", "nudge": "Keep digging" } }
+    }]
+}
+```
+
 An extension can run a function after each turn ends with
 `registerTurnFinished`, after declaring `hooks.turn_finished`. It gets the
 session ID, workspace, outcome, how many prompts the session has had, whether

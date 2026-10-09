@@ -539,7 +539,11 @@ test("Agent.run prepareTurn can add context after the prompt", async () => {
     const vera = await scriptedVera([answer("third palm it is")], requests);
 
     const result = await vera.agent(basicDefinition()).run("where is the treasure?", {
-        prepareTurn: () => ({ power: "mutate", context: "the crow buried it under the third palm" }),
+        prepareTurn: () => ({
+            power: "mutate",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        }),
     });
 
     const texts = requests[0]?.messages.map((message) =>
@@ -549,6 +553,10 @@ test("Agent.run prepareTurn can add context after the prompt", async () => {
         "where is the treasure?",
         "the crow buried it under the third palm",
     ]);
+    expect(requests[0]?.messages.at(-1) as unknown).toMatchObject({
+        contextSource: "pre_turn",
+        hookDisplay: "Spotted: treasure under the third palm",
+    });
     expect(result.outcome).toBe("completed");
     expect(result.text).toBe("third palm it is");
 });

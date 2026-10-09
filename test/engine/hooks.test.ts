@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { MAX_HOOK_CONTEXT_BYTES, ToolHooks } from "../../src/engine/hooks.ts";
+import { MAX_HOOK_DISPLAY_CHARS } from "../../src/model/types.ts";
 import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
@@ -288,6 +289,50 @@ test("pre-turn context is collected in order with its source, and empty text add
         { source: "lookout", context: "the crow buried it under the third palm" },
         { context: "mind the kraken" },
     ]);
+});
+
+test("a hook's display line travels with its context, and empty display means the default row", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({
+        power: "mutate",
+        context: "the crow buried it under the third palm",
+        display: "Spotted: treasure under the third palm",
+    }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "mind the kraken", display: "" }), "kraken");
+    hooks.registerPreTurn(() => ({ power: "mutate", display: "Nothing to add" }), "quiet");
+    hooks.registerTurnEnding(() => ({
+        power: "continue",
+        context: "no map, no treasure",
+        display: "Back to digging: no map drawn",
+    }), "lookout");
+
+    expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([
+        {
+            source: "lookout",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        },
+        { source: "kraken", context: "mind the kraken" },
+    ]);
+    expect(await hooks.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).toEqual({
+        continuation: {
+            source: "lookout",
+            context: "no map, no treasure",
+            display: "Back to digging: no map drawn",
+        },
+    });
+});
+
+test("a display that is not one short line fails the result", async () => {
+    for (const display of ["two\nlines", "x".repeat(MAX_HOOK_DISPLAY_CHARS + 1), 7, "bell\u0007", "two\u2028lines", "crow\u202eworC"]) {
+        const preTurn = new ToolHooks();
+        preTurn.registerPreTurn(() => ({ power: "mutate", context: "note", display }) as never);
+        await expect(preTurn.runPreTurn(preTurnPayload, { timeoutMs: 100 })).rejects.toThrow("display");
+
+        const ending = new ToolHooks();
+        ending.registerTurnEnding(() => ({ power: "continue", context: "note", display }) as never);
+        await expect(ending.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).rejects.toThrow("display");
+    }
 });
 
 test("a pre-turn block drops context gathered before it", async () => {

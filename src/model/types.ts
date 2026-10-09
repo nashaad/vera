@@ -52,6 +52,8 @@ export interface UserMessage {
     readonly contextSource?: "session_start" | HookContextPhase;
     /** The extension whose hook added this context, when one is known. */
     readonly hookSource?: string;
+    /** The hook's own one-line row text; the context itself is never shown. */
+    readonly hookDisplay?: string;
     /** Compaction may summarize history before this message, never across it. */
     readonly compactionBarrier?: boolean;
     /** Stored raw; the model request wraps it as a message sent while the turn was running. */
@@ -115,10 +117,24 @@ export function formatModelSubstitution(
 /** Hook phases whose added context is stored as its own message. */
 export type HookContextPhase = "pre_turn" | "turn_ending";
 
+export const MAX_HOOK_DISPLAY_CHARS = 200;
+
+// One line of plain text: no line breaks, control or bidi characters. Counts code points.
+export function isHookDisplay(value: unknown): value is string {
+    return typeof value === "string"
+        && value.length > 0
+        && Array.from(value).length <= MAX_HOOK_DISPLAY_CHARS
+        && !/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(value);
+}
+
 export function formatHookContext(
     phase: HookContextPhase,
     source: string | undefined,
+    display?: string,
 ): string {
+    if (display !== undefined) {
+        return source === undefined ? display : `${display} · ${source}`;
+    }
     const who = source ?? "A hook";
     return phase === "turn_ending" ? `${who} continued the turn` : `${who} added context`;
 }

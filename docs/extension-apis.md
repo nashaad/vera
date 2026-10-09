@@ -79,6 +79,8 @@ The included `/recap` command is built on these two calls. See
 | API | Capability | What it does |
 | --- | --- | --- |
 | `vera.model.oneshot(request)` | `model.oneshot` | Asks the `snappy`, `eco`, or `extra` model for one answer. |
+| `vera.hooks.registerPreTurn(hook)` | `hooks.pre_turn` | Runs a function before each prompt's work starts. See [Hooks](hooks.md). |
+| `vera.hooks.registerTurnEnding(hook)` | `hooks.turn_ending` | Runs a function on a final reply, before the turn ends. See [Hooks](hooks.md). |
 | `vera.hooks.registerTurnFinished(hook)` | `hooks.turn_finished` | Runs a function after each finished turn. |
 | `vera.sessions.setTitle(sessionId, title)` | `sessions.title` | Names a session that has never had a name. |
 | `vera.sessions.ask(request)` | `sessions.ask` | Asks an open session's own model a side question. |

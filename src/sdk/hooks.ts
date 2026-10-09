@@ -118,6 +118,8 @@ export interface MutatePreTurnHookResult {
     readonly reasoningEffort?: string;
     /** Stored after the prompt as its own message. Empty text adds nothing. */
     readonly context?: string;
+    /** One line shown in the transcript instead of the default row. Up to 200 characters, no newlines. */
+    readonly display?: string;
 }
 
 export type PreTurnHookResult =
@@ -148,6 +150,8 @@ export interface ContinueTurnHookResult {
     readonly power: "continue";
     /** Stored after the reply as its own message, then the model runs again. Must not be empty. */
     readonly context: string;
+    /** One line shown in the transcript instead of the default row. Up to 200 characters, no newlines. */
+    readonly display?: string;
 }
 
 export type TurnEndingHookResult = ObserveHookResult | ContinueTurnHookResult;

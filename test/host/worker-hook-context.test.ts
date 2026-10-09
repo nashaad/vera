@@ -39,7 +39,11 @@ test("a worker loop stores pre-turn context the host's hooks return", async () =
     const joined: boolean[] = [];
     hooks.registerPreTurn((payload) => {
         joined.push(payload.arrivedDuringTurn);
-        return { power: "mutate", context: "the crow buried it under the third palm" };
+        return {
+            power: "mutate",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        };
     }, "lookout");
     const updates: AgentUpdate[] = [];
     const handle = await startWorker({
@@ -83,6 +87,7 @@ test("a worker loop stores pre-turn context the host's hooks return", async () =
                 internal: true,
                 contextSource: "pre_turn",
                 hookSource: "lookout",
+                hookDisplay: "Spotted: treasure under the third palm",
                 content: [{ type: "text", text: "the crow buried it under the third palm" }],
             },
         ]);
@@ -90,6 +95,7 @@ test("a worker loop stores pre-turn context the host's hooks return", async () =
             type: "hook_context",
             phase: "pre_turn",
             source: "lookout",
+            display: "Spotted: treasure under the third palm",
         }));
     } finally {
         handle.kill();
@@ -109,7 +115,7 @@ test("a worker loop continues a turn once when the host's turn_ending hook asks"
     const replies: string[] = [];
     hooks.registerTurnEnding((payload) => {
         replies.push(payload.reply);
-        return { power: "continue", context: "no map, no treasure" };
+        return { power: "continue", context: "no map, no treasure", display: "Back to digging: no map drawn" };
     }, "lookout");
     const reply = (text: string) => ({
         role: "assistant",
@@ -153,6 +159,7 @@ test("a worker loop continues a turn once when the host's turn_ending hook asks"
             internal: true,
             contextSource: "turn_ending",
             hookSource: "lookout",
+            hookDisplay: "Back to digging: no map drawn",
             content: [{ type: "text", text: "no map, no treasure" }],
         });
         expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);

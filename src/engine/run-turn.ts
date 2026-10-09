@@ -2004,12 +2004,14 @@ async function commitHookContexts(
             internal: true,
             contextSource: phase,
             ...(entry.source === undefined ? {} : { hookSource: entry.source }),
+            ...(entry.display === undefined ? {} : { hookDisplay: entry.display }),
             content: [{ type: "text", text: entry.context }],
         });
         state.events.emit({
             type: "hook_context_added",
             phase,
             ...(entry.source === undefined ? {} : { source: entry.source }),
+            ...(entry.display === undefined ? {} : { display: entry.display }),
         });
     }
 }
