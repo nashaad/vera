@@ -11,11 +11,11 @@ import { focusActiveSurface } from "../main/focus-switch.ts";
 import { bindModelAssignmentFromPicker, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
 import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
-import { finishConfigurationPicker, forgetProvider, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
+import { MODEL_DEFAULTS_TITLE, finishConfigurationPicker, forgetProvider, modelDefaultsOptions, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
 import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
-import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, updateTuiSettingsPickerSearch, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
@@ -44,6 +44,15 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
     rt.settingsPicker = transition.state;
+    // The defaults list is built on open, so a child picker may have just changed a row under it.
+    if (rt.settingsPicker?.kind === "model_defaults" && rt.settingsPicker.title === MODEL_DEFAULTS_TITLE
+        && previousPicker?.kind !== "model_defaults") {
+        const options = modelDefaultsOptions(rt);
+        const rebuilt = { ...rt.settingsPicker, allOptions: options, options };
+        rt.settingsPicker = rebuilt.query === ""
+            ? rebuilt
+            : updateTuiSettingsPickerSearch(rebuilt, rebuilt.query).state ?? rebuilt;
+    }
     if (
         "previewSession" in transition
         && transition.previewSession !== undefined
