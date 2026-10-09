@@ -11,7 +11,9 @@ export const agentRosterTool: RegisteredTool = {
             "vera participants in the current workspace. self_participant_id",
             "is always the caller; participants never includes the caller.",
             "The compact default returns the identity and status needed for",
-            "messaging. Set details to true only when the full",
+            "messaging. Match what the user calls a conversation against",
+            "name and title; if more than one matches, ask the user.",
+            "Set details to true only when the full",
             "resident-session and repository diagnostics are needed.",
         ].join(" "),
         inputSchema: {
