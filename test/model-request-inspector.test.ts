@@ -109,6 +109,39 @@ test("model request inspection accepts logs written before contribution metadata
     }
 });
 
+test("model request inspection accepts contributions owned outside core", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-request-inspection-"));
+    const sessionPath = join(root, "session.jsonl");
+    const logPath = join(root, "events.jsonl");
+    try {
+        await SessionStore.create(sessionPath, {
+            sessionId: "session-1",
+            cwd: "/work/vera",
+        });
+        const skills = {
+            ...promptContribution(),
+            id: "host.skills",
+            owner: "host",
+            target: "contextual",
+            order: 1,
+        };
+        await writeFile(logPath, `${JSON.stringify({
+            ...requestEvent("session-1", "crow-model", "buttons"),
+            promptContributions: [promptContribution(), skills],
+        })}\n`);
+
+        const inspected = JSON.parse(
+            await inspectLatestModelRequest(sessionPath, logPath),
+        ) as { readonly request: Record<string, unknown> };
+        expect(inspected.request.prompt_contributions).toEqual([
+            promptContribution(),
+            skills,
+        ]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 function requestEvent(sessionId: string, model: string, text: string) {
     return {
         type: "model_request",

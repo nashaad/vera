@@ -169,8 +169,11 @@ function isPromptContributionMetadata(
     return isRecord(value)
         && typeof value.id === "string"
         && value.id.length > 0
-        && value.owner === "core"
-        && (value.target === "stable" || value.target === "contextual")
+        && typeof value.owner === "string"
+        && value.owner.length > 0
+        && (value.target === "stable"
+            || value.target === "contextual"
+            || value.target === "turn")
         && typeof value.order === "number"
         && Number.isSafeInteger(value.order)
         && value.order >= 0
