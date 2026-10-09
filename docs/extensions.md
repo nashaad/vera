@@ -16,6 +16,8 @@ Installed extensions live in the home, under `extensions/`. Vera does not load
 extensions from a project folder; a `.vera/extensions` directory in a
 workspace is ignored.
 
+To write your own, see [Extension APIs](extension-apis.md).
+
 ## Install a local extension
 
 Enter this in the composer with the source directory's path:
