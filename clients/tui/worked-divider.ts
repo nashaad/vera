@@ -1,10 +1,14 @@
-import { BoxRenderable, StyledText, TextRenderable, fg, type CliRenderer, type MouseEvent } from "@opentui/core";
+import { BoxRenderable, StyledText, TextRenderable, fg, italic, type CliRenderer, type MouseEvent, type TextChunk } from "@opentui/core";
 import { TUI_MUTED, TUI_TEXT } from "./palette.ts";
 import { tuiWorkedRowText, type TuiAutoApproval, type TuiTranscriptEntry } from "./state.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 
-// Longer calls overflow the column instead of pushing every reason off screen.
-const CALL_COLUMN_MAX = 40;
+const CALL_MAX_LINES = 2;
+const LIST_INDENT = 2;
+const CONTINUATION = "  ";
+const REASON_MARKER = "↳ ";
+// Must match the engine's fallback when the classifier gives no rationale.
+const NO_RATIONALE_REASON = "The classifier returned an allow decision.";
 
 const finishedTime = new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -84,9 +88,14 @@ export function createTuiWorkedDivider(
     const list = new TextRenderable(renderer, {
         id: `${id}-list`,
         content: "",
-        wrapMode: "word",
+        wrapMode: "none",
         selectable: true,
     });
+    // Lines are wrapped by hand for the indents, so a new width needs new lines.
+    listBox.onSizeChange = () => {
+        const parts = dividerParts.get(node);
+        if (parts !== undefined) parts.list.content = approvalList(parts, renderer);
+    };
     listBox.add(list);
     row.onMouseUp = (event: MouseEvent) => {
         if (event.button !== 0 || label.hasSelection()) return;
@@ -96,7 +105,7 @@ export function createTuiWorkedDivider(
     row.add(rule);
     node.add(row);
     node.add(listBox);
-    dividerParts.set(node, { label, rule, listBox, list });
+    dividerParts.set(node, { label, rule, listBox, list, renderer, approvals: view.approvals });
     updateTuiWorkedDivider(node, view);
     return node;
 }
@@ -106,6 +115,8 @@ interface DividerParts {
     readonly rule: BoxRenderable;
     readonly listBox: BoxRenderable;
     readonly list: TextRenderable;
+    readonly renderer: CliRenderer;
+    approvals: readonly TuiAutoApproval[];
 }
 
 const dividerParts = new WeakMap<BoxRenderable, DividerParts>();
@@ -117,15 +128,88 @@ export function updateTuiWorkedDivider(node: BoxRenderable, view: TuiWorkedDivid
     parts.label.fg = TUI_MUTED;
     parts.rule.borderColor = TUI_MUTED;
     parts.listBox.visible = view.expanded && view.approvals.length > 0;
-    parts.list.content = approvalList(view.approvals);
+    parts.approvals = view.approvals;
+    parts.list.content = approvalList(parts, parts.renderer);
 }
 
-function approvalList(approvals: readonly TuiAutoApproval[]): StyledText {
-    const calls = approvals.map((approval) => approval.call ?? approval.tool);
-    const width = Math.min(CALL_COLUMN_MAX, Math.max(0, ...calls.map((call) => call.length)));
-    return new StyledText(approvals.flatMap((approval, index) => [
+function approvalList(parts: DividerParts, renderer: CliRenderer): StyledText {
+    const boxWidth = parts.listBox.width > 0 ? parts.listBox.width : renderer.width;
+    const lines = tuiApprovalListLines(parts.approvals, boxWidth - LIST_INDENT);
+    return new StyledText(lines.flatMap((line, index) => [
         ...(index === 0 ? [] : [fg(TUI_MUTED)("\n")]),
-        fg(TUI_TEXT)((calls[index] ?? "").padEnd(width)),
-        fg(TUI_MUTED)(`   ${approval.reason}`),
+        ...approvalLineChunks(line),
     ]));
+}
+
+function approvalLineChunks(line: TuiApprovalListLine): TextChunk[] {
+    if (line.kind === "gap") return [];
+    if (line.kind === "reason") return [italic(fg(TUI_MUTED)(line.text))];
+    return [fg(TUI_TEXT)(line.text)];
+}
+
+export type TuiApprovalListLine =
+    | { readonly kind: "call"; readonly text: string }
+    | { readonly kind: "reason"; readonly text: string }
+    | { readonly kind: "gap" };
+
+export function tuiApprovalListLines(
+    approvals: readonly TuiAutoApproval[],
+    width: number,
+): TuiApprovalListLine[] {
+    const usable = Math.max(12, width);
+    const lines: TuiApprovalListLine[] = [];
+    approvals.forEach((approval, index) => {
+        if (index > 0) lines.push({ kind: "gap" });
+        const call = clampLines(
+            wrapWords(approval.call ?? approval.tool, usable, usable - CONTINUATION.length),
+            CALL_MAX_LINES,
+            usable - CONTINUATION.length,
+        );
+        call.forEach((text, at) => {
+            lines.push({ kind: "call", text: at === 0 ? text : `${CONTINUATION}${text}` });
+        });
+        const reason = approval.reason.trim();
+        if (reason.length === 0 || reason === NO_RATIONALE_REASON) return;
+        const reasonWidth = usable - REASON_MARKER.length - CONTINUATION.length;
+        wrapWords(reason, reasonWidth, reasonWidth).forEach((text, at) => {
+            const lead = at === 0 ? REASON_MARKER : CONTINUATION;
+            lines.push({ kind: "reason", text: `${CONTINUATION}${lead}${text}` });
+        });
+    });
+    return lines;
+}
+
+// Words longer than a line, such as long paths, are cut across lines.
+function wrapWords(text: string, firstWidth: number, restWidth: number): string[] {
+    const lines: string[] = [];
+    let line = "";
+    let limit = firstWidth;
+    for (const word of text.split(/\s+/).filter((part) => part.length > 0)) {
+        let rest = word;
+        while (rest.length > 0) {
+            const separator = line.length === 0 ? "" : " ";
+            if (line.length + separator.length + rest.length <= limit) {
+                line += separator + rest;
+                rest = "";
+            } else if (line.length > 0) {
+                lines.push(line);
+                line = "";
+                limit = restWidth;
+            } else {
+                lines.push(rest.slice(0, limit));
+                rest = rest.slice(limit);
+                limit = restWidth;
+            }
+        }
+    }
+    if (line.length > 0 || lines.length === 0) lines.push(line);
+    return lines;
+}
+
+function clampLines(lines: string[], max: number, lastWidth: number): string[] {
+    if (lines.length <= max) return lines;
+    const kept = lines.slice(0, max - 1);
+    const rest = lines.slice(max - 1).join(" ");
+    kept.push(`${rest.slice(0, Math.max(0, lastWidth - 1)).trimEnd()}…`);
+    return kept;
 }

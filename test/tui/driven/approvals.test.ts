@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { TextAttributes } from "@opentui/core";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,9 +48,13 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         const row = lines.findIndex((line) => line.includes("─ 1 auto-approved ─"));
         const column = lines[row]?.indexOf("auto-approved") ?? -1;
         await session.sendMouseClick(column, row);
-        pane = await session.waitForVisiblePane(
-            "env AUTO_REVIEW=ran   Routine command requested by the user.",
-        );
+        pane = await session.waitForVisiblePane("↳ Routine command requested by the user.");
+        const reasonRow = pane.split("\n").findIndex((line) => line.includes("↳ Routine"));
+        expect(pane.split("\n")[reasonRow - 1]?.trim()).toBe("env AUTO_REVIEW=ran");
+        const reasonSpan = session.captureSpans().lines
+            .flatMap((line) => line.spans)
+            .find((span) => span.text.includes("Routine command"));
+        expect((reasonSpan?.attributes ?? 0) & TextAttributes.ITALIC).toBe(TextAttributes.ITALIC);
         await session.sendMouseClick(column, row);
         pane = await session.waitForVisiblePaneWhere(
             (current) => !current.includes("Routine command requested"),
