@@ -393,9 +393,9 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
             },
         });
         requestAgentSettings(rt, focusedAgentClient(rt));
-        if (subagents && selectedRef !== undefined && selection.remove !== true
+        if (selectedRef !== undefined && selection.remove !== true
             && selection.clear !== true && selection.allowSelf === undefined) {
-            keepAssignedSubagentModel(rt, selection.provider ?? "", selection.model as string);
+            keepAssignedModel(rt, selection.provider ?? "", selection.model as string);
         }
     } catch (error) {
         const message = `Could not write the assignment: ${
@@ -424,8 +424,8 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     return undefined;
 }
 
-// Subagents only run models in the pool, so assigning one from outside it favorites it.
-function keepAssignedSubagentModel(rt: TuiRuntime, provider: string, model: string): void {
+// Subagents only run models in the pool, and an agent can run on any slot, so assigning a model favorites it.
+function keepAssignedModel(rt: TuiRuntime, provider: string, model: string): void {
     const entry = loadPoolFile({ projectRoot: process.cwd() }).merged.models[`${provider}/${model}`];
     if (entry !== undefined && isCuratedPoolEntry(entry)) return;
     rt.state = appendTuiNotice(rt.state, `Adding ${model} to favorites so subagents can use it.`, "soft");

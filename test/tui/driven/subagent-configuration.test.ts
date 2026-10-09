@@ -8,6 +8,9 @@ import {
     defaultVeraConfigPath,
     loadVeraConfig,
 } from "../../../src/config.ts";
+import { includedExtensionConfigs } from "../../../src/extensions/included.ts";
+import { loadExtensionManifest } from "../../../src/extensions/manifest.ts";
+import { startExtensionRegistry } from "../../../src/extensions/registry.ts";
 import { AgentRegistry } from "../../../src/host/agent-registry.ts";
 import { subagentPoolPolicy } from "../../../src/host/subagent-policy.ts";
 import { pooledModels } from "../../../src/model/catalog-view.ts";
@@ -22,6 +25,7 @@ import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
+    type ModelRequest,
 } from "../../../src/model/types.ts";
 import { SessionStore } from "../../../src/store/session-store.ts";
 import { FauxAdapter } from "../../support/faux-adapter.ts";
@@ -388,6 +392,150 @@ test("assigning a model outside the pool adds it to favorites and the subagent r
     } finally {
         await session.close();
         await registry?.close();
+        if (previousPoolPath === undefined) {
+            delete process.env.VERA_POOL_FILE;
+        } else {
+            process.env.VERA_POOL_FILE = previousPoolPath;
+        }
+    }
+}, 30_000);
+
+test("assigning eco a model outside the pool lets explorer run on it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-eco-pool-"));
+    const workspace = join(home, "workspace");
+    const sessionDirectory = join(home, "sessions");
+    const poolPath = join(home, ".vera", "pool.json");
+    const previousPoolPath = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = poolPath;
+    const availableModels: readonly SuggestedModel[] = [
+        { provider: "faux", model: "test", label: "Parent", description: "scripted parent model" },
+        { provider: "ollama", model: "corvid", label: "Corvid", description: "connected, not a favorite" },
+    ];
+    const extensions = await startExtensionRegistry({
+        extensions: includedExtensionConfigs([]).filter((config) =>
+            loadExtensionManifest(config.path).manifest.id === "vera.explorer"),
+    });
+    let adapterCount = 0;
+    const childRequests: ModelRequest[] = [];
+    let registry: AgentRegistry | undefined;
+    let configPath = "";
+
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 35,
+        dependencies: async () => {
+            await Bun.write(join(workspace, ".keep"), "");
+            configPath = defaultVeraConfigPath();
+            registry = new AgentRegistry({
+                createAdapter(): ModelAdapter {
+                    adapterCount += 1;
+                    const child = adapterCount > 1;
+                    const delegate = new FauxAdapter(child
+                        ? [textResponse("The hoard is under the third plank.", "corvid")]
+                        : [
+                            {
+                                role: "assistant",
+                                content: [{
+                                    type: "tool_call",
+                                    id: "spawn-explorer",
+                                    name: "subagent",
+                                    input: { agent: "explorer", description: "find where the hoard is buried" },
+                                }],
+                                source: { provider: "faux", api: "scripted", model: "test" },
+                                usage: emptyUsage(),
+                                stopReason: "tool_use",
+                            },
+                            textResponse("Explorer reported back.", "test"),
+                        ]);
+                    return {
+                        stream(request) {
+                            if (child) childRequests.push(request);
+                            return delegate.stream(request);
+                        },
+                    };
+                },
+                provider: "faux",
+                model: "test",
+                approvalMode: "auto",
+                availableModels,
+                registeredAgents: extensions.agents(),
+                readPool: () => pooledModels(availableModels, { userPath: poolPath }),
+                readPolicy: () => ({
+                    ...subagentPoolPolicy({ userPath: poolPath, configPath }),
+                    candidates: pooledModels(availableModels, { userPath: poolPath, includeUncurated: true }),
+                }),
+                sessionPathForId: (id) => join(sessionDirectory, `${id}.jsonl`),
+            });
+            const parent = await registry.create({
+                id: "parent",
+                workspace,
+                sessionPath: join(sessionDirectory, "parent.jsonl"),
+            });
+            const attachment = parent.attach();
+            const client: TuiAgentClient = {
+                agentId: parent.id,
+                workspace: parent.workspace,
+                async send(command) {
+                    attachment.send(command);
+                },
+                receive(signal) {
+                    return attachment.receive(signal);
+                },
+                async detach() {
+                    attachment.detach();
+                },
+                close() {
+                    attachment.detach();
+                },
+            };
+            return {
+                client,
+                operateModels: async (operation, onResult) => {
+                    await applyModelOperation(operation, {
+                        path: poolPath,
+                        discovered: availableModels,
+                        assignments: [],
+                        createAdapter: () => { throw new Error("keep does not call a provider"); },
+                        onResult,
+                    });
+                    return undefined;
+                },
+            };
+        },
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("assign model defaults");
+        await session.waitForVisiblePane("Assign model defaults");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("unset, inherits its intent");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Corvid");
+        session.sendText("corvid");
+        session.sendKey("Enter");
+        await waitFor(
+            () => loadPoolFile({ userPath: poolPath }).merged.models["ollama/corvid"]?.added === true,
+            "Corvid to join the pool",
+        );
+        let pane = await session.waitForVisiblePane("eco → corvid");
+        expect(pane).toContain("Adding corvid to favorites");
+
+        session.sendText("find the hoard");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("Explorer reported back.");
+        expect(pane).not.toContain("is not in the pool");
+        expect(childRequests).toHaveLength(1);
+        expect([childRequests[0]!.provider, childRequests[0]!.model]).toEqual(["ollama", "corvid"]);
+        expect(childRequests[0]!.systemPrompt).toContain("Investigate the assigned question");
+    } finally {
+        await session.close();
+        await registry?.close();
+        await extensions.close();
         if (previousPoolPath === undefined) {
             delete process.env.VERA_POOL_FILE;
         } else {

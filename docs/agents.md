@@ -39,8 +39,8 @@ Open Defaults from `/models` and choose **Subagents**. Add the models delegated 
 use, in fallback order. Models can come from different connected providers. Type to
 search the list, then press Enter to add the highlighted model, or to remove it if it
 is already assigned. Favorites are listed first. Subagents only run models in
-your favorites, so adding a model that is not a favorite also adds it to
-favorites.
+your favorites, so assigning a model that is not a favorite, here or to any
+other default, also adds it to favorites.
 
 **Spawning session model** is a separate option. Turn it on to allow the
 parent conversation's model after the assigned list. It is off by default.
