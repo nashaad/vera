@@ -192,7 +192,7 @@ import {
     markImportedSessions,
 } from "./session-import-service.ts";
 import { createCommandHook } from "../extensions/command-hook.ts";
-import { notifyTurnFinished } from "../extensions/host-services.ts";
+import { notifyObservers, notifyTurnFinished } from "../extensions/host-services.ts";
 import { createExtensionHostServices } from "./extension-host-services.ts";
 import type {
     PostToolUseHook,
@@ -879,6 +879,16 @@ export async function startResidentHost(
             payload,
             (extensionId, message) => hostLog({
                 type: "turn_finished_hook_failed",
+                level: "warn",
+                extensionId,
+                message,
+            }),
+        ),
+        onPreCompact: (payload) => notifyObservers(
+            extensions.preCompactHooks(),
+            payload,
+            (extensionId, message) => hostLog({
+                type: "pre_compact_hook_failed",
                 level: "warn",
                 extensionId,
                 message,

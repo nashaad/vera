@@ -19,7 +19,11 @@ import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import { BUNDLED_COMPACTION_STRATEGIES, bindCompaction } from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile, VeraCatalogModel } from "../config/model-catalog.ts";
 import { createSubagentEffectApplier, type MissingSubagentConfigurationRequest, type SpawnModelResolution } from "../engine/subagent.ts";
-import { type ToolApprovalUiRequestUpdate, type TurnFinishedUpdate } from "../engine/protocol.ts";
+import {
+    type CompactionUpdate,
+    type ToolApprovalUiRequestUpdate,
+    type TurnFinishedUpdate,
+} from "../engine/protocol.ts";
 import { DEFAULT_MAX_CONCURRENT_CHILD_AGENTS, validChildAgentLimit } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
 import type { ReviewerModelDefault, ReviewerSettingsPatch } from "../engine/model-settings.ts";
@@ -41,6 +45,7 @@ import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts"
 import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
 import type { SessionIdentity, SessionIdentityProvider, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
+import { preCompactPayload } from "./agent-registry/pre-compact.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
@@ -668,6 +673,16 @@ export class AgentRegistry {
                 : {
                     onTurnFinished: (update: TurnFinishedUpdate) =>
                         this.options.onTurnFinished?.(turnFinishedPayload(store, update)),
+                }),
+            ...(ephemeral || this.options.onPreCompact === undefined
+                ? {}
+                : {
+                    onCompactionStarted: (update: CompactionUpdate) => {
+                        const payload = preCompactPayload(store, update);
+                        if (payload !== undefined) {
+                            this.options.onPreCompact?.(payload);
+                        }
+                    },
                 }),
             onClientPrompt: () => {
                 const woken = this.agents.get(store.header.id);

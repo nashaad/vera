@@ -376,6 +376,10 @@ export interface CompactionStartedEvent {
     readonly provider?: string;
     readonly model?: string;
     readonly warning?: string;
+    readonly trigger: "manual" | "automatic";
+    /** Estimated context size when compaction began. */
+    readonly tokens: number;
+    readonly capacity?: number;
 }
 
 export interface CompactionFinishedEvent {

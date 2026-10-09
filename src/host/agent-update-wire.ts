@@ -101,6 +101,11 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || typeof update.reason === "string")
                 && (update.warning === undefined
                     || typeof update.warning === "string")
+                && (update.trigger === undefined
+                    || update.trigger === "manual"
+                    || update.trigger === "automatic")
+                && isOptionalCount(update.tokens)
+                && isOptionalCount(update.capacity)
                 && isOptionalCount(update.before)
                 && isOptionalCount(update.after)
             ? value as AgentUpdate

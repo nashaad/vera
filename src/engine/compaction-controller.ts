@@ -225,6 +225,11 @@ export function createCompactionController(
                 : { provider: summarizerProvider }),
             model: summarizerModel,
             ...(budgetWarning(measurement, compaction) ?? {}),
+            trigger: force ? "manual" : "automatic",
+            tokens: measurement.tokens,
+            ...(measurement.capacity === undefined
+                ? {}
+                : { capacity: measurement.capacity }),
         });
         const modelContext = store.modelContext(
             agingPolicy(context, pendingMessages),

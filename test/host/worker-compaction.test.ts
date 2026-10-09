@@ -176,6 +176,12 @@ test("a worker /compact request summarizes through the host", async () => {
             outcome: "compacted",
             strategy: FULL_SUMMARY_STRATEGY_ID,
         });
+        const started = agent.updates.find((update) =>
+            update.type === "compaction" && update.phase === "started"
+        );
+        expect(started).toMatchObject({ trigger: "manual" });
+        expect(started?.type === "compaction" && (started.tokens ?? 0) > 0)
+            .toBe(true);
         expect(agent.store.latestCompaction()).toBeDefined();
     } finally {
         agent.handle.kill();

@@ -639,6 +639,10 @@ export interface CompactionUpdate {
     readonly reason?: string;
     /** Set on the started phase only, for a configuration mismatch. */
     readonly warning?: string;
+    /** The next three are set on the started phase only. */
+    readonly trigger?: "manual" | "automatic";
+    readonly tokens?: number;
+    readonly capacity?: number;
     readonly before?: number;
     readonly after?: number;
     readonly seq: number;
@@ -2158,6 +2162,11 @@ export function createProtocolEncoder(
                 ...(event.warning === undefined
                     ? {}
                     : { warning: event.warning }),
+                trigger: event.trigger,
+                tokens: event.tokens,
+                ...(event.capacity === undefined
+                    ? {}
+                    : { capacity: event.capacity }),
                 seq,
             });
         }

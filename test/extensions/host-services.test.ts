@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+    notifyObservers,
     notifyTurnFinished,
     type ExtensionHostServices,
     type ExtensionOneshotCall,
@@ -13,7 +14,10 @@ import {
     startExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
-import type { TurnFinishedHookPayload } from "../../src/sdk/hooks.ts";
+import type {
+    PreCompactHookPayload,
+    TurnFinishedHookPayload,
+} from "../../src/sdk/hooks.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -94,6 +98,48 @@ test("each turn-finished hook gets its own copy of the payload", async () => {
     ], payload, () => {});
     await waitFor(() => prompts.length === 1);
     expect(prompts).toEqual([payload.prompt]);
+});
+
+test("pre-compact hooks need their capability and get the payload", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-compact.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreCompact(() => {});
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.preCompactHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.pre_compact");
+    await deniedRegistry.close();
+
+    const ledger = createExtension("ledger.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreCompact((payload) => {
+                globalThis.__compactSeen = payload.reason + " " + payload.tokens;
+            });
+        }
+    `, ["hooks.pre_compact"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(ledger)],
+    });
+    const compacting: PreCompactHookPayload = {
+        type: "pre_compact",
+        sessionId: "session-1",
+        workspace: "/deck",
+        reason: "automatic",
+        tokens: 182_000,
+        capacity: 200_000,
+        spawned: false,
+    };
+    expect(registry.preCompactHooks().map((hook) => hook.extensionId))
+        .toEqual(["ledger.extension"]);
+    notifyObservers(registry.preCompactHooks(), compacting, () => {});
+    await waitFor(() => globals().__compactSeen !== undefined);
+    expect(globals().__compactSeen).toBe("automatic 182000");
+    await registry.close();
 });
 
 test("model, title and ask calls are capability-gated, wait for the host, and stop at close", async () => {
