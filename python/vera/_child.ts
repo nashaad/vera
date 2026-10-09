@@ -72,6 +72,7 @@ interface HookResultRequest {
 type ChildRequest = RunRequest | ToolRequest | AbortRequest | HookResultRequest;
 
 interface WaitingHook {
+    readonly runId: number;
     readonly resolve: (result: unknown) => void;
     readonly reject: (error: Error) => void;
 }
@@ -84,7 +85,7 @@ function askPython(runId: number, phase: string, payload: Record<string, unknown
     nextHookId += 1;
     const hookId = nextHookId;
     return new Promise((resolve, reject) => {
-        waitingHooks.set(hookId, { resolve, reject });
+        waitingHooks.set(hookId, { runId, resolve, reject });
         send({ id: runId, type: "hook", hook_id: hookId, phase, payload });
     });
 }
@@ -98,6 +99,15 @@ function answerHook(request: HookResultRequest): void {
         return;
     }
     waiting.resolve(request.result);
+}
+
+// An aborted run leaves hooks Python never answers; drop them when the run ends.
+function dropHooks(runId: number): void {
+    for (const [hookId, waiting] of waitingHooks) {
+        if (waiting.runId !== runId) continue;
+        waitingHooks.delete(hookId);
+        waiting.reject(new Error("the run ended"));
+    }
 }
 
 function preTurnForPython(payload: PreTurnHookPayload): Record<string, unknown> {
@@ -353,6 +363,7 @@ async function main(): Promise<void> {
                 send({ id, type: "error", kind: "runtime", message: errorMessage(caught) });
             })
             .finally(() => {
+                dropHooks(id);
                 inFlight.delete(id);
                 pending.delete(work);
             });

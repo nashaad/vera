@@ -59,9 +59,14 @@ reply = vera.run(crow, "find the treasure", prepare_turn=spot, before_turn_ends=
 ```
 
 The keys are the ones in [Hooks](/hooks/), in snake_case: `session_id`,
-`arrived_during_turn`, `reasoning_effort`. If `prepare_turn` raises or
-returns something Vera cannot use, `run()` raises `RuntimeError`. If
-`before_turn_ends` does, the turn ends with the reply it has.
+`arrived_during_turn`, `reasoning_effort`. A key set to `None` counts as not
+set. If `prepare_turn` raises or returns something Vera cannot use, `run()`
+raises `RuntimeError`. If `before_turn_ends` does, the turn ends with the
+reply it has.
+
+A hook cannot call `run()` or `tool()` on the instance that is running it.
+That call raises `RuntimeError`, and so does the outer `run()` once its turn
+ends. To have another agent judge the reply, give the hook its own `Vera`.
 
 ## Close an instance
 

@@ -126,6 +126,8 @@ class Vera:
         self._next_id = 0
         self._lock = threading.Lock()
         self._closed = False
+        self._hook_thread: int | None = None
+        self._reentry_error: RuntimeError | None = None
 
     @classmethod
     def create(
@@ -159,6 +161,7 @@ class Vera:
         self.close()
 
     def close(self) -> None:
+        self._refuse_reentry("close")
         with self._lock:
             self._closed = True
             if self._child is not None:
@@ -179,11 +182,12 @@ class Vera:
     ) -> str:
         """One agent turn, returning what the agent answered.
 
-        The answer is the text after the agent's last tool call. Pass
+        The answer is the text of the agent's last reply. Pass
         transcript=True for everything it said, narration between tool calls
         included. A session name continues that conversation until close().
         prepare_turn runs before the first model call and before_turn_ends
-        when the agent would stop; both run on the calling thread.
+        when the agent would stop; both run on the calling thread and must
+        not call this instance.
         """
         if not isinstance(agent, Agent):
             raise TypeError("Vera.run agent must be an Agent")
@@ -269,7 +273,9 @@ class Vera:
         timeout: float | None,
         hooks: dict[str, TurnHook] | None = None,
     ) -> dict[str, Any]:
+        self._refuse_reentry(str(request["type"]))
         with self._lock:
+            self._reentry_error = None
             if self._closed or not self._runtime_dir.is_dir():
                 raise RuntimeError("Vera instance is closed")
             child = self._ensure_child()
@@ -289,9 +295,26 @@ class Vera:
                 self._child = None
                 child.stop()
                 raise RuntimeError(f"Vera bun child failed: {child.detail()}") from None
+            reentry_error = self._reentry_error
+        if reentry_error is not None:
+            raise reentry_error
         if reply.get("type") == "error":
             raise RuntimeError(f"Vera bun child failed: {reply.get('message')}")
         return reply
+
+    def _refuse_reentry(self, method: str) -> None:
+        """A hook calling back into its own instance would wait on the lock forever.
+
+        The refusal is also raised from the outer run, after its turn ends.
+        """
+        if self._hook_thread != threading.get_ident():
+            return
+        error = RuntimeError(
+            f"a hook cannot call Vera.{method} on the instance running it; "
+            "create another Vera instance"
+        )
+        self._reentry_error = error
+        raise error
 
     def _reply(
         self,
@@ -304,7 +327,12 @@ class Vera:
             reply = child.receive(deadline)
             if reply.get("type") == "hook":
                 if reply.get("id") == request_id and hooks:
-                    child.send(_hook_answer(reply, hooks))
+                    self._hook_thread = threading.get_ident()
+                    try:
+                        answer = _hook_answer(reply, hooks)
+                    finally:
+                        self._hook_thread = None
+                    child.send(answer)
                 continue
             if reply.get("id") == request_id:
                 return reply
@@ -386,8 +414,10 @@ def _hook_answer(message: dict[str, Any], hooks: dict[str, TurnHook]) -> dict[st
     if result is not None and not isinstance(result, dict):
         answer["error"] = f"a hook must return a dict or None, not {type(result).__name__}"
         return answer
+    if result is not None:
+        result = {key: value for key, value in result.items() if value is not None}
     try:
-        json.dumps(result)
+        json.dumps(result, allow_nan=False)
     except (TypeError, ValueError) as error:
         answer["error"] = f"a hook result must be JSON: {error}"
         return answer
