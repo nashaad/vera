@@ -145,3 +145,13 @@ test("a tip about the model picker waits until the model picker is open", () => 
     expect(offered).not.toContain("name-pool-entry");
     expect(offered).not.toContain("verify-model");
 });
+
+test("the session-cycle tip names the keys the keymap binds, outside the model picker", () => {
+    const cycle = TUI_TIPS.find((entry) => entry.id === "cycle-live-sessions")!;
+
+    expect(cycle.isRelevant({ ...context, inModelPicker: false })).toBe(true);
+    expect(cycle.isRelevant(context)).toBe(false);
+    expect(cycle.text(context)).toBe(
+        "With several conversations running, Ctrl+Shift+← → switches between them and leaves each one running",
+    );
+});

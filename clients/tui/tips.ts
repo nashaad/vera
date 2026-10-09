@@ -1,5 +1,5 @@
 
-import { tuiKeyChordLabel } from "./keymap.ts";
+import { tuiChordPairLabel, tuiKeyChord, tuiKeyChordLabel } from "./keymap.ts";
 
 export interface TuiTipContext {
     readonly launches: number;
@@ -66,6 +66,17 @@ export const TUI_TIPS: readonly TuiTip[] = [
         id: "model-picker-shortcut",
         text: () => `Press ${tuiKeyChordLabel("open_model_prefix")}, release Ctrl, then ${tuiKeyChordLabel("model_prefix_open")} to switch models`,
         cooldownLaunches: 15,
+        isRelevant: (context) => !context.inModelPicker,
+    },
+    {
+        id: "cycle-live-sessions",
+        text: () => `With several conversations running, ${
+            tuiChordPairLabel(
+                tuiKeyChord("cycle_live_session_prev"),
+                tuiKeyChord("cycle_live_session_next"),
+            )
+        } switches between them and leaves each one running`,
+        cooldownLaunches: 12,
         isRelevant: (context) => !context.inModelPicker,
     },
     {
