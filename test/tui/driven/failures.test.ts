@@ -39,7 +39,7 @@ test("resident stream failure auto-reconnects without a manual reconnect", async
 
     try {
         pane = await session.waitForVisiblePane("Host reconnected.");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("disconnected:");
         expect(pane).not.toContain("· Ctrl+P reconnect ·");
         expect(pane).not.toContain("Connection error");
@@ -74,7 +74,7 @@ test("resident stream failure shows restarting host while reconnecting", async (
         expect(restarting).not.toContain("working…");
 
         const pane = await session.waitForVisiblePane("Host reconnected.");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("restarting host…");
         expect(pane).not.toContain("· Ctrl+P reconnect ·");
     } finally {
@@ -100,7 +100,7 @@ test("failed auto-reconnect stays disconnected and Reconnect host from the palet
 
         await reconnectFromPalette(session);
         pane = await session.waitForVisiblePane("Host reconnected.");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("· Ctrl+P reconnect ·");
     } finally {
         await session.close();
@@ -302,7 +302,7 @@ test("Reconnect host while connected restarts the host instead of saying already
         await reconnectFromPalette(session);
         const pane = await session.waitForVisiblePane("Host reconnected.");
         expect(replaceExisting).toBe(true);
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("already active");
         expect(pane).not.toContain("restarting host…");
     } finally {
@@ -329,7 +329,7 @@ test("Reconnect host while connected shows restarting host then the same session
         const restarting = await session.waitForVisiblePane("restarting host…");
         expect(restarting).not.toContain("already active");
         const pane = await session.waitForVisiblePane("Host reconnected.");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("restarting host…");
         expect(occurrences(pane, "Host reconnected.")).toBe(1);
     } finally {
@@ -358,7 +358,7 @@ test("busy Reconnect host names force-stop and leaves the composer usable", asyn
         expect(pane).toContain("vera host stop --force");
         expect(pane.replace(/\s+/g, "")).toContain("thenchooseReconnecthostfromCtrl+P.");
         expect(pane).toContain("Still connected.");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("disconnected:");
         expect(pane).not.toContain("already active");
         session.sendText("next");

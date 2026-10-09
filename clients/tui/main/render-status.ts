@@ -1,6 +1,10 @@
 import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
-import { renderTuiActivityBar, tuiActivityKind } from "../activity-bar.ts";
+import { renderTuiActivityBar, tuiActivityBarColumns, tuiActivityKind } from "../activity-bar.ts";
+import { fitFooter } from "../footer-fit.ts";
+import { tuiKeysCardRows } from "../keys-card.ts";
+import { footerItemContents } from "../footer-items.ts";
+import { footerRowCount } from "../footer-layout.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
 import { tuiApprovalHint } from "../approval.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS, mapDialRows, paintDialHud } from "../dial-paint.ts";
@@ -8,7 +12,7 @@ import { DIAL_EXIT_SEPARATOR, renderDialStrip } from "../dials.ts";
 import { isHomeClient } from "../home-client.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
-import { QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
+import { IDLE_KEYS_HINT, QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
 import { setComposerMargin } from "../main/chrome.ts";
 import { paneHeaderText, renderHeldAddress, renderJumpToBottom, renderPendingQuote, renderSidebarJump } from "../main/notices.ts";
@@ -17,7 +21,7 @@ import { animateLiveThinking, animateLiveToolHeaders } from "../main/transcript-
 import { workingLineText } from "../main/watchers.ts";
 import { standingNudgeIndicatorRow } from "../standing-nudges.ts";
 import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT } from "../state.ts";
-import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiPlaceRowModeLine, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
+import { needsYouChipColumns, statusChunkColor, renderTuiCompactionHint, renderTuiFileViewStatusRows, renderTuiIdleHint, renderTuiStatusDetailsRows, renderTuiStatusSegments, statusToneColor, tuiStatusSnapshot, type TuiStatusChunk } from "../status.ts";
 import { VERA_TUI_THEME } from "../theme.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, bg, fg } from "@opentui/core";
@@ -88,10 +92,6 @@ export function renderStatus(rt: TuiRuntime): void {
             layout === "split",
         )
         : undefined);
-    const workingHint = focusedSide === undefined
-        ? WORKING_HINT
-        : `esc stop ${rt.hostedSidebar.mention ?? focusedSide.agentId}`
-            + ` · ${tuiKeyHint("interrupt")}`;
     renderPendingQuote(rt);
     renderHeldAddress(rt);
     renderJumpToBottom(rt);
@@ -161,7 +161,7 @@ export function renderStatus(rt: TuiRuntime): void {
         lifecycleHint = "";
     }
 
-    rt.statusText.fg = statusState.approvalMode === "full_access"
+    const statusColor = statusState.approvalMode === "full_access"
         ? rt.theme.critical
         : rt.statusNotice !== undefined
         ? TUI_NOTICE
@@ -197,27 +197,14 @@ export function renderStatus(rt: TuiRuntime): void {
         && !rt.extensionCommandPending
         && rt.pendingImages.length === 0
         && !isWorkerFreeClient(rt.client);
-    const hostedModeStatus = tuiPlaceRowModeLine(
-        READY_HINT,
-        placeIdle,
-        hostedControls,
-    );
-    setTextContent(rt.hostedModeText, hostedModeStatus);
-    rt.hostedModeText.visible = hostedModeStatus.length > 0;
     const statusLine = [
         tuiDevInstancePrefix(),
         rt.statusNotice ?? lifecycleHint,
     ].filter((part) => part.length > 0).join(" ");
-    rt.statusText.visible = !(rt.approvalView.box.visible
-        || rt.questionView.box.visible);
-    const quietActivity = rt.statusNotice === undefined
-        && !statusState.working
-        && uiRequest === undefined
-        && lifecycleHint === READY_HINT;
-    const activityHint = statusState.working
-            && uiRequest === undefined
-            && !focusedAbort
-        ? workingHint
+    const keysHint = statusState.working && uiRequest === undefined && !focusedAbort
+        ? WORKING_HINT
+        : placeIdle
+        ? IDLE_KEYS_HINT
         : "";
     const dialWidth = Math.max(
         1,
@@ -237,6 +224,10 @@ export function renderStatus(rt: TuiRuntime): void {
             dialWidth,
         );
     rt.dialCard.visible = stripLines !== undefined;
+    rt.keysCardView.box.visible = rt.keysCardOpen && !anyOverlayOpen(rt) && !rt.sessionSwitchPending;
+    if (rt.keysCardView.box.visible) {
+        rt.keysCardView.update(tuiKeysCardRows(turnRunningNow(statusState)), dialWidth);
+    }
     rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
     const hudRows = stripLines?.slice(0, -1) ?? [];
     rt.dialCardTitle.selectable = false;
@@ -314,6 +305,7 @@ export function renderStatus(rt: TuiRuntime): void {
                     : "waiting",
         ),
     );
+    const turnRunning = turnRunningNow(statusState);
     const statusDetailsRows: TuiStatusChunk[][] = isWorkerFreeClient(rt.client)
         ? renderTuiFileViewStatusRows(
             rt.client.workspace ?? process.cwd(),
@@ -343,12 +335,6 @@ export function renderStatus(rt: TuiRuntime): void {
                 },
                 rt.workIndex?.needs_you ?? 0,
                 Math.max(1, rt.renderer.width - rt.composerHorizontalInset - railInset),
-                undefined,
-                activityBarChunks(rt, statusState.working || statusState.compactingSince !== undefined,
-                    focusedAbort, focusedActivity, focusedSide?.state.reasoning ?? rt.reasoning,
-                    focusedSide === undefined ? rt.quietSince : focusedSide.state.quietSince),
-                rt.activityStripPosition,
-                Bun.stringWidth(tuiPlaceRowModeLine(READY_HINT, true, hostedControls)),
             )
         : [[{
                 tone: "muted",
@@ -360,7 +346,6 @@ export function renderStatus(rt: TuiRuntime): void {
                         ),
                 ),
             }]];
-    const detailsRows = statusDetailsRows;
     const runningNames = rt.runningBackgroundAgentNames.map((name) =>
         truncateFooterLine(
             `* ${name}`,
@@ -402,13 +387,9 @@ export function renderStatus(rt: TuiRuntime): void {
                 text: TUI_MUTED,
             },
         );
-    const rule = (glyph: string) =>
-        fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
     rt.subscriptionLimits.selectProvider(isWorkerFreeClient(rt.client)
         ? undefined : statusState.modelSettings?.provider);
-    const insideRow = detailsRows[0] ?? [];
-    const limitsText = rt.subscriptionLimits.text();
-    const outsideRows = detailsRows.slice(1);
+    const insideRow = statusDetailsRows[0] ?? [];
     setTextContent(rt.composerStatusText, new StyledText(
         insideRow.map((chunk) => fg(statusChunkColor(chunk))(chunk.text)),
     ));
@@ -416,13 +397,6 @@ export function renderStatus(rt: TuiRuntime): void {
         insideRow,
         rt.workIndex?.needs_you ?? 0,
     );
-    const detailChunks = outsideRows.flatMap((row, index) => [
-        ...row.map((chunk) => fg(statusChunkColor(chunk))(chunk.text)),
-        ...(index === outsideRows.length - 1
-            ? []
-            : [fg(TUI_MUTED)("\n"), rule("─")]),
-    ]);
-    setTextContent(rt.backgroundStatusText, new StyledText(detailChunks));
     const noticeIndent = " ".repeat(rt.composerContentIndent);
     const noticeChunks = nudgeIndicator === undefined &&
             agentSection.length === 0
@@ -460,48 +434,40 @@ export function renderStatus(rt: TuiRuntime): void {
     setTextContent(rt.agentNoticeText, new StyledText(noticeChunks));
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
-    const cardRows = Math.max(1, outsideRows.length * 2 - 1);
-    rt.backgroundStatusText.height = cardRows;
-    setComposerMargin(rt, cardRows + 1);
-    const modelPrefixHint = `${tuiKeyHint("model_prefix_open")} · esc cancel`;
-    const liveStatus = rt.modelPrefixPending
-        ? modelPrefixHint
-        : quietActivity ? "" : statusLine;
-    setTextContent(rt.activityHintText, activityHint);
-    rt.activityHintText.visible = rt.statusText.visible && activityHint.length > 0;
-    // Live status replaces the limits, so whichever shows starts at the left edge.
-    const liveColumns = Bun.stringWidth(liveStatus) + Bun.stringWidth(activityHint);
-    const limitsShown = rt.statusText.visible
-        && liveColumns === 0
-        && limitsText.length > 0
-        && Bun.stringWidth(limitsText) <= cardWidth;
-    setTextContent(rt.subscriptionLimitsText, limitsShown ? limitsText : "");
-    rt.subscriptionLimitsText.visible = limitsShown;
-    setTextContent(rt.statusText, rt.modelPrefixPending
-        ? new StyledText([fg(TUI_ACCENT)(modelPrefixHint)])
-        : quietActivity
-        ? ""
-        : statusState.working
-            && rt.statusNotice === undefined
-            && uiRequest === undefined
-            && !focusedAbort
-        ? renderTuiActivityAnimation(
-            "off",
-            activityFrame(rt),
-            statusLine,
-            {
-                active: TUI_ACCENT,
-                trail: rt.activityAnimation === "shimmer"
-                    ? TUI_ELEMENT
-                    : rt.theme.activityTrail,
-                inactive: TUI_MUTED,
-                text: rt.state.approvalMode === "full_access"
-                    ? rt.theme.critical
-                    : TUI_ACCENT,
-            },
-            rt.activityAnimationWidth,
-        )
-        : statusLine);
+    const modelPrefixHint = `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · esc cancel`;
+    const workerFree = isWorkerFreeClient(rt.client);
+    const showStrip = !workerFree;
+    const footer = fitFooter(rt.footerLayout, footerItemContents({
+        status: rt.modelPrefixPending
+            ? { text: modelPrefixHint, color: TUI_ACCENT }
+            : { text: statusLine, color: statusColor },
+        keys: keysHint,
+        limits: rt.subscriptionLimits.forms(),
+        ...(workerFree
+            ? { place: { workspace: rt.client.workspace ?? process.cwd(), branch: rt.workspaceBranch.current() } }
+            : extensionSegments === undefined
+            ? { place: { workspace: process.cwd(), branch: rt.workspaceBranch.current() } }
+            : {}),
+        activity: showStrip
+            ? activityBarChunks(rt, turnRunning, focusedAbort, focusedActivity,
+                focusedSide?.state.reasoning ?? rt.reasoning,
+                focusedSide === undefined ? rt.quietSince : focusedSide.state.quietSince)
+            : [],
+        activityColumns: showStrip ? tuiActivityBarColumns(rt.animationLevel) : 0,
+        panes: hostedControls,
+    }), turnRunning, cardWidth);
+    rt.footerRows.forEach((row, index) => {
+        const chunks = footer.rows[index];
+        row.visible = chunks !== undefined;
+        setTextContent(row, new StyledText((chunks ?? []).map((chunk) =>
+            fg(statusChunkColor(chunk))(chunk.text)
+        )));
+    });
+    setComposerMargin(rt, footerRowCount(rt.footerLayout));
+}
+
+function turnRunningNow(state: { readonly working: boolean; readonly compactingSince?: number }): boolean {
+    return state.working || state.compactingSince !== undefined;
 }
 
 function activityBarChunks(

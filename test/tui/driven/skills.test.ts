@@ -34,7 +34,7 @@ test("skill slash commands discover, dispatch, and stay visible", async () => {
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("DEPLOYED");
         expect(pane).toContain("/deploy staging");
-        await session.waitForVisiblePane("ready · Ctrl+P commands");
+        await session.waitForVisiblePane("Ctrl+P commands");
     } finally {
         await session.close();
     }

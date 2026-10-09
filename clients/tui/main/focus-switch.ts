@@ -107,6 +107,9 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.preferencesList !== undefined) {
         return () => rt.preferencesListView.box.focus();
     }
+    if (rt.footerEditor !== undefined) {
+        return () => rt.footerEditorView.box.focus();
+    }
     if (rt.standingNudges !== undefined) {
         return () => rt.standingNudgesView.focus();
     }

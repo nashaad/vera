@@ -56,7 +56,7 @@ const homeNodes: DirectoryNode[] = [
         placement: 'home',
         summary: 'Display preferences and keybindings.',
         loads: 'Read by the terminal UI.',
-        detail: 'Maps supported action IDs to key combinations, and holds the model picker view, initial scope, and sort under `model_picker`. An empty list unbinds an action. `activity_strip_position` places the activity strip: `corner` (default) or `composer`.',
+        detail: 'Maps supported action IDs to key combinations, and holds the model picker view, initial scope, and sort under `model_picker`. An empty list unbinds an action. `footer_layout` holds the Footer layout from `/settings`.',
         example: `{
     "keybindings": {
         "open_model_picker": ["shift+tab"],

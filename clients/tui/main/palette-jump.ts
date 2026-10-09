@@ -7,6 +7,7 @@ import { positionCommandSuggestions } from "../main/chrome.ts";
 import { beginHostReconnect, focusActiveSurface } from "../main/focus-switch.ts";
 import { openPreferencesList, openReviewerMenu, openReviewerPicker, openThemePicker } from "../main/model-pickers.ts";
 import { openSettingsDestination } from "../main/provider-forms.ts";
+import { openFooterEditor } from "../main/footer-editor-ops.ts";
 import { renderState } from "../main/render-state.ts";
 import { submitPrompt } from "../main/submit-prompt.ts";
 import { startTuiAnimationPicker, startTuiLiveReasoningRowsPicker, startTuiContextLimitPicker, startTuiOverridesMenu, startTuiOverrideValuePicker, startTuiSettingsMenu, withTuiPickerParent, type TuiSettingsMenuTarget, type TuiSettingsPickerState } from "../settings-picker.ts";
@@ -77,6 +78,7 @@ export function openSettingsMenuTarget(rt: TuiRuntime,
         return;
     }
     if (target === "granted_permissions") return openPreferencesList(rt, parent);
+    if (target === "footer_layout") return openFooterEditor(rt, parent);
     if (target === "reviewer") return openReviewerMenu(rt, parent);
     if (target === "reviewer_primary") {
         return openReviewerPicker(rt, "primary", parent);

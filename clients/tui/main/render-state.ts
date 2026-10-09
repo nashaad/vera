@@ -1,4 +1,5 @@
 import { withImportRows } from "../import-rows.ts";
+import { updateFooterEditorView } from "../main/footer-editor-ops.ts";
 import { isConfigurationRequiredUiRequestUpdate, isToolApprovalUiRequestUpdate, isUserQuestionUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { COMPOSER_PLACEHOLDER } from "../composer.ts";
 import { isHomeClient } from "../home-client.ts";
@@ -60,8 +61,6 @@ export function renderState(rt: TuiRuntime): void {
         === "tool_approval";
     rt.questionView.box.visible = uiRequest?.request.type
         === "user_question";
-    rt.statusText.visible = !(rt.approvalView.box.visible
-        || rt.questionView.box.visible);
     rt.statusBand.visible = !(rt.approvalView.box.visible
         || rt.questionView.box.visible);
     rt.timelinePickerView.box.visible = uiRequest === undefined
@@ -117,6 +116,14 @@ export function renderState(rt: TuiRuntime): void {
         && rt.settingsPicker === undefined
         && rt.modelSwitcher === undefined
         && rt.preferencesList !== undefined;
+    rt.footerEditorView.surface.visible = uiRequest === undefined
+        && rt.timelinePicker === undefined
+        && !rt.confirmingFullAccess
+        && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+        && rt.providerForgetCandidate === undefined
+        && rt.settingsPicker === undefined
+        && rt.modelSwitcher === undefined
+        && rt.footerEditor !== undefined;
     rt.standingNudgesView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
@@ -313,6 +320,7 @@ export function renderState(rt: TuiRuntime): void {
         || rt.timelinePickerView.box.visible
         || rt.settingsPickerView.surface.visible
         || rt.preferencesListView.surface.visible
+        || rt.footerEditorView.surface.visible
         || rt.standingNudgesView.surface.visible
         || rt.extensionsListView.box.visible
         || rt.commandPaletteView.surface.visible
@@ -413,6 +421,7 @@ export function renderState(rt: TuiRuntime): void {
     if (rt.preferencesList !== undefined) {
         rt.preferencesListView.update(rt.preferencesList);
     }
+    updateFooterEditorView(rt);
     if (rt.standingNudges !== undefined) {
         rt.standingNudgesView.update(rt.standingNudges);
     }
@@ -576,6 +585,7 @@ export function anyOverlayOpen(rt: TuiRuntime): boolean {
         || rt.requestOptionsEditor !== undefined
         || rt.settingsPicker !== undefined
         || rt.preferencesList !== undefined
+        || rt.footerEditor !== undefined
         || rt.standingNudges !== undefined
         || rt.extensionsList !== undefined
         || rt.commandPalette !== undefined

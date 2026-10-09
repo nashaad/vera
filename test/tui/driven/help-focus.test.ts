@@ -26,8 +26,8 @@ test("turn completion keeps focus in the open Help surface", async () => {
         await session.waitForVisiblePane(
             "Every key, grouped by where it works",
         );
-        pane = await session.waitForVisiblePane("ready · Ctrl+P commands");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        pane = await session.waitForVisiblePane("Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("Shift+Tab HUD");
         expect(pane).not.toContain("Ctrl+X m Models");
         // One key at a time, each waiting for the card it opened. Sending

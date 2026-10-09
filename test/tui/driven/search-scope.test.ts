@@ -17,7 +17,7 @@ test("Ctrl+F inside a conversation searches that conversation first", async () =
     });
 
     try {
-        await session.waitForVisiblePane("ready · Ctrl+P commands");
+        await session.waitForVisiblePane("Ctrl+P commands");
         session.sendKey("C-f");
 
         // The conversation on screen is the narrowest thing to ask about, so

@@ -119,6 +119,8 @@ export function switchToClient(rt: TuiRuntime,
     rt.requestOptionsEditor = undefined;
     rt.preferencesList = undefined;
     rt.preferencesListParent = undefined;
+    rt.footerEditor = undefined;
+    rt.footerEditorParent = undefined;
     rt.standingNudges = undefined;
     rt.extensionsList = undefined;
     rt.confirmingFullAccess = false;

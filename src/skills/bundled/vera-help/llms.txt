@@ -60,9 +60,10 @@ Outrider guided setup is hidden by default; enable `experimental.outrider_onboar
 A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
 Manual: `docs/first-run-setup.md`.
 
-## Models and providers [lines=25]
+## Models and providers [lines=27]
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
+Ctrl+X then H shows a card of the common keys while you keep typing; the same keys close it.
 The list shows your favorites, your current model, and what you used recently. With no favorites it stays empty. Typing searches every connected model.
 Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. A switch also sets the model new conversations start on, including after Vera restarts.
 Its sections are Search, the model list, and a More models row pinned under the list. Tab and Left/Right move between them; Ctrl+K reaches More models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. More models opens the Models page, which is where `/models` opens. Escape from there returns to Switch model.
@@ -84,6 +85,7 @@ Provider catalogs distinguish never-refreshed, empty, failed, and unavailable en
 Shift+Tab opens the HUD, which holds Agent and Access. Tab or Up/Down move between the two; Left/Right change values. Enter applies; Escape cancels. Model and effort are not in the HUD.
 The composer footer always carries all four: agent and access on the left, provider/model and effort on the right.
 When a Codex model is selected, the terminal shows the account's subscription percentages left below the composer; `/usage` shows their reset times. Manual: `docs/usage.md`.
+`/settings` then Footer layout lets you place the items under the composer in a grid of numbered slots and hide them; items in higher slots give way first when space runs short, a move that would leave an item out on a standard terminal is refused, and the layout saves to the home's `tui.json`. Manual: `docs/footer.md`.
 Manual: `docs/models.md`.
 
 ## Conversations and background work [lines=11]
@@ -94,7 +96,7 @@ Conversations open in the same folder can message each other: ask one to send a 
 Paste or drop an image path into the composer to attach the image as `[Image 1]`; the model receives the image and its original full path.
 Submitting while Vera is working queues another prompt; queued prompts join the running turn after its next tool step, and otherwise successful replies start them one at a time in order. On an empty composer, Enter stops the current turn and sends the whole queue, and Escape stops it and sends only the oldest queued prompt.
 Ctrl+C stops the active turn without sending queued work. While a stop is already in progress it exits the TUI. When idle, it clears a composer draft first; with an empty composer it exits.
-The transcript animates while work runs. The footer shows a small activity strip whose glyphs change with what Vera is doing; `/settings` then Animation sets how much it moves, from Off to 3. Setting `activity_strip_position` to `composer` in the home's `tui.json` moves the strip from the footer corner into the composer. `/animations` plays every strip at the current level. A running tool's row shimmers until the tool finishes. When Vera keeps a task list in its scratch notes, the transcript shows it as a checklist instead of a diff. The working line shows elapsed time, an estimate of the tokens streamed so far, and how long Vera has thought this turn. While Vera reasons, the latest reasoning streams into the transcript; `/settings` then Live reasoning sets how many lines show, or hides it. A `Worked for` divider shows elapsed time after long turns, including ones that failed or were interrupted. Reopening a finished conversation also shows its last divider, even for a short turn. The local finish date and time appear only when the turn finished more than 24 hours ago; older turns without timing have no divider.
+The transcript animates while work runs. The footer shows a small activity strip whose glyphs change with what Vera is doing; `/settings` then Animation sets how much it moves, from Off to 3. `/animations` plays every strip at the current level. A running tool's row shimmers until the tool finishes. When Vera keeps a task list in its scratch notes, the transcript shows it as a checklist instead of a diff. The working line shows elapsed time, an estimate of the tokens streamed so far, and how long Vera has thought this turn. While Vera reasons, the latest reasoning streams into the transcript; `/settings` then Live reasoning sets how many lines show, or hides it. A `Worked for` divider shows elapsed time after long turns, including ones that failed or were interrupted. Reopening a finished conversation also shows its last divider, even for a short turn. The local finish date and time appear only when the turn finished more than 24 hours ago; older turns without timing have no divider.
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Pairing panes from `/btw` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer.
 Manual: `docs/sessions.md`.
 

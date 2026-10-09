@@ -234,7 +234,7 @@ import { createTuiSettingsPickerView, handleTuiSettingsPickerKey, handleTuiSetti
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
-import { tuiKeyHint } from "./keymap.ts";
+import { tuiKeyChordLabel, tuiKeyHint } from "./keymap.ts";
 
 import { modelBrowseScope, modelBrowseSort } from "./model-browse.ts";
 import {
@@ -257,6 +257,8 @@ import {
 } from "../../src/providers/auth-storage.ts";
 import { configuredProviders, findConfiguredProvider } from "../../src/providers/registry.ts";
 import { createTuiPreferencesListView, handleTuiPreferencesListScroll } from "./preferences-list.ts";
+import { createFooterEditorView } from "./footer-editor-view.ts";
+import { footerRowCount } from "./footer-layout.ts";
 import { createTuiStandingNudgesView, handleTuiStandingNudgesPaste, handleTuiStandingNudgesScroll } from "./standing-nudges.ts";
 import { createTuiExtensionsListView } from "./extensions-list.ts";
 import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
@@ -284,7 +286,8 @@ import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
 import { EMPTY_TURN_METER } from "./turn-meter.ts";
-import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiActivityStripPositionPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiFooterLayout, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { createTuiKeysCardView } from "./keys-card.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
@@ -350,7 +353,8 @@ export const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
     action: { type: "resume_viewed_session" },
 };
 
-export const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+export const READY_HINT = "ready";
+export const IDLE_KEYS_HINT = `${tuiKeyHint("open_palette")} · ${keysCardHint()}`;
 
 export function tuiDevInstancePrefix(): string {
     const marker = process.env.VERA_DEV_INSTANCE?.trim();
@@ -369,7 +373,11 @@ export function confirmManualReconnectUpgrade(error: Error): boolean {
     return error instanceof HostUnresponsiveError;
 }
 
-export const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
+export const WORKING_HINT = keysCardHint();
+
+export function keysCardHint(): string {
+    return `${tuiKeyChordLabel("open_model_prefix")} ${tuiKeyChordLabel("model_prefix_keys")} keys`;
+}
 export const STOPPING_HINT = "stopping…";
 const CONNECTION_FAILURE_HINT_LIMIT = 44;
 
@@ -907,7 +915,6 @@ export async function startTui(
     rt.activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
     rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
-    rt.activityStripPosition = loadTuiActivityStripPositionPreference();
     rt.sidebarWidth = loadTuiSidebarWidth();
     rt.hostedPanePersistence = new TuiHostedPanePersistence();
     const themeCatalog = reloadTuiThemeCatalog();
@@ -1031,6 +1038,8 @@ export async function startTui(
     rt.sessionTrashPending = false;
     rt.sessionCloseConfirm = false;
     rt.animationsPreviewOpen = false;
+    rt.footerEditor = undefined;
+    rt.footerEditorParent = undefined;
     rt.commandSuggestionIndex = 0;
     rt.commandSuggestionMoved = false;
     rt.argumentSuggestions = [];
@@ -1506,22 +1515,6 @@ export async function startTui(
     rt.sidebarEntryNodeKinds = [];
     rt.sidebarEntryGeneration = 0;
 
-    rt.statusText = new TextRenderable(rt.renderer, {
-        id: "status",
-        content: READY_HINT,
-        fg: TUI_MUTED,
-        height: 1,
-        flexGrow: 1,
-        flexShrink: 1,
-    });
-    rt.activityHintText = new TextRenderable(rt.renderer, {
-        id: "activity-hint",
-        content: "",
-        fg: TUI_MUTED,
-        height: 1,
-        flexShrink: 0,
-        alignSelf: "flex-end",
-    });
     rt.dialCardTitle = new TextRenderable(rt.renderer, {
         id: "dial-card-title",
         content: "",
@@ -1558,21 +1551,12 @@ export async function startTui(
     });
     rt.dialCard.add(rt.dialCardTitle);
     rt.dialCard.add(rt.dialCardHint);
-    rt.backgroundStatusText = new TextRenderable(rt.renderer, {
-        id: "background-status",
-        content: "",
-        fg: TUI_MUTED,
-        width: "100%",
-        height: 2,
-    });
-    rt.statusCard = new BoxRenderable(rt.renderer, {
-        id: "status-card",
-        border: false,
-        width: "100%",
-        height: "auto",
-        flexDirection: "column",
-    });
-    rt.statusCard.add(rt.backgroundStatusText);
+    rt.keysCardOpen = false;
+    rt.keysCardView = createTuiKeysCardView(rt.renderer);
+    rt.keysCardView.box.marginLeft = rt.appearance.composerMarginHorizontal;
+    rt.keysCardView.box.marginRight = rt.appearance.composerMarginHorizontal;
+    rt.keysCardView.box.paddingLeft = rt.appearance.composerPaddingHorizontal + 1;
+    rt.keysCardView.box.paddingRight = rt.appearance.composerPaddingHorizontal + 1;
     rt.workspaceBranch = watchWorkspaceBranch(
         process.cwd(),
         () => rt.renderer.requestRender(),
@@ -1591,44 +1575,17 @@ export async function startTui(
         paddingRight: rt.composerContentIndent,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
-    rt.hostedModeText = new TextRenderable(rt.renderer, {
-        id: "hosted-mode-status",
+    rt.footerLayout = loadTuiFooterLayout();
+    rt.footerRows = [1, 2, 3].map((row) => new TextRenderable(rt.renderer, {
+        id: `footer-row-${row}`,
         content: "",
         fg: TUI_MUTED,
-        height: 1,
-        flexShrink: 0,
-        alignSelf: "flex-end",
-        visible: false,
-    });
-    rt.placeRow = new BoxRenderable(rt.renderer, {
-        id: "place-row",
-        width: "100%",
-        height: "auto",
-        flexDirection: "row",
-    });
-    rt.statusCard.flexGrow = 1;
-    rt.statusCard.flexShrink = 1;
-    rt.placeRow.add(rt.statusCard);
-    rt.placeRow.add(rt.hostedModeText);
-    rt.activityRow = new BoxRenderable(rt.renderer, {
-        id: "activity-row",
         width: "100%",
         height: 1,
-        flexDirection: "row",
-    });
-    rt.subscriptionLimitsText = new TextRenderable(rt.renderer, {
-        id: "subscription-limits",
-        content: "",
-        fg: TUI_MUTED,
-        height: 1,
-        flexShrink: 1,
         wrapMode: "none",
-    });
-    rt.activityRow.add(rt.subscriptionLimitsText);
-    rt.activityRow.add(rt.statusText);
-    rt.activityRow.add(rt.activityHintText);
-    rt.statusBand.add(rt.activityRow);
-    rt.statusBand.add(rt.placeRow);
+        visible: row <= footerRowCount(rt.footerLayout),
+    }));
+    for (const row of rt.footerRows) rt.statusBand.add(row);
 
     rt.tipsConfig = loadOptionalVeraConfig();
     rt.tipsEnabled = rt.tipsConfig === undefined
@@ -1774,6 +1731,7 @@ export async function startTui(
     rt.sessionCloseConfirmView =
         createTuiSessionCloseConfirmView(rt.renderer);
     rt.animationsPreviewView = createTuiAnimationsPreviewView(rt.renderer);
+    rt.footerEditorView = createFooterEditorView(rt.renderer);
     rt.providerForgetConfirmView =
         createTuiProviderForgetConfirmView(rt.renderer);
     rt.overridesResetConfirmView =
@@ -2417,6 +2375,7 @@ export async function startTui(
     rt.app.add(rt.sessionTrashConfirmView.surface);
     rt.app.add(rt.sessionCloseConfirmView.surface);
     rt.app.add(rt.animationsPreviewView.surface);
+    rt.app.add(rt.footerEditorView.surface);
     rt.app.add(rt.providerForgetConfirmView.surface);
     rt.app.add(rt.overridesResetConfirmView.surface);
     rt.app.add(rt.composerTipText);
@@ -2424,6 +2383,7 @@ export async function startTui(
     rt.app.add(rt.experimentalTuiHost.composerAdornment);
     rt.app.add(rt.heldAddressText);
     rt.app.add(rt.dialCard);
+    rt.app.add(rt.keysCardView.box);
     rt.app.add(rt.homeView.surface);
     rt.app.add(rt.onboardingWizardView.surface);
     rt.app.add(rt.agentNoticeText);
@@ -2551,6 +2511,10 @@ export async function startTui(
         rt.dialCard.marginRight = rt.appearance.composerMarginHorizontal;
         rt.dialCard.paddingLeft = rt.appearance.composerPaddingHorizontal + 1;
         rt.dialCard.paddingRight = rt.appearance.composerPaddingHorizontal + 1;
+        rt.keysCardView.box.marginLeft = rt.appearance.composerMarginHorizontal;
+        rt.keysCardView.box.marginRight = rt.appearance.composerMarginHorizontal;
+        rt.keysCardView.box.paddingLeft = rt.appearance.composerPaddingHorizontal + 1;
+        rt.keysCardView.box.paddingRight = rt.appearance.composerPaddingHorizontal + 1;
         rt.statusBand.paddingLeft = rt.composerContentIndent;
         rt.statusBand.paddingRight = rt.composerContentIndent;
         const suggestionInset = tuiComposerOverlayInset(rt.appearance);
@@ -2864,9 +2828,7 @@ export async function startTui(
             retiredMarkdownStyle.destroy();
         },
         tuiThemeProperties(rt.placeholder, { fg: "muted" }),
-        tuiThemeProperties(rt.backgroundStatusText, { fg: "muted" }),
-        tuiThemeProperties(rt.activityHintText, { fg: "muted" }),
-        tuiThemeProperties(rt.hostedModeText, { fg: "muted" }),
+        ...rt.footerRows.map((row) => tuiThemeProperties(row, { fg: "muted" })),
         tuiThemeProperties(rt.app, { backgroundColor: "background" }),
         tuiThemeProperties(rt.quoteText, { fg: "muted" }),
         tuiThemeProperties(rt.heldAddressText, { fg: "muted" }),
@@ -2936,7 +2898,6 @@ export async function startTui(
             accentColor: activeTheme.accent,
         }),
         tuiThemeProperties(rt.composerStatusText, { fg: "muted" }),
-        tuiThemeProperties(rt.subscriptionLimitsText, { fg: "muted" }),
         tuiThemeProperties(rt.slashArgumentHint, {
             fg: "muted",
             bg: "input",
@@ -3013,6 +2974,7 @@ export async function startTui(
         ...rt.sessionTrashConfirmView.themeBindings,
         ...rt.sessionCloseConfirmView.themeBindings,
         ...rt.animationsPreviewView.themeBindings,
+        ...rt.footerEditorView.themeBindings,
         ...rt.providerForgetConfirmView.themeBindings,
         ...rt.overridesResetConfirmView.themeBindings,
     ];

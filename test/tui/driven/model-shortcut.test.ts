@@ -6,7 +6,7 @@ import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-const hint = "m Models · esc cancel";
+const hint = "m Models · h Keys · esc cancel";
 const home = () => mkdtempSync(join(tmpdir(), "vera-model-shortcut-"));
 
 test("Ctrl+X then M opens models from Home after waiting, without creating a conversation", async () => {
@@ -84,5 +84,25 @@ test("paste cancels the prefix and search fields keep ordinary typing", async ()
         session.sendKey("C-x"); session.sendText("m");
         await session.waitForVisiblePane("amb");
         expect(session.captureVisiblePane()).not.toContain(hint);
+    } finally { await session.close(); }
+}, 15_000);
+
+test("Ctrl+X then H shows the keys card without taking the composer's keys", async () => {
+    const session = await startTuiTestSession({ home: home(), width: 120, height: 36,
+        dependencies: () => createTuiCatalogRefreshDependencies(),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-x"); await session.waitForVisiblePane(hint);
+        session.sendText("h"); await session.waitForVisiblePane("esc close");
+        expect(session.captureVisiblePane()).toMatch(/Ctrl\+X h +this card/);
+        session.sendText("ahoy"); await session.waitForVisiblePane("ahoy");
+        expect(session.captureVisiblePane()).toContain("esc close");
+        session.sendKey("Escape"); await session.settle();
+        expect(session.captureVisiblePane()).not.toContain("esc close");
+        expect(session.captureVisiblePane()).toContain("ahoy");
+        session.sendKey("C-x"); session.sendText("h"); await session.waitForVisiblePane("esc close");
+        session.sendKey("C-x"); session.sendText("h"); await session.settle();
+        expect(session.captureVisiblePane()).not.toContain("esc close");
     } finally { await session.close(); }
 }, 15_000);

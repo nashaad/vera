@@ -130,6 +130,7 @@ export type TuiSettingsMenuTarget =
     | "theme"
     | "animation"
     | "live_reasoning_rows"
+    | "footer_layout"
     | "context_limit"
     | "overrides"
     | OverrideMenuTarget

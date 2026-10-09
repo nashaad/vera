@@ -1515,6 +1515,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "theme",
         "animation",
         "live_reasoning_rows",
+        "footer_layout",
     ]);
     // The context limit is a lever inside Overrides, so searching for it by
     // its old name lands there rather than nowhere.
