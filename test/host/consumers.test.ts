@@ -5,7 +5,7 @@ import {
     createConsumerRegistry,
     DEFAULT_MIN_WAKE_INTERVAL_MS,
 } from "../../src/host/consumers.ts";
-import { Inbox, openInboxIfEnabled } from "../../src/store/inbox.ts";
+import { Inbox } from "../../src/store/inbox.ts";
 
 function fixture(): { inbox: Inbox; registry: ConsumerRegistry } {
     const inbox = Inbox.open(":memory:");
@@ -200,14 +200,5 @@ describe("consumer handles", () => {
         const { inbox, registry } = fixture();
         expect(() => registry.hello({ label: "  " })).toThrow("cannot be empty");
         inbox.close();
-    });
-
-    test("no registry exists when the inbox feature is off", () => {
-        expect(createConsumerRegistry(openInboxIfEnabled({}, ":memory:"))).toBeNull();
-
-        const inbox = openInboxIfEnabled({ experimental: { inbox: true } }, ":memory:");
-        const registry = createConsumerRegistry(inbox, "node-a");
-        expect(registry).not.toBeNull();
-        inbox?.close();
     });
 });

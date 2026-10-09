@@ -50,7 +50,6 @@ export interface InboxUnreadStats {
 
 export interface InboxAcknowledgement {
     readonly offset: number;
-    readonly receipt?: InboxEntry;
 }
 
 interface EntryRow {
@@ -294,11 +293,7 @@ export class Inbox {
         return this.offsetOf(consumer) ?? seq;
     }
 
-    acknowledge(
-        consumer: ConsumerId,
-        throughSeq: number,
-        receipt?: InboxEntryInput,
-    ): InboxAcknowledgement {
+    acknowledge(consumer: ConsumerId, throughSeq: number): InboxAcknowledgement {
         if (!Number.isSafeInteger(throughSeq) || throughSeq <= 0) {
             throw new Error("inbox acknowledgement seq must be positive");
         }
@@ -325,15 +320,7 @@ export class Inbox {
                     consumer.nodeId,
                     consumer.label,
                 );
-            const storedReceipt = receipt === undefined
-                ? undefined
-                : this.append(receipt);
-            return {
-                offset: throughSeq,
-                ...(storedReceipt === undefined
-                    ? {}
-                    : { receipt: storedReceipt }),
-            };
+            return { offset: throughSeq };
         });
         return run();
     }
@@ -369,21 +356,6 @@ function readPredicate(
 
 export function defaultInboxPath(): string {
     return join(veraRuntimeDirectory(), "inbox.db");
-}
-
-export function inboxEnabled(config: InboxFeatureConfig): boolean {
-    return config.experimental?.inbox === true;
-}
-
-export function openInboxIfEnabled(
-    config: InboxFeatureConfig,
-    path: string = defaultInboxPath(),
-): Inbox | null {
-    return inboxEnabled(config) ? Inbox.open(path) : null;
-}
-
-export interface InboxFeatureConfig {
-    readonly experimental?: { readonly inbox?: boolean };
 }
 
 function migrate(database: Database): void {

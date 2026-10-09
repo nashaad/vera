@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 
 import {
     parsePeerMessage,
-    parsePeerRead,
 } from "../../src/host/local-participation.ts";
 import type { InboxEntry } from "../../src/store/inbox.ts";
 
@@ -40,19 +39,6 @@ test("peer payload parsing rejects malformed reply identities", () => {
     });
 
     expect(parsePeerMessage(entry)).toBeUndefined();
-});
-
-test("read receipts require a complete positive message identity", () => {
-    const entry = peerEntry({
-        kind: "peer.read",
-        payload: JSON.stringify({ message_id: 7, complete: true }),
-    });
-
-    expect(parsePeerRead(entry)).toEqual({ message_id: 7, complete: true });
-    expect(parsePeerRead({
-        ...entry,
-        payload: JSON.stringify({ message_id: 0, complete: true }),
-    })).toBeUndefined();
 });
 
 function peerEntry(overrides: Partial<InboxEntry> = {}): InboxEntry {

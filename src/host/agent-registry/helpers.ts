@@ -225,10 +225,8 @@ import {
 import { SOURCE_GAP_KIND } from "../../watch/source.ts";
 import {
     PEER_MESSAGE_KIND,
-    PEER_READ_KIND,
     VERA_INBOX_SOURCE,
     parsePeerMessage,
-    parsePeerRead,
     type PeerMessagePayload,
 } from "../local-participation.ts";
 

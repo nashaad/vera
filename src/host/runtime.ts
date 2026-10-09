@@ -156,13 +156,13 @@ import {
     StartupFindings,
 } from "./startup-findings.ts";
 import { skillScriptTool } from "../skills/script.ts";
-import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
+import { Inbox, defaultInboxPath } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
 import { InboxAdmissionPolicy } from "./inbox-admission.ts";
 import { readArcNodeId, readArcToken } from "./arc-identity.ts";
 import {
-    startWatchRuntimeIfEnabled,
+    startWatchRuntimeIfConfigured,
     type WatchRuntime,
 } from "../watch/runtime.ts";
 import type { WatchSecretResolver } from "../watch/arc-connector.ts";
@@ -417,21 +417,17 @@ export async function startResidentHost(
                     : { captureFailedRequest }),
             });
         });
-    const inbox = options.inboxPath === undefined
-        ? openInboxIfEnabled(options.config)
-        : openInboxIfEnabled(options.config, options.inboxPath);
+    const inbox = Inbox.open(options.inboxPath ?? defaultInboxPath());
     const consumers = createConsumerRegistry(inbox);
-    const inboxDelivery = consumers === null
-        ? undefined
-        : new InboxDeliveryCoordinator(consumers, {
-            admissionFor: (projectRoot) => projectRoot === undefined
-                ? undefined
-                : InboxAdmissionPolicy.fromConfig(
-                    options.config,
-                    projectRoot,
-                    options.inboxUserConfigPath,
-                ),
-        });
+    const inboxDelivery = new InboxDeliveryCoordinator(consumers, {
+        admissionFor: (projectRoot) => projectRoot === undefined
+            ? undefined
+            : InboxAdmissionPolicy.fromConfig(
+                options.config,
+                projectRoot,
+                options.inboxUserConfigPath,
+            ),
+    });
     let workIndexThisTurn: WorkIndexSnapshot | undefined;
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
@@ -442,9 +438,7 @@ export async function startResidentHost(
             }
         }
     };
-    const scheduleStore = inbox === null
-        ? null
-        : ScheduleStore.open(options.schedulePath);
+    const scheduleStore = ScheduleStore.open(options.schedulePath);
     let watches: WatchRuntime | null = null;
     let scheduler: SchedulerRuntime | null = null;
     let sidecars: SidecarRuntime | null = null;
@@ -457,9 +451,9 @@ export async function startResidentHost(
     const closeInbox = async (): Promise<void> => {
         await watches?.close();
         await scheduler?.close();
-        scheduleStore?.close();
-        inboxDelivery?.close();
-        inbox?.close();
+        scheduleStore.close();
+        inboxDelivery.close();
+        inbox.close();
     };
     const curatedRefresh = startCuratedRefresh(
         options.config.curated_models_url === undefined
@@ -866,10 +860,8 @@ export async function startResidentHost(
             return currentConfig().prompt_contribution_order;
         },
         readConfiguredTurnPolicy: () => configuredTurnPolicy(currentConfig()),
-        ...(inboxDelivery === undefined ? {} : {
-            inboxDelivery,
-            inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
-        }),
+        inboxDelivery,
+        inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
         modelFailureLedger: new ModelFailureLedger(
@@ -961,7 +953,7 @@ export async function startResidentHost(
         return closing;
     };
     try {
-        watches = startWatchRuntimeIfEnabled(inbox, {
+        watches = startWatchRuntimeIfConfigured(inbox, {
             watches: extensions.contributions().watches(),
             ...(options.watchConnectors === undefined
                 ? {}
@@ -969,13 +961,11 @@ export async function startResidentHost(
             secret: options.watchSecret
                 ?? (() => readArcToken(options.arcConfigPath)),
             onAppended: () => {
-                void inboxDelivery?.pumpAll();
+                void inboxDelivery.pumpAll();
             },
         });
         scheduler = await timed("scheduler", () =>
-            scheduleStore === null || inboxDelivery === undefined
-                ? null
-                : startSchedulerRuntime({
+            startSchedulerRuntime({
                 store: scheduleStore,
                 emit: (key, entry) =>
                     inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
@@ -986,12 +976,11 @@ export async function startResidentHost(
                         ? error.message
                         : String(error),
                 }),
-                })
+            })
         );
         const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
             try {
-                return scheduleStore?.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS)
-                    ?? [];
+                return scheduleStore.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS);
             } catch {
                 return [];
             }

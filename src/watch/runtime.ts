@@ -88,11 +88,11 @@ export function startWatchRuntime(options: WatchRuntimeOptions): WatchRuntime {
     };
 }
 
-export function startWatchRuntimeIfEnabled(
-    inbox: Inbox | null,
+export function startWatchRuntimeIfConfigured(
+    inbox: Inbox,
     options: Omit<WatchRuntimeOptions, "inbox">,
 ): WatchRuntime | null {
-    if (inbox === null || options.watches.length === 0) {
+    if (options.watches.length === 0) {
         return null;
     }
     return startWatchRuntime({ ...options, inbox });

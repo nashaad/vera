@@ -324,7 +324,6 @@ export interface VeraEventLogConfig {
  * an off subsystem must not run or create state of any kind.
  */
 export interface VeraExperimentalConfig {
-    readonly inbox?: boolean;
     readonly outrider_onboarding?: boolean;
 }
 
@@ -1664,14 +1663,12 @@ function parseExperimental(
     }
     const raw = value as Record<string, unknown>;
     if (
-        (raw.inbox !== undefined && typeof raw.inbox !== "boolean")
-        || (raw.outrider_onboarding !== undefined
-            && typeof raw.outrider_onboarding !== "boolean")
+        raw.outrider_onboarding !== undefined
+        && typeof raw.outrider_onboarding !== "boolean"
     ) {
         return undefined;
     }
     return {
-        ...(raw.inbox === undefined ? {} : { inbox: raw.inbox }),
         ...(raw.outrider_onboarding === undefined
             ? {}
             : { outrider_onboarding: raw.outrider_onboarding }),

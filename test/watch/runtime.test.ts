@@ -8,7 +8,7 @@ import { parseExtensionContributions } from "../../src/extensions/contributions.
 import { Inbox } from "../../src/store/inbox.ts";
 import {
     startWatchRuntime,
-    startWatchRuntimeIfEnabled,
+    startWatchRuntimeIfConfigured,
 } from "../../src/watch/runtime.ts";
 import type {
     WatchConnector,
@@ -144,11 +144,9 @@ describe("watch runtime", () => {
         inbox.close();
     });
 
-    test("the runtime is off with no inbox and with nothing contributed", () => {
+    test("the runtime is off with nothing contributed", () => {
         const inbox = Inbox.open(":memory:");
-        expect(startWatchRuntimeIfEnabled(null, { watches: [ownedWatch("main")] }))
-            .toBeNull();
-        expect(startWatchRuntimeIfEnabled(inbox, { watches: [] })).toBeNull();
+        expect(startWatchRuntimeIfConfigured(inbox, { watches: [] })).toBeNull();
         inbox.close();
     });
 
@@ -186,7 +184,7 @@ describe("watch runtime", () => {
 
             // The extension is disabled: nothing is contributed, so no task runs.
             const disabled = Inbox.open(path);
-            expect(startWatchRuntimeIfEnabled(disabled, { watches: [] })).toBeNull();
+            expect(startWatchRuntimeIfConfigured(disabled, { watches: [] })).toBeNull();
             expect(disabled.watchCursor("vera.arc/main")).toBe("v1:7");
             disabled.close();
 

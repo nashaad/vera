@@ -26,7 +26,6 @@ interface Bench {
     readonly consentPath: string;
     readonly requests: SpawnRequest[];
     start(options: {
-        subsystem: boolean;
         confirmed: boolean;
     }): Promise<{ close(): Promise<void> }>;
     cleanup(): Promise<void>;
@@ -42,14 +41,12 @@ async function bench(): Promise<Bench> {
         inboxPath,
         consentPath,
         requests,
-        async start({ subsystem, confirmed }) {
+        async start({ confirmed }) {
             if (confirmed) {
                 SpawnConsentStore.open(consentPath).confirm();
             }
             const host = await startResidentHost({
-                config: subsystem
-                    ? { ...BASE_CONFIG, experimental: { inbox: true } }
-                    : BASE_CONFIG,
+                config: BASE_CONFIG,
                 createAdapter: () => new FauxAdapter([]),
                 socketPath: join(root, "h.sock"),
                 lockPath: join(root, "host.json"),
@@ -91,21 +88,9 @@ const hostTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
     ? test.skip
     : test;
 
-hostTest("a fresh install spawns nothing even with the subsystem flag on", async () => {
+hostTest("a fresh install spawns nothing", async () => {
     const harness = await bench();
-    const host = await harness.start({ subsystem: true, confirmed: false });
-    try {
-        appendEntry(harness.inboxPath);
-        await host.close();
-        expect(harness.requests).toHaveLength(0);
-    } finally {
-        await harness.cleanup();
-    }
-});
-
-hostTest("a confirmation alone spawns nothing while the subsystem is off", async () => {
-    const harness = await bench();
-    const host = await harness.start({ subsystem: false, confirmed: true });
+    const host = await harness.start({ confirmed: false });
     try {
         appendEntry(harness.inboxPath);
         await host.close();
@@ -117,7 +102,7 @@ hostTest("a confirmation alone spawns nothing while the subsystem is off", async
 
 hostTest("confirmed inbox arrivals cannot cold-spawn a session", async () => {
     const harness = await bench();
-    const host = await harness.start({ subsystem: true, confirmed: true });
+    const host = await harness.start({ confirmed: true });
     try {
         appendEntry(harness.inboxPath);
         await host.close();

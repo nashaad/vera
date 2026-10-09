@@ -2,9 +2,11 @@ import type { ConsumerHandle, ConsumerRegistry } from "./consumers.ts";
 import { inboxSourceFamily } from "./inbox-admission.ts";
 import type { InboxAdmissionPolicy } from "./inbox-admission.ts";
 import { SOURCE_GAP_KIND } from "../watch/source.ts";
+import { RETIRED_PEER_READ_KIND } from "./local-participation.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 
 export const MAX_INBOX_NOTICE_COUNT = 99;
+export const UNCOUNTED_INBOX_KINDS: readonly string[] = [SOURCE_GAP_KIND, RETIRED_PEER_READ_KIND];
 
 export interface InboxNotice {
     readonly unreadCount: number;
@@ -33,7 +35,7 @@ export interface AttachInboxConsumerRequest {
     readonly projectRoot?: string;
     readonly notify: (notice: InboxNotice) => void;
     readonly canStartTurn?: () => boolean;
-    readonly startTurn?: () => void;
+    readonly startTurn?: (candidate: InboxAdmissionCandidate) => void;
     readonly requestAdmission?: (
         candidate: InboxAdmissionCandidate,
         signal: AbortSignal,
@@ -47,7 +49,7 @@ export class InboxDeliverySession {
     private readonly notify: (notice: InboxNotice) => void;
     private readonly admission?: InboxAdmissionPolicy;
     private readonly canStartTurn: () => boolean;
-    private readonly startTurn: () => void;
+    private readonly startTurn: (candidate: InboxAdmissionCandidate) => void;
     private readonly requestAdmission:
         AttachInboxConsumerRequest["requestAdmission"];
     private readonly onAdmissionFailure:
@@ -114,7 +116,7 @@ export class InboxDeliverySession {
         const entries = this.handle.read({
             limit: MAX_INBOX_NOTICE_COUNT,
             addresses: [this.handle.label],
-            excludeKinds: [SOURCE_GAP_KIND],
+            excludeKinds: UNCOUNTED_INBOX_KINDS,
         });
         for (const entry of entries) {
             const candidate = candidateFor(entry);
@@ -134,7 +136,7 @@ export class InboxDeliverySession {
         const unread = this.handle.unreadStatus({
             limit: MAX_INBOX_NOTICE_COUNT,
             addresses: [this.handle.label],
-            excludeKinds: [SOURCE_GAP_KIND],
+            excludeKinds: UNCOUNTED_INBOX_KINDS,
         }, this.coordinator.now());
         if (unread.count === 0) return;
         this.notify({
@@ -144,7 +146,7 @@ export class InboxDeliverySession {
         const entries = this.handle.read({
             limit: MAX_INBOX_NOTICE_COUNT,
             addresses: [this.handle.label],
-            excludeKinds: [SOURCE_GAP_KIND],
+            excludeKinds: UNCOUNTED_INBOX_KINDS,
         });
         for (const entry of entries) {
             const candidate = candidateFor(entry);
@@ -170,7 +172,7 @@ export class InboxDeliverySession {
         if (candidate.seq <= previous) return;
         this.lastWoken.set(candidate.sourceFamily, candidate.seq);
         try {
-            this.startTurn();
+            this.startTurn(candidate);
         } catch {
             this.lastWoken.delete(candidate.sourceFamily);
         }

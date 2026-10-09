@@ -16,7 +16,7 @@ import {
     candidateBuildId,
     candidateHomePath,
     candidateLaunchEnv,
-    disableOutboundConsumers,
+    dropClonedSchedules,
     evictHome,
     formatDevInstanceMarker,
     factoryHomePath,
@@ -56,10 +56,10 @@ function dailyHome(root: string): string {
         join(home, "config.json"),
         JSON.stringify({
             schema_version: 1,
-            experimental: { inbox: true },
         }, null, 2) + "\n",
     );
     writeFileSync(join(home, "runtime", "session.jsonl"), "daily-session\n");
+    writeFileSync(join(home, "runtime", "schedules.db"), "");
     writeFileSync(join(home, "machine", "auth.json"), "{\"token\":\"secret\"}\n");
     return home;
 }
@@ -115,7 +115,6 @@ function unmigratedDailyHome(root: string): string {
         join(home, "profiles", "default", "config.json"),
         JSON.stringify({
             schema_version: 1,
-            experimental: { inbox: true },
         }, null, 2) + "\n",
     );
     writeFileSync(join(home, "profiles", "default", "memory", "note.md"), "keep\n");
@@ -150,10 +149,8 @@ test("the first launch clones the daily home with outbound consumers off", async
         expect(dest).toBeDefined();
         expect(readFileSync(join(dest!, "runtime", "session.jsonl"), "utf8"))
             .toBe("daily-session\n");
-        const cloned = JSON.parse(readFileSync(join(dest!, "config.json"), "utf8"));
-        expect(cloned.experimental.inbox).toBe(false);
-        const daily = JSON.parse(readFileSync(join(sourceHome, "config.json"), "utf8"));
-        expect(daily.experimental.inbox).toBe(true);
+        expect(existsSync(join(dest!, "runtime", "schedules.db"))).toBe(false);
+        expect(existsSync(join(sourceHome, "runtime", "schedules.db"))).toBe(true);
         expect(launches[0]?.env.VERA_RUNTIME_DIR).toBeUndefined();
         expect(launches[0]?.env.VERA_DEV_INSTANCE).toMatch(/^ovu-a /);
         expect(existsSync(join(dest!, "runtime", "host.sock"))).toBe(false);
@@ -177,8 +174,6 @@ test("a profiles/ daily home is lifted in the clone only", async () => {
                 expect(existsSync(join(dest, "runtime", "host.json"))).toBe(false);
                 expect(readFileSync(join(dest, "memory", "note.md"), "utf8")).toBe("keep\n");
                 expect(existsSync(join(dest, "memory", "secret.md"))).toBe(false);
-                const cloned = JSON.parse(readFileSync(join(dest, "config.json"), "utf8"));
-                expect(cloned.experimental.inbox).toBe(false);
                 return 0;
             },
         });
@@ -579,18 +574,18 @@ test("--discard without confirmation keeps the instance", async () => {
     }
 });
 
-test("disableOutboundConsumers turns inbox off on the clone only", () => {
+test("dropClonedSchedules removes the schedule store and keeps the inbox", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-outbound-"));
     const home = join(root, ".vera");
-    mkdirSync(home);
-    writeFileSync(
-        join(home, "config.json"),
-        JSON.stringify({ experimental: { inbox: true } }),
-    );
+    mkdirSync(join(home, "runtime"), { recursive: true });
+    for (const name of ["schedules.db", "schedules.db-wal", "inbox.db"]) {
+        writeFileSync(join(home, "runtime", name), "");
+    }
     try {
-        disableOutboundConsumers(home);
-        expect(JSON.parse(readFileSync(join(home, "config.json"), "utf8")))
-            .toEqual({ experimental: { inbox: false } });
+        dropClonedSchedules(home);
+        expect(existsSync(join(home, "runtime", "schedules.db"))).toBe(false);
+        expect(existsSync(join(home, "runtime", "schedules.db-wal"))).toBe(false);
+        expect(existsSync(join(home, "runtime", "inbox.db"))).toBe(true);
     } finally {
         rmSync(root, { recursive: true, force: true });
     }

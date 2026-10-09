@@ -148,12 +148,9 @@ export class ConsumerHandle {
         return this.inbox.advance(this.id, seq);
     }
 
-    acknowledge(
-        seq: number,
-        receipt?: InboxEntryInput,
-    ): InboxAcknowledgement {
+    acknowledge(seq: number): InboxAcknowledgement {
         this.assertLive();
-        return this.inbox.acknowledge(this.id, seq, receipt);
+        return this.inbox.acknowledge(this.id, seq);
     }
 
     mayWake(nowMs: number = Date.now()): boolean {
@@ -295,10 +292,10 @@ export class ConsumerRegistry {
 }
 
 export function createConsumerRegistry(
-    inbox: Inbox | null,
+    inbox: Inbox,
     nodeId: string = defaultNodeId(),
-): ConsumerRegistry | null {
-    return inbox === null ? null : new ConsumerRegistry(inbox, nodeId);
+): ConsumerRegistry {
+    return new ConsumerRegistry(inbox, nodeId);
 }
 
 export function defaultNodeId(): string {

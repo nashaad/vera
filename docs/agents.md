@@ -59,6 +59,21 @@ opens the Subagents settings. An unattended client returns a failure.
 Once a child starts, request retries apply to its selected model; exhausting
 retries does not restart the assignment search.
 
+## Message another conversation
+
+Two conversations open in the same folder can message each other. Ask one
+to send a note to the other by its title or its identity, for example "tell
+lookout the crow's nest tests pass". Vera finds the other conversation,
+stores the note, and lets it know a message is waiting. The recipient reads
+the note when it next checks its inbox. The sender is not told when it is
+read.
+
+If you are watching the recipient, Vera asks once whether messages from
+other conversations may start a turn. You can allow it once, for this
+conversation, or always. A conversation running in the background with
+auto or full access permissions starts a turn on its own. One with ask
+permissions keeps the message until you return to it.
+
 ## Create a definition
 
 Use `/create-agent` to describe a recurring job and review a proposed

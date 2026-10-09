@@ -665,34 +665,15 @@ test("VERA_EXTENSIONS replaces the configured extension list", () => {
     }
 });
 
-test("Vera config reads the experimental inbox flag and defaults it off", () => {
-    const bare = temporaryConfigPath();
-    writeFileSync(bare, JSON.stringify({
-        schema_version: 1,
-        model: "anthropic/example-model",
-    }));
-    expect(loadVeraConfig({ path: bare }).experimental).toBeUndefined();
-
-    const enabled = temporaryConfigPath();
-    writeFileSync(enabled, JSON.stringify({
-        schema_version: 1,
-        model: "anthropic/example-model",
-        experimental: { inbox: true },
-    }));
-    expect(loadVeraConfig({ path: enabled }).experimental).toEqual({
-        inbox: true,
-    });
-});
-
-test("Vera config rejects a non-boolean experimental inbox flag", () => {
+test("Vera config ignores the retired experimental inbox flag", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
-        experimental: { inbox: "yes" },
+        experimental: { inbox: false },
     }));
 
-    expect(() => loadVeraConfig({ path })).toThrow();
+    expect(loadVeraConfig({ path }).experimental).toEqual({});
 });
 
 test("Vera config reads the experimental Outrider onboarding flag", () => {
@@ -700,11 +681,10 @@ test("Vera config reads the experimental Outrider onboarding flag", () => {
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         model: "anthropic/example-model",
-        experimental: { inbox: true, outrider_onboarding: true },
+        experimental: { outrider_onboarding: true },
     }));
 
     expect(loadVeraConfig({ path }).experimental).toEqual({
-        inbox: true,
         outrider_onboarding: true,
     });
     updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path });
