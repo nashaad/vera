@@ -94,6 +94,8 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         if (!sameWorkspace(caller, recipient)) {
             return toolError("agent_send recipients must be in the same workspace.");
         }
+        // A stray reply_to on a new note is dropped and reported as reply_to_applied: false.
+        // If it comes up again, keep handling it here rather than adding guidance to the agent_send description.
         let replyTo: number | undefined;
         if (effect.replyTo !== undefined) {
             const replied = inbox.entry(effect.replyTo);
