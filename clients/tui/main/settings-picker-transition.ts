@@ -28,6 +28,7 @@ import { tuiOverridesResetLevers } from "../overrides-reset-confirm.ts";
 import { localRuntimeProvider, runLocalRuntimeAction, switchLocalRuntimeProfile } from "./outrider-control.ts";
 import { randomUUID } from "node:crypto";
 import { eligibleForDefault } from "../../../src/model/model-operations.ts";
+import { loadOptionalVeraConfig } from "../../../src/config.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import { applyModelSwitch, openModelSwitcher } from "../main/model-switcher-ops.ts";
 
@@ -701,7 +702,8 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         } else if (selection.kind === "model_assignment") {
             if (selection.model !== undefined && selection.provider !== undefined
                 && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined
-                && !eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider, model: selection.model })) {
+                && loadOptionalVeraConfig()?.verify_model_assignments === true
+                && !eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider, model: selection.model }, { requireVerified: true })) {
                 const operate = rt.dependencies.operateModels;
                 if (operate === undefined || previousPicker === undefined || previousPicker.kind === "extension") {
                     rt.settingsPicker = previousPicker;
@@ -722,7 +724,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                     if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
                     const restored = { ...current, loading: previousPicker.loading, subtitle: previousPicker.subtitle, verificationId: undefined };
                     rt.settingsPicker = restored;
-                    if (passed && eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider!, model: selection.model! })) applySettingsPickerTransition(rt, transition);
+                    if (passed && eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider!, model: selection.model! }, { requireVerified: true })) applySettingsPickerTransition(rt, transition);
                     else {
                         if (passed) reason = "Verification could not be confirmed or the model is not permitted. The default was not changed.";
                         rt.settingsPicker = { ...restored, subtitle: reason };

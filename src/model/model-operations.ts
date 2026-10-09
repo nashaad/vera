@@ -32,9 +32,11 @@ export interface ModelOperationOptions extends PoolStoreOptions {
 }
 const ref = (model: ModelReference): string => `${model.provider}/${model.model}`;
 
-export function eligibleForDefault(file: PoolFile, model: ModelReference): boolean {
+export function eligibleForDefault(file: PoolFile, model: ModelReference, options: { readonly requireVerified: boolean }): boolean {
+    if (!isSelectable(ref(model), file)) return false;
+    if (!options.requireVerified) return true;
     const entry = file.models[ref(model)];
-    return entry !== undefined && isVerifiedPoolEntry(entry) && isSelectable(ref(model), file);
+    return entry !== undefined && isVerifiedPoolEntry(entry);
 }
 
 export async function applyModelOperation(operation: ModelOperation, options: ModelOperationOptions): Promise<readonly ModelOperationResult[]> {

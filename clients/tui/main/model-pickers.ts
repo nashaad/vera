@@ -282,6 +282,7 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
             row?.allowSelf === true,
             parentModel,
             selectedValue,
+            loadOptionalVeraConfig()?.verify_model_assignments === true,
         ),
         parent,
     );
@@ -302,17 +303,27 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
     },
 ): string | undefined {
     if (selection.model !== undefined && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined) {
-        if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider ?? "", model: selection.model })) return "Verify this model before assigning it as a default.";
+        const requireVerified = loadOptionalVeraConfig()?.verify_model_assignments === true;
+        if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider ?? "", model: selection.model }, { requireVerified })) {
+            return requireVerified
+                ? "Verify this model before assigning it as a default."
+                : "This model is not permitted by your model policy.";
+        }
     }
     const subagents = selection.assignment === "subagents";
-    const row = subagents
+    const row = subagents || selection.assignment === "reviewer"
         ? currentModelAssignmentRows(rt).find((entry) =>
-            entry.assignment === "subagents")
+            entry.assignment === selection.assignment)
         : undefined;
     const currentModels = row?.declared ?? [];
     const selectedRef = selection.model === undefined
         ? undefined
         : `${selection.provider ?? ""}/${selection.model}`;
+    // Changing the classifier's primary keeps the failsafe the Classifier menu set.
+    const failsafe = selection.assignment === "reviewer" && row?.source === "assignment"
+        ? currentModels.slice(1, 2).filter((entry) =>
+            `${entry.provider}/${entry.model}` !== selectedRef)
+        : [];
     const models = !subagents
         ? []
         : selection.clear === true
@@ -360,7 +371,7 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
                         ...(selection.reasoningEffort === undefined
                             ? {}
                             : { reasoning_effort: selection.reasoningEffort }),
-                    }],
+                    }, ...failsafe],
                 },
             },
         });
@@ -372,15 +383,17 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
         rt.state = appendTuiError(rt.state, message);
         return message;
     }
+    const label = currentModelAssignmentRows(rt).find((entry) =>
+        entry.assignment === selection.assignment)?.label ?? selection.assignment;
     rt.state = appendTuiNotice(
         rt.state,
         unbinding
-            ? `${selection.assignment} unset. The conversation model is unchanged.`
+            ? `${label} unset. The conversation model is unchanged.`
             : subagents
             ? `Subagent policy updated: ${models.length} assigned, parent fallback ${
                 allowSelf ? "on" : "off"
             }.`
-            : `${selection.assignment} → ${
+            : `${label} → ${
                 selection.reasoningEffort === undefined
                     ? selection.model
                     : `${selection.model} (${selection.reasoningEffort})`

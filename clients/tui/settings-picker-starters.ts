@@ -1135,6 +1135,7 @@ export function startTuiModelAssignmentPicker(
     allowSelf = false,
     parentModel?: TuiAssignmentParentModel,
     selectedValue?: string,
+    verifiesAssignments = false,
 ): TuiSettingsPickerState {
     const pooledByRef = new Map(
         pooled.map((entry) => [`${entry.provider}/${entry.model}`, entry]),
@@ -1235,9 +1236,10 @@ export function startTuiModelAssignmentPicker(
         title: assignment === "subagents"
             ? "Subagent models"
             : `Assign a model to ${label}`,
-        subtitle: assignment === "subagents"
-            ? "Models subagents may use, in fallback order. New assignments make a verification request, which may cost money."
-            : "Choose any connected model. Assigning makes a verification request, which may cost money.",
+        subtitle: (assignment === "subagents"
+            ? "Models subagents may use, in fallback order."
+            : "Choose any connected model.")
+            + (verifiesAssignments ? " New assignments make a verification request, which may cost money." : ""),
         allOptions: options,
         options,
         selectedIndex,

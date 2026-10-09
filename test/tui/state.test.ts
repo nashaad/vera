@@ -2445,7 +2445,8 @@ test("classifier decisions and failures use distinct visible language", () => {
         diagnostic: resolveTuiDiagnostic(
             "unknown",
             "Classifier failed for bash: The approval classifier timed out"
-                + " after 60s. The action did not run.",
+                + " after 60s. The action did not run."
+                + " To pick another classifier, open /settings, then Classifier.",
         ),
     });
     expect(state.entries[3]).toEqual({

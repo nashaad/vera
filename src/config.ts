@@ -116,26 +116,14 @@ export interface VeraModelFallbackConfig {
 }
 
 /**
- * Model used by the automatic approval reviewer in `auto`. Every
- * boundary crossing costs one of these calls, so it is configured separately
- * from the agent model rather than inheriting it.
+ * How the classifier reviews. Which models it uses is the `reviewer` model
+ * assignment; this block never names them.
  *
  * If two_tier is enabled, high/critical risk allows and denials get a
- * second review. The second pass uses the same model unless escalation fields
- * override it.
- *
- * The fallback fields name a second reviewer, tried only when the first cannot
- * answer at all: it is missing, unreachable, or returns something unreadable.
- * It is not a second opinion. Without it, an unreachable reviewer leaves every
- * reviewed action with no verdict.
+ * second review. The second pass uses the assigned primary unless escalation
+ * fields override it.
  */
 export interface VeraReviewerConfig {
-    readonly provider?: VeraProviderId;
-    readonly model: string;
-    readonly reasoning_effort?: ModelReasoningEffort;
-    readonly fallback_model?: string;
-    readonly fallback_provider?: VeraProviderId;
-    readonly fallback_reasoning_effort?: ModelReasoningEffort;
     readonly timeout_ms?: number;
     readonly two_tier?: boolean;
     readonly escalation_model?: string;
@@ -292,6 +280,8 @@ export interface VeraConfig {
      * wanted. It stays opt-in until there is evidence it can be trusted on.
      */
     readonly model_picker_collapse_versions?: boolean;
+    /** Probe a model before it is newly assigned as a default. Off when absent. */
+    readonly verify_model_assignments?: boolean;
     /**
      * How many days a discovered model list answers for before the provider is
      * asked again. Absent means the built-in week. `0` asks on every start,
@@ -390,10 +380,7 @@ export interface VeraConfigDefaultsPatch {
     /** `null` returns context sizing to the model's declared maximum. */
     readonly context_limit?: number | null;
     readonly approval_mode?: ApprovalMode;
-    /**
-     * Reviewer slots, written whole. `null` clears the reviewer entirely,
-     * which returns auto mode to reviewing on the agent's own model.
-     */
+    /** Review settings, written whole. `null` removes them. */
     readonly reviewer?: VeraReviewerConfig | null;
     /**
      * One assignment, written whole. `null` unbinds it, which returns it to
@@ -511,6 +498,15 @@ export function loadVeraConfig(
     }
 
     const migrated = migrateShippedProviderDeclarations(path, value);
+    const movedReviewerKeys = reviewerRouteKeys(migrated);
+    if (movedReviewerKeys.length > 0) {
+        throw new VeraConfigError(
+            path,
+            `reviewer.${movedReviewerKeys.join(", reviewer.")} no longer`
+                + " set the classifier. Remove them and assign the classifier"
+                + " from Defaults in /models (model_assignments.reviewer).",
+        );
+    }
     const config = parseVeraConfig(migrated);
     if (config === undefined) {
         throw new VeraConfigError(
@@ -714,10 +710,11 @@ export function updateVeraConfigDefaults(
             ...current.model_assignments, [assignment]: patch.model_assignment.binding,
         } }).find((row) => row.assignment === assignment)?.declared ?? [];
         const pool = loadAssignmentPool({ userPath: join(dirname(path), "pool.json") }).merged;
+        const requireVerified = current.verify_model_assignments === true;
         for (const model of after) {
             if (before.some((previous) => previous.provider === model.provider && previous.model === model.model)) continue;
-            if (!eligibleForDefault(pool, model)) throw new VeraConfigError(path,
-                `${model.provider}/${model.model} must be verified and permitted before assigning ${assignment}.`);
+            if (!eligibleForDefault(pool, model, { requireVerified })) throw new VeraConfigError(path,
+                `${model.provider}/${model.model} must be ${requireVerified ? "verified and permitted" : "permitted"} before assigning ${assignment}.`);
         }
     }
     const updated: VeraConfig = {
@@ -1198,6 +1195,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         : parseModelFeedUrl(config.curated_models_url);
     const maxAgeMonths = parseNonNegativeCount(config.model_picker_max_age_months);
     const collapseVersions = config.model_picker_collapse_versions;
+    const verifyAssignments = config.verify_model_assignments;
     const catalogMaxAgeDays = parseNonNegativeCount(
         config.model_catalog_max_age_days,
     );
@@ -1235,6 +1233,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && maxAgeMonths === undefined)
         || (collapseVersions !== undefined
             && typeof collapseVersions !== "boolean")
+        || (verifyAssignments !== undefined
+            && typeof verifyAssignments !== "boolean")
         || (config.model_catalog_max_age_days !== undefined
             && catalogMaxAgeDays === undefined)
         || (config.compaction !== undefined && compaction === undefined)
@@ -1328,6 +1328,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             : { model_picker_max_age_months: maxAgeMonths }),
         ...(typeof collapseVersions === "boolean"
             ? { model_picker_collapse_versions: collapseVersions }
+            : {}),
+        ...(typeof verifyAssignments === "boolean"
+            ? { verify_model_assignments: verifyAssignments }
             : {}),
         ...(catalogMaxAgeDays === undefined
             ? {}
@@ -1987,30 +1990,28 @@ function isJsonValue(value: unknown): value is JsonValue {
     return Object.values(value).every(isJsonValue);
 }
 
+const REVIEWER_ROUTE_KEYS = [
+    "model", "provider", "reasoning_effort",
+    "fallback_model", "fallback_provider", "fallback_reasoning_effort",
+] as const;
+
+function reviewerRouteKeys(config: unknown): readonly string[] {
+    if (typeof config !== "object" || config === null) return [];
+    const reviewer = (config as Record<string, unknown>).reviewer;
+    if (typeof reviewer !== "object" || reviewer === null) return [];
+    return REVIEWER_ROUTE_KEYS.filter((key) => Object.hasOwn(reviewer, key));
+}
+
 function parseReviewer(
     value: unknown,
     providers: Readonly<Record<string, VeraCustomProviderConfig>>,
 ): VeraReviewerConfig | undefined {
-    if (typeof value !== "object" || value === null) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return undefined;
     }
     const reviewer = value as Record<string, unknown>;
     if (
-        typeof reviewer.model !== "string"
-        || reviewer.model.trim().length === 0
-        || (reviewer.provider !== undefined
-            && (typeof reviewer.provider !== "string"
-                || !isConfiguredProviderId(reviewer.provider, providers)))
-        || (reviewer.reasoning_effort !== undefined
-            && !isReasoningEffort(reviewer.reasoning_effort))
-        || (reviewer.fallback_model !== undefined
-            && (typeof reviewer.fallback_model !== "string"
-                || reviewer.fallback_model.trim().length === 0))
-        || (reviewer.fallback_provider !== undefined
-            && (typeof reviewer.fallback_provider !== "string"
-                || !isConfiguredProviderId(reviewer.fallback_provider, providers)))
-        || (reviewer.fallback_reasoning_effort !== undefined
-            && !isReasoningEffort(reviewer.fallback_reasoning_effort))
+        REVIEWER_ROUTE_KEYS.some((key) => Object.hasOwn(reviewer, key))
         || (reviewer.timeout_ms !== undefined
             && (typeof reviewer.timeout_ms !== "number"
                 || !Number.isInteger(reviewer.timeout_ms)
@@ -2030,22 +2031,6 @@ function parseReviewer(
         return undefined;
     }
     return {
-        model: reviewer.model.trim(),
-        ...(reviewer.provider === undefined
-            ? {}
-            : { provider: reviewer.provider as VeraProviderId }),
-        ...(reviewer.reasoning_effort === undefined
-            ? {}
-            : { reasoning_effort: reviewer.reasoning_effort }),
-        ...(reviewer.fallback_model === undefined
-            ? {}
-            : { fallback_model: reviewer.fallback_model.trim() }),
-        ...(reviewer.fallback_provider === undefined
-            ? {}
-            : { fallback_provider: reviewer.fallback_provider as VeraProviderId }),
-        ...(reviewer.fallback_reasoning_effort === undefined
-            ? {}
-            : { fallback_reasoning_effort: reviewer.fallback_reasoning_effort }),
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeout_ms: reviewer.timeout_ms }),
@@ -2402,58 +2387,30 @@ export function configuredReviewers(
         }
     }
 
+    if (
+        configured.default === undefined
+        && assignment.models.length > 0
+    ) {
+        configured.default = {
+            models: assignment.models.map((model) => ({
+                provider: model.provider,
+                model: model.model,
+                ...(model.reasoning_effort === undefined
+                    ? {}
+                    : { reasoningEffort: model.reasoning_effort }),
+            })),
+        };
+    }
     const reviewer = config.reviewer;
-    // The legacy plain block is still written by the direct classifier picker,
-    // so it overrides only the default profile's route while preserving that
-    // profile's policy. Clearing it reveals the named profile or assignment.
-    if (reviewer === undefined) {
-        if (
-            configured.default === undefined
-            && assignment.models.length > 0
-        ) {
-            configured.default = {
-                models: assignment.models.map((model) => ({
-                    provider: model.provider,
-                    model: model.model,
-                    ...(model.reasoning_effort === undefined
-                        ? {}
-                        : { reasoningEffort: model.reasoning_effort }),
-                })),
-            };
-        }
+    const primary = configured.default?.models[0];
+    if (reviewer === undefined || configured.default === undefined || primary === undefined) {
         return configured;
     }
     const escalationConfigured = reviewer.escalation_model !== undefined
         || reviewer.escalation_provider !== undefined
         || reviewer.escalation_reasoning_effort !== undefined;
     configured.default = {
-        // A hand-written default profile may still supply the policy and any
-        // timeout the direct picker did not override.
         ...configured.default,
-        // Ordered route: the router walks it and moves on when a reviewer
-        // cannot answer, so the fallback is simply the second entry.
-        models: [
-            {
-                model: reviewer.model,
-                ...(reviewer.provider === undefined
-                    ? {}
-                    : { provider: reviewer.provider }),
-                ...(reviewer.reasoning_effort === undefined
-                    ? {}
-                    : { reasoningEffort: reviewer.reasoning_effort }),
-            },
-            ...(reviewer.fallback_model === undefined ? [] : [{
-                model: reviewer.fallback_model,
-                ...(reviewer.fallback_provider === undefined
-                    ? reviewer.provider === undefined
-                        ? {}
-                        : { provider: reviewer.provider }
-                    : { provider: reviewer.fallback_provider }),
-                ...(reviewer.fallback_reasoning_effort === undefined
-                    ? {}
-                    : { reasoningEffort: reviewer.fallback_reasoning_effort }),
-            }]),
-        ],
         ...(reviewer.timeout_ms === undefined
             ? {}
             : { timeoutMs: reviewer.timeout_ms }),
@@ -2464,11 +2421,11 @@ export function configuredReviewers(
             ? {}
             : {
                 escalationModel: {
-                    model: reviewer.escalation_model ?? reviewer.model,
+                    model: reviewer.escalation_model ?? primary.model,
                     ...(reviewer.escalation_provider === undefined
-                        ? reviewer.provider === undefined
+                        ? primary.provider === undefined
                             ? {}
-                            : { provider: reviewer.provider }
+                            : { provider: primary.provider }
                         : { provider: reviewer.escalation_provider }),
                     ...(reviewer.escalation_reasoning_effort === undefined
                         ? {}

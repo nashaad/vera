@@ -266,7 +266,7 @@ test("palette terms match in either order and tolerate extra spaces", async () =
 
 test("label terms outrank incidental description matches", async () => {
     const entries: readonly TuiPaletteEntry[] = [
-        { ...commands[1], name: "manage", label: "Compare models", description: "keep verified models" },
+        { ...commands[1], name: "manage", label: "More models", description: "keep verified models" },
         { ...commands[1], name: "verify", label: "Verify favorites", description: "send checks" },
     ];
     const state = await editedPalette(entries, [..."ver"].map((key) => key));

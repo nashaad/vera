@@ -128,10 +128,12 @@ while those checks continue.
 Open Defaults from `/models` to assign connected models to snappy, eco, extra, classifier,
 compaction, and subagents. A model does not have to be a favorite to appear here.
 
-New assignments require successful verification and permission to use the
-model. Vera warns before a verification request that may cost money. A failed
-check or canceled assignment leaves the previous value in place. Escape
-cancels the assignment, though an already-started check may still finish.
+A new assignment needs permission to use the model and takes effect right
+away. To verify each model before it is assigned, set
+`"verify_model_assignments": true` in `config.json`. With that on, Vera warns
+that the verification request may cost money, a failed check or canceled
+assignment leaves the previous value in place, and Escape cancels the
+assignment, though an already-started check may still finish.
 
 Assigning a default leaves your conversation model unchanged. Subagents use
 an ordered list of allowed models and an optional fallback to the spawning

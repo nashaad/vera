@@ -185,10 +185,10 @@ function startingIndex(
     return at >= 0 ? at : 0;
 }
 
-/** How many models the resting list shows before Compare models takes over. Favorites are never cut. */
+/** How many models the resting list shows before More models takes over. Favorites are never cut. */
 export const MODEL_SWITCHER_SHORTLIST = 20;
 
-/** How many matches a search shows before it points at Compare models. */
+/** How many matches a search shows before it points at More models. */
 export const MODEL_SWITCHER_MATCHES = 20;
 
 /**
@@ -282,7 +282,7 @@ function searchRank(row: TuiModelSwitcherRow, terms: readonly string[]): number 
 }
 
 /** The row pinned under the list, which leaves for the page `/models` opens. */
-export const MODEL_SWITCHER_BROWSE_LABEL = "Compare models";
+export const MODEL_SWITCHER_BROWSE_LABEL = "More models";
 
 /** One press of pageup, pagedown, Ctrl+U or Ctrl+D covers this many rows. */
 const PAGE_ROWS = 10;
@@ -807,7 +807,7 @@ export function switcherScopeLabel(state: TuiModelSwitcherState): string {
     return switcherScope(state) === "all" ? "All connected models" : "Favorites";
 }
 
-/** Both scopes with the current one filled, like Compare models; narrow cards name only the current one. */
+/** Both scopes with the current one filled, like More models; narrow cards name only the current one. */
 export function switcherHeader(state: TuiModelSwitcherState, width: number): string {
     if (state.query.trim().length !== 0) return `Switch model · ${switcherScopeLabel(state)}`;
     const current = switcherScope(state);

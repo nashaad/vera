@@ -91,6 +91,61 @@ test("an assignment written after the host started needs no restart", async () =
     }
 });
 
+test("the classifier menu and Defaults write the same classifier", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-classifier-one-"));
+    const configPath = join(root, "config.json");
+    const poolPath = join(root, "pool.json");
+    const previousHome = process.env.VERA_HOME;
+    const previousPool = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = poolPath;
+    process.env.VERA_HOME = root;
+    await writeFile(
+        poolPath,
+        JSON.stringify({
+            models: { "openrouter/faux/one": {}, "openrouter/faux/two": {} },
+        }),
+    );
+    const initial = config("one", { reviewer: { two_tier: true } });
+    await writeFile(configPath, JSON.stringify(initial));
+    const host = await startResidentHost({
+        config: initial as never,
+        createAdapter: () => new FauxAdapter([]),
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+    try {
+        host.registry.applyReviewerPatch({
+            primary: { provider: "openrouter", model: "faux/one" },
+            fallback: { provider: "openrouter", model: "faux/two" },
+        });
+        const written = JSON.parse(await Bun.file(configPath).text());
+        expect(written.model_assignments.reviewer.models.map(
+            (entry: { model: string }) => entry.model,
+        )).toEqual(["faux/one", "faux/two"]);
+        expect(written.reviewer).toEqual({ two_tier: true });
+        expect(host.registry.readReviewer()).toMatchObject({
+            models: [
+                { provider: "openrouter", model: "faux/one" },
+                { provider: "openrouter", model: "faux/two" },
+            ],
+            twoTier: true,
+        });
+
+        host.registry.applyReviewerPatch(null);
+        const cleared = JSON.parse(await Bun.file(configPath).text());
+        expect(cleared.model_assignments.reviewer).toBeUndefined();
+        expect(host.registry.readReviewer()).toBeUndefined();
+    } finally {
+        await host.close();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
+        else process.env.VERA_POOL_FILE = previousPool;
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 // Every setting the host hands the registry, not just the assignments: the one
 // accessor they all read through is what makes this a property of the file

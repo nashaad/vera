@@ -64,10 +64,10 @@ Vera has two model surfaces. Switch model changes what runs the next turn. The M
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
 The list shows your favorites, your current model, and what you used recently. With no favorites it stays empty. Typing searches every connected model.
 Up/Down move, Ctrl+U/Ctrl+D page, Enter switches, Ctrl+F adds or removes the highlighted model from Favorites, Escape closes. A switch also sets the model new conversations start on, including after Vera restarts.
-Its sections are Search, the model list, and a Compare models row pinned under the list. Tab and Left/Right move between them; Ctrl+K reaches Compare models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. Compare models opens the Models page, which is where `/models` opens. Escape from there returns to Switch model.
+Its sections are Search, the model list, and a More models row pinned under the list. Tab and Left/Right move between them; Ctrl+K reaches More models from anywhere. Left/Right move the caret in Search, and typing from the list returns to Search. More models opens the Models page, which is where `/models` opens. Escape from there returns to Switch model.
 Switch model has no scope, sort, score, or price controls and no detail pane. Those are the Models page.
 When Switch model lists one model from more than one provider, each of those rows names its provider.
-Until you favorite anything, the shortlist is Vera's shipped picks for the providers you have connected, so it works before anyone curates it. Favorites take the rows ahead of them as you add them. When a search holds more matches than it shows, the Compare models row counts the rest.
+Until you favorite anything, the shortlist is Vera's shipped picks for the providers you have connected, so it works before anyone curates it. Favorites take the rows ahead of them as you add them. When a search holds more matches than it shows, the More models row counts the rest.
 Switching to a model with effort levels always asks which level to run, with the carried level highlighted when the new model has it. A model without levels switches straight away.
 `/models` opens the Models page: Library, Catalog, Actions, Defaults, and Help, with Providers under Actions. Ctrl+P also reaches Favorites, Assign model defaults, and Configure providers directly.
 View in Filter and sort toggles Standard/Detailed. Standard shows names and status with selected-model pricing below. Detailed adds independently aligned WA Score and input/output price columns and a detail pane when space permits. Unknown scores and prices show ?. Unknown prices are not zero. Rates are dollars per million tokens.
@@ -76,7 +76,7 @@ Providers opens the existing Configure providers screen. Highlight a model, then
 Refreshing a catalog reports the result as a brief overlay that types the message quickly and marks it done; a failed refresh is marked as a failure, not a tick. Press Escape to close it when no dialog is open, otherwise it clears on its own. Another overlay waits its turn. The open dialog stays put and its layout does not change.
 Favorites retains the existing saved collection and order. Search and Models are its two sections. Ctrl+R renames; Ctrl+Y verifies the highlighted connected model without requiring favorite membership. Ctrl+D/Ctrl+U page the model list.
 Bulk verification covers Favorites. Tab toggles unverified-only/all; Enter starts real requests. Escape leaves checks running while returning to the caller. Failures leave assignments unchanged.
-Assign model defaults offers any connected model. New assignments need successful verification and must be permitted by policy, but need not be favorites. The screen discloses that verification can cost money. A failed or canceled assignment keeps the previous value; Escape cancels assignment, not an already-started verification request.
+Assign model defaults offers any connected model. New assignments must be permitted by policy but need not be favorites or verified. Set `verify_model_assignments` to true in `config.json` to verify each model before it is assigned; a failed or canceled check then keeps the previous value.
 Removing a favorite preserves verification evidence and all default assignments. An empty Favorites list does not invalidate explicit subagent defaults. Subagents still use only their assigned list and the separately enabled spawning-session fallback.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
 `/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has. A level you choose becomes the default for new conversations, except `max`, which applies to the current conversation only.
@@ -96,11 +96,12 @@ The transcript animates while work runs. The footer shows a small activity strip
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Pairing panes from `/btw` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=19]
+## Tools, permissions, and agents [lines=20]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 Clicking a turn's auto-approved count, or pressing Ctrl+T, lists the actions the classifier allowed and why. Manual: `docs/permission-classifier.md`.
+Defaults and the Classifier entry in `/settings` set the same classifier; the Classifier entry also sets a failsafe. When the classifier fails, the notice names its model and points to `/settings` then Classifier.
 The permission modes are readonly, ask, auto, and full access. Home config can add named custom modes with their own rules.
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
 Always on an approval prompt saves an allow rule for every conversation. Review granted permissions in the command palette lists and removes them.

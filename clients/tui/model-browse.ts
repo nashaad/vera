@@ -184,7 +184,7 @@ export function modelBrowse(state: TuiSettingsPickerState, mode: "browse" | "fav
         allOptions: state.providerCatalogs === undefined ? state.allOptions : state.allOptions.filter((row) => row.description !== "current model" || row.pooledRank !== undefined),
         modelBrowse: mode,
         browseRetainedModels: state.allOptions.filter((row) => row.pooledRank !== undefined).map((row) => row.value),
-        title: mode === "browse" ? "Compare models" : "Favorites",
+        title: mode === "browse" ? "More models" : "Favorites",
         browseView: state.browseView ?? "standard",
         tab: mode === "browse" ? state.tab ?? "pool" : "all", modelFocus: mode === "browse" ? "search" : "list", query: "", queryCursor: 0,
         selectedIndex: 0 };

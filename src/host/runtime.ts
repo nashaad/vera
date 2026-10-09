@@ -4,6 +4,7 @@ import { readModelCatalog } from "../providers/read-model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
 import { applyModelOperation } from "../model/model-operations.ts";
 import { configuredModelAssignments as modelOperationAssignments } from "../config.ts";
+import { derivedModelName } from "../config/model-catalog.ts";
 import { configuredTurnPolicy } from "../turn-policy.ts";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -717,40 +718,28 @@ export async function startResidentHost(
         reviewLog,
         writeReviewer: (settings) => {
             if (settings === null || settings.models.length === 0) {
-                updateVeraConfigDefaults({ reviewer: null });
+                updateVeraConfigDefaults({
+                    model_assignment: { assignment: "reviewer", binding: null },
+                });
                 return;
             }
-            const [primary, fallback] = settings.models;
+            const defaultProvider = currentConfig().provider;
             updateVeraConfigDefaults({
-                reviewer: {
-                    model: primary!.model,
-                    ...(primary!.provider === undefined
-                        ? {}
-                        : { provider: primary!.provider as VeraProviderId }),
-                    ...(primary!.reasoningEffort === undefined
-                        ? {}
-                        : { reasoning_effort: primary!.reasoningEffort }),
-                    ...(fallback === undefined ? {} : {
-                        fallback_model: fallback.model,
-                        ...(fallback.provider === undefined
-                            ? {}
-                            : {
-                                fallback_provider:
-                                    fallback.provider as VeraProviderId,
-                            }),
-                        ...(fallback.reasoningEffort === undefined
-                            ? {}
-                            : {
-                                fallback_reasoning_effort:
-                                    fallback.reasoningEffort,
-                            }),
-                    }),
-                    ...(settings.timeoutMs === undefined
-                        ? {}
-                        : { timeout_ms: settings.timeoutMs }),
-                    ...(settings.twoTier === undefined
-                        ? {}
-                        : { two_tier: settings.twoTier }),
+                model_assignment: {
+                    assignment: "reviewer",
+                    binding: {
+                        models: settings.models.slice(0, 2).map((model) => {
+                            const provider = (model.provider ?? defaultProvider) as VeraProviderId;
+                            return {
+                                name: derivedModelName(provider, model.model),
+                                provider,
+                                model: model.model,
+                                ...(model.reasoningEffort === undefined
+                                    ? {}
+                                    : { reasoning_effort: model.reasoningEffort }),
+                            };
+                        }),
+                    },
                 },
             });
         },

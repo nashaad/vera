@@ -31,8 +31,7 @@ a model, and press Enter. If it offers effort levels, choose one to start the
 conversation.
 
 Favorites save models for quick access. You do not need to favorite a model
-before selecting it, verifying it, or assigning it as a default. Assigning a
-default verifies the model first and can incur provider charges. See
+before selecting it, verifying it, or assigning it as a default. See
 [Models and favorites](models.md).
 
 ### If the connection fails
