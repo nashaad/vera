@@ -41,6 +41,28 @@ tokens and fit hundreds of thousands.
 
 <div data-widget="screen-steps" data-steps="context-compaction"></div>
 
+## When compaction cannot run
+
+If a summary cannot be made, the transcript shows a notice starting
+`Could not summarize`, and the conversation carries on unchanged. The reason
+says what to do:
+
+- `There is not enough finished history to compact yet.` Keep working; there
+  is nothing older to summarize.
+- A reason that names the instructions and tool definitions, or the latest
+  messages, means they leave no room for a summary under the trigger. It ends
+  with what to raise: the context limit (or a model with a larger window), or
+  `compaction.trigger_tokens` when the model's window is unknown.
+- `Could not summarize the earlier messages: <reason>` means the summarizing
+  model failed. The reason comes from the provider.
+
+Asking to compact while a turn is running shows `Compaction runs between
+turns. Try again once this one finishes.` Stopping a compaction leaves the
+earlier messages as they were.
+
+Every `Could not summarize` is also recorded for `/failure-report` (see
+[Troubleshooting](troubleshooting.md#capture-a-model-failure)).
+
 ## Change a setting
 
 Open `/settings` and choose **Overrides**. The screen contains controls for
