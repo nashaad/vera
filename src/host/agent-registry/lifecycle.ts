@@ -12,6 +12,8 @@ import { delegationAllows, isSessionIdentity, materializeSessionIdentity, publis
 import { LIVE_IDLE_WINDOW_MS, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
 import { ResidentAgent } from "../resident-agent.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
+import type { SessionEndReason } from "../../sdk/hooks.ts";
+import { announceSessionEnd } from "./session-end.ts";
 
 export async function create(reg: AgentRegistry, options: CreateRegisteredAgentOptions): Promise<ResidentAgent> {
         return reg.createWithKind(
@@ -23,13 +25,14 @@ export async function create(reg: AgentRegistry, options: CreateRegisteredAgentO
         );
     }
 
-export async function closeAgent(reg: AgentRegistry, id: string): Promise<"closed" | "not_found"> {
+export async function closeAgent(reg: AgentRegistry, id: string, reason: SessionEndReason = "closed"): Promise<"closed" | "not_found"> {
         const entry = reg.agents.get(id);
         if (entry === undefined) {
             return "not_found";
         }
         entry.agent.close();
         await entry.run;
+        announceSessionEnd(reg, entry, reason);
         await reg.reapClosedAgent(id, entry);
         reg.notifyRosterChanged();
         return "closed";
@@ -39,7 +42,7 @@ export function ownedTreeIds(reg: AgentRegistry, id: string): readonly string[] 
         return reg.agents.has(id) ? [id, ...reg.liveDescendantsOf(id)] : [];
     }
 
-export async function closeAgentTree(reg: AgentRegistry, id: string): Promise<CloseAgentTreeResult> {
+export async function closeAgentTree(reg: AgentRegistry, id: string, reason: SessionEndReason = "closed"): Promise<CloseAgentTreeResult> {
         const present = reg.agents.has(id);
         const sessionRetained = reg.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
@@ -68,6 +71,7 @@ export async function closeAgentTree(reg: AgentRegistry, id: string): Promise<Cl
             }
         }
         for (const [memberId, entry] of quiesced) {
+            announceSessionEnd(reg, entry, reason);
             await reg.reapClosedAgent(memberId, entry);
         }
         if (quiesced.size > 0) {
@@ -96,7 +100,7 @@ export async function parkExpiredIdle(reg: AgentRegistry, now = Date.now()): Pro
         for (const id of expiredRoots) {
             if (reg.isClosed || !reg.agents.has(id)) continue;
             try {
-                await closeAgentTree(reg, id);
+                await closeAgentTree(reg, id, "idle");
             } catch {
                 // A failed park must not stop the rest of the sweep.
             }
@@ -434,7 +438,7 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
             return "busy";
         }
 
-        await reg.closeAgent(targetId);
+        await reg.closeAgent(targetId, "deleted");
         try {
             await reg.trashArtifacts({
                 sessionPath: entry.store.path,
@@ -694,6 +698,9 @@ export async function close(reg: AgentRegistry): Promise<void> {
             reg.processRegistry.close(),
             ...entries.map((entry) => entry.run),
         ]);
+        for (const entry of entries) {
+            announceSessionEnd(reg, entry, "shutdown");
+        }
         await Promise.all([...reg.deliveryTasks]);
         await Promise.all(entries
             .filter((entry) => entry.ephemeral)

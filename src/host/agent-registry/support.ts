@@ -173,6 +173,7 @@ import type { UserMessage } from "../../model/types.ts";
 import type { OneshotMessage } from "../../engine/protocol.ts";
 import type {
     PreCompactHookPayload,
+    SessionEndHookPayload,
     TurnFinishedHookPayload,
 } from "../../sdk/hooks.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
@@ -303,6 +304,7 @@ export function importedSessionSummary(
 export interface AgentRegistryOptions {
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
+    readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
     readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").ModelMiddleware[];
     readonly createAdapter: (
         provider?: string,
@@ -788,6 +790,8 @@ export interface RegisteredAgentEntry {
     pendingCompletionDeliveries: number;
     completionSequence: number;
     failure?: unknown;
+    /** Set once session_end has been announced, so racing closes report it once. */
+    sessionEnded?: boolean;
 }
 
 export interface PendingSubagentLaunch {

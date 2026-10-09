@@ -237,3 +237,25 @@ export interface PreCompactHookPayload {
 export type PreCompactHook = (
     payload: PreCompactHookPayload,
 ) => void | Promise<void>;
+
+export type SessionEndReason =
+    | "detached"
+    | "closed"
+    | "idle"
+    | "deleted"
+    | "shutdown";
+
+export interface SessionEndHookPayload {
+    readonly type: "session_end";
+    readonly sessionId: string;
+    readonly workspace: string;
+    readonly reason: SessionEndReason;
+    readonly turns: number;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
+}
+
+/** Observe only. Nothing waits for it, not even host shutdown. */
+export type SessionEndHook = (
+    payload: SessionEndHookPayload,
+) => void | Promise<void>;

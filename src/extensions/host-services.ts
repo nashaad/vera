@@ -7,6 +7,7 @@ import type {
 } from "../sdk/extensions.ts";
 import type {
     PreCompactHook,
+    SessionEndHook,
     TurnFinishedHook,
     TurnFinishedHookPayload,
 } from "../sdk/hooks.ts";
@@ -56,6 +57,11 @@ export interface RegisteredTurnFinishedHook {
 export interface RegisteredPreCompactHook {
     readonly extensionId: string;
     readonly run: PreCompactHook;
+}
+
+export interface RegisteredSessionEndHook {
+    readonly extensionId: string;
+    readonly run: SessionEndHook;
 }
 
 /**

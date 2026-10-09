@@ -1,4 +1,4 @@
-import type { JsonValue } from "../sdk/hooks.ts";
+import type { JsonValue, SessionEndReason } from "../sdk/hooks.ts";
 import type { ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
@@ -195,6 +195,7 @@ export interface StartHostServerOptions {
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
     readonly closeAgent?: (
         targetAgentId: string,
+        reason?: SessionEndReason,
     ) => Promise<CloseAgentOutcome>;
     readonly renameSession?: (
         targetAgentId: string,
@@ -535,6 +536,7 @@ function receiveConnection(
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
     closeAgent: (
         targetAgentId: string,
+        reason?: SessionEndReason,
     ) => Promise<CloseAgentOutcome>,
     renameSession: (
         targetAgentId: string,
@@ -667,7 +669,7 @@ function receiveConnection(
                     abandonedAgentId,
                     readAgentTree,
                 )) {
-                    void closeAgent(rootId).catch(() => undefined);
+                    void closeAgent(rootId, "detached").catch(() => undefined);
                 }
             }, limits.interactiveDisconnectGraceMs);
             timer.unref();
@@ -777,7 +779,7 @@ function receiveConnection(
                     detachedAgentId,
                     readAgentTree,
                 )) {
-                    void closeAgent(rootId).catch(() => undefined);
+                    void closeAgent(rootId, "detached").catch(() => undefined);
                 }
             }
             attachedWorkspace = undefined;
@@ -857,7 +859,7 @@ function receiveConnection(
                 }).then(() => socket.end(), () => socket.destroy());
                 return;
             }
-            void Promise.all(rootsToStop.map((rootId) => closeAgent(rootId))).then(
+            void Promise.all(rootsToStop.map((rootId) => closeAgent(rootId, "detached"))).then(
                 (results) => results.every((result) => result.status === "closed")
                     ? send({
                         type: "attachment_released",

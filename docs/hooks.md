@@ -377,6 +377,31 @@ vera.hooks.registerPreCompact(async (compaction) => {
 });
 ```
 
+An extension can run a function when a session closes with
+`registerSessionEnd`, after declaring `hooks.session_end`. A session stays
+open in the host while a client is attached or it is set to keep running, so
+the hook fires when the host closes it. It gets the session ID, workspace,
+`turns`, `spawned`, and a `reason`:
+
+| Reason | When |
+| --- | --- |
+| `detached` | The last client left: quitting, `/new`, or switching sessions. |
+| `closed` | A client or the parent agent closed it. |
+| `idle` | The host parked it after it sat idle. |
+| `deleted` | It was moved to the trash. |
+| `shutdown` | The host stopped. |
+
+Closing a session also ends the subagents it started, each with
+`spawned: true`. It only observes, and nothing waits for it, including host
+shutdown, so a slow hook may be cut off when the host exits. It does not fire
+after a crash.
+
+```js
+vera.hooks.registerSessionEnd((session) => {
+    if (session.turns > 0) logbook.push(`${session.sessionId} dropped anchor: ${session.reason}`);
+});
+```
+
 From host code, an extension that declared `sessions.ask` can ask an open
 session one side question with `vera.sessions.ask({ sessionId, question })`.
 Vera sends the session's last model request again, with the question added

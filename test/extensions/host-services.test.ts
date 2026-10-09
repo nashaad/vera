@@ -16,6 +16,7 @@ import {
 } from "../../src/extensions/registry.ts";
 import type {
     PreCompactHookPayload,
+    SessionEndHookPayload,
     TurnFinishedHookPayload,
 } from "../../src/sdk/hooks.ts";
 
@@ -340,3 +341,44 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     }
     throw new Error("Timed out waiting for the condition");
 }
+
+test("session-end hooks need their capability and get the payload", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-end.extension", `
+        export function activate(vera) {
+            vera.hooks.registerSessionEnd(() => {});
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.sessionEndHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.session_end");
+    await deniedRegistry.close();
+
+    const ledger = createExtension("ledger.extension", `
+        export function activate(vera) {
+            vera.hooks.registerSessionEnd((payload) => {
+                globalThis.__endSeen = payload.reason + " " + payload.turns;
+            });
+        }
+    `, ["hooks.session_end"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(ledger)],
+    });
+    const ended: SessionEndHookPayload = {
+        type: "session_end",
+        sessionId: "session-1",
+        workspace: "/deck",
+        reason: "detached",
+        turns: 3,
+        spawned: false,
+    };
+    expect(registry.sessionEndHooks().map((hook) => hook.extensionId))
+        .toEqual(["ledger.extension"]);
+    notifyObservers(registry.sessionEndHooks(), ended, () => {});
+    await waitFor(() => globals().__endSeen !== undefined);
+    expect(globals().__endSeen).toBe("detached 3");
+    await registry.close();
+});

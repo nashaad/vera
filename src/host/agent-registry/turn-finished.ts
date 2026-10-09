@@ -35,7 +35,7 @@ export function turnFinishedPayload(
 }
 
 // Messages typed while a turn runs join that turn instead of starting one.
-function startsTurn(message: ModelMessage): boolean {
+export function startsTurn(message: ModelMessage): boolean {
     return message.role === "user"
         && message.internal !== true
         && message.contextSource === undefined

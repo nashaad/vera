@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import type {
     PreCompactHookPayload,
+    SessionEndHookPayload,
+    SessionEndReason,
     TurnFinishedHookPayload,
 } from "../../src/sdk/hooks.ts";
 import {
@@ -1114,6 +1116,90 @@ test("pre-compact observers hear a started compaction with the session's facts",
             tokens: 150_000,
             spawned: false,
         }]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("session-end observers hear each way a session ends, once", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-session-end-"));
+    const payloads: SessionEndHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            textResponse("The crow buried it under the third palm."),
+        ]),
+        model: "faux/test",
+        approvalMode: "auto",
+        trashSessionArtifacts: async () => {},
+        onSessionEnd: (payload) => payloads.push(payload),
+    });
+    const open = (id: string) => registry.create({
+        id,
+        workspace: root,
+        sessionPath: join(root, `${id}.jsonl`),
+    });
+
+    try {
+        await open("ship");
+        const attachment = registry.find("ship")!.attach();
+        await runPrompt(attachment, "where is the treasure");
+        attachment.detach();
+        await registry.closeAgent("ship", "detached");
+        await open("deck");
+        await registry.parkExpiredIdle(Date.now() + 11 * 60 * 1_000);
+        await open("hold");
+        expect(await registry.trashSession("hold")).toBe("trashed");
+        await open("galley");
+        await registry.create({ id: "aside", workspace: root, ephemeral: true });
+        await Promise.all([
+            registry.closeAgent("galley"),
+            registry.close(),
+        ]);
+
+        const workspace = realpathSync(root);
+        const ended = (
+            sessionId: string,
+            reason: SessionEndReason,
+            turns = 0,
+        ): SessionEndHookPayload => ({
+            type: "session_end",
+            sessionId,
+            workspace,
+            reason,
+            turns,
+            spawned: false,
+        });
+        expect(payloads).toEqual([
+            ended("ship", "detached", 1),
+            ended("deck", "idle"),
+            ended("hold", "deleted"),
+            ended("galley", "closed"),
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("registry shutdown ends every open session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-session-end-shutdown-"));
+    const payloads: SessionEndHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+        onSessionEnd: (payload) => payloads.push(payload),
+    });
+    try {
+        await registry.create({
+            id: "crow",
+            workspace: root,
+            sessionPath: join(root, "crow.jsonl"),
+        });
+        await registry.close();
+        expect(payloads.map((payload) => [payload.sessionId, payload.reason]))
+            .toEqual([["crow", "shutdown"]]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

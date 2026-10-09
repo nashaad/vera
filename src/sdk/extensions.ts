@@ -7,6 +7,7 @@ import type {
     TurnEndingHook,
     SessionStartHook,
     PreCompactHook,
+    SessionEndHook,
     TurnFinishedHook,
 } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
@@ -229,6 +230,8 @@ export interface VeraExtensionHooks {
     registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer;
     /** Needs `hooks.pre_compact`. */
     registerPreCompact(hook: PreCompactHook): VeraExtensionDisposer;
+    /** Needs `hooks.session_end`. */
+    registerSessionEnd(hook: SessionEndHook): VeraExtensionDisposer;
     registerModelRequest(
         namespace: string,
         hook: ModelRequestHook,
