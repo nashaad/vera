@@ -127,7 +127,7 @@ test("assigning a default runs no verification unless the setting asks for it", 
                 model_assignments: { eco: { models: [{ name: "prior", provider: "openrouter", model: "prior" }] } },
             }));
             return { ...createTuiCatalogRefreshDependencies({ pooled: [] }),
-                operateModels: async () => { calls++; return undefined; },
+                operateModels: async (operation) => { if (operation.operation === "verify") calls++; return undefined; },
             };
         },
     });

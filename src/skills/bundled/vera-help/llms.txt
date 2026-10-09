@@ -77,7 +77,7 @@ Providers opens the existing Configure providers screen. Highlight a model, then
 Refreshing a catalog reports the result as a brief overlay that types the message quickly and marks it done; a failed refresh is marked as a failure, not a tick. Press Escape to close it when no dialog is open, otherwise it clears on its own. Another overlay waits its turn. The open dialog stays put and its layout does not change.
 Favorites retains the existing saved collection and order. Search and Models are its two sections. Ctrl+R renames; Ctrl+Y verifies the highlighted connected model without requiring favorite membership. Ctrl+D/Ctrl+U page the model list.
 Bulk verification covers Favorites. Tab toggles unverified-only/all; Enter starts real requests. Escape leaves checks running while returning to the caller. Failures leave assignments unchanged.
-Assign model defaults offers any connected model. New assignments must be permitted by policy but need not be favorites or verified. Set `verify_model_assignments` to true in `config.json` to verify each model before it is assigned; a failed or canceled check then keeps the previous value.
+Assign model defaults offers any connected model. New assignments must be permitted by policy but need not be favorites or verified; assigning a model also adds it to your favorites. Set `verify_model_assignments` to true in `config.json` to verify each model before it is assigned; a failed or canceled check then keeps the previous value.
 Removing a favorite preserves verification evidence and all default assignments. An empty Favorites list does not invalidate explicit subagent defaults. Subagents still use only their assigned list and the separately enabled spawning-session fallback.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
 `/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has. A level you choose becomes the default for new conversations, except `max`, which applies to the current conversation only.
@@ -107,7 +107,7 @@ The permission modes are readonly, ask, auto, and full access. Home config can a
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
 Always on an approval prompt saves an allow rule for every conversation. Review granted permissions in the command palette lists and removes them.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
-Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in. Assigning a model there also adds it to your favorites.
+Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in.
 A model named on a spawn call runs only if it is in that list, or if it is the parent session's model and the separate `Spawning session model` row is on. That row is off unless you turn it on.
 When an assigned model cannot run, Vera walks the rest of your list and stops there. It never reaches for an unassigned model, a same-family sibling, or a pool failsafe.
 If nothing is assigned and that row is off, no child starts. An interactive client opens the Subagents assignment so you can fix it.

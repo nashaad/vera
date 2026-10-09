@@ -127,6 +127,8 @@ while those checks continue.
 
 Open Defaults from `/models` to assign connected models to snappy, eco, extra, classifier,
 compaction, and subagents. A model does not have to be a favorite to appear here.
+Assigning one that is not a favorite adds it to your favorites, because a
+subagent can run on any of these assignments and subagents only run favorites.
 
 A new assignment needs permission to use the model and takes effect right
 away. To verify each model before it is assigned, set
