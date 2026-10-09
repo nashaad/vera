@@ -9,6 +9,7 @@ import { join } from "node:path";
 import {
     emptyUsage,
     type AssistantMessage,
+    type HookContextPhase,
     type ImageContent,
     type ModelAdapter,
     type ModelMessage,
@@ -39,6 +40,7 @@ import type {
     PreToolUseHookResult,
     PreTurnHookPayload,
     SessionStartHookPayload,
+    TurnEndingHookPayload,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { AgentUpdate } from "./protocol.ts";
@@ -198,6 +200,8 @@ import {
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const PRE_TURN_HOOK_TIMEOUT_MS = 60_000;
+const TURN_ENDING_HOOK_TIMEOUT_MS = 60_000;
+const MAX_TURN_CONTINUATIONS = 1;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
@@ -994,6 +998,8 @@ export async function runTurn(
         const turnPrompts = turn.triggeredByDelivery
             ? []
             : [turn.prompt, ...(turn.additionalPrompts ?? [])];
+        const promptTexts = turnPrompts.map((prompt) => prompt.content);
+        let turnContinuations = 0;
         const userMessages: UserMessage[] = turnPrompts.map((prompt) => ({
             role: "user",
             content: [
@@ -1557,13 +1563,41 @@ export async function runTurn(
                 assistantMessage = prepared.message;
                 preparedToolCalls = prepared.toolCalls;
             }
+            // Before the reply is committed, so a continued reply does not carry the turn's timing.
+            const endingContext = assistantMessage.stopReason === "stop"
+                ? await runTurnEndingHook(state, {
+                    type: "turn_ending",
+                    ...(state.sessionId === undefined
+                        ? {}
+                        : { sessionId: state.sessionId }),
+                    workspace: state.toolRuntime.workspace,
+                    prompt: promptTexts.join("\n\n"),
+                    reply: replyText(assistantMessage),
+                    spawned: state.toolRuntime.isSubagent,
+                    continuations: turnContinuations,
+                }, turn.signal)
+                : undefined;
             if (assistantMessage.stopReason !== "tool_use"
+                && endingContext === undefined
                 && (assistantMessage.stopReason !== "length"
                     || nextLengthContinuation(maxTokens, lengthContinuations) === undefined)) {
                 assistantMessage = withTurnTiming(assistantMessage);
             }
             calibrateContextWatch(state, measurement, assistantMessage, activeModel);
             await commitMessage(state, assistantMessage);
+
+            if (endingContext !== undefined) {
+                turnContinuations += 1;
+                await commitHookContexts(state, "turn_ending", [endingContext]);
+                const continuationCapacity = capacityForModel(activeModel);
+                await compactDuringTurn(state, turn.signal, [], {
+                    model: activeModel,
+                    ...(continuationCapacity === undefined
+                        ? {}
+                        : { capacity: continuationCapacity }),
+                });
+                continue;
+            }
 
             if (assistantMessage.stopReason === "length") {
                 const continuation = nextLengthContinuation(
@@ -1714,6 +1748,7 @@ export async function runTurn(
                 };
                 await commitMessage(state, message);
                 state.events.emit({ type: "turn_started", message });
+                promptTexts.push(prompt.content);
             }
             // Same gate as a later prompt in a send-all batch: it may narrow tools or block, never switch the model.
             for (const prompt of joined) {
@@ -1960,7 +1995,7 @@ async function applyPreTurnHook(
 // Each context is its own message after the prompts, so the cached prefix before them never changes.
 async function commitHookContexts(
     state: RunTurnState,
-    phase: "pre_turn",
+    phase: HookContextPhase,
     contexts: readonly HookContext[],
 ): Promise<void> {
     for (const entry of contexts) {
@@ -1977,6 +2012,37 @@ async function commitHookContexts(
             ...(entry.source === undefined ? {} : { source: entry.source }),
         });
     }
+}
+
+// A failing chain ends the turn as if no hook were registered.
+async function runTurnEndingHook(
+    state: RunTurnState,
+    payload: TurnEndingHookPayload,
+    signal: AbortSignal,
+): Promise<HookContext | undefined> {
+    let outcome;
+    try {
+        outcome = await state.hooks.runTurnEnding(payload, {
+            timeoutMs: TURN_ENDING_HOOK_TIMEOUT_MS,
+        });
+    } catch (error) {
+        state.events.emit({
+            type: "turn_hook_failed",
+            phase: "turn_ending",
+            error: errorMessage(error),
+        });
+        return undefined;
+    }
+    if (signal.aborted || payload.continuations >= MAX_TURN_CONTINUATIONS) {
+        return undefined;
+    }
+    return outcome.continuation;
+}
+
+function replyText(message: AssistantMessage): string {
+    return message.content
+        .map((block) => block.type === "text" ? block.text : "")
+        .join("");
 }
 
 async function drainPendingDeliveries(state: RunTurnState): Promise<void> {

@@ -113,14 +113,14 @@ export function formatModelSubstitution(
 }
 
 /** Hook phases whose added context is stored as its own message. */
-export type HookContextPhase = "pre_turn";
+export type HookContextPhase = "pre_turn" | "turn_ending";
 
 export function formatHookContext(
     phase: HookContextPhase,
     source: string | undefined,
 ): string {
     const who = source ?? "A hook";
-    return `${who} added context`;
+    return phase === "turn_ending" ? `${who} continued the turn` : `${who} added context`;
 }
 
 export interface TurnTiming {

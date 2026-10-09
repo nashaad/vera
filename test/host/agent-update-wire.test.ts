@@ -983,3 +983,14 @@ test("host wire carries hook context facts live and in history", () => {
         entries: [{ kind: "hook_context", phase: "pre_turn", source: 7 }],
     })).toBeUndefined();
 });
+
+test("host wire carries a turn_ending continuation live and in history", () => {
+    const live = { type: "hook_context" as const, phase: "turn_ending" as const, source: "lookout", seq: 6 };
+    expect(parseAgentUpdate(live)).toEqual(live);
+    const history = {
+        type: "history" as const,
+        seq: 7,
+        entries: [{ kind: "hook_context" as const, phase: "turn_ending" as const, source: "lookout" }],
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+});

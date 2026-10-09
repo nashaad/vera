@@ -13,6 +13,9 @@ import type {
     PreTurnHook,
     PreTurnHookPayload,
     PreTurnHookResult,
+    TurnEndingHook,
+    TurnEndingHookPayload,
+    TurnEndingHookResult,
 } from "../sdk/hooks.ts";
 
 export const MAX_SESSION_START_CONTEXT_BYTES = 128 * 1024;
@@ -51,6 +54,11 @@ export interface PreTurnOutcome {
     readonly contexts: readonly HookContext[];
 }
 
+export interface TurnEndingOutcome {
+    /** The first `continue` in the chain. Later handlers do not run. */
+    readonly continuation?: HookContext;
+}
+
 interface SourcedHook<Hook> {
     readonly run: Hook;
     readonly source?: string;
@@ -61,6 +69,7 @@ export class ToolHooks {
     private readonly postToolUse: PostToolUseHook[] = [];
     private readonly preTurn: SourcedHook<PreTurnHook>[] = [];
     private readonly sessionStart: SessionStartHook[] = [];
+    private readonly turnEnding: SourcedHook<TurnEndingHook>[] = [];
 
     constructor(
         private readonly onSessionStartFailure?: (failure: SessionStartHookFailure) => void,
@@ -120,6 +129,13 @@ export class ToolHooks {
         const entry = source === undefined ? { run: hook } : { run: hook, source };
         this.preTurn.push(entry);
         return () => removeHook(this.preTurn, entry);
+    }
+
+    /** `source` names the extension in the transcript row when it continues a turn. */
+    registerTurnEnding(hook: TurnEndingHook, source?: string): () => void {
+        const entry = source === undefined ? { run: hook } : { run: hook, source };
+        this.turnEnding.push(entry);
+        return () => removeHook(this.turnEnding, entry);
     }
 
     async runPreToolUse(
@@ -256,6 +272,31 @@ export class ToolHooks {
             result: currentResult,
             contexts,
         };
+    }
+
+    async runTurnEnding(
+        payload: TurnEndingHookPayload,
+        options: HookCallOptions,
+    ): Promise<TurnEndingOutcome> {
+        const deadline = hookDeadline(options.timeoutMs);
+        for (const hook of [...this.turnEnding]) {
+            const result = await callHook(
+                async () => cloneHookData(await hook.run(cloneHookData(payload))),
+                remainingTime(deadline, options.timeoutMs, payload.type),
+                options.timeoutMs,
+                payload.type,
+            );
+            assertTurnEndingHookResult(result);
+            remainingTime(deadline, options.timeoutMs, payload.type);
+            if (result.power === "continue") {
+                return {
+                    continuation: hook.source === undefined
+                        ? { context: result.context }
+                        : { source: hook.source, context: result.context },
+                };
+            }
+        }
+        return {};
     }
 }
 
@@ -400,7 +441,23 @@ function assertPreTurnHookResult(
     }
 }
 
-function assertHookContext(context: unknown, hookType: string): void {
+function assertTurnEndingHookResult(
+    result: unknown,
+): asserts result is TurnEndingHookResult {
+    assertHookResultObject(result, "turn_ending");
+    if (result.power === "observe") {
+        return;
+    }
+    if (result.power !== "continue") {
+        throw new Error(`turn_ending returned unsupported power: ${String(result.power)}`);
+    }
+    assertHookContext(result.context, "turn_ending");
+    if (result.context.length === 0) {
+        throw new Error("turn_ending continue context must not be empty");
+    }
+}
+
+function assertHookContext(context: unknown, hookType: string): asserts context is string {
     if (typeof context !== "string") {
         throw new Error(`${hookType} context must be a string`);
     }

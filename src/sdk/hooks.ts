@@ -24,7 +24,7 @@ export interface HookToolResult {
     readonly isError: boolean;
 }
 
-export type HookPower = "observe" | "mutate" | "block" | "replace";
+export type HookPower = "observe" | "mutate" | "block" | "replace" | "continue";
 
 export interface ObserveHookResult {
     readonly power: "observe";
@@ -128,6 +128,33 @@ export type PreTurnHookResult =
 export type PreTurnHook = (
     payload: PreTurnHookPayload,
 ) => PreTurnHookResult | Promise<PreTurnHookResult>;
+
+export interface TurnEndingHookPayload {
+    readonly type: "turn_ending";
+    /** Present for host-run sessions; direct engine fixtures may omit it. */
+    readonly sessionId?: string;
+    readonly workspace: string;
+    /** The user's text for this turn, prompts that joined it included. Empty for a turn with no prompt. */
+    readonly prompt: string;
+    /** The text of the reply that would end the turn. */
+    readonly reply: string;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
+    /** Continuations this turn has used. A turn gets one; after that `continue` is ignored. */
+    readonly continuations: number;
+}
+
+export interface ContinueTurnHookResult {
+    readonly power: "continue";
+    /** Stored after the reply as its own message, then the model runs again. Must not be empty. */
+    readonly context: string;
+}
+
+export type TurnEndingHookResult = ObserveHookResult | ContinueTurnHookResult;
+
+export type TurnEndingHook = (
+    payload: TurnEndingHookPayload,
+) => TurnEndingHookResult | Promise<TurnEndingHookResult>;
 
 export interface ModelRequestHookPayload {
     readonly type: "model_request";

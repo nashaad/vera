@@ -553,6 +553,26 @@ test("Agent.run prepareTurn can add context after the prompt", async () => {
     expect(result.text).toBe("third palm it is");
 });
 
+test("Agent.run beforeTurnEnds can continue once, and the result is the last reply", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("done"), answer("done, map attached")], requests);
+    const seen: number[] = [];
+
+    const result = await vera.agent(basicDefinition()).run("find the treasure", {
+        beforeTurnEnds: (payload) => {
+            seen.push(payload.continuations);
+            return { power: "continue", context: "no map, no treasure" };
+        },
+    });
+
+    expect(requests).toHaveLength(2);
+    const last = requests[1]?.messages.at(-1);
+    expect(last?.content).toEqual([{ type: "text", text: "no map, no treasure" }]);
+    expect(seen).toEqual([0, 1]);
+    expect(result.outcome).toBe("completed");
+    expect(result.text).toBe("done, map attached");
+});
+
 test("Agent.run prepareTurn can block a turn before any model call", async () => {
     let adapters = 0;
     const vera = await Vera.create({

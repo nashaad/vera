@@ -301,6 +301,35 @@ export function activate(vera) {
 }
 ```
 
+An extension can send the model back for one more pass with
+`registerTurnEnding`, after declaring `hooks.turn_ending`. It runs when the
+model gives a final reply with no tool calls, before the turn ends. It does not
+run when the turn fails or is stopped. The payload has the session ID,
+workspace, this turn's prompt, the reply, whether another agent started the
+session, and `continuations`, the number of times the turn has already been
+continued.
+
+Return `observe` to let the turn end, or `continue` with `context`. Vera keeps
+the first reply, adds the context as a message of its own, and runs the model
+again in the same turn. The transcript shows one row naming the extension, such
+as "lookout continued the turn", but not the text. A turn gets one
+continuation. The first `continue` wins and later functions do not run for that
+reply. Once a turn has been continued, the functions still run but `continue`
+is ignored. The text cannot be empty. A function that throws, returns something
+invalid, or takes longer than 60 seconds lets the turn end as if it were not
+registered.
+
+```js
+export function activate(vera) {
+    vera.hooks.registerTurnEnding((turn) => {
+        if (!/\bdone\b/i.test(turn.reply) || /\bmap\b/i.test(turn.reply)) {
+            return { power: "observe" };
+        }
+        return { power: "continue", context: "You said done but drew no map." };
+    });
+}
+```
+
 An extension can run a function after each turn ends with
 `registerTurnFinished`, after declaring `hooks.turn_finished`. It gets the
 session ID, workspace, outcome, how many prompts the session has had, whether

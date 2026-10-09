@@ -3357,3 +3357,20 @@ test("hook context gets one soft row naming the extension, live and on replay", 
     const unnamed = applyAgentUpdate(createTuiState(), { type: "hook_context", phase: "pre_turn", seq: 1 });
     expect(unnamed.entries).toEqual([{ kind: "notice", text: "A hook added context", tone: "soft" }]);
 });
+
+test("a turn_ending continuation says the extension continued the turn, live and on replay", () => {
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "hook_context",
+        phase: "turn_ending",
+        source: "lookout",
+        seq: 1,
+    });
+    expect(live.entries).toEqual([{ kind: "notice", text: "lookout continued the turn", tone: "soft" }]);
+
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        seq: 1,
+        entries: [{ kind: "hook_context", phase: "turn_ending", source: "lookout" }],
+    });
+    expect(replayed.entries).toEqual(live.entries);
+});

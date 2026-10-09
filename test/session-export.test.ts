@@ -200,3 +200,17 @@ test("Markdown export names the extension that added context", () => {
     expect(markdown).toContain("## Vera\n\n> lookout added context");
     expect(markdown).not.toContain("third palm");
 });
+
+test("Markdown export names the extension that continued the turn", () => {
+    const markdown = renderSessionMarkdown({
+        format_version: 4,
+        session: { id: "lookout", started_at: "2026-10-09T20:00:00.000Z", workspace: "/work/vera" },
+        transcript: [
+            { kind: "user", text: "find the treasure" },
+            { kind: "hook_context", phase: "turn_ending", source: "lookout" },
+        ],
+    });
+
+    expect(markdown).toContain("> lookout continued the turn");
+    expect(markdown).not.toContain("no map");
+});

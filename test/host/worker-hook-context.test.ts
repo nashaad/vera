@@ -96,3 +96,68 @@ test("a worker loop stores pre-turn context the host's hooks return", async () =
         await handle.outcome;
     }
 }, 30_000);
+
+test("a worker loop continues a turn once when the host's turn_ending hook asks", async () => {
+    const path = join(directory, "turn-ending.jsonl");
+    let push: ((line: number, record: Record<string, unknown>) => void) | undefined;
+    const store = await SessionStore.create(path, {
+        sessionId: "lookout-continue",
+        cwd: directory,
+        onRecordAppended: (line, record) => push?.(line, record),
+    });
+    const hooks = new ToolHooks();
+    const replies: string[] = [];
+    hooks.registerTurnEnding((payload) => {
+        replies.push(payload.reply);
+        return { power: "continue", context: "no map, no treasure" };
+    }, "lookout");
+    const reply = (text: string) => ({
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    });
+    const updates: AgentUpdate[] = [];
+    const handle = await startWorker({
+        store,
+        session: {
+            path,
+            header: JSON.parse(readFileSync(path, "utf8").split("\n")[0] as string) as Record<string, unknown>,
+            records: [],
+        },
+        model: "test",
+        adapter: {
+            module: ADAPTER,
+            options: { script: [reply("done"), reply("done, map attached")] },
+        },
+        data: { approvalMode: "full_access" },
+        services: { hooks },
+        onUpdate: (update) => void updates.push(update),
+    });
+    push = handle.server.pushRecord;
+    try {
+        handle.send({ type: "prompt", content: "find the treasure" });
+        const deadline = Date.now() + 20_000;
+        while (!updates.some((update) => update.type === "turn_finished")) {
+            if (Date.now() > deadline) throw new Error("Timed out waiting for the worker");
+            await Bun.sleep(25);
+        }
+
+        expect(replies).toEqual(["done", "done, map attached"]);
+        expect(store.activeEntries().map((entry) => entry.message.role)).toEqual([
+            "user", "assistant", "user", "assistant",
+        ]);
+        expect(store.activeEntries()[2]?.message).toEqual({
+            role: "user",
+            internal: true,
+            contextSource: "turn_ending",
+            hookSource: "lookout",
+            content: [{ type: "text", text: "no map, no treasure" }],
+        });
+        expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+    } finally {
+        handle.kill();
+        await handle.outcome;
+    }
+}, 30_000);

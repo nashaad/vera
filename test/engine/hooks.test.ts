@@ -4,6 +4,7 @@ import { MAX_HOOK_CONTEXT_BYTES, ToolHooks } from "../../src/engine/hooks.ts";
 import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
+    TurnEndingHookPayload,
 } from "../../src/sdk/hooks.ts";
 
 const prePayload: PreToolUseHookPayload = {
@@ -316,6 +317,58 @@ test("disposing a sourced pre-turn hook removes only that hook", async () => {
     expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([
         { source: "lookout", context: "kept" },
     ]);
+});
+
+const turnEndingPayload: TurnEndingHookPayload = {
+    type: "turn_ending",
+    workspace: "/work/vera",
+    prompt: "find the treasure",
+    reply: "done",
+    spawned: false,
+    continuations: 0,
+};
+
+test("the first turn_ending continue wins with its source and later hooks do not run", async () => {
+    const hooks = new ToolHooks();
+    const seen: string[] = [];
+    hooks.registerTurnEnding(() => {
+        seen.push("observer");
+        return { power: "observe" };
+    });
+    hooks.registerTurnEnding(() => {
+        seen.push("lookout");
+        return { power: "continue", context: "no map, no treasure" };
+    }, "lookout");
+    hooks.registerTurnEnding(() => {
+        seen.push("late");
+        return { power: "continue", context: "unreached" };
+    });
+
+    const outcome = await hooks.runTurnEnding(turnEndingPayload, { timeoutMs: 100 });
+
+    expect(outcome).toEqual({ continuation: { source: "lookout", context: "no map, no treasure" } });
+    expect(seen).toEqual(["observer", "lookout"]);
+});
+
+test("turn_ending observers alone continue nothing", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerTurnEnding(() => ({ power: "observe" }));
+    expect(await hooks.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).toEqual({});
+    expect(await new ToolHooks().runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).toEqual({});
+});
+
+test("a turn_ending result with empty context or another power fails", async () => {
+    const empty = new ToolHooks();
+    empty.registerTurnEnding(() => ({ power: "continue", context: "" }));
+    await expect(empty.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).rejects.toThrow("context");
+
+    const wrongPower = new ToolHooks();
+    wrongPower.registerTurnEnding(() => ({ power: "block", reason: "no" }) as never);
+    await expect(wrongPower.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).rejects.toThrow();
+
+    const slow = new ToolHooks();
+    slow.registerTurnEnding(() => new Promise(() => {}));
+    await expect(slow.runTurnEnding(turnEndingPayload, { timeoutMs: 5 })).rejects.toThrow("timed out");
 });
 
 function roundTrip<Value>(value: Value): Value {

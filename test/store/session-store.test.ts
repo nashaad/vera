@@ -2626,3 +2626,19 @@ test("hook context messages need a known source phase and an internal flag", asy
     const { contextSource: _phase, ...sourceOnly } = palm;
     await expect(open(sourceOnly)).rejects.toThrow();
 });
+
+test("a turn_ending continuation reopens as an internal hook message", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "lookout", cwd: directory });
+    const nudge = {
+        role: "user" as const,
+        internal: true,
+        contextSource: "turn_ending" as const,
+        hookSource: "lookout",
+        content: [{ type: "text" as const, text: "no map, no treasure" }],
+    };
+    await store.appendMessage(nudge);
+
+    expect((await SessionStore.open(path)).messages()).toEqual([nudge]);
+});

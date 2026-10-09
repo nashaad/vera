@@ -2562,7 +2562,10 @@ export function projectTranscript(
         if (message.internal === true) {
             if (message.role === "user" && message.contextSource === "session_start") {
                 push({ kind: "harness", text: textContent(message.content), tone: "soft" });
-            } else if (message.role === "user" && message.contextSource === "pre_turn") {
+            } else if (
+                message.role === "user"
+                && (message.contextSource === "pre_turn" || message.contextSource === "turn_ending")
+            ) {
                 push({
                     kind: "hook_context",
                     phase: message.contextSource,

@@ -895,7 +895,7 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
 }
 
 function isHookContextFacts(value: Record<string, unknown>): boolean {
-    return value.phase === "pre_turn"
+    return (value.phase === "pre_turn" || value.phase === "turn_ending")
         && (value.source === undefined
             || (typeof value.source === "string" && value.source.length > 0));
 }

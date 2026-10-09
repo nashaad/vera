@@ -166,6 +166,25 @@ await vera.agent(reviewer).run(changeText, {
 });
 ```
 
+### Send the model back once before a turn ends
+
+`beforeTurnEnds` runs when the model gives a reply with no tool calls. It gets
+the prompt, the reply, and how many continuations the turn has used. It can
+return `continue` with context, and the model runs again in the same turn. A
+turn gets one continuation; after that, `continue` is ignored. The run's text
+is the last reply.
+
+```ts
+const result = await vera.agent(reviewer).run(changeText, {
+    beforeTurnEnds(turn) {
+        if (/\bdone\b/i.test(turn.reply) && !/\bmap\b/i.test(turn.reply)) {
+            return { power: "continue", context: "You said done but drew no map." };
+        }
+        return { power: "observe" };
+    },
+});
+```
+
 ### Set the role's default model
 
 An agent can name a model-pool entry without putting provider logic in the

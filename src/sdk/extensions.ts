@@ -4,6 +4,7 @@ import type {
     PostToolUseHook,
     PreToolUseHook,
     PreTurnHook,
+    TurnEndingHook,
     SessionStartHook,
     TurnFinishedHook,
 } from "./hooks.ts";
@@ -220,6 +221,8 @@ export interface VeraExtensionHooks {
     registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
     registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer;
+    /** Needs `hooks.turn_ending`. */
+    registerTurnEnding(hook: TurnEndingHook): VeraExtensionDisposer;
     registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer;
     /** Needs `hooks.turn_finished`. */
     registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer;

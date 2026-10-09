@@ -286,6 +286,17 @@ export function createWorkerBoundaryServer(
                     };
                     return { outcome };
                 }
+                case "hook.turnEnding": {
+                    const request = body as {
+                        readonly payload: never;
+                        readonly options: never;
+                    };
+                    const outcome = await services.hooks?.runTurnEnding(
+                        request.payload,
+                        request.options,
+                    ) ?? {};
+                    return { outcome };
+                }
                 case "compaction.complete": {
                     const request = body as {
                         readonly callId: string;

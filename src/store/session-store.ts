@@ -2809,7 +2809,7 @@ function parseJsonObject(
 }
 
 function isHookContextSource(value: unknown): boolean {
-    return value === "session_start" || value === "pre_turn";
+    return value === "session_start" || value === "pre_turn" || value === "turn_ending";
 }
 
 function isModelMessage(value: unknown): value is ModelMessage {

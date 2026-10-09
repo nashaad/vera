@@ -16,6 +16,7 @@ import type { ContextMeasurement } from "./context-measurement.ts";
 import type { ToolResultTruncation } from "../tools/tool-result-limit.ts";
 import type {
     AssistantMessage,
+    HookContextPhase,
     ModelMessage,
     ModelReasoningEffort,
     ModelStreamEvent,
@@ -494,13 +495,13 @@ export interface ToolHookFailedEvent {
 
 export interface HookContextAddedEvent {
     readonly type: "hook_context_added";
-    readonly phase: "pre_turn";
+    readonly phase: HookContextPhase;
     readonly source?: string;
 }
 
 export interface TurnHookFailedEvent {
     readonly type: "turn_hook_failed";
-    readonly phase: "pre_turn";
+    readonly phase: "pre_turn" | "turn_ending";
     readonly error: string;
 }
 

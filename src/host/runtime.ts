@@ -821,6 +821,9 @@ export async function startResidentHost(
             for (const hook of extensions.preTurnHooks()) {
                 hooks.registerPreTurn(hook.run, hook.extensionId);
             }
+            for (const hook of extensions.turnEndingHooks()) {
+                hooks.registerTurnEnding(hook.run, hook.extensionId);
+            }
             return hooks;
         },
         prepareModelRequest: ({ sessionId, workspace }) => async (request, provider) => {
