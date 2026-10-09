@@ -19,6 +19,18 @@ containing only Vera's identity prompt and your message, with no tools:
 vera -p "Summarize this text" --prompt-only
 ```
 
+### Choose the model and effort for one run
+
+`--model` selects a model from your library for this turn. `--effort` overrides
+its reasoning effort for this turn; the selected model must support that level.
+If `--effort` is omitted, no per-run effort override is applied.
+
+```sh
+vera -p "Count the pirate crow's feathers." --model "provider/model" --effort low
+```
+
+Replace `provider/model` with a model ID from `vera library list`.
+
 ### Choose a minimal startup
 
 | Flag | Effect |

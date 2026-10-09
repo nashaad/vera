@@ -41,13 +41,14 @@ Use development instances to test a branch. Install only when intentionally prom
 A development instance registers a pointer to its home in `~/.vera-dev/instances/`, and `bun run dev:sweep` stops processes in those homes that are two days old or older. The installed daily Vera never registers and is never swept.
 Manual: `docs/installation.md`.
 
-## Finding a command [lines=7]
+## Finding a command [lines=8]
 Run `vera --help` for the command and flag reference. Run `vera <command> --help` for one command: its usage, what it does, and the manual page that covers it. `-h` is the same flag.
 CLI help needs no TUI, no resident host, no provider, no network request, and no model call. It is safe to run anywhere.
+Print mode runs one bounded turn with `vera -p`; `--model` and `--effort` select its model and a reasoning effort supported by that model.
 In the TUI, `/palette` is the executable command browser and `/help` is read-only guidance. Opening help never runs the command it describes. Help opens on a menu of pages: General, Keys, Slash commands, and Extensions. ↑↓ choose, Enter opens, Esc goes back to the menu. General is text. The other pages have Search and a list; Tab moves between them. ↑↓ move through the list and enter it from Search; ←→ move the caret in Search and return to Search from the list. Typing from the list goes to Search.
 A mistyped slash command, such as `/modle`, is not sent to the model; the TUI names the command you probably meant.
 `/theme` picks the TUI theme. Add your own themes in the home's `tui-themes.json`; `extends` starts one from an existing theme so you set only the colors you change.
-Manual: `docs/commands.md`, `docs/themes.md`.
+Manual: `docs/commands.md`, `docs/themes.md`, `docs/programmatic-use.md`.
 
 ## First-run setup [lines=9]
 Choose Connect a provider on Home, or Configure providers from Ctrl+P, then Add provider.
@@ -59,7 +60,7 @@ Outrider guided setup is hidden by default; enable `experimental.outrider_onboar
 A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
 Manual: `docs/first-run-setup.md`.
 
-## Models and providers [lines=24]
+## Models and providers [lines=25]
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
 The list shows your favorites, your current model, and what you used recently. With no favorites it stays empty. Typing searches every connected model.
@@ -112,7 +113,7 @@ The subagent tool lists available agent names and descriptions so the parent can
 A delegated child starts without the parent conversation; put the task in the spawn description.
 Manual: `docs/agents.md`.
 
-## Skills, rules, and standing instructions [lines=12]
+## Skills, rules, and standing instructions [lines=13]
 Skills are directories containing `SKILL.md`. Allowed skills appear as slash commands and may be invoked explicitly or, unless disabled, by the model.
 The bundled `/create-agent` skill runs only when you invoke its slash command. Describe a recurring job; it drafts a reusable definition, shows its scope and assignment, then saves, validates, and tries it after approval.
 Skill invocation does not add tools, widen permissions, or replace the selected agent's restrictions.
