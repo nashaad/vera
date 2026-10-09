@@ -3919,6 +3919,19 @@ test("the subagent picker separates assigned, available, and parent fallback", a
     expect(frame).toContain("Search");
 });
 
+test("the subagent picker lists favorites first among connected models", () => {
+    const rows = pooledModels.map((row) => ({ ...row, available: true }));
+    const favoriteRef = `${rows.at(-1)!.provider}/${rows.at(-1)!.model}`;
+    const pane = startTuiModelAssignmentPicker(
+        "subagents", "subagents", "delegated work", rows, [], false,
+        undefined, undefined, false, new Set([favoriteRef]),
+    );
+    const connected = pane.options.filter((option) => option.group === "Connected models");
+
+    expect(connected[0]).toMatchObject({ value: favoriteRef, rowMeta: "favorite" });
+    expect(connected.slice(1).some((option) => option.rowMeta === "favorite")).toBe(false);
+});
+
 test("Enter assigns, removes, or toggles in the subagent picker", () => {
     const assignedRef = "openai-codex/gpt-5.6-sol";
     const pane = startTuiModelAssignmentPicker(
