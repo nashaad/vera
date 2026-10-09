@@ -894,6 +894,16 @@ export async function startResidentHost(
                 message,
             }),
         ),
+        onSessionEnd: (payload) => notifyObservers(
+            extensions.sessionEndHooks(),
+            payload,
+            (extensionId, message) => hostLog({
+                type: "session_end_hook_failed",
+                level: "warn",
+                extensionId,
+                message,
+            }),
+        ),
     });
     extensions.bindHost(createExtensionHostServices({
         registry,
@@ -1175,9 +1185,9 @@ export async function startResidentHost(
                 storedSessionIndex.delete(targetId);
                 return "trashed";
             },
-            closeAgent: async (targetId) => {
+            closeAgent: async (targetId, reason) => {
                 const treeIds = registry.ownedTreeIds(targetId);
-                const outcome = await registry.closeAgentTree(targetId);
+                const outcome = await registry.closeAgentTree(targetId, reason);
                 if (outcome.status === "closed" && outcome.sessionRetained) {
                     for (const id of treeIds.length > 0 ? treeIds : [targetId]) {
                         await indexStoredSession(
@@ -2527,11 +2537,12 @@ async function closeServerAndRest(
     try {
         await server.close();
     } finally {
+        // Sessions close first so their session_end hooks still have extensions to reach.
         try {
-            await extensions.close();
+            await registry.close();
         } finally {
             try {
-                await registry.close();
+                await extensions.close();
             } finally {
                 await closeInbox();
             }

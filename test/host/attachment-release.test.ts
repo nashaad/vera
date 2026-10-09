@@ -29,14 +29,16 @@ socketTest(
         const socketPath = join(directory, "host.sock");
         const agent = new ResidentAgent("agent-1", "/work/one");
         let closes = 0;
+        const reasons: (string | undefined)[] = [];
         const server = await startHostServer({
             socketPath,
             lockPath: join(directory, "host.json"),
             capabilities: [HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE],
             findAgent: (agentId) => agentId === agent.id ? agent : undefined,
-            closeAgent: async (agentId) => {
+            closeAgent: async (agentId, reason) => {
                 if (agentId !== agent.id) return { status: "not_found" };
                 closes += 1;
+                reasons.push(reason);
                 agent.close();
                 return { status: "closed", sessionRetained: true };
             },
@@ -67,6 +69,7 @@ socketTest(
                 sessionRetained: true,
             });
             expect(closes).toBe(1);
+            expect(reasons).toEqual(["detached"]);
             expect(agent.closed).toBeTrue();
         } finally {
             first.close();

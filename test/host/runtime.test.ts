@@ -442,6 +442,62 @@ test("the resident host fails closed without an identity provider", async () => 
     },
 );
 
+test("host shutdown still reaches session_end hooks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-host-session-end-"));
+    const extensionPath = join(root, "extension");
+    const logPath = join(root, "ends.jsonl");
+    await mkdir(extensionPath);
+    await writeFile(
+        join(extensionPath, "vera.extension.json"),
+        JSON.stringify({
+            id: "test.ledger",
+            version: "1.0.0",
+            sdk: "1",
+            entrypoint: "./extension.ts",
+            capabilities: ["hooks.session_end"],
+        }),
+    );
+    await writeFile(join(extensionPath, "extension.ts"), `
+        import { appendFileSync } from "node:fs";
+        export function activate(vera) {
+            vera.hooks.registerSessionEnd((payload) => {
+                appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(payload) + "\\n");
+            });
+        }
+    `);
+    const host = await startResidentHost({
+        config: {
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            approval_mode: "auto",
+            extensions: [{ path: extensionPath, enabled: true, config: null }],
+        },
+        createAdapter: () => new FauxAdapter([]),
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+    try {
+        await host.registry.create({
+            id: "crow",
+            workspace: root,
+            sessionPath: join(root, "crow.jsonl"),
+        });
+    } finally {
+        await host.close();
+    }
+    try {
+        const ends = (await readFile(logPath, "utf8")).trim().split("\n")
+            .map((line) => JSON.parse(line) as { sessionId: string; reason: string });
+        expect(ends.map((end) => [end.sessionId, end.reason]))
+            .toEqual([["crow", "shutdown"]]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resident host wires public extension tool hooks into each agent",
     async () => {

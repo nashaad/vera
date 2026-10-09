@@ -48,6 +48,7 @@ import type {
     SessionStartHook,
     TurnFinishedHook,
     PreCompactHook,
+    SessionEndHook,
     PreTurnHookPayload,
     PreTurnHookResult,
     TurnEndingHook,
@@ -64,6 +65,7 @@ import {
     ExtensionHostSlot,
     type ExtensionHostServices,
     type RegisteredPreCompactHook,
+    type RegisteredSessionEndHook,
     type RegisteredTurnFinishedHook,
 } from "./host-services.ts";
 import {
@@ -105,6 +107,7 @@ const SEARCH_PROVIDERS_USE_CAPABILITY = "search.providers.use";
 const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
 const TURN_FINISHED_HOOK_CAPABILITY = "hooks.turn_finished";
 const PRE_COMPACT_HOOK_CAPABILITY = "hooks.pre_compact";
+const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
@@ -159,6 +162,7 @@ export interface ExtensionRegistry {
     sessionStartHooks(): readonly SessionStartHook[];
     turnFinishedHooks(): readonly RegisteredTurnFinishedHook[];
     preCompactHooks(): readonly RegisteredPreCompactHook[];
+    sessionEndHooks(): readonly RegisteredSessionEndHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
     /** Lends the host's model and session services to extensions. Bind once. */
     bindHost(services: ExtensionHostServices): void;
@@ -208,6 +212,7 @@ interface LoadedRegistryExtension {
     readonly sessionStartHooks: readonly SessionStartHook[];
     readonly turnFinishedHooks: readonly RegisteredTurnFinishedHook[];
     readonly preCompactHooks: readonly RegisteredPreCompactHook[];
+    readonly sessionEndHooks: readonly RegisteredSessionEndHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly requestHandlers: ReadonlyMap<string, VeraExtensionRequestHandler>;
@@ -404,6 +409,9 @@ export async function startExtensionRegistry(
         preCompactHooks(): readonly RegisteredPreCompactHook[] {
             return loaded.flatMap((extension) => extension.preCompactHooks);
         },
+        sessionEndHooks(): readonly RegisteredSessionEndHook[] {
+            return loaded.flatMap((extension) => extension.sessionEndHooks);
+        },
         bindHost(services: ExtensionHostServices): void {
             host.bind(services);
         },
@@ -599,6 +607,7 @@ async function activateExtension(
     const sessionStartHooks: SessionStartHook[] = [];
     const turnFinishedHooks: RegisteredTurnFinishedHook[] = [];
     const preCompactHooks: RegisteredPreCompactHook[] = [];
+    const sessionEndHooks: RegisteredSessionEndHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
     const sessionState: ((sessionId: string) => ExtensionSessionState)[] = [];
     const modelMiddleware: ModelMiddleware[] = [];
@@ -898,6 +907,20 @@ async function activateExtension(
                 preCompactHooks.push(registered);
                 return () => removeHook(preCompactHooks, registered);
             },
+            registerSessionEnd(hook: SessionEndHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Extension hooks must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(SESSION_END_HOOK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_END_HOOK_CAPABILITY}`);
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid session-end hook registration");
+                }
+                const registered = { extensionId: loaded.manifest.id, run: hook };
+                sessionEndHooks.push(registered);
+                return () => removeHook(sessionEndHooks, registered);
+            },
             registerModelRequest(
                 namespace: string,
                 hook: ModelRequestHook,
@@ -1009,6 +1032,7 @@ async function activateExtension(
             sessionStartHooks,
             turnFinishedHooks,
             preCompactHooks,
+            sessionEndHooks,
             modelRequestHooks,
             sessionState,
             modelMiddleware,

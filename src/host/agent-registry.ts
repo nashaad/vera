@@ -46,6 +46,7 @@ import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
 import type { SessionIdentity, SessionIdentityProvider, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
+import type { SessionEndReason } from "../sdk/hooks.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
@@ -130,16 +131,22 @@ export class AgentRegistry {
         return registryLifecycle.create(this, options);
     }
 
-    async closeAgent(id: string): Promise<"closed" | "not_found"> {
-        return registryLifecycle.closeAgent(this, id);
+    async closeAgent(
+        id: string,
+        reason?: SessionEndReason,
+    ): Promise<"closed" | "not_found"> {
+        return registryLifecycle.closeAgent(this, id, reason);
     }
 
     ownedTreeIds(id: string): readonly string[] {
         return registryLifecycle.ownedTreeIds(this, id);
     }
 
-    async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
-        return registryLifecycle.closeAgentTree(this, id);
+    async closeAgentTree(
+        id: string,
+        reason?: SessionEndReason,
+    ): Promise<CloseAgentTreeResult> {
+        return registryLifecycle.closeAgentTree(this, id, reason);
     }
 
     async parkExpiredIdle(now = Date.now()): Promise<void> {
