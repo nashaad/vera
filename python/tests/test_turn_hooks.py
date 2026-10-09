@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from typing import Any
 import unittest
 
@@ -108,6 +109,48 @@ class TestTurnHooks(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.vera.run(crow, "find the treasure", prepare_turn=broken)
         self.assertEqual(self.vera.run(crow, "try again"), "try again")
+
+    def test_a_hook_calling_its_own_instance_is_refused(self) -> None:
+        def judge(turn: dict[str, Any]) -> None:
+            self.vera.run(crow, "is this treasure?")
+            return None
+
+        for hooks in ({"prepare_turn": judge}, {"before_turn_ends": judge}):
+            with self.subTest(hooks=list(hooks)):
+                started = time.monotonic()
+                with self.assertRaisesRegex(RuntimeError, "create another Vera instance"):
+                    self.vera.run(crow, "find the treasure", timeout=10, **hooks)
+                self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(self.vera.run(crow, "try again"), "try again")
+
+    def test_a_hook_may_call_another_instance(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            with Vera.create(workspace=workspace, _replay=True) as judge_vera:
+                def judge(turn: dict[str, Any]) -> dict[str, object]:
+                    verdict = judge_vera.run(crow, "dig deeper")
+                    return {"power": "mutate", "context": verdict}
+
+                answer = self.vera.run(crow, "find the treasure", prepare_turn=judge)
+
+        self.assertEqual(answer, "dig deeper")
+
+    def test_none_values_count_as_not_set(self) -> None:
+        def lookout(turn: dict[str, Any]) -> dict[str, object] | None:
+            if turn["continuations"] > 0:
+                return None
+            return {"power": "continue", "context": "draw the map", "display": None}
+
+        answer = self.vera.run(crow, "find the treasure", before_turn_ends=lookout)
+
+        self.assertEqual(answer, "draw the map")
+
+    def test_a_non_finite_number_is_a_failed_hook(self) -> None:
+        def lookout(turn: dict[str, Any]) -> dict[str, object]:
+            return {"power": "continue", "context": "draw the map", "display": float("nan")}
+
+        answer = self.vera.run(crow, "find the treasure", before_turn_ends=lookout)
+
+        self.assertEqual(answer, "find the treasure")
 
     def test_hooks_must_be_callable(self) -> None:
         with self.assertRaises(TypeError):
