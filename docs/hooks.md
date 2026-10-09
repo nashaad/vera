@@ -283,7 +283,75 @@ function before each user prompt starts its work, with `registerPreTurn` and
 `hooks.pre_turn`. It runs before the first model call of a turn, and again for
 each queued prompt that joins the running turn. For a joining prompt it can
 narrow the tools or block the prompt, which ends the turn, but it cannot
-change the model or reasoning effort.
+change the model or reasoning effort. The payload's `arrivedDuringTurn` is
+true for a joining prompt.
+
+A `pre_turn` function can also return `context`. Vera adds that text after
+your message, as a message of its own, before the model sees the turn. The
+transcript shows one row naming the extension, such as "lookout added
+context", but not the text. The context stays in the conversation, counts in
+`/context`, and is still there after a restart. Empty text adds nothing.
+
+```js
+export function activate(vera) {
+    vera.hooks.registerPreTurn((turn) => {
+        if (!/treasure/i.test(turn.prompt)) return { power: "observe" };
+        return { power: "mutate", context: "the crow buried it under the third palm" };
+    });
+}
+```
+
+An extension can send the model back for one more pass with
+`registerTurnEnding`, after declaring `hooks.turn_ending`. It runs when the
+model gives a final reply with no tool calls, before the turn ends. It does not
+run when the turn fails or is stopped. The payload has the session ID,
+workspace, this turn's prompt, the reply, whether another agent started the
+session, and `continuations`, the number of times the turn has already been
+continued.
+
+Return `observe` to let the turn end, or `continue` with `context`. Vera keeps
+the first reply, adds the context as a message of its own, and runs the model
+again in the same turn. The transcript shows one row naming the extension, such
+as "lookout continued the turn", but not the text. A turn gets one
+continuation. The first `continue` wins and later functions do not run for that
+reply. Once a turn has been continued, the functions still run but `continue`
+is ignored. The text cannot be empty. A function that throws, returns something
+invalid, or takes longer than 60 seconds lets the turn end as if it were not
+registered. Esc never waits for a hook: the turn stops at once and whatever
+the hook returns later is dropped.
+
+```js
+export function activate(vera) {
+    vera.hooks.registerTurnEnding((turn) => {
+        if (!/\bdone\b/i.test(turn.reply) || /\bmap\b/i.test(turn.reply)) {
+            return { power: "observe" };
+        }
+        return { power: "continue", context: "You said done but drew no map." };
+    });
+}
+```
+
+Either function can also return `display`, one line of up to 200 characters
+that the transcript shows in place of the default row. The extension's name
+stays after it, dimmed, as in "Spotted: treasure under the third palm ·
+lookout". The context text is still not shown. Leave `display` out, or empty,
+for the default row. A `display` with a line break or over the limit makes the
+whole result invalid. To let people change the words without editing code,
+read them from the extension's own `config` in its `config.json` `extensions`
+entry, as the lookout example does:
+
+```json
+{
+    "extensions": [{
+        "path": "/absolute/path/to/examples/extensions/lookout",
+        "config": { "rows": { "spotted": "Land ho", "nudge": "Keep digging" } }
+    }]
+}
+```
+
+The Python SDK takes the same two functions on `vera.run()`, as
+`prepare_turn` and `before_turn_ends`. See [Run Vera from
+Python](/python-agents/).
 
 An extension can run a function after each turn ends with
 `registerTurnFinished`, after declaring `hooks.turn_finished`. It gets the

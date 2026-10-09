@@ -813,7 +813,10 @@ export async function startResidentHost(
                 hooks.registerSessionStart(hook);
             }
             for (const hook of extensions.preTurnHooks()) {
-                hooks.registerPreTurn(hook);
+                hooks.registerPreTurn(hook.run, hook.extensionId);
+            }
+            for (const hook of extensions.turnEndingHooks()) {
+                hooks.registerTurnEnding(hook.run, hook.extensionId);
             }
             return hooks;
         },

@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 
-import { ToolHooks } from "../../src/engine/hooks.ts";
+import { MAX_HOOK_CONTEXT_BYTES, ToolHooks } from "../../src/engine/hooks.ts";
+import { MAX_HOOK_DISPLAY_CHARS } from "../../src/model/types.ts";
 import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
+    TurnEndingHookPayload,
 } from "../../src/sdk/hooks.ts";
 
 const prePayload: PreToolUseHookPayload = {
@@ -195,6 +197,7 @@ const preTurnPayload = {
     type: "pre_turn" as const,
     workspace: "/work/vera",
     prompt: "review this patch",
+    arrivedDuringTurn: false,
     model: "reviewer",
     tools: ["read", "write", "bash"],
     reasoningEffort: "high",
@@ -223,6 +226,7 @@ test("pre-turn mutations accumulate in order and cannot add tools", async () => 
         type: "pre_turn",
         workspace: "/work/vera",
         prompt: "review this patch",
+        arrivedDuringTurn: false,
         model: "cheap",
         tools: ["bash"],
         reasoningEffort: "high",
@@ -246,6 +250,7 @@ test("pre-turn block stops later handlers", async () => {
             model: "cheap",
         },
         result: { power: "block", reason: "not this turn" },
+        contexts: [],
     });
     expect(afterBlock).toBe(false);
 });
@@ -270,6 +275,145 @@ test("pre-turn hooks share the declared timeout budget", async () => {
     await expect(hooks.runPreTurn(preTurnPayload, { timeoutMs: 5 })).rejects.toThrow(
         "pre_turn hooks timed out after 5ms",
     );
+});
+
+test("pre-turn context is collected in order with its source, and empty text adds nothing", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "the crow buried it under the third palm" }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "" }), "quiet");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "mind the kraken" }));
+
+    const outcome = await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 });
+
+    expect(outcome.contexts).toEqual([
+        { source: "lookout", context: "the crow buried it under the third palm" },
+        { context: "mind the kraken" },
+    ]);
+});
+
+test("a hook's display line travels with its context, and empty display means the default row", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({
+        power: "mutate",
+        context: "the crow buried it under the third palm",
+        display: "Spotted: treasure under the third palm",
+    }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "mind the kraken", display: "" }), "kraken");
+    hooks.registerPreTurn(() => ({ power: "mutate", display: "Nothing to add" }), "quiet");
+    hooks.registerTurnEnding(() => ({
+        power: "continue",
+        context: "no map, no treasure",
+        display: "Back to digging: no map drawn",
+    }), "lookout");
+
+    expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([
+        {
+            source: "lookout",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        },
+        { source: "kraken", context: "mind the kraken" },
+    ]);
+    expect(await hooks.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).toEqual({
+        continuation: {
+            source: "lookout",
+            context: "no map, no treasure",
+            display: "Back to digging: no map drawn",
+        },
+    });
+});
+
+test("a display that is not one short line fails the result", async () => {
+    for (const display of ["two\nlines", "x".repeat(MAX_HOOK_DISPLAY_CHARS + 1), 7, "bell\u0007", "two\u2028lines", "crow\u202eworC"]) {
+        const preTurn = new ToolHooks();
+        preTurn.registerPreTurn(() => ({ power: "mutate", context: "note", display }) as never);
+        await expect(preTurn.runPreTurn(preTurnPayload, { timeoutMs: 100 })).rejects.toThrow("display");
+
+        const ending = new ToolHooks();
+        ending.registerTurnEnding(() => ({ power: "continue", context: "note", display }) as never);
+        await expect(ending.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).rejects.toThrow("display");
+    }
+});
+
+test("a pre-turn block drops context gathered before it", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "early note" }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "block", reason: "not this turn" }));
+
+    expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([]);
+});
+
+test("pre-turn context that is not a string or is too large fails closed", async () => {
+    const wrongType = new ToolHooks();
+    wrongType.registerPreTurn(() => ({ power: "mutate", context: 7 }) as never);
+    await expect(wrongType.runPreTurn(preTurnPayload, { timeoutMs: 100 })).rejects.toThrow("context");
+
+    const tooLarge = new ToolHooks();
+    tooLarge.registerPreTurn(() => ({ power: "mutate", context: "x".repeat(MAX_HOOK_CONTEXT_BYTES + 1) }));
+    await expect(tooLarge.runPreTurn(preTurnPayload, { timeoutMs: 100 })).rejects.toThrow("context");
+});
+
+test("disposing a sourced pre-turn hook removes only that hook", async () => {
+    const hooks = new ToolHooks();
+    const dispose = hooks.registerPreTurn(() => ({ power: "mutate", context: "gone" }), "lookout");
+    hooks.registerPreTurn(() => ({ power: "mutate", context: "kept" }), "lookout");
+    dispose();
+
+    expect((await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).contexts).toEqual([
+        { source: "lookout", context: "kept" },
+    ]);
+});
+
+const turnEndingPayload: TurnEndingHookPayload = {
+    type: "turn_ending",
+    workspace: "/work/vera",
+    prompt: "find the treasure",
+    reply: "done",
+    spawned: false,
+    continuations: 0,
+};
+
+test("the first turn_ending continue wins with its source and later hooks do not run", async () => {
+    const hooks = new ToolHooks();
+    const seen: string[] = [];
+    hooks.registerTurnEnding(() => {
+        seen.push("observer");
+        return { power: "observe" };
+    });
+    hooks.registerTurnEnding(() => {
+        seen.push("lookout");
+        return { power: "continue", context: "no map, no treasure" };
+    }, "lookout");
+    hooks.registerTurnEnding(() => {
+        seen.push("late");
+        return { power: "continue", context: "unreached" };
+    });
+
+    const outcome = await hooks.runTurnEnding(turnEndingPayload, { timeoutMs: 100 });
+
+    expect(outcome).toEqual({ continuation: { source: "lookout", context: "no map, no treasure" } });
+    expect(seen).toEqual(["observer", "lookout"]);
+});
+
+test("turn_ending observers alone continue nothing", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerTurnEnding(() => ({ power: "observe" }));
+    expect(await hooks.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).toEqual({});
+    expect(await new ToolHooks().runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).toEqual({});
+});
+
+test("a turn_ending result with empty context or another power fails", async () => {
+    const empty = new ToolHooks();
+    empty.registerTurnEnding(() => ({ power: "continue", context: "" }));
+    await expect(empty.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).rejects.toThrow("context");
+
+    const wrongPower = new ToolHooks();
+    wrongPower.registerTurnEnding(() => ({ power: "block", reason: "no" }) as never);
+    await expect(wrongPower.runTurnEnding(turnEndingPayload, { timeoutMs: 100 })).rejects.toThrow();
+
+    const slow = new ToolHooks();
+    slow.registerTurnEnding(() => new Promise(() => {}));
+    await expect(slow.runTurnEnding(turnEndingPayload, { timeoutMs: 5 })).rejects.toThrow("timed out");
 });
 
 function roundTrip<Value>(value: Value): Value {

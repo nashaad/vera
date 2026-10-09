@@ -431,6 +431,14 @@ function remoteHooks(pipe: JsonPipe): ToolHooks {
         }) as { readonly outcome: never };
         return reply.outcome;
     };
+    hooks.runTurnEnding = async (payload, options) => {
+        const reply = await pipe.request({
+            method: "hook.turnEnding",
+            payload,
+            options,
+        }) as { readonly outcome: never };
+        return reply.outcome;
+    };
     return hooks;
 }
 

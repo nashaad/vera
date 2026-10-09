@@ -1,5 +1,5 @@
 import { isExtensionSessionStates } from "../extensions/session-state.ts";
-import { isToolPresentation, isTurnTiming } from "../model/types.ts";
+import { isHookDisplay, isToolPresentation, isTurnTiming } from "../model/types.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -200,6 +200,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || update.kind === "peer")
             ? value as AgentUpdate
             : undefined;
+    }
+    if (update.type === "hook_context") {
+        return isHookContextFacts(update) ? value as AgentUpdate : undefined;
     }
     if (update.type === "notice") {
         return typeof update.key === "string"
@@ -850,6 +853,9 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return typeof entry.text === "string"
             && (entry.tone === "primary" || entry.tone === "soft" || entry.tone === "error");
     }
+    if (entry?.kind === "hook_context") {
+        return isHookContextFacts(entry);
+    }
     if (entry?.kind === "user") {
         return typeof entry.text === "string"
             && isOptionalAttachments(entry.attachments);
@@ -886,6 +892,13 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
         && asRecord(entry.args) !== undefined;
+}
+
+function isHookContextFacts(value: Record<string, unknown>): boolean {
+    return (value.phase === "pre_turn" || value.phase === "turn_ending")
+        && (value.source === undefined
+            || (typeof value.source === "string" && value.source.length > 0))
+        && (value.display === undefined || isHookDisplay(value.display));
 }
 
 function isModelSubstitution(value: unknown): boolean {

@@ -2587,3 +2587,65 @@ test("a cleared model selection survives reopening until a new model is selected
     await reopened.appendModelSettings({ provider: "openrouter", model: "next" });
     expect((await SessionStore.open(path)).modelSettings()).toEqual({ provider: "openrouter", model: "next" });
 });
+
+test("hook context messages need a known source phase and an internal flag", async () => {
+    const directory = temporaryDirectory();
+    const open = async (message: object) => {
+        const path = join(directory, `${crypto.randomUUID()}.jsonl`);
+        writeFileSync(path, [
+            JSON.stringify({
+                type: "session",
+                version: SESSION_FORMAT_VERSION,
+                id: "session-1",
+                timestamp: "2026-10-09T12:00:00.000Z",
+                cwd: directory,
+            }),
+            JSON.stringify({
+                type: "message",
+                id: "message-1",
+                parentId: null,
+                timestamp: "2026-10-09T12:00:01.000Z",
+                message,
+            }),
+            "",
+        ].join("\n"));
+        return SessionStore.open(path);
+    };
+    const palm = {
+        role: "user",
+        internal: true,
+        contextSource: "pre_turn",
+        hookSource: "lookout",
+        content: [{ type: "text", text: "the crow buried it under the third palm" }],
+    };
+
+    expect((await open(palm)).messages()).toEqual([palm as ModelMessage]);
+    await expect(open({ ...palm, internal: undefined })).rejects.toThrow();
+    await expect(open({ ...palm, contextSource: "guess" })).rejects.toThrow();
+    await expect(open({ ...palm, hookSource: "" })).rejects.toThrow();
+    const { contextSource: _phase, ...sourceOnly } = palm;
+    await expect(open(sourceOnly)).rejects.toThrow();
+
+    const shown = { ...palm, hookDisplay: "Spotted: treasure under the third palm" };
+    expect((await open(shown)).messages()).toEqual([shown as ModelMessage]);
+    await expect(open({ ...shown, hookDisplay: "" })).rejects.toThrow();
+    await expect(open({ ...shown, hookDisplay: "two\nlines" })).rejects.toThrow();
+    await expect(open({ ...shown, contextSource: "session_start" })).rejects.toThrow();
+});
+
+test("a turn_ending continuation reopens as an internal hook message", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, { sessionId: "lookout", cwd: directory });
+    const nudge = {
+        role: "user" as const,
+        internal: true,
+        contextSource: "turn_ending" as const,
+        hookSource: "lookout",
+        hookDisplay: "Back to digging: no map drawn",
+        content: [{ type: "text" as const, text: "no map, no treasure" }],
+    };
+    await store.appendMessage(nudge);
+
+    expect((await SessionStore.open(path)).messages()).toEqual([nudge]);
+});

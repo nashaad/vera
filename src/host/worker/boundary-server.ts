@@ -282,7 +282,19 @@ export function createWorkerBoundaryServer(
                     ) ?? {
                         payload: request.payload,
                         result: { power: "observe" },
+                        contexts: [],
                     };
+                    return { outcome };
+                }
+                case "hook.turnEnding": {
+                    const request = body as {
+                        readonly payload: never;
+                        readonly options: never;
+                    };
+                    const outcome = await services.hooks?.runTurnEnding(
+                        request.payload,
+                        request.options,
+                    ) ?? {};
                     return { outcome };
                 }
                 case "compaction.complete": {

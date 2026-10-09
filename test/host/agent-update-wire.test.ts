@@ -963,3 +963,64 @@ test("host wire carries when a transcript entry was recorded and rejects a non-n
         entries: [{ ...history.entries[0], recordedAt: "09:12" }],
     })).toBeUndefined();
 });
+
+test("host wire carries hook context facts live and in history", () => {
+    const live = { type: "hook_context" as const, phase: "pre_turn" as const, source: "lookout", seq: 4 };
+    expect(parseAgentUpdate(live)).toEqual(live);
+    const { source: _source, ...sourceless } = live;
+    expect(parseAgentUpdate(sourceless)).toEqual(sourceless);
+    expect(parseAgentUpdate({ ...live, phase: "guess" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...live, source: "" })).toBeUndefined();
+
+    const history = {
+        type: "history" as const,
+        seq: 5,
+        entries: [{ kind: "hook_context" as const, phase: "pre_turn" as const, source: "lookout" }],
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ kind: "hook_context", phase: "pre_turn", source: 7 }],
+    })).toBeUndefined();
+});
+
+test("host wire carries a turn_ending continuation live and in history", () => {
+    const live = { type: "hook_context" as const, phase: "turn_ending" as const, source: "lookout", seq: 6 };
+    expect(parseAgentUpdate(live)).toEqual(live);
+    const history = {
+        type: "history" as const,
+        seq: 7,
+        entries: [{ kind: "hook_context" as const, phase: "turn_ending" as const, source: "lookout" }],
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+});
+
+test("host wire carries a hook's display line and rejects one that is not a short single line", () => {
+    const live = {
+        type: "hook_context" as const,
+        phase: "pre_turn" as const,
+        source: "lookout",
+        display: "Spotted: treasure under the third palm",
+        seq: 8,
+    };
+    expect(parseAgentUpdate(live)).toEqual(live);
+    expect(parseAgentUpdate({ ...live, display: "" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...live, display: "two\nlines" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...live, display: "x".repeat(201) })).toBeUndefined();
+
+    const history = {
+        type: "history" as const,
+        seq: 9,
+        entries: [{
+            kind: "hook_context" as const,
+            phase: "turn_ending" as const,
+            source: "lookout",
+            display: "Back to digging: no map drawn",
+        }],
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ kind: "hook_context", phase: "turn_ending", display: 7 }],
+    })).toBeUndefined();
+});

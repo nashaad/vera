@@ -1,4 +1,4 @@
-import { isToolPresentation, isTurnTiming } from "../model/types.ts";
+import { isHookDisplay, isToolPresentation, isTurnTiming } from "../model/types.ts";
 import { randomUUID } from "node:crypto";
 import {
     chmod,
@@ -2808,6 +2808,10 @@ function parseJsonObject(
     return value as Record<string, unknown>;
 }
 
+function isHookContextSource(value: unknown): boolean {
+    return value === "session_start" || value === "pre_turn" || value === "turn_ending";
+}
+
 function isModelMessage(value: unknown): value is ModelMessage {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
         return false;
@@ -2818,7 +2822,15 @@ function isModelMessage(value: unknown): value is ModelMessage {
     }
     if (message.role === "user") {
         return (message.contextSource === undefined
-            || (message.contextSource === "session_start" && message.internal === true))
+            || (isHookContextSource(message.contextSource) && message.internal === true))
+            && (message.hookSource === undefined
+                || (typeof message.hookSource === "string"
+                    && message.hookSource.length > 0
+                    && message.contextSource !== undefined))
+            && (message.hookDisplay === undefined
+                || (isHookDisplay(message.hookDisplay)
+                    && (message.contextSource === "pre_turn"
+                        || message.contextSource === "turn_ending")))
             && (message.internal === undefined
                 || typeof message.internal === "boolean")
             && (message.compactionBarrier === undefined

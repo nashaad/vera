@@ -207,6 +207,18 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
             options: { timeoutMs: 1000 },
         },
         {
+            method: "hook.turnEnding",
+            payload: {
+                type: "turn_ending",
+                workspace: "/w",
+                prompt: "find the treasure",
+                reply: "done",
+                spawned: false,
+                continuations: 0,
+            },
+            options: { timeoutMs: 1000 },
+        },
+        {
             method: "hook.sessionStart",
             payload: {
                 type: "session_start",

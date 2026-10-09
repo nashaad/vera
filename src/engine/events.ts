@@ -16,6 +16,7 @@ import type { ContextMeasurement } from "./context-measurement.ts";
 import type { ToolResultTruncation } from "../tools/tool-result-limit.ts";
 import type {
     AssistantMessage,
+    HookContextPhase,
     ModelMessage,
     ModelReasoningEffort,
     ModelStreamEvent,
@@ -492,9 +493,16 @@ export interface ToolHookFailedEvent {
     readonly error: string;
 }
 
+export interface HookContextAddedEvent {
+    readonly type: "hook_context_added";
+    readonly phase: HookContextPhase;
+    readonly source?: string;
+    readonly display?: string;
+}
+
 export interface TurnHookFailedEvent {
     readonly type: "turn_hook_failed";
-    readonly phase: "pre_turn";
+    readonly phase: "pre_turn" | "turn_ending";
     readonly error: string;
 }
 
@@ -575,6 +583,7 @@ export type EngineEvent =
     | ToolExecutionReplacedEvent
     | ToolHookFailedEvent
     | TurnHookFailedEvent
+    | HookContextAddedEvent
     | ToolResultChangedEvent
     | ToolExecutionStartedEvent
     | ToolReviewDecidedEvent
@@ -690,6 +699,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     tool_review_decided: "info",
     turn_finished: "info",
     turn_hook_failed: "error",
+    hook_context_added: "info",
     turn_started: "info",
     ui_request: "info",
     ui_request_closed: "info",

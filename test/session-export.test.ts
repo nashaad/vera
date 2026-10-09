@@ -186,3 +186,50 @@ function assistant(text: string): AssistantMessage {
         stopReason: "stop",
     };
 }
+
+test("Markdown export names the extension that added context", () => {
+    const markdown = renderSessionMarkdown({
+        format_version: 4,
+        session: { id: "lookout", started_at: "2026-10-09T20:00:00.000Z", workspace: "/work/vera" },
+        transcript: [
+            { kind: "user", text: "where is the treasure?" },
+            { kind: "hook_context", phase: "pre_turn", source: "lookout" },
+        ],
+    });
+
+    expect(markdown).toContain("## Vera\n\n> lookout added context");
+    expect(markdown).not.toContain("third palm");
+});
+
+test("Markdown export names the extension that continued the turn", () => {
+    const markdown = renderSessionMarkdown({
+        format_version: 4,
+        session: { id: "lookout", started_at: "2026-10-09T20:00:00.000Z", workspace: "/work/vera" },
+        transcript: [
+            { kind: "user", text: "find the treasure" },
+            { kind: "hook_context", phase: "turn_ending", source: "lookout" },
+        ],
+    });
+
+    expect(markdown).toContain("> lookout continued the turn");
+    expect(markdown).not.toContain("no map");
+});
+
+test("Markdown export shows a hook's display line with the extension name", () => {
+    const markdown = renderSessionMarkdown({
+        format_version: 4,
+        session: { id: "lookout", started_at: "2026-10-09T20:00:00.000Z", workspace: "/work/vera" },
+        transcript: [
+            { kind: "user", text: "where is the treasure?" },
+            {
+                kind: "hook_context",
+                phase: "pre_turn",
+                source: "lookout",
+                display: "Spotted: treasure under the third palm",
+            },
+        ],
+    });
+
+    expect(markdown).toContain("> Spotted: treasure under the third palm · lookout");
+    expect(markdown).not.toContain("the crow buried it");
+});

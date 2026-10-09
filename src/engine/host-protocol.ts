@@ -41,6 +41,7 @@ import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
     PreTurnHookPayload,
+    TurnEndingHookPayload,
     SessionStartHookPayload,
 } from "../sdk/hooks.ts";
 import type {
@@ -369,6 +370,12 @@ export interface PreTurnHookRequest {
     readonly options: HookCallOptions;
 }
 
+export interface TurnEndingHookRequest {
+    readonly method: "hook.turnEnding";
+    readonly payload: TurnEndingHookPayload;
+    readonly options: HookCallOptions;
+}
+
 /** Cancellable. One call to a compaction-bound model. */
 export interface CompactionCompleteRequest {
     readonly method: "compaction.complete";
@@ -409,6 +416,7 @@ export type WorkerRequest =
     | PreToolUseHookRequest
     | PostToolUseHookRequest
     | PreTurnHookRequest
+    | TurnEndingHookRequest
     | SessionStartHookRequest
     | CompactionCompleteRequest;
 
@@ -559,6 +567,7 @@ export const HOST_PROTOCOL_METHODS = [
     "hook.preToolUse",
     "hook.postToolUse",
     "hook.preTurn",
+    "hook.turnEnding",
     "hook.sessionStart",
     "compaction.complete",
     "event.emit",

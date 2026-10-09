@@ -370,12 +370,13 @@ test("pre-turn hook registration is capability-gated and can mutate the payload"
         extensions: [configured(extension)],
     });
     const hooks = new ToolHooks();
-    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook);
+    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook.run, hook.extensionId);
     const outcome = await hooks.runPreTurn({
         type: "pre_turn",
         sessionId: "session-1",
         workspace: "/work",
         prompt: "review this",
+        arrivedDuringTurn: false,
         model: "reviewer",
         tools: ["read", "write"],
     }, { timeoutMs: 100 });
@@ -395,15 +396,101 @@ test("a throwing extension pre-turn hook does not break the engine chain", async
         extensions: [configured(extension)],
     });
     const hooks = new ToolHooks();
-    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook);
+    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook.run, hook.extensionId);
     const outcome = await hooks.runPreTurn({
         type: "pre_turn",
         workspace: "/work",
         prompt: "review this",
+        arrivedDuringTurn: false,
         model: "reviewer",
         tools: ["read"],
     }, { timeoutMs: 100 });
     expect(outcome.payload.model).toBe("after-broken");
+    await registry.close();
+});
+
+test("an extension pre-turn context carries the extension id, and an invalid one is observed", async () => {
+    const extension = createExtension("lookout.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreTurn(() => ({
+                power: "mutate",
+                context: "the crow buried it under the third palm",
+                display: "Spotted: treasure under the third palm",
+            }));
+            vera.hooks.registerPreTurn(() => ({ power: "mutate", context: 42 }));
+            vera.hooks.registerPreTurn(() => ({ power: "mutate", context: "x".repeat(200 * 1024) }));
+            vera.hooks.registerPreTurn(() => ({ power: "mutate", context: "two lines", display: "a\\nb" }));
+        }
+    `, ["hooks.pre_turn"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook.run, hook.extensionId);
+    const outcome = await hooks.runPreTurn({
+        type: "pre_turn",
+        workspace: "/work",
+        prompt: "where is the treasure",
+        arrivedDuringTurn: false,
+        model: "reviewer",
+        tools: ["read"],
+    }, { timeoutMs: 100 });
+    expect(outcome.contexts).toEqual([
+        {
+            source: "lookout.extension",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        },
+    ]);
+    await registry.close();
+});
+
+test("a turn_ending hook is capability-gated, carries the extension id, and an invalid result is observed", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-turn-ending.extension", `
+        export function activate(vera) {
+            vera.hooks.registerTurnEnding(() => ({ power: "observe" }));
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.turnEndingHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.turn_ending");
+    await deniedRegistry.close();
+
+    const extension = createExtension("lookout.extension", `
+        export function activate(vera) {
+            vera.hooks.registerTurnEnding(() => { throw new Error("the crow dropped the map"); });
+            vera.hooks.registerTurnEnding(() => ({ power: "continue", context: "" }));
+            vera.hooks.registerTurnEnding(() => ({ power: "continue", context: 42 }));
+            vera.hooks.registerTurnEnding(() => ({ power: "continue", context: "long", display: "x".repeat(201) }));
+            vera.hooks.registerTurnEnding((payload) => payload.reply === "done"
+                ? { power: "continue", context: "no map, no treasure", display: "Back to digging: no map drawn" }
+                : { power: "observe" });
+        }
+    `, ["hooks.turn_ending"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.turnEndingHooks()) hooks.registerTurnEnding(hook.run, hook.extensionId);
+    const outcome = await hooks.runTurnEnding({
+        type: "turn_ending",
+        workspace: "/work",
+        prompt: "find the treasure",
+        reply: "done",
+        spawned: false,
+        continuations: 0,
+    }, { timeoutMs: 100 });
+    expect(outcome).toEqual({
+        continuation: {
+            source: "lookout.extension",
+            context: "no map, no treasure",
+            display: "Back to digging: no map drawn",
+        },
+    });
     await registry.close();
 });
 

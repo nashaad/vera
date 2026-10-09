@@ -534,6 +534,53 @@ test("Agent.run prepareTurn can restrict tools before the model request", async 
     expect(result.text).toBe("read only");
 });
 
+test("Agent.run prepareTurn can add context after the prompt", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("third palm it is")], requests);
+
+    const result = await vera.agent(basicDefinition()).run("where is the treasure?", {
+        prepareTurn: () => ({
+            power: "mutate",
+            context: "the crow buried it under the third palm",
+            display: "Spotted: treasure under the third palm",
+        }),
+    });
+
+    const texts = requests[0]?.messages.map((message) =>
+        message.content.map((content) => content.type === "text" ? content.text : "").join("")
+    );
+    expect(texts?.slice(-2)).toEqual([
+        "where is the treasure?",
+        "the crow buried it under the third palm",
+    ]);
+    expect(requests[0]?.messages.at(-1) as unknown).toMatchObject({
+        contextSource: "pre_turn",
+        hookDisplay: "Spotted: treasure under the third palm",
+    });
+    expect(result.outcome).toBe("completed");
+    expect(result.text).toBe("third palm it is");
+});
+
+test("Agent.run beforeTurnEnds can continue once, and the result is the last reply", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("done"), answer("done, map attached")], requests);
+    const seen: number[] = [];
+
+    const result = await vera.agent(basicDefinition()).run("find the treasure", {
+        beforeTurnEnds: (payload) => {
+            seen.push(payload.continuations);
+            return { power: "continue", context: "no map, no treasure" };
+        },
+    });
+
+    expect(requests).toHaveLength(2);
+    const last = requests[1]?.messages.at(-1);
+    expect(last?.content).toEqual([{ type: "text", text: "no map, no treasure" }]);
+    expect(seen).toEqual([0, 1]);
+    expect(result.outcome).toBe("completed");
+    expect(result.text).toBe("done, map attached");
+});
+
 test("Agent.run prepareTurn can block a turn before any model call", async () => {
     let adapters = 0;
     const vera = await Vera.create({

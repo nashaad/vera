@@ -9,6 +9,7 @@ import { join } from "node:path";
 import {
     emptyUsage,
     type AssistantMessage,
+    type HookContextPhase,
     type ImageContent,
     type ModelAdapter,
     type ModelMessage,
@@ -39,6 +40,7 @@ import type {
     PreToolUseHookResult,
     PreTurnHookPayload,
     SessionStartHookPayload,
+    TurnEndingHookPayload,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { AgentUpdate } from "./protocol.ts";
@@ -125,7 +127,12 @@ import {
     contextWindowForModel,
     budgetContextWindow,
 } from "./model-settings.ts";
-import { ToolHooks, type PreToolUseOutcome, type SessionStartContribution } from "./hooks.ts";
+import {
+    ToolHooks,
+    type HookContext,
+    type PreToolUseOutcome,
+    type SessionStartContribution,
+} from "./hooks.ts";
 import {
     InboundCommandRouter,
     type InboundTurnOutcome,
@@ -193,6 +200,8 @@ import {
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
 const PRE_TURN_HOOK_TIMEOUT_MS = 60_000;
+const TURN_ENDING_HOOK_TIMEOUT_MS = 60_000;
+const MAX_TURN_CONTINUATIONS = 1;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
@@ -989,6 +998,8 @@ export async function runTurn(
         const turnPrompts = turn.triggeredByDelivery
             ? []
             : [turn.prompt, ...(turn.additionalPrompts ?? [])];
+        const promptTexts = turnPrompts.map((prompt) => prompt.content);
+        let turnContinuations = 0;
         const userMessages: UserMessage[] = turnPrompts.map((prompt) => ({
             role: "user",
             content: [
@@ -1070,7 +1081,9 @@ export async function runTurn(
                         ...(turnReasoningEffort === undefined
                             ? {}
                             : { reasoningEffort: turnReasoningEffort }),
+                        arrivedDuringTurn: false,
                     },
+                    turn.signal,
                 );
                 if (applied.blocked !== undefined) {
                     assistantMessage = preTurnBlockedMessage(
@@ -1085,6 +1098,7 @@ export async function runTurn(
                     });
                     return assistantMessage;
                 }
+                await commitHookContexts(state, "pre_turn", applied.contexts);
                 if (promptIndex === 0) {
                     activeModel = applied.activeModel;
                     turnReasoningEffort = applied.turnReasoningEffort;
@@ -1550,13 +1564,41 @@ export async function runTurn(
                 assistantMessage = prepared.message;
                 preparedToolCalls = prepared.toolCalls;
             }
+            // Before the reply is committed, so a continued reply does not carry the turn's timing.
+            const endingContext = assistantMessage.stopReason === "stop"
+                ? await runTurnEndingHook(state, {
+                    type: "turn_ending",
+                    ...(state.sessionId === undefined
+                        ? {}
+                        : { sessionId: state.sessionId }),
+                    workspace: state.toolRuntime.workspace,
+                    prompt: promptTexts.join("\n\n"),
+                    reply: replyText(assistantMessage),
+                    spawned: state.toolRuntime.isSubagent,
+                    continuations: turnContinuations,
+                }, turn.signal)
+                : undefined;
             if (assistantMessage.stopReason !== "tool_use"
+                && endingContext === undefined
                 && (assistantMessage.stopReason !== "length"
                     || nextLengthContinuation(maxTokens, lengthContinuations) === undefined)) {
                 assistantMessage = withTurnTiming(assistantMessage);
             }
             calibrateContextWatch(state, measurement, assistantMessage, activeModel);
             await commitMessage(state, assistantMessage);
+
+            if (endingContext !== undefined) {
+                turnContinuations += 1;
+                await commitHookContexts(state, "turn_ending", [endingContext]);
+                const continuationCapacity = capacityForModel(activeModel);
+                await compactDuringTurn(state, turn.signal, [], {
+                    model: activeModel,
+                    ...(continuationCapacity === undefined
+                        ? {}
+                        : { capacity: continuationCapacity }),
+                });
+                continue;
+            }
 
             if (assistantMessage.stopReason === "length") {
                 const continuation = nextLengthContinuation(
@@ -1707,6 +1749,7 @@ export async function runTurn(
                 };
                 await commitMessage(state, message);
                 state.events.emit({ type: "turn_started", message });
+                promptTexts.push(prompt.content);
             }
             // Same gate as a later prompt in a send-all batch: it may narrow tools or block, never switch the model.
             for (const prompt of joined) {
@@ -1724,7 +1767,9 @@ export async function runTurn(
                         ...(turnReasoningEffort === undefined
                             ? {}
                             : { reasoningEffort: turnReasoningEffort }),
+                        arrivedDuringTurn: true,
                     },
+                    turn.signal,
                 );
                 if (applied.blocked !== undefined) {
                     assistantMessage = preTurnBlockedMessage(
@@ -1739,6 +1784,7 @@ export async function runTurn(
                     });
                     return assistantMessage;
                 }
+                await commitHookContexts(state, "pre_turn", applied.contexts);
                 scopedTools = scopedTools.filter((tool) =>
                     applied.tools.includes(tool.name)
                 );
@@ -1894,24 +1940,28 @@ interface AppliedPreTurn {
     readonly turnReasoningEffort: ModelReasoningEffort | undefined;
     readonly tools: readonly string[];
     readonly allowedTools: readonly string[] | undefined;
+    readonly contexts: readonly HookContext[];
     readonly blocked?: string;
 }
 
 async function applyPreTurnHook(
     state: RunTurnState,
     payload: PreTurnHookPayload,
+    signal: AbortSignal,
 ): Promise<AppliedPreTurn> {
     const unchanged = {
         activeModel: payload.model,
         turnReasoningEffort: payload.reasoningEffort as ModelReasoningEffort | undefined,
         tools: payload.tools,
         allowedTools: state.toolRuntime.allowedTools,
+        contexts: [],
     };
+    if (signal.aborted) return unchanged;
     let outcome;
     try {
-        outcome = await state.hooks.runPreTurn(payload, {
+        outcome = await untilAborted(state.hooks.runPreTurn(payload, {
             timeoutMs: PRE_TURN_HOOK_TIMEOUT_MS,
-        });
+        }), signal);
     } catch (error) {
         const message = errorMessage(error);
         state.events.emit({
@@ -1924,6 +1974,7 @@ async function applyPreTurnHook(
             blocked: `pre_turn hook failed: ${message}`,
         };
     }
+    if (outcome === undefined) return unchanged;
     if (outcome.result.power === "block") {
         return {
             ...unchanged,
@@ -1942,7 +1993,89 @@ async function applyPreTurnHook(
                 ? []
                 : turnToolExecutionScope({ tools: next.tools }))
             : state.toolRuntime.allowedTools,
+        contexts: outcome.contexts,
     };
+}
+
+// Each context is its own message after the prompts, so the cached prefix before them never changes.
+async function commitHookContexts(
+    state: RunTurnState,
+    phase: HookContextPhase,
+    contexts: readonly HookContext[],
+): Promise<void> {
+    for (const entry of contexts) {
+        await commitMessage(state, {
+            role: "user",
+            internal: true,
+            contextSource: phase,
+            ...(entry.source === undefined ? {} : { hookSource: entry.source }),
+            ...(entry.display === undefined ? {} : { hookDisplay: entry.display }),
+            content: [{ type: "text", text: entry.context }],
+        });
+        state.events.emit({
+            type: "hook_context_added",
+            phase,
+            ...(entry.source === undefined ? {} : { source: entry.source }),
+            ...(entry.display === undefined ? {} : { display: entry.display }),
+        });
+    }
+}
+
+// A failing chain ends the turn as if no hook were registered.
+async function runTurnEndingHook(
+    state: RunTurnState,
+    payload: TurnEndingHookPayload,
+    signal: AbortSignal,
+): Promise<HookContext | undefined> {
+    if (signal.aborted) return undefined;
+    let outcome;
+    try {
+        outcome = await untilAborted(state.hooks.runTurnEnding(payload, {
+            timeoutMs: TURN_ENDING_HOOK_TIMEOUT_MS,
+        }), signal);
+    } catch (error) {
+        state.events.emit({
+            type: "turn_hook_failed",
+            phase: "turn_ending",
+            error: errorMessage(error),
+        });
+        return undefined;
+    }
+    if (outcome === undefined || signal.aborted || payload.continuations >= MAX_TURN_CONTINUATIONS) {
+        return undefined;
+    }
+    return outcome.continuation;
+}
+
+// Esc must not wait on a slow hook: resolve undefined on abort and drop the late result.
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+    if (signal.aborted) {
+        work.catch(() => undefined);
+        return Promise.resolve(undefined);
+    }
+    return new Promise((resolve, reject) => {
+        const onAbort = () => {
+            work.catch(() => undefined);
+            resolve(undefined);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        work.then(
+            (value) => {
+                signal.removeEventListener("abort", onAbort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                signal.removeEventListener("abort", onAbort);
+                reject(error);
+            },
+        );
+    });
+}
+
+function replyText(message: AssistantMessage): string {
+    return message.content
+        .map((block) => block.type === "text" ? block.text : "")
+        .join("");
 }
 
 async function drainPendingDeliveries(state: RunTurnState): Promise<void> {

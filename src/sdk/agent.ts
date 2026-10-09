@@ -35,7 +35,7 @@ import { EngineEventBus, type EngineEvent } from "../engine/events.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { SessionStore } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
-import type { PreTurnHook } from "./hooks.ts";
+import type { PreTurnHook, TurnEndingHook } from "./hooks.ts";
 import {
     ResidentAgent,
     ResidentAgentClosedError,
@@ -128,10 +128,17 @@ export interface AgentRunOptions<Output = never> {
     readonly output?: AgentOutputSchema<Output>;
     /**
      * Once per user turn, after the prompt is committed and before the first
-     * model call. May observe, restrict tools, change model or effort, or
-     * block the turn. It cannot rewrite messages or the system prompt.
+     * model call. May observe, restrict tools, change model or effort, add
+     * context after the prompt, or block the turn. It cannot rewrite messages
+     * or the system prompt.
      */
     readonly prepareTurn?: PreTurnHook;
+    /**
+     * When the model gives a final reply with no tool calls. May return
+     * `continue` with context to run the model once more in the same turn.
+     * The result text is the last reply.
+     */
+    readonly beforeTurnEnds?: TurnEndingHook;
     /** Durable SessionStore path. Omitted means a temporary file that is deleted. */
     readonly sessionPath?: string;
     /**
@@ -151,7 +158,7 @@ export interface AgentRunModelIdentity {
 
 export interface AgentRunResult<Output = never> {
     readonly outcome: AgentRunOutcome;
-    /** What the agent answered: the assistant text after its last tool call. */
+    /** What the agent answered: the text of its last reply. */
     readonly text: string;
     /** Every word the agent said, including narration between tool calls. */
     readonly transcript: string;
@@ -485,6 +492,9 @@ async function runResolvedTurn<Output>(
         if (options.prepareTurn !== undefined) {
             hooks.registerPreTurn(options.prepareTurn);
         }
+        if (options.beforeTurnEnds !== undefined) {
+            hooks.registerTurnEnding(options.beforeTurnEnds);
+        }
         loop = runHeadlessLoop(
             resident.engine,
             adapter,
@@ -515,7 +525,9 @@ async function runResolvedTurn<Output>(
                 }),
                 readPolicy: () => configuredTurnPolicy(resolved.config),
                 readSelectedAgent: () => selected,
-                ...(options.prepareTurn === undefined ? {} : { hooks }),
+                ...(options.prepareTurn === undefined && options.beforeTurnEnds === undefined
+                    ? {}
+                    : { hooks }),
                 sessionStore,
                 ...(events === undefined ? {} : { eventBus: events }),
             },
@@ -537,6 +549,10 @@ async function runResolvedTurn<Output>(
                 continue;
             }
             if (update.type === "tool_started") {
+                text = "";
+                continue;
+            }
+            if (update.type === "hook_context" && update.phase === "turn_ending") {
                 text = "";
                 continue;
             }

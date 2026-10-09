@@ -2,7 +2,7 @@ import { workedDividerText } from "./worked-divider.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 import { realpathSync } from "node:fs";
 
-import { bg, bold, fg, italic, StyledText } from "@opentui/core";
+import { bg, bold, dim, fg, italic, StyledText } from "@opentui/core";
 import type { TextChunk } from "@opentui/core";
 
 import type { AgentUpdate, AttachmentRef } from "../../src/engine/protocol.ts";
@@ -11,7 +11,8 @@ import {
     EMPTY_THREAD_FACTS,
     type ThreadFacts,
 } from "../shared/thread-facts.ts";
-import { formatModelSubstitution } from "../../src/engine/protocol.ts";
+import { formatHookContext, formatModelSubstitution } from "../../src/engine/protocol.ts";
+import type { HookContextPhase } from "../../src/engine/protocol.ts";
 import type {
     CompactionUpdate,
     ModelActivityUpdate,
@@ -97,6 +98,8 @@ export interface TuiTextTranscriptEntry {
     readonly hasResult?: boolean;
     readonly dimmedPrefix?: number;
     readonly prefix?: string;
+    // Drawn dim after the text, e.g. the extension behind a hook's own row.
+    readonly suffix?: string;
     readonly repeat?: number;
     readonly supersedes?: string;
     readonly liveOnly?: boolean;
@@ -539,6 +542,9 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
     }
     if (update.type === "notice") {
         return update.text === undefined ? state : appendEntry(state, { kind: "notice", text: update.text });
+    }
+    if (update.type === "hook_context") {
+        return appendEntry(state, hookContextEntry(update.phase, update.source, update.display));
     }
     if (update.type === "history") {
         const reopenedTurnFinishedAt = state.transcriptStarted === true
@@ -1439,6 +1445,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             const text = fg(color)(entry.text);
             return new StyledText([
                 entry.tone === "soft" ? italic(text) : text,
+                ...(entry.suffix === undefined
+                    ? []
+                    : [dim(fg(TUI_MUTED)(` · ${entry.suffix}`))]),
             ]);
         }
         const diagnostic = renderTuiDiagnostic(entry.diagnostic, entry.repeat);
@@ -2410,6 +2419,9 @@ function toSingleTuiTranscriptEntry(
     if (entry.kind === "harness") {
         return { kind: "notice", text: entry.text, tone: entry.tone };
     }
+    if (entry.kind === "hook_context") {
+        return hookContextEntry(entry.phase, entry.source, entry.display);
+    }
     return entry.kind === "user"
         ? userEntry(entry.text, entry.attachments)
         : entry;
@@ -2541,6 +2553,19 @@ function presentationEntry(
             checklist: presentation,
         }
         : { kind: "notice", text: presentation.text };
+}
+
+function hookContextEntry(
+    phase: HookContextPhase,
+    source: string | undefined,
+    display: string | undefined,
+): TuiTextTranscriptEntry {
+    return {
+        kind: "notice",
+        text: display ?? formatHookContext(phase, source),
+        tone: "soft",
+        ...(display === undefined || source === undefined ? {} : { suffix: source }),
+    };
 }
 
 function userEntry(

@@ -62,6 +62,7 @@ import type {
 } from "../../src/store/session-store.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import { disabledContributionsForProfile } from "../../src/startup-profile.ts";
+import type { TurnEndingHookPayload } from "../../src/sdk/hooks.ts";
 
 const temporaryWorkspaces: string[] = [];
 
@@ -367,6 +368,387 @@ test("a prompt queued during a tool batch joins the turn before the next request
     channel.client.send({ type: "prompt", content: "drop anchor" });
     await idle;
     state.inbound.finishTurn();
+});
+
+test("pre-turn context lands after each prompt and survives a reopen", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-hook-context-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "lookout",
+        cwd: workspace,
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf dig" }),
+        assistantText("chest found"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push({ ...request, messages: structuredClone(request.messages) });
+            if (requests.length === 1) {
+                channel.client.send({ type: "prompt", content: "and the rum?" });
+            }
+            return faux.stream(request);
+        },
+    };
+    const joined: boolean[] = [];
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn((payload) => {
+        joined.push(payload.arrivedDuringTurn);
+        return payload.prompt.includes("treasure")
+            ? { power: "mutate", context: "the crow buried it under the third palm" }
+            : { power: "mutate", context: "the rum is gone", display: "Rum check: gone" };
+    }, "lookout");
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    await runTurn(adapter, "test", state);
+
+    expect(joined).toEqual([false, true]);
+    const palm = {
+        role: "user",
+        internal: true,
+        contextSource: "pre_turn",
+        hookSource: "lookout",
+        content: [{ type: "text", text: "the crow buried it under the third palm" }],
+    };
+    expect(requests[0]?.messages).toEqual([
+        { role: "user", content: [{ type: "text", text: "find the treasure" }] },
+        palm,
+    ] as ModelMessage[]);
+    expect(requests[1]?.messages.at(-1)).toEqual({
+        role: "user",
+        internal: true,
+        contextSource: "pre_turn",
+        hookSource: "lookout",
+        hookDisplay: "Rum check: gone",
+        content: [{ type: "text", text: "the rum is gone" }],
+    } as ModelMessage);
+    expect(state.messages[1]).toEqual(palm as ModelMessage);
+    const contextUpdates = updates.filter((update) => update.type === "hook_context");
+    expect(contextUpdates).toEqual([
+        expect.objectContaining({ type: "hook_context", phase: "pre_turn", source: "lookout" }),
+        expect.objectContaining({
+            type: "hook_context",
+            phase: "pre_turn",
+            source: "lookout",
+            display: "Rum check: gone",
+        }),
+    ]);
+    expect(contextUpdates[0]).not.toHaveProperty("display");
+
+    const reopened = await SessionStore.open(sessionPath);
+    expect(reopened.messages()).toEqual(state.messages);
+    expect(projectTranscript(reopened.messages()).filter((entry) => entry.kind === "hook_context")).toEqual([
+        expect.objectContaining({ kind: "hook_context", phase: "pre_turn", source: "lookout" }),
+        expect.objectContaining({
+            kind: "hook_context",
+            phase: "pre_turn",
+            source: "lookout",
+            display: "Rum check: gone",
+        }),
+    ]);
+});
+
+test("turn_ending continues a turn once, keeps the first reply, and survives a reopen", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-turn-ending-"));
+    temporaryWorkspaces.push(workspace);
+    const sessionPath = join(workspace, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "lookout",
+        cwd: workspace,
+    });
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const updates: AgentUpdate[] = [];
+    events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([
+        toolResponse("call_1", "bash", { command: "printf dig" }),
+        assistantText("done"),
+        assistantText("done, map attached"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push({ ...request, messages: structuredClone(request.messages) });
+            return faux.stream(request);
+        },
+    };
+    const payloads: TurnEndingHookPayload[] = [];
+    const hooks = new ToolHooks();
+    hooks.registerTurnEnding((payload) => {
+        payloads.push(payload);
+        return { power: "continue", context: "no map, no treasure", display: "Back to digging: no map drawn" };
+    }, "lookout");
+    const state: RunTurnState = {
+        sessionId: "lookout",
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const final = await runTurn(adapter, "test", state);
+
+    expect(payloads).toEqual([
+        {
+            type: "turn_ending",
+            sessionId: "lookout",
+            workspace,
+            prompt: "find the treasure",
+            reply: "done",
+            spawned: false,
+            continuations: 0,
+        },
+        {
+            type: "turn_ending",
+            sessionId: "lookout",
+            workspace,
+            prompt: "find the treasure",
+            reply: "done, map attached",
+            spawned: false,
+            continuations: 1,
+        },
+    ]);
+    expect(requests).toHaveLength(3);
+    const nudge = {
+        role: "user",
+        internal: true,
+        contextSource: "turn_ending",
+        hookSource: "lookout",
+        hookDisplay: "Back to digging: no map drawn",
+        content: [{ type: "text", text: "no map, no treasure" }],
+    };
+    expect(requests[2]?.messages.slice(-2)).toEqual([
+        expect.objectContaining({ role: "assistant", content: [{ type: "text", text: "done" }] }),
+        nudge,
+    ] as ModelMessage[]);
+    expect(final.content).toEqual([{ type: "text", text: "done, map attached" }]);
+    expect(final.turnTiming).toBeDefined();
+    expect(state.messages.map((message) => message.role)).toEqual([
+        "user", "assistant", "tool_result", "assistant", "user", "assistant",
+    ]);
+    expect((state.messages[3] as AssistantMessage).turnTiming).toBeUndefined();
+    expect(updates.filter((update) => update.type === "hook_context")).toEqual([
+        expect.objectContaining({
+            phase: "turn_ending",
+            source: "lookout",
+            display: "Back to digging: no map drawn",
+        }),
+    ]);
+    expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+
+    const reopened = await SessionStore.open(sessionPath);
+    expect(reopened.messages()).toEqual(state.messages);
+    expect(projectTranscript(reopened.messages()).map((entry) => entry.kind)).toEqual([
+        "user", "tool", "tool_result", "assistant", "hook_context", "assistant",
+    ]);
+    expect(projectTranscript(reopened.messages())).toContainEqual(
+        expect.objectContaining({
+            kind: "hook_context",
+            phase: "turn_ending",
+            source: "lookout",
+            display: "Back to digging: no map drawn",
+        }),
+    );
+});
+
+test("a failing turn_ending hook ends the turn as if none were registered", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const engineEvents: EngineEvent[] = [];
+    events.subscribe((event) => engineEvents.push(event));
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([assistantText("done"), assistantText("never sent")]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const hooks = new ToolHooks();
+    hooks.registerTurnEnding(() => {
+        throw new Error("the crow dropped the map");
+    });
+    hooks.registerTurnEnding(() => ({ power: "continue", context: "unreached" }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const final = await runTurn(adapter, "test", state);
+
+    expect(requests).toHaveLength(1);
+    expect(final.content).toEqual([{ type: "text", text: "done" }]);
+    expect(final.turnTiming).toBeDefined();
+    expect(engineEvents).toContainEqual(expect.objectContaining({
+        type: "turn_hook_failed",
+        phase: "turn_ending",
+        error: expect.stringContaining("the crow dropped the map"),
+    }));
+    expect(engineEvents.filter((event) => event.type === "turn_finished")).toHaveLength(1);
+});
+
+test("turn_ending does not fire once the turn is aborted", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const hooks = new ToolHooks();
+    let fired = 0;
+    hooks.registerTurnEnding(() => {
+        fired += 1;
+        return { power: "observe" };
+    });
+    const faux = new FauxAdapter([assistantText("done")]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            const inner = faux.stream(request);
+            return {
+                async *[Symbol.asyncIterator]() {
+                    const streamed = [];
+                    for await (const event of inner) streamed.push(event);
+                    yield* streamed.slice(0, -1);
+                    channel.client.send({ type: "abort" });
+                    await Bun.sleep(10);
+                    yield* streamed.slice(-1);
+                },
+                result: () => inner.result(),
+            };
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    await runTurn(adapter, "test", state);
+
+    expect(fired).toBe(0);
+});
+
+test("Esc stops waiting on a slow turn_ending hook and keeps the reply", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const engineEvents: EngineEvent[] = [];
+    events.subscribe((event) => engineEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerTurnEnding(async () => {
+        channel.client.send({ type: "abort" });
+        await Bun.sleep(3_000);
+        return { power: "continue", context: "too late" };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const started = performance.now();
+    const final = await runTurn(new FauxAdapter([assistantText("done"), assistantText("never sent")]), "test", state);
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(final.content).toEqual([{ type: "text", text: "done" }]);
+    expect(state.messages.some((message) => message.role === "user" && message.contextSource !== undefined)).toBe(false);
+    expect(engineEvents.filter((event) => event.type === "turn_finished")).toHaveLength(1);
+});
+
+test("Esc stops waiting on a slow pre_turn hook and adds no context", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([assistantText("never sent")]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(async () => {
+        channel.client.send({ type: "abort" });
+        await Bun.sleep(3_000);
+        return { power: "mutate", context: "too late" };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const started = performance.now();
+    const final = await runTurn(adapter, "test", state);
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(final.stopReason).toBe("aborted");
+    expect(state.messages.some((message) => message.role === "user" && message.contextSource !== undefined)).toBe(false);
+});
+
+test("turn_ending does not fire on an error reply", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const hooks = new ToolHooks();
+    let fired = 0;
+    hooks.registerTurnEnding(() => {
+        fired += 1;
+        return { power: "continue", context: "try again" };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+    const thinkingOnly: AssistantMessage = {
+        ...assistantText(""),
+        content: [{ type: "thinking", text: "hmm" }],
+    };
+
+    channel.client.send({ type: "prompt", content: "find the treasure" });
+    const final = await runTurn(new FauxAdapter([thinkingOnly]), "test", state);
+
+    expect(final.stopReason).toBe("error");
+    expect(fired).toBe(0);
 });
 
 test("a pre_turn block on a joining prompt ends the running turn", async () => {

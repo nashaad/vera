@@ -140,8 +140,8 @@ keeps the plain text result shape.
 
 `prepareTurn` runs once after the prompt is saved and before the first model
 call. It can watch, drop tools from this turn, pick a different model or
-effort, or refuse the turn. It cannot edit the prompt or the system
-instructions.
+effort, add context after the prompt, or refuse the turn. It cannot edit the
+prompt or the system instructions.
 
 ```ts
 const result = await vera.agent(reviewer).run(changeText, {
@@ -156,6 +156,38 @@ const result = await vera.agent(reviewer).run(changeText, {
 
 A blocked turn is a failed run. A tools list may only name tools this turn
 already offered. It cannot add a tool that was unavailable to the run.
+
+`context` is text the model reads right after the prompt, as a message of its
+own. It stays in the session:
+
+```ts
+await vera.agent(reviewer).run(changeText, {
+    prepareTurn: () => ({ power: "mutate", context: "the crow guards the main branch" }),
+});
+```
+
+### Send the model back once before a turn ends
+
+`beforeTurnEnds` runs when the model gives a reply with no tool calls. It gets
+the prompt, the reply, and how many continuations the turn has used. It can
+return `continue` with context, and the model runs again in the same turn. A
+turn gets one continuation; after that, `continue` is ignored. The run's text
+is the last reply.
+
+```ts
+const result = await vera.agent(reviewer).run(changeText, {
+    beforeTurnEnds(turn) {
+        if (/\bdone\b/i.test(turn.reply) && !/\bmap\b/i.test(turn.reply)) {
+            return { power: "continue", context: "You said done but drew no map." };
+        }
+        return { power: "observe" };
+    },
+});
+```
+
+Both `prepareTurn` and `beforeTurnEnds` can also return `display`, one line of
+up to 200 characters. It is stored with the context, and a client that opens
+the session shows it as the row in place of the default text.
 
 ### Set the role's default model
 
