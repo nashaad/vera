@@ -1,7 +1,8 @@
 import type { InboxEntry } from "../store/inbox.ts";
 
 export const PEER_MESSAGE_KIND = "peer.message";
-export const PEER_READ_KIND = "peer.read";
+// Older inboxes may still hold read receipts; they are never counted, read, or woken for.
+export const RETIRED_PEER_READ_KIND = "peer.read";
 export const VERA_INBOX_SOURCE = "vera";
 
 export interface PeerMessagePayload {
@@ -12,10 +13,6 @@ export interface PeerMessagePayload {
     readonly reply_to?: number;
 }
 
-export interface PeerReadPayload {
-    readonly message_id: number;
-    readonly complete: true;
-}
 
 export function parsePeerMessage(entry: InboxEntry): PeerMessagePayload | undefined {
     if (
@@ -51,24 +48,6 @@ export function parsePeerMessage(entry: InboxEntry): PeerMessagePayload | undefi
             ? {}
             : { reply_to: value.reply_to as number }),
     };
-}
-
-export function parsePeerRead(entry: InboxEntry): PeerReadPayload | undefined {
-    if (
-        entry.source !== VERA_INBOX_SOURCE
-        || entry.kind !== PEER_READ_KIND
-        || entry.actor === null
-        || entry.address === null
-    ) {
-        return undefined;
-    }
-    const value = parseObject(entry.payload);
-    return value !== undefined
-            && Number.isSafeInteger(value.message_id)
-            && (value.message_id as number) > 0
-            && value.complete === true
-        ? { message_id: value.message_id as number, complete: true }
-        : undefined;
 }
 
 function parseObject(text: string): Record<string, unknown> | undefined {

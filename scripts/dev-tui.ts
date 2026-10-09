@@ -86,18 +86,11 @@ export function candidateHomePath(
     );
 }
 
-export function disableOutboundConsumers(home: string): void {
-    const path = join(home, "config.json");
-    if (!existsSync(path)) return;
-    const config = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-    const experimental = typeof config.experimental === "object"
-            && config.experimental !== null
-            && !Array.isArray(config.experimental)
-        ? { ...config.experimental as Record<string, unknown> }
-        : {};
-    experimental.inbox = false;
-    config.experimental = experimental;
-    writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+// A clone of the daily home must not fire the daily schedules a second time.
+export function dropClonedSchedules(home: string): void {
+    for (const suffix of ["", "-wal", "-shm"]) {
+        rmSync(join(home, "runtime", `schedules.db${suffix}`), { force: true });
+    }
 }
 
 export function formatDevInstanceMarker(
@@ -272,9 +265,6 @@ export async function runDevTui(
     if (lifted) scrubLiveIdentity(destinationHome);
     else scrubForeignHostIdentity(destinationHome);
     quarantineUnknownHomeEntries(destinationHome);
-    if (!existed || lifted) {
-        disableOutboundConsumers(destinationHome);
-    }
     if (!existed) {
         const dailySocket = join(sourceHome, "runtime", "host.sock");
         if (dailyHostAppearsRunning(sourceHome) && existsSync(dailySocket)) {
@@ -298,6 +288,9 @@ export async function runDevTui(
             sourceHome,
             snapshotAt: new Date().toISOString(),
         });
+    }
+    if (!existed || lifted) {
+        dropClonedSchedules(destinationHome);
     }
     if (lifted && existed) {
         writeInstanceMeta(destinationHome, {

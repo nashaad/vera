@@ -1,12 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
     Inbox,
-    inboxEnabled,
-    openInboxIfEnabled,
     type ConsumerId,
     type InboxEntryInput,
 } from "../../src/store/inbox.ts";
@@ -102,7 +100,7 @@ test("offsets never move backwards", () => {
     inbox.close();
 });
 
-test("acknowledgement advances and appends its receipt atomically and idempotently", () => {
+test("acknowledgement advances the offset idempotently and appends nothing", () => {
     const inbox = Inbox.open(":memory:");
     const consumer = { nodeId: "node-a", label: "right" };
     inbox.registerConsumer(consumer);
@@ -114,79 +112,10 @@ test("acknowledgement advances and appends its receipt atomically and idempotent
         address: "right",
         payload: "{}",
     });
-    const receipt = {
-        source: "vera",
-        kind: "peer.read",
-        actor: "right",
-        session: "right",
-        address: "left",
-        payload: JSON.stringify({ message_id: message.seq, complete: true }),
-    };
 
-    expect(inbox.acknowledge(consumer, message.seq, receipt)).toMatchObject({
-        offset: message.seq,
-        receipt: { kind: "peer.read", seq: message.seq + 1 },
-    });
-    expect(inbox.acknowledge(consumer, message.seq, receipt)).toEqual({
-        offset: message.seq,
-    });
-    expect(inbox.readAfter(0, { limit: 10 }).filter(
-        (entry) => entry.kind === "peer.read"
-    )).toHaveLength(1);
-    inbox.close();
-});
-
-test("duplicate acknowledgement from another connection creates no second receipt", () => {
-    const path = join(temporaryDirectory(), "shared-inbox.db");
-    const first = Inbox.open(path);
-    const second = Inbox.open(path);
-    const consumer = { nodeId: "node-a", label: "right" };
-    first.registerConsumer(consumer);
-    const message = first.append({
-        source: "vera",
-        kind: "peer.message",
-        actor: "left",
-        session: "left",
-        address: "right",
-        payload: "{}",
-    });
-    const receipt = {
-        source: "vera",
-        kind: "peer.read",
-        actor: "right",
-        session: "right",
-        address: "left",
-        payload: JSON.stringify({ message_id: message.seq, complete: true }),
-    };
-
-    expect(first.acknowledge(consumer, message.seq, receipt).receipt).toBeDefined();
-    expect(second.acknowledge(consumer, message.seq, receipt)).toEqual({
-        offset: message.seq,
-    });
-    expect(second.readAfter(0, { limit: 10 }).filter(
-        (entry) => entry.kind === "peer.read"
-    )).toHaveLength(1);
-    first.close();
-    second.close();
-});
-
-test("a failed receipt append rolls its offset update back", () => {
-    const inbox = Inbox.open(":memory:");
-    const consumer = { nodeId: "node-a", label: "right" };
-    inbox.registerConsumer(consumer);
-    const message = inbox.append({
-        source: "vera",
-        kind: "peer.message",
-        payload: "{}",
-    });
-
-    expect(() => inbox.acknowledge(consumer, message.seq, {
-        source: "vera",
-        kind: "peer.read",
-        payload: undefined as unknown as string,
-    })).toThrow();
-    expect(inbox.offsetOf(consumer)).toBe(0);
-    expect(inbox.tail()).toBe(1);
+    expect(inbox.acknowledge(consumer, message.seq)).toEqual({ offset: message.seq });
+    expect(inbox.acknowledge(consumer, message.seq)).toEqual({ offset: message.seq });
+    expect(inbox.tail()).toBe(message.seq);
     inbox.close();
 });
 
@@ -305,21 +234,6 @@ test("an unregistered consumer cannot read or advance", () => {
     );
     expect(inbox.listConsumers()).toEqual([]);
     inbox.close();
-});
-
-test("the experimental flag gates the whole subsystem", () => {
-    const path = join(temporaryDirectory(), "inbox.db");
-
-    expect(inboxEnabled({})).toBe(false);
-    expect(openInboxIfEnabled({}, path)).toBeNull();
-    expect(openInboxIfEnabled({ experimental: {} }, path)).toBeNull();
-    expect(openInboxIfEnabled({ experimental: { inbox: false } }, path)).toBeNull();
-    expect(existsSync(path)).toBe(false);
-
-    const inbox = openInboxIfEnabled({ experimental: { inbox: true } }, path);
-    expect(inbox).not.toBeNull();
-    expect(existsSync(path)).toBe(true);
-    inbox?.close();
 });
 
 function entry(overrides: Partial<InboxEntryInput> = {}): InboxEntryInput {

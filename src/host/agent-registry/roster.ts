@@ -2,12 +2,11 @@ import { statSync } from "node:fs";
 import type { EmittedScheduleRun } from "../../scheduler/types.ts";
 import { sessionChangedFiles } from "../../store/preimage-stash.ts";
 import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ToolOutput } from "../../tools/types.ts";
-import { SOURCE_GAP_KIND } from "../../watch/source.ts";
 import { workspaceKey } from "../../workspace-key.ts";
-import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, importedSessionSummary, gitRosterFacts, normalizeSessionName, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
+import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowledgeAfterCommit, entryIsLive, entryStatus, entryUpdatedAt, genericInboxResult, importedSessionSummary, gitRosterFacts, normalizeSessionName, participantLabel, sameWorkspace, toolError, type RegisteredAgentEntry, type RegisteredAgentSummary, type RenameSessionOutcome } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
-import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "../inbox-delivery.ts";
-import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, parsePeerRead, type PeerMessagePayload } from "../local-participation.ts";
+import { UNCOUNTED_INBOX_KINDS, type InboxAdmissionCandidate, type InboxAdmissionDecision } from "../inbox-delivery.ts";
+import { PEER_MESSAGE_KIND, RETIRED_PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "../local-participation.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
@@ -36,11 +35,14 @@ export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, det
                 const unread = entry.inbox?.consumer.unreadStatus({
                     limit: 99,
                     addresses: [id],
-                    excludeKinds: [SOURCE_GAP_KIND],
+                    excludeKinds: UNCOUNTED_INBOX_KINDS,
                 }) ?? { count: 0, oldestAgeMs: null };
                 const compact = {
                     participant_id: id,
                     name: entry.identity?.name,
+                    ...(entry.store.name() === undefined
+                        ? {}
+                        : { title: entry.store.name() }),
                     status: entryStatus(entry),
                     live: entryIsLive(entry),
                 };
@@ -123,9 +125,9 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
             address: effect.to,
             payload: JSON.stringify(payload),
         });
-        const delivery = inbox.hasAdmissionPath()
-            ? recipient.agent.attached
-                && recipient.inbox.isAdmittedSource("peer")
+        // Nobody can answer an admission prompt for a detached peer, so it wakes under the hop and rate caps.
+        const delivery = recipient.agent.attached && inbox.hasAdmissionPath()
+            ? recipient.inbox.isAdmittedSource("peer")
                 ? { delivered: true as const }
                 : {
                     delivered: false as const,
@@ -179,13 +181,7 @@ export async function wakeForPeerMessage(_reg: AgentRegistry, caller: Registered
             return { delivered: false, reason: "rate_limit" };
         }
         try {
-            await recordDeliveryAndNotify(recipient.store, recipient.events, {
-                id: `peer:${caller.store.header.id}:${seq}`,
-                sourceAgentId: caller.store.header.id,
-                content: `Peer ${caller.store.header.id} sent message ${seq}. `
-                    + "Read it with agent_inbox.",
-                kind: "peer",
-            });
+            await recordPeerNotice(recipient, caller.store.header.id, participantLabel(caller), seq);
             recipient.agent.triggerDeliveryTurn();
         } catch {
             return { delivered: false, reason: "unavailable" };
@@ -193,6 +189,45 @@ export async function wakeForPeerMessage(_reg: AgentRegistry, caller: Registered
         recipient.peerWakes = [...wakes, now];
         recipient.peerHop = hop;
         return { delivered: true };
+    }
+
+function recordPeerNotice(recipient: RegisteredAgentEntry, fromId: string, fromLabel: string, seq: number): Promise<boolean> {
+        return recordDeliveryAndNotify(recipient.store, recipient.events, {
+            id: `peer:${fromId}:${seq}`,
+            sourceAgentId: fromId,
+            content: `Peer ${fromLabel} sent message ${seq}. Read it with agent_inbox.`,
+            kind: "peer",
+        });
+    }
+
+function peerSenderLabel(reg: AgentRegistry, seq: number): { readonly id: string; readonly label: string } | undefined {
+        const stored = reg.options.inboxDelivery?.entry(seq);
+        const message = stored === undefined ? undefined : parsePeerMessage(stored);
+        if (message === undefined) return undefined;
+        const sender = reg.agents.get(message.from);
+        return { id: message.from, label: sender === undefined ? message.from : participantLabel(sender) };
+    }
+
+// An admitted turn for a peer message needs the notice, or the recipient wakes with nothing new to read.
+export async function startAdmittedInboxTurn(reg: AgentRegistry, recipient: RegisteredAgentEntry, candidate: InboxAdmissionCandidate): Promise<void> {
+        if (candidate.kind === PEER_MESSAGE_KIND) {
+            const sender = peerSenderLabel(reg, candidate.seq);
+            // A notice already recorded by a detached wake is not repeated, and its turn is not run twice.
+            if (sender !== undefined) {
+                let recorded: boolean;
+                try {
+                    recorded = await recordPeerNotice(recipient, sender.id, sender.label, candidate.seq);
+                } catch {
+                    recorded = false;
+                }
+                if (!recorded) return;
+            }
+        }
+        try {
+            recipient.agent.triggerDeliveryTurn();
+        } catch {
+            // A recipient closed since admission keeps the entry unread.
+        }
     }
 
 export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string, effect: AgentInboxEffect): Promise<AppliedToolEffectOutput> {
@@ -204,6 +239,7 @@ export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string
         const entry = caller.inbox.consumer.read({
             limit: 1,
             addresses: [callerId],
+            excludeKinds: [RETIRED_PEER_READ_KIND],
         })[0];
         if (entry === undefined) {
             return {
@@ -219,20 +255,9 @@ export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string
         }
         const message = parsePeerMessage(entry);
         if (message === undefined) {
-            const read = parsePeerRead(entry);
-            const output = read === undefined
-                ? genericInboxResult(entry)
-                : {
-                    message_id: entry.seq,
-                    kind: PEER_READ_KIND,
-                    from: entry.actor,
-                    to: entry.address,
-                    read_message_id: read.message_id,
-                    complete: true,
-                };
             return {
                 kind: "output",
-                output: JSON.stringify(output),
+                output: JSON.stringify(genericInboxResult(entry)),
                 isError: false,
                 afterCommit: acknowledgeAfterCommit(entry.seq),
             };
@@ -252,10 +277,7 @@ export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string
             kind: "output",
             output: JSON.stringify({ ...envelope, complete: true }),
             isError: false,
-            afterCommit: acknowledgeAfterCommit(
-                entry.seq,
-                message.from,
-            ),
+            afterCommit: acknowledgeAfterCommit(entry.seq),
         };
     }
 
@@ -450,11 +472,35 @@ export function scheduleWorkFacts(_reg: AgentRegistry, runs: readonly EmittedSch
         });
     }
 
-export async function requestInboxAdmission(_reg: AgentRegistry, entry: RegisteredAgentEntry, candidate: InboxAdmissionCandidate, signal: AbortSignal): Promise<InboxAdmissionDecision | undefined> {
+export async function requestInboxAdmission(reg: AgentRegistry, entry: RegisteredAgentEntry, candidate: InboxAdmissionCandidate, signal: AbortSignal): Promise<InboxAdmissionDecision | undefined> {
         const inbound = entry.inbound;
         if (inbound === undefined || !entry.agent.attached) return undefined;
 
-        const result = await inbound.requestUserQuestion({
+        const sender = candidate.kind === PEER_MESSAGE_KIND
+            ? peerSenderLabel(reg, candidate.seq)
+            : undefined;
+        const result = await inbound.requestUserQuestion(sender !== undefined ? {
+            question:
+                `${sender.label} wants to message this conversation.\n`
+                + "Let messages from other conversations start a turn here?",
+            choices: [
+                {
+                    id: "once",
+                    label: "Just this one",
+                    description: "Later messages wait until you read them.",
+                },
+                {
+                    id: "session",
+                    label: "This conversation",
+                    description: "Until you leave it.",
+                },
+                {
+                    id: "always",
+                    label: "Always",
+                    description: "Then pick User or Project.",
+                },
+            ],
+        } : {
             question:
                 `Inbox source ${candidate.sourceFamily}: ${candidate.kind} `
                 + `from ${candidate.source} (${candidate.ts})\n`

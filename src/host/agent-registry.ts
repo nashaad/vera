@@ -50,9 +50,9 @@ import type { WorkerAdapterSpec } from "./worker/start.ts";
 import { createFailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { type AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts";
-import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, parsePeerRead, type PeerMessagePayload } from "./local-participation.ts";
+import { PEER_MESSAGE_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "./local-participation.ts";
 
-import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, peerReadReceipt, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
+import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
 import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
 import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskResult } from "./agent-registry/ask.ts";
@@ -922,27 +922,13 @@ export class AgentRegistry {
                 throw new Error(`Unknown committed tool effect: ${effect.key}`);
             }
             const seq = effect.data.seq;
-            const receiptTo = effect.data.receipt_to;
             if (!Number.isSafeInteger(seq) || (seq as number) <= 0) {
                 throw new Error("Invalid inbox acknowledgement sequence");
-            }
-            if (receiptTo !== undefined && (
-                typeof receiptTo !== "string" || receiptTo.length === 0
-            )) {
-                throw new Error("Invalid inbox read-receipt recipient");
             }
             if (entry.inbox === undefined) {
                 throw new Error("inbox consumer closed before acknowledgement");
             }
-            const acknowledged = entry.inbox.consumer.acknowledge(
-                seq as number,
-                receiptTo === undefined
-                    ? undefined
-                    : peerReadReceipt(agent.id, receiptTo as string, seq as number),
-            );
-            if (acknowledged.receipt !== undefined) {
-                await this.options.inboxDelivery?.pumpAll();
-            }
+            entry.inbox.consumer.acknowledge(seq as number);
         };
         const loopData: RunHeadlessLoopData = {
                 sessionStartReason,
@@ -1219,7 +1205,9 @@ export class AgentRegistry {
                     }
                 },
                 canStartTurn: () => agent.attached,
-                startTurn: () => agent.triggerDeliveryTurn(),
+                startTurn: (candidate) => {
+                    this.trackDelivery(registryRoster.startAdmittedInboxTurn(this, entry, candidate));
+                },
                 ...(admissionPath ? {
                     requestAdmission: (candidate: InboxAdmissionCandidate, signal: AbortSignal) =>
                         this.requestInboxAdmission(entry, candidate, signal),

@@ -227,10 +227,8 @@ import {
 import { SOURCE_GAP_KIND } from "../../watch/source.ts";
 import {
     PEER_MESSAGE_KIND,
-    PEER_READ_KIND,
     VERA_INBOX_SOURCE,
     parsePeerMessage,
-    parsePeerRead,
     type PeerMessagePayload,
 } from "../local-participation.ts";
 
@@ -526,6 +524,12 @@ export function entryIsLive(entry: RegisteredAgentEntry): boolean {
         && entry.failure === undefined;
 }
 
+export function participantLabel(entry: RegisteredAgentEntry): string {
+    const identity = entry.identity?.name ?? entry.agent.id;
+    const title = entry.store.name();
+    return title === undefined ? identity : `${title} (${identity})`;
+}
+
 export function entryUpdatedAt(entry: RegisteredAgentEntry): string {
     return entry.store.agentFailure()?.timestamp
         ?? entry.store.activeEntries().at(-1)?.timestamp
@@ -654,32 +658,8 @@ export async function resolveAgentWorkspace(workspace: string): Promise<string> 
     }
 }
 
-export function peerReadReceipt(
-    readerId: string,
-    senderId: string,
-    messageId: number,
-): InboxEntryInput {
-    return {
-        source: VERA_INBOX_SOURCE,
-        kind: PEER_READ_KIND,
-        actor: readerId,
-        session: readerId,
-        address: senderId,
-        payload: JSON.stringify({ message_id: messageId, complete: true }),
-    };
-}
-
-export function acknowledgeAfterCommit(
-    seq: number,
-    receiptTo?: string,
-): CommitEffect {
-    return {
-        key: "inbox.acknowledge",
-        data: {
-            seq,
-            ...(receiptTo === undefined ? {} : { receipt_to: receiptTo }),
-        },
-    };
+export function acknowledgeAfterCommit(seq: number): CommitEffect {
+    return { key: "inbox.acknowledge", data: { seq } };
 }
 
 export function genericInboxResult(entry: InboxEntry): Record<string, unknown> {

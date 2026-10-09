@@ -29,7 +29,7 @@ afterEach(async () => {
     ));
 });
 
-test("two native sessions send, explicitly read, receipt, reply, and read again", async () => {
+test("two native sessions send, explicitly read, reply, and read again", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-local-flow-"));
     temporaryDirectories.push(root);
     const inbox = Inbox.open(":memory:");
@@ -43,8 +43,6 @@ test("two native sessions send, explicitly read, receipt, reply, and read again"
                 text: "Can you inspect the parser race?",
             }),
             textResponse("sent"),
-            toolCall("left-read-receipt", "agent_inbox", {}),
-            textResponse("receipt seen"),
             toolCall("left-read-reply", "agent_inbox", {}),
             textResponse("reply seen"),
         ],
@@ -124,26 +122,21 @@ test("two native sessions send, explicitly read, receipt, reply, and read again"
         expect(firstRead.message_id).toBe(1);
         expect(firstRead.complete).toBe(true);
         expect(inbox.offsetOf({ nodeId: "node-a", label: "right" })).toBe(1);
-        expect(inbox.entry(2)).toMatchObject({
-            kind: "peer.read",
-            actor: "right",
-            address: "left",
-            payload: JSON.stringify({ message_id: 1, complete: true }),
+        expect(inbox.tail()).toBe(1);
+
+        await runPrompt(rightAttachment, "Reply to the sender.");
+        expect(JSON.parse(await lastToolResult(rightPath))).toMatchObject({
+            message_id: 2,
+            stored: true,
+            recipient_live: true,
+            notice: "ui",
         });
         expect(await receiveType(leftAttachment, "notice")).toMatchObject({
             type: "notice",
             key: "inbox",
             count: 1,
         });
-
-        await runPrompt(rightAttachment, "Reply to the sender.");
-        expect(JSON.parse(await lastToolResult(rightPath))).toMatchObject({
-            message_id: 3,
-            stored: true,
-            recipient_live: true,
-            notice: "ui",
-        });
-        const reply = inbox.entry(3)!;
+        const reply = inbox.entry(2)!;
         expect(parsePeerMessage(reply)).toMatchObject({
             from: "right",
             to: "left",
@@ -151,28 +144,16 @@ test("two native sessions send, explicitly read, receipt, reply, and read again"
             text: "The parser needs a serialized acknowledgement.",
         });
 
-        await runPrompt(leftAttachment, "Read the complete-retrieval receipt.");
-        expect(JSON.parse(await lastToolResult(leftPath))).toMatchObject({
-            message_id: 2,
-            kind: "peer.read",
-            read_message_id: 1,
-            complete: true,
-        });
-        expect(inbox.offsetOf({ nodeId: "node-a", label: "left" })).toBe(2);
-
         await runPrompt(leftAttachment, "Read the reply.");
         expect(JSON.parse(await lastToolResult(leftPath))).toMatchObject({
-            message_id: 3,
+            message_id: 2,
             kind: "peer.message",
             from: "right",
             to: "left",
             reply_to: 1,
             complete: true,
         });
-        expect(inbox.offsetOf({ nodeId: "node-a", label: "left" })).toBe(3);
-        expect(inbox.readAfter(0, { limit: 20 }).filter(
-            (entry) => entry.kind === "peer.read"
-        )).toHaveLength(2);
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "left" })).toBe(2);
 
         leftAttachment.detach();
         rightAttachment.detach();
@@ -565,6 +546,273 @@ test("peer messages use inbox admission before waking a recipient", async () => 
         });
         expect(await eventTypes(join(root, "right-events.jsonl")))
             .not.toContain("delivery_turn_started");
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("a detached auto-mode peer is woken without an admission prompt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-detached-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const scripts: AssistantMessage[][] = [
+        [
+            toolCall("send", "agent_send", { to: "right", text: "ahoy" }),
+            textResponse("sent"),
+        ],
+        [textResponse("woken by the crow")],
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const leftPath = join(root, "left.jsonl");
+    const rightPath = join(root, "right.jsonl");
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: leftPath,
+        });
+        await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: rightPath,
+            eventLogPath: join(root, "right-events.jsonl"),
+        });
+        const leftAttachment = left.attach();
+        await leftAttachment.receive();
+
+        await runPrompt(leftAttachment, "send the message");
+        expect(JSON.parse(await lastToolResult(leftPath))).toMatchObject({
+            stored: true,
+            notice: "none",
+            delivered: true,
+        });
+        const deadline = Date.now() + 5_000;
+        while (
+            !(await readFile(rightPath, "utf8")).includes("woken by the crow")
+            && Date.now() < deadline
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        const transcript = await readFile(rightPath, "utf8");
+        expect(transcript).toContain("<agent_message>");
+        expect(transcript).toContain("woken by the crow");
+        expect(transcript).not.toContain("ahoy");
+        expect(await eventTypes(join(root, "right-events.jsonl")))
+            .toContain("delivery_turn_started");
+
+        leftAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("an admitted attached peer gets a notice naming the sender by title and identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-attached-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: ["peer"],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const scripts: AssistantMessage[][] = [
+        [
+            toolCall("send", "agent_send", { to: "right", text: "ahoy" }),
+            textResponse("sent"),
+        ],
+        [textResponse("heard the crow")],
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const rightPath = join(root, "right.jsonl");
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: join(root, "left.jsonl"),
+        });
+        const right = await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: rightPath,
+        });
+        await registry.updateSessionName("left", "crow");
+        const leftAttachment = left.attach();
+        const rightAttachment = right.attach();
+        await leftAttachment.receive();
+        await rightAttachment.receive();
+
+        await runPrompt(leftAttachment, "send the message");
+        const notification = await receiveType(rightAttachment, "task_notification");
+        expect(notification.content).toBe(
+            "Peer crow (left) sent message 1. Read it with agent_inbox.",
+        );
+        await receiveType(rightAttachment, "turn_finished");
+        const transcript = await readFile(rightPath, "utf8");
+        expect(transcript).toContain("<agent_message>");
+        expect(transcript).toContain("heard the crow");
+        expect(transcript).not.toContain("ahoy");
+
+        leftAttachment.detach();
+        rightAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("reading a peer message sends the sender nothing, and an old receipt is skipped", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-receipt-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const staleReceipt = inbox.append({
+        source: "vera",
+        kind: "peer.read",
+        actor: "right",
+        session: "right",
+        address: "left",
+        payload: JSON.stringify({ message_id: 1, complete: true }),
+    });
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const scripts: AssistantMessage[][] = [
+        [
+            toolCall("send", "agent_send", { to: "right", text: "ahoy" }),
+            textResponse("sent"),
+            toolCall("check", "agent_inbox", {}),
+            textResponse("checked"),
+        ],
+        [
+            toolCall("read", "agent_inbox", {}),
+            textResponse("read the note"),
+        ],
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const leftPath = join(root, "left.jsonl");
+    const rightPath = join(root, "right.jsonl");
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: leftPath,
+            eventLogPath: join(root, "left-events.jsonl"),
+        });
+        await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: rightPath,
+        });
+        const leftAttachment = left.attach();
+        await leftAttachment.receive();
+        const received: AgentUpdate[] = [];
+        await runPrompt(leftAttachment, "send the message");
+
+        const deadline = Date.now() + 5_000;
+        while (
+            !(await readFile(rightPath, "utf8")).includes("read the note")
+            && Date.now() < deadline
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(await readFile(rightPath, "utf8")).toContain("read the note");
+        expect(inbox.readAfter(staleReceipt.seq, { limit: 10, addresses: ["left"] }))
+            .toEqual([]);
+
+        const settle = AbortSignal.timeout(300);
+        try {
+            while (true) received.push(await leftAttachment.receive(settle));
+        } catch {
+        }
+        expect(received.map((update) => update.type)).not.toContain("notice");
+        expect(received.map((update) => update.type)).not.toContain("ui_request");
+        expect(await eventTypes(join(root, "left-events.jsonl")))
+            .not.toContain("delivery_turn_started");
+
+        await runPrompt(leftAttachment, "check the inbox");
+        expect(JSON.parse(await lastToolResult(leftPath))).toEqual({ unread: false });
+
+        leftAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("the roster lists a participant's title beside its identity", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-roster-title-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            toolCall("roster", "agent_roster", {}),
+            textResponse("listed"),
+        ]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const leftPath = join(root, "left.jsonl");
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: leftPath,
+        });
+        await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: join(root, "right.jsonl"),
+        });
+        await registry.updateSessionName("right", "t1");
+        const leftAttachment = left.attach();
+        await leftAttachment.receive();
+
+        await runPrompt(leftAttachment, "who is here");
+        expect(JSON.parse(await lastToolResult(leftPath))).toMatchObject({
+            self_participant_id: "left",
+            participants: [{ participant_id: "right", title: "t1" }],
+        });
+
+        leftAttachment.detach();
     } finally {
         await registry.close();
         inbox.close();

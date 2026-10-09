@@ -96,7 +96,6 @@ export function synthesizeFactoryHome(destination: string): void {
         model: "openai/gpt-5.6-luna",
         reasoning_effort: "low",
         approval_mode: "auto",
-        experimental: { inbox: false },
         extensions: [],
     });
     writeJson(join(home, "pool.json"), {

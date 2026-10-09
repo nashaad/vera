@@ -30,11 +30,9 @@ class LeftParticipantAdapter implements ModelAdapter {
             && latest.toolName === "agent_inbox"
         ) {
             const result = toolResultJson(latest);
-            response = result.kind === "peer.read"
-                ? toolCall("left-read-reply", "agent_inbox", {})
-                : textResponse(`LEFT READ REPLY ${String(result.text ?? "")}`);
+            response = textResponse(`LEFT READ REPLY ${String(result.text ?? "")}`);
         } else if (hasToolResult(request.messages, "agent_send")) {
-            response = toolCall("left-read-receipt", "agent_inbox", {});
+            response = toolCall("left-read-reply", "agent_inbox", {});
         } else {
             response = toolCall("left-send", "agent_send", {
                 to: "right",
@@ -124,7 +122,6 @@ const host = await startResidentHost({
         // Ask mode: a peer message notifies, and the recipient reads it only
         // when its own turn comes around, which is the loop under test.
         approval_mode: "ask",
-        experimental: { inbox: true },
     },
     createAdapter: () => adapters.shift() ?? new FauxAdapter([]),
     sessionDirectory: join(veraRuntimeDirectory(), "sessions"),
