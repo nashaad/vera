@@ -900,33 +900,38 @@ test("TUI shows scratch checklists and scratch notes live and from history", () 
         patch: "--- a\n+++ b\n@@ -0,0 +1,1 @@\n+gulls\n",
         scratch: true as const,
     };
-    const live = [checklist, note].reduce(
-        (state, presentation, index) => applyAgentUpdate(state, {
-            type: "tool_presentation",
-            tool: "write",
-            presentation,
-            seq: index + 1,
-        }),
-        createTuiState(),
-    );
-    const replayed = applyAgentUpdate(createTuiState(), {
-        type: "history",
-        entries: [
-            { kind: "presentation", presentation: checklist },
-            { kind: "presentation", presentation: note },
-        ],
-        seq: 1,
-    });
+    setTuiWorkspaceRoot("/work/harbour");
+    try {
+        const live = [checklist, note].reduce(
+            (state, presentation, index) => applyAgentUpdate(state, {
+                type: "tool_presentation",
+                tool: "write",
+                presentation,
+                seq: index + 1,
+            }),
+            createTuiState(),
+        );
+        const replayed = applyAgentUpdate(createTuiState(), {
+            type: "history",
+            entries: [
+                { kind: "presentation", presentation: checklist },
+                { kind: "presentation", presentation: note },
+            ],
+            seq: 1,
+        });
 
-    expect(live.entries).toEqual(replayed.entries);
-    expect(live.entries).toEqual([
-        {
-            kind: "notice",
-            text: "Raid  1/2 · todo.md\n✓ Chart the reef\n○ Steal the lantern",
-            checklist,
-        },
-        { kind: "notice", tone: "soft", text: "Updated notes · findings.md" },
-    ]);
+        expect(live.entries).toEqual(replayed.entries);
+        expect(live.entries).toEqual([
+            {
+                kind: "notice",
+                text: "Raid  1/2 · /tmp/vera/session/todo.md\n✓ Chart the reef\n○ Steal the lantern",
+                checklist,
+            },
+            { kind: "notice", tone: "soft", text: "Updated notes · /tmp/vera/session/findings.md" },
+        ]);
+    } finally {
+        setTuiWorkspaceRoot(process.cwd());
+    }
 });
 
 test("TUI shows multiline tool notices live and from history", () => {
@@ -2726,11 +2731,11 @@ test("paths strip the session workspace root, resolved form included", async () 
     }
 });
 
-test("scratch paths show as notes in tool rows and tool output", () => {
+test("scratch paths show in full in tool rows and tool output", () => {
     const scratch = "/private/var/folders/xy/T/vera/session-1";
-    setTuiWorkspaceRoot("/work/harbour", scratch);
+    setTuiWorkspaceRoot("/work/harbour");
     try {
-        expect(tuiDisplayPath(`${scratch}/todo.md`)).toBe("notes/todo.md");
+        expect(tuiDisplayPath(`${scratch}/todo.md`)).toBe(`${scratch}/todo.md`);
         expect(tuiDisplayPath("/work/harbour/map.md")).toBe("map.md");
         let state = applyAgentUpdate(createTuiState(), {
             type: "tool_started",
@@ -2746,8 +2751,8 @@ test("scratch paths show as notes in tool rows and tool output", () => {
         });
         expect(state.entries.map((entry) => entry.text)).toEqual([
             "+ Edited",
-            "Edit notes/todo.md",
-            "Applied 1 edit to notes/todo.md",
+            `Edit ${scratch}/todo.md`,
+            `Applied 1 edit to ${scratch}/todo.md`,
         ]);
     } finally {
         setTuiWorkspaceRoot(process.cwd());

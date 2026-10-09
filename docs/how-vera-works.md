@@ -39,9 +39,10 @@ during a turn are queued, and can join the turn after its next tool step. See
 [Queue messages](queued-messages.md) for the controls that send them.
 
 Each conversation has a scratch folder for Vera's own working notes. When Vera
-keeps a task list there, the transcript shows it as a checklist with its file
-name and a done count instead of a file diff. Other notes in that folder show as
-one `Updated notes` line, and their paths read `notes/<file>`.
+keeps a task list there, the transcript shows it as a checklist with the file's
+full path and a done count instead of a file diff. Other notes in that folder
+show as one `Updated notes` line with the note's full path. Tool rows show
+scratch files by their full path too, so you can open them.
 
 ### Models and definitions
 
