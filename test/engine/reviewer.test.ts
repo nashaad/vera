@@ -690,9 +690,8 @@ test("a classifier that answers after the deadline reports a timeout, not a deni
     expect(decision.decision).toBe("unavailable");
     expect(decision.reason).toBe(
         "The approval classifier timed out after 5ms. The action did not run. "
-            + "It runs on this session's model, so every tool call is denied "
-            + "until that model answers again: check the provider, or switch "
-            + "the session model.",
+            + "The classifier is test, so every tool call is withheld until it "
+            + "answers: check that provider, or change the classifier.",
     );
 });
 
@@ -704,7 +703,8 @@ test("a provider failure reaches the reason and names a next action", async () =
     };
     const review = createToolReviewer({
         adapter: new ScriptedAdapter(failed),
-        model: "test",
+        provider: "openrouter",
+        model: "qwen/qwen3.8-max",
     });
 
     const decision = await review(request, new AbortController().signal);
@@ -713,7 +713,10 @@ test("a provider failure reaches the reason and names a next action", async () =
     expect(decision.reason).toContain(
         "OpenRouter credit or key allowance is insufficient.",
     );
-    expect(decision.reason).toContain("switch the session model");
+    expect(decision.reason).toContain(
+        "The classifier is openrouter/qwen/qwen3.8-max",
+    );
+    expect(decision.reason).toContain("change the classifier");
 });
 
 test("a decision that arrives after cancellation is not acted on", async () => {

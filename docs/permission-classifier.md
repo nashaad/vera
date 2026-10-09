@@ -61,7 +61,8 @@ click it again to close the list. Ctrl+T opens or closes every list along with
 the tool details. The count and its list are not saved, so a reopened
 conversation does not show them.
 A denial says the action was denied. A timeout or provider error names the
-tool and confirms that the action did not run.
+tool, confirms that the action did not run, names the classifier model, and
+points to `/settings` then **Classifier** to pick another.
 
 The classifier receives user turns and tool calls. It does not receive tool
 results.

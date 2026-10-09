@@ -101,7 +101,7 @@ The selected agent definition supplies instructions and an exact tool allow-list
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
 Clicking a turn's auto-approved count, or pressing Ctrl+T, lists the actions the classifier allowed and why. Manual: `docs/permission-classifier.md`.
-Defaults and the Classifier entry in `/settings` set the same classifier; the Classifier entry also sets a failsafe.
+Defaults and the Classifier entry in `/settings` set the same classifier; the Classifier entry also sets a failsafe. When the classifier fails, the notice names its model and points to `/settings` then Classifier.
 The permission modes are readonly, ask, auto, and full access. Home config can add named custom modes with their own rules.
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
 Always on an approval prompt saves an allow rule for every conversation. Review granted permissions in the command palette lists and removes them.

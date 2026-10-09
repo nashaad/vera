@@ -402,7 +402,8 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                 === "The turn was cancelled before classification finished."
                 ? `Classification cancelled for ${update.tool}.`
                     + " The action did not run."
-                : `Classifier failed for ${update.tool}: ${update.reason}`;
+                : `Classifier failed for ${update.tool}: ${update.reason}`
+                    + " To pick another classifier, open /settings, then Classifier.";
         return appendTuiDiagnostic(
             state,
             update.decision === "deny" ? "permission_denied" : "unknown",

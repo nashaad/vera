@@ -238,6 +238,9 @@ export function createToolReviewer(
     options: CreateToolReviewerOptions,
 ): ReviewToolCall {
     const timeoutMs = options.timeoutMs ?? TOOL_REVIEW_TIMEOUT_MS;
+    const classifier = options.provider === undefined
+        ? options.model
+        : `${options.provider}/${options.model}`;
     const systemPrompt = REVIEWER_HARNESS.replace(
         "{{POLICY}}",
         options.policy ?? DEFAULT_AUTO_REVIEWER_POLICY,
@@ -322,13 +325,14 @@ export function createToolReviewer(
                 }
                 if (timeout.aborted) {
                     trace.error = "timed out";
-                    return reviewFailed(classifierTimedOutReason(timeoutMs));
+                    return reviewFailed(classifierTimedOutReason(timeoutMs, classifier));
                 }
                 if (message.stopReason !== "stop") {
                     return reviewFailed(
                         classifierFailedReason(
                             message.errorMessage
                                 ?? `stopped with ${message.stopReason}`,
+                            classifier,
                         ),
                     );
                 }
@@ -339,10 +343,10 @@ export function createToolReviewer(
                 }
                 trace.error = errorSummary(error);
                 if (timeout.aborted) {
-                    return reviewFailed(classifierTimedOutReason(timeoutMs));
+                    return reviewFailed(classifierTimedOutReason(timeoutMs, classifier));
                 }
                 return reviewFailed(
-                    classifierFailedReason(errorSummary(error)),
+                    classifierFailedReason(errorSummary(error), classifier),
                 );
             }
 
@@ -630,9 +634,9 @@ function safeParseObject(text: string): Record<string, unknown> | undefined {
     }
 }
 
-const CLASSIFIER_NEXT_ACTION =
-    "It runs on this session's model, so every tool call is denied until that "
-    + "model answers again: check the provider, or switch the session model.";
+function classifierNextAction(classifier: string): string {
+    return `The classifier is ${classifier}, so every tool call is withheld until it answers: check that provider, or change the classifier.`;
+}
 
 function reviewFailed(reason: string): ToolReviewDecision {
     return {
@@ -649,15 +653,15 @@ function reviewCancelled(): ToolReviewDecision {
     );
 }
 
-function classifierTimedOutReason(timeoutMs: number): string {
+function classifierTimedOutReason(timeoutMs: number, classifier: string): string {
     const duration = timeoutMs % 1_000 === 0
         ? `${timeoutMs / 1_000}s`
         : `${timeoutMs}ms`;
-    return `The approval classifier timed out after ${duration}. The action did not run. ${CLASSIFIER_NEXT_ACTION}`;
+    return `The approval classifier timed out after ${duration}. The action did not run. ${classifierNextAction(classifier)}`;
 }
 
-function classifierFailedReason(detail: string): string {
-    return `The approval classifier failed (${detail}). The action did not run. ${CLASSIFIER_NEXT_ACTION}`;
+function classifierFailedReason(detail: string, classifier: string): string {
+    return `The approval classifier failed (${detail}). The action did not run. ${classifierNextAction(classifier)}`;
 }
 
 function errorSummary(error: unknown): string {
