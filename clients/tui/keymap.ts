@@ -339,12 +339,16 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "open_model_prefix", keys: ["ctrl+x"], scope: "global",
-        description: "Show model shortcut: release Ctrl, then M to open Switch model",
+        description: "Start a two-key shortcut: release Ctrl, then M for Switch model or H for the keys card",
         hint: "Ctrl+X models", remappable: true,
     },
     {
         id: "model_prefix_open", keys: ["m"], scope: "model_prefix",
         description: "Open Switch model after Ctrl+X", hint: "m Models", remappable: true,
+    },
+    {
+        id: "model_prefix_keys", keys: ["h"], scope: "model_prefix",
+        description: "Show or hide the keys card after Ctrl+X", hint: "h Keys", remappable: true,
     },
     {
         id: "open_model_picker",

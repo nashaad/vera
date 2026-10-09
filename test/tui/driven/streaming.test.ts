@@ -6,6 +6,11 @@ import { join } from "node:path";
 import { createTuiChildDependencies } from "../../support/tui-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
+// Mid-turn the key hints drop "Ctrl+P commands".
+function turnRunning(pane: string): boolean {
+    return pane.includes("Ctrl+X h keys") && !pane.includes("Ctrl+P commands");
+}
+
 test("real TUI queues a prompt and Escape steers to it", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-test-"));
     const session = await startTuiTestSession({
@@ -21,20 +26,20 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
     try {
         pane = await session.waitForVisiblePane("test · high");
         expect(pane).toContain("Start a conversation");
-        expect(pane).toContain("ready · Ctrl+P commands");
+        expect(pane).toContain("Ctrl+P commands");
         expect(pane).not.toContain("shift+enter newline");
         session.sendText("start streaming");
         session.sendKey("Enter");
 
-        pane = await session.waitForVisiblePane("esc stop");
-        // The hint under the frame names the phase and how to stop it; the
+        pane = await session.waitForVisiblePaneWhere(turnRunning, "turn running");
+        // The hint under the frame names the phase and the keys card; the
         // wave sits in the corner below it.
         expect(pane).toMatch(/[░▒▓█]{6}/);
-        expect(pane).toContain("esc stop");
+        expect(pane).toContain("Ctrl+X h keys");
         expect(pane).not.toContain("enter queue");
         const workingLines = pane.split("\n");
         const activityLine = workingLines.find((line) =>
-            line.includes("esc stop")
+            line.includes("Ctrl+X h keys")
         );
         const barLine = workingLines.find((line) =>
             /[░▒▓█]{6}/.test(line)
@@ -45,18 +50,19 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
             throw new Error("missing activity hint or bar");
         }
         expect(activityLine.indexOf("thinking")).toBeGreaterThanOrEqual(0);
-        expect(activityLine.indexOf("esc stop")).toBeGreaterThan(
+        expect(activityLine.indexOf("Ctrl+X h keys")).toBeGreaterThan(
             activityLine.indexOf("thinking"),
         );
-        expect(activityLine).toEndWith("esc stop · Ctrl+C stop");
+        expect(activityLine).toEndWith("Ctrl+X h keys");
         expect(workingLines.indexOf(barLine)).toBe(
             workingLines.indexOf(activityLine) + 1,
         );
         expect(barLine.trimEnd().length).toBe(activityLine.trimEnd().length);
 
         pane = await session.waitForVisiblePane("PARTIAL xxxxx");
-        expect(pane).toMatch(/[░▒▓█▏▎▍▌▋▊▉]{6}/);
-        expect(pane).toContain("esc stop");
+        // The writing strip fills from the left, so mid-sweep only part of it is lit.
+        expect(pane).toMatch(/[█▏▎▍▌▋▊▉]/);
+        expect(pane).toContain("Ctrl+X h keys");
         // This turn reasons without producing any summary text: an instant
         // phase earns no row, and a measurable one earns a row with nothing
         // behind it, so either way no fold marker appears.

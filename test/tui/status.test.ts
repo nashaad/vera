@@ -507,29 +507,6 @@ test("agent and access sit left, model and effort right, padded to the width", (
     expect(text.endsWith("anthropic/claude-opus-5 · high")).toBe(true);
 });
 
-test("the activity strip sits at the right end of the workspace row", () => {
-    const rows = renderTuiStatusDetailsRows(
-        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
-        "ask",
-        undefined,
-        "/workspace",
-        0,
-        undefined,
-        true,
-        undefined,
-        { agent: "build" },
-        0,
-        60,
-        undefined,
-        [{ text: "▒▓█", tone: "accent", color: "#e0703e" }],
-    );
-    const [first, second] = rows.map((row) => row.map((chunk) => chunk.text).join(""));
-    expect(first?.includes("▒▓█")).toBe(false);
-    expect(second?.length).toBe(60);
-    expect(second?.startsWith("/workspace ")).toBe(true);
-    expect(second?.endsWith(" ▒▓█")).toBe(true);
-});
-
 test("too narrow to pad, the two ends read as one row rather than wrap", () => {
     const row = renderTuiStatusDetailsRows(
         { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
@@ -547,29 +524,6 @@ test("too narrow to pad, the two ends read as one row rather than wrap", () => {
     expect(row.map((chunk) => chunk.text).join("")).toBe(
         "build · ask · anthropic/claude-opus-5 · high",
     );
-});
-
-test("activity_strip_position composer puts the strip after agent and access", () => {
-    const rows = renderTuiStatusDetailsRows(
-        { model: "claude-opus-5", provider: "anthropic", reasoningEffort: "high" },
-        "ask",
-        undefined,
-        "/workspace",
-        0,
-        undefined,
-        true,
-        undefined,
-        { agent: "build" },
-        0,
-        60,
-        undefined,
-        [{ text: "▒▓█", tone: "accent", color: "#e0703e" }],
-        "composer",
-    );
-    const [first, second] = rows.map((row) => row.map((chunk) => chunk.text).join(""));
-    expect(first?.length).toBe(60);
-    expect(first?.startsWith("build · ask  ▒▓█ ")).toBe(true);
-    expect(second).toBe("/workspace");
 });
 
 test("any measured context fills at least one meter cell", () => {
@@ -604,38 +558,12 @@ test("a narrow composer row drops token counts before model or effort", () => {
     expect(narrow.endsWith("gpt-6-luna · low")).toBe(true);
 });
 
-test("a narrow workspace row shortens the path and keeps it when a turn starts", () => {
-    const place = (activity: readonly { text: string; tone: "accent" }[]) => renderTuiStatusDetailsRows(
-        { model: "gpt-6-luna", reasoningEffort: "low" },
-        "auto",
-        undefined,
-        `${homedir()}/Projects/vera/.worktrees/limits`,
-        0,
-        undefined,
-        true,
-        "feat/subscription-limits",
-        {},
-        0,
-        62,
-        undefined,
-        activity,
-        "corner",
-        "ready · Ctrl+P commands".length,
-    )[1]!.map((chunk) => chunk.text).join("");
-    expect(place([])).toBe("…/limits · feat/subscription-limits");
-    const working = place([{ text: "▒██▓░░", tone: "accent" }]);
-    expect(working.startsWith("…/limits · feat/subscription-limits ")).toBe(true);
-    expect(working.endsWith(" ▒██▓░░")).toBe(true);
-    expect(Bun.stringWidth(working)).toBe(62);
-    const wide = renderTuiStatusDetailsRows(
+test("a narrow workspace row shortens the path before the branch", () => {
+    const place = (width: number) => renderTuiStatusDetailsRows(
         undefined, "auto", undefined, `${homedir()}/Projects/vera/.worktrees/limits`,
-        0, undefined, true, "feat/subscription-limits", {}, 0, 92, undefined, [], "corner", 23,
+        0, undefined, true, "feat/subscription-limits", {}, 0, width,
     )[1]!.map((chunk) => chunk.text).join("");
-    expect(wide).toBe("~/Projects/vera/.worktrees/limits · feat/subscription-limits");
-    const tiny = renderTuiStatusDetailsRows(
-        undefined, "auto", undefined, `${homedir()}/Projects/vera/.worktrees/limits`,
-        0, undefined, true, "feat/subscription-limits", {}, 0, 50, undefined, [], "corner", 23,
-    )[1]!.map((chunk) => chunk.text).join("");
-    expect(tiny).toBe("…/limits · feat/subscrip…");
-    expect(Bun.stringWidth(tiny)).toBe(50 - 23 - 2);
+    expect(place(92)).toBe("~/Projects/vera/.worktrees/limits · feat/subscription-limits");
+    expect(place(37)).toBe("…/limits · feat/subscription-limits");
+    expect(place(25)).toBe("…/limits · feat/subscrip…");
 });

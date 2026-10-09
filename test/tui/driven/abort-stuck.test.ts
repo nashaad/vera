@@ -22,18 +22,22 @@ import {
 import { FauxAdapter } from "../../support/faux-adapter.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-const READY = "ready · Ctrl+P";
+// Mid-turn the key hints drop "Ctrl+P commands".
+function turnRunning(pane: string): boolean {
+    return pane.includes("Ctrl+X h keys") && !pane.includes("Ctrl+P commands");
+}
+
+const READY = "Ctrl+P commands";
 
 function chromeIsBusy(pane: string): boolean {
     return pane.includes("stopping…")
-        || /\bthinking · \d/.test(pane)
-        || pane.includes("esc stop");
+        || /\bthinking · \d/.test(pane);
 }
 
 function expectNoSplitChrome(pane: string): void {
     if (chromeIsBusy(pane) && pane.includes(READY)) {
         throw new Error(
-            "ready painted beside a live turn\n\nPane:\n" + pane,
+            "idle key hints painted beside a live turn\n\nPane:\n" + pane,
         );
     }
 }
@@ -55,7 +59,7 @@ test("Escape then a queued prompt during stop runs the follow-up", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("long answer please");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane("esc stop");
+        let pane = await session.waitForVisiblePaneWhere(turnRunning, "turn running");
         expectNoSplitChrome(pane);
 
         session.sendKey("Escape");
@@ -105,7 +109,7 @@ test("Ctrl+C while a stop is in flight quits the TUI", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("long answer please");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("esc stop");
+        const pane = await session.waitForVisiblePaneWhere(turnRunning, "turn running");
         expectNoSplitChrome(pane);
 
         session.sendKey("Escape");
@@ -137,7 +141,7 @@ test("empty Enter releases every queued prompt in one model turn", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("long answer please");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("esc stop");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
 
         session.sendText("first queued");
         session.sendKey("Enter");
@@ -148,7 +152,7 @@ test("empty Enter releases every queued prompt in one model turn", async () => {
 
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePaneWhere(
-            (candidate) => candidate.includes("ready · Ctrl+P commands")
+            (candidate) => candidate.includes("Ctrl+P commands")
                 && candidate.includes("BATCH OK"),
             "one batched answer and ready status",
         );
@@ -193,7 +197,7 @@ test("empty Enter steers a released prompt that is still running", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("long answer please");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("esc stop");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
 
         session.sendText("first queued");
         session.sendKey("Enter");
@@ -215,7 +219,7 @@ test("empty Enter steers a released prompt that is still running", async () => {
 
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePaneWhere(
-            (candidate) => candidate.includes("ready · Ctrl+P commands")
+            (candidate) => candidate.includes("Ctrl+P commands")
                 && candidate.includes("second queued")
                 && candidate.includes("third queued"),
             "the steered batch ran both held prompts",
@@ -257,7 +261,7 @@ test("queued prompts run automatically after replies without another key press",
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("active");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("esc stop");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
         session.sendText("first queued");
         session.sendKey("Enter");
         await session.waitForVisiblePane("queued · first queued");
@@ -267,7 +271,7 @@ test("queued prompts run automatically after replies without another key press",
 
         const pane = await session.waitForVisiblePaneWhere(
             (candidate) => candidate.includes("SECOND DONE")
-                && candidate.includes("ready · Ctrl+P commands"),
+                && candidate.includes("Ctrl+P commands"),
             "both follow-ups answered automatically and ready status",
         );
         expect(pane).toContain("ACTIVE DONE");
@@ -304,14 +308,14 @@ test("a prompt queued during tool work joins the running turn at the next tool b
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("hoist the sails");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("esc stop");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
         session.sendText("check the rigging");
         session.sendKey("Enter");
         await session.waitForVisiblePane("queued · check the rigging");
 
         const pane = await session.waitForVisiblePaneWhere(
             (candidate) => candidate.includes("RIGGING CHECKED")
-                && candidate.includes("ready · Ctrl+P commands"),
+                && candidate.includes("Ctrl+P commands"),
             "the joined prompt answered in the same turn",
         );
         expect(pane).not.toContain("queued ·");
@@ -345,10 +349,10 @@ test("a legacy host still advances its client-owned prompt queue", async () => {
     });
 
     try {
-        await session.waitForVisiblePane("ready · Ctrl+P commands");
+        await session.waitForVisiblePane("Ctrl+P commands");
         session.sendText("first");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("esc stop");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
         session.sendText("second");
         session.sendKey("Enter");
         await session.waitForVisiblePane("queued · second");

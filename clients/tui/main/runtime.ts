@@ -1,4 +1,4 @@
-import type { TuiActivityStripPosition, TuiLiveReasoningRows } from "../theme-preference.ts";
+import type { TuiLiveReasoningRows } from "../theme-preference.ts";
 import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
 import type { ModelSettingsPatch, ModelTurnSettings } from "../../../src/engine/model-settings.ts";
@@ -13,6 +13,10 @@ import type { VeraClientModelSettingsUpdateResult, VeraClientOneshotResult, Vera
 import type { StandingNudge } from "../../../src/standing-nudges.ts";
 import type { SessionSearchQuery } from "../../../src/store/session-search.ts";
 import type { TuiAnimationLevel } from "../activity-bar.ts";
+import type { FooterLayout } from "../footer-layout.ts";
+import type { TuiKeysCardView } from "../keys-card.ts";
+import type { FooterEditorState } from "../footer-editor.ts";
+import type { FooterEditorView } from "../footer-editor-view.ts";
 import type { TuiActivityAnimation } from "../activity-pulse.ts";
 import type { TuiAdmissionDialogState, TuiAdmissionDialogView } from "../admission-dialog.ts";
 import type { TuiAgentClient } from "../agent-client.ts";
@@ -119,7 +123,6 @@ export interface TuiRuntime {
     turnMeter: TuiTurnMeter;
     activityAnimationInterval: number | undefined;
     activityAnimationWidth: number | undefined;
-    activityStripPosition: TuiActivityStripPosition;
     sidebarWidth: number | undefined;
     hostedPanePersistence: TuiHostedPanePersistence;
     theme: TuiTheme;
@@ -395,18 +398,19 @@ export interface TuiRuntime {
     )[];
     sidebarEntryNodeKinds: TuiTranscriptEntry["kind"][];
     sidebarEntryGeneration: number;
-    statusText: TextRenderable;
-    activityHintText: TextRenderable;
     dialCardTitle: TextRenderable;
     dialCardHint: TextRenderable;
     dialCard: BoxRenderable;
-    backgroundStatusText: TextRenderable;
-    statusCard: BoxRenderable;
     workspaceBranch: { current(): string | undefined; stop(): void; };
     statusBand: BoxRenderable;
-    hostedModeText: TextRenderable;
-    placeRow: BoxRenderable;
-    activityRow: BoxRenderable;
+    footerLayout: FooterLayout;
+    keysCardOpen: boolean;
+    keysCardView: TuiKeysCardView;
+    footerEditor: FooterEditorState | undefined;
+    footerEditorParent: TuiSettingsPickerState | undefined;
+    footerEditorView: FooterEditorView;
+    // One per possible row; the layout's row count decides how many show.
+    footerRows: TextRenderable[];
     tipsConfig: VeraConfig | undefined;
     tipsEnabled: boolean;
     tipState: TuiTipState;
@@ -472,7 +476,6 @@ export interface TuiRuntime {
     } | undefined;
     composerBox: BoxRenderable;
     composerStatusText: TextRenderable;
-    subscriptionLimitsText: TextRenderable;
     subscriptionLimits: SubscriptionLimitsPoller;
     composerRule: BoxRenderable;
     slashArgumentHint: TextRenderable;

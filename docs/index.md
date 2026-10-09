@@ -88,6 +88,7 @@ your first conversation.
 - [Configure automatic approval](permission-classifier.md)
 - [Choose a configuration file](configuration-files.md)
 - [Themes](themes.md)
+- [Footer layout](footer.md)
 - [Keybindings](keybindings.md)
 - [Dialog controls](tui-dialogs.md)
 

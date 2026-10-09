@@ -14,6 +14,7 @@ current screen. A picker may use a shortcut differently from the composer.
 | --- | --- |
 | Ctrl+P | Open the command palette. |
 | Ctrl+X, then M | Open Switch model. Release Ctrl before M. |
+| Ctrl+X, then H | Show or hide a card of the common keys. The composer keeps typing. |
 | Shift+Tab | Open quick model, effort, access, and definition controls. |
 | Ctrl+E | Open the conversation list. |
 | Ctrl+F | Search the conversation on screen. |

@@ -24,6 +24,8 @@ import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from 
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { handleTuiPermissionsConfirmKey } from "../permissions-confirm.ts";
 import { handleTuiPreferencesListKey } from "../preferences-list.ts";
+import { handleFooterEditorKey } from "../footer-editor.ts";
+import { applyFooterEditorTransition } from "../main/footer-editor-ops.ts";
 import { handleTuiProviderForgetConfirmKey } from "../provider-forget-confirm.ts";
 import { handleTuiOverridesResetConfirmKey } from "../overrides-reset-confirm.ts";
 import { jsonlViewKeyAction } from "../resume-overlay.ts";
@@ -91,7 +93,12 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             && parseRawInputEvent(key)?.type !== "interrupt") {
             key.preventDefault();
             key.stopPropagation();
-            if (tuiBindingId("model_prefix", key) === "model_prefix_open") openModelSwitcher(rt);
+            const after = tuiBindingId("model_prefix", key);
+            if (after === "model_prefix_open") openModelSwitcher(rt);
+            if (after === "model_prefix_keys") {
+                rt.keysCardOpen = !rt.keysCardOpen;
+                renderStatus(rt);
+            }
             return;
         }
     }
@@ -820,6 +827,16 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
 
+    if (rt.footerEditor !== undefined) {
+        const transition = handleFooterEditorKey(rt.footerEditor, key);
+        if (transition.handled) {
+            key.preventDefault();
+            key.stopPropagation();
+            applyFooterEditorTransition(rt, transition);
+            return;
+        }
+    }
+
     if (rt.workspaceSidebar !== undefined && rt.workspaceSidebarFocused) {
         const open = rt.workspaceSidebar;
         const transition = handleWorkspaceSidebarKey(
@@ -1284,6 +1301,24 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         key.stopPropagation();
         hideModeToast(rt);
         renderState(rt);
+        return;
+    }
+
+    // A running turn keeps Esc for stop; the card closes with Ctrl+X h then.
+    if (
+        key.name === "escape"
+        && !key.ctrl
+        && !key.shift
+        && !key.meta
+        && rt.keysCardOpen
+        && !anyOverlayOpen(rt)
+        && !focusedAgentState(rt).working
+        && focusedAgentState(rt).compactingSince === undefined
+    ) {
+        key.preventDefault();
+        key.stopPropagation();
+        rt.keysCardOpen = false;
+        renderStatus(rt);
         return;
     }
 

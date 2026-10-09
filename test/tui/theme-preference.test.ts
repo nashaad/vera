@@ -3,13 +3,15 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { DEFAULT_FOOTER_LAYOUT, type FooterLayout } from "../../clients/tui/footer-layout.ts";
 import {
     loadModelPickerPreferences,
     saveModelPickerPreferences,
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
-    loadTuiActivityStripPositionPreference,
+    loadTuiFooterLayout,
+    saveTuiFooterLayout,
     loadTuiRecentSessionId,
     loadTuiSharedSessionGroups,
     loadTuiPersistedAgentPane,
@@ -338,16 +340,54 @@ test("live reasoning rows default to one, survive other writes, and ignore bad v
     expect(loadTuiLiveReasoningRowsPreference(path)).toBe(1);
 });
 
-test("the activity strip sits in the corner unless tui.json moves it", () => {
-    const directory = mkdtempSync(join(tmpdir(), "vera-tui-theme-"));
-    const path = join(directory, "tui.json");
-    expect(loadTuiActivityStripPositionPreference(path)).toBe("corner");
+test("a saved footer layout comes back the same and drops the old strip key", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-footer-layout-")), "tui.json");
+    writeFileSync(path, JSON.stringify({ activity_strip_position: "composer", theme: "nightowl" }));
+    expect(loadTuiFooterLayout(path)).toEqual(DEFAULT_FOOTER_LAYOUT);
+    const layout: FooterLayout = {
+        slots: [
+            "status", null, null, "keys",
+            "folder", "branch", null, "panes",
+            null, "limits", null, "activity",
+        ],
+        hidden: ["status"],
+    };
+    saveTuiFooterLayout(layout, path);
+    expect(loadTuiFooterLayout(path)).toEqual(layout);
+    const disk = JSON.parse(readFileSync(path, "utf8"));
+    expect(disk).not.toHaveProperty("activity_strip_position");
+    expect(disk.theme).toBe("nightowl");
+    expect(disk.footer_layout.rows[2]).toEqual([null, "limits", null, "activity"]);
+    expect(disk.footer_layout.hidden).toEqual(["status"]);
 
-    writeFileSync(path, JSON.stringify({ activity_strip_position: "composer" }));
-    expect(loadTuiActivityStripPositionPreference(path)).toBe("composer");
     saveTuiThemePreference("default", path);
-    expect(loadTuiActivityStripPositionPreference(path)).toBe("composer");
+    expect(loadTuiFooterLayout(path)).toEqual(layout);
 
-    writeFileSync(path, JSON.stringify({ activity_strip_position: "crow's nest" }));
-    expect(loadTuiActivityStripPositionPreference(path)).toBe("corner");
+    saveTuiFooterLayout(DEFAULT_FOOTER_LAYOUT, path);
+    expect(JSON.parse(readFileSync(path, "utf8"))).not.toHaveProperty("footer_layout");
+});
+
+test("a hand-edited footer layout keeps what it can and fills in the rest", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-footer-layout-")), "tui.json");
+    writeFileSync(path, JSON.stringify({ footer_layout: {
+        rows: [
+            ["branch", "parrot", "branch", "folder", "status"],
+            [null, "ready"],
+            [],
+            ["status"],
+        ],
+        hidden: ["keys", "limits"],
+        show_when: { branch: "working" },
+    } }));
+    const layout = loadTuiFooterLayout(path);
+    expect(layout.slots).toEqual([
+        "branch", "status", "keys", "folder",
+        "limits", null, "panes", "activity",
+        null, null, null, null,
+    ]);
+    expect(layout.hidden).toEqual(["limits"]);
+    expect(layout).not.toHaveProperty("showWhen");
+
+    writeFileSync(path, JSON.stringify({ footer_layout: { rows: 7, items: [{ item: "branch", row: 1 }] } }));
+    expect(loadTuiFooterLayout(path)).toEqual(DEFAULT_FOOTER_LAYOUT);
 });

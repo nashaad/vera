@@ -496,6 +496,12 @@ export const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         description: "how many lines of reasoning show while Vera thinks",
         searchText: "thinking stream rows lines",
     },
+    {
+        value: "footer_layout",
+        label: "Footer layout",
+        description: "what shows under the composer, and where",
+        searchText: "status bar footer slots limits branch hints",
+    },
 ];
 
 export const ANIMATION_LEVEL_OPTIONS: readonly TuiSettingsPickerOption[] = [

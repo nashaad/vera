@@ -61,15 +61,32 @@ export function subscriptionLimitsText(
     provider: string | undefined,
     now = Date.now(),
 ): string {
+    return subscriptionLimitsForms(limits, provider, now)[0] ?? "";
+}
+
+// Longest first: every window with "left", every window without it, the
+// shortest window alone. Empty when the provider has no live window.
+export function subscriptionLimitsForms(
+    limits: readonly SubscriptionLimits[],
+    provider: string | undefined,
+    now = Date.now(),
+): string[] {
     const windows = limits.find((limit) => limit.provider === provider)?.windows ?? [];
-    return windows.filter((window) => window.resetsAt > now)
+    const parts = windows.filter((window) => window.resetsAt > now)
         .toSorted((left, right) => left.windowMinutes - right.windowMinutes)
         .map((window) => {
             const label = window.windowMinutes === 10_080 ? "week"
                 : window.windowMinutes % 60 === 0 ? `${window.windowMinutes / 60}h`
                 : `${window.windowMinutes}m`;
-            return `${label} ${Math.round(100 - window.usedPercent)}% left`;
-        }).join(" · ");
+            return `${label} ${Math.round(100 - window.usedPercent)}%`;
+        });
+    if (parts.length === 0) return [];
+    const forms = [
+        parts.map((part) => `${part} left`).join(" · "),
+        parts.join(" · "),
+        parts[0]!,
+    ];
+    return forms.filter((form, index) => forms.indexOf(form) === index);
 }
 
 export interface SubscriptionLimitsPollerOptions {
@@ -101,6 +118,10 @@ export class SubscriptionLimitsPoller {
 
     text(): string {
         return subscriptionLimitsText(this.limits, this.provider, this.now());
+    }
+
+    forms(): string[] {
+        return subscriptionLimitsForms(this.limits, this.provider, this.now());
     }
 
     stop(): void {

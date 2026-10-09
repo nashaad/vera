@@ -35,7 +35,7 @@ percentages left on the row below the composer, on the left, for example
 it is doing and how to stop it. If the window is too narrow for both, the
 limits step aside until the turn ends. The composer does not move either way.
 The limits refresh once a minute. Open `/usage` for the reset times and the
-full account limits.
+full account limits. [Footer layout](footer.md) can move or hide them.
 
 If the saved sign-in has expired, or the service returns no usable limits,
 the section is hidden. Vera's normal connection flow handles sign-in and token

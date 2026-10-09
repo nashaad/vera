@@ -1,6 +1,5 @@
 import { modelSelectionCleared } from "../../src/host/model-catalog-settings.ts";
 import { homedir } from "node:os";
-import type { TuiActivityStripPosition } from "./theme-preference.ts";
 
 import {
     effectiveContextWindow,
@@ -174,11 +173,7 @@ export function renderTuiStatusDetailsRows(
     needsYou = 0,
     width: number | undefined = undefined,
     needsYouHint = "/work",
-    activity: readonly TuiStatusChunk[] = [],
-    activityPosition: TuiActivityStripPosition = "corner",
-    placeCornerColumns = 0,
 ): TuiStatusChunk[][] {
-    const inComposer = activityPosition === "composer" && activity.length > 0;
     const providerLabel = settings?.provider === undefined
         ? undefined
         : findProvider(settings.provider)?.shortLabel ?? settings.provider;
@@ -233,7 +228,6 @@ export function renderTuiStatusDetailsRows(
                 tone: permissionsTone(approvalMode),
             } as TuiStatusChunk]
             : []),
-        ...(inComposer ? [muted("  "), ...activity] : []),
     ];
     const right = (tokenCounts: boolean): TuiStatusChunk[] => {
         const ctxChunks = contextChunks(context, settings, tokenCounts);
@@ -265,19 +259,7 @@ export function renderTuiStatusDetailsRows(
     if (width !== undefined && rowWidth(first) > width) {
         first = row(false, false);
     }
-    // The corner holds the ready label or the activity bar; reserving the wider
-    // of the two keeps the path from changing when a turn starts.
-    const place = placeChunks(
-        workspace,
-        branch,
-        width === undefined
-            ? undefined
-            : width - Math.max(placeCornerColumns, rowWidth(activity)) - 2,
-    );
-    if (activity.length === 0 || inComposer) return [first, place];
-    const room = width === undefined ? 2 : width - rowWidth(place) - rowWidth(activity);
-    const second = [...place, muted(" ".repeat(Math.max(2, room))), ...activity];
-    return [first, second];
+    return [first, placeChunks(workspace, branch, width)];
 }
 
 export function renderTuiFileViewStatusRows(
@@ -471,6 +453,17 @@ function placeChunks(
         separator,
         { text: truncateEnd(branch, Math.max(1, branchRoom)), tone: "accent" },
     ];
+}
+
+// Longest first: the whole path, then one leading segment fewer at a time.
+export function tuiWorkspaceForms(workspace: string): string[] {
+    const full = compactWorkspace(workspace);
+    const segments = full.split("/").filter((segment) => segment.length > 0);
+    const forms = [full];
+    for (let start = 1; start < segments.length; start += 1) {
+        forms.push(`…/${segments.slice(start).join("/")}`);
+    }
+    return forms;
 }
 
 function truncateEnd(text: string, columns: number): string {

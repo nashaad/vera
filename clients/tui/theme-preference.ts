@@ -8,12 +8,17 @@ import { isTuiThemeName, type TuiThemeName } from "./theme.ts";
 import type { TuiActivityAnimation } from "./activity-pulse.ts";
 import { DEFAULT_ANIMATION_LEVEL, isTuiAnimationLevel, type TuiAnimationLevel } from "./activity-bar.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
+import type { FooterLayout } from "./footer-layout.ts";
+import {
+    footerLayoutToDisk,
+    isDefaultFooterLayout,
+    parseFooterLayout,
+    type DiskFooterLayout,
+} from "./footer-layout-file.ts";
 
 // "all" lets the block grow with the whole reasoning instead of a fixed tail.
 export type TuiLiveReasoningRows = 0 | 1 | 8 | "all";
 export const DEFAULT_LIVE_REASONING_ROWS: TuiLiveReasoningRows = 1;
-
-export type TuiActivityStripPosition = "corner" | "composer";
 
 interface TuiClientPreferences {
     readonly model_picker?: ModelPickerPreferences;
@@ -25,7 +30,8 @@ interface TuiClientPreferences {
     readonly recent_session_id?: string;
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
-    readonly activity_strip_position?: TuiActivityStripPosition;
+    // Stored only when it differs from the default layout.
+    readonly footer_layout?: DiskFooterLayout;
     readonly sidebar_width?: number;
     readonly workspace_sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
@@ -184,10 +190,21 @@ export function loadTuiActivityAnimationWidthPreference(
     return loadTuiClientPreferences(path).animation_width;
 }
 
-export function loadTuiActivityStripPositionPreference(
+export function loadTuiFooterLayout(
     path = tuiThemePreferencePath(),
-): TuiActivityStripPosition {
-    return loadTuiClientPreferences(path).activity_strip_position ?? "corner";
+): FooterLayout {
+    return parseFooterLayout(loadTuiClientPreferences(path).footer_layout);
+}
+
+export function saveTuiFooterLayout(
+    layout: FooterLayout,
+    path = tuiThemePreferencePath(),
+): void {
+    const { footer_layout: _previous, ...rest } = loadTuiClientPreferences(path);
+    saveTuiClientPreferences({
+        ...rest,
+        ...(isDefaultFooterLayout(layout) ? {} : { footer_layout: footerLayoutToDisk(layout) }),
+    }, path);
 }
 
 export function loadTuiSidebarWidth(
@@ -390,7 +407,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 2,
                 15,
             );
-            const stripPosition = Reflect.get(value, "activity_strip_position");
+            const footerLayout = Reflect.get(value, "footer_layout");
             const sidebarWidth = boundedInteger(
                 Reflect.get(value, "sidebar_width"),
                 20,
@@ -437,9 +454,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                     ? {}
                     : { animation_interval_ms: interval }),
                 ...(width === undefined ? {} : { animation_width: width }),
-                ...(stripPosition === "corner" || stripPosition === "composer"
-                    ? { activity_strip_position: stripPosition }
-                    : {}),
+                ...(footerLayout === undefined
+                    ? {}
+                    : { footer_layout: footerLayoutToDisk(parseFooterLayout(footerLayout)) }),
                 ...(sidebarWidth === undefined
                     ? {}
                     : { sidebar_width: sidebarWidth }),
