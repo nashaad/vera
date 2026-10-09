@@ -107,7 +107,7 @@ The permission modes are readonly, ask, auto, and full access. Home config can a
 A custom mode rule can name a website by its host, such as github.com or every subdomain of it.
 Always on an approval prompt saves an allow rule for every conversation. Review granted permissions in the command palette lists and removes them.
 An agent definition is reusable data. Workflows are ordinary application code that compose agent runs.
-Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in.
+Ordinary subagents use the list you set under Defaults then Subagents, tried in the order you put them in. Assigning a model there also adds it to your favorites.
 A model named on a spawn call runs only if it is in that list, or if it is the parent session's model and the separate `Spawning session model` row is on. That row is off unless you turn it on.
 When an assigned model cannot run, Vera walks the rest of your list and stops there. It never reaches for an unassigned model, a same-family sibling, or a pool failsafe.
 If nothing is assigned and that row is off, no child starts. An interactive client opens the Subagents assignment so you can fix it.

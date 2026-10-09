@@ -14,6 +14,7 @@ import { eligibleForDefault } from "../../../src/model/model-operations.ts";
 import type { ReasoningLevel, ReasoningLevelId } from "../../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../../src/model/catalog-view.ts";
 import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
+import { isCuratedPoolEntry } from "../../../src/model/pool-file.ts";
 import type { ModelReasoningEffort } from "../../../src/model/types.ts";
 import { openGate, providerAnswerLabel, type OnboardingInput } from "../../../src/providers/onboarding.ts";
 import { configuredProviders, findConfiguredProvider, isProviderConnected, setupProviders, type ProviderDescriptor } from "../../../src/providers/registry.ts";
@@ -25,6 +26,7 @@ import { adoptStandingNudgesState } from "../main/chrome.ts";
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
+import { runModelOperation } from "../main/model-operations.ts";
 import { refreshLocalRuntimeStatus } from "../main/outrider-control.ts";
 import { renderState } from "../main/render-state.ts";
 import { reloadTuiThemeCatalog } from "../theme-catalog.ts";
@@ -283,6 +285,8 @@ export function openModelAssignmentPicker(rt: TuiRuntime,
         parentModel,
         selectedValue,
         loadOptionalVeraConfig()?.verify_model_assignments === true,
+        new Set(targetState.modelSettings?.pooled?.map((entry) =>
+            `${entry.provider}/${entry.model}`)),
     );
     rt.settingsPicker = withTuiPickerParent(
         query === "" ? started : withKeptSearch(started, query, selectedValue),
@@ -389,6 +393,10 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
             },
         });
         requestAgentSettings(rt, focusedAgentClient(rt));
+        if (subagents && selectedRef !== undefined && selection.remove !== true
+            && selection.clear !== true && selection.allowSelf === undefined) {
+            keepAssignedSubagentModel(rt, selection.provider ?? "", selection.model as string);
+        }
     } catch (error) {
         const message = `Could not write the assignment: ${
             error instanceof Error ? error.message : String(error)
@@ -414,6 +422,21 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
         "soft",
     );
     return undefined;
+}
+
+// Subagents only run models in the pool, so assigning one from outside it favorites it.
+function keepAssignedSubagentModel(rt: TuiRuntime, provider: string, model: string): void {
+    const entry = loadPoolFile({ projectRoot: process.cwd() }).merged.models[`${provider}/${model}`];
+    if (entry !== undefined && isCuratedPoolEntry(entry)) return;
+    rt.state = appendTuiNotice(rt.state, `Adding ${model} to favorites so subagents can use it.`, "soft");
+    runModelOperation(rt, { operation: "keep", models: [{ provider, model }] }, (feedback) => {
+        if (feedback.status !== "error") return;
+        rt.state = appendTuiError(
+            rt.state,
+            `${model} is assigned but not in your favorites, so subagents cannot use it yet: ${feedback.message}`,
+        );
+        renderState(rt);
+    });
 }
 
 export function configureDisplayPath(rt: TuiRuntime, path: string): string {

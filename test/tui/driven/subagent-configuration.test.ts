@@ -11,6 +11,8 @@ import {
 import { AgentRegistry } from "../../../src/host/agent-registry.ts";
 import { subagentPoolPolicy } from "../../../src/host/subagent-policy.ts";
 import { pooledModels } from "../../../src/model/catalog-view.ts";
+import { applyModelOperation } from "../../../src/model/model-operations.ts";
+import { loadPoolFile } from "../../../src/model/pool-file-loader.ts";
 import {
     addPoolModel,
     recordModelVerification,
@@ -242,6 +244,148 @@ test("missing subagent settings are configured and confirmed through the real TU
         if (configDirectoryLocked) {
             chmodSync(dirname(configPath), 0o700);
         }
+        await session.close();
+        await registry?.close();
+        if (previousPoolPath === undefined) {
+            delete process.env.VERA_POOL_FILE;
+        } else {
+            process.env.VERA_POOL_FILE = previousPoolPath;
+        }
+    }
+}, 30_000);
+
+test("assigning a model outside the pool adds it to favorites and the subagent runs on it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-subagent-pool-"));
+    const workspace = join(home, "workspace");
+    const sessionDirectory = join(home, "sessions");
+    const poolPath = join(home, ".vera", "pool.json");
+    const previousPoolPath = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = poolPath;
+    const availableModels: readonly SuggestedModel[] = [
+        { provider: "faux", model: "test", label: "Parent", description: "scripted parent model" },
+        { provider: "ollama", model: "worker", label: "Worker", description: "favorite" },
+        { provider: "ollama", model: "corvid", label: "Corvid", description: "connected, not a favorite" },
+    ];
+    let adapterCount = 0;
+    let childModelCalls = 0;
+    let registry: AgentRegistry | undefined;
+    let configPath = "";
+
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 35,
+        dependencies: async () => {
+            await Bun.write(join(workspace, ".keep"), "");
+            addPoolModel("ollama/worker", { added: true }, { path: poolPath });
+            configPath = defaultVeraConfigPath();
+            registry = new AgentRegistry({
+                createAdapter(): ModelAdapter {
+                    adapterCount += 1;
+                    const child = adapterCount > 1;
+                    const delegate = new FauxAdapter(child
+                        ? [textResponse("Plunder logged.", "corvid")]
+                        : [
+                            {
+                                role: "assistant",
+                                content: [{
+                                    type: "tool_call",
+                                    id: "spawn-one",
+                                    name: "async_subagent",
+                                    input: { description: "count the shiny loot" },
+                                }],
+                                source: { provider: "faux", api: "scripted", model: "test" },
+                                usage: emptyUsage(),
+                                stopReason: "tool_use",
+                            },
+                            textResponse("Launch handled.", "test"),
+                        ]);
+                    return {
+                        stream(request) {
+                            if (child) childModelCalls += 1;
+                            return delegate.stream(request);
+                        },
+                    };
+                },
+                provider: "faux",
+                model: "test",
+                approvalMode: "auto",
+                availableModels,
+                readPool: () => pooledModels(availableModels, { userPath: poolPath }),
+                readPolicy: () => subagentPoolPolicy({ userPath: poolPath, configPath }),
+                sessionPathForId: (id) => join(sessionDirectory, `${id}.jsonl`),
+            });
+            const parent = await registry.create({
+                id: "parent",
+                workspace,
+                sessionPath: join(sessionDirectory, "parent.jsonl"),
+            });
+            const attachment = parent.attach();
+            const client: TuiAgentClient = {
+                agentId: parent.id,
+                workspace: parent.workspace,
+                async send(command) {
+                    attachment.send(command);
+                },
+                receive(signal) {
+                    return attachment.receive(signal);
+                },
+                async detach() {
+                    attachment.detach();
+                },
+                close() {
+                    attachment.detach();
+                },
+            };
+            return {
+                client,
+                operateModels: async (operation, onResult) => {
+                    await applyModelOperation(operation, {
+                        path: poolPath,
+                        discovered: availableModels,
+                        assignments: [],
+                        createAdapter: () => { throw new Error("keep does not call a provider"); },
+                        onResult,
+                    });
+                    return undefined;
+                },
+            };
+        },
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("delegate the loot count");
+        session.sendKey("Enter");
+
+        let pane = await session.waitForVisiblePane("Subagent models");
+        expect(pane).toMatch(/Worker[^\n]*favorite/);
+        expect(pane.indexOf("Worker")).toBeLessThan(pane.indexOf("Corvid"));
+
+        session.sendText("corvid");
+        await session.waitForVisiblePaneWhere(
+            (frame) => !frame.includes("Worker"),
+            "the search to leave only Corvid",
+        );
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("1. Corvid");
+        await waitFor(
+            () => loadPoolFile({ userPath: poolPath }).merged.models["ollama/corvid"]?.added === true,
+            "Corvid to join the pool",
+        );
+
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePane("Continue 1 waiting subagent launch");
+        session.sendText("1");
+        await session.waitForVisiblePane("Launch handled.");
+        await waitFor(() => childModelCalls === 1, "the child model call");
+
+        const children = registry?.list().filter((agent) =>
+            agent.parent_id === "parent") ?? [];
+        expect(children).toHaveLength(1);
+        const store = await SessionStore.open(children[0]!.session_path);
+        expect(store.modelSettings()).toEqual({ provider: "ollama", model: "corvid" });
+    } finally {
         await session.close();
         await registry?.close();
         if (previousPoolPath === undefined) {

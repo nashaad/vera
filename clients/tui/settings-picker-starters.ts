@@ -1136,6 +1136,7 @@ export function startTuiModelAssignmentPicker(
     parentModel?: TuiAssignmentParentModel,
     selectedValue?: string,
     verifiesAssignments = false,
+    favorites: ReadonlySet<string> = new Set(),
 ): TuiSettingsPickerState {
     const pooledByRef = new Map(
         pooled.map((entry) => [`${entry.provider}/${entry.model}`, entry]),
@@ -1168,6 +1169,7 @@ export function startTuiModelAssignmentPicker(
     const assignedRefs = new Set(currentModels);
     const seen = new Set<string>();
     const available: TuiSettingsPickerOption[] = [];
+    const others: TuiSettingsPickerOption[] = [];
     const standardRows: TuiSettingsPickerOption[] = [];
     for (const entry of pooled) {
         if (!entry.available) continue;
@@ -1191,8 +1193,13 @@ export function startTuiModelAssignmentPicker(
             searchText: `${entry.provider} ${entry.model}`,
         });
         if (assignedRefs.has(value)) continue;
-        available.push(optionFor(value, "Connected models"));
+        if (favorites.has(value)) {
+            available.push({ ...optionFor(value, "Connected models"), rowMeta: "favorite" });
+        } else {
+            others.push(optionFor(value, "Connected models"));
+        }
     }
+    available.push(...others);
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
         label: "Not set",
