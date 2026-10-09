@@ -28,14 +28,17 @@ The footer has three rows of four numbered slots:
 
 ```text
  1 live status     2 limits          3 ·               4 key hints
- 5 folder          6 branch          7 pane controls   8 activity strip
+ 5 folder, branch  6 ·               7 pane controls   8 activity strip
  9 ·              10 ·              11 ·              12 ·
 ```
 
-Each item sits in one slot, and `·` is an empty slot. A row spreads its items
-from edge to edge with even gaps, so there is no stray space on either side.
-A row with one item keeps it on the left for slots in the first two columns,
-and on the right for the last two.
+Each item sits in one slot, and `·` is an empty slot. The folder and branch
+are one item, `place` in the file, drawn as `~/crow-nest · plunder`. When
+room runs short, the path loses leading folders before the branch is cut.
+
+A row spreads its items from edge to edge with even gaps, so there is no
+stray space on either side. A row with one item keeps it on the left for
+slots in the first two columns, and on the right for the last two.
 
 When a row runs short, the item in the highest-numbered slot shortens first,
 then steps aside. Slot 1 holds on longest. The key hints never step aside,
@@ -82,8 +85,8 @@ layout that differs from the default is written:
     "footer_layout": {
         "rows": [
             ["status", "limits", null, "keys"],
-            ["folder", null, "panes", "activity"],
-            [null, "branch", null, null]
+            ["place", null, "panes", "activity"],
+            [null, null, null, null]
         ],
         "hidden": ["panes"]
     }

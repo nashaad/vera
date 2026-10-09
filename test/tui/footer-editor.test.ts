@@ -69,27 +69,27 @@ test("Space shows or hides an item, but key hints stay shown", () => {
 });
 
 test("Enter picks an item up, arrows carry it, and Enter puts it down", () => {
-    const carried = press(on(start, "branch"), "return");
-    expect(carried.carry?.item).toBe("branch");
+    const carried = press(on(start, "place"), "return");
+    expect(carried.carry?.item).toBe("place");
     expect(footerEditorHint(carried)).toContain("enter put down");
-    expect(footerEditorTitle(carried)).toBe("Footer layout › moving branch");
+    expect(footerEditorTitle(carried)).toBe("Footer layout › moving folder, branch");
     const moved = press(carried, "down", "right");
-    expect(slotOf(moved, "branch")).toBe(11);
+    expect(slotOf(moved, "place")).toBe(10);
     const placed = press(moved, "return");
     expect(placed.carry).toBeUndefined();
-    expect(slotOf(placed, "branch")).toBe(11);
-    expect(placed.layout.slots[5]).toBeNull();
+    expect(slotOf(placed, "place")).toBe(10);
+    expect(placed.layout.slots[4]).toBeNull();
 });
 
 test("carrying onto a filled slot swaps the two, and passing through moves nothing else", () => {
-    const swapped = press(on(start, "folder"), "return", "right", "right", "return");
-    expect(slotOf(swapped, "folder")).toBe(7);
+    const swapped = press(on(start, "place"), "return", "right", "right", "return");
+    expect(slotOf(swapped, "place")).toBe(7);
     expect(slotOf(swapped, "panes")).toBe(5);
-    expect(slotOf(swapped, "branch")).toBe(6);
+    expect(swapped.layout.slots[5]).toBeNull();
 });
 
 test("Escape while carrying puts everything back", () => {
-    const undone = press(on(start, "folder"), "return", "right", "down", "escape");
+    const undone = press(on(start, "place"), "return", "right", "down", "escape");
     expect(undone.carry).toBeUndefined();
     expect(undone.layout).toEqual(DEFAULT_FOOTER_LAYOUT);
     expect(undone.slot).toBe(4);
@@ -103,7 +103,7 @@ test("picking up an item that only shows mid-turn switches the preview to workin
 test("putting an item down where it won't fit at 80 columns is refused", () => {
     const wide: FooterSeed = {
         idle: SEED.idle,
-        working: { ...SEED.working, folder: { forms: [[{ text: "~/".padEnd(44, "x"), tone: "muted" }]] } },
+        working: { ...SEED.working, place: { forms: [[{ text: "~/".padEnd(60, "x"), tone: "muted" }]] } },
     };
     const state = startFooterEditor(DEFAULT_FOOTER_LAYOUT, wide, true);
     const carried = press(on(state, "keys"), "return", "down");
@@ -132,7 +132,7 @@ test("the screen draws the example footer, the numbered grid and the focused slo
     const body = text(start);
     expect(body).toContain("‹ idle ›");
     expect(body).toContain("5h 88% left · week 60% left");
-    expect(body).toContain("~/crow-nest");
+    expect(body).toContain("~/crow-nest · plunder");
     expect(body).toContain("Ctrl+P commands · Ctrl+X h keys");
     expect(body).toContain("Drawn at 80 columns");
     expect(body).toMatch(/ 1 live status +2 limits +3 · +4 key hints/);
