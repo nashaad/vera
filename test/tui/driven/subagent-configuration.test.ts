@@ -169,27 +169,31 @@ test("missing subagent settings are configured and confirmed through the real TU
         expect(childModelCalls).toBe(0);
         expect(registry?.list()).toHaveLength(1);
 
-        // Not set is first, then the parent, then the verified worker.
-        // p assigns that worker without dismissing the policy pane.
-        session.sendKey("Down");
-        session.sendKey("Down");
+        // Typing filters the list to the worker; Enter assigns it without
+        // dismissing the policy pane.
+        session.sendText("work");
+        pane = await session.waitForVisiblePaneWhere(
+            (frame) => !frame.includes("Not set"),
+            "the search to filter out Not set",
+        );
+        expect(pane).not.toContain("Parent model fallback");
+        expect(pane).toContain("Worker");
         chmodSync(dirname(configPath), 0o500);
         configDirectoryLocked = true;
-        session.sendText("p");
+        session.sendKey("Enter");
         pane = await session.waitForVisiblePane("Could not write the assignment");
         expect(pane).toContain("Subagent models");
-        expect(pane).toContain("Not set");
         expect(existsSync(configPath)).toBe(false);
 
         // A failed durable write leaves the same picker retryable. Restoring
-        // the store and pressing p again completes the original request.
+        // the store and pressing Enter again completes the original request.
         chmodSync(dirname(configPath), 0o700);
         configDirectoryLocked = false;
-        session.sendText("p");
+        session.sendKey("Enter");
         pane = await session.waitForVisiblePane("1. Worker");
         expect(pane).toContain("Subagent models");
-        expect(pane).not.toContain("Not set");
-        expect(pane).toContain("p remove");
+        expect(pane).toContain("⏎ remove");
+        expect(pane).not.toContain("Connected models");
         expect(pane).toContain("Worker");
         expect(adapterCount).toBe(1);
         expect(childModelCalls).toBe(0);

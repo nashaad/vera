@@ -1535,9 +1535,7 @@ export function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
         && state.kind !== "session_create_leave"
         && state.kind !== "model_verification"
         && state.kind !== "pool_verify_scope"
-        && state.kind !== "catalog_refresh_scope"
-        && !(state.kind === "model_assignment"
-            && state.modelAssignment === "subagents");
+        && state.kind !== "catalog_refresh_scope";
 }
 
 export function themePreview(

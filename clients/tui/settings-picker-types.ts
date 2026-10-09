@@ -496,7 +496,6 @@ export type TuiSettingsPickerSelection =
         readonly provider?: string;
         readonly model?: string;
         readonly reasoningEffort?: ModelReasoningEffort;
-        readonly acceptDefaultReasoning?: true;
         readonly remove?: boolean;
         readonly clear?: boolean;
         readonly allowSelf?: boolean;

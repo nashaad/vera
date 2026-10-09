@@ -6,9 +6,6 @@ import {
     startSessionPreview,
 } from "./session-preview.ts";
 import {
-    MODEL_ASSIGNMENT_BROWSE_VALUE,
-    MODEL_ASSIGNMENT_SELF_VALUE,
-    REVIEWER_CLEAR_VALUE,
     SESSION_LEAVE_OPTIONS,
     type TuiSettingsPickerKey,
     type TuiSettingsPickerState,
@@ -24,7 +21,6 @@ import {
     modelListActionTransition,
     modelListFor,
     modelPageActions,
-    pickerSelection,
     restoredCursor,
     sectionLabels,
     unchanged,
@@ -49,8 +45,6 @@ export function screenPickerKey(
                     handled: true,
                 }
                 : undefined;
-        case "model_assignment":
-            return subagentAssignmentKey(state, key);
         case "model":
             return modelPickerKey(state, key);
         case "provider":
@@ -186,38 +180,6 @@ function leaveConfirmKey(
             ...(target.sessionId === undefined
                 ? {}
                 : { sessionId: target.sessionId }),
-        },
-        handled: true,
-    };
-}
-
-function subagentAssignmentKey(
-    state: TuiSettingsPickerState,
-    key: TuiSettingsPickerKey,
-): TuiSettingsPickerTransition | undefined {
-    if (
-        state.modelAssignment !== "subagents"
-        || tuiBindingId("model_assignment_picker", key)
-            !== "toggle_subagent_assignment"
-    ) {
-        return undefined;
-    }
-    const selected = state.options[state.selectedIndex];
-    if (
-        selected === undefined
-        || selected.value === REVIEWER_CLEAR_VALUE
-        || selected.value === MODEL_ASSIGNMENT_BROWSE_VALUE
-    ) {
-        return unchanged(state, true);
-    }
-    return {
-        state,
-        selection: {
-            ...pickerSelection(state, selected),
-            ...(state.assignedModels?.includes(selected.value) === true
-                || selected.value === MODEL_ASSIGNMENT_SELF_VALUE
-                ? {}
-                : { acceptDefaultReasoning: true as const }),
         },
         handled: true,
     };

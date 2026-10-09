@@ -11,7 +11,6 @@ export type TuiKeyScope =
     | "shortlist_picker"
     | "verification_picker"
     | "model_picker"
-    | "model_assignment_picker"
     | "session_picker"
     | "import_picker"
     | "secret_prompt"
@@ -38,7 +37,6 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "model_prefix",
     "shortlist_picker",
     "verification_picker",
-    "model_assignment_picker",
     "session_picker",
     "import_picker",
     "secret_prompt",
@@ -65,7 +63,6 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "switch_model_picker",
     "shortlist_picker",
     "verification_picker",
-    "model_assignment_picker",
     "session_picker",
     "import_picker",
     "secret_prompt",
@@ -84,7 +81,6 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
 const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
-    "model_assignment_picker",
     "session_picker",
     "import_picker",
 ];
@@ -453,14 +449,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Keep the selected model in your favorites, or drop it",
         hint: "Ctrl+F favorite",
         overrides: ["search_conversation"],
-    },
-    {
-        id: "toggle_subagent_assignment",
-        keys: ["p"],
-        scope: "model_assignment_picker",
-        description: "Assign the selected model to subagents, or remove it",
-        hint: "p assign",
-        overrides: ["toggle_workspace_pin"],
     },
     {
         id: "undo_pool_change",
