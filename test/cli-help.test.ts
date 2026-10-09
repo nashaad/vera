@@ -32,6 +32,9 @@ test("--help and -h render one overview with a docs pointer", async () => {
     expect(await runCli(["-h"], run.dependencies)).toBe(0);
     expect(run.out[0]).toBe(run.out[1]);
     expect(run.out[0]).toContain("Vera coding agent");
+    expect(run.out[0]).toContain("--effort <level>");
+    expect(run.out[0]).toMatch(/^  --effort <level>\s*$/m);
+    expect(run.out[0]).not.toContain("Set reasoning effort");
     expect(run.out[0]).toContain("vera attach <agent-id>");
     expect(run.out[0]).toContain(`Docs: ${join(DOCS_DIR, "index.md")}`);
     expect(run.started()).toBe(false);

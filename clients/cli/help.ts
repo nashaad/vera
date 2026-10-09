@@ -59,6 +59,7 @@ const PROMPT_FLAGS: readonly [string, string][] = [
     ["--prompt-only", "Send only Vera's identity prompt and user message; offer no tools"],
     ["--permission-mode <mode>", "Run under a named permission mode"],
     ["--model <name|id>", "Run on one model in your library, by name or provider/model"],
+    ["--effort <level>", ""],
     ["--session <file>", "Write a durable session at this path; vera resume FILE continues it"],
 ];
 
@@ -86,6 +87,10 @@ function renderRows(rows: readonly (readonly [string, string])[], columns: numbe
     const pad = " ".repeat(textIndent);
     const lines: string[] = [];
     for (const [left, text] of rows) {
+        if (text.length === 0) {
+            lines.push(`  ${left}`);
+            continue;
+        }
         const wrapped = wrapWords(text, textWidth);
         const sameLine = left.length <= leftWidth && textIndent === 2 + leftWidth + 2;
         if (sameLine) {
