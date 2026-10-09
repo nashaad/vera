@@ -1024,3 +1024,19 @@ test("host wire carries a hook's display line and rejects one that is not a shor
         entries: [{ kind: "hook_context", phase: "turn_ending", display: 7 }],
     })).toBeUndefined();
 });
+
+test("host wire carries what a compaction started from and rejects a bad trigger", () => {
+    const started = {
+        type: "compaction",
+        phase: "started",
+        strategy: "full-summary",
+        trigger: "manual",
+        tokens: 182_000,
+        capacity: 200_000,
+        seq: 4,
+    } as const;
+    expect(parseAgentUpdate(started)).toEqual(started);
+    expect(parseAgentUpdate({ ...started, trigger: "storm" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...started, tokens: -1 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...started, capacity: "big" })).toBeUndefined();
+});

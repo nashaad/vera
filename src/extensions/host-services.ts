@@ -5,7 +5,11 @@ import type {
     VeraSessionAskResult,
     VeraSessionTitleOutcome,
 } from "../sdk/extensions.ts";
-import type { TurnFinishedHook, TurnFinishedHookPayload } from "../sdk/hooks.ts";
+import type {
+    PreCompactHook,
+    TurnFinishedHook,
+    TurnFinishedHookPayload,
+} from "../sdk/hooks.ts";
 
 const MAX_ONESHOT_TEXT_BYTES = 256 * 1024;
 const MAX_TITLE_BYTES = 200;
@@ -47,6 +51,11 @@ export interface ExtensionHostServices {
 export interface RegisteredTurnFinishedHook {
     readonly extensionId: string;
     readonly run: TurnFinishedHook;
+}
+
+export interface RegisteredPreCompactHook {
+    readonly extensionId: string;
+    readonly run: PreCompactHook;
 }
 
 /**
@@ -131,10 +140,21 @@ export class ExtensionHostSlot {
     }
 }
 
-/** Fire and forget: a slow or failing hook never holds up the session. */
 export function notifyTurnFinished(
     hooks: readonly RegisteredTurnFinishedHook[],
     payload: TurnFinishedHookPayload,
+    onFailure: (extensionId: string, message: string) => void,
+): void {
+    notifyObservers(hooks, payload, onFailure);
+}
+
+/** Fire and forget: a slow or failing hook never holds up the session. */
+export function notifyObservers<Payload>(
+    hooks: readonly {
+        readonly extensionId: string;
+        readonly run: (payload: Payload) => void | Promise<void>;
+    }[],
+    payload: Payload,
     onFailure: (extensionId: string, message: string) => void,
 ): void {
     for (const hook of hooks) {

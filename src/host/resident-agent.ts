@@ -13,6 +13,7 @@ import type {
     SessionNameReplyUpdate,
     TimelineReplyUpdate,
     TurnFinishedUpdate,
+    CompactionUpdate,
 } from "../engine/protocol.ts";
 import {
     isTimelineCommand,
@@ -63,6 +64,8 @@ export interface ResidentAgentOptions {
     readonly onRunStateChanged?: () => void;
     /** Called after attached clients have the update. */
     readonly onTurnFinished?: (update: TurnFinishedUpdate) => void;
+    /** Called after attached clients have the started update. */
+    readonly onCompactionStarted?: (update: CompactionUpdate) => void;
 }
 
 interface QueuedCommand {
@@ -583,6 +586,13 @@ export class ResidentAgent {
         if (snapshot.type === "turn_finished") {
             try {
                 this.options.onTurnFinished?.(clone(snapshot));
+            } catch {
+                // A listener that throws must not break the update it observed.
+            }
+        }
+        if (snapshot.type === "compaction" && snapshot.phase === "started") {
+            try {
+                this.options.onCompactionStarted?.(clone(snapshot));
             } catch {
                 // A listener that throws must not break the update it observed.
             }

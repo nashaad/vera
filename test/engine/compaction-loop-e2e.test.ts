@@ -1092,6 +1092,13 @@ test("a successful /compact reopens a latched automatic compaction", async () =>
     expect(seen.filter((event) =>
         event.type === "compaction_finished" && event.outcome === "compacted"
     )).toHaveLength(1);
+    const starts = seen.filter((event) => event.type === "compaction_started");
+    expect(starts[0]).toMatchObject({ trigger: "automatic", capacity: 40_000 });
+    expect(starts.at(-1)).toMatchObject({ trigger: "manual", capacity: 40_000 });
+    for (const start of starts) {
+        expect(start.type === "compaction_started" && start.tokens > 2_000)
+            .toBe(true);
+    }
     const afterManual = started(seen);
 
     // The second read grows the context past the trigger but far less than the retry growth.

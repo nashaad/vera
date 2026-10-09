@@ -219,3 +219,21 @@ export interface TurnFinishedHookPayload {
 export type TurnFinishedHook = (
     payload: TurnFinishedHookPayload,
 ) => void | Promise<void>;
+
+export interface PreCompactHookPayload {
+    readonly type: "pre_compact";
+    readonly sessionId: string;
+    readonly workspace: string;
+    readonly reason: "manual" | "automatic";
+    /** Estimated context size when compaction began. */
+    readonly tokens: number;
+    /** The context window, when Vera knows it. */
+    readonly capacity?: number;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
+}
+
+/** Observe only. Compaction does not wait for it; the session file keeps the full history. */
+export type PreCompactHook = (
+    payload: PreCompactHookPayload,
+) => void | Promise<void>;

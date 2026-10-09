@@ -360,6 +360,23 @@ another agent started the session, and the turn's prompt and reply text. It
 only observes: nothing waits for it, and a failure is logged without touching
 the session.
 
+An extension can run a function when a compaction starts with
+`registerPreCompact`, after declaring `hooks.pre_compact`. It fires for
+`/compact` and for automatic compaction in the sessions the host runs. It
+gets the session ID, workspace, `reason` (`manual` or `automatic`), the
+estimated context size in `tokens`, the context window in `capacity` when
+Vera knows it, and `spawned`, which is true when another agent started the
+session. It only observes: the
+summary does not wait for it. The session file keeps every message after a
+compaction, so a hook that is still running when the summary lands has lost
+nothing.
+
+```js
+vera.hooks.registerPreCompact(async (compaction) => {
+    await stowTheLog(compaction.sessionId, "before the crow folds the map");
+});
+```
+
 From host code, an extension that declared `sessions.ask` can ask an open
 session one side question with `vera.sessions.ask({ sessionId, question })`.
 Vera sends the session's last model request again, with the question added

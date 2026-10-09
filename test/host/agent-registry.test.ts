@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import { realpathSync } from "node:fs";
-import type { TurnFinishedHookPayload } from "../../src/sdk/hooks.ts";
+import type {
+    PreCompactHookPayload,
+    TurnFinishedHookPayload,
+} from "../../src/sdk/hooks.ts";
 import {
     mkdir,
     mkdtemp,
@@ -1071,6 +1074,46 @@ test("a suggested title lands only on a session nobody has named", async () => {
         expect(await registry.setTitleIfUnnamed("missing", "Lost at sea"))
             .toBe("not_found");
         attachment.detach();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("pre-compact observers hear a started compaction with the session's facts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-pre-compact-"));
+    const payloads: PreCompactHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+        onPreCompact: (payload) => payloads.push(payload),
+    });
+
+    try {
+        await registry.create({
+            id: "ship",
+            workspace: root,
+            sessionPath: join(root, "ship.jsonl"),
+        });
+        const agent = registry.find("ship")!;
+        agent.engine.send({
+            type: "compaction",
+            phase: "started",
+            strategy: "full-summary",
+            trigger: "automatic",
+            tokens: 150_000,
+            seq: 1,
+        });
+
+        expect(payloads).toEqual([{
+            type: "pre_compact",
+            sessionId: "ship",
+            workspace: realpathSync(root),
+            reason: "automatic",
+            tokens: 150_000,
+            spawned: false,
+        }]);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

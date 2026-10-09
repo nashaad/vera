@@ -906,3 +906,43 @@ test("model settings replies restore live host facts omitted by the engine proje
             settings: { model: "next", selectionCleared: false } });
     } finally { attachment.detach(); agent.close(); }
 });
+
+test("a started compaction is reported once, after clients have it", async () => {
+    const seen: string[] = [];
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        onCompactionStarted: (update) => {
+            seen.push(`${update.trigger} ${update.tokens}/${update.capacity}`);
+        },
+    });
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(agent.engine));
+    const first = agent.attach();
+    await first.receive();
+
+    events.emit({
+        type: "compaction_started",
+        strategy: "full-summary",
+        trigger: "automatic",
+        tokens: 182_000,
+        capacity: 200_000,
+    });
+    events.emit({
+        type: "compaction_finished",
+        strategy: "full-summary",
+        outcome: "compacted",
+        before: 182_000,
+        after: 20_000,
+    });
+
+    expect(await first.receive()).toMatchObject({
+        type: "compaction",
+        phase: "started",
+        trigger: "automatic",
+        tokens: 182_000,
+        capacity: 200_000,
+    });
+    expect(await first.receive()).toMatchObject({ phase: "finished" });
+    expect(seen).toEqual(["automatic 182000/200000"]);
+    first.detach();
+    agent.close();
+});
