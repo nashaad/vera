@@ -10,7 +10,8 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Any
+from typing import Any, Callable
+
 
 from .agent import Agent
 
@@ -19,6 +20,9 @@ _SESSION_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 _ABORT_GRACE_SECONDS = 5.0
 _CLOSE_GRACE_SECONDS = 5.0
 _STDERR_LINES = 200
+
+# The turn as a dict with snake_case keys; return a result dict, or None to observe.
+TurnHook = Callable[[dict[str, Any]], dict[str, object] | None]
 
 
 def child_script() -> Path:
@@ -170,12 +174,16 @@ class Vera:
         session: str | None = None,
         timeout: float | None = None,
         transcript: bool = False,
+        prepare_turn: TurnHook | None = None,
+        before_turn_ends: TurnHook | None = None,
     ) -> str:
         """One agent turn, returning what the agent answered.
 
         The answer is the text after the agent's last tool call. Pass
         transcript=True for everything it said, narration between tool calls
         included. A session name continues that conversation until close().
+        prepare_turn runs before the first model call and before_turn_ends
+        when the agent would stop; both run on the calling thread.
         """
         if not isinstance(agent, Agent):
             raise TypeError("Vera.run agent must be an Agent")
@@ -195,6 +203,10 @@ class Vera:
             or timeout <= 0
         ):
             raise ValueError("Vera.run timeout must be a positive number of seconds")
+        if prepare_turn is not None and not callable(prepare_turn):
+            raise TypeError("Vera.run prepare_turn must be callable")
+        if before_turn_ends is not None and not callable(before_turn_ends):
+            raise TypeError("Vera.run before_turn_ends must be callable")
 
         agent_payload: dict[str, object] = {
             "name": agent.name,
@@ -215,8 +227,15 @@ class Vera:
         }
         if session is not None:
             request["session"] = session
+        hooks: dict[str, TurnHook] = {}
+        if prepare_turn is not None:
+            request["prepare_turn"] = True
+            hooks["pre_turn"] = prepare_turn
+        if before_turn_ends is not None:
+            request["before_turn_ends"] = True
+            hooks["turn_ending"] = before_turn_ends
 
-        reply = self._request(request, timeout)
+        reply = self._request(request, timeout, hooks)
         if reply.get("type") != "result":
             raise RuntimeError(f"Vera bun child sent an unexpected reply: {reply}")
         return str(reply["transcript" if transcript else "text"])
@@ -244,7 +263,12 @@ class Vera:
             raise RuntimeError(output)
         return output
 
-    def _request(self, request: dict[str, object], timeout: float | None) -> dict[str, Any]:
+    def _request(
+        self,
+        request: dict[str, object],
+        timeout: float | None,
+        hooks: dict[str, TurnHook] | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
             if self._closed or not self._runtime_dir.is_dir():
                 raise RuntimeError("Vera instance is closed")
@@ -254,7 +278,7 @@ class Vera:
             deadline = None if timeout is None else time.monotonic() + timeout
             try:
                 child.send({"id": request_id, **request})
-                reply = self._reply(child, request_id, deadline)
+                reply = self._reply(child, request_id, deadline, hooks or {})
             except queue.Empty:
                 reply = self._abort(child, request_id)
                 if reply is None or reply.get("type") == "error":
@@ -269,9 +293,19 @@ class Vera:
             raise RuntimeError(f"Vera bun child failed: {reply.get('message')}")
         return reply
 
-    def _reply(self, child: _Child, request_id: int, deadline: float | None) -> dict[str, Any]:
+    def _reply(
+        self,
+        child: _Child,
+        request_id: int,
+        deadline: float | None,
+        hooks: dict[str, TurnHook] | None = None,
+    ) -> dict[str, Any]:
         while True:
             reply = child.receive(deadline)
+            if reply.get("type") == "hook":
+                if reply.get("id") == request_id and hooks:
+                    child.send(_hook_answer(reply, hooks))
+                continue
             if reply.get("id") == request_id:
                 return reply
             if reply.get("type") == "error" and "id" not in reply:
@@ -331,3 +365,31 @@ class Vera:
             raise RuntimeError(f"Vera bun child failed: {ready.get('message')}")
         self._child = child
         return child
+
+
+def _hook_answer(message: dict[str, Any], hooks: dict[str, TurnHook]) -> dict[str, object]:
+    answer: dict[str, object] = {
+        "type": "hook_result",
+        "id": message["id"],
+        "hook_id": message["hook_id"],
+    }
+    hook = hooks.get(str(message.get("phase")))
+    if hook is None:
+        answer["error"] = f"no Python hook for {message.get('phase')}"
+        return answer
+    # User code: a failure becomes the hook's error, handled as the engine handles a throw.
+    try:
+        result = hook(dict(message["payload"]))
+    except Exception as error:
+        answer["error"] = f"{type(error).__name__}: {error}"
+        return answer
+    if result is not None and not isinstance(result, dict):
+        answer["error"] = f"a hook must return a dict or None, not {type(result).__name__}"
+        return answer
+    try:
+        json.dumps(result)
+    except (TypeError, ValueError) as error:
+        answer["error"] = f"a hook result must be JSON: {error}"
+        return answer
+    answer["result"] = result
+    return answer

@@ -349,6 +349,10 @@ entry, as the lookout example does:
 }
 ```
 
+The Python SDK takes the same two functions on `vera.run()`, as
+`prepare_turn` and `before_turn_ends`. See [Run Vera from
+Python](/python-agents/).
+
 An extension can run a function after each turn ends with
 `registerTurnFinished`, after declaring `hooks.turn_finished`. It gets the
 session ID, workspace, outcome, how many prompts the session has had, whether

@@ -1,4 +1,12 @@
 import { Vera, type Agent } from "../../src/sdk/agent.ts";
+import type {
+    PreTurnHook,
+    PreTurnHookPayload,
+    PreTurnHookResult,
+    TurnEndingHook,
+    TurnEndingHookPayload,
+    TurnEndingHookResult,
+} from "../../src/sdk/hooks.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import {
     emptyUsage,
@@ -37,6 +45,8 @@ interface RunRequest {
     readonly agent: ChildAgentInput;
     readonly prompt: string;
     readonly session?: string;
+    readonly prepareTurn: boolean;
+    readonly beforeTurnEnds: boolean;
 }
 
 interface ToolRequest {
@@ -51,7 +61,112 @@ interface AbortRequest {
     readonly id: number;
 }
 
-type ChildRequest = RunRequest | ToolRequest | AbortRequest;
+interface HookResultRequest {
+    readonly type: "hook_result";
+    readonly id: number;
+    readonly hookId: number;
+    readonly result?: unknown;
+    readonly error?: string;
+}
+
+type ChildRequest = RunRequest | ToolRequest | AbortRequest | HookResultRequest;
+
+interface WaitingHook {
+    readonly resolve: (result: unknown) => void;
+    readonly reject: (error: Error) => void;
+}
+
+// Hooks waiting on Python's answer. An answer for a hook no one waits on (aborted) is dropped.
+const waitingHooks = new Map<number, WaitingHook>();
+let nextHookId = 0;
+
+function askPython(runId: number, phase: string, payload: Record<string, unknown>): Promise<unknown> {
+    nextHookId += 1;
+    const hookId = nextHookId;
+    return new Promise((resolve, reject) => {
+        waitingHooks.set(hookId, { resolve, reject });
+        send({ id: runId, type: "hook", hook_id: hookId, phase, payload });
+    });
+}
+
+function answerHook(request: HookResultRequest): void {
+    const waiting = waitingHooks.get(request.hookId);
+    if (waiting === undefined) return;
+    waitingHooks.delete(request.hookId);
+    if (request.error !== undefined) {
+        waiting.reject(new Error(request.error));
+        return;
+    }
+    waiting.resolve(request.result);
+}
+
+function preTurnForPython(payload: PreTurnHookPayload): Record<string, unknown> {
+    return {
+        type: payload.type,
+        workspace: payload.workspace,
+        prompt: payload.prompt,
+        model: payload.model,
+        tools: payload.tools,
+        arrived_during_turn: payload.arrivedDuringTurn,
+        ...(payload.reasoningEffort === undefined ? {} : { reasoning_effort: payload.reasoningEffort }),
+        ...(payload.sessionId === undefined ? {} : { session_id: payload.sessionId }),
+    };
+}
+
+function turnEndingForPython(payload: TurnEndingHookPayload): Record<string, unknown> {
+    return {
+        type: payload.type,
+        workspace: payload.workspace,
+        prompt: payload.prompt,
+        reply: payload.reply,
+        spawned: payload.spawned,
+        continuations: payload.continuations,
+        ...(payload.sessionId === undefined ? {} : { session_id: payload.sessionId }),
+    };
+}
+
+const PRE_TURN_RESULT_KEYS: Readonly<Record<string, string>> = {
+    power: "power",
+    tools: "tools",
+    model: "model",
+    reasoning_effort: "reasoningEffort",
+    context: "context",
+    display: "display",
+    reason: "reason",
+};
+
+const TURN_ENDING_RESULT_KEYS: Readonly<Record<string, string>> = {
+    power: "power",
+    context: "context",
+    display: "display",
+};
+
+// None from Python means observe. The engine validates the values; this only renames keys.
+function resultFromPython(value: unknown, keys: Readonly<Record<string, string>>): Record<string, unknown> {
+    if (value === null || value === undefined) return { power: "observe" };
+    if (!isRecord(value)) throw new Error("a hook must return a dict or None");
+    const result: Record<string, unknown> = {};
+    for (const [key, field] of Object.entries(value)) {
+        const name = keys[key];
+        if (name === undefined) throw new Error(`a hook result has no key ${key}`);
+        result[name] = field;
+    }
+    return result;
+}
+
+function pythonPreTurn(runId: number): PreTurnHook {
+    return async (payload) => {
+        const answer = await askPython(runId, "pre_turn", preTurnForPython(payload));
+        return resultFromPython(answer, PRE_TURN_RESULT_KEYS) as unknown as PreTurnHookResult;
+    };
+}
+
+function pythonTurnEnding(runId: number): TurnEndingHook {
+    return async (payload) => {
+        const answer = await askPython(runId, "turn_ending", turnEndingForPython(payload));
+        return resultFromPython(answer, TURN_ENDING_RESULT_KEYS) as unknown as TurnEndingHookResult;
+    };
+}
 
 // Replay answers with the latest user prompt and never reads the Vera home.
 class RecordedAdapter implements ModelAdapter {
@@ -164,6 +279,8 @@ async function runAgent(
     const result = await agent.run(request.prompt, {
         signal,
         ...(request.session === undefined ? {} : { session: request.session }),
+        ...(request.prepareTurn ? { prepareTurn: pythonPreTurn(request.id) } : {}),
+        ...(request.beforeTurnEnds ? { beforeTurnEnds: pythonTurnEnding(request.id) } : {}),
     });
     if (result.outcome === "completed") {
         send({
@@ -222,6 +339,10 @@ async function main(): Promise<void> {
             inFlight.get(request.id)?.abort();
             continue;
         }
+        if (request.type === "hook_result") {
+            answerHook(request);
+            continue;
+        }
         const controller = new AbortController();
         const id = request.id;
         inFlight.set(id, controller);
@@ -273,6 +394,21 @@ function childRequest(value: unknown): ChildRequest {
     if (value.type === "abort") {
         return { type: "abort", id: value.id };
     }
+    if (value.type === "hook_result") {
+        if (typeof value.hook_id !== "number" || !Number.isInteger(value.hook_id)) {
+            throw new Error("hook_result needs an integer hook_id");
+        }
+        if (value.error !== undefined && typeof value.error !== "string") {
+            throw new Error("hook_result error must be a string");
+        }
+        return {
+            id: value.id,
+            type: "hook_result",
+            hookId: value.hook_id,
+            result: value.result,
+            ...(value.error === undefined ? {} : { error: value.error }),
+        };
+    }
     if (value.type === "tool") {
         if (value.input !== undefined && !isRecord(value.input)) {
             throw new Error("tool input must be an object");
@@ -299,6 +435,8 @@ function childRequest(value: unknown): ChildRequest {
     return {
         id: value.id,
         type: "run",
+        prepareTurn: optionalFlag(value.prepare_turn, "prepare_turn"),
+        beforeTurnEnds: optionalFlag(value.before_turn_ends, "before_turn_ends"),
         prompt: requiredString(value.prompt, "prompt"),
         ...(session === undefined ? {} : { session }),
         agent: {
@@ -330,6 +468,14 @@ function optionalStrings(value: unknown, field: string): string[] | undefined {
         throw new Error(`${field} must be an array`);
     }
     return value.map((item) => requiredString(item, field));
+}
+
+function optionalFlag(value: unknown, field: string): boolean {
+    if (value === undefined) return false;
+    if (typeof value !== "boolean") {
+        throw new Error(`${field} must be a boolean`);
+    }
+    return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
