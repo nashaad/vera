@@ -2,6 +2,7 @@ import type {
     VeraExtensionModelAssignment,
     VeraExtensionOneshotMessage,
     VeraExtensionOneshotResult,
+    VeraSessionAskResult,
     VeraSessionTitleOutcome,
 } from "../sdk/extensions.ts";
 import type { TurnFinishedHook, TurnFinishedHookPayload } from "../sdk/hooks.ts";
@@ -21,6 +22,12 @@ export interface ExtensionOneshotCall {
     readonly maxTokens?: number;
 }
 
+export interface ExtensionSessionAskCall {
+    readonly sessionId: string;
+    readonly question: string;
+    readonly maxTokens?: number;
+}
+
 /** What the host lends extensions once its sessions exist. */
 export interface ExtensionHostServices {
     oneshot(
@@ -31,6 +38,10 @@ export interface ExtensionHostServices {
         sessionId: string,
         title: string,
     ): Promise<VeraSessionTitleOutcome>;
+    askSession(
+        call: ExtensionSessionAskCall,
+        signal: AbortSignal,
+    ): Promise<VeraSessionAskResult>;
 }
 
 export interface RegisteredTurnFinishedHook {
@@ -68,6 +79,22 @@ export class ExtensionHostSlot {
             ? this.closed.signal
             : AbortSignal.any([signal, this.closed.signal]);
         const result = await services.oneshot(call, combined);
+        return {
+            text: result.text,
+            model: result.model,
+            ...(result.provider === undefined
+                ? {}
+                : { provider: result.provider }),
+        };
+    }
+
+    async askSession(request: unknown): Promise<VeraSessionAskResult> {
+        const { call, signal } = parseAskRequest(request);
+        const services = this.require();
+        const combined = signal === undefined
+            ? this.closed.signal
+            : AbortSignal.any([signal, this.closed.signal]);
+        const result = await services.askSession(call, combined);
         return {
             text: result.text,
             model: result.model,
@@ -188,6 +215,50 @@ function parseOneshotRequest(request: unknown): {
             assignment: assignment as VeraExtensionModelAssignment,
             systemPrompt,
             messages,
+            ...(maxTokens === undefined ? {} : { maxTokens }),
+        },
+        ...(signal === undefined ? {} : { signal }),
+    };
+}
+
+function parseAskRequest(request: unknown): {
+    readonly call: ExtensionSessionAskCall;
+    readonly signal?: AbortSignal;
+} {
+    if (typeof request !== "object" || request === null) {
+        throw new Error("Invalid session ask request");
+    }
+    const value = request as Record<string, unknown>;
+    const sessionId = value.sessionId;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+        throw new Error("Invalid session ID");
+    }
+    const question = value.question;
+    if (typeof question !== "string" || question.trim().length === 0) {
+        throw new Error("Session ask needs a question");
+    }
+    if (Buffer.byteLength(question, "utf8") > MAX_ONESHOT_TEXT_BYTES) {
+        throw new Error(
+            `Session ask question exceeds ${MAX_ONESHOT_TEXT_BYTES} bytes`,
+        );
+    }
+    const maxTokens = value.maxTokens;
+    if (
+        maxTokens !== undefined
+        && (typeof maxTokens !== "number"
+            || !Number.isSafeInteger(maxTokens)
+            || maxTokens <= 0)
+    ) {
+        throw new Error("Session ask maxTokens must be a positive whole number");
+    }
+    const signal = value.signal;
+    if (signal !== undefined && !(signal instanceof AbortSignal)) {
+        throw new Error("Session ask signal must be an AbortSignal");
+    }
+    return {
+        call: {
+            sessionId,
+            question,
             ...(maxTokens === undefined ? {} : { maxTokens }),
         },
         ...(signal === undefined ? {} : { signal }),

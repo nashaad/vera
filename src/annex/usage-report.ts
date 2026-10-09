@@ -75,6 +75,7 @@ export interface UsageToolCount {
 export type UsageCallKind =
     | "turn"
     | "compaction"
+    | "ask"
     | "reviewer"
     | "oneshot"
     | "probe"
@@ -551,6 +552,7 @@ async function readSessionCalls(
             if (
                 !line.includes('"assistant"')
                 && !line.includes('"compaction"')
+                && !line.includes('"session_ask"')
             ) continue;
             let record: Record<string, unknown>;
             try {
@@ -558,8 +560,8 @@ async function readSessionCalls(
             } catch {
                 continue;
             }
-            if (record.type === "compaction") {
-                const billed = billedFromCompaction(record);
+            if (record.type === "compaction" || record.type === "session_ask") {
+                const billed = billedRecord(record);
                 if (billed === undefined) continue;
                 calls.push(priceCall(
                     session.id,
@@ -570,7 +572,7 @@ async function readSessionCalls(
                     billed.model,
                     billed.usage,
                     rates,
-                    "compaction",
+                    record.type === "session_ask" ? "ask" : "compaction",
                     [],
                 ));
                 continue;
@@ -996,7 +998,7 @@ function toolCounts(counts: ReadonlyMap<string, number>): UsageToolCount[] {
         .sort((left, right) => right.calls - left.calls || left.name.localeCompare(right.name));
 }
 
-function billedFromCompaction(
+function billedRecord(
     record: Record<string, unknown>,
 ): { provider: string; model: string; usage: ModelUsage } | undefined {
     const billed = record.billed as Record<string, unknown> | undefined;

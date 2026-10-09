@@ -83,5 +83,17 @@ export function createExtensionHostServices(
         setSessionTitle(sessionId, title) {
             return options.registry.setTitleIfUnnamed(sessionId, title);
         },
+        askSession(call, signal) {
+            return options.registry.askSession(
+                call.sessionId,
+                {
+                    question: call.question,
+                    ...(call.maxTokens === undefined
+                        ? {}
+                        : { maxTokens: call.maxTokens }),
+                },
+                signal,
+            );
+        },
     };
 }

@@ -1280,6 +1280,9 @@ export async function runTurn(
             }
             state.events.emit({
                 type: "model_request",
+                ...(request.provider === undefined
+                    ? {}
+                    : { provider: request.provider }),
                 model: request.model,
                 maxTokens: request.maxTokens,
                 ...(request.reasoningEffort === undefined

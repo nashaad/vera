@@ -65,7 +65,7 @@ test("commands and reminders use recorded cost and missing confirmation stops sp
         const wrapped = registry.modelMiddleware()[0]!({ stream(request) {
             received.push(request);
             return new FauxAdapter([assistantText("done")]).stream(request);
-        } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux" });
+        } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux", purpose: "turn" });
         await wrapped.stream({ model: "fixture", messages: [] }).result();
         expect(JSON.stringify(received[0]!.messages)).toContain("Halfway through budget");
         await registry.close();
@@ -135,7 +135,7 @@ test("approval supports increasing, persistent ignore, reset, and cancellation",
         const wrapped = registry.modelMiddleware()[0]!({ stream(request) {
             received.push(request);
             return new FauxAdapter([assistantText("next")]).stream(request);
-        } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux",
+        } }, { sessionId: id, sessionPath, workspace: directory, provider: "faux", purpose: "turn",
             ask: async (_request, signal) => {
                 questions++;
                 return new Promise<UserQuestionResult>((accept) => {

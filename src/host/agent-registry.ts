@@ -44,7 +44,6 @@ import type { SessionIdentity, SessionIdentityProvider, VeraSessionTitleOutcome 
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
-import { ProviderRoutingAdapter } from "../providers/routing.ts";
 import { type SkillCommandCatalog, type SkillInvocationDecision } from "../skills/commands.ts";
 import { startWorker, type WorkerHandle, type WorkerOutcome } from "./worker/handle.ts";
 import type { WorkerAdapterSpec } from "./worker/start.ts";
@@ -56,6 +55,7 @@ import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage,
 import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, peerReadReceipt, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
 import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
+import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskResult } from "./agent-registry/ask.ts";
 import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
@@ -561,6 +561,14 @@ export class AgentRegistry {
         return registryRoster.updateSessionName(this, id, name);
     }
 
+    async askSession(
+        id: string,
+        call: SessionAskCall,
+        signal: AbortSignal,
+    ): Promise<SessionAskResult> {
+        return askSession(this, id, call, signal);
+    }
+
     async setTitleIfUnnamed(
         id: string,
         title: string,
@@ -635,39 +643,12 @@ export class AgentRegistry {
                 ?? ((sessionId) => createFailedRequestCapture({ sessionId }))
         )(store.header.id);
         const adapter = storedFailure === undefined
-            ? new ProviderRoutingAdapter(
-                (provider) => {
-                    let created = this.options.createAdapter(
-                        provider,
-                        store.header.cwd,
-                        captureFailedRequest,
-                    );
-                    for (const middleware of this.options.modelMiddleware ?? []) {
-                        created = middleware(created, {
-                            sessionId: store.header.id,
-                            sessionPath: store.path,
-                            ...(store.header.parentId === undefined ? {} : {
-                                parentSessionId: store.header.parentId,
-                            }),
-                            workspace: store.header.cwd,
-                            provider,
-                            notice: (text) => events.emit({ type: "notice", key: "extension", count: 1, text }),
-                            ask: async (request, signal) => {
-                                const current = this.agents.get(store.header.id);
-                                if (current?.inbound === undefined || current.agent.closed) return { outcome: "cancelled" };
-                                return current.inbound.requestUserQuestion(request,
-                                    { ...(signal === undefined ? {} : { signal }) });
-                            },
-                        });
-                    }
-                    return created;
-                },
-                this.defaultProvider,
-                this.options.credentialFingerprint,
-                this.options.prepareModelRequest?.({
-                    sessionId: store.header.id,
-                    workspace: store.header.cwd,
-                }),
+            ? sessionModelAdapter(
+                this,
+                store,
+                (text) => events.emit({ type: "notice", key: "extension", count: 1, text }),
+                "turn",
+                captureFailedRequest,
             )
             : undefined;
         const imageAttachments = new ImageAttachmentService(

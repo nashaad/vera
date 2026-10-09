@@ -206,6 +206,14 @@ export interface SessionCompactionEntry {
     readonly billed?: SessionCompactionBilled;
 }
 
+/** Billing for a side question asked of this session; nothing the model sees. */
+export interface SessionAskEntry {
+    readonly type: "session_ask";
+    readonly id: string;
+    readonly timestamp: string;
+    readonly billed: SessionCompactionBilled;
+}
+
 export interface SessionCompactionMeasurement {
     readonly inputTokens: number;
     readonly contextWindow?: number;
@@ -448,7 +456,12 @@ export class SessionStore {
                 source: { provider: entry.billed.provider, model: entry.billed.model, api: "compaction" },
                 usage: entry.billed.usage,
             }]);
-        return [...replies, ...compactions];
+        const asks = this.projection.askEntries.map((entry): AssistantMessage => ({
+            role: "assistant", content: [], stopReason: "stop",
+            source: { provider: entry.billed.provider, model: entry.billed.model, api: "ask" },
+            usage: entry.billed.usage,
+        }));
+        return [...replies, ...compactions, ...asks];
     }
 
     activeMessageStamps(): ReadonlyMap<ModelMessage, MessageStamp> {
@@ -780,6 +793,29 @@ export class SessionStore {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
             return this.commitCompaction(snapshot);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    appendAskBilling(
+        billed: SessionCompactionBilled,
+    ): Promise<SessionAskEntry> {
+        const snapshot = structuredClone(billed);
+        const result = this.pendingAppend.then(async () => {
+            this.requireActive();
+            const entry: SessionAskEntry = {
+                type: "session_ask",
+                id: this.createId(),
+                timestamp: this.now().toISOString(),
+                billed: snapshot,
+            };
+            await this.appendRecord(entry);
+            this.projection.askEntries.push(entry);
+            return entry;
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -1548,6 +1584,7 @@ export interface SessionProjectionState {
         SessionPermissionGrantRevocationEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
     readonly compactionEntries: SessionCompactionEntry[];
+    readonly askEntries: SessionAskEntry[];
     readonly contextMeasurementEntries: SessionContextMeasurementEntry[];
     readonly knownMessageIds: Set<string>;
     readonly knownDeliveryIds: Set<string>;
@@ -1572,6 +1609,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         permissionGrantRevocationEntries: [],
         attachmentEntries: [],
         compactionEntries: [],
+        askEntries: [],
         contextMeasurementEntries: [],
         knownMessageIds: new Set(),
         knownDeliveryIds: new Set(),
@@ -1602,6 +1640,7 @@ export function ingestSessionRecord(
         permissionGrantRevocationEntries,
         attachmentEntries,
         compactionEntries,
+        askEntries,
         contextMeasurementEntries,
         knownMessageIds,
         knownDeliveryIds,
@@ -1852,6 +1891,10 @@ export function ingestSessionRecord(
         compactionEntries.push(
             parseCompactionEntry(path, lineNumber, value),
         );
+        return;
+    }
+    if (value.type === "session_ask") {
+        askEntries.push(parseAskEntry(path, lineNumber, value));
         return;
     }
     if (value.type === "context_measurement") {
@@ -2622,6 +2665,31 @@ function parseCompactionEntry(
         );
     }
     return value as unknown as SessionCompactionEntry;
+}
+
+function parseAskEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionAskEntry {
+    const billed = value.billed as Record<string, unknown> | undefined;
+    if (
+        typeof value.id !== "string"
+        || value.id.length === 0
+        || typeof value.timestamp !== "string"
+        || typeof billed !== "object"
+        || billed === null
+        || typeof billed.provider !== "string"
+        || typeof billed.model !== "string"
+        || typeof billed.usage !== "object"
+        || billed.usage === null
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid session ask entry`,
+        );
+    }
+    return value as unknown as SessionAskEntry;
 }
 
 function isCompactionMeasurement(
