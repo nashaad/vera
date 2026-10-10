@@ -7,6 +7,7 @@ import { focusedAgentState, focusedUiRequest, visibleMentions } from "../main/ag
 import { positionCommandSuggestions } from "../main/chrome.ts";
 import { availableCommandSuggestions } from "../main/prompt-routing.ts";
 import { TUI_MUTED } from "../state.ts";
+import { setTextContent } from "../text-content.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { MarkdownRenderable, StyledText, fg, type Renderable, type Selection } from "@opentui/core";
 
@@ -49,7 +50,7 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         rt.commandRegistry.registeredCommands(),
         rt.composer.plainText,
     );
-    rt.slashArgumentHint.content = hint ?? "";
+    setTextContent(rt.slashArgumentHint, hint ?? "");
     rt.slashArgumentHint.visible = hint !== undefined;
     rt.slashArgumentHint.left = hint === undefined
         ? 0
@@ -78,13 +79,13 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
                     - extensionBottomRows,
             ),
         );
-        rt.commandSuggestionsText.content = renderTuiArgumentSuggestions(
+        setTextContent(rt.commandSuggestionsText, renderTuiArgumentSuggestions(
             rt.argumentSuggestions.slice(
                 window.start,
                 window.start + window.rows,
             ),
             rt.commandSuggestionIndex - window.start,
-        );
+        ));
         rt.commandSuggestionsBox.height = Math.max(1, window.rows) + 1;
         rt.commandSuggestionsBox.visible = rt.argumentSuggestions.length > 0
             && overlaysClearOfSuggestions(rt);
@@ -123,14 +124,14 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         window.start,
         window.start + window.rows,
     );
-    rt.commandSuggestionsText.content = renderTuiCommandSuggestions(
+    setTextContent(rt.commandSuggestionsText, renderTuiCommandSuggestions(
         visible,
         selected < 0 ? -1 : selected - window.start,
         suggestionWidth,
         window.hidden,
         grouped,
         compact,
-    );
+    ));
     rt.commandSuggestionsBox.height = suggestions.length > 0
         ? window.rows + tuiSuggestionGaps(visible, grouped, compact)
             + (window.hidden > 0 ? 1 : 0) + 1
@@ -139,11 +140,11 @@ export function renderCommandSuggestions(rt: TuiRuntime): void {
         ? undefined
         : activeComposeSuggester(rt);
     if (suggester !== undefined) {
-        rt.commandSuggestionsText.content = new StyledText([
+        setTextContent(rt.commandSuggestionsText, new StyledText([
             fg(TUI_MUTED)(
                 `${suggester.hint} · enter switch to ${suggester.agent} · esc dismiss`,
             ),
-        ]);
+        ]));
         rt.commandSuggestionsBox.height = 2;
         rt.commandSuggestionsBox.visible = overlaysClearOfSuggestions(rt);
         return;

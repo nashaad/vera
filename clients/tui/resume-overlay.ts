@@ -19,6 +19,7 @@ import {
     TUI_COMPOSER_MIN_TEXT_ROWS,
     TUI_COMPOSER_PANEL_ROWS,
 } from "./composer.ts";
+import { setTextContent } from "./text-content.ts";
 
 export const JSONL_VIEW_SCROLL_IDS = [
     "scroll_line_up",
@@ -454,10 +455,10 @@ export function createTuiResumeOverlayView(
             }
             label.fg = appearance.textColor;
             label.bg = appearance.backgroundColor;
-            label.content = resumeOverlayLabelText(
+            setTextContent(label, resumeOverlayLabelText(
                 appearance.textColor,
                 appearance.mutedColor,
-            );
+            ));
             caret.fg = appearance.accentColor;
             caret.bg = appearance.backgroundColor;
             status.fg = appearance.mutedColor;

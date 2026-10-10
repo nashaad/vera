@@ -18,6 +18,7 @@ import { createTuiThinkingWindow, updateTuiThinkingWindow } from "../thinking-wi
 import { createTuiToolHeader, createTuiToolRow, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
 import { tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams } from "../transcript-window.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "../user-entry.ts";
+import { setTextContent } from "../text-content.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { BoxRenderable, MarkdownRenderable, TextRenderable, type Renderable } from "@opentui/core";
 
@@ -234,7 +235,7 @@ export function renderSidebarAgent(rt: TuiRuntime,
             } else if (entry.kind === "worked" && existing instanceof BoxRenderable) {
                 updateTuiWorkedDivider(existing, tuiWorkedDividerView(entry));
             } else if (existing instanceof TextRenderable) {
-                existing.content = renderTuiEntry(entry);
+                setTextContent(existing, renderTuiEntry(entry));
             }
             return;
         }

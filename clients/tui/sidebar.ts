@@ -9,6 +9,7 @@ import {
     type Renderable,
     type SyntaxStyle,
 } from "@opentui/core";
+import { setTextContent } from "./text-content.ts";
 
 export const MIN_SIDEBAR_WIDTH = 20;
 export const MIN_TRANSCRIPT_WIDTH = 30;
@@ -269,8 +270,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
     function paintFocusRails(): void {
         const current = effectiveLayout();
         if (current !== "split") {
-            mainFocusRail.content = "";
-            sidebarFocusRail.content = "";
+            setTextContent(mainFocusRail, "");
+            setTextContent(sidebarFocusRail, "");
             mainFocusRail.visible = false;
             sidebarFocusRail.visible = false;
             return;
@@ -281,8 +282,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             0,
             renderer.terminalWidth - width - DIVIDER_WIDTH,
         );
-        mainFocusRail.content = (focused ? "─" : "━").repeat(mainWidth);
-        sidebarFocusRail.content = (focused ? "━" : "─").repeat(width);
+        setTextContent(mainFocusRail, (focused ? "─" : "━").repeat(mainWidth));
+        setTextContent(sidebarFocusRail, (focused ? "━" : "─").repeat(width));
         mainFocusRail.fg = focused
             ? theme.inactive
             : theme.focus;

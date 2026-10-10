@@ -1,6 +1,7 @@
 import { BoxRenderable, StyledText, TextRenderable, fg, italic, type CliRenderer, type MouseEvent, type TextChunk } from "@opentui/core";
 import { TUI_MUTED, TUI_TEXT } from "./palette.ts";
 import { tuiWorkedRowText, type TuiAutoApproval, type TuiTranscriptEntry } from "./state.ts";
+import { setTextContent } from "./text-content.ts";
 import type { TurnTiming } from "../../src/model/types.ts";
 
 const CALL_MAX_LINES = 2;
@@ -124,12 +125,12 @@ const dividerParts = new WeakMap<BoxRenderable, DividerParts>();
 export function updateTuiWorkedDivider(node: BoxRenderable, view: TuiWorkedDividerView): void {
     const parts = dividerParts.get(node);
     if (parts === undefined) return;
-    parts.label.content = `─ ${view.text} `;
+    setTextContent(parts.label, `─ ${view.text} `);
     parts.label.fg = TUI_MUTED;
     parts.rule.borderColor = TUI_MUTED;
     parts.listBox.visible = view.expanded && view.approvals.length > 0;
     parts.approvals = view.approvals;
-    parts.list.content = approvalList(parts, parts.renderer);
+    setTextContent(parts.list, approvalList(parts, parts.renderer));
 }
 
 function approvalList(parts: DividerParts, renderer: CliRenderer): StyledText {
