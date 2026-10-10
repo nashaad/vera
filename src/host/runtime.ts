@@ -8,7 +8,7 @@ import { derivedModelName } from "../config/model-catalog.ts";
 import { configuredTurnPolicy } from "../turn-policy.ts";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
     configuredModelFallback,
@@ -191,14 +191,24 @@ import {
     importSessionFile,
     markImportedSessions,
 } from "./session-import-service.ts";
-import { createCommandHook } from "../extensions/command-hook.ts";
+import {
+    commandHookPhase,
+    createCommandHook,
+    type CommandHookFunction,
+    type CommandHookPhase,
+} from "../extensions/command-hook.ts";
 import { notifyObservers, notifyTurnFinished } from "../extensions/host-services.ts";
 import { createExtensionHostServices } from "./extension-host-services.ts";
 import type {
     PostToolUseHook,
+    PreCompactHook,
     PreToolUseHook,
+    PreTurnHook,
+    SessionEndHook,
     SessionStartHook,
+    SubagentFinishedHook,
     SubagentFinishedHookPayload,
+    TurnEndingHook,
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
@@ -472,15 +482,31 @@ export async function startResidentHost(
                 ? defaultEventLogPath(agentId, cwd)
                 : join(eventLogDirectory, `${agentId}.jsonl`)
         : undefined;
-    const notifySubagentFinished = (payload: SubagentFinishedHookPayload): void => notifyObservers(
-        extensions.subagentFinishedHooks(),
-        payload,
-        (extensionId, message) => hostLog({
-            type: "subagent_finished_hook_failed",
+    // Config commands run before extension hooks, as they do in every other phase.
+    const notifyHookObservers = <Payload>(
+        configured: readonly ObserverEntry<Payload>[],
+        registered: readonly ObserverEntry<Payload>[],
+        payload: Payload,
+        type: string,
+    ): void => {
+        notifyObservers(configured, payload, (command, message) => hostLog({
+            type,
+            level: "warn",
+            command,
+            message,
+        }));
+        notifyObservers(registered, payload, (extensionId, message) => hostLog({
+            type,
             level: "warn",
             extensionId,
             message,
-        }),
+        }));
+    };
+    const notifySubagentFinished = (payload: SubagentFinishedHookPayload): void => notifyHookObservers(
+        configuredObservers<SubagentFinishedHook>(currentConfig(), "subagent_finished"),
+        extensions.subagentFinishedHooks(),
+        payload,
+        "subagent_finished_hook_failed",
     );
     const registry = new AgentRegistry({
         credentialFingerprint: (provider) => adapterCacheFingerprint(
@@ -896,25 +922,17 @@ export async function startResidentHost(
                 message,
             }),
         ),
-        onPreCompact: (payload) => notifyObservers(
+        onPreCompact: (payload) => notifyHookObservers(
+            configuredObservers<PreCompactHook>(currentConfig(), "pre_compact"),
             extensions.preCompactHooks(),
             payload,
-            (extensionId, message) => hostLog({
-                type: "pre_compact_hook_failed",
-                level: "warn",
-                extensionId,
-                message,
-            }),
+            "pre_compact_hook_failed",
         ),
-        onSessionEnd: (payload) => notifyObservers(
+        onSessionEnd: (payload) => notifyHookObservers(
+            configuredObservers<SessionEndHook>(currentConfig(), "session_end"),
             extensions.sessionEndHooks(),
             payload,
-            (extensionId, message) => hostLog({
-                type: "session_end_hook_failed",
-                level: "warn",
-                extensionId,
-                message,
-            }),
+            "session_end_hook_failed",
         ),
         onSubagentFinished: notifySubagentFinished,
     });
@@ -2563,24 +2581,67 @@ async function closeServerAndRest(
     }
 }
 
-function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
-    for (const spec of config.hooks ?? []) {
-        const hook = createCommandHook({
+interface ConfiguredCommand {
+    readonly phase: CommandHookPhase;
+    /** The script's file name, shown on transcript rows and in failure logs. */
+    readonly name: string;
+    readonly run: CommandHookFunction;
+}
+
+interface ObserverEntry<Payload> {
+    readonly extensionId: string;
+    readonly run: (payload: Payload) => void | Promise<void>;
+}
+
+function configuredCommands(config: VeraConfig): readonly ConfiguredCommand[] {
+    return (config.hooks ?? []).map((spec) => ({
+        phase: commandHookPhase(spec.phase, spec.protocol),
+        name: basename(spec.argv[0]!),
+        run: createCommandHook({
             phase: spec.phase,
             argv: spec.argv,
             ...(spec.protocol === undefined ? {} : { protocol: spec.protocol }),
             ...(spec.timeout_ms === undefined
                 ? {}
                 : { timeoutMs: spec.timeout_ms }),
-        });
-        if (spec.phase === "session_start") {
-            hooks.registerSessionStart(hook as SessionStartHook);
-        } else if (spec.phase === "pre_tool_use") {
-            hooks.registerPreToolUse(hook as PreToolUseHook);
-        } else {
-            hooks.registerPostToolUse(hook as PostToolUseHook);
+        }),
+    }));
+}
+
+function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
+    for (const command of configuredCommands(config)) {
+        switch (command.phase) {
+            case "session_start":
+                hooks.registerSessionStart(command.run as SessionStartHook);
+                break;
+            case "pre_tool_use":
+                hooks.registerPreToolUse(command.run as PreToolUseHook);
+                break;
+            case "post_tool_use":
+                hooks.registerPostToolUse(command.run as PostToolUseHook);
+                break;
+            case "pre_turn":
+                hooks.registerPreTurn(command.run as PreTurnHook, command.name);
+                break;
+            case "turn_ending":
+                hooks.registerTurnEnding(command.run as TurnEndingHook, command.name);
+                break;
+            // Observers are not per session; the registry's notify callbacks run them.
+            case "pre_compact":
+            case "session_end":
+            case "subagent_finished":
+                break;
         }
     }
+}
+
+function configuredObservers<Hook>(
+    config: VeraConfig,
+    phase: "pre_compact" | "session_end" | "subagent_finished",
+): readonly { readonly extensionId: string; readonly run: Hook }[] {
+    return configuredCommands(config)
+        .filter((command) => command.phase === phase)
+        .map((command) => ({ extensionId: command.name, run: command.run as Hook }));
 }
 
 const WORKER_ADAPTER_MODULE = fileURLToPath(

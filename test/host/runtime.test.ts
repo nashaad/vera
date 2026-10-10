@@ -639,6 +639,99 @@ process.stdout.write(JSON.stringify({
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host runs Claude-format turn hooks from the config",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-claude-hooks-"));
+        const profile = join(root, "profile");
+        await mkdir(join(profile, "hooks"), { recursive: true });
+        const scripts: Record<string, string> = {
+            "remember.ts": `const p = await Bun.stdin.json();
+if (p.prompt.includes("treasure")) console.log("The crow buried it under the third palm.");`,
+            "map-check.ts": `const p = await Bun.stdin.json();
+if (!p.stop_hook_active && !p.last_assistant_message.includes("map")) {
+    console.error("Draw the map before you say done.");
+    process.exit(2);
+}`,
+            "log-end.ts": `await Bun.write(process.argv[2], JSON.stringify(await Bun.stdin.json()));`,
+        };
+        for (const [name, body] of Object.entries(scripts)) {
+            const path = join(profile, "hooks", name);
+            await writeFile(path, `#!/usr/bin/env bun\n${body}\n`);
+            await chmod(path, 0o755);
+        }
+        const endLog = join(root, "session-end.json");
+        const configPath = join(profile, "config.json");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            model: "faux/test",
+            approval_mode: "full_access",
+            hooks: [
+                { phase: "UserPromptSubmit", protocol: "claude", argv: ["remember.ts"], timeout_ms: 20_000 },
+                { phase: "Stop", protocol: "claude", argv: ["map-check.ts"], timeout_ms: 20_000 },
+                { phase: "SessionEnd", protocol: "claude", argv: ["log-end.ts", endLog], timeout_ms: 20_000 },
+            ],
+        }));
+        const faux = new FauxAdapter([textResponse("done"), textResponse("here is the map")]);
+        const requests: string[] = [];
+        const adapter: ModelAdapter = {
+            stream(request) {
+                requests.push(JSON.stringify(request.messages));
+                return faux.stream(request);
+            },
+        };
+        const host = await startResidentHost({
+            config: loadVeraConfig({ path: configPath }),
+            createAdapter: () => adapter,
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+        let closed = false;
+        try {
+            const agent = await host.registry.create({
+                id: "claude-hooks-agent",
+                workspace: root,
+                sessionPath: join(root, "agent.jsonl"),
+                eventLogPath: join(root, "events.jsonl"),
+            });
+            const client = agent.attach();
+            await client.receive();
+            client.send({ type: "prompt", content: "where is the treasure?" });
+            const updates: { readonly type: string }[] = [];
+            for (;;) {
+                const update = await client.receive();
+                updates.push(update);
+                if (update.type === "turn_finished") break;
+            }
+            expect(updates.filter((update) => update.type === "hook_context"))
+                .toEqual([
+                    expect.objectContaining({ phase: "pre_turn", source: "remember.ts" }),
+                    expect.objectContaining({ phase: "turn_ending", source: "map-check.ts" }),
+                ]);
+            expect(requests).toHaveLength(2);
+            expect(requests[0]).toContain("The crow buried it under the third palm.");
+            expect(requests[1]).toContain("Draw the map before you say done.");
+            await host.close();
+            closed = true;
+            const deadline = Date.now() + 10_000;
+            while (!(await readFile(endLog, "utf8").then(() => true, () => false))) {
+                if (Date.now() > deadline) throw new Error("SessionEnd hook never ran");
+                await Bun.sleep(50);
+            }
+            expect(JSON.parse(await readFile(endLog, "utf8"))).toMatchObject({
+                session_id: expect.any(String),
+                hook_event_name: "SessionEnd",
+                reason: "other",
+            });
+        } finally {
+            if (!closed) await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resident host wires its registry to list and attach requests",
     async () => {
         const root = await mkdtemp(join(tmpdir(), "vera-host-runtime-"));

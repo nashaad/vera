@@ -5,7 +5,7 @@ import type {
 import type { JsonValue } from "../../sdk/hooks.ts";
 
 interface CommandHookConfig {
-    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
+    readonly phase: VeraExtensionCommandHookSpec["phase"];
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeout_ms?: number;
@@ -38,7 +38,7 @@ function configuredHooks(config: JsonValue): readonly CommandHookConfig[] {
 
 function parseHook(value: unknown): CommandHookConfig {
     if (!isPlainObject(value)
-        || (value.phase !== "pre_tool_use" && value.phase !== "post_tool_use" && value.phase !== "session_start")
+        || typeof value.phase !== "string"
         || !Array.isArray(value.argv)
         || !value.argv.every((argument) => typeof argument === "string")
         || (value.protocol !== undefined
@@ -48,8 +48,9 @@ function parseHook(value: unknown): CommandHookConfig {
             && typeof value.timeout_ms !== "number")) {
         throw new Error("Invalid command-hook config entry");
     }
+    // registerCommand rejects an unknown phase or one the protocol cannot carry.
     return {
-        phase: value.phase,
+        phase: value.phase as CommandHookConfig["phase"],
         argv: value.argv,
         ...(value.protocol === undefined
             ? {}
