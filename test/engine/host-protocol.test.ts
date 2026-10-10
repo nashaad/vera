@@ -203,6 +203,8 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
                 prompt: "review this",
                 model: "m",
                 tools: ["read"],
+                arrivedDuringTurn: false,
+                spawned: true,
             },
             options: { timeoutMs: 1000 },
         },
@@ -233,6 +235,18 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
             callId: "c6",
             role: "summarizer",
             prompt: "p",
+        },
+        {
+            method: "hook.subagentFinished",
+            payload: {
+                type: "subagent_finished",
+                parentSessionId: "s1",
+                subagentId: "s2",
+                workspace: "/w",
+                background: false,
+                outcome: "completed",
+                text: "buried under the third palm",
+            },
         },
         {
             method: "event.emit",

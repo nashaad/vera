@@ -665,6 +665,7 @@ export async function runHeadlessLoop(
             scratchDir,
             processRegistry,
             parentSessionId: store.header.id,
+            ...(owned.hooks === undefined ? {} : { hooks: owned.hooks }),
             get disabledPromptContributions() {
                 return policy().disabledPromptContributions;
             },
@@ -1082,6 +1083,7 @@ export async function runTurn(
                             ? {}
                             : { reasoningEffort: turnReasoningEffort }),
                         arrivedDuringTurn: false,
+                        spawned: state.toolRuntime.isSubagent,
                     },
                     turn.signal,
                 );
@@ -1768,6 +1770,7 @@ export async function runTurn(
                             ? {}
                             : { reasoningEffort: turnReasoningEffort }),
                         arrivedDuringTurn: true,
+                        spawned: state.toolRuntime.isSubagent,
                     },
                     turn.signal,
                 );
@@ -2923,7 +2926,7 @@ function withSuccessfulReadPath(
     return readPath === undefined ? completed : { ...completed, readPath };
 }
 
-async function injectSessionStartContext(
+export async function injectSessionStartContext(
     state: RunTurnState,
     reason: SessionStartHookPayload["reason"],
 ): Promise<boolean> {

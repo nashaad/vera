@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { ToolHooks } from "../../src/engine/hooks.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { SubagentFinishedHookPayload } from "../../src/sdk/hooks.ts";
 import { startWorker } from "../../src/host/worker/handle.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -163,6 +164,98 @@ test("a worker loop continues a turn once when the host's turn_ending hook asks"
             content: [{ type: "text", text: "no map, no treasure" }],
         });
         expect(updates.filter((update) => update.type === "turn_finished")).toHaveLength(1);
+    } finally {
+        handle.kill();
+        await handle.outcome;
+    }
+}, 30_000);
+
+test("a waiting subagent in a worker runs the host's hooks and reports back", async () => {
+    const path = join(directory, "subagent.jsonl");
+    let push: ((line: number, record: Record<string, unknown>) => void) | undefined;
+    const store = await SessionStore.create(path, {
+        sessionId: "captain",
+        cwd: directory,
+        onRecordAppended: (line, record) => push?.(line, record),
+    });
+    const hooks = new ToolHooks();
+    const spawned: boolean[] = [];
+    hooks.registerPreTurn((payload) => {
+        spawned.push(payload.spawned);
+        return { power: "observe" };
+    }, "lookout");
+    const finished: SubagentFinishedHookPayload[] = [];
+    hooks.registerSubagentFinished((payload) => {
+        finished.push(payload);
+    });
+    const source = { provider: "faux", api: "scripted", model: "test" };
+    const handle = await startWorker({
+        store,
+        session: {
+            path,
+            header: JSON.parse(readFileSync(path, "utf8").split("\n")[0] as string) as Record<string, unknown>,
+            records: [],
+        },
+        model: "test",
+        adapter: {
+            module: ADAPTER,
+            options: {
+                script: [
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "call_scout",
+                            name: "subagent",
+                            input: { description: "scout the reef" },
+                        }],
+                        source,
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    {
+                        role: "assistant",
+                        content: [{ type: "text", text: "The reef hides a wreck." }],
+                        source,
+                        usage: emptyUsage(),
+                        stopReason: "stop",
+                    },
+                    {
+                        role: "assistant",
+                        content: [{ type: "text", text: "We dive at dawn." }],
+                        source,
+                        usage: emptyUsage(),
+                        stopReason: "stop",
+                    },
+                ],
+            },
+        },
+        data: { approvalMode: "full_access" },
+        state: { policy: { subagentPolicy: { assigned: [{ model: "test" }], allowSelf: true } } },
+        services: { hooks },
+        onUpdate: () => {},
+    });
+    push = handle.server.pushRecord;
+    try {
+        handle.send({ type: "prompt", content: "send a scout" });
+        const deadline = Date.now() + 20_000;
+        while (finished.length === 0 || !store.activeEntries().some((entry) =>
+            entry.message.role === "assistant"
+            && entry.message.content.some((block) => block.type === "text" && block.text === "We dive at dawn."))) {
+            if (Date.now() > deadline) throw new Error("Timed out waiting for the worker");
+            await Bun.sleep(25);
+        }
+
+        expect(spawned).toEqual([false, true]);
+        expect(finished).toHaveLength(1);
+        expect(finished[0]).toMatchObject({
+            type: "subagent_finished",
+            parentSessionId: "captain",
+            workspace: directory,
+            background: false,
+            outcome: "completed",
+            text: "The reef hides a wreck.",
+        });
     } finally {
         handle.kill();
         await handle.outcome;

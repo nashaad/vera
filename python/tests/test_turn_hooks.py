@@ -38,6 +38,7 @@ class TestTurnHooks(unittest.TestCase):
         self.assertEqual(seen[0]["prompt"], "find the treasure")
         self.assertEqual(seen[0]["tools"], [])
         self.assertIs(seen[0]["arrived_during_turn"], False)
+        self.assertIs(seen[0]["spawned"], False)
         self.assertEqual(seen[0]["reasoning_effort"], "high")
         self.assertNotIn("arrivedDuringTurn", seen[0])
 

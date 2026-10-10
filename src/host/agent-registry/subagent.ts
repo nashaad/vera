@@ -771,6 +771,7 @@ export async function notifyParent(reg: AgentRegistry, childStore: SessionStore,
 export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: SessionStore, childEntry: RegisteredAgentEntry, attachment: AgentAttachment, completionSequence: number): Promise<void> {
         const childId = childEntry.agent.id;
         let content = "Async subagent failed before producing a summary.";
+        let failed = true;
         try {
             while (true) {
                 const update = await attachment.receive();
@@ -803,6 +804,7 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
                     });
                 }
                 if (update.type === "turn_finished") {
+                    failed = update.outcome !== undefined;
                     const entry = reg.agents.get(childId);
                     if (entry === undefined) {
                         break;
@@ -828,8 +830,11 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
                 .trim();
             if (summary !== undefined && summary.length > 0) {
                 content = summary;
+            } else {
+                failed = true;
             }
         } catch {
+            failed = true;
         } finally {
             attachment.detach();
         }
@@ -841,6 +846,15 @@ export async function deliverBackgroundResult(reg: AgentRegistry, parentStore: S
             childEntry.pendingCompletionDeliveries = 0;
             return;
         }
+        reg.options.onSubagentFinished?.({
+            type: "subagent_finished",
+            parentSessionId: parentStore.header.id,
+            subagentId: childId,
+            workspace: childEntry.store.header.cwd,
+            background: true,
+            outcome: failed ? "error" : "completed",
+            text: content,
+        });
         const substitution = reg.spawnNotices.get(childId);
         if (substitution !== undefined) {
             content = `${substitution}\n\n${content}`;

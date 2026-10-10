@@ -174,6 +174,7 @@ import type { OneshotMessage } from "../../engine/protocol.ts";
 import type {
     PreCompactHookPayload,
     SessionEndHookPayload,
+    SubagentFinishedHookPayload,
     TurnFinishedHookPayload,
 } from "../../sdk/hooks.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
@@ -305,6 +306,7 @@ export interface AgentRegistryOptions {
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
     readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
+    readonly onSubagentFinished?: (payload: SubagentFinishedHookPayload) => void;
     readonly modelMiddleware?: readonly import("../../sdk/model-middleware.ts").ModelMiddleware[];
     readonly createAdapter: (
         provider?: string,

@@ -41,6 +41,7 @@ import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
     PreTurnHookPayload,
+    SubagentFinishedHookPayload,
     TurnEndingHookPayload,
     SessionStartHookPayload,
 } from "../sdk/hooks.ts";
@@ -528,12 +529,19 @@ export interface WorkerCancelNotification {
     readonly callId: string;
 }
 
+/** A subagent the worker ran in-process handed its result back. */
+export interface SubagentFinishedNotification {
+    readonly method: "hook.subagentFinished";
+    readonly payload: SubagentFinishedHookPayload;
+}
+
 export type WorkerNotification =
     | EventEmitNotification
     | ReviewLogNotification
     | PoolLearnedNotification
     | CallProgressNotification
-    | WorkerCancelNotification;
+    | WorkerCancelNotification
+    | SubagentFinishedNotification;
 
 export type HarnessTone = "primary" | "soft" | "error";
 
@@ -569,6 +577,7 @@ export const HOST_PROTOCOL_METHODS = [
     "hook.preTurn",
     "hook.turnEnding",
     "hook.sessionStart",
+    "hook.subagentFinished",
     "compaction.complete",
     "event.emit",
     "reviewLog.append",

@@ -118,6 +118,7 @@ function preTurnForPython(payload: PreTurnHookPayload): Record<string, unknown> 
         model: payload.model,
         tools: payload.tools,
         arrived_during_turn: payload.arrivedDuringTurn,
+        spawned: payload.spawned,
         ...(payload.reasoningEffort === undefined ? {} : { reasoning_effort: payload.reasoningEffort }),
         ...(payload.sessionId === undefined ? {} : { session_id: payload.sessionId }),
     };

@@ -108,6 +108,8 @@ export interface PreTurnHookPayload {
     readonly reasoningEffort?: string;
     /** True for a queued prompt that joined a running turn at a tool boundary. */
     readonly arrivedDuringTurn: boolean;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
 }
 
 export interface MutatePreTurnHookResult {
@@ -258,4 +260,22 @@ export interface SessionEndHookPayload {
 /** Observe only. Nothing waits for it, not even host shutdown. */
 export type SessionEndHook = (
     payload: SessionEndHookPayload,
+) => void | Promise<void>;
+
+export interface SubagentFinishedHookPayload {
+    readonly type: "subagent_finished";
+    readonly parentSessionId: string;
+    /** The subagent's own session id. */
+    readonly subagentId: string;
+    readonly workspace: string;
+    /** False for a subagent the parent waited on; true for one that ran in the background. */
+    readonly background: boolean;
+    readonly outcome: "completed" | "error";
+    /** The subagent's final text, as the parent receives it. */
+    readonly text: string;
+}
+
+/** Observe only. The parent gets the result without waiting for it. */
+export type SubagentFinishedHook = (
+    payload: SubagentFinishedHookPayload,
 ) => void | Promise<void>;

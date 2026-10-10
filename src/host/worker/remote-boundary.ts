@@ -439,6 +439,9 @@ function remoteHooks(pipe: JsonPipe): ToolHooks {
         }) as { readonly outcome: never };
         return reply.outcome;
     };
+    hooks.notifySubagentFinished = (payload) => {
+        pipe.notify({ method: "hook.subagentFinished", payload });
+    };
     return hooks;
 }
 
