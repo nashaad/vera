@@ -42,6 +42,31 @@ describe("TUI flight recorder", () => {
     });
 });
 
+test("records event loop stalls with memory use", async () => {
+    const runtimeDirectory = mkdtempSync(join(tmpdir(), "vera-flight-"));
+    roots.push(runtimeDirectory);
+    const recorder = createTuiFlightRecorder({
+        runtimeDirectory,
+        spawnWatchdog: false,
+        heartbeatIntervalMs: 20,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const until = Date.now() + 600;
+    while (Date.now() < until) {
+        // Busy-wait to freeze the event loop.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    recorder.close("renderer_destroyed");
+
+    const stalls = readFileSync(recorder.logPath, "utf8")
+        .trim().split("\n").map((line) => JSON.parse(line))
+        .filter((entry) => entry.type === "event_loop_stalled");
+    expect(stalls).toHaveLength(1);
+    expect(stalls[0].stalledMs).toBeGreaterThanOrEqual(500);
+    expect(stalls[0].rssBytes).toBeGreaterThan(0);
+    expect(stalls[0].heapUsedBytes).toBeGreaterThan(0);
+});
+
 test("heartbeat age rejects malformed timestamps", () => {
     expect(heartbeatAge("bad", 10_000)).toBeUndefined();
     expect(heartbeatAge("1970-01-01T00:00:05.000Z", 10_000)).toBe(5_000);
