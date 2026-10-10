@@ -7,17 +7,12 @@ export async function runScheduleOperationThroughHost(
     responseTimeoutMs = 2_000,
 ): Promise<Record<string, unknown>> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({ type: "schedule_operation", operation });
-        const response = asRecord(await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host schedule deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]));
+        const response = asRecord(await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host schedule deadline exceeded",
+        ));
         if (
             response?.type === "schedule_failed"
             && typeof response.reason === "string"
@@ -30,7 +25,6 @@ export async function runScheduleOperationThroughHost(
         }
         return result;
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }

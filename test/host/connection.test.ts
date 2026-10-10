@@ -615,3 +615,80 @@ skipIfNoNetwork(
         );
     },
 );
+
+function blockEventLoop(ms: number): void {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+        // Busy-wait so timers come due while the reply sits unread.
+    }
+}
+
+skipIfNoNetwork(
+    "receiveWithin returns a reply that arrived while the client was stalled",
+    async () => {
+        await withServer(
+            (socket) => {
+                socket.once("data", () => {
+                    socket.write('{"type":"pong"}\n', () => blockEventLoop(200));
+                });
+            },
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                try {
+                    const reply = connection.receiveWithin(50, "pong late");
+                    await connection.send({ type: "ping" });
+                    expect(await reply).toEqual({ type: "pong" });
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "receiveWithin keeps waiting while a reply is still streaming in",
+    async () => {
+        const cargo = "doubloon".repeat(8_192);
+        await withServer(
+            (socket) => {
+                socket.once("data", () => {
+                    const line = `${JSON.stringify({ cargo })}\n`;
+                    const pieces = 8;
+                    const size = Math.ceil(line.length / pieces);
+                    for (let piece = 0; piece < pieces; piece += 1) {
+                        setTimeout(() => {
+                            socket.write(line.slice(piece * size, (piece + 1) * size));
+                        }, piece * 30);
+                    }
+                });
+            },
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                try {
+                    const reply = connection.receiveWithin(60, "cargo late");
+                    await connection.send({ type: "haul" });
+                    expect(await reply).toEqual({ cargo });
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork("receiveWithin rejects when the host stays silent", async () => {
+    await withServer(
+        () => {},
+        async (socketPath) => {
+            const connection = await connectHost({ socketPath });
+            try {
+                await connection.send({ type: "ping" });
+                await expect(connection.receiveWithin(20, "no pong"))
+                    .rejects.toThrow("no pong");
+            } finally {
+                connection.close();
+            }
+        },
+    );
+});

@@ -10,17 +10,12 @@ export async function readAnnexUrlThroughHost(
 ): Promise<AnnexUrlResult> {
     const connection = await connectHost({ socketPath });
     connection.expectPeerClose();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({ type: "annex_url" });
-        const response = await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host annex deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]);
+        const response = await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host annex deadline exceeded",
+        );
         const record = typeof response === "object" && response !== null
             ? response as Record<string, unknown>
             : undefined;
@@ -38,7 +33,6 @@ export async function readAnnexUrlThroughHost(
                 "This host does not serve an annex. Restart the host to bring it back.",
         };
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }

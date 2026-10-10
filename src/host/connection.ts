@@ -28,6 +28,7 @@ export function isExpectedHostClose(error: unknown): boolean {
 export interface HostConnection {
     send(value: unknown): Promise<void>;
     receive(): Promise<unknown>;
+    receiveWithin(silenceMs: number, deadlineMessage: string): Promise<unknown>;
     closedReason(): Promise<Error>;
     expectPeerClose(): void;
     close(): void;
@@ -96,6 +97,7 @@ function createConnection_(
     const decoder = new TextDecoder("utf-8", { fatal: true });
 
     let buffered = Buffer.alloc(0);
+    let chunksReceived = 0;
     let discardingBytes = 0;
     let closed = false;
     let remoteEnded = false;
@@ -241,6 +243,7 @@ function createConnection_(
         if (closed) {
             return;
         }
+        chunksReceived += 1;
         buffered = Buffer.concat([buffered, chunk]);
         processBufferedLines();
     });
@@ -286,41 +289,8 @@ function createConnection_(
             sendTail = pending.catch(() => undefined);
             return pending;
         },
-        receive(): Promise<unknown> {
-            if (remoteEnded) {
-                const value = pendingValues.shift();
-                if (value === undefined) return Promise.reject(failure);
-                return value instanceof OversizedFrame
-                    ? Promise.reject(oversizedFrameError(value))
-                    : Promise.resolve(value);
-            }
-            if (closed) {
-                return Promise.reject(
-                    failure ?? new Error("host connection is closed"),
-                );
-            }
-            if (pendingValues.length > 0) {
-                const value = pendingValues.shift();
-                processBufferedLines();
-                if (
-                    !closed
-                    && socket.isPaused()
-                    && pendingValues.length < maxPendingValues
-                ) {
-                    socket.resume();
-                }
-                return value instanceof OversizedFrame
-                    ? Promise.reject(oversizedFrameError(value))
-                    : Promise.resolve(value);
-            }
-            return new Promise((resolve, reject) => {
-                pendingReceivers.push({ resolve, reject });
-                processBufferedLines();
-                if (!closed && socket.isPaused()) {
-                    socket.resume();
-                }
-            });
-        },
+        receive,
+        receiveWithin,
         closedReason(): Promise<Error> {
             return closedReason;
         },
@@ -334,6 +304,80 @@ function createConnection_(
             return closed;
         },
     };
+
+    function receive(): Promise<unknown> {
+        if (remoteEnded) {
+            const value = pendingValues.shift();
+            if (value === undefined) return Promise.reject(failure);
+            return value instanceof OversizedFrame
+                ? Promise.reject(oversizedFrameError(value))
+                : Promise.resolve(value);
+        }
+        if (closed) {
+            return Promise.reject(
+                failure ?? new Error("host connection is closed"),
+            );
+        }
+        if (pendingValues.length > 0) {
+            const value = pendingValues.shift();
+            processBufferedLines();
+            if (
+                !closed
+                && socket.isPaused()
+                && pendingValues.length < maxPendingValues
+            ) {
+                socket.resume();
+            }
+            return value instanceof OversizedFrame
+                ? Promise.reject(oversizedFrameError(value))
+                : Promise.resolve(value);
+        }
+        return new Promise((resolve, reject) => {
+            pendingReceivers.push({ resolve, reject });
+            processBufferedLines();
+            if (!closed && socket.isPaused()) {
+                socket.resume();
+            }
+        });
+    }
+
+    function receiveWithin(
+        silenceMs: number,
+        deadlineMessage: string,
+    ): Promise<unknown> {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const arm = (): void => {
+                const chunksAtArm = chunksReceived;
+                timer = setTimeout(() => {
+                    // Bun runs due timers before reading sockets, so a reply
+                    // already waiting after a client stall needs one more turn.
+                    timer = setTimeout(() => {
+                        if (settled) return;
+                        if (chunksReceived !== chunksAtArm) {
+                            arm();
+                            return;
+                        }
+                        settled = true;
+                        reject(new Error(deadlineMessage));
+                    }, 0);
+                }, silenceMs);
+            };
+            arm();
+            receive().then((value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(value);
+            }, (error: unknown) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                reject(error);
+            });
+        });
+    }
 
     function writeLine(encoded: string): Promise<void> {
         if (closed) {

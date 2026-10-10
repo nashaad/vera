@@ -34,17 +34,12 @@ export async function refreshCatalogsThroughHost(
     responseTimeoutMs = CATALOG_REFRESH_TIMEOUT_MS,
 ): Promise<readonly CatalogRefreshOutcome[]> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({ type: "refresh_catalogs" });
-        const response = asRecord(await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host catalog refresh deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]));
+        const response = asRecord(await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host catalog refresh deadline exceeded",
+        ));
         if (response?.type === "protocol_error") {
             throw new CatalogRefreshUnsupportedError();
         }
@@ -60,7 +55,6 @@ export async function refreshCatalogsThroughHost(
         }
         return outcomes;
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }
