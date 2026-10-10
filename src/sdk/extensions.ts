@@ -243,7 +243,23 @@ export interface VeraExtensionHooks {
 }
 
 export interface VeraExtensionCommandHookSpec {
-    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
+    /** A Vera phase, or a Claude event name such as `"Stop"` when `protocol` is `"claude"`. */
+    readonly phase:
+        | "pre_tool_use"
+        | "post_tool_use"
+        | "session_start"
+        | "pre_turn"
+        | "turn_ending"
+        | "pre_compact"
+        | "session_end"
+        | "subagent_finished"
+        | "PreToolUse"
+        | "SessionStart"
+        | "UserPromptSubmit"
+        | "Stop"
+        | "SubagentStop"
+        | "PreCompact"
+        | "SessionEnd";
     /** Executable plus arguments; never interpreted by a shell. */
     readonly argv: readonly string[];
     /** Wire format used on stdin/stdout. Defaults to Vera's native format. */

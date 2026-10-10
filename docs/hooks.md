@@ -1,6 +1,6 @@
 ---
 title: "Hooks"
-description: "Run an executable when a conversation starts or around a tool call."
+description: "Run an executable around a turn, a tool call, a compaction, or the start and end of a session."
 ---
 
 # Hooks
@@ -59,6 +59,11 @@ Session start (start, resume, after compaction)
 | `pre_tool_use` | Before a tool call runs. It can change the input, block the call, or replace the result. |
 | `post_tool_use` | After a tool call finishes. It can change the result text or the error flag. |
 | `session_start` | When a conversation starts, resumes, or finishes compaction. It can add context. |
+| `pre_turn` | Before your message reaches the model. It can add context, narrow the tools, change the model, or block the message. |
+| `turn_ending` | When the model gives a final reply with no tool calls. It can send the model back for one more pass. |
+| `pre_compact` | When a compaction starts. It only observes. |
+| `session_end` | When the host closes a session. It only observes. |
+| `subagent_finished` | When a subagent hands its result back to the session that started it. It only observes. |
 
 When the model asks for several tools in one reply, every `pre_tool_use` hook
 runs for all of those calls before any tool runs. A call the agent does not
@@ -199,12 +204,115 @@ numbered headings, in registration order. Compaction may summarize that text.
 After compaction the hooks run again, and the displayed context usage includes
 the new text. A session-start hook cannot block the conversation.
 
+### Before a turn
+
+Stdin:
+
+```json
+{
+  "type": "pre_turn",
+  "sessionId": "sess_1",
+  "workspace": "/path/to/the/nest",
+  "prompt": "where is the treasure?",
+  "model": "anthropic/claude-sonnet-5-5",
+  "tools": ["read", "bash"],
+  "arrivedDuringTurn": false,
+  "spawned": false
+}
+```
+
+`arrivedDuringTurn` is true for a message you sent while a turn was running,
+which joins that turn. `spawned` is true when another agent started the
+session. Return `observe`, `block` with a `reason`, or `mutate` with any of
+`context`, `tools` (a subset of the offered names), `model`,
+`reasoningEffort`, and `display`:
+
+```json
+{"power":"mutate","context":"The crow buried it under the third palm."}
+```
+
+Vera adds `context` after your message, as a message of its own. The
+transcript shows one row naming the executable, such as "remember added
+context", but not the text. `display` replaces that row with one line of up
+to 200 characters. A joining message cannot change the model or reasoning
+effort. [Register from an extension](#register-from-an-extension) covers the
+same results in more detail.
+
+### When a turn ends
+
+Stdin has `type` (`turn_ending`), `sessionId`, `workspace`, `prompt`, `reply`,
+`spawned`, and `continuations`, the number of times the turn has already been
+continued. Return `observe` to let the turn end, or send the model back with
+non-empty `context`:
+
+```json
+{"power":"continue","context":"You said done but drew no map."}
+```
+
+A turn gets one continuation. Once it has been used, the hook still runs but
+`continue` is ignored. The transcript shows "map-check continued the turn",
+or the `display` line if the result has one.
+
+### Compaction, session end, and subagents
+
+`pre_compact`, `session_end`, and `subagent_finished` only observe. Vera
+writes the same payload an extension function gets (see [Register from an
+extension](#register-from-an-extension)) and ignores stdout. Nothing waits for
+these executables: compaction goes ahead, the session closes, and the parent
+gets the subagent's result. A `session_end` hook that is still running when
+the host exits may be cut off.
+
 ## Use the `claude` protocol
 
-Set `"protocol": "claude"` to exchange snake_case payloads and a
-`hookSpecificOutput` reply instead of Vera's shape. The default protocol is
-`vera`. The `claude` protocol supports `pre_tool_use` and `session_start`. It
-does not support `post_tool_use`.
+Set `"protocol": "claude"` to run a script written for Claude Code hooks. It
+gets snake_case payloads and answers with exit codes, plain text, or
+`hookSpecificOutput`. The default protocol is `vera`.
+
+With this protocol, `phase` may be a Claude event name. A Vera phase name
+means the top-level event in the same row:
+
+| `phase` | Vera phase | Runs in |
+| --- | --- | --- |
+| `PreToolUse` or `pre_tool_use` | `pre_tool_use` | every session |
+| `SessionStart` or `session_start` | `session_start` | every session |
+| `UserPromptSubmit` or `pre_turn` | `pre_turn` | your sessions, not subagents |
+| `Stop` or `turn_ending` | `turn_ending` | your sessions, not subagents |
+| `SubagentStop` | `turn_ending` | subagents only |
+| `PreCompact` or `pre_compact` | `pre_compact` | your sessions, not subagents |
+| `SessionEnd` or `session_end` | `session_end` | your sessions, not subagents |
+
+The `claude` protocol does not support `post_tool_use` or
+`subagent_finished`. A Claude event name without `"protocol": "claude"`
+prevents the config from loading.
+
+```json
+{
+  "hooks": [
+    { "phase": "UserPromptSubmit", "protocol": "claude", "argv": ["remember"] },
+    { "phase": "Stop", "protocol": "claude", "argv": ["map-check"] }
+  ]
+}
+```
+
+Exit 2 sends the trimmed stderr back as a reason. Before a tool call or a
+turn, it blocks; at `Stop` or `SubagentStop`, it continues the turn with the
+reason as context; at `SessionStart`, `PreCompact`, and `SessionEnd`, it is
+ignored. Exit 2 with empty stderr is a failure where the reason is used. Any
+other non-zero exit is a failure.
+
+On exit 0, stdout that is not a JSON object is plain text. `UserPromptSubmit`
+and `SessionStart` add it as context. The other events ignore it. This
+`map-check` sends the model back once when it says done without a map:
+
+```python
+#!/usr/bin/env python3
+import json, sys
+
+turn = json.load(sys.stdin)
+if not turn["stop_hook_active"] and "map" not in turn["last_assistant_message"]:
+    print("Draw the map before you say done.", file=sys.stderr)
+    sys.exit(2)
+```
 
 A pre-tool payload uses `session_id`, `hook_event_name` (`PreToolUse`),
 `tool_name`, `tool_input`, `tool_use_id`, and `cwd`. Vera's `bash` tool is
@@ -240,8 +348,25 @@ context as `hookSpecificOutput.additionalContext`. Whenever
 }
 ```
 
-This format does not implement matchers, shell command strings, environment
-overrides, async hooks, or input updates.
+A `UserPromptSubmit` payload uses `session_id`, `cwd`, `hook_event_name`, and
+`prompt`. `{"decision":"block","reason":"..."}` blocks the message, and
+`hookSpecificOutput.additionalContext` adds context.
+
+A `Stop` payload uses `session_id`, `cwd`, `hook_event_name`,
+`stop_hook_active` (true once the turn has been continued), and
+`last_assistant_message`. `SubagentStop` adds `agent_id`, the subagent's
+session ID, which is also its `session_id`. `{"decision":"block","reason":"..."}`
+continues the turn with the reason as context.
+
+A `PreCompact` payload uses `session_id`, `cwd`, `hook_event_name`, `trigger`
+(`manual` or `auto`), and an empty `custom_instructions`. A `SessionEnd`
+payload uses `session_id`, `cwd`, `hook_event_name`, and `reason`, which is
+always `other`. Both ignore stdout.
+
+No payload has `transcript_path`. A `SessionStart` hook also runs in
+subagents, and its payload does not say so. This format does not implement
+matchers, shell command strings, environment overrides, async hooks, input
+updates, or `continue: false`.
 
 ## When a hook fails
 
@@ -254,6 +379,16 @@ patches from earlier hooks are dropped too. A session-start failure is logged an
 conversation continues. Hosted session-start failures are written to
 `runtime/logs/host.jsonl` with type `session_start_hook_failed`.
 
+A failed `pre_turn` hook in `config.json` blocks the message and ends the
+turn. The same failure from an extension command hook is ignored. A failed
+`turn_ending` hook in `config.json` lets the turn end, and later `turn_ending`
+hooks do not run for that reply. The same failure from an extension command
+hook is ignored. A failed
+`pre_compact`, `session_end`, or `subagent_finished` hook is logged to
+`runtime/logs/host.jsonl` with the executable's file name, as type
+`pre_compact_hook_failed`, `session_end_hook_failed`, or
+`subagent_finished_hook_failed`. Nothing else changes.
+
 A `hooks` entry with an unknown phase or protocol, an empty `argv`, a path
 outside `hooks/`, or a `timeout_ms` that is not a positive whole number
 prevents the home config from loading. A running host keeps its last valid
@@ -263,11 +398,14 @@ extension prevents that extension from activating.
 
 Each executable stops at its own `timeout_ms`. The hooks for one tool call
 also share a deadline: 60 seconds before the call and 5 seconds after it. At
-session start, each hook has its own 60-second limit.
+session start, each hook has its own 60-second limit. The `pre_turn` hooks for
+one message share a 60-second deadline, and so do the `turn_ending` hooks for
+one reply.
 
 `argv` holds at most 16 arguments, and its JSON is at most 8 KiB. Stdin sent
-to one executable is at most 256 KiB. Stdout is at most 64 KiB, except a
-session-start hook, which may return its 128 KiB of context.
+to one executable is at most 256 KiB. Stdout is at most 64 KiB, except
+`session_start`, `pre_turn`, and `turn_ending`, which may return 128 KiB of
+context. Under the `claude` protocol, stderr past 64 KiB is dropped.
 
 A workflow can run a different hook before one of its steps. That hook is
 part of the workflow, not this list. See

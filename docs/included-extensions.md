@@ -79,8 +79,9 @@ waiting on you, does not count toward a phase.
 
 ## Run command hooks
 
-`vera.command-hooks` runs a `hooks` list from its own configuration, around
-tool calls and when a conversation starts, resumes, or compacts. With no list
+`vera.command-hooks` runs a `hooks` list from its own configuration, in any
+hook phase: around tool calls and turns, when a conversation starts, resumes,
+or compacts, when a session closes, and when a subagent hands back its result. With no list
 configured, it runs nothing. Hooks in the home `config.json` are run by the
 host, not by this extension, and disabling it does not stop them. See
 [Hooks](hooks.md).

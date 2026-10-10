@@ -58,7 +58,7 @@ import type {
     RegisteredModelRequestHook,
     JsonValue,
 } from "../sdk/hooks.ts";
-import { createCommandHook, type CommandHookSpec } from "./command-hook.ts";
+import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
@@ -984,19 +984,49 @@ async function activateExtension(
                 }
                 const command = normalizeCommandHookSpec(spec);
                 const hook = createCommandHook(command);
-                if (command.phase === "session_start") {
-                    const startHook = hook as SessionStartHook;
-                    sessionStartHooks.push(startHook);
-                    return () => removeHook(sessionStartHooks, startHook);
+                const extensionId = loaded.manifest.id;
+                switch (commandHookPhase(command.phase, command.protocol)) {
+                    case "session_start": {
+                        const startHook = hook as SessionStartHook;
+                        sessionStartHooks.push(startHook);
+                        return () => removeHook(sessionStartHooks, startHook);
+                    }
+                    case "pre_tool_use": {
+                        const safe = safePreToolHook(hook as PreToolUseHook);
+                        preToolUseHooks.push(safe);
+                        return () => removeHook(preToolUseHooks, safe);
+                    }
+                    case "post_tool_use": {
+                        const safe = safePostToolHook(hook as PostToolUseHook);
+                        postToolUseHooks.push(safe);
+                        return () => removeHook(postToolUseHooks, safe);
+                    }
+                    case "pre_turn": {
+                        const registered = { extensionId, run: safePreTurnHook(hook as PreTurnHook) };
+                        preTurnHooks.push(registered);
+                        return () => removeHook(preTurnHooks, registered);
+                    }
+                    case "turn_ending": {
+                        const registered = { extensionId, run: safeTurnEndingHook(hook as TurnEndingHook) };
+                        turnEndingHooks.push(registered);
+                        return () => removeHook(turnEndingHooks, registered);
+                    }
+                    case "pre_compact": {
+                        const registered = { extensionId, run: hook as PreCompactHook };
+                        preCompactHooks.push(registered);
+                        return () => removeHook(preCompactHooks, registered);
+                    }
+                    case "session_end": {
+                        const registered = { extensionId, run: hook as SessionEndHook };
+                        sessionEndHooks.push(registered);
+                        return () => removeHook(sessionEndHooks, registered);
+                    }
+                    case "subagent_finished": {
+                        const registered = { extensionId, run: hook as SubagentFinishedHook };
+                        subagentFinishedHooks.push(registered);
+                        return () => removeHook(subagentFinishedHooks, registered);
+                    }
                 }
-                if (command.phase === "pre_tool_use") {
-                    const safe = safePreToolHook(hook as PreToolUseHook);
-                    preToolUseHooks.push(safe);
-                    return () => removeHook(preToolUseHooks, safe);
-                }
-                const safe = safePostToolHook(hook as PostToolUseHook);
-                postToolUseHooks.push(safe);
-                return () => removeHook(postToolUseHooks, safe);
             },
         }),
         onDispose(dispose: VeraExtensionDisposer): void {

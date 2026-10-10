@@ -1448,6 +1448,30 @@ test("a configured hook is bound to the profile's hooks directory", () => {
     ]);
 });
 
+test("config hooks accept every hook phase and Claude event names under the claude protocol", () => {
+    const hooks = [
+        { phase: "pre_turn", argv: ["lookout.ts"] },
+        { phase: "turn_ending", argv: ["lookout.ts"] },
+        { phase: "pre_compact", argv: ["lookout.ts"] },
+        { phase: "session_end", argv: ["lookout.ts"] },
+        { phase: "subagent_finished", argv: ["lookout.ts"] },
+        { phase: "UserPromptSubmit", argv: ["remember.sh"], protocol: "claude" },
+        { phase: "Stop", argv: ["map-check.sh"], protocol: "claude" },
+        { phase: "SubagentStop", argv: ["map-check.sh"], protocol: "claude" },
+        { phase: "PreCompact", argv: ["remember.sh"], protocol: "claude" },
+        { phase: "SessionEnd", argv: ["remember.sh"], protocol: "claude" },
+    ];
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        hooks,
+    }));
+
+    const loaded: readonly string[] | undefined = loadVeraConfig({ path }).hooks?.map((hook) => hook.phase);
+    expect(loaded).toEqual(hooks.map((hook) => hook.phase));
+});
+
 test("a hook command outside the hooks directory is refused at load", () => {
     // The door is the profile's own hooks directory. A config that travels
     // between machines cannot name an arbitrary binary on this one.
@@ -1468,6 +1492,9 @@ test("a malformed hook entry rejects the config", () => {
         { phase: "pre_tool_use", argv: [] },
         { phase: "pre_tool_use", argv: ["guard.ts"], protocol: "shell" },
         { phase: "pre_tool_use", argv: ["guard.ts"], timeout_ms: 0 },
+        { phase: "Stop", argv: ["guard.ts"] },
+        { phase: "subagent_finished", argv: ["guard.ts"], protocol: "claude" },
+        { phase: "post_tool_use", argv: ["guard.ts"], protocol: "claude" },
     ]) {
         const path = temporaryConfigPath();
         writeFileSync(path, JSON.stringify({

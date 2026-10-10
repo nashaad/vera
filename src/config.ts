@@ -57,6 +57,7 @@ import {
 import { parsePermissionModes } from "./config/permission-modes.ts";
 import type { PermissionMode } from "./engine/permissions.ts";
 import type { JsonValue } from "./sdk/hooks.ts";
+import { commandHookPhase, type CommandHookSpec } from "./extensions/command-hook.ts";
 import {
     defaultVeraExtensionDirectory,
     discoverExtensionConfigs,
@@ -192,7 +193,7 @@ export interface VeraTuiConfig {
  * config that travels between machines cannot point at an arbitrary binary.
  */
 export interface VeraHookConfig {
-    readonly phase: "pre_tool_use" | "post_tool_use" | "session_start";
+    readonly phase: CommandHookSpec["phase"];
     readonly argv: readonly string[];
     readonly protocol?: "vera" | "claude";
     readonly timeout_ms?: number;
@@ -1873,7 +1874,7 @@ function parseHookConfigs(
         const hook = item as Record<string, unknown>;
         const { phase, argv, protocol, timeout_ms } = hook;
         if (
-            (phase !== "pre_tool_use" && phase !== "post_tool_use" && phase !== "session_start")
+            !isCommandHookPhase(phase, protocol)
             || !Array.isArray(argv)
             || argv.length === 0
             || argv.some((argument) =>
@@ -1890,7 +1891,7 @@ function parseHookConfigs(
             return undefined;
         }
         hooks.push({
-            phase,
+            phase: phase as CommandHookSpec["phase"],
             argv: [...argv as string[]],
             ...(protocol === undefined
                 ? {}
@@ -1899,6 +1900,15 @@ function parseHookConfigs(
         });
     }
     return hooks;
+}
+
+function isCommandHookPhase(phase: unknown, protocol: unknown): boolean {
+    try {
+        commandHookPhase(phase, protocol);
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /**
