@@ -58,3 +58,10 @@ This is a model-failure report, not a general bug-report system.
 
 Session files, request captures, and classifier logs can contain private
 conversation and project material. Review them before sharing.
+
+Logs under `~/.vera/runtime/logs/`, including request captures and classifier
+logs, are deleted once they are more than seven days old. The host checks when
+it starts and once a day. To keep them longer, set a whole number of days in
+`config.json`, for example `"log_max_age_days": 30`. Copy a log elsewhere to
+keep it for good. A running sidecar's log is never deleted. Session files in
+`runtime/sessions/` are not logs and are never deleted this way.
