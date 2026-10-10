@@ -17,7 +17,7 @@ export type TuiDiagnosticsScope = "session" | "vera";
 export interface TuiDiagnosticProcess {
     readonly role: "client" | "host" | "worker" | "supervisor";
     readonly pid: number;
-    readonly rssBytes?: number;
+    readonly memoryBytes?: number;
 }
 
 export interface TuiDiagnosticsSnapshot {
@@ -187,9 +187,9 @@ function processTableLines(
         processes.map((process) => [
             process.role,
             markedDiagnosticValue(String(process.pid)),
-            process.rssBytes === undefined
+            process.memoryBytes === undefined
                 ? "Unavailable"
-                : markedDiagnosticValue(formatMemory(process.rssBytes)),
+                : markedDiagnosticValue(formatMemory(process.memoryBytes)),
         ]),
     );
 }

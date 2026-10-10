@@ -170,7 +170,7 @@ export function diagnosticsSnapshot(rt: TuiRuntime): TuiDiagnosticsSnapshot {
             ...entry,
             ...(rt.diagnosticsProcessMemory.get(entry.pid) === undefined
                 ? {}
-                : { rssBytes: rt.diagnosticsProcessMemory.get(entry.pid) }),
+                : { memoryBytes: rt.diagnosticsProcessMemory.get(entry.pid) }),
         })),
         stash: summarizeStash(),
         stashRoot: defaultStashRoot(),
