@@ -76,7 +76,7 @@ Vera screen or command to manage them.
 | Path inside `~/.vera` | Contents |
 | --- | --- |
 | `runtime/sessions/` | Saved conversation files. |
-| `runtime/logs/` | Diagnostic logs. |
+| `runtime/logs/` | Diagnostic logs. Vera deletes logs older than seven days; `log_max_age_days` in `config.json` changes that. |
 | `runtime/` | Host socket, databases, and caches. |
 | `machine/` | Credentials and live process records. |
 | `pool.json` | Saved model catalog data. |

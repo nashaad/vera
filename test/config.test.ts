@@ -1585,6 +1585,40 @@ test("Vera config carries a catalog max age, defaulted to a week when absent", (
     expect(catalogMaxAgeMs(always)).toBe(0);
 });
 
+test("Vera config carries a log max age in whole days and keeps it across a defaults update", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    expect(loadVeraConfig({ path: bare }).log_max_age_days).toBeUndefined();
+
+    const set = temporaryConfigPath();
+    writeFileSync(set, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        log_max_age_days: 30,
+    }));
+    expect(loadVeraConfig({ path: set }).log_max_age_days).toBe(30);
+
+    updateVeraConfigDefaults({ model: "anthropic/other-model" }, { path: set });
+    const disk = JSON.parse(readFileSync(set, "utf8")) as Record<string, unknown>;
+    expect(disk.log_max_age_days).toBe(30);
+});
+
+test("Vera config rejects a log max age that is not a positive whole number of days", () => {
+    for (const days of [0, -1, 1.5, "7", Number.NaN, null]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            log_max_age_days: days,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
 test("Vera config rejects a catalog max age that is not a count", () => {
     for (const days of ["7", -1, Number.NaN, null]) {
         const path = temporaryConfigPath();

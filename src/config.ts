@@ -293,6 +293,8 @@ export interface VeraConfig {
      * fetches now whatever this says.
      */
     readonly model_catalog_max_age_days?: number;
+    /** Whole days a file under `runtime/logs/` is kept. Absent means the built-in week. */
+    readonly log_max_age_days?: number;
     /** Source families this user has allowed to start delivery turns. */
     readonly inbox?: VeraInboxConfig;
 }
@@ -1199,6 +1201,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const catalogMaxAgeDays = parseNonNegativeCount(
         config.model_catalog_max_age_days,
     );
+    const logMaxAgeDays = parsePositiveWholeCount(config.log_max_age_days);
     const contextLimit = config.context_limit;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
@@ -1237,6 +1240,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && typeof verifyAssignments !== "boolean")
         || (config.model_catalog_max_age_days !== undefined
             && catalogMaxAgeDays === undefined)
+        || (config.log_max_age_days !== undefined
+            && logMaxAgeDays === undefined)
         || (config.compaction !== undefined && compaction === undefined)
         || modelSlots === undefined
         ||
@@ -1335,6 +1340,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(catalogMaxAgeDays === undefined
             ? {}
             : { model_catalog_max_age_days: catalogMaxAgeDays }),
+        ...(logMaxAgeDays === undefined
+            ? {}
+            : { log_max_age_days: logMaxAgeDays }),
     };
 }
 
@@ -1649,6 +1657,12 @@ function parseModelFeedUrl(value: unknown): string | undefined {
 
 function parseNonNegativeCount(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value) && value >= 0
+        ? value
+        : undefined;
+}
+
+function parsePositiveWholeCount(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isInteger(value) && value > 0
         ? value
         : undefined;
 }

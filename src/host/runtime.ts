@@ -8,7 +8,7 @@ import { derivedModelName } from "../config/model-catalog.ts";
 import { configuredTurnPolicy } from "../turn-policy.ts";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import {
     configuredModelFallback,
@@ -79,6 +79,12 @@ import {
 } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
+import {
+    LOG_PRUNE_INTERVAL_MS,
+    logMaxAgeMs,
+    openSidecarLogPaths,
+    pruneLogs,
+} from "./log-retention.ts";
 import { createReviewLogger } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
@@ -979,6 +985,7 @@ export async function startResidentHost(
         resumeOrFind(registry, sessionPath, restoringSessions);
     let closing: Promise<void> | undefined;
     let parkIdleTimer: ReturnType<typeof setInterval> | undefined;
+    let logPruneTimer: ReturnType<typeof setInterval> | undefined;
     let announceShutdown: () => void = () => {};
     const shutdownRequested = new Promise<void>((resolve) => {
         announceShutdown = resolve;
@@ -987,6 +994,10 @@ export async function startResidentHost(
         if (parkIdleTimer !== undefined) {
             clearInterval(parkIdleTimer);
             parkIdleTimer = undefined;
+        }
+        if (logPruneTimer !== undefined) {
+            clearInterval(logPruneTimer);
+            logPruneTimer = undefined;
         }
         if (closing === undefined) {
             announceShutdown();
@@ -1376,6 +1387,25 @@ export async function startResidentHost(
     parkIdleTimer = setInterval(() => {
         void registry.parkExpiredIdle().catch(() => {});
     }, 30_000);
+    const pruneOldLogs = () => {
+        void pruneLogs(join(veraRuntimeDirectory(), "logs"), {
+            maxAgeMs: logMaxAgeMs(currentConfig()),
+            keep: (path) => openSidecarLogPaths(sidecars?.statuses() ?? [])
+                .has(resolve(path)),
+        })
+            .then((result) => {
+                if (result.removedFiles === 0) return;
+                hostLog({
+                    type: "logs_pruned",
+                    removed_files: result.removedFiles,
+                    removed_bytes: result.removedBytes,
+                });
+            })
+            .catch(() => {});
+    };
+    pruneOldLogs();
+    logPruneTimer = setInterval(pruneOldLogs, LOG_PRUNE_INTERVAL_MS);
+    logPruneTimer.unref();
     startupLog({
         type: "host_startup_complete",
         duration_ms: performance.now() - startupStarted,
