@@ -128,9 +128,9 @@ test("TUI session diagnostics shows the live process chain and memory", () => {
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         processes: [
-            { role: "client", pid: 101, rssBytes: 10 * 1024 * 1024 },
-            { role: "host", pid: 102, rssBytes: 256 * 1024 * 1024 },
-            { role: "worker", pid: 103, rssBytes: 1536 * 1024 * 1024 },
+            { role: "client", pid: 101, memoryBytes: 10 * 1024 * 1024 },
+            { role: "host", pid: 102, memoryBytes: 256 * 1024 * 1024 },
+            { role: "worker", pid: 103, memoryBytes: 1536 * 1024 * 1024 },
             { role: "supervisor", pid: 104 },
         ],
     });
