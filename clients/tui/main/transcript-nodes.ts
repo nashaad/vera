@@ -10,6 +10,7 @@ import { animateTuiThinkingWindow, ELLIPSIS_COLUMNS, liveReasoningHeight, liveRe
 import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
 import { animateTuiToolHeader, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
+import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
 import { TUI_TRANSCRIPT_INITIAL_WINDOW, TUI_TRANSCRIPT_MATERIALIZE_BATCH, TUI_TRANSCRIPT_MATERIALIZE_BUFFER, tuiTranscriptEntryIsVisible, tuiTranscriptEntryStreams, tuiTranscriptEvictableRows, tuiTranscriptNeedsEarlierEntries, tuiTranscriptPrependRange, tuiTranscriptTailRange } from "../transcript-window.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -220,7 +221,7 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
             || entry.kind === "inbox")
         && existing instanceof TextRenderable
     ) {
-        existing.content = renderTuiEntry(entry);
+        setTextContent(existing, renderTuiEntry(entry));
     }
 }
 

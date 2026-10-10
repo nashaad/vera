@@ -3,6 +3,7 @@ import type { RenderContext } from "@opentui/core";
 
 import type { TuiTranscriptEntry } from "./state.ts";
 import { renderTuiEntry, TUI_NOTICE } from "./state.ts";
+import { setTextContent } from "./text-content.ts";
 
 interface TuiNoticeCardParts {
     readonly marker: TextRenderable;
@@ -59,7 +60,7 @@ export function updateTuiNoticeCard(
 ): boolean {
     const parts = cardParts.get(node);
     if (parts === undefined) return false;
-    parts.text.content = renderTuiEntry(entry);
+    setTextContent(parts.text, renderTuiEntry(entry));
     return true;
 }
 

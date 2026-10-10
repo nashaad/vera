@@ -3,6 +3,7 @@ import type { CliRenderer, OptimizedBuffer } from "@opentui/core";
 
 import { tuiBrailleSpinner } from "./activity-pulse.ts";
 import type { TuiTextTranscriptEntry } from "./state.ts";
+import { setTextContent } from "./text-content.ts";
 import type { TuiLiveReasoningRows } from "./theme-preference.ts";
 import {
     LIVE_THINKING_ELLIPSIS,
@@ -101,9 +102,9 @@ export function updateTuiThinkingWindow(
     node.height = height;
     parts.body.height = height;
     parts.body.visible = rows !== 0;
-    parts.body.content = rows === 0
+    setTextContent(parts.body, rows === 0
         ? ""
-        : new StyledText([fg(TUI_MUTED)(liveReasoningText(entry.text, rows === "all"))]);
+        : new StyledText([fg(TUI_MUTED)(liveReasoningText(entry.text, rows === "all"))]));
 }
 
 // The mark is padded to the ellipsis width so the reasoning text never shifts.

@@ -13,6 +13,7 @@ import { destroyTranscriptEntryNode, renderTranscriptEntries, setTranscriptWindo
 import { searchOverlayViewState } from "../search-overlay.ts";
 import { TUI_ACCENT, TUI_MUTED, renderTuiQueuedPrompt, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
 import { tuiTranscriptAtBottom } from "../transcript-scroll.ts";
+import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptReusableTail } from "../transcript-window.ts";
 import { workTabViewState } from "../work-tab.ts";
 import { workspaceSidebarViewState } from "../workspace-sidebar.ts";
@@ -34,14 +35,14 @@ export function renderState(rt: TuiRuntime): void {
         rt.composerTip = takeTip(rt, false);
     }
     rt.workingLastRender = rt.state.working;
-    rt.composerTipText.content = rt.composerTip === undefined
+    setTextContent(rt.composerTipText, rt.composerTip === undefined
         ? new StyledText([])
         : new StyledText([
             fg(TUI_ACCENT)(
                 `${" ".repeat(rt.appearance.composerTipIndent)}Tip `,
             ),
             fg(TUI_MUTED)(rt.composerTip),
-        ]);
+        ]));
     rt.composerTipText.visible = rt.composerTip !== undefined
         && !anyOverlayOpen(rt);
     renderHeldAddress(rt);
@@ -53,9 +54,9 @@ export function renderState(rt: TuiRuntime): void {
     renderPendingQuote(rt);
     const focusedState = focusedAgentState(rt);
     const queuedPrompt = renderTuiQueuedPrompt(focusedState);
-    rt.queuedPromptText.content = queuedPrompt.length === 0
+    setTextContent(rt.queuedPromptText, queuedPrompt.length === 0
         ? ""
-        : `${" ".repeat(rt.appearance.composerMarginHorizontal)}${queuedPrompt}`;
+        : `${" ".repeat(rt.appearance.composerMarginHorizontal)}${queuedPrompt}`);
     rt.queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
     rt.approvalView.box.visible = uiRequest?.request.type
         === "tool_approval";

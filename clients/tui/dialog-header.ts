@@ -2,6 +2,7 @@ import { BoxRenderable, RGBA, TextRenderable, type Renderable, type RenderContex
 
 import { TUI_CHROME, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./palette.ts";
 import { mixHex } from "./theme.ts";
+import { setTextContent } from "./text-content.ts";
 
 export type TuiDialogHeaderStyle = "underline" | "box";
 export const DIALOG_HEADER_HEIGHT = 3;
@@ -73,7 +74,7 @@ function applyHeaderChrome(header: DialogHeaderRecord): void {
     header.marker.bg = background;
     brightenTitle(header);
     header.title.bg = background;
-    header.hint.content = TUI_CHROME === "plain" ? header.plainHint : retroHeaderHint(header.plainHint);
+    setTextContent(header.hint, TUI_CHROME === "plain" ? header.plainHint : retroHeaderHint(header.plainHint));
     header.hint.fg = TUI_MUTED;
     header.hint.bg = background;
 }

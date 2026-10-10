@@ -15,6 +15,7 @@ import {
     TUI_MUTED,
     TUI_TEXT,
 } from "./state.ts";
+import { setTextContent } from "./text-content.ts";
 
 const rowText = new WeakMap<BoxRenderable, TextRenderable>();
 const rowGutter = new WeakMap<
@@ -27,6 +28,7 @@ const headerParts = new WeakMap<
         header: TextRenderable;
         hint: TextRenderable;
         preview: BoxRenderable[];
+        previewKey?: string;
         entry: TuiTextTranscriptEntry;
     }
 >();
@@ -51,16 +53,20 @@ export function updateTuiToolHeader(
     const parts = headerParts.get(node);
     if (parts === undefined) return;
     parts.entry = entry;
-    parts.header.content = renderTuiEntry({
+    setTextContent(parts.header, renderTuiEntry({
         ...entry,
         hint: false,
         detailPreview: undefined,
-    });
-    parts.hint.content = entry.hint === true
+    }));
+    setTextContent(parts.hint, entry.hint === true
         ? new StyledText([
             fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
         ])
-        : "";
+        : "");
+    // Preview rows bake in theme colors, so a theme change rebuilds them too.
+    const previewKey = `${TUI_MUTED}|${TUI_TEXT}|${entry.detailPreview ?? ""}`;
+    if (parts.previewKey === previewKey) return;
+    parts.previewKey = previewKey;
     for (const row of parts.preview) row.destroyRecursively();
     parts.preview.length = 0;
     for (const line of entry.detailPreview?.split("\n") ?? []) {
@@ -111,7 +117,7 @@ export function createTuiToolHeader(
 export function animateTuiToolHeader(node: BoxRenderable, frame: number): void {
     const parts = headerParts.get(node);
     if (parts === undefined || parts.entry.active !== true) return;
-    parts.header.content = renderTuiLiveToolHeader(parts.entry, frame);
+    setTextContent(parts.header, renderTuiLiveToolHeader(parts.entry, frame));
 }
 
 function createCompactPreviewRow(
@@ -153,7 +159,7 @@ export function updateTuiToolRow(
 ): void {
     const text = rowText.get(node);
     if (text !== undefined) {
-        text.content = renderTuiToolRowContent(entry);
+        setTextContent(text, renderTuiToolRowContent(entry));
     }
     const gutter = rowGutter.get(node);
     if (gutter !== undefined) {
@@ -164,9 +170,9 @@ export function updateTuiToolRow(
         gutter.box.border = connected ? ["left"] : false;
         gutter.box.visible = connected;
         gutter.marker.visible = !connected;
-        gutter.marker.content = connected
+        setTextContent(gutter.marker, connected
             ? ""
-            : (entry.prefix ?? "").slice(2);
+            : (entry.prefix ?? "").slice(2));
     }
 }
 

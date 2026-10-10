@@ -3,6 +3,7 @@ import type { CliRenderer, OptimizedBuffer } from "@opentui/core";
 
 import { openedReasoningText, renderTuiEntry, TUI_MUTED, type TuiTranscriptEntry } from "./state.ts";
 import { RAIL } from "./thinking-window.ts";
+import { setTextContent } from "./text-content.ts";
 
 // The rail and one space; the opened text starts after them.
 const RAIL_COLUMNS = 2;
@@ -74,8 +75,8 @@ export function createTuiReasoningBlock(
 export function updateTuiReasoningBlock(node: BoxRenderable, entry: TuiTranscriptEntry): void {
     const parts = blockParts.get(node);
     if (parts === undefined) return;
-    parts.header.content = renderTuiEntry(entry);
+    setTextContent(parts.header, renderTuiEntry(entry));
     const text = openedReasoningText(entry);
     parts.opened.visible = text.length > 0;
-    parts.body.content = new StyledText([fg(TUI_MUTED)(text)]);
+    setTextContent(parts.body, new StyledText([fg(TUI_MUTED)(text)]));
 }
