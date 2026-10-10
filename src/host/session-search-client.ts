@@ -23,17 +23,12 @@ export async function searchSessionsThroughHost(
     responseTimeoutMs = 10_000,
 ): Promise<SessionSearchResults> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({ type: "search_sessions", query });
-        const response = asRecord(await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host session search deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]));
+        const response = asRecord(await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host session search deadline exceeded",
+        ));
         if (response?.type === "session_search_unavailable") {
             throw new SessionSearchUnavailableError();
         }
@@ -51,7 +46,6 @@ export async function searchSessionsThroughHost(
         }
         return results;
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }

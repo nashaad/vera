@@ -31,10 +31,12 @@ export interface TuiFlightRecorderOptions {
     readonly now?: () => Date;
     readonly pid?: number;
     readonly spawnWatchdog?: boolean;
+    readonly heartbeatIntervalMs?: number;
 }
 
 const HEARTBEAT_INTERVAL_MS = 1_000;
 const FLUSH_INTERVAL_MS = 250;
+const STALL_RECORD_MS = 500;
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export function createTuiFlightRecorder(
@@ -103,7 +105,24 @@ export function createTuiFlightRecorder(
         }
     };
     writeHeartbeat();
-    const heartbeat = setInterval(writeHeartbeat, HEARTBEAT_INTERVAL_MS);
+    const heartbeatIntervalMs = options.heartbeatIntervalMs
+        ?? HEARTBEAT_INTERVAL_MS;
+    let lastTickAt = Date.now();
+    const heartbeat = setInterval(() => {
+        const tickAt = Date.now();
+        const stalledMs = tickAt - lastTickAt - heartbeatIntervalMs;
+        lastTickAt = tickAt;
+        if (stalledMs >= STALL_RECORD_MS) {
+            const memory = process.memoryUsage();
+            record({
+                type: "event_loop_stalled",
+                stalledMs,
+                rssBytes: memory.rss,
+                heapUsedBytes: memory.heapUsed,
+            });
+        }
+        writeHeartbeat();
+    }, heartbeatIntervalMs);
     heartbeat.unref();
 
     const watchdog = options.spawnWatchdog === false

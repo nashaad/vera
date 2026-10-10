@@ -29,7 +29,6 @@ export async function listAgentPageThroughHost(
     responseTimeoutMs = 2_000,
 ): Promise<ListedAgentsPage> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({
             type: "list_agents",
@@ -38,14 +37,10 @@ export async function listAgentPageThroughHost(
             ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
             ...(options.order === undefined ? {} : { order: options.order }),
         });
-        const response = asRecord(await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host agent list deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]));
+        const response = asRecord(await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host agent list deadline exceeded",
+        ));
         if (
             response?.type !== "agent_list"
             || !Array.isArray(response.agents)
@@ -65,7 +60,6 @@ export async function listAgentPageThroughHost(
                 : {}),
         };
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }

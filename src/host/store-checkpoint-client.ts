@@ -11,20 +11,15 @@ export async function checkpointStoresThroughHost(
     responseTimeoutMs = 10_000,
 ): Promise<StoreCheckpointOutcome> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({
             type: "checkpoint_stores",
             destination,
         });
-        const response = asRecord(await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host checkpoint deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]));
+        const response = asRecord(await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host checkpoint deadline exceeded",
+        ));
         if (
             response?.type === "checkpoint_stores_failed"
             && typeof response.reason === "string"
@@ -44,7 +39,6 @@ export async function checkpointStoresThroughHost(
             databases: response.databases as readonly string[],
         };
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }

@@ -7,20 +7,15 @@ export async function readModelSettingsThroughHost(
     responseTimeoutMs = 2_000,
 ): Promise<ModelTurnSettings | undefined> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({
             type: "model_settings",
             ...(workspace === undefined ? {} : { workspace }),
         });
-        const response = await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host model settings deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]);
+        const response = await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host model settings deadline exceeded",
+        );
         const record = typeof response === "object" && response !== null
             ? response as Record<string, unknown>
             : undefined;
@@ -32,7 +27,6 @@ export async function readModelSettingsThroughHost(
             ? settings as ModelTurnSettings
             : undefined;
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }
@@ -44,21 +38,16 @@ export async function refreshCatalogThroughHost(
     responseTimeoutMs = 10_000,
 ): Promise<ModelTurnSettings | undefined> {
     const connection = await connectHost({ socketPath });
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
         await connection.send({
             type: "catalog_refresh",
             provider,
             ...(workspace === undefined ? {} : { workspace }),
         });
-        const response = await Promise.race([
-            connection.receive(),
-            new Promise<never>((_, reject) => {
-                timeout = setTimeout(() => {
-                    reject(new Error("Host catalog refresh deadline exceeded"));
-                }, responseTimeoutMs);
-            }),
-        ]);
+        const response = await connection.receiveWithin(
+            responseTimeoutMs,
+            "Host catalog refresh deadline exceeded",
+        );
         const record = typeof response === "object" && response !== null
             ? response as Record<string, unknown>
             : undefined;
@@ -70,7 +59,6 @@ export async function refreshCatalogThroughHost(
             ? settings as ModelTurnSettings
             : undefined;
     } finally {
-        clearTimeout(timeout);
         connection.close();
     }
 }
