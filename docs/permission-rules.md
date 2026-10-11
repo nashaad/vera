@@ -116,6 +116,8 @@ The other operations above belong to Vera. An extension you install that
 declares one of them fails to load, and `/extensions` shows it as `failed`
 with the reason once the host has restarted. An extension may name an
 operation of its own, such as `crow.shout`; ask asks and auto reviews it.
+Once the classifier allows it, auto runs that operation for the rest of the
+conversation without review.
 
 > [!WARNING]
 > A mistake in any custom mode stops the whole config from loading. Mode names

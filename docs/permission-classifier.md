@@ -14,6 +14,12 @@ from the classifier; the end of the turn shows how many there were, such as
 `2 auto-approved`. Other classifier decisions add a line to the conversation.
 An allow line sits just above the action it allowed.
 
+When the classifier allows a tool from an extension, the rest of the
+conversation runs that extension operation without asking it again, the same
+as answering Session on a prompt. Vera's own operations, such as `git.push`,
+are classified on every call. **Review granted permissions** in Ctrl+P lists
+and removes these grants.
+
 The classifier is separate from the model working on your task. Changing the
 conversation model does not change the configured classifier.
 

@@ -156,6 +156,7 @@ import {
     stricterToolPermission,
     inspectPermissions,
     permissionGrantProposals,
+    reviewedGrantProposals,
     type ApprovalMode,
     type PermissionGrant,
     type PermissionGrantProposal,
@@ -284,6 +285,9 @@ export interface RunTurnState {
     readonly injectedRulePaths?: Set<string>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionGrants?: () => readonly PermissionGrant[];
+    readonly addPermissionGrants?: (
+        grants: readonly PermissionGrantProposal[],
+    ) => Promise<void>;
     readonly readPermissionPreferences?: () => readonly PermissionPreference[];
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     readonly reviewToolCall?: ReviewToolCall;
@@ -823,6 +827,7 @@ export async function runHeadlessLoop(
         injectedRulePaths,
         readApprovalMode,
         readPermissionGrants,
+        addPermissionGrants,
         readPermissionPreferences,
         get permissionModes() { return policy().permissionModes; },
         reviewToolCall,
@@ -2494,6 +2499,14 @@ async function executePreparedTool(
                 };
             }
             breaker.record("allow");
+            const reviewedGrants = reviewedGrantProposals(permission);
+            if (reviewedGrants.length > 0 && state.addPermissionGrants !== undefined) {
+                try {
+                    await state.addPermissionGrants(reviewedGrants);
+                } catch {
+                    // An unsaved grant only means the next call is classified again.
+                }
+            }
         }
         if (permission.behavior === "ask") {
             const approval = await state.inbound.requestToolApproval(
