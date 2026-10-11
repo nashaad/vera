@@ -256,7 +256,7 @@ export function createOpenAICodexAdapter(
         if (response.body === null) {
             throw new Error("OpenAI Codex response omitted its event stream");
         }
-        return readOpenAICodexEvents(response.body);
+        return readOpenAICodexEvents(response.body, signal);
     });
 }
 
@@ -286,7 +286,8 @@ function classifyOpenAICodexError(value: unknown): ProviderFailure {
             message: error.message,
         };
     }
-    if (value instanceof TypeError) {
+    // Bun reports a dropped socket as a plain Error with a code such as ECONNRESET.
+    if (value instanceof TypeError || hasErrorCode(value)) {
         return {
             kind: "connection",
             resolution: "retry",
@@ -332,6 +333,11 @@ function httpFailure(error: OpenAICodexHttpError): ProviderFailure {
         message: error.message,
         statusCode,
     };
+}
+
+function hasErrorCode(value: unknown): boolean {
+    return value instanceof Error
+        && typeof (value as { code?: unknown }).code === "string";
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {

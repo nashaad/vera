@@ -899,3 +899,57 @@ test("summary parts are separated by the blank line the stream omits", async () 
         "Weighing the two orderings.\n\nSettling on the second.",
     );
 });
+
+test("a dropped socket is a retryable connection failure", async () => {
+    const adapter = new OpenAICodexAdapter(async () => {
+        throw Object.assign(
+            new Error("The socket connection was closed unexpectedly"),
+            { code: "ECONNRESET" },
+        );
+    });
+    const stream = adapter.stream({ model: "gpt-5.6-sol", messages: [] });
+    const observed: ModelStreamEvent[] = [];
+
+    for await (const event of stream) {
+        observed.push(event);
+    }
+
+    expect(observed.at(-1)).toMatchObject({
+        type: "error",
+        error: { failure: { kind: "connection", resolution: "retry" } },
+    });
+});
+
+test("a stream that ends before completion is a retryable connection failure", async () => {
+    const adapter = new OpenAICodexAdapter(async () => events([{
+        type: "response.reasoning_summary_text.delta",
+        output_index: 0,
+        delta: "Charting the reef.",
+    }]));
+    const stream = adapter.stream({ model: "gpt-5.6-sol", messages: [] });
+    const observed: ModelStreamEvent[] = [];
+
+    for await (const event of stream) {
+        observed.push(event);
+    }
+
+    expect(observed.at(-1)).toMatchObject({
+        type: "error",
+        error: { failure: { kind: "connection", resolution: "retry" } },
+    });
+});
+
+test("aborting settles a body read that would otherwise wait forever", async () => {
+    const body = new ReadableStream<Uint8Array>({ start() {} });
+    const controller = new AbortController();
+    const reading = (async () => {
+        for await (const _event of readOpenAICodexEvents(body, controller.signal)) {
+            // Nothing arrives.
+        }
+    })();
+
+    controller.abort(new Error("stop"));
+
+    await reading.catch(() => {});
+    expect(controller.signal.aborted).toBe(true);
+});

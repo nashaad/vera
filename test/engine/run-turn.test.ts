@@ -1937,8 +1937,8 @@ test("a transient model failure reports its retry to attached clients", async ()
         phase: "retrying",
         model: "test",
         nextAttempt: 2,
-        maxAttempts: 3,
-        delayMs: 500,
+        maxAttempts: 7,
+        delayMs: 1_000,
         failure: {
             kind: "connection",
         },
@@ -1955,7 +1955,7 @@ test("a transient model failure reports its retry to attached clients", async ()
     });
     expect(withoutCallDuration(await turn)).toEqual(response);
     expect(attempts).toBe(2);
-    expect(delays).toEqual([500]);
+    expect(delays).toEqual([1_000]);
 
     const logged = readFileSync(logPath, "utf8")
         .trim()
@@ -1965,7 +1965,7 @@ test("a transient model failure reports its retry to attached clients", async ()
         type: "model_retry_scheduled",
         model: "test",
         nextAttempt: 2,
-        delayMs: 500,
+        delayMs: 1_000,
         failure: expect.objectContaining({
             kind: "connection",
             resolution: "retry",

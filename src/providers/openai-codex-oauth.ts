@@ -15,6 +15,7 @@ const AUTH_HOST = "https://auth.openai.com";
 const CALLBACK_PATH = "/auth/callback";
 const CALLBACK_PORTS = [1455, 1457] as const;
 const REFRESH_SKEW_MS = 30_000;
+const TOKEN_REQUEST_TIMEOUT_MS = 30_000;
 const CREDENTIALS_SCHEMA_VERSION = 1;
 const OAUTH_SCOPE = [
     "openid",
@@ -295,6 +296,8 @@ async function requestTokens(
     const response = await fetchRequest(`${AUTH_HOST}/oauth/token`, {
         method: "POST",
         ...init,
+        // Refreshes run one at a time, so one that never settles blocks every later request.
+        signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
     if (!response.ok) {
         const detail = await response.text();

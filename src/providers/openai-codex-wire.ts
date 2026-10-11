@@ -231,12 +231,21 @@ export function openAICodexUsage(value: unknown): ModelUsage {
 
 export async function* readOpenAICodexEvents(
     body: ReadableStream<Uint8Array>,
+    signal?: AbortSignal,
 ): AsyncIterable<OpenAICodexStreamEvent> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    // Cancelling the reader settles a read the fetch abort left hanging.
+    const onAbort = (): void => {
+        void reader.cancel(signal?.reason).catch(() => {});
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
+        if (signal?.aborted) {
+            throw signal.reason ?? new Error("Model request aborted");
+        }
         while (true) {
             const { done, value } = await reader.read();
             if (done) {
@@ -261,6 +270,7 @@ export async function* readOpenAICodexEvents(
             }
         }
     } finally {
+        signal?.removeEventListener("abort", onAbort);
         reader.releaseLock();
     }
 }
