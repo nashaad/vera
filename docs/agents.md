@@ -63,10 +63,11 @@ retries does not restart the assignment search.
 
 Two conversations open in the same folder can message each other. Ask one
 to send a note to the other by its title or its identity, for example "tell
-lookout the crow's nest tests pass". Vera finds the other conversation,
-stores the note, and lets it know a message is waiting. The recipient reads
-the note when it next checks its inbox. The sender is not told when it is
-read.
+lookout the crow's nest tests pass". Vera finds the other conversation and
+stores the note. When the recipient starts a turn for it, the whole note
+arrives in its transcript, marked as coming from that conversation and not
+from you. A recipient that does not start a turn reads the note when it next
+checks its inbox. The sender is not told when it is read.
 
 If you are watching the recipient, Vera asks once whether messages from
 other conversations may start a turn. You can allow it once, for this

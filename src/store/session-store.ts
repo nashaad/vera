@@ -94,6 +94,14 @@ export interface PendingDelivery {
     readonly kind?: "attention" | "completion" | "peer";
     /** Set when an extension sent it, so a client shows its text without agent wording. */
     readonly sourceKind?: "extension";
+    readonly peer?: PeerDeliveryFacts;
+}
+
+// Set on a peer message delivered whole; older peer deliveries are only a notice and lack it.
+export interface PeerDeliveryFacts {
+    readonly fromLabel: string;
+    readonly messageId: number;
+    readonly replyTo?: number;
 }
 
 export interface SessionDeliveryEntry extends PendingDelivery {
@@ -1277,6 +1285,9 @@ export class SessionStore {
         if (delivery.sourceKind !== undefined && delivery.sourceKind !== "extension") {
             throw new Error("delivery source kind must be extension");
         }
+        if (delivery.peer !== undefined && (kind !== "peer" || !isPeerDeliveryFacts(delivery.peer))) {
+            throw new Error("delivery peer facts need kind peer, a sender label and a message ID");
+        }
         if (typeof delivery.content !== "string") {
             throw new Error("delivery content must be a string");
         }
@@ -1291,6 +1302,8 @@ export class SessionStore {
                 || existing.content !== delivery.content
                 || (existing.kind ?? "completion") !== kind
                 || existing.sourceKind !== delivery.sourceKind
+                || JSON.stringify(existing.peer)
+                    !== JSON.stringify(delivery.peer === undefined ? undefined : peerDeliveryFacts(delivery.peer))
             ) {
                 throw new Error(`Delivery ${id} conflicts with its stored payload`);
             }
@@ -1303,6 +1316,7 @@ export class SessionStore {
             content: delivery.content,
             ...(kind === "completion" ? {} : { kind }),
             ...(delivery.sourceKind === undefined ? {} : { sourceKind: delivery.sourceKind }),
+            ...(delivery.peer === undefined ? {} : { peer: peerDeliveryFacts(delivery.peer) }),
             timestamp: this.now().toISOString(),
         };
         await this.appendRecord(entry);
@@ -2266,6 +2280,7 @@ function parseDeliveryEntry(
             && value.kind !== "peer"
         )
         || (value.sourceKind !== undefined && value.sourceKind !== "extension")
+        || (value.peer !== undefined && (value.kind !== "peer" || !isPeerDeliveryFacts(value.peer)))
         || typeof value.timestamp !== "string"
     ) {
         throw invalidSession(
@@ -2274,6 +2289,27 @@ function parseDeliveryEntry(
         );
     }
     return value as unknown as SessionDeliveryEntry;
+}
+
+function isPeerDeliveryFacts(value: unknown): value is PeerDeliveryFacts {
+    return isRecord(value)
+        && typeof value.fromLabel === "string"
+        && value.fromLabel.length > 0
+        && Number.isSafeInteger(value.messageId)
+        && (value.messageId as number) > 0
+        && (
+            value.replyTo === undefined
+            || (Number.isSafeInteger(value.replyTo) && (value.replyTo as number) > 0)
+        );
+}
+
+// Key order is fixed so the stored-payload comparison does not depend on the caller's object.
+function peerDeliveryFacts(facts: PeerDeliveryFacts): PeerDeliveryFacts {
+    return {
+        fromLabel: facts.fromLabel,
+        messageId: facts.messageId,
+        ...(facts.replyTo === undefined ? {} : { replyTo: facts.replyTo }),
+    };
 }
 
 function parseDeliveryReceipt(

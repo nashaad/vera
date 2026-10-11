@@ -1257,6 +1257,39 @@ test("session store rejects malformed permission grants", async () => {
     expect(readLines(path)).toHaveLength(1);
 });
 
+test("a peer delivery keeps its sender label and message id across a restart", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const delivery = {
+        id: "peer:crow:3",
+        sourceAgentId: "crow",
+        content: "The treasure map is under the parrot.",
+        kind: "peer" as const,
+        peer: { replyTo: 2, messageId: 3, fromLabel: "Plunder (crow)" },
+    };
+    const store = await SessionStore.create(path, {
+        sessionId: "parent-1",
+        cwd: directory,
+        now: dates("2026-07-17T12:00:00.000Z", "2026-07-17T12:00:01.000Z"),
+    });
+    await expect(store.recordDelivery({ ...delivery, id: "bad-kind", kind: "attention" }))
+        .rejects.toThrow("delivery peer facts need kind peer");
+    await expect(store.recordDelivery({ ...delivery, id: "bad-id", peer: { fromLabel: "crow", messageId: 0 } }))
+        .rejects.toThrow("delivery peer facts need kind peer");
+    expect(await store.recordDelivery(delivery)).toBe(true);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.pendingDeliveries()).toEqual([{
+        type: "delivery",
+        ...delivery,
+        peer: { fromLabel: "Plunder (crow)", messageId: 3, replyTo: 2 },
+        timestamp: "2026-07-17T12:00:01.000Z",
+    }]);
+    expect(await reopened.recordDelivery(delivery)).toBe(false);
+    await expect(reopened.recordDelivery({ ...delivery, peer: { fromLabel: "crow", messageId: 3 } }))
+        .rejects.toThrow("Delivery peer:crow:3 conflicts with its stored payload");
+});
+
 test("pending deliveries are idempotent and survive restart until injected", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

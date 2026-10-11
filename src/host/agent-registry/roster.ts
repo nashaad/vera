@@ -156,7 +156,7 @@ export async function applyAgentSendEffect(reg: AgentRegistry, callerId: string,
         };
     }
 
-export async function wakeForPeerMessage(_reg: AgentRegistry, caller: RegisteredAgentEntry, recipient: RegisteredAgentEntry, seq: number): Promise<{
+export async function wakeForPeerMessage(reg: AgentRegistry, caller: RegisteredAgentEntry, recipient: RegisteredAgentEntry, seq: number): Promise<{
         readonly delivered: boolean;
         readonly reason?:
             | "approval_mode"
@@ -184,7 +184,7 @@ export async function wakeForPeerMessage(_reg: AgentRegistry, caller: Registered
             return { delivered: false, reason: "rate_limit" };
         }
         try {
-            await recordPeerNotice(recipient, caller.store.header.id, participantLabel(caller), seq);
+            await recordPeerMessage(reg, recipient, participantLabel(caller), seq);
             recipient.agent.triggerDeliveryTurn();
         } catch {
             return { delivered: false, reason: "unavailable" };
@@ -194,21 +194,49 @@ export async function wakeForPeerMessage(_reg: AgentRegistry, caller: Registered
         return { delivered: true };
     }
 
-function recordPeerNotice(recipient: RegisteredAgentEntry, fromId: string, fromLabel: string, seq: number): Promise<boolean> {
-        return recordDeliveryAndNotify(recipient.store, recipient.events, {
-            id: `peer:${fromId}:${seq}`,
-            sourceAgentId: fromId,
-            content: `Peer ${fromLabel} sent message ${seq}. Read it with agent_inbox.`,
+// The message is delivered whole, so the recipient needs no agent_inbox call to read it.
+async function recordPeerMessage(reg: AgentRegistry, recipient: RegisteredAgentEntry, fromLabel: string, seq: number): Promise<boolean> {
+        const stored = reg.options.inboxDelivery?.entry(seq);
+        const message = stored === undefined ? undefined : parsePeerMessage(stored);
+        if (message === undefined) return true;
+        const recorded = await recordDeliveryAndNotify(recipient.store, recipient.events, {
+            id: `peer:${message.from}:${seq}`,
+            sourceAgentId: message.from,
+            content: message.text,
             kind: "peer",
+            peer: {
+                fromLabel,
+                messageId: seq,
+                ...(message.reply_to === undefined ? {} : { replyTo: message.reply_to }),
+            },
         });
+        acknowledgeIfNext(recipient, seq);
+        return recorded;
     }
 
-function peerSenderLabel(reg: AgentRegistry, seq: number): { readonly id: string; readonly label: string } | undefined {
+function peerSenderLabel(reg: AgentRegistry, seq: number): string | undefined {
         const stored = reg.options.inboxDelivery?.entry(seq);
         const message = stored === undefined ? undefined : parsePeerMessage(stored);
         if (message === undefined) return undefined;
         const sender = reg.agents.get(message.from);
-        return { id: message.from, label: sender === undefined ? message.from : participantLabel(sender) };
+        return sender === undefined ? message.from : participantLabel(sender);
+    }
+
+// Acknowledging moves a cursor past everything before it, so only the next entry in line is acknowledged.
+function acknowledgeIfNext(recipient: RegisteredAgentEntry, seq: number): void {
+        const consumer = recipient.inbox?.consumer;
+        const next = consumer?.read({
+            limit: 1,
+            addresses: [recipient.agent.id],
+            excludeKinds: [RETIRED_PEER_READ_KIND],
+        })[0];
+        if (consumer !== undefined && next?.seq === seq) {
+            try {
+                consumer.acknowledge(seq);
+            } catch {
+                // Left unread, it is still readable with agent_inbox.
+            }
+        }
     }
 
 // An admitted turn for a peer message needs the notice, or the recipient wakes with nothing new to read.
@@ -219,7 +247,7 @@ export async function startAdmittedInboxTurn(reg: AgentRegistry, recipient: Regi
             if (sender !== undefined) {
                 let recorded: boolean;
                 try {
-                    recorded = await recordPeerNotice(recipient, sender.id, sender.label, candidate.seq);
+                    recorded = await recordPeerMessage(reg, recipient, sender, candidate.seq);
                 } catch {
                     recorded = false;
                 }
@@ -268,8 +296,7 @@ export async function sendExtensionMessage(reg: AgentRegistry, extensionId: stri
         return "queued";
     }
 
-// The extension's own text is the notice. The entry is acknowledged only when
-// it is next in line, because acknowledging moves a cursor past everything before it.
+// The extension's own text is the notice.
 async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAgentEntry, seq: number): Promise<boolean> {
         const stored = reg.options.inboxDelivery?.entry(seq);
         const message = stored === undefined ? undefined : parseExtensionMessage(stored);
@@ -281,19 +308,7 @@ async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAg
             kind: "attention",
             sourceKind: "extension",
         });
-        const consumer = recipient.inbox?.consumer;
-        const next = consumer?.read({
-            limit: 1,
-            addresses: [recipient.agent.id],
-            excludeKinds: [RETIRED_PEER_READ_KIND],
-        })[0];
-        if (consumer !== undefined && next?.seq === seq) {
-            try {
-                consumer.acknowledge(seq);
-            } catch {
-                // Left unread, it is still readable with agent_inbox.
-            }
-        }
+        acknowledgeIfNext(recipient, seq);
         return recorded;
     }
 
@@ -548,7 +563,7 @@ export async function requestInboxAdmission(reg: AgentRegistry, entry: Registere
             : undefined;
         const result = await inbound.requestUserQuestion(sender !== undefined ? {
             question:
-                `${sender.label} wants to message this conversation.\n`
+                `${sender} wants to message this conversation.\n`
                 + "Let messages from other conversations start a turn here?",
             choices: [
                 {
