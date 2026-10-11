@@ -282,5 +282,5 @@ export function mount(root, context) {
 A change to the browser module shows when you reload the page. A change to
 the server module needs the host restarted.
 
-The docs example in `examples/extensions/docs` is a full page: markdown docs
-an agent writes, with comments you leave in the margin.
+The included Artifacts extension in `extensions/artifacts` is a full page:
+markdown artifacts an agent writes, with comments you leave in the margin.

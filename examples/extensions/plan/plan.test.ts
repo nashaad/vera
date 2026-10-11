@@ -23,7 +23,7 @@ test("Plan options reach the agent and the composer suggestion", () => {
     activate({ config, agents: { register: (agent: never) => agents.push(agent) } } as never);
     activateClient({ config, compose: { registerSuggester: (entry: never) => suggesters.push(entry) } } as never);
 
-    expect(agents).toMatchObject([{ name: "plan", tools: ["read", "grep", "list", "doc_read", "doc_write", "doc_edit", "doc_comments", "skill_script"] }]);
+    expect(agents).toMatchObject([{ name: "plan", tools: ["read", "grep", "list", "artifact_read", "artifact_write", "artifact_edit", "artifact_comments", "skill_script"] }]);
     expect(suggesters).toHaveLength(1);
     expect(suggesters[0]?.match("make a plan")).toBe(true);
 });

@@ -20,7 +20,7 @@ interface Comment {
     readonly blockIndex: number;
 }
 
-interface DocState {
+interface ArtifactState {
     readonly sessionId: string;
     readonly name: string;
     readonly title: string;
@@ -32,7 +32,7 @@ interface DocState {
     readonly version: string;
 }
 
-interface DocSummary {
+interface ArtifactSummary {
     readonly sessionId: string;
     readonly name: string;
     readonly title: string;
@@ -57,9 +57,9 @@ type CommentMode = "open" | "all" | "hidden";
 const POLL_MS = 1000;
 const EMBED_MAX_HEIGHT = 1200;
 // Appended to each embed: reports its height, and follows the page's light or dark theme.
-const EMBED_SHIM = `<style>:root{color-scheme:light dark}</style><script>(()=>{const post=()=>parent.postMessage({docsEmbedHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);})();</script>`;
-const STYLE_ID = "docs-page-style";
-const MODE_KEY = "docs-comment-mode";
+const EMBED_SHIM = `<style>:root{color-scheme:light dark}</style><script>(()=>{const post=()=>parent.postMessage({artifactsEmbedHeight:document.documentElement.scrollHeight},"*");new ResizeObserver(post).observe(document.documentElement);addEventListener("load",post);})();</script>`;
+const STYLE_ID = "artifacts-page-style";
+const MODE_KEY = "artifacts-comment-mode";
 
 const ICON_COMMENT = `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 2.5h10A1.5 1.5 0 0 1 14.5 4v6a1.5 1.5 0 0 1-1.5 1.5H7.2L4 14v-2.5H3A1.5 1.5 0 0 1 1.5 10V4A1.5 1.5 0 0 1 3 2.5Z"/></svg>`;
 const ICON_CHEVRON = `<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" d="m4 6 4 4 4-4"/></svg>`;
@@ -69,15 +69,15 @@ export function mount(root: HTMLElement, context: Context): () => void {
     installStyle();
     const params = new URLSearchParams(window.location.search);
     const session = params.get("session");
-    const doc = params.get("doc");
-    const view = session === null || doc === null
-        ? new DocList(root, context)
-        : new DocView(root, context, session, doc);
+    const artifact = params.get("artifact");
+    const view = session === null || artifact === null
+        ? new ArtifactList(root, context)
+        : new ArtifactView(root, context, session, artifact);
     view.start();
     return () => view.stop();
 }
 
-class DocList {
+class ArtifactList {
     private timer: ReturnType<typeof setInterval> | undefined;
     private version = "";
 
@@ -94,34 +94,34 @@ class DocList {
 
     private async refresh(force = false): Promise<void> {
         if (document.hidden && !force) return;
-        const response = await fetch(`${this.context.api}docs`);
+        const response = await fetch(`${this.context.api}artifacts`);
         if (!response.ok) return;
-        const body = await response.json() as { docs: readonly DocSummary[] };
-        const version = JSON.stringify(body.docs);
+        const body = await response.json() as { artifacts: readonly ArtifactSummary[] };
+        const version = JSON.stringify(body.artifacts);
         if (version === this.version) return;
         this.version = version;
-        this.render(body.docs);
+        this.render(body.artifacts);
     }
 
-    private render(docs: readonly DocSummary[]): void {
+    private render(artifacts: readonly ArtifactSummary[]): void {
         this.root.replaceChildren();
-        const wrap = el("div", "docs");
-        if (docs.length === 0) {
-            wrap.append(el("p", "docs-empty", "No docs yet. A doc appears here when an agent writes one with doc_write."));
+        const wrap = el("div", "artifacts");
+        if (artifacts.length === 0) {
+            wrap.append(el("p", "artifacts-empty", "No artifacts yet. An artifact appears here when an agent writes one with artifact_write."));
             this.root.append(wrap);
             return;
         }
-        const list = el("div", "docs-list");
-        for (const doc of docs) {
-            const row = el("a", "docs-row") as HTMLAnchorElement;
-            row.href = docHref(this.context.page, doc.sessionId, doc.name);
+        const list = el("div", "artifacts-list");
+        for (const artifact of artifacts) {
+            const row = el("a", "artifacts-row") as HTMLAnchorElement;
+            row.href = artifactHref(this.context.page, artifact.sessionId, artifact.name);
             row.append(
-                el("span", "docs-row-title", doc.title),
-                el("span", "docs-row-meta", [
-                    doc.name,
-                    doc.sessionId.slice(0, 8),
-                    ago(doc.updatedAt),
-                    ...(doc.openComments > 0 ? [`${doc.openComments} open`] : []),
+                el("span", "artifacts-row-title", artifact.title),
+                el("span", "artifacts-row-meta", [
+                    artifact.name,
+                    artifact.sessionId.slice(0, 8),
+                    ago(artifact.updatedAt),
+                    ...(artifact.openComments > 0 ? [`${artifact.openComments} open`] : []),
                 ].join(" · ")),
             );
             list.append(row);
@@ -131,9 +131,9 @@ class DocList {
     }
 }
 
-class DocView {
+class ArtifactView {
     private timer: ReturnType<typeof setInterval> | undefined;
-    private state: DocState | undefined;
+    private state: ArtifactState | undefined;
     private readonly drafts = new Map<string, Draft>();
     private readonly expanded = new Set<string>();
     // Why a comment the user asked to send did not reach the session. Kept until reload.
@@ -145,14 +145,14 @@ class DocView {
     private readonly closeMenu = (event: Event): void => {
         if (!this.menuOpen) return;
         if (event instanceof KeyboardEvent && event.key !== "Escape") return;
-        if (event.target instanceof Node && this.root.querySelector(".docs-tools")?.contains(event.target)) return;
+        if (event.target instanceof Node && this.root.querySelector(".artifacts-tools")?.contains(event.target)) return;
         this.menuOpen = false;
         this.render();
     };
 
     // Any embed can post this, so it only ever resizes the frame that sent it.
     private readonly onEmbedHeight = (event: MessageEvent): void => {
-        const height = (event.data as { docsEmbedHeight?: unknown } | null)?.docsEmbedHeight;
+        const height = (event.data as { artifactsEmbedHeight?: unknown } | null)?.artifactsEmbedHeight;
         if (typeof height !== "number" || !Number.isFinite(height)) return;
         for (const frame of Array.from(this.root.querySelectorAll<HTMLIFrameElement>("iframe.pb-embed"))) {
             if (frame.contentWindow !== event.source) continue;
@@ -168,7 +168,7 @@ class DocView {
         private readonly root: HTMLElement,
         private readonly context: Context,
         private readonly session: string,
-        private readonly doc: string,
+        private readonly artifact: string,
     ) {}
 
     start(): void {
@@ -191,10 +191,10 @@ class DocView {
     private async refresh(force = false): Promise<void> {
         if (document.hidden && !force) return;
         try {
-            const query = `session=${encodeURIComponent(this.session)}&doc=${encodeURIComponent(this.doc)}`;
-            const response = await fetch(`${this.context.api}doc?${query}`);
+            const query = `session=${encodeURIComponent(this.session)}&artifact=${encodeURIComponent(this.artifact)}`;
+            const response = await fetch(`${this.context.api}artifact?${query}`);
             if (!response.ok) throw new Error(String(response.status));
-            const next = await response.json() as DocState;
+            const next = await response.json() as ArtifactState;
             const recovered = this.failed;
             this.failed = false;
             if (!force && !recovered && next.version === this.state?.version) return;
@@ -210,7 +210,7 @@ class DocView {
         const response = await fetch(`${this.context.api}${path}`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ session: this.session, doc: this.doc, ...body }),
+            body: JSON.stringify({ session: this.session, artifact: this.artifact, ...body }),
         });
         const reply = await response.json().catch(() => ({})) as Record<string, unknown>;
         await this.refresh(true);
@@ -227,13 +227,13 @@ class DocView {
     private render(): void {
         const focus = captureFocus();
         const state = this.state;
-        const wrapClass = `docs docs-doc${this.mode === "hidden" ? " docs-no-margin" : ""}`;
+        const wrapClass = `artifacts artifacts-artifact${this.mode === "hidden" ? " artifacts-no-margin" : ""}`;
         const shown = state?.exists === true ? blocksKey(state.blocks) : undefined;
-        const current = this.root.querySelector<HTMLElement>(":scope > .docs-doc");
-        const body = current?.querySelector<HTMLElement>(":scope > .docs-body");
+        const current = this.root.querySelector<HTMLElement>(":scope > .artifacts-artifact");
+        const body = current?.querySelector<HTMLElement>(":scope > .artifacts-body");
         if (state !== undefined && shown !== undefined && shown === this.shownBlocks && current && body) {
             current.className = wrapClass;
-            current.querySelector(":scope > .docs-head")?.replaceWith(this.header(state));
+            current.querySelector(":scope > .artifacts-head")?.replaceWith(this.header(state));
             this.patchDocument(body, state);
             restoreFocus(this.root, focus);
             return;
@@ -243,9 +243,9 @@ class DocView {
         const wrap = el("div", wrapClass);
         wrap.append(this.header(state));
         if (state === undefined) {
-            wrap.append(el("p", "docs-empty", this.failed ? "Cannot reach the annex." : "Loading..."));
+            wrap.append(el("p", "artifacts-empty", this.failed ? "Cannot reach the annex." : "Loading..."));
         } else if (!state.exists) {
-            wrap.append(el("p", "docs-empty", `No doc named ${this.doc} yet. It appears here as soon as the agent writes it.`));
+            wrap.append(el("p", "artifacts-empty", `No artifact named ${this.artifact} yet. It appears here as soon as the agent writes it.`));
         } else {
             wrap.append(this.document(state));
         }
@@ -253,17 +253,17 @@ class DocView {
         restoreFocus(this.root, focus);
     }
 
-    private header(state: DocState | undefined): HTMLElement {
-        const header = el("div", "docs-head");
-        const crumbs = el("div", "docs-crumbs");
-        const back = el("a", "docs-back", "Docs") as HTMLAnchorElement;
+    private header(state: ArtifactState | undefined): HTMLElement {
+        const header = el("div", "artifacts-head");
+        const crumbs = el("div", "artifacts-crumbs");
+        const back = el("a", "artifacts-back", "Artifacts") as HTMLAnchorElement;
         back.href = this.context.page;
-        crumbs.append(back, el("span", "docs-sep", "›"), el("span", "docs-name", state?.title ?? this.doc));
+        crumbs.append(back, el("span", "artifacts-sep", "›"), el("span", "artifacts-name", state?.title ?? this.artifact));
 
         const open = state?.comments.filter((comment) => comment.status === "open").length ?? 0;
-        const meta = el("div", "docs-meta");
+        const meta = el("div", "artifacts-meta");
         meta.append(
-            el("span", this.failed ? "docs-live docs-live-off" : "docs-live", this.failed ? "offline" : "live"),
+            el("span", this.failed ? "artifacts-live artifacts-live-off" : "artifacts-live", this.failed ? "offline" : "live"),
             el("span", "", [
                 this.session.slice(0, 8),
                 ...(state?.updatedAt === undefined ? [] : [`updated ${ago(state.updatedAt)}`]),
@@ -276,17 +276,17 @@ class DocView {
 
     // Avatar plus a split button: the bubble toggles comments, the chevron picks which.
     private tools(viewer: string, open: number): HTMLElement {
-        const tools = el("div", "docs-tools");
+        const tools = el("div", "artifacts-tools");
         tools.append(avatar(viewer));
-        const split = el("div", "docs-split");
-        const toggle = el("button", `docs-toggle${this.mode === "hidden" ? "" : " docs-on"}`) as HTMLButtonElement;
+        const split = el("div", "artifacts-split");
+        const toggle = el("button", `artifacts-toggle${this.mode === "hidden" ? "" : " artifacts-on"}`) as HTMLButtonElement;
         toggle.type = "button";
         toggle.title = this.mode === "hidden" ? "Show comments" : "Hide comments";
         toggle.setAttribute("aria-pressed", String(this.mode !== "hidden"));
         toggle.innerHTML = ICON_COMMENT;
-        if (open > 0) toggle.append(el("span", "docs-count", String(open)));
+        if (open > 0) toggle.append(el("span", "artifacts-count", String(open)));
         toggle.onclick = () => this.setMode(this.mode === "hidden" ? "open" : "hidden");
-        const chevron = el("button", "docs-chevron") as HTMLButtonElement;
+        const chevron = el("button", "artifacts-chevron") as HTMLButtonElement;
         chevron.type = "button";
         chevron.title = "Comment view";
         chevron.setAttribute("aria-haspopup", "menu");
@@ -299,7 +299,7 @@ class DocView {
         split.append(toggle, chevron);
         tools.append(split);
         if (this.menuOpen) {
-            const menu = el("div", "docs-menu");
+            const menu = el("div", "artifacts-menu");
             menu.setAttribute("role", "menu");
             const options: readonly (readonly [CommentMode, string])[] = [
                 ["open", "Open comments"],
@@ -307,7 +307,7 @@ class DocView {
                 ["hidden", "Hide comments"],
             ];
             for (const [mode, label] of options) {
-                const item = el("button", `docs-menu-item${mode === this.mode ? " docs-menu-on" : ""}`, label) as HTMLButtonElement;
+                const item = el("button", `artifacts-menu-item${mode === this.mode ? " artifacts-menu-on" : ""}`, label) as HTMLButtonElement;
                 item.type = "button";
                 item.setAttribute("role", "menuitemradio");
                 item.setAttribute("aria-checked", String(mode === this.mode));
@@ -319,17 +319,17 @@ class DocView {
         return tools;
     }
 
-    private document(state: DocState): HTMLElement {
-        const doc = el("div", "docs-body");
+    private document(state: ArtifactState): HTMLElement {
+        const artifact = el("div", "artifacts-body");
         this.eachBlock(state, (block, index, comments, drafts) => {
-            doc.append(this.block(state, block, index, comments, drafts));
+            artifact.append(this.block(state, block, index, comments, drafts));
         });
-        return doc;
+        return artifact;
     }
 
     // Rows stay in the page so embeds keep playing; only classes and margins are replaced.
-    private patchDocument(doc: HTMLElement, state: DocState): void {
-        const rows = Array.from(doc.children) as HTMLElement[];
+    private patchDocument(artifact: HTMLElement, state: ArtifactState): void {
+        const rows = Array.from(artifact.children) as HTMLElement[];
         this.eachBlock(state, (block, index, comments, drafts) => {
             const row = rows[index];
             if (row === undefined) return;
@@ -339,7 +339,7 @@ class DocView {
     }
 
     private eachBlock(
-        state: DocState,
+        state: ArtifactState,
         visit: (block: Block, index: number, comments: readonly Comment[], drafts: readonly (readonly [string, Draft])[]) => void,
     ): void {
         const last = Math.max(0, state.blocks.length - 1);
@@ -355,7 +355,7 @@ class DocView {
     }
 
     private block(
-        state: DocState,
+        state: ArtifactState,
         block: Block,
         index: number,
         comments: readonly Comment[],
@@ -367,7 +367,7 @@ class DocView {
     }
 
     private margin(
-        state: DocState,
+        state: ArtifactState,
         block: Block,
         index: number,
         comments: readonly Comment[],
@@ -396,7 +396,7 @@ class DocView {
         this.root.querySelector<HTMLTextAreaElement>(`textarea[data-draft="${CSS.escape(key)}"]`)?.focus();
     }
 
-    private comment(state: DocState, comment: Comment): HTMLElement {
+    private comment(state: ArtifactState, comment: Comment): HTMLElement {
         if (comment.status === "closed" && !this.expanded.has(comment.id)) {
             const folded = el("button", "pt pt-folded") as HTMLButtonElement;
             folded.type = "button";
@@ -443,14 +443,14 @@ class DocView {
         return thread;
     }
 
-    private composer(state: DocState, key: string, draft: Draft): HTMLElement {
+    private composer(state: ArtifactState, key: string, draft: Draft): HTMLElement {
         const thread = el("div", "pt-thread pt-thread-active");
         const form = el("form", "pt pt-compose") as HTMLFormElement;
         const context = el("div", "pt-context");
         const quote = quoteLine(draft.quote);
-        context.append(el("span", "pt-context-doc", state.title));
+        context.append(el("span", "pt-context-artifact", state.title));
         if (quote.length > 0) {
-            context.append(el("span", "docs-sep", "›"), el("span", "pt-context-quote", quote));
+            context.append(el("span", "artifacts-sep", "›"), el("span", "pt-context-quote", quote));
             context.title = draft.quote;
         }
         const area = el("textarea", "pt-input") as HTMLTextAreaElement;
@@ -513,8 +513,8 @@ class DocView {
     }
 }
 
-function docHref(page: string, sessionId: string, name: string): string {
-    return `${page}?session=${encodeURIComponent(sessionId)}&doc=${encodeURIComponent(name)}`;
+function artifactHref(page: string, sessionId: string, name: string): string {
+    return `${page}?session=${encodeURIComponent(sessionId)}&artifact=${encodeURIComponent(name)}`;
 }
 
 function placeDraft(draft: Draft, blocks: readonly Block[], last: number): number {
@@ -564,7 +564,7 @@ function restoreFocus(root: HTMLElement, focus: FocusSnapshot | undefined): void
 }
 
 function avatar(name: string): HTMLElement {
-    const node = el("span", "docs-avatar", (name.trim()[0] ?? "?").toUpperCase());
+    const node = el("span", "artifacts-avatar", (name.trim()[0] ?? "?").toUpperCase());
     node.title = name;
     return node;
 }
@@ -658,43 +658,43 @@ function installStyle(): void {
 }
 
 const PAGE_CSS = `
-.docs { max-width: 760px; margin: 0 auto; padding: 4px 0 64px; }
-.docs-doc { max-width: 1100px; }
-.docs-empty { color: var(--faint); font-size: 13px; margin: 40px 0; text-align: center; }
-.docs-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding: 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
-.docs-crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
-.docs-back { color: var(--muted); text-decoration: none; }
-.docs-back:hover { color: var(--fg); }
-.docs-sep { color: var(--faint); }
-.docs-name { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.docs-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.docs-live { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
-.docs-live::before { content: ""; width: 6px; height: 6px; background: var(--est); }
-.docs-live-off::before { background: var(--faint); }
-.docs-tools { position: relative; display: flex; align-items: center; gap: 8px; }
-.docs-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--fill-2); color: var(--fg); font-size: 12px; font-weight: 600; box-shadow: 0 0 0 1px var(--line-2); }
-.docs-split { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--card); }
-.docs-split button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; color: var(--muted); }
-.docs-split button:hover, .docs-split button:focus-visible { color: var(--fg); background: var(--fill); outline: none; }
-.docs-toggle.docs-on { color: var(--est); background: color-mix(in srgb, var(--est) 14%, transparent); }
-.docs-toggle.docs-on:hover { color: var(--est); background: color-mix(in srgb, var(--est) 20%, transparent); }
-.docs-chevron { border-left: 1px solid var(--line-2) !important; padding: 0 6px !important; }
-.docs-count { font-size: 11px; font-variant-numeric: tabular-nums; }
-.docs-menu { position: absolute; right: 0; top: 32px; min-width: 170px; padding: 4px; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); display: flex; flex-direction: column; }
-.docs-menu-item { text-align: left; padding: 6px 10px; color: var(--muted); font-size: 13px; }
-.docs-menu-item:hover, .docs-menu-item:focus-visible { color: var(--fg); background: var(--fill); outline: none; }
-.docs-menu-on { color: var(--fg); }
-.docs-menu-on::after { content: "✓"; float: right; color: var(--est); }
-.docs-list { border: 1px solid var(--line); background: var(--card); }
-.docs-row { display: flex; justify-content: space-between; gap: 16px; padding: 12px 14px; color: var(--fg); text-decoration: none; border-top: 1px solid var(--line); }
-.docs-row:first-child { border-top: 0; }
-.docs-row:hover { background: var(--fill); }
-.docs-row-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.docs-row-meta { color: var(--faint); font-size: 12px; white-space: nowrap; }
-.docs-body { font-size: 14px; line-height: 1.6; }
+.artifacts { max-width: 760px; margin: 0 auto; padding: 4px 0 64px; }
+.artifacts-artifact { max-width: 1100px; }
+.artifacts-empty { color: var(--faint); font-size: 13px; margin: 40px 0; text-align: center; }
+.artifacts-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding: 8px 0 12px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.artifacts-crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.artifacts-back { color: var(--muted); text-decoration: none; }
+.artifacts-back:hover { color: var(--fg); }
+.artifacts-sep { color: var(--faint); }
+.artifacts-name { color: var(--fg); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifacts-meta { margin-left: auto; display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.artifacts-live { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.artifacts-live::before { content: ""; width: 6px; height: 6px; background: var(--est); }
+.artifacts-live-off::before { background: var(--faint); }
+.artifacts-tools { position: relative; display: flex; align-items: center; gap: 8px; }
+.artifacts-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--fill-2); color: var(--fg); font-size: 12px; font-weight: 600; box-shadow: 0 0 0 1px var(--line-2); }
+.artifacts-split { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--radius); background: var(--card); }
+.artifacts-split button { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; color: var(--muted); }
+.artifacts-split button:hover, .artifacts-split button:focus-visible { color: var(--fg); background: var(--fill); outline: none; }
+.artifacts-toggle.artifacts-on { color: var(--est); background: color-mix(in srgb, var(--est) 14%, transparent); }
+.artifacts-toggle.artifacts-on:hover { color: var(--est); background: color-mix(in srgb, var(--est) 20%, transparent); }
+.artifacts-chevron { border-left: 1px solid var(--line-2) !important; padding: 0 6px !important; }
+.artifacts-count { font-size: 11px; font-variant-numeric: tabular-nums; }
+.artifacts-menu { position: absolute; right: 0; top: 32px; min-width: 170px; padding: 4px; background: var(--card); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 8px 24px rgb(0 0 0 / 0.35); display: flex; flex-direction: column; }
+.artifacts-menu-item { text-align: left; padding: 6px 10px; color: var(--muted); font-size: 13px; }
+.artifacts-menu-item:hover, .artifacts-menu-item:focus-visible { color: var(--fg); background: var(--fill); outline: none; }
+.artifacts-menu-on { color: var(--fg); }
+.artifacts-menu-on::after { content: "✓"; float: right; color: var(--est); }
+.artifacts-list { border: 1px solid var(--line); background: var(--card); }
+.artifacts-row { display: flex; justify-content: space-between; gap: 16px; padding: 12px 14px; color: var(--fg); text-decoration: none; border-top: 1px solid var(--line); }
+.artifacts-row:first-child { border-top: 0; }
+.artifacts-row:hover { background: var(--fill); }
+.artifacts-row-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.artifacts-row-meta { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.artifacts-body { font-size: 14px; line-height: 1.6; }
 .pb { display: grid; grid-template-columns: minmax(0, 720px) 320px; column-gap: 36px; }
-.docs-no-margin .pb { grid-template-columns: minmax(0, 720px); justify-content: center; }
-.docs-no-margin .pb-margin { display: none; }
+.artifacts-no-margin .pb { grid-template-columns: minmax(0, 720px); justify-content: center; }
+.artifacts-no-margin .pb-margin { display: none; }
 .pb-body { align-self: start; min-width: 0; padding: 2px 0 2px 14px; border-left: 2px solid transparent; }
 .pb-body img, .pb-body video { display: block; max-width: 100%; height: auto; margin: 8px 0; border-radius: var(--radius); }
 .pb-body audio { display: block; width: 100%; max-width: 480px; margin: 8px 0; }
@@ -724,8 +724,8 @@ const PAGE_CSS = `
 .pb-body th, .pb-body td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
 .pb-body hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .pt-thread { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.45; }
-.pt-thread .docs-avatar { margin-top: 6px; width: 24px; height: 24px; font-size: 11px; }
-.pt-thread-active .docs-avatar { box-shadow: 0 0 0 2px var(--est); }
+.pt-thread .artifacts-avatar { margin-top: 6px; width: 24px; height: 24px; font-size: 11px; }
+.pt-thread-active .artifacts-avatar { box-shadow: 0 0 0 2px var(--est); }
 .pt-closed { opacity: 0.7; }
 .pt { position: relative; flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
 .pt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
@@ -746,7 +746,7 @@ const PAGE_CSS = `
 .pt-compose { display: flex; flex-direction: column; gap: 6px; border-color: var(--line-2); box-shadow: 0 8px 24px rgb(0 0 0 / 0.25); }
 .pt-compose:focus-within { border-color: var(--est); }
 .pt-context { display: flex; gap: 6px; min-width: 0; color: var(--faint); font-size: 12px; white-space: nowrap; }
-.pt-context-doc { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
+.pt-context-artifact { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
 .pt-context-quote { overflow: hidden; text-overflow: ellipsis; }
 .pt-input { width: 100%; resize: none; min-height: 40px; background: transparent; color: var(--fg); border: 0; padding: 0; font: inherit; field-sizing: content; max-height: 240px; }
 .pt-input:focus { outline: none; }
@@ -759,13 +759,13 @@ const PAGE_CSS = `
 .pt-send:disabled { background: var(--fill-2); color: var(--faint); cursor: default; }
 .pt-send:not(:disabled):hover, .pt-send:focus-visible { filter: brightness(1.1); outline: none; }
 @media (max-width: 1100px) {
-    .pb, .docs-no-margin .pb { grid-template-columns: minmax(0, 1fr); }
+    .pb, .artifacts-no-margin .pb { grid-template-columns: minmax(0, 1fr); }
     .pb-margin { padding-left: 16px; }
     .pb-margin:empty, .pb-margin:has(> .pb-add:only-child) { padding: 0; }
     .pb { position: relative; }
     .pb-body { margin-right: 34px; }
-    .docs-no-margin .pb-body { margin-right: 0; }
+    .artifacts-no-margin .pb-body { margin-right: 0; }
     .pb-add { position: absolute; top: 0; right: 0; opacity: 1; }
-    .docs-meta > :last-child { display: none; }
+    .artifacts-meta > :last-child { display: none; }
 }
 `;

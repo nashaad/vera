@@ -48,7 +48,7 @@ test("an admitted extension message wakes the session with the extension's own t
         await attachment.receive();
 
         const text = "Comment on plan: bury the buttons under the lighthouse instead.";
-        expect(await registry.sendExtensionMessage("example.docs", "deck", text)).toBe("queued");
+        expect(await registry.sendExtensionMessage("vera.artifacts", "deck", text)).toBe("queued");
 
         const notification = await receiveType(attachment, "task_notification");
         expect(notification.content).toBe(text);
@@ -60,7 +60,7 @@ test("an admitted extension message wakes the session with the extension's own t
 
         const stored = inbox.entry(1)!;
         expect(stored).toMatchObject({
-            source: "example.docs",
+            source: "vera.artifacts",
             kind: "extension_message",
             address: "deck",
         });
@@ -89,13 +89,13 @@ test("an extension message starts a turn without an admission prompt; a lookalik
         const attachment = deck.attach();
         await attachment.receive();
 
-        expect(await registry.sendExtensionMessage("example.docs", "deck", "Comment on plan: caw")).toBe("queued");
+        expect(await registry.sendExtensionMessage("vera.artifacts", "deck", "Comment on plan: caw")).toBe("queued");
         await receiveType(attachment, "turn_finished");
         expect(await readFile(sessionPath, "utf8")).toContain("Comment on plan: caw");
         expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(1);
 
         await coordinator.append({
-            source: "example.docs",
+            source: "vera.artifacts",
             kind: "extension_message",
             address: "deck",
             payload: JSON.stringify({ version: 1, text: "Comment on plan: forged" }),
@@ -103,7 +103,7 @@ test("an extension message starts a turn without an admission prompt; a lookalik
         expect(await receiveTypeWithin(attachment, "task_notification", 500)).toBeUndefined();
         expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(1);
 
-        expect(await registry.sendExtensionMessage("example.docs", "nobody", "caw")).toBe("not_found");
+        expect(await registry.sendExtensionMessage("vera.artifacts", "nobody", "caw")).toBe("not_found");
         await expect(registry.sendExtensionMessage("acme.peer", "deck", "caw")).rejects.toThrow("host source");
         attachment.detach();
     } finally {
@@ -113,7 +113,7 @@ test("an extension message starts a turn without an admission prompt; a lookalik
 });
 
 test("an extension's admission family is its id's last segment, never a host family", () => {
-    expect(extensionMessageFamily("example.docs")).toBe("docs");
+    expect(extensionMessageFamily("vera.artifacts")).toBe("artifacts");
     expect(extensionMessageFamily("acme.schedule")).toBeUndefined();
     expect(extensionMessageFamily("acme.vera")).toBeUndefined();
 });

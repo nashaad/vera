@@ -14,12 +14,12 @@ import { join } from "node:path";
 // its own file and every write is a rename.
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const DOC_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ARTIFACT_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const COMMENT_ID = /^c-[a-z0-9-]{1,64}$/;
 
 export type CommentStatus = "open" | "closed";
 
-export interface DocComment {
+export interface ArtifactComment {
     readonly id: string;
     /** The block's markdown when the comment was left. */
     readonly quote: string;
@@ -33,17 +33,17 @@ export interface DocComment {
     readonly sentAt?: string;
 }
 
-export interface StoredDoc {
+export interface StoredArtifact {
     readonly markdown: string;
     readonly updatedAt: string;
 }
 
-export interface DocRef {
+export interface ArtifactRef {
     readonly sessionId: string;
     readonly name: string;
 }
 
-export interface DocSummary extends DocRef {
+export interface ArtifactSummary extends ArtifactRef {
     readonly title: string;
     readonly updatedAt: string;
     readonly openComments: number;
@@ -57,20 +57,20 @@ export function isCommentId(value: unknown): value is string {
     return typeof value === "string" && COMMENT_ID.test(value);
 }
 
-export function isDocName(value: unknown): value is string {
-    return typeof value === "string" && DOC_NAME.test(value);
+export function isArtifactName(value: unknown): value is string {
+    return typeof value === "string" && ARTIFACT_NAME.test(value);
 }
 
-export function docDirectory(root: string, doc: DocRef): string {
-    if (!isSessionId(doc.sessionId)) throw new Error(`Invalid session id: ${doc.sessionId}`);
-    if (!isDocName(doc.name)) {
-        throw new Error(`Invalid doc name "${doc.name}": use lowercase letters, digits and dashes.`);
+export function artifactDirectory(root: string, artifact: ArtifactRef): string {
+    if (!isSessionId(artifact.sessionId)) throw new Error(`Invalid session id: ${artifact.sessionId}`);
+    if (!isArtifactName(artifact.name)) {
+        throw new Error(`Invalid artifact name "${artifact.name}": use lowercase letters, digits and dashes.`);
     }
-    return join(root, "docs", doc.sessionId, doc.name);
+    return join(root, "artifacts", artifact.sessionId, artifact.name);
 }
 
-export function readDoc(root: string, doc: DocRef): StoredDoc | undefined {
-    const path = join(docDirectory(root, doc), "doc.md");
+export function readArtifact(root: string, artifact: ArtifactRef): StoredArtifact | undefined {
+    const path = join(artifactDirectory(root, artifact), "artifact.md");
     if (!existsSync(path)) return undefined;
     return {
         markdown: readFileSync(path, "utf8"),
@@ -78,29 +78,29 @@ export function readDoc(root: string, doc: DocRef): StoredDoc | undefined {
     };
 }
 
-export function writeDoc(root: string, doc: DocRef, markdown: string): void {
-    const directory = docDirectory(root, doc);
+export function writeArtifact(root: string, artifact: ArtifactRef, markdown: string): void {
+    const directory = artifactDirectory(root, artifact);
     mkdirSync(directory, { recursive: true });
-    atomicWrite(join(directory, "doc.md"), markdown);
+    atomicWrite(join(directory, "artifact.md"), markdown);
 }
 
-export function sessionDocNames(root: string, sessionId: string): readonly string[] {
+export function sessionArtifactNames(root: string, sessionId: string): readonly string[] {
     if (!isSessionId(sessionId)) return [];
-    const directory = join(root, "docs", sessionId);
+    const directory = join(root, "artifacts", sessionId);
     if (!existsSync(directory)) return [];
     return readdirSync(directory)
-        .filter((name) => isDocName(name) && existsSync(join(directory, name, "doc.md")))
+        .filter((name) => isArtifactName(name) && existsSync(join(directory, name, "artifact.md")))
         .sort();
 }
 
-export function listComments(root: string, doc: DocRef): readonly DocComment[] {
-    const directory = join(docDirectory(root, doc), "comments");
+export function listComments(root: string, artifact: ArtifactRef): readonly ArtifactComment[] {
+    const directory = join(artifactDirectory(root, artifact), "comments");
     if (!existsSync(directory)) return [];
-    const comments: DocComment[] = [];
+    const comments: ArtifactComment[] = [];
     for (const name of readdirSync(directory)) {
         if (!name.endsWith(".json")) continue;
         try {
-            comments.push(JSON.parse(readFileSync(join(directory, name), "utf8")) as DocComment);
+            comments.push(JSON.parse(readFileSync(join(directory, name), "utf8")) as ArtifactComment);
         } catch {
             // A half-written file from a crash; the next write replaces it.
         }
@@ -110,11 +110,11 @@ export function listComments(root: string, doc: DocRef): readonly DocComment[] {
 
 export function addComment(
     root: string,
-    doc: DocRef,
+    artifact: ArtifactRef,
     input: { readonly quote: string; readonly index: number; readonly body: string },
-): DocComment {
+): ArtifactComment {
     const now = new Date();
-    const comment: DocComment = {
+    const comment: ArtifactComment = {
         id: `c-${now.getTime().toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
         quote: input.quote,
         index: Math.max(0, Math.floor(input.index)),
@@ -122,88 +122,88 @@ export function addComment(
         createdAt: now.toISOString(),
         status: "open",
     };
-    saveComment(root, doc, comment);
+    saveComment(root, artifact, comment);
     return comment;
 }
 
 export function setCommentStatus(
     root: string,
-    doc: DocRef,
+    artifact: ArtifactRef,
     id: string,
     status: CommentStatus,
     by: "agent" | "user",
-): DocComment | undefined {
-    const existing = readComment(root, doc, id);
+): ArtifactComment | undefined {
+    const existing = readComment(root, artifact, id);
     if (existing === undefined) return undefined;
     const { closedAt: _closedAt, closedBy: _closedBy, ...rest } = existing;
-    const updated: DocComment = status === "closed"
+    const updated: ArtifactComment = status === "closed"
         ? { ...rest, status, closedAt: new Date().toISOString(), closedBy: by }
         : { ...rest, status };
-    saveComment(root, doc, updated);
+    saveComment(root, artifact, updated);
     return updated;
 }
 
-export function markCommentSent(root: string, doc: DocRef, id: string): DocComment | undefined {
-    const existing = readComment(root, doc, id);
+export function markCommentSent(root: string, artifact: ArtifactRef, id: string): ArtifactComment | undefined {
+    const existing = readComment(root, artifact, id);
     if (existing === undefined) return undefined;
-    const updated: DocComment = { ...existing, sentAt: new Date().toISOString() };
-    saveComment(root, doc, updated);
+    const updated: ArtifactComment = { ...existing, sentAt: new Date().toISOString() };
+    saveComment(root, artifact, updated);
     return updated;
 }
 
-export function deleteComment(root: string, doc: DocRef, id: string): boolean {
-    const path = commentPath(root, doc, id);
+export function deleteComment(root: string, artifact: ArtifactRef, id: string): boolean {
+    const path = commentPath(root, artifact, id);
     if (!existsSync(path)) return false;
     rmSync(path);
     return true;
 }
 
-/** A comment is outdated once the text it was left on is gone from the doc. */
-export function isOutdated(comment: DocComment, markdown: string): boolean {
+/** A comment is outdated once the text it was left on is gone from the artifact. */
+export function isOutdated(comment: ArtifactComment, markdown: string): boolean {
     return !markdown.includes(comment.quote.trim());
 }
 
-export function listDocs(root: string): readonly DocSummary[] {
-    const directory = join(root, "docs");
+export function listArtifacts(root: string): readonly ArtifactSummary[] {
+    const directory = join(root, "artifacts");
     if (!existsSync(directory)) return [];
-    const docs: DocSummary[] = [];
+    const artifacts: ArtifactSummary[] = [];
     for (const sessionId of readdirSync(directory)) {
-        for (const name of sessionDocNames(root, sessionId)) {
+        for (const name of sessionArtifactNames(root, sessionId)) {
             const ref = { sessionId, name };
-            const doc = readDoc(root, ref);
-            if (doc === undefined) continue;
-            docs.push({
+            const artifact = readArtifact(root, ref);
+            if (artifact === undefined) continue;
+            artifacts.push({
                 ...ref,
-                title: docTitle(doc.markdown, name),
-                updatedAt: doc.updatedAt,
+                title: artifactTitle(artifact.markdown, name),
+                updatedAt: artifact.updatedAt,
                 openComments: listComments(root, ref)
                     .filter((comment) => comment.status === "open").length,
             });
         }
     }
-    return docs.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return artifacts.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export function docTitle(markdown: string, fallback: string): string {
+export function artifactTitle(markdown: string, fallback: string): string {
     const heading = /^#{1,6}\s+(.+)$/m.exec(markdown);
     const line = heading?.[1] ?? markdown.split("\n").find((text) => text.trim().length > 0) ?? "";
     return line.trim().slice(0, 120) || fallback;
 }
 
-export function readComment(root: string, doc: DocRef, id: string): DocComment | undefined {
-    const path = commentPath(root, doc, id);
+export function readComment(root: string, artifact: ArtifactRef, id: string): ArtifactComment | undefined {
+    const path = commentPath(root, artifact, id);
     if (!existsSync(path)) return undefined;
-    return JSON.parse(readFileSync(path, "utf8")) as DocComment;
+    return JSON.parse(readFileSync(path, "utf8")) as ArtifactComment;
 }
 
-function saveComment(root: string, doc: DocRef, comment: DocComment): void {
-    mkdirSync(join(docDirectory(root, doc), "comments"), { recursive: true });
-    atomicWrite(commentPath(root, doc, comment.id), `${JSON.stringify(comment, null, 2)}\n`);
+function saveComment(root: string, artifact: ArtifactRef, comment: ArtifactComment): void {
+    mkdirSync(join(artifactDirectory(root, artifact), "comments"), { recursive: true });
+    atomicWrite(commentPath(root, artifact, comment.id), `${JSON.stringify(comment, null, 2)}\n`);
 }
 
-function commentPath(root: string, doc: DocRef, id: string): string {
+function commentPath(root: string, artifact: ArtifactRef, id: string): string {
     if (!COMMENT_ID.test(id)) throw new Error(`Invalid comment id: ${id}`);
-    return join(docDirectory(root, doc), "comments", `${id}.json`);
+    return join(artifactDirectory(root, artifact), "comments", `${id}.json`);
 }
 
 function atomicWrite(path: string, content: string): void {

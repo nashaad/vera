@@ -1,25 +1,25 @@
 import { userInfo } from "node:os";
 
-import type { VeraAnnexPageApi, VeraMarkdownBlock } from "../../../src/sdk/annex-pages.ts";
+import type { VeraAnnexPageApi, VeraMarkdownBlock } from "../../src/sdk/annex-pages.ts";
 import {
     addComment,
     deleteComment,
-    docTitle,
-    isDocName,
+    artifactTitle,
+    isArtifactName,
     isOutdated,
     isSessionId,
     listComments,
-    listDocs,
+    listArtifacts,
     markCommentSent,
-    readDoc,
+    readArtifact,
     setCommentStatus,
-    type DocComment,
-    type DocRef,
-} from "./doc-store.ts";
+    type ArtifactComment,
+    type ArtifactRef,
+} from "./artifact-store.ts";
 
 const MAX_COMMENT_LENGTH = 4000;
 
-export interface PlacedComment extends DocComment {
+export interface PlacedComment extends ArtifactComment {
     readonly outdated: boolean;
     readonly blockIndex: number;
 }
@@ -28,20 +28,20 @@ export function activatePage(page: VeraAnnexPageApi): void {
     const root = (): string => page.storage.profile;
     const viewer = viewerName();
 
-    page.route("docs", () => json({ docs: listDocs(root()) }));
+    page.route("artifacts", () => json({ artifacts: listArtifacts(root()) }));
 
-    page.route("doc", (_request, url) => {
-        const ref = docRef(url.searchParams.get("session"), url.searchParams.get("doc"));
-        if (ref === undefined) return json({ error: "unknown doc" }, 400);
-        const doc = readDoc(root(), ref);
-        const blocks = doc === undefined ? [] : page.markdownBlocks(doc.markdown);
-        const comments = placeComments(listComments(root(), ref), doc?.markdown ?? "", blocks);
+    page.route("artifact", (_request, url) => {
+        const ref = artifactRef(url.searchParams.get("session"), url.searchParams.get("artifact"));
+        if (ref === undefined) return json({ error: "unknown artifact" }, 400);
+        const artifact = readArtifact(root(), ref);
+        const blocks = artifact === undefined ? [] : page.markdownBlocks(artifact.markdown);
+        const comments = placeComments(listComments(root(), ref), artifact?.markdown ?? "", blocks);
         const state = {
             ...ref,
-            title: doc === undefined ? ref.name : docTitle(doc.markdown, ref.name),
+            title: artifact === undefined ? ref.name : artifactTitle(artifact.markdown, ref.name),
             viewer,
-            exists: doc !== undefined,
-            updatedAt: doc?.updatedAt,
+            exists: artifact !== undefined,
+            updatedAt: artifact?.updatedAt,
             blocks,
             comments,
         };
@@ -51,8 +51,8 @@ export function activatePage(page: VeraAnnexPageApi): void {
     page.route("comments", async (request) => {
         if (request.method !== "POST") return json({ error: "use POST" }, 405);
         const body = await request.json() as Record<string, unknown>;
-        const { session, doc, quote, index, text, send } = body;
-        const ref = docRef(session, doc);
+        const { session, artifact, quote, index, text, send } = body;
+        const ref = artifactRef(session, artifact);
         if (
             ref === undefined
             || typeof quote !== "string"
@@ -74,8 +74,8 @@ export function activatePage(page: VeraAnnexPageApi): void {
     page.route("comment", async (request) => {
         if (request.method !== "POST") return json({ error: "use POST" }, 405);
         const body = await request.json() as Record<string, unknown>;
-        const { session, doc, id, action } = body;
-        const ref = docRef(session, doc);
+        const { session, artifact, id, action } = body;
+        const ref = artifactRef(session, artifact);
         if (ref === undefined || typeof id !== "string") {
             return json({ error: "invalid request" }, 400);
         }
@@ -93,9 +93,9 @@ export function activatePage(page: VeraAnnexPageApi): void {
 export type SendResult = "queued" | "not_found" | "failed";
 
 // The comment is saved either way; only the inbox copy can fail.
-async function sendComment(page: VeraAnnexPageApi, ref: DocRef, id: string): Promise<SendResult> {
+async function sendComment(page: VeraAnnexPageApi, ref: ArtifactRef, id: string): Promise<SendResult> {
     try {
-        const outcome = await page.host.request("send-comment", { session: ref.sessionId, doc: ref.name, id });
+        const outcome = await page.host.request("send-comment", { session: ref.sessionId, artifact: ref.name, id });
         return outcome === "queued" || outcome === "not_found" ? outcome : "failed";
     } catch {
         return "failed";
@@ -105,7 +105,7 @@ async function sendComment(page: VeraAnnexPageApi, ref: DocRef, id: string): Pro
 // A live comment sits under the block it quotes, picking the match nearest
 // where it was left. An outdated one keeps its old position.
 export function placeComments(
-    comments: readonly DocComment[],
+    comments: readonly ArtifactComment[],
     markdown: string,
     blocks: readonly VeraMarkdownBlock[],
 ): readonly PlacedComment[] {
@@ -145,8 +145,8 @@ function viewerName(): string {
     }
 }
 
-function docRef(session: unknown, doc: unknown): DocRef | undefined {
-    return isSessionId(session) && isDocName(doc) ? { sessionId: session, name: doc } : undefined;
+function artifactRef(session: unknown, artifact: unknown): ArtifactRef | undefined {
+    return isSessionId(session) && isArtifactName(artifact) ? { sessionId: session, name: artifact } : undefined;
 }
 
 function json(body: unknown, status = 200): Response {
