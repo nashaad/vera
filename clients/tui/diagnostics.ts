@@ -335,6 +335,13 @@ function sessionUsageLines(
         cost: 0,
         callsWithoutCost: 0,
     });
+    const writeRows = usage.rows.filter((row) => row.cacheWriteInputTokens !== undefined);
+    const cacheWrites = (tokens: number | undefined): string[][] => tokens === undefined
+        ? []
+        : [["Cache writes", formatTokens(tokens)]];
+    const totalCacheWrites = writeRows.length === 0
+        ? undefined
+        : writeRows.reduce((sum, row) => sum + (row.cacheWriteInputTokens ?? 0), 0);
     const lines = [
         ...markdownTable(
             ["Metric", "Value"],
@@ -345,6 +352,7 @@ function sessionUsageLines(
                 ["Input", formatTokens(totals.inputTokens)],
                 ["Output", formatTokens(totals.outputTokens)],
                 ["Cached", formatTokens(totals.cachedInputTokens)],
+                ...cacheWrites(totalCacheWrites),
                 ["Reasoning", formatTokens(totals.reasoningTokens)],
                 ["Cost", formatCost(
                     totals.cost,
@@ -365,6 +373,7 @@ function sessionUsageLines(
                     ["Input", formatTokens(row.inputTokens)],
                     ["Output", formatTokens(row.outputTokens)],
                     ["Cached", formatTokens(row.cachedInputTokens)],
+                    ...cacheWrites(row.cacheWriteInputTokens),
                     ["Reasoning", formatTokens(row.reasoningTokens)],
                     ["Cost", formatCost(
                         row.cost ?? 0,

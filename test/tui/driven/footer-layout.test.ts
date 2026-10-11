@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { createTuiSettingsDependencies } from "../../support/tui-settings-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+
+// The real footer shows the folder the test runs from; its last two segments survive any shortening at this width.
+const realFolder = `${basename(dirname(process.cwd()))}/${basename(process.cwd())}`;
 
 test("Footer layout hides and moves items live, and Escape saves them to tui.json", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-footer-"));
@@ -21,13 +24,13 @@ test("Footer layout hides and moves items live, and Escape saves them to tui.jso
         expect(pane).toMatch(/ 5 folder, branch +6 · +7 pane controls +8 activity strip/);
         // The canvas draws the example; the real footer under the composer keeps the real folder.
         expect(pane).toContain("~/crow-nest");
-        expect(pane).toContain("worktrees/footer");
+        expect(pane).toContain(realFolder);
 
         session.sendKey("Down");
         session.sendText(" ");
         pane = await session.waitForVisiblePaneWhere((text) => text.includes("Slot 5: folder, branch · hidden"), "folder hidden");
         expect(pane).not.toContain("~/crow-nest");
-        expect(pane).not.toContain("worktrees/footer");
+        expect(pane).not.toContain(realFolder);
 
         session.sendKey("Right");
         session.sendKey("Right");
@@ -47,6 +50,6 @@ test("Footer layout hides and moves items live, and Escape saves them to tui.jso
         expect(saved.footer_layout.hidden).toEqual(["place"]);
         expect(saved.footer_layout.rows[1]).toEqual(["place", null, null, "activity"]);
         expect(saved.footer_layout.rows[2]).toEqual([null, null, "panes", null]);
-        expect(session.captureVisiblePane()).not.toContain("worktrees/footer");
+        expect(session.captureVisiblePane()).not.toContain(realFolder);
     } finally { await session.close(); }
 }, 20_000);

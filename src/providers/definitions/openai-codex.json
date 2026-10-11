@@ -17,5 +17,6 @@
         "request": ["codex-wire"],
         "response": ["codex-stream"],
         "error": ["codex-error"]
-    }
+    },
+    "cache": { "mode": "key", "usage": ["read"] }
 }

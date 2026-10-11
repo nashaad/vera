@@ -506,7 +506,9 @@ function Overview({
                 <Metric
                     label="Cache hit"
                     value={percent(totals.cacheHitRatio)}
-                    sub={`${formatTokens(totals.cachedInputTokens)} input cached`}
+                    sub={totals.cacheWriteInputTokens === 0
+                        ? `${formatTokens(totals.cachedInputTokens)} input cached`
+                        : `${formatTokens(totals.cachedInputTokens)} input cached · ${formatTokens(totals.cacheWriteInputTokens)} written`}
                     delta={deltaPoints(totals.cacheHitRatio, prior?.cacheHitRatio, priorLabel)}
                 />
                 <Metric

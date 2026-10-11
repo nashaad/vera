@@ -204,6 +204,35 @@ test("TUI diagnostics puts itemized session usage above runtime", () => {
     expect(text).toContain("| Cost | $0.02 reported · 1 unpriced |");
 });
 
+test("TUI diagnostics lists cache writes only for rows that reported them", () => {
+    const row = {
+        calls: 1,
+        durationMs: 1_000,
+        inputTokens: 10_000,
+        outputTokens: 200,
+        cachedInputTokens: 6_000,
+        reasoningTokens: 0,
+        totalTokens: 10_200,
+        callsWithoutCost: 0,
+    };
+    const render = (rows: NonNullable<ReturnType<typeof createTuiState>["sessionUsage"]>["rows"]) =>
+        renderTuiDiagnostics({
+            state: { ...createTuiState(), sessionUsage: { rows } },
+            activity: "idle",
+            elapsed: "0s",
+            workspace: "/workspace",
+            runningBackgroundAgents: 0,
+        });
+
+    const text = render([
+        { ...row, provider: "openrouter", model: "anthropic/crow", cacheWriteInputTokens: 3_000 },
+        { ...row, provider: "deepseek", model: "deepseek-v4-pro" },
+    ]);
+    expect(text.match(/\| Cache writes \| 3,000 \|/g)).toHaveLength(2);
+    expect(render([{ ...row, provider: "deepseek", model: "deepseek-v4-pro" }]))
+        .not.toContain("Cache writes");
+});
+
 test("TUI diagnostics identifies the build, host, and extension paths", () => {
     const text = renderTuiDiagnostics({
         state: createTuiState(),

@@ -379,3 +379,51 @@ test("catalog levels on an unmatched custom model still send reasoning_effort", 
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test("an OpenAI-style endpoint reports cache reads and writes", async () => {
+    const adapter = createCustomOpenAIAdapter({
+        provider: "crow-chat",
+        baseUrl: "https://crow.example.com/v1",
+        fetch: async () => new Response([
+            'data: {"model":"crow","choices":[{"index":0,"delta":{"content":"Aye."},"finish_reason":"stop"}],"usage":{"prompt_tokens":200,"completion_tokens":5,"total_tokens":205,"prompt_tokens_details":{"cached_tokens":150,"cache_write_tokens":40}}}',
+            "",
+            "data: [DONE]",
+            "",
+        ].join("\n")),
+    });
+
+    const result = await adapter.stream({
+        model: "crow",
+        messages: [{ role: "user", content: [{ type: "text", text: "Bury it." }] }],
+    }).result();
+
+    expect(result.usage).toMatchObject({
+        inputTokens: 200,
+        cachedInputTokens: 150,
+        cacheWriteInputTokens: 40,
+    });
+});
+
+test("cache reads and writes reported as top-level usage fields are decoded", async () => {
+    const adapter = createCustomOpenAIAdapter({
+        provider: "crow-chat",
+        baseUrl: "https://crow.example.com/v1",
+        fetch: async () => new Response([
+            'data: {"model":"crow","choices":[{"index":0,"delta":{"content":"Aye."},"finish_reason":"stop"}],"usage":{"prompt_tokens":300,"completion_tokens":5,"total_tokens":305,"cache_read_input_tokens":120,"cache_created_input_tokens":90}}',
+            "",
+            "data: [DONE]",
+            "",
+        ].join("\n")),
+    });
+
+    const result = await adapter.stream({
+        model: "crow",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hoist the colours." }] }],
+    }).result();
+
+    expect(result.usage).toMatchObject({
+        inputTokens: 300,
+        cachedInputTokens: 120,
+        cacheWriteInputTokens: 90,
+    });
+});

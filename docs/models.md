@@ -184,13 +184,17 @@ A model that has disappeared from its provider is
 marked unavailable and cannot be selected.
 To change credentials or endpoints, use [Configure providers](first-run-setup.md).
 
-Vera retries rate-limit and server failures up to six times, waiting 1, 2, 4,
-8, 15, and 30 seconds. Other transient request failures get up to two retries.
-Retry activity shows the next attempt and total attempt count. Press Escape
-to cancel while waiting. Missing credentials or
-provider credit need your attention and stop immediately. Malformed tool
-arguments can also be retried when no tool could have run. If retries fail,
-Vera keeps the last partial response and shows the error.
+Vera retries rate-limit, server, and dropped-connection failures up to six
+times, waiting 1, 2, 4, 8, 15, and 30 seconds. Other transient request failures
+get up to two retries. A connection that drops while the model is still
+reasoning is retried too; once answer text has appeared, Vera keeps it and
+shows the error instead. If a model sends nothing for 5 minutes, Vera treats
+that as a timeout and retries. Retry activity shows the next attempt and total
+attempt count. Press Escape to cancel at any point, including while a request
+is stuck. Missing credentials or provider credit need your attention and stop
+immediately. Malformed tool arguments can also be retried when no tool could
+have run. If retries fail, Vera keeps the last partial response and shows the
+error.
 
 ### Configure an overload fallback
 
@@ -220,6 +224,51 @@ reasoning controls. If the server omits those facts, context occupancy and
 effort can remain unknown until configured or supplied by a supported mapping.
 Thinking controls vary by server; do not assume every local model has the same
 effort levels.
+
+## Prompt caching
+
+Providers keep the start of a request they have already processed and charge
+less to reuse it. Vera keeps that start the same within a conversation and
+sends each provider what it needs to find it again. There is nothing to set
+up.
+
+- The ChatGPT subscription gets the conversation's id as a cache key.
+- Anthropic-style endpoints get cache markers on the system prompt, the tools,
+  and the latest message.
+- `anthropic/*` models through OpenRouter get cache markers too. Every OpenRouter
+  request carries the conversation's id, so OpenRouter keeps the conversation
+  on the same upstream provider.
+- Other OpenAI-style providers cache on their own.
+
+The [usage page](usage.md) counts cached input for every provider that reports
+it, and cache writes where the provider reports those.
+
+To change how long providers are asked to keep the cache, set
+`prompt_cache.retention` in `config.json` to `short` (the default), `long`, or
+`none` to send no cache hints at all:
+
+```json
+"prompt_cache": { "retention": "long" }
+```
+
+A provider you declare under `providers` caches the way its protocol
+suggests. If your endpoint caches differently, give it its own `cache` block:
+
+```json
+"providers": {
+  "crows-nest": {
+    "protocol": "openai-chat",
+    "base_url": "https://crows-nest.example/v1",
+    "cache": { "mode": "key", "usage": ["read", "write"] }
+  }
+}
+```
+
+`mode` is `key`, `automatic` or `none` for `openai-chat`, and `breakpoints`
+or `none` for `anthropic-messages`. `usage` lists what the endpoint reports
+back: `read`, `write`, both, or neither. `affinity_header` names a header
+that carries the conversation's id, for a gateway that pins a conversation to
+one server by it.
 
 ## Keyboard reference
 

@@ -393,6 +393,7 @@ class ModelCall:
         input_tokens: int = 0,
         output_tokens: int = 0,
         cached_input_tokens: int = 0,
+        cache_write_input_tokens: int = 0,
         cost: float | None = None,
     ) -> None:
         """Record what the call used. A second call replaces the first."""
@@ -400,6 +401,7 @@ class ModelCall:
             ("input_tokens", input_tokens),
             ("output_tokens", output_tokens),
             ("cached_input_tokens", cached_input_tokens),
+            ("cache_write_input_tokens", cache_write_input_tokens),
         ):
             if count < 0:
                 raise WorkflowError("usage", f"{name} cannot be negative")
@@ -413,6 +415,10 @@ class ModelCall:
         if cached_input_tokens:
             attributes["llm.token_count.prompt_details.cache_read"] = (
                 cached_input_tokens
+            )
+        if cache_write_input_tokens:
+            attributes["llm.token_count.prompt_details.cache_write"] = (
+                cache_write_input_tokens
             )
         if cost is not None:
             attributes["llm.cost.total"] = cost

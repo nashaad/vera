@@ -201,3 +201,19 @@ function viewState() {
         refreshedAt: "12:00:05",
     };
 }
+
+test("the health line names cache writes only when a provider reported them", () => {
+    const reported = buildDashboardReport([{
+        ...SESSIONS[0]!,
+        facts: {
+            ...SESSIONS[0]!.facts,
+            usage: {
+                rows: [{ ...SESSIONS[0]!.facts!.usage!.rows[0]!, cacheWriteInputTokens: 12_000 }],
+            },
+        },
+    }], { sort: "context", partial: false });
+    const unreported = buildDashboardReport(SESSIONS, { sort: "context", partial: false });
+
+    expect(JSON.stringify(renderDashboard(reported, viewState(), 120))).toContain("cache writes");
+    expect(JSON.stringify(renderDashboard(unreported, viewState(), 120))).not.toContain("cache writes");
+});

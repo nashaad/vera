@@ -58,6 +58,19 @@ test("health totals sum every loaded session's usage", () => {
     expect(report.health.partial).toBe(false);
 });
 
+test("cache writes add up only from rows that reported them", () => {
+    const report = buildDashboardReport([
+        session("a", {}, { usage: { rows: [usageRow({ cacheWriteInputTokens: 40 })] } }),
+        session("b", {}, { usage: { rows: [usageRow({ model: "gpt" })] } }),
+    ], { sort: "context", partial: false });
+    const unreported = buildDashboardReport([
+        session("c", {}, { usage: { rows: [usageRow()] } }),
+    ], { sort: "context", partial: false });
+
+    expect(report.health.tokens.cacheWriteInputTokens).toBe(40);
+    expect(unreported.health.tokens).not.toHaveProperty("cacheWriteInputTokens");
+});
+
 test("an unpriced call leaves the cost absent rather than zero", () => {
     const report = buildDashboardReport([
         session("a", {}, {

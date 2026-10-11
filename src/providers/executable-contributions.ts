@@ -50,6 +50,7 @@ const CONTRIBUTIONS: Readonly<Record<string, ExecutableProviderContribution>> = 
                         allowanceGuard: options.openRouterAllowanceGuard,
                         allowanceScope: openRouterAllowanceScope(key),
                     }),
+                ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
                 ...capture(options),
             });
         },

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     adapterCacheFingerprint,
+    applyModelRequestOptions,
     createRequestOptionsSnapshotAdapter,
     ProviderRoutingAdapter,
 } from "../../src/providers/routing.ts";
@@ -398,4 +399,27 @@ test("preparation cancellation keeps the aborted stop reason", async () => {
         signal: controller.signal,
     }).result();
     expect(result.stopReason).toBe("aborted");
+});
+
+test("configured cache retention reaches requests that did not choose one", () => {
+    const config = { prompt_cache: { retention: "long" as const } };
+    const plain = applyModelRequestOptions(
+        { model: "crow/plunder", messages: [] },
+        config,
+        "openrouter",
+    );
+    const chosen = applyModelRequestOptions(
+        { model: "crow/plunder", messages: [], cacheRetention: "none" },
+        config,
+        "openrouter",
+    );
+    const unset = applyModelRequestOptions(
+        { model: "crow/plunder", messages: [] },
+        {},
+        "openrouter",
+    );
+
+    expect(plain.cacheRetention).toBe("long");
+    expect(chosen.cacheRetention).toBe("none");
+    expect(unset.cacheRetention).toBeUndefined();
 });

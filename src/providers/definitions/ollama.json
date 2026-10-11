@@ -22,5 +22,6 @@
         "request": ["capability-gated-thinking"],
         "response": ["openai-sse"],
         "error": ["http-status"]
-    }
+    },
+    "cache": { "mode": "none", "usage": [] }
 }

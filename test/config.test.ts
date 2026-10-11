@@ -1651,6 +1651,53 @@ test("a tool result patch merges field by field", () => {
     expect(loadVeraConfig({ path }).tool_results).toEqual({ aging_level: "tight" });
 });
 
+test("prompt cache retention loads, rejects unknown levels, and survives a rewrite", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        prompt_cache: { retention: "long" },
+    }));
+
+    expect(loadVeraConfig({ path }).prompt_cache).toEqual({ retention: "long" });
+    updateVeraConfigDefaults({ tool_results: { ceiling_bytes: 8_192 } }, { path });
+    expect(loadVeraConfig({ path }).prompt_cache).toEqual({ retention: "long" });
+
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        prompt_cache: { retention: "forever" },
+    }));
+    expect(() => loadVeraConfig({ path })).toThrow();
+});
+
+test("a declared provider keeps its cache block, and a bad one is named", () => {
+    const path = temporaryConfigPath();
+    const write = (cache: unknown) => writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "crow-gateway",
+        model: "crow/plunder",
+        providers: {
+            "crow-gateway": {
+                protocol: "anthropic-messages",
+                base_url: "https://crow.example/v1",
+                cache,
+            },
+        },
+    }));
+
+    write({ mode: "none", usage: [] });
+    expect(loadVeraConfig({ path }).providers?.["crow-gateway"]?.cache)
+        .toEqual({ mode: "none", usage: [] });
+    updateVeraConfigDefaults({ tool_results: { ceiling_bytes: 8_192 } }, { path });
+    expect(loadVeraConfig({ path }).providers?.["crow-gateway"]?.cache)
+        .toEqual({ mode: "none", usage: [] });
+
+    write({ mode: "key", usage: ["read"] });
+    expect(() => loadVeraConfig({ path }))
+        .toThrow(/cache mode key does not fit protocol anthropic-messages/);
+});
+
 test("configured overrides carry only what the config wrote", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

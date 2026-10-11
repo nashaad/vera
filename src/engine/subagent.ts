@@ -39,6 +39,7 @@ import {
     type ToolApprovalUiRequestUpdate,
 } from "./protocol.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
+import { PromptHistoryTracker } from "./prompt-history-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import {
@@ -825,6 +826,7 @@ export async function runSubagent(
             messages: [],
             store,
             modelContext: compaction.modelContext,
+            historyLineage: compaction.historyLineage,
             contextWatch: compaction.contextWatch,
             ...(options.compaction === undefined
                 ? {}
@@ -866,6 +868,7 @@ export async function runSubagent(
                 ? {}
                 : { permissionModes: options.permissionModes }),
             promptPrefixTracker: new PromptPrefixTracker(),
+            promptHistoryTracker: new PromptHistoryTracker(),
             ...(options.scratchDir === undefined
                 ? {}
                 : { scratchDir: options.scratchDir }),

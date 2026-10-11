@@ -282,6 +282,8 @@ export interface ModelUsage {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly cachedInputTokens: number;
+    // Part of inputTokens, like cachedInputTokens. Absent when the provider does not report writes.
+    readonly cacheWriteInputTokens?: number;
     readonly reasoningTokens: number;
     readonly totalTokens: number;
     readonly cost?: number;
@@ -319,6 +321,10 @@ export interface ModelRequest {
     readonly systemPrompt?: string;
     readonly messages: readonly ModelInputMessage[];
     readonly tools?: readonly ModelTool[];
+    // Stable per conversation; providers that route or cache by key use it so repeat prefixes hit.
+    readonly cacheKey?: string;
+    // Absent means "short". "none" also withholds the key.
+    readonly cacheRetention?: import("./prompt-cache.ts").CacheRetention;
     /** Namespaced provider-body fields contributed outside the engine. */
     readonly bodyExtensions?: Readonly<Record<string, import("../sdk/hooks.ts").JsonValue>>;
     readonly signal?: AbortSignal;

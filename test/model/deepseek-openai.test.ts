@@ -178,3 +178,28 @@ test("DeepSeek tolerates a null usage field on a stream chunk", async () => {
     expect(result.stopReason).toBe("stop");
     expect(result.content).toMatchObject([{ type: "text", text: "hi" }]);
 });
+
+test("DeepSeek cache hits and reasoning tokens reach usage", async () => {
+    const adapter = createDeepSeekAdapter({
+        apiKey: "sk-test",
+        fetch: async () => new Response([
+            'data: {"model":"deepseek-v4-pro","choices":[{"index":0,"delta":{"content":"Aye."},"finish_reason":"stop"}],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150,"prompt_cache_hit_tokens":96,"prompt_cache_miss_tokens":24,"completion_tokens_details":{"reasoning_tokens":12}}}',
+            "",
+            "data: [DONE]",
+            "",
+        ].join("\n"), { headers: { "content-type": "text/event-stream" } }),
+    });
+
+    const result = await adapter.stream({
+        model: "deepseek-v4-pro",
+        messages: [{ role: "user", content: [{ type: "text", text: "Count the doubloons." }] }],
+    }).result();
+
+    expect(result.usage).toMatchObject({
+        inputTokens: 120,
+        cachedInputTokens: 96,
+        reasoningTokens: 12,
+        outputTokens: 30,
+    });
+    expect(result.usage.cacheWriteInputTokens).toBeUndefined();
+});

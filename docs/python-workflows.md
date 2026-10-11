@@ -267,6 +267,10 @@ def ask(prompt: str) -> str:
     return answer.content[0].text
 ```
 
+`cached_input_tokens` and `cache_write_input_tokens` are optional too. They
+are parts of `input_tokens`, not additions to it, so a provider that reports
+cache reads and writes separately from input needs them added in.
+
 `cost` is optional. Vera records the number it is given and adds nothing of
 its own, so a run with no reported cost shows tokens and no money. The report
 prints the total:
@@ -281,8 +285,8 @@ attempts
 
 The counts ride in `attributes` under OpenInference names
 (`llm.model_name`, `llm.token_count.prompt`, `llm.token_count.completion`,
-`llm.token_count.total`, `llm.token_count.prompt_details.cache_read`, and
-`llm.cost.total`), on a span whose kind is `LLM`.
+`llm.token_count.total`, `llm.token_count.prompt_details.cache_read`,
+`llm.token_count.prompt_details.cache_write`, and `llm.cost.total`), on a span whose kind is `LLM`.
 
 `input()` and `output()` record what the call sent and got back. Each takes a
 string or any JSON value, such as a list of messages. Both are optional. A

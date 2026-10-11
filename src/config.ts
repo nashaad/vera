@@ -34,6 +34,7 @@ import type { OverrideSettingsPatch } from "./engine/model-settings.ts";
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
+import type { CacheRetention } from "./model/prompt-cache.ts";
 import {
     parseCompactionConfig,
     parseModelCatalogConfig,
@@ -67,8 +68,10 @@ import {
 import { veraProfileDirectory } from "./profile-paths.ts";
 import {
     isFixedEndpointProvider,
+    parseCache,
     providerDefinition,
     shippedProviderIds,
+    type ProviderCacheDefinition,
 } from "./providers/definitions.ts";
 import { isSafeProviderId } from "./providers/provider-id.ts";
 import {
@@ -109,6 +112,8 @@ export interface VeraCustomProviderConfig {
     readonly max_tokens?: number;
     /** Opts an Anthropic-compatible endpoint into the current thinking API. */
     readonly thinking?: VeraAnthropicThinkingMode;
+    /** Replaces the cache behavior the protocol implies. */
+    readonly cache?: ProviderCacheDefinition;
 }
 
 export interface VeraModelFallbackConfig {
@@ -247,6 +252,7 @@ export interface VeraConfig {
     readonly prompt_contribution_order?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
     readonly tool_results?: VeraToolResultsConfig;
+    readonly prompt_cache?: VeraPromptCacheConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
     readonly tui?: VeraTuiConfig;
@@ -357,6 +363,11 @@ export interface VeraToolResultsConfig {
     readonly stub_after_turns?: number;
     /** Pins a row of the aging ladder instead of choosing one by window. */
     readonly aging_level?: VeraToolResultAgingLevel;
+}
+
+export interface VeraPromptCacheConfig {
+    /** Absent asks providers for their default cache lifetime. */
+    readonly retention?: CacheRetention;
 }
 
 export interface LoadVeraConfigOptions {
@@ -500,6 +511,7 @@ export function loadVeraConfig(
     }
 
     const migrated = migrateShippedProviderDeclarations(path, value);
+    checkDeclaredProviderCaches(path, migrated);
     const movedReviewerKeys = reviewerRouteKeys(migrated);
     if (movedReviewerKeys.length > 0) {
         throw new VeraConfigError(
@@ -1188,6 +1200,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
     const toolResults = parseToolResultsConfig(config.tool_results);
+    const promptCache = parsePromptCacheConfig(config.prompt_cache);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
@@ -1227,6 +1240,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || experimental === undefined
         || inbox === undefined
         || toolResults === undefined
+        || promptCache === undefined
         || eventLog === undefined
         || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
@@ -1321,6 +1335,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.tool_results === undefined
             ? {}
             : { tool_results: toolResults }),
+        ...(config.prompt_cache === undefined
+            ? {}
+            : { prompt_cache: promptCache }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
         ...(config.tui === undefined ? {} : { tui }),
@@ -1406,6 +1423,14 @@ function parseCustomProviders(
         ) {
             return undefined;
         }
+        let cache: ProviderCacheDefinition | undefined;
+        if (raw.cache !== undefined) {
+            try {
+                cache = parseCache(raw.cache, raw.protocol, `provider ${id}`);
+            } catch {
+                return undefined;
+            }
+        }
         parsed[id] = {
             protocol: raw.protocol,
             base_url: raw.base_url.replace(/\/+$/, ""),
@@ -1420,9 +1445,36 @@ function parseCustomProviders(
             ...(raw.thinking === undefined
                 ? {}
                 : { thinking: raw.thinking as VeraAnthropicThinkingMode }),
+            ...(cache === undefined ? {} : { cache }),
         };
     }
     return parsed;
+}
+
+function isConfigRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// The loader's one-line error cannot say what is wrong with a hand-written cache block.
+function checkDeclaredProviderCaches(path: string, value: unknown): void {
+    if (!isConfigRecord(value) || !isConfigRecord(value.providers)) return;
+    for (const [id, declaration] of Object.entries(value.providers)) {
+        if (!isConfigRecord(declaration) || declaration.cache === undefined) continue;
+        if (
+            declaration.protocol !== "openai-chat"
+            && declaration.protocol !== "anthropic-messages"
+        ) {
+            continue;
+        }
+        try {
+            parseCache(declaration.cache, declaration.protocol, `provider "${id}"`);
+        } catch (error) {
+            throw new VeraConfigError(
+                path,
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+    }
 }
 
 /**
@@ -1688,6 +1740,27 @@ function parseExperimental(
             ? {}
             : { outrider_onboarding: raw.outrider_onboarding }),
     };
+}
+
+const PROMPT_CACHE_RETENTIONS: readonly CacheRetention[] = ["none", "short", "long"];
+
+function parsePromptCacheConfig(
+    value: unknown,
+): VeraPromptCacheConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const retention = (value as Record<string, unknown>).retention;
+    if (retention === undefined) {
+        return {};
+    }
+    if (!PROMPT_CACHE_RETENTIONS.includes(retention as CacheRetention)) {
+        return undefined;
+    }
+    return { retention: retention as CacheRetention };
 }
 
 const TOOL_RESULT_BYTE_KEYS = [

@@ -60,7 +60,7 @@ Outrider guided setup is hidden by default; enable `experimental.outrider_onboar
 A provider marked `unverified` has no verified model response; opening Configure providers does not test its connection.
 Manual: `docs/first-run-setup.md`.
 
-## Models and providers [lines=27]
+## Models and providers [lines=28]
 Vera has two model surfaces. Switch model changes what runs the next turn. The Models page browses the catalog and never changes what runs the next turn.
 Ctrl+X, release Ctrl, then M opens Switch model from Home or a conversation. The prefix has no timeout; Escape cancels it. `/model` and Ctrl+P also open it. Search is focused first.
 Ctrl+X then H shows a card of the common keys while you keep typing; the same keys close it.
@@ -81,6 +81,7 @@ Bulk verification covers Favorites. Tab toggles unverified-only/all; Enter start
 Assign model defaults offers any connected model. New assignments must be permitted by policy but need not be favorites or verified; assigning a model also adds it to your favorites. Set `verify_model_assignments` to true in `config.json` to verify each model before it is assigned; a failed or canceled check then keeps the previous value.
 Removing a favorite preserves verification evidence and all default assignments. An empty Favorites list does not invalidate explicit subagent defaults. Subagents still use only their assigned list and the separately enabled spawning-session fallback.
 Provider catalogs distinguish never-refreshed, empty, failed, and unavailable entries. Discovery does not select, favorite, verify, or assign a model.
+Prompt caching needs no setup: Vera keeps each conversation's request start stable and sends each provider the cache key or markers it needs; `config.json` can change how long caches are kept or give a declared provider its own cache settings. Manual: `docs/models.md`.
 `/effort` opens the levels the running model has, each with what it costs in plain terms. It interrupts a switch only when the level you were on is not one the new model has. A level you choose becomes the default for new conversations, except `max`, which applies to the current conversation only.
 Shift+Tab opens the HUD, which holds Agent and Access. Tab or Up/Down move between the two; Left/Right change values. Enter applies; Escape cancels. Model and effort are not in the HUD.
 The composer footer always carries all four: agent and access on the left, provider/model and effort on the right.
@@ -171,7 +172,7 @@ How much context Vera keeps is configurable on one screen: `/settings` then Over
 Manual: `docs/context-levers.md`.
 
 ## Diagnostics and recovery [lines=16]
-Vera automatically retries rate-limit and server failures with increasing waits; retry activity stays visible and Escape cancels the pending retry.
+Vera automatically retries rate-limit, server, dropped-connection and stalled-stream failures with increasing waits; retry activity stays visible and Escape cancels the pending retry or a stuck request.
 Completed web searches show each query in the collapsed activity group; Ctrl+T expands tool details, and Ctrl+O expands provider reasoning summaries. Manual: `docs/tui-dialogs.md`.
 `/diagnostics` and `/doctor` inspect the current runtime. `/diagnostics` opens on a menu with two reports, Session (this conversation) and Vera (the host); ↑↓ and Enter open one, Escape goes back to the menu, and Enter on a report copies it. `/context` explains context occupancy without making a model request.
 If a client loses its host connection, press Ctrl+P and choose Reconnect host; there is no `/reconnect` command. This attaches to or replaces the host process while preserving the same installed build.

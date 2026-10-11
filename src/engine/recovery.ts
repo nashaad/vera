@@ -2,11 +2,13 @@ import {
     ProviderFailureError,
     type ProviderFailure,
 } from "../model/provider-failure.ts";
-import type {
-    AssistantMessage,
-    ModelAdapter,
-    ModelRequest,
-    ModelStreamEvent,
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+    type ModelStream,
+    type ModelStreamEvent,
 } from "../model/types.ts";
 import { reasoningEffortForModel } from "./model-settings.ts";
 import {
@@ -49,6 +51,12 @@ export const DEFAULT_MODEL_RETRY_POLICY: ModelRetryPolicy = {
 const DEFAULT_OVERLOAD_RETRY_POLICY: ModelRetryPolicy = {
     delaysMs: [1_000, 2_000, 4_000, 8_000, 15_000, 30_000],
 };
+
+// Long because a high reasoning effort can think for minutes before sending a byte.
+export const DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS = 300_000;
+
+// How long an adapter gets to wind down after its attempt is cancelled.
+const ATTEMPT_WIND_DOWN_MS = 1_000;
 
 export const DEFAULT_MODEL_MAX_TOKENS = 8_000;
 export const ESCALATED_MODEL_MAX_TOKENS = 64_000;
@@ -97,6 +105,7 @@ export interface ModelRecoveryOptions {
     readonly policy?: ModelRetryPolicy;
     readonly fallback?: ModelFallbackPolicy;
     readonly wait?: WaitForModelRetry;
+    readonly idleTimeoutMs?: number;
     readonly onEvent: (event: ModelStreamEvent) => void;
     readonly onRetry: (retry: ModelRetryScheduled) => void;
     readonly onFallback: (fallback: ModelFallbackSelected) => void;
@@ -143,13 +152,26 @@ export async function requestModelWithRecovery(
     const refusedEfforts = new Set<string>();
 
     while (true) {
-        const stream = adapter.stream(activeRequest);
+        const attempt = new AbortController();
+        const stream = adapter.stream({
+            ...activeRequest,
+            signal: request.signal === undefined
+                ? attempt.signal
+                : AbortSignal.any([request.signal, attempt.signal]),
+        });
         let contentStarted = false;
+        let visibleTextStarted = false;
         let retry: PendingModelRetry | undefined;
         let fallback: ModelFallbackSelected | undefined;
         let coarsened: ModelEffortCoarsened | undefined;
 
-        for await (const event of stream) {
+        for await (const event of supervisedEvents(
+            stream,
+            attempt,
+            activeRequest,
+            request.signal,
+            options.idleTimeoutMs ?? DEFAULT_MODEL_STREAM_IDLE_TIMEOUT_MS,
+        )) {
             if (event.type === "start" && requestAttempt > 0) {
                 continue;
             }
@@ -208,7 +230,8 @@ export async function requestModelWithRecovery(
                         break;
                     }
 
-                    const policy = options.policy ?? (isOverloadFailure(failure)
+                    const policy = options.policy ?? (
+                        isOverloadFailure(failure) || isNetworkFailure(failure)
                         ? DEFAULT_OVERLOAD_RETRY_POLICY
                         : DEFAULT_MODEL_RETRY_POLICY);
                     const delayMs = policy.delaysMs[retryAttempt];
@@ -217,6 +240,7 @@ export async function requestModelWithRecovery(
                         && (
                             !contentStarted
                             || failure.partialOutputReplaceable === true
+                            || (isNetworkFailure(failure) && !visibleTextStarted)
                         )
                         && delayMs !== undefined
                     ) {
@@ -242,6 +266,9 @@ export async function requestModelWithRecovery(
 
             if (event.type !== "start" && event.type !== "done") {
                 contentStarted = true;
+            }
+            if (event.type === "text_delta" && event.text.trim() !== "") {
+                visibleTextStarted = true;
             }
             options.onEvent(event);
             if (event.type === "done") {
@@ -298,6 +325,145 @@ export async function requestModelWithRecovery(
 
 function isOverloadFailure(failure: ProviderFailure): boolean {
     return failure.kind === "rate_limit" || failure.kind === "server";
+}
+
+// Nothing the user read is lost by replaying these until visible text arrives.
+function isNetworkFailure(failure: ProviderFailure): boolean {
+    return failure.kind === "connection" || failure.kind === "timeout";
+}
+
+type SupervisedNext =
+    | { readonly kind: "event"; readonly result: IteratorResult<ModelStreamEvent> }
+    | { readonly kind: "idle" }
+    | { readonly kind: "aborted" };
+
+// Adapters await sockets, locks and token refreshes that may never settle, so
+// silence and cancellation are enforced here rather than trusted to each one.
+async function* supervisedEvents(
+    stream: ModelStream,
+    attempt: AbortController,
+    request: ModelRequest,
+    turnSignal: AbortSignal | undefined,
+    idleTimeoutMs: number,
+): AsyncGenerator<ModelStreamEvent> {
+    const iterator = stream[Symbol.asyncIterator]();
+    // A read that lost a race is still owed the next event; reuse it.
+    let pending: Promise<IteratorResult<ModelStreamEvent>> | undefined;
+    let stopped: "idle" | "aborted" | undefined;
+
+    while (true) {
+        pending ??= iterator.next();
+        const next = stopped === undefined
+            ? await nextWithin(pending, idleTimeoutMs, turnSignal)
+            : await nextWithin(pending, ATTEMPT_WIND_DOWN_MS, undefined);
+
+        if (next.kind === "event") {
+            pending = undefined;
+            if (next.result.done === true) {
+                return;
+            }
+            const event = next.result.value;
+            if (stopped === undefined) {
+                yield event;
+                continue;
+            }
+            if (event.type === "error" || event.type === "done") {
+                yield stopped === "idle"
+                    ? idleFailure(event.message, idleTimeoutMs)
+                    : event;
+                return;
+            }
+            continue;
+        }
+
+        if (stopped !== undefined) {
+            const message = unansweredMessage(request);
+            yield stopped === "idle"
+                ? idleFailure(message, idleTimeoutMs)
+                : {
+                    type: "error",
+                    error: toError(turnSignal?.reason ?? "Model request aborted"),
+                    message: { ...message, stopReason: "aborted" },
+                };
+            return;
+        }
+
+        stopped = next.kind;
+        if (next.kind === "idle") {
+            attempt.abort(new Error("Model stream went idle"));
+        }
+    }
+}
+
+function nextWithin(
+    pending: Promise<IteratorResult<ModelStreamEvent>>,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+): Promise<SupervisedNext> {
+    if (signal?.aborted) {
+        return Promise.resolve({ kind: "aborted" });
+    }
+    return new Promise((resolve, reject) => {
+        const cleanUp = (): void => {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbort);
+        };
+        const onAbort = (): void => {
+            cleanUp();
+            resolve({ kind: "aborted" });
+        };
+        const timer = setTimeout(() => {
+            cleanUp();
+            resolve({ kind: "idle" });
+        }, timeoutMs);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        pending.then(
+            (result) => {
+                cleanUp();
+                resolve({ kind: "event", result });
+            },
+            (error: unknown) => {
+                cleanUp();
+                reject(error);
+            },
+        );
+    });
+}
+
+function idleFailure(
+    message: AssistantMessage,
+    idleTimeoutMs: number,
+): ModelStreamEvent {
+    const failure: ProviderFailure = {
+        kind: "timeout",
+        resolution: "retry",
+        message: `No response from ${message.source.model} for ${
+            Math.round(idleTimeoutMs / 1_000)
+        }s`,
+    };
+    return {
+        type: "error",
+        error: new ProviderFailureError(failure, new Error(failure.message)),
+        message: {
+            ...message,
+            stopReason: "error",
+            errorMessage: failure.message,
+        },
+    };
+}
+
+function unansweredMessage(request: ModelRequest): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [],
+        source: {
+            provider: request.provider ?? "unknown",
+            api: "unknown",
+            model: request.model,
+        },
+        usage: emptyUsage(),
+        stopReason: "error",
+    };
 }
 
 function abortModelRequest(

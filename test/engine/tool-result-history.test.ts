@@ -70,15 +70,40 @@ test("provenance references add original lines to, never subtract from, a digest
         const spillPath = join(directory, "grep.txt");
         const original = "src/a.ts:12:needle needleIdentifier\nsrc/a.ts:20:unrelated";
         await writeFile(spillPath, original, "utf8");
-        const result = assembleAgedToolResults([
-            ...agedEntries("grep", original, spillPath),
+        const entries = agedEntries("grep", original, spillPath);
+        entries.splice(
+            entries.length - 1,
+            0,
             assistant("I used src/a.ts:12, needleIdentifier, and the \"needle\" line."),
-        ], PRESSURED).find((message) => message.role === "tool_result");
+        );
+        const result = assembleAgedToolResults(entries, PRESSURED)
+            .find((message) => message.role === "tool_result");
 
         expect(result?.role === "tool_result" && result.content[0]?.text)
             .toContain("Provenance retained");
         expect(result?.role === "tool_result" && result.content[0]?.text)
             .toContain("src/a.ts:12:needle");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("an aged digest keeps the same bytes as later turns arrive", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-provenance-"));
+    try {
+        const spillPath = join(directory, "grep.txt");
+        const original = "src/map.ts:12:buried chest\nsrc/map.ts:20:parrot perch";
+        await writeFile(spillPath, original, "utf8");
+        const entries = agedEntries("grep", original, spillPath);
+        const before = resultTexts(assembleAgedToolResults(entries, PRESSURED));
+        const after = resultTexts(assembleAgedToolResults([
+            ...entries,
+            assistant("Dig at src/map.ts:20 under the parrot perch."),
+            user("third"),
+        ], PRESSURED));
+
+        expect(before[0]).toContain("[vera]");
+        expect(after[0]).toBe(before[0]);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

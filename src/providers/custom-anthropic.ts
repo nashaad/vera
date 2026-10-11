@@ -13,6 +13,7 @@ import {
 import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { providerEndpointUrl } from "./endpoint-url.ts";
+import type { ProviderCacheDefinition } from "./definitions.ts";
 
 export interface CustomAnthropicAdapterOptions {
     readonly provider: string;
@@ -22,6 +23,8 @@ export interface CustomAnthropicAdapterOptions {
     readonly imageSupport?: ImageSupportLookup;
     readonly defaultMaxTokens?: number;
     readonly adaptiveThinking?: boolean;
+    /** Absent marks cache breakpoints, as the Messages API needs them for any reuse. */
+    readonly cache?: ProviderCacheDefinition;
     readonly fetch?: (
         input: string | URL | Request,
         init?: RequestInit,
@@ -57,10 +60,14 @@ export function createCustomAnthropicAdapter(
                     ...(options.apiKey === undefined
                         ? {}
                         : { "x-api-key": options.apiKey }),
+                    ...(options.cache?.affinity_header === undefined || request.cacheKey === undefined
+                        ? {}
+                        : { [options.cache.affinity_header]: request.cacheKey }),
                 },
                 body: JSON.stringify(encodeRequest(
                     request,
                     options.defaultMaxTokens ?? 8_192,
+                    cacheControl(request, options.cache),
                 )),
                 signal,
             });
@@ -93,9 +100,27 @@ function anthropicAdaptiveEffort(effort: string): string | undefined {
         : undefined;
 }
 
+interface CacheControl {
+    readonly type: "ephemeral";
+    readonly ttl?: "1h";
+}
+
+function cacheControl(
+    request: OpenRouterChatRequest,
+    cache: ProviderCacheDefinition | undefined,
+): CacheControl | undefined {
+    if ((cache?.mode ?? "breakpoints") !== "breakpoints" || request.cacheRetention === "none") {
+        return undefined;
+    }
+    return request.cacheRetention === "long"
+        ? { type: "ephemeral", ttl: "1h" }
+        : { type: "ephemeral" };
+}
+
 function encodeRequest(
     request: OpenRouterChatRequest,
     defaultMaxTokens: number,
+    cache: CacheControl | undefined,
 ): Record<string, unknown> {
     const system = request.messages
         .filter((message) => message.role === "system")
@@ -105,6 +130,17 @@ function encodeRequest(
     const messages = request.messages
         .filter((message) => message.role !== "system")
         .map(encodeMessage);
+    const tools = request.tools === undefined
+        ? []
+        : request.tools.flatMap((tool) =>
+            "function" in tool
+                ? [{
+                    name: tool.function.name,
+                    description: tool.function.description,
+                    input_schema: tool.function.parameters,
+                }]
+                : []
+        );
     return {
         ...(request.bodyExtensions ?? {}),
         model: request.model,
@@ -116,22 +152,42 @@ function encodeRequest(
                 thinking: { type: "adaptive" },
                 output_config: { effort: request.reasoning.effort },
             }),
-        ...(system.length === 0 ? {} : { system }),
-        messages,
-        ...(request.tools === undefined || request.tools.length === 0
+        ...(system.length === 0
             ? {}
             : {
-                tools: request.tools.flatMap((tool) =>
-                    "function" in tool
-                        ? [{
-                            name: tool.function.name,
-                            description: tool.function.description,
-                            input_schema: tool.function.parameters,
-                        }]
-                        : []
-                ),
+                system: cache === undefined
+                    ? system
+                    : [{ type: "text", text: system, cache_control: cache }],
             }),
+        messages: cache === undefined ? messages : markLastUserBlock(messages, cache),
+        ...(tools.length === 0
+            ? {}
+            : { tools: cache === undefined ? tools : markLast(tools, cache) }),
     };
+}
+
+// The API reuses a prefix only up to a marked block: the tools, the system prompt,
+// and the newest user turn each get one, inside the limit of four.
+function markLast(
+    blocks: readonly Record<string, unknown>[],
+    cache: CacheControl,
+): Record<string, unknown>[] {
+    return blocks.map((block, index) =>
+        index === blocks.length - 1 ? { ...block, cache_control: cache } : block
+    );
+}
+
+function markLastUserBlock(
+    messages: readonly Record<string, unknown>[],
+    cache: CacheControl,
+): Record<string, unknown>[] {
+    const last = messages.at(-1);
+    if (last === undefined || last.role !== "user") return [...messages];
+    const content = typeof last.content === "string"
+        ? last.content.length === 0 ? [] : [{ type: "text", text: last.content }]
+        : Array.isArray(last.content) ? last.content as Record<string, unknown>[] : [];
+    if (content.length === 0) return [...messages];
+    return [...messages.slice(0, -1), { ...last, content: markLast(content, cache) }];
 }
 
 function encodeMessage(message: ChatMessages): Record<string, unknown> {
@@ -217,15 +273,24 @@ async function* decodeAnthropicSse(
     let buffered = "";
     let model: string | undefined;
     let inputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheWriteTokens: number | undefined;
     let outputTokens = 0;
+
+    const readInputUsage = (usage: Record<string, unknown>): void => {
+        cacheReadTokens = numeric(usage.cache_read_input_tokens);
+        cacheWriteTokens = typeof usage.cache_creation_input_tokens === "number"
+            ? numeric(usage.cache_creation_input_tokens)
+            : undefined;
+        // input_tokens leaves out both cache counts; Vera's input count includes them.
+        inputTokens = numeric(usage.input_tokens) + cacheReadTokens + (cacheWriteTokens ?? 0);
+    };
 
     const translate = (data: Record<string, unknown>): ChatStreamChunk | undefined => {
         const type = data.type;
         if (type === "message_start" && isRecord(data.message)) {
             model = typeof data.message.model === "string" ? data.message.model : model;
-            if (isRecord(data.message.usage)) {
-                inputTokens = numeric(data.message.usage.input_tokens);
-            }
+            if (isRecord(data.message.usage)) readInputUsage(data.message.usage);
             return chunk(model, {});
         }
         if (type === "content_block_start" && isRecord(data.content_block)) {
@@ -286,6 +351,8 @@ async function* decodeAnthropicSse(
         if (type === "message_delta") {
             if (isRecord(data.usage)) {
                 outputTokens = numeric(data.usage.output_tokens);
+                // Some servers repeat the final input counts here instead of in message_start.
+                if (typeof data.usage.input_tokens === "number") readInputUsage(data.usage);
             }
             const stop = isRecord(data.delta) && typeof data.delta.stop_reason === "string"
                 ? anthropicStopReason(data.delta.stop_reason)
@@ -294,6 +361,10 @@ async function* decodeAnthropicSse(
                 promptTokens: inputTokens,
                 completionTokens: outputTokens,
                 totalTokens: inputTokens + outputTokens,
+                promptTokensDetails: {
+                    cachedTokens: cacheReadTokens,
+                    ...(cacheWriteTokens === undefined ? {} : { cacheWriteTokens }),
+                },
             });
         }
         if (type === "error") {
@@ -331,7 +402,7 @@ function chunk(
     model: string | undefined,
     delta: Record<string, unknown>,
     finishReason?: string,
-    usage?: Record<string, number>,
+    usage?: Record<string, unknown>,
 ): ChatStreamChunk {
     return {
         ...(model === undefined ? {} : { model }),

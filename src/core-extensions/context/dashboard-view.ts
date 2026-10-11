@@ -195,6 +195,10 @@ function healthSection(
         } tokens (${formatTokens(health.tokens.inputTokens)} in, ${
             formatTokens(health.tokens.outputTokens)
         } out, ${formatTokens(health.tokens.cachedInputTokens)} cached, ${
+            health.tokens.cacheWriteInputTokens === undefined
+                ? ""
+                : `${formatTokens(health.tokens.cacheWriteInputTokens)} cache writes, `
+        }${
             formatTokens(health.tokens.reasoningTokens)
         } reasoning)`,
         `cost ${formatCost(health.cost)}${

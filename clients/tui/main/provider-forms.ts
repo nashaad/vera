@@ -25,7 +25,7 @@ import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
 import { startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "../request-options-editor.ts";
 import { startTuiSecretPrompt, type TuiSecretPromptState } from "../secret-prompt.ts";
 import { resolveTuiSettingsDestination } from "../settings-destination.ts";
-import { startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { mergedProviderDeclaration, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -245,7 +245,8 @@ export function applyProviderFormTransition(rt: TuiRuntime,
 
 async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, submitted: NonNullable<TuiProviderFormTransition["submitted"]>): Promise<void> {
     try {
-        const provider = findConfiguredProvider(submitted.id, loadOptionalVeraConfig());
+        const config = loadOptionalVeraConfig();
+        const provider = findConfiguredProvider(submitted.id, config);
         if (form.editing === undefined && provider !== undefined
             && isProviderConnected(provider, { authStorage: rt.authStorage })
             && provider.credential !== "none") throw new Error(`${submitted.id} is already connected`);
@@ -269,7 +270,12 @@ async function saveProviderForm(rt: TuiRuntime, form: TuiProviderFormState, subm
                 : {
                     custom_provider: {
                         id: submitted.id,
-                        declaration: submitted.declaration,
+                        declaration: mergedProviderDeclaration(
+                            form.editing === undefined
+                                ? undefined
+                                : config?.providers?.[form.editing],
+                            submitted.declaration,
+                        ),
                     },
                 },
         );

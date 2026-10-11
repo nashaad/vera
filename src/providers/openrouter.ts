@@ -1,5 +1,5 @@
-import { OpenRouter } from "@openrouter/sdk";
-import type { ChatRequestEffort } from "@openrouter/sdk/models";
+import { HTTPClient, OpenRouter } from "@openrouter/sdk";
+import type { ChatMessages, ChatRequestEffort } from "@openrouter/sdk/models";
 
 import { classifyOpenRouterError } from "./openrouter-error-classifier.ts";
 import { OpenRouterStreamDecoder } from "./openrouter-stream.ts";
@@ -20,11 +20,13 @@ import {
 import type { EffortLevelsLookup } from "../model/effort-levels.ts";
 import type { ImageSupportLookup } from "../model/image-support.ts";
 import { ModelEventStream } from "../model/stream.ts";
+import { cacheRetention, promptCacheKey } from "../model/prompt-cache.ts";
 import { transformMessages } from "../model/transform.ts";
 import {
     encodeOpenRouterMessages,
     encodeOpenRouterTools,
     normalizeOpenRouterToolCallId,
+    type OpenRouterChatRequest,
     type SendOpenRouterChat,
 } from "./openrouter-wire.ts";
 import type {
@@ -50,6 +52,7 @@ export interface OpenRouterAdapterOptions {
     readonly captureFailedRequest?: FailedRequestCapture;
     readonly allowanceGuard?: OpenRouterAllowanceGuard;
     readonly allowanceScope?: string;
+    readonly fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 }
 
 export interface ChatProviderProfile {
@@ -180,6 +183,7 @@ export class OpenRouterAdapter implements ModelAdapter {
             if (substituted !== undefined) {
                 stream.push(substituted);
             }
+            const cacheKey = promptCacheKey(request);
             const providerRequest = {
                 model: request.model,
                 ...(request.maxTokens === undefined
@@ -202,6 +206,8 @@ export class OpenRouterAdapter implements ModelAdapter {
                 ...(providerPreferences === undefined
                     ? {}
                     : { provider: providerPreferences }),
+                ...(cacheKey === undefined ? {} : { cacheKey }),
+                cacheRetention: cacheRetention(request),
             };
 
             allowanceRequest = this.allowanceScope === undefined
@@ -358,6 +364,9 @@ export function createOpenRouterAdapter(
         apiKey: options.apiKey,
         retryConfig: { strategy: "none" },
         ...(options.baseUrl === undefined ? {} : { serverURL: options.baseUrl }),
+        ...(options.fetch === undefined
+            ? {}
+            : { httpClient: new HTTPClient({ fetcher: options.fetch }) }),
     });
 
     return new OpenRouterAdapter(async (request, signal) => {
@@ -368,7 +377,8 @@ export function createOpenRouterAdapter(
                     ...(request.maxTokens === undefined
                         ? {}
                         : { maxTokens: request.maxTokens }),
-                    messages: request.messages,
+                    messages: openRouterCacheMessages(request),
+                    ...openRouterCacheFields(request),
                     ...(request.reasoning === undefined
                         ? {}
                         : {
@@ -398,6 +408,49 @@ export function createOpenRouterAdapter(
 }
 
 const MAX_CAPTURED_CHUNKS = 200;
+
+// Anthropic models cache only at marked points: one on the system prompt, which covers the
+// tools ahead of it, and the top-level marker that follows the end of the conversation.
+function anthropicCacheControl(
+    request: OpenRouterChatRequest,
+): { type: "ephemeral"; ttl?: "1h" } | undefined {
+    if (!request.model.startsWith("anthropic/") || request.cacheRetention === "none") {
+        return undefined;
+    }
+    return request.cacheRetention === "long"
+        ? { type: "ephemeral", ttl: "1h" }
+        : { type: "ephemeral" };
+}
+
+function openRouterCacheFields(
+    request: OpenRouterChatRequest,
+): { sessionId?: string; promptCacheKey?: string; cacheControl?: { type: "ephemeral"; ttl?: "1h" } } {
+    const cacheControl = anthropicCacheControl(request);
+    return {
+        // The session id also keeps every request on one upstream, so its cache stays warm.
+        ...(request.cacheKey === undefined
+            ? {}
+            : { sessionId: request.cacheKey, promptCacheKey: request.cacheKey }),
+        ...(cacheControl === undefined ? {} : { cacheControl }),
+    };
+}
+
+function openRouterCacheMessages(request: OpenRouterChatRequest): ChatMessages[] {
+    const cacheControl = anthropicCacheControl(request);
+    const first = request.messages[0];
+    if (
+        cacheControl === undefined
+        || first === undefined
+        || first.role !== "system"
+        || typeof first.content !== "string"
+    ) {
+        return request.messages;
+    }
+    return [
+        { ...first, content: [{ type: "text", text: first.content, cacheControl }] },
+        ...request.messages.slice(1),
+    ];
+}
 
 function isEmptyResponse(message: AssistantMessage): boolean {
     if (message.stopReason === "aborted") {

@@ -129,6 +129,13 @@ function addUsageRow(
         outputTokens: (prior?.outputTokens ?? 0) + numeric(usage.outputTokens),
         cachedInputTokens: (prior?.cachedInputTokens ?? 0)
             + numeric(usage.cachedInputTokens),
+        ...(prior?.cacheWriteInputTokens === undefined
+                && usage.cacheWriteInputTokens === undefined
+            ? {}
+            : {
+                cacheWriteInputTokens: (prior?.cacheWriteInputTokens ?? 0)
+                    + numeric(usage.cacheWriteInputTokens),
+            }),
         reasoningTokens: (prior?.reasoningTokens ?? 0)
             + numeric(usage.reasoningTokens),
         totalTokens: (prior?.totalTokens ?? 0) + numeric(usage.totalTokens),
