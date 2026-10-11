@@ -144,6 +144,7 @@ test("rail header actions are visible text and activate by id", async () => {
         });
         renderer.root.add(view.surface);
         view.surface.visible = true;
+        view.surface.visible = true;
         await setup.flush();
 
         const frame = setup.captureCharFrame();
@@ -170,6 +171,7 @@ test("a card told to fill keeps its height as its list changes", async () => {
         });
 
         renderer.root.add(view.surface);
+        view.surface.visible = true;
         view.surface.visible = true;
         const height = async (): Promise<number> => {
             await setup.flush();
@@ -199,6 +201,7 @@ test("an input box is chrome, and the list pays for the rows it takes", async ()
     try {
         const view = createTuiLinesView(renderer, "search-input", {});
         renderer.root.add(view.surface);
+        view.surface.visible = true;
         view.surface.visible = true;
 
         view.update(STATE);
@@ -257,6 +260,7 @@ test("a card left to itself is as tall as the rows it has", async () => {
 
         renderer.root.add(view.surface);
         view.surface.visible = true;
+        view.surface.visible = true;
         const height = async (): Promise<number> => {
             await setup.flush();
             return view.box.height;
@@ -265,6 +269,42 @@ test("a card left to itself is as tall as the rows it has", async () => {
         const empty = await height();
         view.update(STATE);
         expect(await height()).toBeGreaterThan(empty);
+    } finally {
+        renderer.destroy();
+    }
+});
+
+test("the current row hangs a dot into the rail padding on a quiet band", async () => {
+    const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
+        width: 60,
+        height: 20,
+    });
+    try {
+        const view = createTuiLinesView(renderer, "rail-current", {
+            railDivider: true,
+            railPadding: 2,
+        });
+        renderer.root.add(view.surface);
+        view.surface.visible = true;
+        view.setRail(28);
+        view.update({
+            ...STATE,
+            lines: [
+                { text: "! plunder the map" },
+                { text: ". polish the cutlass", current: true },
+            ],
+            cursorLine: undefined,
+        });
+        await renderOnce();
+        const frame = captureCharFrame().split("\n");
+        const other = frame.find((line) => line.includes("plunder the map"))!;
+        const current = frame.find((line) => line.includes("polish the cutlass"))!;
+        // The dot takes the padding columns, so both titles start together.
+        expect(current.indexOf(". polish")).toBe(other.indexOf("! plunder"));
+        expect(current.slice(0, current.indexOf(". polish")).trimStart()).toBe("● ");
+        const band = rowsOn(view.box, TUI_ELEMENT);
+        expect(band).toHaveLength(1);
+        expect(band[0]!.width).toBe(28 + 2);
     } finally {
         renderer.destroy();
     }

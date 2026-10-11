@@ -636,16 +636,18 @@ describe("the drawn card", () => {
         expect(view.dimmed).toBeUndefined();
     });
 
-    test("the session on screen reads muted, the others read as text", () => {
+    test("the session on screen is marked current, the others are not", () => {
         const view = workspaceSidebarViewState(
             open([running("a"), running("b")], [], "b"),
             COLUMNS,
             NOW,
         );
-        expect(view.lines.find((line) => line.text.includes("session b"))?.tone)
-            .toBe("muted");
-        expect(view.lines.find((line) => line.text.includes("session a"))?.tone)
-            .toBe("text");
+        const shown = view.lines.find((line) => line.text.includes("session b"));
+        const other = view.lines.find((line) => line.text.includes("session a"));
+        expect(shown?.current).toBe(true);
+        expect(shown?.tone).toBe("text");
+        expect(other?.current).toBeUndefined();
+        expect(other?.tone).toBe("text");
         const text = workspaceSidebarText(open([running("b")], [], "b"), COLUMNS, NOW);
         expect(text).not.toContain("[ session b ]");
         expect(text).not.toContain("(here)");

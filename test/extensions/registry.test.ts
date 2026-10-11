@@ -877,6 +877,40 @@ test("a storage operation needs the tool listed in unreviewed_tools", async () =
     expect(await loadFailures(listed)).toEqual({ tools: ["shanty_write"], failures: [] });
 });
 
+test("installedUnreviewedTools names installed storage tools and their extension", async () => {
+    const extension = createExtension(
+        "crow.tools",
+        `
+            export function activate(vera) {
+                vera.tools.register({
+                    name: "shanty_write",
+                    description: "Write a shanty",
+                    inputSchema: { type: "object", properties: {} },
+                    permissionOperation: "extension.storage.write",
+                    run() { return { output: "yo ho" }; },
+                });
+                vera.tools.register({
+                    name: "shanty_shout",
+                    description: "Shout a shanty",
+                    inputSchema: { type: "object", properties: {} },
+                    permissionOperation: "crow.shout",
+                    run() { return { output: "YO HO" }; },
+                });
+            }
+        `,
+        ["tools.register"],
+        undefined,
+        { unreviewed_tools: ["shanty_write"] },
+    );
+    const shipped = join(import.meta.dir, "../../extensions/artifacts");
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension), configured(shipped)],
+    });
+    expect(registry.tools().map((tool) => tool.definition.name)).toContain("artifact_write");
+    expect([...registry.installedUnreviewedTools()]).toEqual([["shanty_write", "crow.tools"]]);
+    await registry.close();
+});
+
 test("an installed extension may name an operation of its own", async () => {
     const extension = createExtension("crow.tools", operationSource("shanty_shout", "crow.shout"), ["tools.register"]);
     expect(await loadFailures(extension)).toEqual({ tools: ["shanty_shout"], failures: [] });
