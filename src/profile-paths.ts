@@ -66,6 +66,8 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "tui-themes.json",
     "tips.json",
     "trust-notices.json",
+    "spawn-consent.json",
+    "standing-nudges.json",
     "extensions",
     "extensions.json",
     "skills",
