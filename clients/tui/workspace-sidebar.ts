@@ -87,6 +87,9 @@ export function workspaceSidebarSessions(
             ...(agent.has_user_content === undefined
                 ? {}
                 : { hasUserContent: agent.has_user_content }),
+            ...(agent.parent_id === undefined
+                ? {}
+                : { parentId: agent.parent_id }),
         }));
 }
 

@@ -168,6 +168,35 @@ test("session picker labels an imported conversation with its source", async () 
     expect(await pickerFrame(state)).toContain("Port the parser [imported · Codex]");
 });
 
+test("session picker marks a subagent with sub: before its title", async () => {
+    const state = startTuiSessionPicker([{
+        id: "44444444-parent",
+        workspace: "/work/alpha",
+        session_path: "/sessions/parent.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: false,
+        title: "Chart the reef",
+        has_user_content: true,
+        updated_at: "2026-07-20T20:00:00.000Z",
+    }, {
+        id: "55555555-child",
+        workspace: "/work/alpha",
+        session_path: "/sessions/child.jsonl",
+        kind: "background",
+        status: "idle",
+        live: false,
+        title: "Sound the shallows",
+        has_user_content: true,
+        parent_id: "44444444-parent",
+        updated_at: "2026-07-20T20:30:00.000Z",
+    }], undefined, false, new Date("2026-07-20T21:00:00.000Z"));
+
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("sub: Sound the shallows");
+    expect(frame).not.toContain("sub: Chart the reef");
+});
+
 test("session picker filters titled durable conversations and selects an agent", async () => {
     const state = startTuiSessionPicker([
         {

@@ -61,6 +61,30 @@ test("jump rows lead with back, then needs-you, then the session's tree", () => 
     expect(rows[3]?.detail).toBe("working");
 });
 
+test("a subagent row reads sub: before its name; a top-level row does not", () => {
+    const rows = buildJumpRows({
+        currentId: "sess-p",
+        back: undefined,
+        needsYou: [],
+        agents: [
+            agent({ id: "sess-p", title: "refactor sweep" }),
+            agent({ id: "sess-c", parent_id: "sess-p", title: "scout the cove" }),
+        ],
+    });
+    expect(rows.map((row) => row.label)).toEqual(["sub: scout the cove"]);
+
+    const fromChild = buildJumpRows({
+        currentId: "sess-c",
+        back: undefined,
+        needsYou: [],
+        agents: [
+            agent({ id: "sess-p", title: "refactor sweep" }),
+            agent({ id: "sess-c", parent_id: "sess-p", title: "scout the cove" }),
+        ],
+    });
+    expect(fromChild.map((row) => row.label)).toEqual(["refactor sweep"]);
+});
+
 test("the current session never lists itself, and no session repeats", () => {
     const rows = buildJumpRows({
         currentId: "sess-a",

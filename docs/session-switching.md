@@ -67,6 +67,9 @@ while the parent keeps running. Use `/parent` to return to the parent, or
 `/back` to return to the previously viewed conversation. These view changes
 do not stop work.
 
+Elsewhere a child conversation's name starts with `sub:`: in the window
+title, the conversation rail, `/resume`, and the jump menu.
+
 A blocking delegated task is part of the parent's active turn. It shows as
 Delegating and does not leave an openable child in this list.
 

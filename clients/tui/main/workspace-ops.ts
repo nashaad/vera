@@ -3,6 +3,7 @@ import { tuiComposerOverlayInset } from "../appearance.ts";
 import { startTuiCommandPalette } from "../command-palette.ts";
 import { startTuiHelp } from "../help.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
+import { subagentTitle } from "../subagent-title.ts";
 import { buildJumpRows, openJumpMenu as openJumpMenuState, type JumpOrigin } from "../jump.ts";
 import { beginCreateSession, beginSessionResume } from "../main.ts";
 import { focusedAgentClient } from "../main/agents-dials.ts";
@@ -40,8 +41,11 @@ export function openJumpMenuOverlay(rt: TuiRuntime): void {
             : {
                 sessionId: originAgent.id,
                 sessionPath: originAgent.session_path,
-                title: originAgent.title ?? originAgent.name
-                    ?? "previous conversation",
+                title: subagentTitle(
+                    originAgent.title ?? originAgent.name
+                        ?? "previous conversation",
+                    originAgent.parent_id,
+                ),
             };
         const needsYou = (rt.workIndex?.rows ?? []).filter((row) =>
             row.section === "needs_you"

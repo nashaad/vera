@@ -142,6 +142,7 @@ export function switchToClient(rt: TuiRuntime,
     watchWorkIndex(rt, next);
     watchSessionTitle(rt, next);
     rt.sessionTitle = undefined;
+    rt.sessionParentId = undefined;
     rt.mainHeaderVisible = true;
     rt.sidebarHeaderVisible = true;
     applyTerminalTitle(rt);

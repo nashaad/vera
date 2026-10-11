@@ -17,6 +17,7 @@ import { setTextContent } from "../text-content.ts";
 import { tuiTranscriptReusableTail } from "../transcript-window.ts";
 import { workTabViewState } from "../work-tab.ts";
 import { workspaceSidebarViewState } from "../workspace-sidebar.ts";
+import { subagentTitle } from "../subagent-title.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { StyledText, fg, type BoxRenderable, type MarkdownRenderable, type TextRenderable } from "@opentui/core";
 
@@ -481,7 +482,10 @@ export function renderState(rt: TuiRuntime): void {
         rt.sessionTrashConfirmView.update(rt.sessionTrashCandidate.label);
     }
     if (rt.sessionCloseConfirm) {
-        rt.sessionCloseConfirmView.update(rt.sessionTitle ?? "untitled");
+        rt.sessionCloseConfirmView.update(subagentTitle(
+            rt.sessionTitle ?? "untitled",
+            rt.sessionParentId,
+        ));
     }
     if (rt.providerForgetCandidate !== undefined) {
         rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label, (rt.state.modelSettings?.pooled ?? []).filter((row) => row.provider === rt.providerForgetCandidate?.providerId).length);

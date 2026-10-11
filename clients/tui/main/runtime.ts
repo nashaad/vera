@@ -113,6 +113,7 @@ export interface TuiRuntime {
     entrySpacing: { message: number; toolGroup: number; };
     copyText: (text: string) => Promise<void>;
     sessionTitle: string | undefined;
+    sessionParentId: string | undefined;
     importedSession: TuiImportedSession | undefined;
     mainHeaderVisible: boolean;
     sidebarSessionTitle: string | undefined;

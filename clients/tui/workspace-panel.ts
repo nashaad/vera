@@ -1,6 +1,7 @@
 import type { VeraClientSession } from "../../src/sdk/extensions.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 import { tuiBrailleSpinner } from "./activity-pulse.ts";
+import { subagentTitle } from "./subagent-title.ts";
 
 export type WorkspacePanelWidth = "wide" | "medium" | "narrow";
 
@@ -39,6 +40,7 @@ export interface WorkspaceSession extends VeraClientSession {
     // `[imported · Claude Code]`; the title is clipped before it is.
     readonly importLabel?: string;
     readonly hasUserContent?: boolean;
+    readonly parentId?: string;
 }
 
 export const WORKSPACE_WAITING_MARKER = "!";
@@ -326,7 +328,10 @@ function sessionRow(
         session.hasUserContent === false ? undefined : session.updatedAt,
         context.now,
     );
-    const title = session.title ?? UNTITLED_SESSION;
+    const title = subagentTitle(
+        session.title ?? UNTITLED_SESSION,
+        session.parentId,
+    );
     const age = context.showAge && group === RECENT_GROUP
         ? relativeTime(session.updatedAt, context.now, "")
         : "";

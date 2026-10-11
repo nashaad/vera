@@ -136,6 +136,20 @@ describe("the registry listing", () => {
             .toBe("[imported · Claude Code]");
     });
 
+    test("carries a subagent's parent", () => {
+        const agents: readonly RegisteredAgentSummary[] = [{
+            id: "kid",
+            workspace: "/w/one",
+            session_path: "/sessions/kid.jsonl",
+            kind: "background",
+            status: "working",
+            live: true,
+            title: "count doubloons",
+            parent_id: "top",
+        }];
+        expect(workspaceSidebarSessions(agents)[0]?.parentId).toBe("top");
+    });
+
     test("a parked worker is active even when live is false", () => {
         const agents: readonly RegisteredAgentSummary[] = [{
             id: "parked",

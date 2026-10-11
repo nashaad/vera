@@ -90,6 +90,22 @@ describe("grouping", () => {
         expect(result.selectable).toEqual(["b", "a", "c"]);
     });
 
+    test("a subagent row reads sub: before its title", () => {
+        const rows = sessionRows(layout([
+            session({ id: "top", title: "raid the cove", live: true }),
+            session({
+                id: "kid",
+                title: "count doubloons",
+                live: true,
+                parentId: "top",
+            }),
+        ]));
+        expect(rows.map((row) => row.text.slice(2)).toSorted()).toEqual([
+            "raid the cove",
+            "sub: count doubloons",
+        ]);
+    });
+
     test("a live row carries workspace only when workspaces differ", () => {
         const result = layout([
             session({

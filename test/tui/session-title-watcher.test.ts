@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import type { TuiAgentClient } from "../../clients/tui/agent-client.ts";
 import type { TuiRuntime } from "../../clients/tui/main/runtime.ts";
+import { refreshTerminalTitle } from "../../clients/tui/main/chrome.ts";
 import { watchSessionTitle } from "../../clients/tui/main/watchers.ts";
 
 interface TitledClient {
@@ -67,4 +68,38 @@ test("a title for a session the TUI has left is ignored", () => {
 
     expect(titles).toEqual([]);
     expect(rt.sessionTitle).toBe("first prompt text");
+});
+
+test("the window title of an open subagent reads sub: before its name", async () => {
+    const attached = titledClient();
+    const titles: string[] = [];
+    const rt = runtime(attached.client, titles);
+    let listed: Promise<unknown> = Promise.resolve();
+    (rt as { dependencies: unknown }).dependencies = {
+        listAgents: () => {
+            const agents = Promise.resolve([{
+                id: "agent-1",
+                workspace: "/w",
+                session_path: "/sessions/agent-1.jsonl",
+                kind: "background",
+                status: "working",
+                live: true,
+                title: "Count the doubloons",
+                parent_id: "agent-0",
+            }]);
+            listed = agents;
+            return agents;
+        },
+    };
+
+    refreshTerminalTitle(rt);
+    await listed;
+    await Promise.resolve();
+    watchSessionTitle(rt, attached.client);
+    attached.report("Recount the doubloons");
+
+    expect(titles).toEqual([
+        "sub: Count the doubloons · Vera",
+        "sub: Recount the doubloons · Vera",
+    ]);
 });

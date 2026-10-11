@@ -1,5 +1,6 @@
 import type { WorkRow } from "../../src/host/work-index.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
+import { subagentTitle } from "./subagent-title.ts";
 
 /** The jump menu's presentation model, with no OpenTUI in it. The menu lists only the places there are to go from the current session: the session the user jumped here from. */
 
@@ -99,7 +100,10 @@ export function buildJumpRows(input: {
 }
 
 function agentLabel(agent: RegisteredAgentSummary): string {
-    return agent.title ?? agent.name ?? agent.id.slice(0, 8);
+    return subagentTitle(
+        agent.title ?? agent.name ?? agent.id.slice(0, 8),
+        agent.parent_id,
+    );
 }
 
 export function openJumpMenu(

@@ -8,6 +8,7 @@ import {
 } from "../../src/store/session-import-provenance.ts";
 import type { ProviderCatalogState } from "../../src/providers/catalog-state.ts";
 import { browseModels } from "./model-browse.ts";
+import { subagentTitle } from "./subagent-title.ts";
 import {
     bg,
     BoxRenderable,
@@ -1434,11 +1435,14 @@ function sessionPickerOption(
     currentAgentId: string | undefined,
     now: Date,
 ): TuiSettingsPickerOption {
+    const title = sessionTitle(
+        subagentTitle(agent.title ?? agent.id, agent.parent_id),
+    );
     return {
         value: agent.session_path,
         label: agent.imported_from === undefined
-            ? sessionTitle(agent.title ?? agent.id)
-            : `${sessionTitle(agent.title ?? agent.id)} ${importedSessionLabel(agent.imported_from.tool)}`,
+            ? title
+            : `${title} ${importedSessionLabel(agent.imported_from.tool)}`,
         description: "",
         searchText: `${agent.id} ${agent.workspace}`,
         sessionId: agent.id,

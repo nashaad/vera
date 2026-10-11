@@ -9,6 +9,7 @@ import { installTuiKeymap, isTuiKeyScope } from "../keymap.ts";
 import { RESUME_VIEWED_PALETTE_ENTRY, forgetPersistedAgentPane, rejectPendingExtensionSettingsFor, renderState, setSidebarFocused } from "../main.ts";
 import type { TuiStandingNudgesState } from "../standing-nudges.ts";
 import { appendTuiNotice, transcriptMessageId, type TuiTranscriptEntry } from "../state.ts";
+import { subagentTitle } from "../subagent-title.ts";
 import { markTuiUserEntry, unmarkTuiUserEntry } from "../user-entry.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { SyntaxStyle, type BoxRenderable, type Renderable } from "@opentui/core";
@@ -17,7 +18,7 @@ export function applyTerminalTitle(rt: TuiRuntime): void {
     rt.renderer.setTerminalTitle(
         rt.sessionTitle === undefined || rt.sessionTitle.length === 0
             ? "Vera"
-            : `${rt.sessionTitle} · Vera`,
+            : `${subagentTitle(rt.sessionTitle, rt.sessionParentId)} · Vera`,
     );
 }
 
@@ -57,6 +58,7 @@ export function refreshTerminalTitle(rt: TuiRuntime): void {
         }
         const agent = agents.find((candidate) => candidate.id === agentId);
         rt.sessionTitle = agent?.title;
+        rt.sessionParentId = agent?.parent_id;
         rt.importedSession = agent?.imported_from === undefined
             ? undefined
             : { agentId, facts: agent.imported_from };
