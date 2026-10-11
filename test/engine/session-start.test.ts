@@ -73,6 +73,9 @@ test("session-start hooks preserve registration order, isolate payloads, and unr
 test("invalid, oversized, throwing, and timed-out hooks log and allow later hooks", async () => {
     const hooks = new ToolHooks();
     const warning = spyOn(console, "warn").mockImplementation(() => {});
+    // A frozen clock keeps a GC pause from failing fast hooks on the 10ms deadline check.
+    // The hanging hook still times out through the real timer race.
+    const clock = spyOn(performance, "now").mockReturnValue(0);
     try {
         const invalid: unknown[] = [null, { power: "block", reason: "no" }, { power: "mutate", context: 3 },
             { power: "mutate", context: "é".repeat(MAX_SESSION_START_CONTEXT_BYTES / 2 + 1) }];
@@ -85,6 +88,7 @@ test("invalid, oversized, throwing, and timed-out hooks log and allow later hook
         ]);
         expect(warning).toHaveBeenCalledTimes(6);
     } finally {
+        clock.mockRestore();
         warning.mockRestore();
     }
 });
