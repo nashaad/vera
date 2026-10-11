@@ -93,8 +93,10 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.preventDefault();
             key.stopPropagation();
             const after = tuiBindingId("model_prefix", key);
-            if (after === "model_prefix_open") openModelSwitcher(rt);
-            if (after === "model_prefix_keys") {
+            // A closed file has no model to switch; only the sidebar applies there.
+            const fileView = isJsonlViewClient(rt.client);
+            if (after === "model_prefix_open" && !fileView) openModelSwitcher(rt);
+            if (after === "model_prefix_keys" && !fileView) {
                 rt.keysCardOpen = !rt.keysCardOpen;
                 renderStatus(rt);
             }
@@ -103,7 +105,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         }
     }
     if (tuiBindingId("global", key) === "open_model_prefix"
-        && !anyOverlayOpen(rt) && !rt.sessionSwitchPending && !isJsonlViewClient(rt.client)) {
+        && !anyOverlayOpen(rt) && !rt.sessionSwitchPending) {
         key.preventDefault();
         key.stopPropagation();
         rt.modelPrefixPending = true;

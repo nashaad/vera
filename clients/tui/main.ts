@@ -285,6 +285,7 @@ import { tuiRecessColor } from "./theme.ts";
 import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
 import { EMPTY_TURN_METER } from "./turn-meter.ts";
+import { createDragShield } from "./drag-shield.ts";
 import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiFooterLayout, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiKeysCardView } from "./keys-card.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
@@ -1984,27 +1985,9 @@ export async function startTui(
         backgroundColor: rt.theme.background,
         paddingTop: APP_PADDING_TOP,
         paddingBottom: APP_PADDING_BOTTOM,
-        onMouseDrag: (event: MouseEvent) => {
-            rt.bodyFocus.noteDrag();
-            if (!rt.workspaceRailDragging) return;
-            event.preventDefault();
-            event.stopPropagation();
-            resizeWorkspaceRailAt(rt, event.x);
-        },
+        onMouseDrag: () => rt.bodyFocus.noteDrag(),
         onMouseDragEnd: () => rt.bodyFocus.noteDrag(),
-        onMouseUp: (event: MouseEvent) => {
-            if (rt.workspaceRailDragging) {
-                rt.workspaceRailDragging = false;
-                rt.workspaceSidebarView.box.borderColor = rt.theme.element;
-                event.stopPropagation();
-                if (rt.workspaceRailPreferred !== undefined) {
-                    try {
-                        saveTuiWorkspaceSidebarWidth(rt.workspaceRailPreferred);
-                    } catch {
-                    }
-                }
-                return;
-            }
+        onMouseUp: () => {
             if (rt.bodyFocus.release(anyOverlayOpen(rt))) {
                 rt.composer.focus();
             }
@@ -2261,6 +2244,7 @@ export async function startTui(
             if (action !== undefined) runWorkTabAction(rt, open, action);
         },
     };
+    const railDragShield = createDragShield(rt.renderer);
     // Only the divider column takes the pointer; the rows stay display-only.
     rt.workspaceSidebarView.box.onMouseDown = (event: MouseEvent) => {
         const occupied = rt.workspaceSidebarView.railColumns();
@@ -2272,6 +2256,21 @@ export async function startTui(
         event.stopPropagation();
         rt.workspaceRailDragging = true;
         rt.workspaceSidebarView.box.borderColor = rt.theme.accent;
+        railDragShield.begin({
+            drag: (column) => {
+                if (rt.workspaceRailDragging) resizeWorkspaceRailAt(rt, column);
+            },
+            release: () => {
+                if (!rt.workspaceRailDragging) return;
+                rt.workspaceRailDragging = false;
+                rt.workspaceSidebarView.box.borderColor = rt.theme.element;
+                if (rt.workspaceRailPreferred === undefined) return;
+                try {
+                    saveTuiWorkspaceSidebarWidth(rt.workspaceRailPreferred);
+                } catch {
+                }
+            },
+        });
     };
     rt.searchOverlayView.pointer = {
         hover: (rowId) => {
@@ -2347,6 +2346,7 @@ export async function startTui(
     rt.app.add(rt.resumeOverlay.surface);
     rt.app.add(rt.statusBand);
     rt.renderer.root.add(rt.app);
+    rt.renderer.root.add(railDragShield.box);
     rt.clientSurfaceReady = true;
     rt.composer.focus();
     rt.flightRecorder?.record({

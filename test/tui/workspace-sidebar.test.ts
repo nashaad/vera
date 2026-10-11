@@ -668,6 +668,31 @@ describe("the drawn card", () => {
         )?.leading).toEqual({ text: "✓", tone: "positive" });
     });
 
+    test("a new session with no messages reads idle, not finished", () => {
+        const state = open([running("a", {
+            title: "fresh",
+            status: "idle",
+            updatedAt: RECENT_IDLE,
+            hasUserContent: false,
+        })]);
+        const text = workspaceSidebarText(state, COLUMNS, NOW);
+        expect(text).toContain(". fresh");
+        expect(text).not.toContain("✓");
+    });
+
+    test("the listing carries whether a session has messages", () => {
+        const agents: readonly RegisteredAgentSummary[] = [{
+            id: "a",
+            workspace: "/w/one",
+            session_path: "/sessions/a.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: true,
+            has_user_content: false,
+        }];
+        expect(workspaceSidebarSessions(agents)[0]?.hasUserContent).toBe(false);
+    });
+
     test("a live finished turn older than ten minutes returns to idle", () => {
         const state = open(
             [running("a", {

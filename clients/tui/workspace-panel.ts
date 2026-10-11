@@ -38,6 +38,7 @@ export interface WorkspaceSession extends VeraClientSession {
     readonly ephemeral?: boolean;
     // `[imported · Claude Code]`; the title is clipped before it is.
     readonly importLabel?: string;
+    readonly hasUserContent?: boolean;
 }
 
 export const WORKSPACE_WAITING_MARKER = "!";
@@ -321,7 +322,8 @@ function sessionRow(
         session.status,
         context.animationFrame,
         session.status === "failed" ? group === NEEDS_YOU_GROUP : active,
-        session.updatedAt,
+        // A session with no messages has finished no turn, so it never earns ✓.
+        session.hasUserContent === false ? undefined : session.updatedAt,
         context.now,
     );
     const title = session.title ?? UNTITLED_SESSION;
