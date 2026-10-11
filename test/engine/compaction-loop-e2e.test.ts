@@ -557,7 +557,7 @@ test("a failed compaction over the window is not retried at every tool step", as
         sessionStore: store,
         eventBus: events,
         compaction: unavailableCompactionOptions(),
-        readModelSettings: () => ({ model: "test", contextWindow: 8_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 9_500 }),
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
         router: { updateModelSettings: async () => undefined },

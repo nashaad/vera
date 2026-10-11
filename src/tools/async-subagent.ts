@@ -8,7 +8,7 @@ export const asyncSubagentTool: RegisteredTool = {
     definition: {
         name: "async_subagent",
         description:
-            "Launch a focused subagent concurrently and return its ID immediately. Its final summary arrives on a later turn. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`.",
+            "Launch a focused subagent concurrently and return its ID immediately. Its final summary arrives on a later turn. The child does not see this conversation. Put the goal, why it matters, what you already know, paths, and what to return in `description`. A change you can make in a few edits is direct work, and so is anything you already have the context for.",
         inputSchema: {
             type: "object",
             properties: {
