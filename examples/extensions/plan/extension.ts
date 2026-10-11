@@ -1,52 +1,35 @@
 import type { VeraClientExtensionApi, VeraExtensionApi } from "../../../src/sdk/extensions.ts";
 
-const PLAN_INSTRUCTIONS = `You are planning, not building.
+const PLAN_INSTRUCTIONS = `Create a plan artifact with artifact_write and use it to sync on the plan
+with the user, instead of only chatting about it. The plan lists the steps in
+order, the files each one touches, and what would tell you a step went wrong.
+Ask about anything the plan depends on that you can't decide yourself.
 
-Read whatever you need. Do not write files, do not run commands that change
-anything, and do not start the work. Produce a plan: the steps in order, the
-files each one touches, and what would tell you a step went wrong.
-
-When the plan is ready, say so and stop. The user decides whether to run it.`;
+Do only the steps the user has agreed to. When the work shows the plan is
+wrong, update the artifact and check with the user before you go on.`;
 
 const ASKS_FOR_A_PLAN =
     /\b(plan|approach|strategy|how (would|should) (we|i)|before (we|you) start)\b/i;
 
 interface PlanExtensionConfig {
-    readonly allowSkillScripts: boolean;
     readonly composeSuggestion: boolean;
     /** Undefined keeps the agent convention: every installed skill. */
     readonly skills?: readonly string[];
 }
 
-// Registered by the included Artifacts extension; the plan agent writes its plan as an artifact.
-export const ARTIFACT_TOOLS = ["artifact_read", "artifact_write", "artifact_edit", "artifact_comments"] as const;
-
 export function activate(vera: VeraExtensionApi): void {
     const config = planExtensionConfig(vera.config);
     vera.agents.register({
         name: "plan",
-        description: "reads and plans, never writes",
+        description: "agrees a plan with you, keeps it current, then works through it",
         instructions: PLAN_INSTRUCTIONS,
-        tools: [
-            "read",
-            "grep",
-            "list",
-            ...ARTIFACT_TOOLS,
-            ...(config.allowSkillScripts ? ["skill_script"] : []),
-        ],
         ...(config.skills === undefined ? {} : { skills: config.skills }),
-        nudges: [{
-            on: "*",
-            text:
-                "The plan agent is read-only on purpose. Finish the plan, then"
-                + " /agent default to carry it out.",
-        }],
     });
 }
 
 export function planExtensionConfig(value: unknown): PlanExtensionConfig {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { allowSkillScripts: false, composeSuggestion: false };
+        return { composeSuggestion: false };
     }
     const raw = value as Record<string, unknown>;
     const skills = Array.isArray(raw.skills)
@@ -56,7 +39,6 @@ export function planExtensionConfig(value: unknown): PlanExtensionConfig {
         ? raw.skills.map((skill) => (skill as string).trim())
         : undefined;
     return {
-        allowSkillScripts: raw.allow_skill_scripts === true,
         composeSuggestion: raw.compose_suggestion === true,
         ...(skills === undefined ? {} : { skills }),
     };

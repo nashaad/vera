@@ -156,12 +156,14 @@ Examples are not included. Install one by path to try it.
 ### Plan
 
 Install it with `/extension install examples/extensions/plan`. Then use
-`/agent plan` to investigate and plan with read, search, and listing
-tools. Use `/agent default` to return to the default definition.
+`/agent plan` to agree a plan before the work starts. Use `/agent default` to
+return to the default definition.
 
-Plan cannot edit workspace files or run commands, and it keeps the access mode
-you already have. With Artifacts enabled, it writes its plan as an artifact named
-`plan` that you can comment on in the annex.
+With Artifacts enabled, Plan writes its plan as an artifact you can comment on
+in the annex, instead of keeping it only in the conversation. It works through
+the steps you agree to and updates the artifact when the plan changes. It has
+the default agent's tools and keeps the access mode you already have, so ask
+mode still asks before it edits files or runs commands.
 
 #### Configure Plan
 
@@ -172,7 +174,6 @@ add a `config.json` `extensions` entry whose path is the absolute path of
 | Option | Effect |
 | --- | --- |
 | `compose_suggestion: true` | Offer to switch from the composer. Off by default. |
-| `allow_skill_scripts: true` | Allow guarded scripts from permitted skills. Off by default. |
 | `skills` | List allowed skills. Omit for installed skills, or use `[]` for none. |
 
 A home or project `plan.md` overrides the extension's definition. Restart
