@@ -405,7 +405,9 @@ function isOptionalModelPricing(value: unknown): boolean {
     const pricing = value as Record<string, unknown>;
     return isNonNegativeFinite(pricing.input)
         && isNonNegativeFinite(pricing.output)
-        && (pricing.cache === undefined || isNonNegativeFinite(pricing.cache));
+        && (pricing.cache === undefined || isNonNegativeFinite(pricing.cache))
+        && (pricing.cacheWrite === undefined
+            || isNonNegativeFinite(pricing.cacheWrite));
 }
 
 function isOptionalWaScore(value: unknown): boolean {

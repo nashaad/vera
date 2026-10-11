@@ -18,6 +18,7 @@ import {
     type ContextMeasurement,
 } from "./context-measurement.ts";
 import type { EngineEventBus } from "./events.ts";
+import type { HistoryLineage } from "./prompt-history-drift.ts";
 import type { LoopCompactionState } from "./host-protocol.ts";
 import type { InboundCommandRouter } from "./inbound-command-router.ts";
 import {
@@ -61,6 +62,7 @@ export interface CompactionControllerOptions {
 export interface CompactionController {
     readonly contextWatch: ContextWatch;
     modelContext(context?: CompactionContext): readonly ModelMessage[];
+    historyLineage(): HistoryLineage;
     compact(
         signal: AbortSignal,
         force?: boolean,
@@ -356,6 +358,13 @@ export function createCompactionController(
     return {
         contextWatch,
         modelContext: (context) => store.modelContext(agingPolicy(context)),
+        historyLineage: () => {
+            const compactionId = store.latestCompaction()?.id;
+            return {
+                ...(compactionId === undefined ? {} : { compactionId }),
+                messageIds: store.activeEntries().map((entry) => entry.id),
+            };
+        },
         compact,
     };
 }

@@ -103,6 +103,12 @@ export function assembleAgedToolResults(
         }
     }
     turn += Math.max(0, policy.pendingUserTurns ?? 0);
+    const provenanceText = (index: number): string => assistantTextUntil(
+        entries,
+        index,
+        turnsAt,
+        Math.min((turnsAt.get(index) ?? -1) + ageAfterTurns, turn),
+    );
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
     let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);
@@ -139,7 +145,7 @@ export function assembleAgedToolResults(
         const aged = agedToolResult(
             message,
             calls.get(message.toolCallId),
-            laterAssistantText(entries, index),
+            provenanceText(index),
             sourceText,
         );
         const saved = measureMessages([message]) - measureMessages([aged]);
@@ -150,9 +156,9 @@ export function assembleAgedToolResults(
 
     return Object.freeze(applyToolResultBudget(
         projected,
-        entries,
         calls,
         budgetBytes,
+        provenanceText,
     ));
 }
 
@@ -174,9 +180,9 @@ function readsSpill(
 
 function applyToolResultBudget(
     projected: readonly ModelMessage[],
-    entries: readonly ToolResultHistoryEntry[],
     calls: ReadonlyMap<string, ToolCallContent>,
     budgetBytes: number,
+    provenanceText: (index: number) => string,
 ): readonly ModelMessage[] {
     const messages = [...projected];
     let carriedBytes = totalToolResultBytes(messages);
@@ -213,7 +219,7 @@ function applyToolResultBudget(
             agedToolResult(
                 message,
                 calls.get(message.toolCallId),
-                laterAssistantText(entries, index),
+                provenanceText(index),
                 source,
             ),
             carriedBytes,
@@ -438,18 +444,26 @@ function listDigest(source: string): string {
     ].join("\n");
 }
 
-function laterAssistantText(
+// Only turns that are already finished, so an aged digest renders the same
+// bytes on every later request and the provider's cached prefix survives.
+function assistantTextUntil(
     entries: readonly ToolResultHistoryEntry[],
     resultIndex: number,
+    turnsAt: ReadonlyMap<number, number>,
+    endTurn: number,
 ): string {
-    return entries.slice(resultIndex + 1)
-        .flatMap(({ message }) => message.role === "assistant"
-            ? message.content.flatMap((content) =>
-                content.type === "text" || content.type === "thinking"
-                    ? [content.text]
-                    : [])
-            : [])
-        .join("\n");
+    const texts: string[] = [];
+    for (let index = resultIndex + 1; index < entries.length; index += 1) {
+        if ((turnsAt.get(index) ?? -1) >= endTurn) break;
+        const message = entries[index]?.message;
+        if (message?.role !== "assistant") continue;
+        for (const content of message.content) {
+            if (content.type === "text" || content.type === "thinking") {
+                texts.push(content.text);
+            }
+        }
+    }
+    return texts.join("\n");
 }
 
 interface References {
