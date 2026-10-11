@@ -1177,6 +1177,39 @@ test("an extension tool that writes only its own storage is routine; an undeclar
     }).behavior).toBe("deny");
 });
 
+test("an extension tool that reads only its own storage is routine in every mode but full access", () => {
+    const shantyRead: RegisteredTool = {
+        definition: {
+            name: "shanty_read",
+            description: "Read a shanty.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+        permissionOperation: "extension.storage.read",
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    };
+    expect(CORE_PERMISSION_OPERATIONS.has("extension.storage.read")).toBe(true);
+    const rules = {
+        ask: "routine.extension_storage_read",
+        auto: "routine.extension_storage_read",
+        readonly: "readonly.extension_storage_read",
+    } as const;
+    for (const [mode, rule] of Object.entries(rules) as [keyof typeof rules, string][]) {
+        expect(decideToolPermission(mode, toolCall("shanty_read", {}), workspace, [], {
+            homeDirectory,
+            extensionTools: [shantyRead],
+        })).toEqual({
+            behavior: "allow",
+            actions: [{
+                action: { tool: "shanty_read", verb: "unknown", operation: "extension.storage.read" },
+                outcome: "allow",
+                rule,
+            }],
+        });
+    }
+});
+
 test("a write URL does not put its host on the operation action", () => {
     const demoPush: RegisteredTool = {
         definition: {

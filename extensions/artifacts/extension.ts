@@ -20,6 +20,7 @@ import {
 } from "./artifact-store.ts";
 
 export const ARTIFACT_TOOLS = ["artifact_read", "artifact_write", "artifact_edit", "artifact_comments"] as const;
+const STORAGE_READ = "extension.storage.read";
 // Writes only this extension's own storage, so ask and auto mode run it without a prompt.
 const STORAGE_WRITE = "extension.storage.write";
 
@@ -57,6 +58,7 @@ export function activate(vera: VeraExtensionApi): void {
             properties: { name: NAME_PROPERTY },
             additionalProperties: false,
         },
+        permissionOperation: STORAGE_READ,
         run: (request) => withSession(request, (sessionId) => {
             if (request.input.name === undefined) {
                 const names = sessionArtifactNames(root(), sessionId);

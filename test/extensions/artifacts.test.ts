@@ -212,7 +212,7 @@ test("a comment on a code block quotes its code; one on an embed quotes nothing"
     expect(quoteLine("## Hoist the sails")).toBe("Hoist the sails");
 });
 
-test("the tools that write artifacts or comments declare extension.storage.write", () => {
+test("artifact_read declares extension.storage.read; the tools that write declare extension.storage.write", () => {
     const operations = new Map<string, string | undefined>();
     activate({
         config: {},
@@ -222,7 +222,7 @@ test("the tools that write artifacts or comments declare extension.storage.write
         requests: { handle: () => () => {} },
     } as never);
     expect(Object.fromEntries(operations)).toEqual({
-        artifact_read: undefined,
+        artifact_read: "extension.storage.read",
         artifact_write: "extension.storage.write",
         artifact_edit: "extension.storage.write",
         artifact_comments: "extension.storage.write",

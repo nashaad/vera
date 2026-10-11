@@ -93,13 +93,16 @@ A `when` must name at least one field, and every field it names must match.
 anywhere needs a `reviewer_profile` naming an entry in `reviewer_profiles`.
 
 Operations you can name: `agent.close`, `agent.inbox`, `agent.message`,
-`agent.roster`, `agent.spawn`, `extension.storage.write`, `git.clone`, `git.commit`, `git.fetch`,
+`agent.roster`, `agent.spawn`, `extension.storage.read`,
+`extension.storage.write`, `git.clone`, `git.commit`, `git.fetch`,
 `git.ls_remote`, `git.pull`, `git.push`, `git.remote_update`, `memory.write`,
 `process.kill`, `process.read`, `web.download`, `web.fetch`, `web.search`.
 
 An extension tool that writes only the extension's own data can declare
 `permissionOperation: "extension.storage.write"`. Ask and auto run it without
-asking, and readonly refuses it. Installing the extension is the consent.
+asking, and readonly refuses it. A tool that only reads the extension's own
+data can declare `extension.storage.read`, which runs without asking in ask,
+auto and readonly. Installing the extension is the consent.
 
 > [!WARNING]
 > A mistake in any custom mode stops the whole config from loading. Mode names

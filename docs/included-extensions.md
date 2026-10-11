@@ -106,15 +106,15 @@ model assigned it does nothing. Disable it with `/extension disable vera.titles`
 
 ## Write artifacts
 
-`vera.artifacts` gives agents four tools: `artifact_write` and
-`artifact_edit` write a markdown artifact, `artifact_read` reads one, and
-`artifact_comments` lists, closes, or deletes your comments. In ask and auto
-mode the agent writes artifacts and closes comments without asking. Each
-artifact belongs to the conversation that wrote it. An image, audio or video
-file written as `![alt](https://…)` shows as a picture or player. A fenced
-block marked `html embed` runs its own HTML and JavaScript, such as a
-wavesurfer.js player, in a sandboxed frame that cannot read the page or act
-for you.
+`vera.artifacts` gives agents four tools: `artifact_write` and `artifact_edit`
+write a markdown artifact, `artifact_read` reads one, and `artifact_comments`
+lists, closes, or deletes your comments. The agent reads artifacts without
+asking in every mode. In ask and auto mode it also writes artifacts and closes
+comments without asking. Each artifact belongs to the conversation that wrote
+it. An image, audio or video file written as `![alt](https://…)` shows as a
+picture or player. A fenced block marked `html embed` runs its own HTML and
+JavaScript, such as a wavesurfer.js player, in a sandboxed frame that cannot
+read the page or act for you.
 
 Read an artifact in the annex: run `/usage` and pick Artifacts from the `≡`
 menu, or open the link the transcript shows after `artifact_write`. Hover a
