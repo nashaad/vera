@@ -845,8 +845,8 @@ function optionRowLabel(
     state: TuiAnySettingsPickerState,
     row: Extract<PickerDisplayRow, { kind: "option" }>,
 ): string {
-    return digitQuickSelect(state)
-            && state.kind !== "settings"
+    return (digitQuickSelect(state) && state.kind !== "settings"
+            || state.kind === "session_create_leave")
             && state.query === ""
             && row.index < 9
         ? `${row.index + 1}. ${row.option.label}`
@@ -1908,7 +1908,7 @@ export function pickerFooterText(
         ].join(" · ");
     }
     if (state.kind === "session_create_leave") {
-        return "↑↓ choose · ⏎ start · esc back";
+        return "1/2 start · ↑↓ choose · ⏎ start · esc back";
     }
     if (state.kind === "session") {
         return fittedHints([

@@ -135,6 +135,15 @@ function leaveConfirmKey(
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return unchanged(state, false);
     }
+    if (creating && !key.shift && (key.name === "1" || key.name === "2")) {
+        return {
+            selection: {
+                kind: "session_create_leave",
+                sourceDisposition: key.name === "1" ? "stop" : "keep_running",
+            },
+            handled: true,
+        };
+    }
     if (key.name === "escape") {
         return creating
             ? { handled: true }
