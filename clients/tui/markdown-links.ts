@@ -4,6 +4,7 @@ import {
     type MouseEvent,
     TextTableRenderable,
     type TextChunk,
+    type TextRenderable,
 } from "@opentui/core";
 import { Parser } from "htmlparser2";
 import { Lexer } from "marked";
@@ -28,14 +29,17 @@ interface LineInfo {
     readonly lineWidthCols: readonly number[];
 }
 
-interface TuiMarkdownRenderableForHitTesting {
-    readonly content: string;
+interface TuiTextRenderableForHitTesting {
     readonly plainText: string;
     readonly lineInfo: LineInfo;
     readonly screenX: number;
     readonly screenY: number;
     readonly scrollX: number;
     readonly scrollY: number;
+}
+
+interface TuiMarkdownRenderableForHitTesting extends TuiTextRenderableForHitTesting {
+    readonly content: string;
 }
 
 interface TableLayout {
@@ -144,6 +148,36 @@ export function tuiMarkdownLinkAtMouse(
     renderable: TuiMarkdownRenderableForHitTesting,
     event: TuiMousePosition,
 ): string | undefined {
+    return linkRegionAtMouse(
+        renderable,
+        linkRegions(renderable.content, renderable.plainText),
+        event,
+    );
+}
+
+export function tuiTextLinkAtMouse(
+    renderable: TuiTextRenderableForHitTesting,
+    event: TuiMousePosition,
+): string | undefined {
+    return linkRegionAtMouse(renderable, bareLinkRegions(renderable.plainText), event);
+}
+
+export function installTuiTextLinkHandler(
+    text: TextRenderable,
+    openLink: TuiLinkOpener,
+): void {
+    text.onMouseUp = (event: MouseEvent) => {
+        if (event.button !== 0 || text.hasSelection()) return;
+
+        activateMouseLink(tuiTextLinkAtMouse(text, event), event, openLink);
+    };
+}
+
+function linkRegionAtMouse(
+    renderable: TuiTextRenderableForHitTesting,
+    regions: readonly LinkRegion[],
+    event: TuiMousePosition,
+): string | undefined {
     const row = event.y - renderable.screenY + renderable.scrollY;
     const column = event.x - renderable.screenX + renderable.scrollX;
     const line = Math.floor(row);
@@ -155,7 +189,7 @@ export function tuiMarkdownLinkAtMouse(
     if (column < 0 || column >= lineWidth) return undefined;
 
     const displayOffset = lineStart + column;
-    return linkRegions(renderable.content, renderable.plainText).find((region) => {
+    return regions.find((region) => {
         const start = displayWidth(renderable.plainText.slice(0, region.start));
         const end = displayWidth(renderable.plainText.slice(0, region.end));
         return displayOffset >= start && displayOffset < end;
@@ -272,6 +306,19 @@ function linkRegions(content: string, renderedText: string): LinkRegion[] {
             href: target.href,
         });
         searchFrom = hrefIndex + target.href.length;
+    }
+    return regions;
+}
+
+// A trailing sentence mark is prose, not part of the address.
+const BARE_LINK = /(?:https?|file|obsidian):\/\/[^\s<>"'`]+/g;
+const TRAILING_PROSE = /[.,;:!?)\]]+$/;
+
+function bareLinkRegions(text: string): LinkRegion[] {
+    const regions: LinkRegion[] = [];
+    for (const match of text.matchAll(BARE_LINK)) {
+        const href = match[0].replace(TRAILING_PROSE, "");
+        regions.push({ start: match.index, end: match.index + href.length, href });
     }
     return regions;
 }

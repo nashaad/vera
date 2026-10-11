@@ -96,7 +96,8 @@ export function parseExtensionManifest(
 
 export function hasContributions(manifest: ExtensionManifest): boolean {
     return manifest.contributes.watches.length > 0
-        || manifest.contributes.sidecars.length > 0;
+        || manifest.contributes.sidecars.length > 0
+        || manifest.contributes.pages.length > 0;
 }
 
 function realDirectory(configuredDirectory: string): string {
@@ -126,10 +127,10 @@ function realEntrypoint(directory: string, entrypoint: string): string {
     return realFileWithin(directory, candidate, "entrypoint");
 }
 
-function realFileWithin(
+export function realFileWithin(
     directory: string,
     candidate: string,
-    kind: "manifest" | "entrypoint",
+    kind: "manifest" | "entrypoint" | "page module",
 ): string {
     let path: string;
     try {

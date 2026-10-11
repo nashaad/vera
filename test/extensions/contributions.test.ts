@@ -69,7 +69,7 @@ test("flood policy defaults to shedding and config defaults to empty", () => {
 
 test("a missing contributes key yields no contributions", () => {
     expect(parseExtensionContributions(undefined, "acme.arc-bridge"))
-        .toEqual({ watches: [], sidecars: [], skills: [] });
+        .toEqual({ watches: [], sidecars: [], skills: [], pages: [] });
 });
 
 test("watch ids are local and canonicalize under the owning extension", () => {
@@ -335,6 +335,34 @@ test("a skills contribution refuses paths that leave the extension", () => {
         ["skills", "skills"],
     ]) {
         expect(() => parseExtensionContributions({ skills }, "acme.tools"))
+            .toThrow(ExtensionContributionError);
+    }
+});
+
+test("a page contribution names a server and a browser module inside the extension", () => {
+    const contributions = parseExtensionContributions(
+        { pages: [{ id: "plans", label: " Plans ", server: "page-server.ts", browser: "page.ts" }] },
+        "acme.tools",
+    );
+
+    expect(contributions.pages).toEqual([
+        { id: "plans", label: "Plans", server: "page-server.ts", browser: "page.ts" },
+    ]);
+});
+
+test("a page contribution refuses bad ids, labels, and paths that leave the extension", () => {
+    const page = { id: "plans", label: "Plans", server: "server.ts", browser: "page.ts" };
+    for (const pages of [
+        page,
+        [{ ...page, id: "Plans" }],
+        [{ ...page, id: "x/y" }],
+        [{ ...page, label: "" }],
+        [{ ...page, label: "x".repeat(41) }],
+        [{ ...page, server: "/abs/server.ts" }],
+        [{ ...page, browser: "../page.ts" }],
+        [page, page],
+    ]) {
+        expect(() => parseExtensionContributions({ pages }, "acme.tools"))
             .toThrow(ExtensionContributionError);
     }
 });

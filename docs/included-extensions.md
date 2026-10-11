@@ -1,12 +1,12 @@
 ---
 title: "Included extensions"
-description: "Use side conversations, workspace diffs, context inspection, and other capabilities that ship with Vera."
+description: "Use side conversations, workspace diffs, artifacts, context inspection, and other capabilities that ship with Vera."
 ---
 
 # Included extensions
 
 Vera includes extensions for side conversations, workspace diffs,
-context inspection, and command hooks. They appear in `/extensions` and
+context inspection, commentable artifacts, and command hooks. They appear in `/extensions` and
 `/customize`; no separate installation is needed.
 
 Extension code lives in four places in the repository. Vera loads the first
@@ -27,8 +27,8 @@ The core and optional extensions are:
 ```text
 core       vera.command-hooks, vera.context, vera.customize, vera.explorer,
            vera.reasoning-cycle, vera.session-identity, vera.web-search
-included   vera.btw, vera.budget, vera.diff, vera.mcp, vera.recap,
-           vera.titles
+included   vera.artifacts, vera.btw, vera.budget, vera.diff, vera.mcp,
+           vera.recap, vera.titles
 ```
 
 ## BTW and Pair
@@ -104,6 +104,28 @@ always wins, even one that cleared the name. It skips conversations another
 agent started, and turns that were interrupted or failed. With no snappy
 model assigned it does nothing. Disable it with `/extension disable vera.titles`.
 
+## Write artifacts
+
+`vera.artifacts` gives agents four tools: `artifact_write` and `artifact_edit`
+write a markdown artifact, `artifact_read` reads one, and `artifact_comments`
+lists, closes, or deletes your comments. The agent reads artifacts without
+asking in every mode. In ask and auto mode it also writes artifacts and closes
+comments without asking. Each artifact belongs to the conversation that wrote
+it. An image, audio or video file written as `![alt](https://…)` shows as a
+picture or player. A fenced block marked `html embed` runs its own HTML and
+JavaScript, such as a wavesurfer.js player, in a sandboxed frame that cannot
+read the page or act for you.
+
+Read an artifact in the annex: run `/usage` and pick Artifacts from the `≡`
+menu, or open the link the transcript shows after `artifact_write`. Hover a
+block and click the comment button to comment on it. A comment does not start
+a turn; the agent reads it the next time it checks. When the text a comment
+was left on changes, the comment is marked Outdated.
+
+Tick Send to Vera on a comment to also send it to the conversation. It starts
+a turn right away, or after the running one, without asking. Disable it with
+`/extension disable vera.artifacts`.
+
 ## Configure or disable included copies
 
 Use the extension manager for available controls. To suppress included copies
@@ -137,8 +159,9 @@ Install it with `/extension install examples/extensions/plan`. Then use
 `/agent plan` to investigate and plan with read, search, and listing
 tools. Use `/agent default` to return to the default definition.
 
-Selecting Plan from auto or full_access changes access to readonly. Selecting
-one of those incompatible access modes later returns to the default definition.
+Plan cannot edit workspace files or run commands, and it keeps the access mode
+you already have. With Artifacts enabled, it writes its plan as an artifact named
+`plan` that you can comment on in the annex.
 
 #### Configure Plan
 

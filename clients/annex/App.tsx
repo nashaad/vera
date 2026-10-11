@@ -49,17 +49,35 @@ export const ANNEX_PAGES: readonly {
 
 export type AnnexPageId = "usage" | "runs";
 
+interface AnnexMenuEntry {
+    readonly id: string;
+    readonly label: string;
+    readonly href: string;
+}
+
+// Extension pages use their href as the id, so they never collide with built-ins.
 export function AnnexChrome({
     page,
     onHome,
 }: {
-    readonly page: AnnexPageId;
+    readonly page: string;
     readonly onHome: () => void;
 }) {
     const [open, setOpen] = useState(false);
+    const [extensionPages, setExtensionPages] = useState<readonly AnnexMenuEntry[]>([]);
     const toggleRef = useRef<HTMLButtonElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
     const sidebarRef = useRef<HTMLElement>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        void fetchExtensionPages().then((pages) => {
+            if (!cancelled) setExtensionPages(pages);
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         if (!open) return;
@@ -95,7 +113,7 @@ export function AnnexChrome({
                     ≡
                 </button>
                 <div className="brand">
-                    Vera <span>· {labelOf(page)}</span>
+                    Vera <span>· {labelOf(page, extensionPages)}</span>
                 </div>
             </div>
             {open
@@ -122,7 +140,7 @@ export function AnnexChrome({
                                     ×
                                 </button>
                             </div>
-                            {ANNEX_PAGES.map((entry) => (
+                            {[...ANNEX_PAGES, ...extensionPages].map((entry) => (
                                 entry.id === page
                                     ? (
                                         <button
@@ -156,8 +174,26 @@ export function AnnexChrome({
     );
 }
 
-function labelOf(page: AnnexPageId): string {
-    return ANNEX_PAGES.find((entry) => entry.id === page)?.label ?? "Vera";
+function labelOf(page: string, extensionPages: readonly AnnexMenuEntry[]): string {
+    return [...ANNEX_PAGES, ...extensionPages]
+        .find((entry) => entry.id === page)?.label ?? "Vera";
+}
+
+async function fetchExtensionPages(): Promise<readonly AnnexMenuEntry[]> {
+    try {
+        const response = await fetch("/api/pages");
+        if (!response.ok) return [];
+        const body = await response.json() as {
+            readonly pages?: readonly { readonly label: string; readonly href: string }[];
+        };
+        return (body.pages ?? []).map((entry) => ({
+            id: entry.href,
+            label: entry.label,
+            href: entry.href,
+        }));
+    } catch {
+        return [];
+    }
 }
 
 function ModelFilter({

@@ -161,7 +161,8 @@ export class InboxDeliverySession {
     }
 
     private isAdmitted(candidate: InboxAdmissionCandidate): boolean {
-        return this.admission?.allows(candidate.sourceFamily) === true
+        return this.coordinator.isPreAdmitted(candidate.seq)
+            || this.admission?.allows(candidate.sourceFamily) === true
             || this.sessionFamilies.has(candidate.sourceFamily)
             || this.onceEntries.has(candidate.seq);
     }
@@ -241,6 +242,8 @@ export class InboxDeliveryCoordinator {
     private readonly clock: () => number;
     private readonly admission?: InboxAdmissionPolicy;
     private readonly admissionFor?: InboxDeliveryOptions["admissionFor"];
+    // In memory only: after a host restart an unread entry falls back to the admission prompt.
+    private readonly preAdmitted = new Set<number>();
 
     constructor(consumers: ConsumerRegistry, options: InboxDeliveryOptions = {}) {
         this.consumers = consumers;
@@ -275,6 +278,18 @@ export class InboxDeliveryCoordinator {
         const stored = this.consumers.append(entry);
         await this.pumpAll();
         return stored;
+    }
+
+    /** Appends an entry the host vouches for, so it starts a turn without an admission prompt. */
+    async appendAdmitted(entry: InboxEntryInput): Promise<InboxEntry> {
+        const stored = this.consumers.append(entry);
+        this.preAdmitted.add(stored.seq);
+        await this.pumpAll();
+        return stored;
+    }
+
+    isPreAdmitted(seq: number): boolean {
+        return this.preAdmitted.has(seq);
     }
 
     async appendOnce(

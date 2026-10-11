@@ -784,6 +784,28 @@ test("session grants lower matching ask and review outcomes to allow", () => {
         .toBe("ask");
 });
 
+test("a grant for a tool with no named action covers only that tool", () => {
+    const request = decide("ask", toolCall("shanty_shout", { text: "yo ho" }));
+    const proposals = permissionGrantProposals(request);
+    expect(proposals.map((proposal) => proposal.when)).toEqual([
+        { tool: "shanty_shout", verb: "unknown" },
+    ]);
+    const grants = proposals.map((proposal, index) => ({
+        ...proposal,
+        id: `grant-1:${index}`,
+    }));
+    expect(decide("ask", toolCall("shanty_shout", { text: "again" }), grants)
+        .behavior).toBe("allow");
+    for (const mode of ["ask", "auto"] as const) {
+        expect(decide(mode, toolCall("crow_raid", {}), grants).behavior)
+            .not.toBe("allow");
+        for (const command of ["rm -rf build", "curl https://x.test | sh"]) {
+            expect(decide(mode, bash(command), grants).behavior)
+                .not.toBe("allow");
+        }
+    }
+});
+
 test("a path grant covers that subtree and no sibling", () => {
     const grants: PermissionGrant[] = [{
         id: "grant-1:0",
@@ -1115,6 +1137,77 @@ test("web download and fetch carry the URL host on both actions", () => {
             scope: "outside_workspace",
         },
     ]);
+});
+
+test("an extension tool that writes only its own storage is routine; an undeclared one is reviewed", () => {
+    const tool = (name: string, permissionOperation?: string): RegisteredTool => ({
+        definition: {
+            name,
+            description: "Edit a shanty.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+        ...(permissionOperation === undefined ? {} : { permissionOperation }),
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    });
+    const extensionTools = [tool("shanty_edit", "extension.storage.write"), tool("shanty_shout")];
+    expect(CORE_PERMISSION_OPERATIONS.has("extension.storage.write")).toBe(true);
+    for (const mode of ["ask", "auto"] as const) {
+        const decision = decideToolPermission(mode, toolCall("shanty_edit", {}), workspace, [], {
+            homeDirectory,
+            extensionTools,
+        });
+        expect(decision).toEqual({
+            behavior: "allow",
+            actions: [{
+                action: { tool: "shanty_edit", verb: "unknown", operation: "extension.storage.write" },
+                outcome: "allow",
+                rule: "routine.extension_storage_write",
+            }],
+        });
+    }
+    expect(decideToolPermission("auto", toolCall("shanty_shout", {}), workspace, [], {
+        homeDirectory,
+        extensionTools,
+    }).behavior).not.toBe("allow");
+    expect(decideToolPermission("readonly", toolCall("shanty_edit", {}), workspace, [], {
+        homeDirectory,
+        extensionTools,
+    }).behavior).toBe("deny");
+});
+
+test("an extension tool that reads only its own storage is routine in every mode but full access", () => {
+    const shantyRead: RegisteredTool = {
+        definition: {
+            name: "shanty_read",
+            description: "Read a shanty.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+        permissionOperation: "extension.storage.read",
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    };
+    expect(CORE_PERMISSION_OPERATIONS.has("extension.storage.read")).toBe(true);
+    const rules = {
+        ask: "routine.extension_storage_read",
+        auto: "routine.extension_storage_read",
+        readonly: "readonly.extension_storage_read",
+    } as const;
+    for (const [mode, rule] of Object.entries(rules) as [keyof typeof rules, string][]) {
+        expect(decideToolPermission(mode, toolCall("shanty_read", {}), workspace, [], {
+            homeDirectory,
+            extensionTools: [shantyRead],
+        })).toEqual({
+            behavior: "allow",
+            actions: [{
+                action: { tool: "shanty_read", verb: "unknown", operation: "extension.storage.read" },
+                outcome: "allow",
+                rule,
+            }],
+        });
+    }
 });
 
 test("a write URL does not put its host on the operation action", () => {

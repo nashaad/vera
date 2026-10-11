@@ -10,7 +10,7 @@ import { tuiApprovalHint } from "../approval.ts";
 import { AUTO_MODE_ANIMATION_DURATION_MS, mapDialRows, paintDialHud } from "../dial-paint.ts";
 import { DIAL_EXIT_SEPARATOR, renderDialStrip } from "../dials.ts";
 import { isHomeClient } from "../home-client.ts";
-import { isWorkerFreeClient } from "../jsonl-view-client.ts";
+import { isJsonlViewClient, isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { tuiKeyChordLabel, tuiKeyHint } from "../keymap.ts";
 import { IDLE_KEYS_HINT, QUESTION_HINT, READY_HINT, STOPPING_HINT, WORKING_HINT, activityFrame, elapsedWorkingTime, shortConnectionFailure, truncateFooterLine, tuiDevInstancePrefix } from "../main.ts";
 import { focusedAbortRequested, focusedAgentClient, focusedAgentState, focusedUiRequest } from "../main/agents-dials.ts";
@@ -434,7 +434,9 @@ export function renderStatus(rt: TuiRuntime): void {
     setTextContent(rt.agentNoticeText, new StyledText(noticeChunks));
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
-    const modelPrefixHint = `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · ${tuiKeyHint("model_prefix_sidebar")} · esc cancel`;
+    const modelPrefixHint = isJsonlViewClient(rt.client)
+        ? `${tuiKeyHint("model_prefix_sidebar")} · esc cancel`
+        : `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · ${tuiKeyHint("model_prefix_sidebar")} · esc cancel`;
     const workerFree = isWorkerFreeClient(rt.client);
     const showStrip = !workerFree;
     const footer = fitFooter(rt.footerLayout, footerItemContents({

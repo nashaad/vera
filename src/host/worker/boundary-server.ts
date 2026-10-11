@@ -226,6 +226,7 @@ export function createWorkerBoundaryServer(
                                 runtime.isSubagent,
                                 runtime.scratchDirectory,
                             );
+                            runtime.sessionId = options.toolRuntime.sessionId;
                             runtime.userInvokedSkill = request.userInvokedSkill;
                             runtime.allowedSkills = request.allowedSkills;
                         }

@@ -18,6 +18,10 @@ export interface AnnexProcess {
 export interface StartAnnexProcessOptions {
     readonly home: string;
     readonly assets?: string;
+    /** Extension directories that contribute annex pages. */
+    readonly extensionDirectories?: readonly string[];
+    /** Page servers call their extension's host handlers through it. */
+    readonly hostSocketPath?: string;
     readonly command?: readonly string[];
     readonly onExit?: (reason: string) => void;
 }
@@ -37,6 +41,13 @@ export async function startAnnexProcess(
         "0",
         "--assets",
         options.assets ?? packedAnnexRoot(thisProcessReleaseRoot()),
+        ...(options.extensionDirectories ?? []).flatMap((directory) => [
+            "--extension",
+            directory,
+        ]),
+        ...(options.hostSocketPath === undefined
+            ? []
+            : ["--host-socket", options.hostSocketPath]),
     ];
     const child: ChildProcess = spawn(bin as string, args, {
         argv0: "vera-annex",

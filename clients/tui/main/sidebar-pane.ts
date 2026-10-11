@@ -9,6 +9,7 @@ import { assistantFollowsTools, defaultModelChangeNotice, isSettingsRetryTrigger
 import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
 import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
+import { installTuiTextLinkHandler, openTuiLink } from "../markdown-links.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
 import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, toggleTuiWorkedRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
 import { tuiHandleActiveColor, tuiHandleColor } from "../theme.ts";
@@ -127,14 +128,7 @@ export function createTuiEntryNode(rt: TuiRuntime,
         ? createTuiReasoningBlock(rt.renderer, id, entry, inner)
         : entry.kind === "notice" && entry.card === true
         ? createTuiNoticeCard(rt.renderer, id, entry, inner)
-        : markdownNode ?? new TextRenderable(rt.renderer, {
-            id,
-            content: renderTuiEntry(entry),
-            width: "100%",
-            wrapMode: "word",
-            selectable: true,
-            marginTop: inner,
-        });
+        : markdownNode ?? createTuiTextEntry(rt, id, entry, inner);
     return entry.kind === "user"
         ? node
         : createTuiGutterEntry(
@@ -155,6 +149,24 @@ export function createTuiEntryNode(rt: TuiRuntime,
                 ...(marked ? { marked: true } : {}),
             },
         );
+}
+
+function createTuiTextEntry(rt: TuiRuntime,
+    id: string,
+    entry: TuiTranscriptEntry,
+    marginTop: number,
+): TextRenderable {
+    const text = new TextRenderable(rt.renderer, {
+        id,
+        content: renderTuiEntry(entry),
+        width: "100%",
+        wrapMode: "word",
+        selectable: true,
+        marginTop,
+    });
+    // The TUI owns the mouse, so the terminal's own URL click never fires.
+    if (entry.kind === "notice") installTuiTextLinkHandler(text, openTuiLink);
+    return text;
 }
 
 export function renderSidebarAgent(rt: TuiRuntime, 

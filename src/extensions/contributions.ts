@@ -1,4 +1,4 @@
-export const CONTRIBUTION_KINDS = ["watches", "sidecars", "skills"] as const;
+export const CONTRIBUTION_KINDS = ["watches", "sidecars", "skills", "pages"] as const;
 
 export type ContributionKind = typeof CONTRIBUTION_KINDS[number];
 
@@ -34,11 +34,20 @@ export interface SidecarContribution {
     readonly restart: boolean;
 }
 
+/** A page the annex serves. `server` and `browser` are relative module paths. */
+export interface PageContribution {
+    readonly id: string;
+    readonly label: string;
+    readonly server: string;
+    readonly browser: string;
+}
+
 export interface ExtensionContributions {
     readonly watches: readonly WatchContribution[];
     readonly sidecars: readonly SidecarContribution[];
     // Skill directories relative to the extension directory.
     readonly skills: readonly string[];
+    readonly pages: readonly PageContribution[];
 }
 
 export const EMPTY_EXTENSION_CONTRIBUTIONS: ExtensionContributions = Object
@@ -46,6 +55,7 @@ export const EMPTY_EXTENSION_CONTRIBUTIONS: ExtensionContributions = Object
         watches: Object.freeze([]) as readonly WatchContribution[],
         sidecars: Object.freeze([]) as readonly SidecarContribution[],
         skills: Object.freeze([]) as readonly string[],
+        pages: Object.freeze([]) as readonly PageContribution[],
     });
 
 export class ExtensionContributionError extends Error {
@@ -96,7 +106,85 @@ export function parseExtensionContributions(
         watches: parseWatchContributions(value.watches, extensionId),
         sidecars: parseSidecarContributions(value.sidecars, extensionId),
         skills: parseSkillContributions(value.skills, extensionId),
+        pages: parsePageContributions(value.pages, extensionId),
     };
+}
+
+const PAGE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+const MAX_PAGE_LABEL_LENGTH = 40;
+
+function parsePageContributions(
+    value: unknown,
+    extensionId: string,
+): readonly PageContribution[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        throw new ExtensionContributionError(
+            extensionId,
+            "contributes.pages must be an array",
+        );
+    }
+    const pages: PageContribution[] = [];
+    for (const entry of value) {
+        if (!isPlainObject(entry)) {
+            throw new ExtensionContributionError(
+                extensionId,
+                "a page contribution must be an object",
+            );
+        }
+        const { id, label, server, browser } = entry;
+        if (typeof id !== "string" || !PAGE_ID_PATTERN.test(id)) {
+            throw new ExtensionContributionError(
+                extensionId,
+                `a page id must match ${PAGE_ID_PATTERN.source}`,
+            );
+        }
+        if (pages.some((page) => page.id === id)) {
+            throw new ExtensionContributionError(
+                extensionId,
+                `duplicate page id "${id}"`,
+            );
+        }
+        if (
+            typeof label !== "string"
+            || label.trim().length === 0
+            || label.trim().length > MAX_PAGE_LABEL_LENGTH
+        ) {
+            throw new ExtensionContributionError(
+                extensionId,
+                `page "${id}" needs a label of 1 to ${MAX_PAGE_LABEL_LENGTH} characters`,
+            );
+        }
+        pages.push(Object.freeze({
+            id,
+            label: label.trim(),
+            server: pageModulePath(server, id, "server", extensionId),
+            browser: pageModulePath(browser, id, "browser", extensionId),
+        }));
+    }
+    return Object.freeze(pages);
+}
+
+function pageModulePath(
+    value: unknown,
+    pageId: string,
+    field: "server" | "browser",
+    extensionId: string,
+): string {
+    if (
+        typeof value !== "string"
+        || value.trim().length === 0
+        || value.startsWith("/")
+        || value.split(/[\\/]/).includes("..")
+    ) {
+        throw new ExtensionContributionError(
+            extensionId,
+            `page "${pageId}" ${field} must be a relative file inside the extension`,
+        );
+    }
+    return value.trim();
 }
 
 function parseSkillContributions(
@@ -370,6 +458,7 @@ export function applyWatchConfigOverrides(
     return Object.freeze({
         sidecars: contributions.sidecars,
         skills: contributions.skills,
+        pages: contributions.pages,
         watches: Object.freeze(
             contributions.watches.map((watch) => {
                 const override = overrides[watch.id];

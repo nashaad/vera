@@ -12,6 +12,10 @@ const SOURCE_FILES = [
     "index.html",
     "main.tsx",
     "App.tsx",
+    "ExtensionPage.tsx",
+    "RunsPage.tsx",
+    "SubscriptionLimits.tsx",
+    "money.ts",
     "sessions-table.ts",
     "styles.css",
 ] as const;
