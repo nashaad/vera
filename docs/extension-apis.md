@@ -123,7 +123,8 @@ The hook gets one plain object per finished turn:
 | `reply` | The assistant's visible text. |
 
 Tool calls, thinking, and internal messages are not in `prompt` or `reply`.
-Either can be empty.
+Either can be empty. A turn that a message started, such as one an extension
+sent with `sessions.send`, has an empty `prompt` and only that turn's reply.
 
 The hook only observes. Nothing waits for it, and the next turn can start
 while it runs. A hook that throws is logged and does not affect the
