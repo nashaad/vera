@@ -59,16 +59,16 @@ test("the prose breaks to the columns it is given", () => {
 });
 
 test("enter resumes when the file view owns the keyboard", () => {
-    expect(jsonlViewKeyAction({ name: "return" }, { sidebarFocused: false }))
+    expect(jsonlViewKeyAction({ name: "return" }, {}))
         .toBe("resume");
-    expect(jsonlViewKeyAction({ name: "enter" }, { sidebarFocused: false }))
+    expect(jsonlViewKeyAction({ name: "enter" }, {}))
         .toBe("resume");
 });
 
 test("a modified enter does not resume", () => {
     expect(jsonlViewKeyAction(
         { name: "return", ctrl: true },
-        { sidebarFocused: false },
+        {},
     )).toBe("block");
 });
 
@@ -76,19 +76,9 @@ test("transcript scroll chords still move the file", () => {
     for (const binding of JSONL_VIEW_SCROLL_IDS) {
         expect(jsonlViewKeyAction(
             { name: "up", ctrl: true },
-            { conversationBinding: binding, sidebarFocused: false },
+            { conversationBinding: binding },
         )).toBe("scroll");
     }
-});
-
-test("scroll wins even while the agent sidebar is focused", () => {
-    expect(jsonlViewKeyAction(
-        { name: "up", ctrl: true },
-        {
-            conversationBinding: "scroll_line_up",
-            sidebarFocused: true,
-        },
-    )).toBe("scroll");
 });
 
 test("Ctrl+Shift+[ and ] cycle live sessions from a file view", () => {
@@ -96,43 +86,26 @@ test("Ctrl+Shift+[ and ] cycle live sessions from a file view", () => {
         { name: "[", ctrl: true, shift: true },
         {
             globalBinding: "cycle_live_session_prev",
-            sidebarFocused: false,
         },
     )).toBe("cycle_session");
     expect(jsonlViewKeyAction(
         { name: "]", ctrl: true, shift: true },
         {
             globalBinding: "cycle_live_session_next",
-            sidebarFocused: false,
         },
     )).toBe("cycle_session");
 });
 
-test("the rail can still take focus so you can leave without resuming", () => {
+test("Ctrl+E opens the list and left does not reach the rail", () => {
     expect(jsonlViewKeyAction(
         { name: "e", ctrl: true },
         {
             globalBinding: "toggle_workspace_sidebar",
-            sidebarFocused: false,
         },
     )).toBe("toggle_sidebar");
     expect(jsonlViewKeyAction(
-        { name: "down" },
-        { sidebarFocused: true },
-    )).toBe("sidebar");
-    expect(jsonlViewKeyAction(
         { name: "left" },
-        {
-            sidebarFocused: false,
-            sidebarVisible: true,
-        },
-    )).toBe("focus_sidebar");
-    expect(jsonlViewKeyAction(
-        { name: "left" },
-        {
-            sidebarFocused: false,
-            sidebarVisible: false,
-        },
+        {},
     )).toBe("block");
 });
 
@@ -141,7 +114,6 @@ test("Ctrl+N starts a new chat from the file view", () => {
         { name: "n", ctrl: true },
         {
             globalBinding: "workspace_new_session",
-            sidebarFocused: false,
         },
     )).toBe("new_session");
 });
@@ -149,14 +121,14 @@ test("Ctrl+N starts a new chat from the file view", () => {
 test("slash opens the command composer on a closed file", () => {
     expect(jsonlViewKeyAction(
         { name: "/" },
-        { sidebarFocused: false },
+        {},
     )).toBe("command");
 });
 
 test("Ctrl+P opens the palette from a closed file", () => {
     expect(jsonlViewKeyAction(
         { name: "p", ctrl: true },
-        { globalBinding: "open_palette", sidebarFocused: false },
+        { globalBinding: "open_palette" },
     )).toBe("palette");
 });
 
@@ -164,31 +136,31 @@ test("search chords pass through a closed file to the global handlers", () => {
     for (const globalBinding of ["search_conversation", "search_sessions"]) {
         expect(jsonlViewKeyAction(
             { name: "f", ctrl: true },
-            { globalBinding, sidebarFocused: false },
+            { globalBinding },
         )).toBe("search");
     }
 });
 
 test("a printable key resumes the file with that key as the message", () => {
-    expect(jsonlViewKeyAction({ name: "x" }, { sidebarFocused: false }))
+    expect(jsonlViewKeyAction({ name: "x" }, {}))
         .toBe("type");
-    expect(jsonlViewKeyAction({ name: "space" }, { sidebarFocused: false }))
+    expect(jsonlViewKeyAction({ name: "space" }, {}))
         .toBe("type");
     expect(jsonlViewKeyAction(
         { name: "x", ctrl: true },
-        { sidebarFocused: false },
+        {},
     )).toBe("block");
 });
 
 test("the HUD stays blocked until resume", () => {
     expect(jsonlViewKeyAction(
         { name: "tab", shift: true },
-        { globalBinding: "dials.open", sidebarFocused: false },
+        { globalBinding: "dials.open" },
     )).toBe("block");
 });
 
 test("escape leaves the file for home", () => {
-    expect(jsonlViewKeyAction({ name: "escape" }, { sidebarFocused: false }))
+    expect(jsonlViewKeyAction({ name: "escape" }, {}))
         .toBe("home");
 });
 
@@ -196,28 +168,18 @@ test("a modified escape is not the way home", () => {
     for (const modifier of ["ctrl", "shift", "meta"] as const) {
         expect(jsonlViewKeyAction(
             { name: "escape", [modifier]: true },
-            { sidebarFocused: false },
+            {},
         )).toBe("block");
     }
 });
 
-test("Ctrl+R opens the full list from a file, focused rail or not", () => {
+test("Ctrl+R opens the full list from a file", () => {
     expect(jsonlViewKeyAction(
         { name: "r", ctrl: true },
         {
             workspaceBinding: "workspace_resume_picker",
-            sidebarFocused: false,
         },
     )).toBe("resume_picker");
-    // A focused rail answers its own chord, so the file view hands it over
-    // rather than opening a second copy of the same list.
-    expect(jsonlViewKeyAction(
-        { name: "r", ctrl: true },
-        {
-            workspaceBinding: "workspace_resume_picker",
-            sidebarFocused: true,
-        },
-    )).toBe("sidebar");
 });
 
 test("the chord row drops from the right rather than running off the edge", () => {

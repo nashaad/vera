@@ -366,6 +366,8 @@ export function createTuiLinesView(
                     flexGrow: 1,
                 }));
             }
+            // A rail with an empty footer table ends at its last row: no rule, no blank footer.
+            if (rail !== undefined && state.footerTable?.length === 0) return;
             if (rail !== undefined) {
                 add(new TextRenderable(renderer, {
                     content: "─".repeat(Math.max(1, rail - 2)),

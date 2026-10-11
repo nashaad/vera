@@ -193,7 +193,7 @@ export function renderState(rt: TuiRuntime): void {
         && rt.commandPalette === undefined
         && rt.workTab === undefined
         && rt.workspaceSidebar !== undefined
-        && (rt.workspaceRail !== undefined || rt.workspaceSidebarFocused);
+        && rt.workspaceRail !== undefined;
     rt.searchOverlayView.surface.visible = uiRequest === undefined
         && rt.timelinePicker === undefined
         && !rt.confirmingFullAccess
@@ -545,7 +545,6 @@ export function drawWorkspaceSidebar(rt: TuiRuntime): void {
         rt.renderer.width,
         new Date(),
         rt.workspaceRail,
-        rt.workspaceSidebarFocused,
         activityFrame(rt),
         rt.clientExtensionRegistry?.renderSidebarSummary({ usage: rt.state.sessionUsage, extensionState: rt.state.extensionState }),
     );

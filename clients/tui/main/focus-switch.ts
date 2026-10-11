@@ -47,9 +47,6 @@ export function activeOverlayFocus(rt: TuiRuntime): (() => void) | undefined {
     if (rt.workTab !== undefined) {
         return () => rt.workTabView.box.focus();
     }
-    if (rt.workspaceSidebar !== undefined && rt.workspaceSidebarFocused) {
-        return () => rt.workspaceSidebarView.box.focus();
-    }
     if (rt.searchOverlay !== undefined) {
         return () => rt.searchOverlayView.focus();
     }

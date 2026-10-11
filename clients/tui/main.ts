@@ -190,7 +190,6 @@ import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { createTuiLinesView } from "./lines-view.ts";
 import { wheelCursor } from "./list-window.ts";
 import { workTabAction } from "./work-tab.ts";
-import { openWorkspaceSelection, workspaceHeaderAction, workspaceSidebarLayout } from "./workspace-sidebar.ts";
 import { isWorkerFreeClient } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
 import {
@@ -293,7 +292,7 @@ import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import { updateTuiToolHeader, updateTuiToolRow } from "./tool-row.ts";
 import { type PoolChangeUndo, type TuiAgentCatalog, type TuiRuntime } from "./main/runtime.ts";
 import { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer } from "./main/chrome.ts";
-import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, composerIsAtLeftBoundary, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
+import { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions } from "./main/agents-dials.ts";
 import { hostedAgentAddressing, sidebarTranscriptWidth, mainTranscriptWidth, rememberOpenPaneGroup, forgetPersistedAgentPane, createTuiEntryNode, renderSidebarAgent, repaintSidebarForTheme, handleSidebarAgentUpdate, sidebarTheme } from "./main/sidebar-pane.ts";
 import { applyTranscriptScroll, handleKeypress } from "./main/keypress.ts";
 import { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, isSettingsRetryTrigger, requestSessionSettings, restorePersistedAgentPane, diagnosticsSnapshot, renderDiagnostics, abortProviderHealthCheck, paintDiagnosticsDialog, startProviderHealthCheck, noticeRepeatedModelFailure, writeFailureReportFile } from "./main/diagnostics-ops.ts";
@@ -307,7 +306,7 @@ import { renderState, showSearchTarget, drawWorkspaceSidebar, refreshTimedSurfac
 import { openReviewerMenu, openReviewerPicker, reviewerPatchFor, reviewerToast, openModelPicker, modelRequestOptionsFacts, modelPickerActionOptions, isModelShortlisted, refreshableProvidersOf, catalogSizeOf, currentModelAssignmentRows, openModelAssignmentPicker, bindModelAssignmentFromPicker, configureDisplayPath, configureFiles, openConfigurePicker, openConfigureEditor, modelLevelFacts, currentModelLevels, openReasoningPicker, openPermissionsPicker, openThemePicker, openPreferencesList, openStandingNudges, providerHasCredential, openProviderEditForm, openProviderPicker, connectProvider, homeNeedsProvider, onboardingInput } from "./main/model-pickers.ts";
 import { requestExtensionSecret, forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest } from "./main/provider-forms.ts";
 import { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo } from "./main/palette-jump.ts";
-import { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp } from "./main/workspace-ops.ts";
+import { openJumpMenuOverlay, openWorkTab, toggleWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp } from "./main/workspace-ops.ts";
 import { applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, closeSettingsPickerSurface } from "./main/settings-picker-transition.ts";
 import { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings } from "./main/onboarding-wizard-ops.ts";
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
@@ -325,7 +324,7 @@ export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModel
 export { closeOnboardingWizard, openOnboardingWizard, renderOnboardingWizard, runOnboardingWizardAction, settleWizardVerification, updateWizardSession, wizardTookModelSettings };
 export { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, requestCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission };
 export { applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, closeSettingsPickerSurface };
-export { openJumpMenuOverlay, openWorkTab, focusWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, runWorkspaceSidebarAction, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp };
+export { openJumpMenuOverlay, openWorkTab, toggleWorkspaceSidebar, openWorkspaceSidebar, cycleLiveSession, refreshWorkspaceSidebarRoster, applyWorkspaceRail, resizeWorkspaceRailAt, closeWorkspaceSidebar, openResumePicker, closeWorkSurfaces, runWorkTabAction, runSearchOverlayAction, beginSearch, openNamePrompt, openSearchOverlay, openCommandPalette, openHelp };
 export { openSettingsMenuTarget, runPaletteAction, runStandalonePaletteAction, runBack, jumpMenuContentWidth, closeJumpMenu, renderJumpMenu, runJumpTo };
 export { forgetProvider, forgetProviderCredential, defaultLoginProvider, openProviderEndpointForm, openRequestOptionsEditor, applyRequestOptionsEditorTransition, applyProviderFormTransition, applySecretPromptTransition, applySessionRenamePromptTransition, performSessionRename, refreshSessionPicker, openSettingsMenu, openSettingsDestination, openConfigurationRequiredRequest, activateConfigurationRequiredRequest, respondToConfigurationRequired, openNextConfigurationRequiredRequest, finishConfigurationPicker, syncConfigurationRequiredRequest };
 export { openReviewerMenu, openReviewerPicker, reviewerPatchFor, reviewerToast, openModelPicker, modelRequestOptionsFacts, modelPickerActionOptions, isModelShortlisted, refreshableProvidersOf, catalogSizeOf, currentModelAssignmentRows, openModelAssignmentPicker, bindModelAssignmentFromPicker, configureDisplayPath, configureFiles, openConfigurePicker, openConfigureEditor, modelLevelFacts, currentModelLevels, openReasoningPicker, openPermissionsPicker, openThemePicker, openPreferencesList, openStandingNudges, providerHasCredential, openProviderEditForm, openProviderPicker, connectProvider, homeNeedsProvider };
@@ -339,7 +338,7 @@ export { submitPrompt };
 export { pressKey, rowPointer, requestAgentSettings, retryMissingAgentSettings, isSettingsRetryTrigger, requestSessionSettings, restorePersistedAgentPane, diagnosticsSnapshot, renderDiagnostics, abortProviderHealthCheck, paintDiagnosticsDialog, startProviderHealthCheck, noticeRepeatedModelFailure, writeFailureReportFile };
 export { applyTranscriptScroll, handleKeypress };
 export { hostedAgentAddressing, sidebarTranscriptWidth, mainTranscriptWidth, rememberOpenPaneGroup, forgetPersistedAgentPane, createTuiEntryNode, renderSidebarAgent, repaintSidebarForTheme, handleSidebarAgentUpdate, sidebarTheme };
-export { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, composerIsAtLeftBoundary, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions };
+export { openExtensionAgent, focusedAgentClient, isCurrentExtensionComposeTarget, focusedAgentState, modelSettingsForAgent, modelSettingsForOpenPicker, dialPool, committedDialPair, openDials, openAgentPicker, describeAgentRow, selectAgent, requestAgentCatalog, stopAutoModeAnimation, startAutoModeAnimation, closeDials, closeTransientOverlaysForUiRequest, commitDials, setSidebarFocused, focusedUiRequest, focusedAbortRequested, focusedAgentCanAbort, abortFocusedAgent, releaseFocusedQueuedPrompts, hostOwnsPromptQueue, visibleMentions };
 export { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer };
 
 registerTuiParsers();
@@ -1006,7 +1005,6 @@ export async function startTui(
     rt.standingNudgesProfileDirectory = veraProfileDirectory();
     rt.standingNudgeRules = readStandingNudgeRules(rt);
 
-    rt.workspaceSidebarFocused = false;
     rt.workspaceRailPreferred = loadTuiWorkspaceSidebarWidth();
     rt.workspaceRailDragging = false;
     rt.workspacePinnedIds = loadTuiPinnedSessionIds();
@@ -2008,10 +2006,6 @@ export async function startTui(
                 return;
             }
             if (rt.bodyFocus.release(anyOverlayOpen(rt))) {
-                if (rt.workspaceSidebarFocused) {
-                    rt.workspaceSidebarFocused = false;
-                    renderState(rt);
-                }
                 rt.composer.focus();
             }
         },
@@ -2267,29 +2261,7 @@ export async function startTui(
             if (action !== undefined) runWorkTabAction(rt, open, action);
         },
     };
-    rt.workspaceSidebarView.pointer = {
-        hover: (rowId) => {
-            if (focusedUiRequest(rt) !== undefined) return;
-            if (rt.workspaceSidebar === undefined) return;
-            if (rt.workspaceSidebar.selectedId === rowId) return;
-            rt.workspaceSidebar = { ...rt.workspaceSidebar, selectedId: rowId };
-            renderState(rt);
-        },
-        activate: (rowId) => {
-            // A question or approval owns this session pane. The rail stays visible for context, but its dimmed controls must not queue a hidden picker or start a session transition behind.
-            if (focusedUiRequest(rt) !== undefined) return;
-            if (rt.workspaceSidebar === undefined) return;
-            const headerAction = workspaceHeaderAction(rowId);
-            if (headerAction !== undefined) {
-                runWorkspaceSidebarAction(rt, headerAction);
-                return;
-            }
-            const open = { ...rt.workspaceSidebar, selectedId: rowId };
-            rt.workspaceSidebar = open;
-            const action = openWorkspaceSelection(open, rowId);
-            if (action !== undefined) runWorkspaceSidebarAction(rt, action);
-        },
-    };
+    // Only the divider column takes the pointer; the rows stay display-only.
     rt.workspaceSidebarView.box.onMouseDown = (event: MouseEvent) => {
         const occupied = rt.workspaceSidebarView.railColumns();
         if (
@@ -2326,22 +2298,6 @@ export async function startTui(
         event.preventDefault();
         event.stopPropagation();
         rt.workTab = { ...rt.workTab, selectedId };
-        renderState(rt);
-    };
-    rt.workspaceSidebarView.box.onMouseScroll = (event) => {
-        if (rt.workspaceSidebar === undefined || event.scroll === undefined) return;
-        const open = rt.workspaceSidebar;
-        const rows = workspaceSidebarLayout(open, {
-            columns: rt.renderer.width,
-            now: new Date(),
-        }).selectable;
-        const at = rows.indexOf(open.selectedId ?? "");
-        const next = wheelCursor(Math.max(0, at), rows.length, event.scroll);
-        const selectedId = next === undefined ? undefined : rows[next];
-        if (selectedId === undefined) return;
-        event.preventDefault();
-        event.stopPropagation();
-        rt.workspaceSidebar = { ...open, selectedId };
         renderState(rt);
     };
     rt.searchOverlayView.box.onMouseScroll = (event) => {
@@ -2398,6 +2354,10 @@ export async function startTui(
         surface: "main_composer",
     });
     renderStatus(rt);
+    if (
+        rt.appearance.sidebarOpenAtLaunch
+        && rt.dependencies.listAgents !== undefined
+    ) openWorkspaceSidebar(rt);
 
     rt.watchTerminalFocus = (chunk: Buffer | string): void => {
         const focus = parseTerminalFocusEvent(

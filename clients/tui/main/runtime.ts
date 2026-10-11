@@ -199,7 +199,6 @@ export interface TuiRuntime {
     modelSwitcher: TuiModelSwitcherState | undefined;
     workTab: WorkTabState | undefined;
     workspaceSidebar: WorkspaceSidebarState | undefined;
-    workspaceSidebarFocused: boolean;
     workspaceRailPreferred: number | undefined;
     workspaceRail: number | undefined;
     workspaceRailDragging: boolean;

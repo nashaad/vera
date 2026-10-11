@@ -48,6 +48,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "open_theme_picker" },
         { type: "open_animations_preview" },
         { type: "open_resume_picker" },
+        { type: "toggle_session_rail" },
         { type: "open_subagents_picker" },
         { type: "go_to_parent" },
         { type: "reconnect" },
@@ -105,6 +106,7 @@ test("every slash action has an explicit pane scope", () => {
             ["open_theme_picker", "application"],
             ["open_animations_preview", "application"],
             ["open_resume_picker", "focused_agent"],
+            ["toggle_session_rail", "application"],
             ["open_subagents_picker", "focused_agent"],
             ["go_to_parent", "focused_agent"],
             ["reconnect", "main_session"],
@@ -589,6 +591,9 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     });
     expect(registry.dispatch("/res")).toEqual({
         type: "open_resume_picker",
+    });
+    expect(registry.dispatch("/sidebar")).toEqual({
+        type: "toggle_session_rail",
     });
     expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",

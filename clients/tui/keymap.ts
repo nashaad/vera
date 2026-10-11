@@ -108,22 +108,6 @@ export interface TuiKeymapConflict {
     readonly right: string;
 }
 
-const WORKSPACE_JUMP_BINDINGS: readonly TuiBinding[] = Array.from(
-    { length: 9 },
-    (_unused, index): TuiBinding => {
-        const position = index + 1;
-        return {
-            id: `workspace_jump_${position}`,
-            keys: [`${position}`],
-            scope: "workspace",
-            description: `Jump to row ${position} of the workspace list`,
-        };
-    },
-);
-
-export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
-    .map((binding) => binding.id);
-
 export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "journey_more", keys: ["ctrl+k"], scope: "switch_model_picker",
@@ -252,27 +236,12 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Switch to the next live session",
         hint: "Ctrl+Shift+→ next session",
     },
-    ...WORKSPACE_JUMP_BINDINGS,
-    {
-        id: "toggle_workspace_pin",
-        keys: ["p"],
-        scope: "workspace",
-        description: "Pin or unpin the selected session",
-    },
     {
         id: "workspace_new_session",
         keys: ["ctrl+n"],
         scope: "global",
         description: "Start a new conversation",
         hint: "Ctrl+N new",
-    },
-    {
-        id: "workspace_rename_session",
-        keys: ["r"],
-        scope: "workspace",
-        description: "Rename the selected session",
-        hint: "r rename",
-        remappable: true,
     },
     {
         id: "workspace_resume_picker",
@@ -339,7 +308,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "open_model_prefix", keys: ["ctrl+x"], scope: "global",
-        description: "Start a two-key shortcut: release Ctrl, then M for Switch model or H for the keys card",
+        description: "Start a two-key shortcut: release Ctrl, then M for Switch model, H for the keys card, or B for the sidebar",
         hint: "Ctrl+X models", remappable: true,
     },
     {
@@ -349,6 +318,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "model_prefix_keys", keys: ["h"], scope: "model_prefix",
         description: "Show or hide the keys card after Ctrl+X", hint: "h Keys", remappable: true,
+    },
+    {
+        id: "model_prefix_sidebar", keys: ["b"], scope: "model_prefix",
+        description: "Show or hide the running-sessions sidebar after Ctrl+X", hint: "b Sidebar", remappable: true,
     },
     {
         id: "open_model_picker",

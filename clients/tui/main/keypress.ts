@@ -18,8 +18,8 @@ import { parseRawInputEvent, tuiInterruptAction } from "../interrupt.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { handleJumpMenuKey } from "../jump.ts";
 import { activeTuiKeymap, isTuiComposerClearKey, tuiBindingId, tuiComposerWordDeleteDirection } from "../keymap.ts";
-import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, focusWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, runWorkspaceSidebarAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
-import { abortFocusedAgent, closeDials, commitDials, composerIsAtLeftBoundary, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
+import { DOUBLE_ESCAPE_REWIND_WINDOW_MS, abortProviderHealthCheck, activeCompletion, activeComposeSuggester, activeFlightSurface, activeOverlayFocus, anyOverlayOpen, applyProviderFormTransition, applyRequestOptionsEditorTransition, applySecretPromptTransition, applySessionRenamePromptTransition, applyOverrideCaution, applyOverridesReset, applySettingsPickerTransition, applyTimelineTransition, availableCommandCompletion, availableCommandSuggestions, beginCreateSession, beginParkToJsonl, beginSessionTrash, closeAdmissionDialog, closeJumpMenu, cycleLiveSession, diagnosticsSnapshot, dialogAdmission, focusActiveSurface, toggleWorkspaceSidebar, forgetProviderCredential, hideModeToast, leaveJsonlCommandMode, modeToastTakesEscape, openCommandPalette, openJumpMenuOverlay, openModelPicker, openResumePicker, openSearchOverlay, renderCommandSuggestions, renderDiagnostics, renderJumpMenu, renderJumpToBottom, renderState, renderStatus, reportConnectionError, requestCloseSession, requestCreateSession, requestPermissionsChange, requestPoolAdmission, resumeJsonlView, returnToHome, runHomeAction, runJumpTo, runPaletteAction, runSearchOverlayAction, runWorkTabAction, sendCommand, showStatusNotice, startProviderHealthCheck, submitPrompt, verificationConsoleRows } from "../main.ts";
+import { abortFocusedAgent, closeDials, commitDials, focusedAbortRequested, focusedAgentCanAbort, focusedAgentClient, focusedAgentState, focusedUiRequest, openDials, releaseFocusedQueuedPrompts, startAutoModeAnimation, stopAutoModeAnimation, selectAgent } from "../main/agents-dials.ts";
 import { adoptStandingNudgesState, toggleMainHeader, toggleSidebarHeader } from "../main/chrome.ts";
 import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { handleTuiPermissionsConfirmKey } from "../permissions-confirm.ts";
@@ -39,7 +39,6 @@ import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
-import { handleWorkspaceSidebarKey } from "../workspace-sidebar.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import type { KeyEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
@@ -99,6 +98,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
                 rt.keysCardOpen = !rt.keysCardOpen;
                 renderStatus(rt);
             }
+            if (after === "model_prefix_sidebar") toggleWorkspaceSidebar(rt);
             return;
         }
     }
@@ -186,7 +186,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         && !rt.sessionSwitchPending
         && !rt.commandPaletteView.surface.visible
         && !anyOverlayOpen(rt)
-        && !(rt.workspaceSidebarFocused && rt.workspaceSidebar !== undefined)
         && parseRawInputEvent(key)?.type !== "interrupt"
     ) {
         const transition = handleHomeKey(rt.homeState, key);
@@ -215,9 +214,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             conversationBinding: tuiBindingId("conversation", key),
             globalBinding: tuiBindingId("global", key),
             workspaceBinding: tuiBindingId("workspace", key),
-            sidebarFocused: rt.workspaceSidebarFocused
-                && rt.workspaceSidebar !== undefined,
-            sidebarVisible: rt.workspaceSidebar !== undefined,
         });
         if (jsonlAction === "scroll") {
             key.preventDefault();
@@ -234,7 +230,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         if (jsonlAction === "resume_picker") {
             key.preventDefault();
             key.stopPropagation();
-            rt.workspaceSidebarFocused = false;
             openResumePicker(rt);
             return;
         }
@@ -253,12 +248,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             resumeJsonlView(rt);
             return;
         }
-        if (jsonlAction === "focus_sidebar") {
-            key.preventDefault();
-            key.stopPropagation();
-            focusWorkspaceSidebar(rt);
-            return;
-        }
         if (jsonlAction === "home") {
             key.preventDefault();
             key.stopPropagation();
@@ -269,7 +258,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.preventDefault();
             key.stopPropagation();
             rt.jsonlCommandMode = true;
-            rt.workspaceSidebarFocused = false;
             rt.composer.setComposerText("/");
             renderCommandSuggestions(rt);
             renderState(rt);
@@ -282,31 +270,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             || jsonlAction === "palette"
             || jsonlAction === "search"
         ) {
-        } else if (
-            jsonlAction === "sidebar"
-            && rt.workspaceSidebar !== undefined
-            && rt.workspaceSidebarFocused
-        ) {
-            const open = rt.workspaceSidebar;
-            const transition = handleWorkspaceSidebarKey(
-                open,
-                key,
-                new Date(),
-                rt.renderer.width,
-                rt.workspaceSidebarView.visibleRows(),
-            );
-            key.preventDefault();
-            key.stopPropagation();
-            if (transition.handled) {
-                rt.workspaceSidebar = transition.state ?? open;
-                if (transition.action !== undefined) {
-                    runWorkspaceSidebarAction(rt, transition.action);
-                } else {
-                    renderState(rt);
-                    focusActiveSurface(rt);
-                }
-            }
-            return;
         } else if (jsonlAction === "block") {
             key.preventDefault();
             key.stopPropagation();
@@ -833,29 +796,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             key.preventDefault();
             key.stopPropagation();
             applyFooterEditorTransition(rt, transition);
-            return;
-        }
-    }
-
-    if (rt.workspaceSidebar !== undefined && rt.workspaceSidebarFocused) {
-        const open = rt.workspaceSidebar;
-        const transition = handleWorkspaceSidebarKey(
-            open,
-            key,
-            new Date(),
-            rt.renderer.width,
-            rt.workspaceSidebarView.visibleRows(),
-        );
-        if (transition.handled) {
-            key.preventDefault();
-            key.stopPropagation();
-            rt.workspaceSidebar = transition.state ?? open;
-            if (transition.action !== undefined) {
-                runWorkspaceSidebarAction(rt, transition.action);
-            } else {
-                renderState(rt);
-                focusActiveSurface(rt);
-            }
             return;
         }
     }
@@ -1426,28 +1366,6 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         key.preventDefault();
         key.stopPropagation();
         requestCloseSession(rt);
-        return;
-    }
-
-    if (
-        key.name === "left"
-        && !key.ctrl
-        && !key.shift
-        && !key.meta
-        && !key.super
-        && !key.hyper
-        && (
-            (rt.composer.focused && composerIsAtLeftBoundary(rt))
-            || (isHomeClient(rt.client) && rt.homeView.box.focused)
-        )
-        && rt.workspaceSidebar !== undefined
-        && !rt.workspaceSidebarFocused
-        && !anyOverlayOpen(rt)
-        && !rt.commandPaletteView.surface.visible
-    ) {
-        key.preventDefault();
-        key.stopPropagation();
-        focusWorkspaceSidebar(rt);
         return;
     }
 

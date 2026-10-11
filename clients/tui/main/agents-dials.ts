@@ -442,8 +442,6 @@ export function closeTransientOverlaysForUiRequest(rt: TuiRuntime): void {
     rt.workTab = undefined;
     if (rt.workspaceRail === undefined) {
         rt.workspaceSidebar = undefined;
-    } else {
-        rt.workspaceSidebarFocused = false;
     }
     rt.searchOverlay = undefined;
     rt.queuedSearch = undefined;
@@ -520,14 +518,6 @@ export function focusedAbortRequested(rt: TuiRuntime): boolean {
 export function focusedAgentCanAbort(rt: TuiRuntime): boolean {
     const focused = focusedAgentState(rt);
     return focused.working || focused.compactingSince !== undefined;
-}
-
-export function composerIsAtLeftBoundary(rt: TuiRuntime): boolean {
-    const selection = rt.composer.getSelection();
-    return rt.composer.plainText.length === 0 || (
-        rt.composer.cursorOffset === 0
-        && (selection === null || selection.start === selection.end)
-    );
 }
 
 export function abortFocusedAgent(rt: TuiRuntime): void {

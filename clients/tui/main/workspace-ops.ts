@@ -4,7 +4,7 @@ import { startTuiCommandPalette } from "../command-palette.ts";
 import { startTuiHelp } from "../help.ts";
 import { isWorkerFreeClient } from "../jsonl-view-client.ts";
 import { buildJumpRows, openJumpMenu as openJumpMenuState, type JumpOrigin } from "../jump.ts";
-import { beginCreateSession, requestCreateSession, beginSessionResume } from "../main.ts";
+import { beginCreateSession, beginSessionResume } from "../main.ts";
 import { focusedAgentClient } from "../main/agents-dials.ts";
 import { clearSearchLanding, coreHelpCommands, registeredPaletteEntries, setComposerMargin } from "../main/chrome.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
@@ -15,7 +15,6 @@ import { startTuiNamePrompt, type TuiNamePromptTarget } from "../name-prompt.ts"
 import { applySearchFailure, applySearchResults, startSearchOverlay, type SearchScope } from "../search-overlay.ts";
 import { startTuiSessionPicker, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
-import { saveTuiPinnedSessionIds } from "../theme-preference.ts";
 import { startWorkTab, type WorkTabState } from "../work-tab.ts";
 import { applyWorkspaceWorkIndex, clampWorkspaceRailColumns, openWorkspaceSelection, refreshWorkspaceSidebarSessions, startWorkspaceSidebar, workspaceCycleTarget, workspaceRailColumns, workspaceSidebarSessions, type WorkspaceSidebarAction, type WorkspaceSidebarState } from "../workspace-sidebar.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -91,17 +90,13 @@ export function openWorkTab(rt: TuiRuntime): void {
     focusActiveSurface(rt);
 }
 
-export function focusWorkspaceSidebar(rt: TuiRuntime): void {
-    if (rt.workspaceSidebar === undefined || rt.workspaceSidebarFocused) return;
-    rt.workspaceSidebarFocused = true;
-    rt.composer.blur();
-    renderState(rt);
-    focusActiveSurface(rt);
+export function toggleWorkspaceSidebar(rt: TuiRuntime): void {
+    if (rt.workspaceSidebar === undefined) openWorkspaceSidebar(rt);
+    else closeWorkspaceSidebar(rt);
 }
 
-export function openWorkspaceSidebar(rt: TuiRuntime, 
-    options: { readonly focus?: boolean } = {},
-): void {
+// The rail only displays: it never takes focus, and `/resume` stays the one place to act on a session.
+export function openWorkspaceSidebar(rt: TuiRuntime): void {
     if (rt.dependencies.listAgents === undefined) {
         rt.state = appendTuiError(
             rt.state,
@@ -112,7 +107,6 @@ export function openWorkspaceSidebar(rt: TuiRuntime,
         return;
     }
     const generation = rt.clientGeneration;
-    const focus = options.focus !== false;
     void rt.dependencies.listAgents().then((agents) => {
         if (rt.shuttingDown || generation !== rt.clientGeneration) return;
         const sessions = workspaceSidebarSessions(agents);
@@ -124,10 +118,7 @@ export function openWorkspaceSidebar(rt: TuiRuntime,
         rt.workspaceSidebar = rt.workIndex === undefined
             ? opened
             : applyWorkspaceWorkIndex(opened, rt.workIndex);
-        rt.workspaceSidebarFocused = focus;
-        if (focus) rt.composer.blur();
         renderState(rt);
-        focusActiveSurface(rt);
     }).catch((error) => {
         if (rt.shuttingDown) return;
         rt.state = appendTuiError(
@@ -247,7 +238,8 @@ export function applyWorkspaceRail(rt: TuiRuntime): void {
     rt.commandSuggestionsBox.left = occupied;
     rt.jumpMenuBox.left = occupied
         + tuiComposerOverlayInset(rt.appearance).paddingLeft;
-    rt.sidebar.body.paddingLeft = 0;
+    // The transcript bullet hangs at column 0; keep it off the rail's divider.
+    rt.sidebar.body.paddingLeft = occupied > 0 ? 1 : 0;
     rt.sidebar.refit();
 }
 
@@ -267,64 +259,16 @@ export function resizeWorkspaceRailAt(rt: TuiRuntime, pointerColumn: number): vo
 
 export function closeWorkspaceSidebar(rt: TuiRuntime): void {
     rt.workspaceSidebar = undefined;
-    rt.workspaceSidebarFocused = false;
     rt.workspaceRailDragging = false;
     rt.workspaceSidebarView.box.borderColor = rt.theme.element;
     rt.workspaceSidebarView.surface.visible = false;
-    rt.composer.focus();
     renderState(rt);
-    focusActiveSurface(rt);
 }
 
 export function runWorkspaceSidebarAction(rt: TuiRuntime, 
     action: WorkspaceSidebarAction,
     armsBack = true,
 ): void {
-    if (action.kind === "close") {
-        rt.workspaceSidebarFocused = false;
-        rt.composer.focus();
-        renderState(rt);
-        focusActiveSurface(rt);
-        return;
-    }
-    if (action.kind === "hide") {
-        closeWorkspaceSidebar(rt);
-        return;
-    }
-    if (action.kind === "pin") {
-        rt.workspacePinnedIds = action.pinnedIds;
-        try {
-            saveTuiPinnedSessionIds(action.pinnedIds);
-        } catch {
-        }
-        renderState(rt);
-        focusActiveSurface(rt);
-        return;
-    }
-    if (action.kind === "new_session") {
-        rt.workspaceSidebarFocused = false;
-        rt.composer.focus();
-        renderState(rt);
-        requestCreateSession(rt);
-        return;
-    }
-    if (action.kind === "resume_picker") {
-        rt.workspaceSidebarFocused = false;
-        openResumePicker(rt);
-        return;
-    }
-    if (action.kind === "rename_session") {
-        openNamePrompt(rt, 
-            { kind: "session", sessionId: action.session_id },
-            action.label,
-            undefined,
-            action.value,
-        );
-        return;
-    }
-    rt.workspaceSidebarFocused = false;
-    rt.composer.focus();
-    renderState(rt);
     // The rail is working-set chrome. Opening another row must not stop live work on the session you left; `/resume` Enter still does.
     beginSessionResume(rt, 
         action.session_path,
