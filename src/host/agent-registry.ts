@@ -44,7 +44,7 @@ import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
-import type { SessionIdentity, SessionIdentityProvider, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
+import type { SessionIdentity, SessionIdentityProvider, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
 import type { SessionEndReason } from "../sdk/hooks.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
@@ -586,6 +586,14 @@ export class AgentRegistry {
         title: string,
     ): Promise<VeraSessionTitleOutcome> {
         return registryRoster.setTitleIfUnnamed(this, id, title);
+    }
+
+    async sendExtensionMessage(
+        extensionId: string,
+        id: string,
+        text: string,
+    ): Promise<VeraSessionSendOutcome> {
+        return registryRoster.sendExtensionMessage(this, extensionId, id, text);
     }
 
     onRosterChanged(listener: () => void): () => void {

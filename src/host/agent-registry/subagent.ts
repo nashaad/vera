@@ -56,6 +56,23 @@ export function liveWorkerCount(reg: AgentRegistry): number {
         return count;
     }
 
+function hostToolRuntime(
+    store: SessionStore,
+    data: RunHeadlessLoopData,
+): ToolRuntime {
+    const runtime = new ToolRuntime(
+        store.header.cwd,
+        undefined,
+        undefined,
+        data.toolEnv,
+        data.instructionRoot?.path,
+        undefined,
+        store.header.parentId !== undefined,
+    );
+    runtime.sessionId = store.header.id;
+    return runtime;
+}
+
 export async function runInWorker(reg: AgentRegistry, options: {
         readonly agent: ResidentAgent;
         readonly store: SessionStore;
@@ -95,15 +112,7 @@ export async function runInWorker(reg: AgentRegistry, options: {
                 ? {}
                 : {
                     extensionTools: options.extensionTools,
-                    toolRuntime: new ToolRuntime(
-                        store.header.cwd,
-                        undefined,
-                        undefined,
-                        options.data.toolEnv,
-                        options.data.instructionRoot?.path,
-                        undefined,
-                        store.header.parentId !== undefined,
-                    ),
+                    toolRuntime: hostToolRuntime(store, options.data),
                 }),
             onUpdate: (update, ownerId) => {
                 if (ownerId === undefined) {

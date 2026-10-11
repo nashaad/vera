@@ -196,6 +196,7 @@ function grantProposalForAction(
         ...base,
         kind: "action",
         when: {
+            tool: action.tool,
             verb: action.verb,
             ...(action.scope === undefined ? {} : { scope: action.scope }),
             ...(action.executable === undefined

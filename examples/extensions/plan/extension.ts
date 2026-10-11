@@ -18,6 +18,9 @@ interface PlanExtensionConfig {
     readonly skills?: readonly string[];
 }
 
+// Registered by the included Artifacts extension; the plan agent writes its plan as an artifact.
+export const ARTIFACT_TOOLS = ["artifact_read", "artifact_write", "artifact_edit", "artifact_comments"] as const;
+
 export function activate(vera: VeraExtensionApi): void {
     const config = planExtensionConfig(vera.config);
     vera.agents.register({
@@ -28,11 +31,10 @@ export function activate(vera: VeraExtensionApi): void {
             "read",
             "grep",
             "list",
+            ...ARTIFACT_TOOLS,
             ...(config.allowSkillScripts ? ["skill_script"] : []),
         ],
         ...(config.skills === undefined ? {} : { skills: config.skills }),
-        posture: "readonly",
-        forbiddenAccess: ["auto", "full_access"],
         nudges: [{
             on: "*",
             text:

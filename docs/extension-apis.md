@@ -1,6 +1,6 @@
 ---
 title: "Extension APIs"
-description: "Read the transcript, call models, observe turns, and title or question sessions from an extension."
+description: "Read the transcript, call models, observe turns, message sessions, and add annex pages from an extension."
 ---
 
 # Extension APIs
@@ -87,6 +87,7 @@ The included `/recap` command is built on these two calls. See
 | `vera.hooks.registerSubagentFinished(hook)` | `hooks.subagent_finished` | Runs a function when a subagent hands its result back. See [Hooks](hooks.md). |
 | `vera.sessions.setTitle(sessionId, title)` | `sessions.title` | Names a session that has never had a name. |
 | `vera.sessions.ask(request)` | `sessions.ask` | Asks an open session's own model a side question. |
+| `vera.sessions.send(sessionId, text)` | `sessions.send` | Puts a message in an open session's inbox. |
 
 These calls work once the host has started its sessions. Called earlier, or
 after the host has shut extensions down, they reject. Worker processes load
@@ -192,3 +193,94 @@ What you can rely on:
 
 When the provider reports usage, the call is billed to that conversation and
 counted in [`/usage`](usage.md) with its spend and requests.
+
+### Send a conversation a message
+
+`sessions.send` puts text in an open conversation's inbox, from your
+extension. It resolves `queued` once the message is stored, or `not_found`
+when the conversation is not open. The text must not be blank and is capped
+at 16 KiB.
+
+```ts
+const outcome = await vera.sessions.send(
+    sessionId,
+    "The lookout spotted a crow carrying a shiny button toward Skull Rock.",
+);
+```
+
+`queued` means the message is in the conversation's inbox. It starts a turn
+without asking the user, because installing an extension that declares
+`sessions.send` is the consent. If a turn is running, the new one starts after
+it, and the transcript shows your text.
+
+If the host restarts before the message is read, it waits in the inbox and
+Vera asks whether to admit its source: the last part of your extension ID, so
+`acme.lookout` is `lookout`.
+
+Your text is exactly what the model reads. Say who it is from and what you
+want done; Vera adds nothing. An extension whose ID ends in a name Vera uses
+for its own messages, such as `peer` or `schedule`, cannot send.
+
+## Annex pages
+
+An extension can add a page to the annex, the local web page `/usage` opens.
+Declare it in the manifest:
+
+```json
+{
+    "id": "acme.hoard",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": ["requests.handle"],
+    "contributes": {
+        "pages": [
+            { "id": "loot", "label": "Loot", "server": "page-server.ts", "browser": "page.ts" }
+        ]
+    }
+}
+```
+
+The page appears in the annex sidebar under its label, at
+`/x/acme.hoard/loot`. Your host code can link to it with
+`vera.annex.pageUrl("loot")`, which is `undefined` while the annex is down.
+
+The `server` module runs in the annex and exports `activatePage(page)`:
+
+```ts
+export function activatePage(page) {
+    page.route("hoard", () => Response.json({ buttons: 3 }));
+    page.route("bury", async (request) => {
+        const where = await request.json();
+        return Response.json(await page.host.request("bury", where));
+    });
+}
+```
+
+- `page.route(path, handler)` serves `<page>/api/<path>`. A request other than
+  GET or HEAD must come from the page itself.
+- `page.storage` is the same storage your host code gets as `vera.storage`.
+- `page.markdownBlocks(markdown)` splits markdown into blocks with safe HTML.
+  An `![alt](https://…)` becomes an image, or an audio or video player for
+  those file types.
+- `page.host.request(name, payload)` calls a handler your host code
+  registered with `vera.requests.handle`. Use it for anything only the host
+  can do, such as `vera.sessions.send`.
+
+The `browser` module runs in the page and exports `mount(root, context)`. It
+cannot import other files. `context.api` is the prefix for your routes:
+
+```ts
+export function mount(root, context) {
+    void fetch(`${context.api}hoard`).then(async (response) => {
+        const { buttons } = await response.json();
+        root.textContent = `The crow has hidden ${buttons} buttons.`;
+    });
+}
+```
+
+A change to the browser module shows when you reload the page. A change to
+the server module needs the host restarted.
+
+The included Artifacts extension in `extensions/artifacts` is a full page:
+markdown artifacts an agent writes, with comments you leave in the margin.

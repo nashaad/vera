@@ -2,6 +2,7 @@ import {
     canonicalSidecarId,
     canonicalWatchId,
     type ExtensionContributions,
+    type PageContribution,
     type SidecarContribution,
     type WatchContribution,
 } from "./contributions.ts";
@@ -21,11 +22,18 @@ export interface OwnedSidecarContribution {
     readonly definition: SidecarContribution;
 }
 
+export interface OwnedPageContribution {
+    readonly extensionId: string;
+    readonly extensionDirectory: string;
+    readonly definition: PageContribution;
+}
+
 export interface HostContributionSet {
     watches(): readonly OwnedWatchContribution[];
     watch(id: string): OwnedWatchContribution | undefined;
     sidecars(): readonly OwnedSidecarContribution[];
     sidecar(id: string): OwnedSidecarContribution | undefined;
+    pages(): readonly OwnedPageContribution[];
     frozen(): boolean;
 }
 
@@ -56,6 +64,7 @@ export class ContributionCollisionError extends Error {
 export function createHostContributionSet(): MutableHostContributionSet {
     const watches = new Map<string, OwnedWatchContribution>();
     const sidecars = new Map<string, OwnedSidecarContribution>();
+    const pages: OwnedPageContribution[] = [];
     let isFrozen = false;
 
     return {
@@ -109,6 +118,9 @@ export function createHostContributionSet(): MutableHostContributionSet {
                     });
                     admittedSidecars.push(id);
                 }
+                for (const definition of contributions.pages) {
+                    pages.push({ extensionId, extensionDirectory, definition });
+                }
             } catch (error) {
                 for (const id of admittedSidecars.toReversed()) {
                     sidecars.delete(id);
@@ -120,6 +132,11 @@ export function createHostContributionSet(): MutableHostContributionSet {
             }
         },
         withdraw(extensionId: string): readonly OwnedWatchContribution[] {
+            for (let index = pages.length - 1; index >= 0; index -= 1) {
+                if (pages[index]?.extensionId === extensionId) {
+                    pages.splice(index, 1);
+                }
+            }
             const ownedSidecars = [...sidecars.values()].filter(
                 (entry) => entry.extensionId === extensionId,
             ).toReversed();
@@ -151,6 +168,9 @@ export function createHostContributionSet(): MutableHostContributionSet {
         },
         sidecar(id: string): OwnedSidecarContribution | undefined {
             return sidecars.get(id);
+        },
+        pages(): readonly OwnedPageContribution[] {
+            return [...pages];
         },
     };
 }

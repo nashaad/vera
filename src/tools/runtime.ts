@@ -22,6 +22,7 @@ export class ToolRuntime {
     readonly isSubagent: boolean;
     readonly invocation: "top_level" | "subagent";
     allowedTools: readonly string[] | undefined;
+    sessionId: string | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
     private readonly ownedProcessRegistry: ManagedProcessRegistry | undefined;
@@ -56,6 +57,7 @@ export class ToolRuntime {
         this.allowedSkills = undefined;
         this.userInvokedSkill = undefined;
         this.allowedTools = undefined;
+        this.sessionId = undefined;
     }
 
     recordFileSnapshot(path: string, content: string): void {

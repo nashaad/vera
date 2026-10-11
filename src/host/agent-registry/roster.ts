@@ -7,9 +7,10 @@ import { MAX_PEER_HOP, MAX_PEER_WAKES_PER_WINDOW, PEER_WAKE_WINDOW_MS, acknowled
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { UNCOUNTED_INBOX_KINDS, type InboxAdmissionCandidate, type InboxAdmissionDecision } from "../inbox-delivery.ts";
 import { PEER_MESSAGE_KIND, RETIRED_PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, type PeerMessagePayload } from "../local-participation.ts";
+import { EXTENSION_MESSAGE_KIND, extensionMessageFamily, parseExtensionMessage } from "../extension-messages.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
-import type { VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
+import type { VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
 
 export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
@@ -225,11 +226,74 @@ export async function startAdmittedInboxTurn(reg: AgentRegistry, recipient: Regi
                 if (!recorded) return;
             }
         }
+        if (candidate.kind === EXTENSION_MESSAGE_KIND) {
+            let recorded: boolean;
+            try {
+                recorded = await recordExtensionNotice(reg, recipient, candidate.seq);
+            } catch {
+                recorded = false;
+            }
+            if (!recorded) return;
+        }
         try {
             recipient.agent.triggerDeliveryTurn();
         } catch {
             // A recipient closed since admission keeps the entry unread.
         }
+    }
+
+export async function sendExtensionMessage(reg: AgentRegistry, extensionId: string, id: string, text: string): Promise<VeraSessionSendOutcome> {
+        const entry = reg.agents.get(id);
+        const coordinator = reg.options.inboxDelivery;
+        if (
+            entry === undefined
+            || entry.ephemeral
+            || entry.agent.closed
+            || entry.agent.failed
+            || entry.inbox === undefined
+            || coordinator === undefined
+        ) {
+            return "not_found";
+        }
+        if (extensionMessageFamily(extensionId) === undefined) {
+            throw new Error(`Extension ${extensionId} cannot message sessions under a host source name`);
+        }
+        // Installing an extension with sessions.send is the user's consent, so its messages skip the prompt.
+        await coordinator.appendAdmitted({
+            source: extensionId,
+            kind: EXTENSION_MESSAGE_KIND,
+            address: id,
+            payload: JSON.stringify({ version: 1, text }),
+        });
+        return "queued";
+    }
+
+// The extension's own text is the notice. The entry is acknowledged only when
+// it is next in line, because acknowledging moves a cursor past everything before it.
+async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAgentEntry, seq: number): Promise<boolean> {
+        const stored = reg.options.inboxDelivery?.entry(seq);
+        const message = stored === undefined ? undefined : parseExtensionMessage(stored);
+        if (stored === undefined || message === undefined) return true;
+        const recorded = await recordDeliveryAndNotify(recipient.store, recipient.events, {
+            id: `inbox:${seq}`,
+            sourceAgentId: stored.source,
+            content: message.text,
+            kind: "attention",
+        });
+        const consumer = recipient.inbox?.consumer;
+        const next = consumer?.read({
+            limit: 1,
+            addresses: [recipient.agent.id],
+            excludeKinds: [RETIRED_PEER_READ_KIND],
+        })[0];
+        if (consumer !== undefined && next?.seq === seq) {
+            try {
+                consumer.acknowledge(seq);
+            } catch {
+                // Left unread, it is still readable with agent_inbox.
+            }
+        }
+        return recorded;
     }
 
 export async function applyAgentInboxEffect(reg: AgentRegistry, callerId: string, effect: AgentInboxEffect): Promise<AppliedToolEffectOutput> {

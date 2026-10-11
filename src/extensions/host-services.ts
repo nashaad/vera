@@ -3,6 +3,7 @@ import type {
     VeraExtensionOneshotMessage,
     VeraExtensionOneshotResult,
     VeraSessionAskResult,
+    VeraSessionSendOutcome,
     VeraSessionTitleOutcome,
 } from "../sdk/extensions.ts";
 import type {
@@ -15,6 +16,7 @@ import type {
 
 const MAX_ONESHOT_TEXT_BYTES = 256 * 1024;
 const MAX_TITLE_BYTES = 200;
+const MAX_EXTENSION_MESSAGE_BYTES = 16 * 1024;
 const MODEL_ASSIGNMENTS: readonly VeraExtensionModelAssignment[] = [
     "snappy",
     "eco",
@@ -44,10 +46,17 @@ export interface ExtensionHostServices {
         sessionId: string,
         title: string,
     ): Promise<VeraSessionTitleOutcome>;
+    /** The annex base URL, ending in `/`, while it is listening. */
+    annexUrl?(): string | undefined;
     askSession(
         call: ExtensionSessionAskCall,
         signal: AbortSignal,
     ): Promise<VeraSessionAskResult>;
+    sendToSession(
+        extensionId: string,
+        sessionId: string,
+        text: string,
+    ): Promise<VeraSessionSendOutcome>;
 }
 
 export interface RegisteredTurnFinishedHook {
@@ -139,6 +148,31 @@ export class ExtensionHostSlot {
             );
         }
         return this.require().setSessionTitle(sessionId, normalized);
+    }
+
+    async sendToSession(
+        extensionId: string,
+        sessionId: unknown,
+        text: unknown,
+    ): Promise<VeraSessionSendOutcome> {
+        if (typeof sessionId !== "string" || sessionId.length === 0) {
+            throw new Error("Invalid session ID");
+        }
+        if (
+            typeof text !== "string"
+            || text.trim().length === 0
+            || Buffer.byteLength(text, "utf8") > MAX_EXTENSION_MESSAGE_BYTES
+        ) {
+            throw new Error(
+                `Session message must be 1 to ${MAX_EXTENSION_MESSAGE_BYTES} bytes of text`,
+            );
+        }
+        return this.require().sendToSession(extensionId, sessionId, text);
+    }
+
+    annexUrl(): string | undefined {
+        if (this.closed.signal.aborted) return undefined;
+        return this.services?.annexUrl?.();
     }
 
     private require(): ExtensionHostServices {

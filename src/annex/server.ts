@@ -4,6 +4,7 @@ import { packedAnnexRoot } from "../release/layout.ts";
 import { createAuthStorage } from "../providers/auth-storage.ts";
 import { createOpenAICodexLimitsReader } from "../providers/openai-codex-limits.ts";
 import type { SubscriptionLimits } from "../providers/subscription-limits.ts";
+import { extensionPageRoutes } from "./extension-pages.ts";
 import { foldRunDetail, foldRunRows, readRunBlob } from "./runs-report.ts";
 import {
     dispatchAnnexRoute,
@@ -39,6 +40,10 @@ export interface StartAnnexServerOptions {
     readonly fold?: (window: UsageWindowId) => Promise<UsageReport>;
     /** Extra pages. Adding one must not require a change under src/host/. */
     readonly extraRoutes?: readonly AnnexRoute[];
+    /** Extension directories whose manifests contribute pages. */
+    readonly extensionDirectories?: readonly string[];
+    /** Lets page servers call their extension's host handlers. */
+    readonly hostSocketPath?: string;
 }
 
 interface PackedAnnexAssets {
@@ -69,6 +74,11 @@ export async function startAnnexServer(
     const routes: AnnexRoute[] = [
         ...usageRoutes(options, assets, fold),
         ...runRoutes(options, assets),
+        ...await extensionPageRoutes(
+            options.extensionDirectories ?? [],
+            assets.html,
+            options.hostSocketPath === undefined ? {} : { hostSocketPath: options.hostSocketPath },
+        ),
         ...(options.extraRoutes ?? []),
     ];
     const server = Bun.serve({

@@ -144,12 +144,12 @@ test("pre-compact hooks need their capability and get the payload", async () => 
     await registry.close();
 });
 
-test("model, title and ask calls are capability-gated, wait for the host, and stop at close", async () => {
+test("model, title, ask and send calls are capability-gated, wait for the host, and stop at close", async () => {
     const extension = createExtension("host.extension", `
         export function activate(vera) {
             globalThis.__hostApi = vera;
         }
-    `, ["model.oneshot", "sessions.title", "sessions.ask"]);
+    `, ["model.oneshot", "sessions.title", "sessions.ask", "sessions.send"]);
     const bare = createExtension("bare.extension", `
         export function activate(vera) {
             globalThis.__bareApi = vera;
@@ -172,10 +172,13 @@ test("model, title and ask calls are capability-gated, wait for the host, and st
     const ask = { sessionId: "session-1", question: "Where did the crow bury the buttons?" };
     await expect(bareApi.sessions.ask(ask)).rejects.toThrow("sessions.ask");
     await expect(api.sessions.ask(ask)).rejects.toThrow("not ready");
+    await expect(bareApi.sessions.send("session-1", "caw")).rejects.toThrow("sessions.send");
+    await expect(api.sessions.send("session-1", "caw")).rejects.toThrow("not ready");
 
     const calls: ExtensionOneshotCall[] = [];
     const titles: string[] = [];
     const asks: ExtensionSessionAskCall[] = [];
+    const sent: string[] = [];
     const services: ExtensionHostServices = {
         async oneshot(call) {
             calls.push(call);
@@ -188,6 +191,10 @@ test("model, title and ask calls are capability-gated, wait for the host, and st
         async askSession(call) {
             asks.push(call);
             return { text: "Under the lighthouse", model: "crow-large", provider: "rookery" };
+        },
+        async sendToSession(extensionId, sessionId, text) {
+            sent.push(`${extensionId}>${sessionId}=${text}`);
+            return "queued";
         },
     };
     registry.bindHost(services);
@@ -211,11 +218,16 @@ test("model, title and ask calls are capability-gated, wait for the host, and st
         provider: "rookery",
     });
     expect(asks).toEqual([{ ...ask, maxTokens: 64 }]);
+    expect(await api.sessions.send("session-1", "Bury it deeper")).toBe("queued");
+    expect(sent).toEqual(["host.extension>session-1=Bury it deeper"]);
+    await expect(api.sessions.send("session-1", "  ")).rejects.toThrow("bytes of text");
+    await expect(api.sessions.send("session-1", "x".repeat(16 * 1024 + 1))).rejects.toThrow("bytes of text");
 
     await registry.close();
     await expect(api.model.oneshot(request)).rejects.toThrow("closed");
     await expect(api.sessions.setTitle("session-1", "Loot")).rejects.toThrow("closed");
     await expect(api.sessions.ask(ask)).rejects.toThrow("closed");
+    await expect(api.sessions.send("session-1", "caw")).rejects.toThrow("closed");
 });
 
 test("bad oneshot, title and ask requests are refused before reaching the host", async () => {
@@ -240,6 +252,10 @@ test("bad oneshot, title and ask requests are refused before reaching the host",
         async askSession() {
             reached += 1;
             return { text: "", model: "crow-large" };
+        },
+        async sendToSession() {
+            reached += 1;
+            return "queued";
         },
     });
     const api = globals().__strictApi as HostApi;
@@ -287,6 +303,9 @@ test("closing the registry cancels a oneshot in flight", async () => {
                 signal.addEventListener("abort", () => reject(signal.reason));
             });
         },
+        async sendToSession() {
+            return "queued";
+        },
     });
     const api = globals().__cancelApi as HostApi;
     const pending = api.model.oneshot({
@@ -303,6 +322,7 @@ interface HostApi {
     readonly sessions: {
         setTitle(sessionId: string, title: string): Promise<unknown>;
         ask(request: unknown): Promise<unknown>;
+        send(sessionId: string, text: string): Promise<unknown>;
     };
 }
 
