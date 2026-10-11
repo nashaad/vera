@@ -1,17 +1,21 @@
 # vera-plan
 
-An example extension that adds a read-only planning agent. Select it with
-`/agent plan`; return with `/agent default`. It reads and plans using `read`,
-`grep`, and `list` and starts in read-only access. Composer suggestions and
-skill scripts are off by default.
+An example extension that adds a planning agent. Select it with `/agent plan`;
+return with `/agent default`. It reads with `read`, `grep`, and `list` and
+writes its plan as a doc with the docs extension's `doc_*` tools, so you can
+comment on it in the annex. Composer suggestions and skill scripts are off by
+default.
 
 ## Try the example
 
 Enter this in the composer with the path to this directory:
 
 ```text
+/extension install <path>/examples/extensions/docs
 /extension install <path>/examples/extensions/plan
 ```
+
+Without the docs extension the agent still plans, but has no doc tools.
 
 Then restart the host and client. An installed copy runs with the default
 options. To disable it, run `/extension disable example.plan`.
@@ -46,10 +50,10 @@ Restart the host and client after changing the configuration.
 
 ## Behavior
 
-Plan forbids `auto` and `full_access`. Selecting Plan under either posture
-moves to `readonly`. Explicitly choosing either posture later switches back
-to the default definition and explains the change in the transcript.
-A home or project `plan.md` shadows the extension's definition.
+Plan runs under the session's current access mode. It has no tool that edits
+workspace files or runs commands; the doc tools write only to the docs
+extension's own storage. A home or project `plan.md` shadows the extension's
+definition.
 
 ## Test
 

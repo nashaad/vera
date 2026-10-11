@@ -137,8 +137,9 @@ Install it with `/extension install examples/extensions/plan`. Then use
 `/agent plan` to investigate and plan with read, search, and listing
 tools. Use `/agent default` to return to the default definition.
 
-Selecting Plan from auto or full_access changes access to readonly. Selecting
-one of those incompatible access modes later returns to the default definition.
+Plan cannot edit workspace files or run commands, and it keeps the access mode
+you already have. With the Docs example also installed, it writes its plan as
+a doc named `plan` that you can comment on in the annex.
 
 #### Configure Plan
 
@@ -154,3 +155,24 @@ add a `config.json` `extensions` entry whose path is the absolute path of
 
 A home or project `plan.md` overrides the extension's definition. Restart
 the host and client after changing its configuration.
+
+### Docs
+
+Install it with `/extension install examples/extensions/docs`, then restart
+the host. Agents get four tools: `doc_write` and `doc_edit` write a markdown
+doc, `doc_read` reads one, and `doc_comments` lists, closes, or deletes your
+comments. In ask and auto mode the agent writes docs and closes comments
+without asking. Each doc belongs to the conversation that wrote it. An image, audio
+or video file written as `![alt](https://…)` shows as a picture or player.
+A fenced block marked `html embed` runs its own HTML and JavaScript, such as
+a wavesurfer.js player, in a sandboxed frame that cannot read the page or
+act for you.
+
+Read a doc in the annex: run `/usage` and pick Docs from the `≡` menu, or open
+the link the transcript shows after `doc_write`. Hover a block and click the comment button
+to comment on it. A comment does not start a turn; the agent reads it the next
+time it checks. When the text a comment was left on changes, the comment is
+marked Outdated.
+
+Tick Send to Vera on a comment to also send it to the conversation. It starts
+a turn right away, or after the running one, without asking.

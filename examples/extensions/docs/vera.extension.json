@@ -1,0 +1,12 @@
+{
+    "id": "example.docs",
+    "version": "0.2.0",
+    "sdk": "1",
+    "entrypoint": "extension.ts",
+    "capabilities": ["tools.register", "requests.handle", "sessions.send"],
+    "contributes": {
+        "pages": [
+            { "id": "docs", "label": "Docs", "server": "page-server.ts", "browser": "page.ts" }
+        ]
+    }
+}

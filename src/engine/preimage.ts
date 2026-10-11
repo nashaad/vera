@@ -18,7 +18,7 @@ export function newStashingToolRuntime(
         void sweepStaleStashes();
     }
     const stash = new PreimageStash(sessionId);
-    return new ToolRuntime(
+    const runtime = new ToolRuntime(
         workspace,
         (path, content) => stash.capture(path, content),
         stash.directory,
@@ -28,4 +28,6 @@ export function newStashingToolRuntime(
         isSubagent,
         scratchDirectory,
     );
+    runtime.sessionId = sessionId;
+    return runtime;
 }

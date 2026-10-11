@@ -113,6 +113,7 @@ const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
 const SESSION_TITLE_CAPABILITY = "sessions.title";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
+const SESSION_SEND_CAPABILITY = "sessions.send";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
 const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_RESULT_LIMIT = 1_000_000;
@@ -631,6 +632,21 @@ async function activateExtension(
     const api: VeraExtensionApi = Object.freeze({
         config: structuredClone(config),
         storage: extensionStorage(loaded.manifest.id),
+        annex: Object.freeze({
+            pageUrl(pageId: string): string | undefined {
+                const declared = loaded.manifest.contributes.pages.some(
+                    (page) => page.id === pageId,
+                );
+                if (!declared) {
+                    throw new Error(
+                        `Extension ${loaded.manifest.id} does not declare page ${pageId}`,
+                    );
+                }
+                const base = host.annexUrl();
+                if (base === undefined) return undefined;
+                return annexPageUrl(base, loaded.manifest.id, pageId);
+            },
+        }),
         commands: Object.freeze({
             register(spec: VeraExtensionCommandSpec): void {
                 if (phase !== "activating") {
@@ -740,6 +756,12 @@ async function activateExtension(
                     throw new Error(`Extension did not declare ${SESSION_ASK_CAPABILITY}`);
                 }
                 return host.askSession(request);
+            },
+            async send(sessionId: string, text: string) {
+                if (!loaded.manifest.capabilities.includes(SESSION_SEND_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_SEND_CAPABILITY}`);
+                }
+                return host.sendToSession(loaded.manifest.id, sessionId, text);
             },
         }),
         model: Object.freeze({
@@ -1216,6 +1238,9 @@ function registerTool(
                     (operationSignal) => handler({
                         input: structuredClone(input),
                         workspace: context.workspace,
+                        ...(context.sessionId === undefined
+                            ? {}
+                            : { sessionId: context.sessionId }),
                         signal: operationSignal,
                     }),
                     {
@@ -1763,4 +1788,9 @@ function parseExtensionAgent(spec: VeraExtensionAgentSpec): AgentDefinition {
         spec.name,
         `---\n${JSON.stringify(frontmatter)}\n---\n${spec.instructions}`,
     );
+}
+
+function annexPageUrl(base: string, extensionId: string, pageId: string): string {
+    const root = base.endsWith("/") ? base : `${base}/`;
+    return `${root}x/${encodeURIComponent(extensionId)}/${pageId}`;
 }

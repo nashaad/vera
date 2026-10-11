@@ -31,8 +31,12 @@ function parseArgs(argv: readonly string[]): {
     readonly home: string;
     readonly port: number;
     readonly assets: string | undefined;
+    readonly extensions: readonly string[];
+    readonly hostSocket: string | undefined;
 } {
     let home: string | undefined;
+    let hostSocket: string | undefined;
+    const extensions: string[] = [];
     let port: number | undefined;
     let assets: string | undefined;
     for (let i = 0; i < argv.length; i++) {
@@ -60,6 +64,21 @@ function parseArgs(argv: readonly string[]): {
             }
             continue;
         }
+        if (arg === "--extension") {
+            const directory = argv[++i];
+            if (directory === undefined || directory.length === 0) {
+                fail("missing --extension path");
+            }
+            extensions.push(directory);
+            continue;
+        }
+        if (arg === "--host-socket") {
+            hostSocket = argv[++i];
+            if (hostSocket === undefined || hostSocket.length === 0) {
+                fail("missing --host-socket path");
+            }
+            continue;
+        }
         if (arg === undefined) {
             fail("usage: vera-annex --home <vera-home> --port <n>");
         }
@@ -68,11 +87,11 @@ function parseArgs(argv: readonly string[]): {
     if (home === undefined || home.length === 0 || port === undefined) {
         fail("usage: vera-annex --home <vera-home> --port <n>");
     }
-    return { home, port, assets };
+    return { home, port, assets, extensions, hostSocket };
 }
 
 if (import.meta.main) {
-    const { home, port, assets } = parseArgs(Bun.argv.slice(2));
+    const { home, port, assets, extensions, hostSocket } = parseArgs(Bun.argv.slice(2));
     process.env.VERA_HOME = home;
     const paths = annexPathsFromHome(home);
     try {
@@ -83,6 +102,8 @@ if (import.meta.main) {
             workflowDirectory: paths.workflowDirectory,
             authStoragePath: paths.authStoragePath,
             port,
+            extensionDirectories: extensions,
+            ...(hostSocket === undefined ? {} : { hostSocketPath: hostSocket }),
             ...(assets === undefined ? {} : { webRoot: assets }),
         });
         process.stdout.write(`${server.url}\n`);

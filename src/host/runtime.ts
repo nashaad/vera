@@ -947,6 +947,7 @@ export async function startResidentHost(
         currentConfig,
         reachability: currentReachability,
         createAdapter: () => createAdapter(),
+        annexUrl: () => annexUrl,
     }));
 
     let server: HostServer;
@@ -1326,6 +1327,14 @@ export async function startResidentHost(
         try {
             annex = await startAnnexProcess({
                 home: veraHomeDirectory(),
+                hostSocketPath: server.socketPath,
+                extensionDirectories: [
+                    ...new Set(
+                        extensions.contributions().pages().map(
+                            (page) => page.extensionDirectory,
+                        ),
+                    ),
+                ],
                 ...(options.webRoot === undefined
                     ? {}
                     : { assets: options.webRoot }),

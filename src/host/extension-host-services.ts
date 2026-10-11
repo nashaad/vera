@@ -15,12 +15,16 @@ export interface ExtensionHostServiceOptions {
     readonly currentConfig: () => VeraConfig;
     readonly reachability: () => ReachabilityCheck;
     readonly createAdapter: () => ModelAdapter;
+    readonly annexUrl?: () => string | undefined;
 }
 
 export function createExtensionHostServices(
     options: ExtensionHostServiceOptions,
 ): ExtensionHostServices {
     return {
+        annexUrl() {
+            return options.annexUrl?.();
+        },
         async oneshot(call, signal) {
             const config = options.currentConfig();
             const binding = bindModelAssignment(
@@ -82,6 +86,9 @@ export function createExtensionHostServices(
         },
         setSessionTitle(sessionId, title) {
             return options.registry.setTitleIfUnnamed(sessionId, title);
+        },
+        sendToSession(extensionId, sessionId, text) {
+            return options.registry.sendExtensionMessage(extensionId, sessionId, text);
         },
         askSession(call, signal) {
             return options.registry.askSession(

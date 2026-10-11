@@ -18,6 +18,9 @@ interface PlanExtensionConfig {
     readonly skills?: readonly string[];
 }
 
+// Registered by the docs extension; the plan agent writes its plan as a doc.
+export const DOC_TOOLS = ["doc_read", "doc_write", "doc_edit", "doc_comments"] as const;
+
 export function activate(vera: VeraExtensionApi): void {
     const config = planExtensionConfig(vera.config);
     vera.agents.register({
@@ -28,11 +31,10 @@ export function activate(vera: VeraExtensionApi): void {
             "read",
             "grep",
             "list",
+            ...DOC_TOOLS,
             ...(config.allowSkillScripts ? ["skill_script"] : []),
         ],
         ...(config.skills === undefined ? {} : { skills: config.skills }),
-        posture: "readonly",
-        forbiddenAccess: ["auto", "full_access"],
         nudges: [{
             on: "*",
             text:

@@ -34,7 +34,16 @@ export interface VeraExtensionApi {
     readonly requests: VeraExtensionRequests;
     readonly model: VeraExtensionModel;
     readonly storage: VeraExtensionStorage;
+    readonly annex: VeraExtensionAnnex;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+export interface VeraExtensionAnnex {
+    /**
+     * The address of a page this extension declares in `contributes.pages`.
+     * Undefined until the annex is listening, and after it exits.
+     */
+    pageUrl(pageId: string): string | undefined;
 }
 
 /** The intent slots an extension may borrow. Job slots stay with their jobs. */
@@ -137,6 +146,9 @@ export interface SessionIdentityProvider {
 /** `named` means the session already has a name, or once had one the user cleared. */
 export type VeraSessionTitleOutcome = "set" | "named" | "not_found";
 
+/** `queued` means the message is in the session's inbox; its admission rules decide whether a turn starts. */
+export type VeraSessionSendOutcome = "queued" | "not_found";
+
 export interface VeraSessionAskRequest {
     readonly sessionId: string;
     readonly question: string;
@@ -161,6 +173,11 @@ export interface VeraExtensionSessions {
      * no tool runs, and it never falls back to another model.
      */
     ask(request: VeraSessionAskRequest): Promise<VeraSessionAskResult>;
+    /**
+     * Needs `sessions.send`. Puts text in an open session's inbox, from this
+     * extension. The text is what the session's model reads if a turn starts.
+     */
+    send(sessionId: string, text: string): Promise<VeraSessionSendOutcome>;
 }
 
 /**
@@ -284,6 +301,8 @@ export interface VeraExtensionToolSpec {
 export interface VeraExtensionToolRequest {
     readonly input: Readonly<Record<string, unknown>>;
     readonly workspace: string;
+    /** Absent when the tool runs outside a stored session. */
+    readonly sessionId?: string;
     readonly signal: AbortSignal;
 }
 
