@@ -31,7 +31,7 @@ test("--help and -h render one overview with a docs pointer", async () => {
     expect(await runCli(["--help"], run.dependencies)).toBe(0);
     expect(await runCli(["-h"], run.dependencies)).toBe(0);
     expect(run.out[0]).toBe(run.out[1]);
-    expect(run.out[0]).toContain("Vera coding agent");
+    expect(run.out[0]).toContain("Vera agent");
     expect(run.out[0]).toContain("--effort <level>");
     expect(run.out[0]).toMatch(/^  --effort <level>\s*$/m);
     expect(run.out[0]).not.toContain("Set reasoning effort");

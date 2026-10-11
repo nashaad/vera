@@ -987,7 +987,7 @@ test("bare and prompt-only startup profiles remove optional context", async () =
         } else {
             expect(request?.tools).toEqual([]);
             expect(request?.systemPrompt).toBe(
-                "## Identity\nYou are Vera, a coding agent. Follow the user's instructions and use the available tools when they help.\n\n",
+                "## Identity\nYou are Vera, an agent that helps the user with their work. Follow the user's instructions and use the available tools when they help.\n\n",
             );
         }
     }

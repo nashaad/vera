@@ -27,7 +27,7 @@ test("system prompt sections are assembled from current inputs", () => {
         date: new Date(2026, 6, 17),
     })).toBe([
         "## Identity",
-        "You are Vera, a coding agent. Follow the user's instructions and use the available tools when they help.",
+        "You are Vera, an agent that helps the user with their work. Follow the user's instructions and use the available tools when they help.",
         "",
         "## Narration",
         "Say what you are doing as you go. Before your first tool call, state in one sentence what you are about to do. While working, post a short update when you find something, change direction, or hit a blocker. Write these as ordinary response text. Reasoning may be hidden from the user, so it is not a substitute for telling them what is happening.",
