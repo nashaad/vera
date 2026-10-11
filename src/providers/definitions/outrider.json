@@ -37,5 +37,6 @@
         "request": ["openai-chat"],
         "response": ["openai-sse"],
         "error": ["http-status"]
-    }
+    },
+    "cache": { "mode": "none", "usage": [] }
 }

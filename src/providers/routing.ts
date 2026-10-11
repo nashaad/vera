@@ -17,10 +17,15 @@ export type PrepareModelRequest = (
 ) => ModelRequest | Promise<ModelRequest>;
 
 export function applyModelRequestOptions(
-    request: ModelRequest,
-    config: Pick<VeraConfig, "model_request_options">,
+    original: ModelRequest,
+    config: Pick<VeraConfig, "model_request_options" | "prompt_cache">,
     provider: string,
 ): ModelRequest {
+    const retention = config.prompt_cache?.retention;
+    // A retention the caller chose for this one request outranks the configured one.
+    const request = retention === undefined || original.cacheRetention !== undefined
+        ? original
+        : { ...original, cacheRetention: retention };
     const reference = `${provider}/${request.model}`;
     const entry = config.model_request_options?.[reference];
     if (entry === undefined) return request;
@@ -39,7 +44,7 @@ export function applyModelRequestOptions(
 export function createRequestOptionsSnapshotAdapter(
     createAdapter: (provider: string) => ModelAdapter,
     defaultProvider: string,
-    config: Pick<VeraConfig, "model_request_options">,
+    config: Pick<VeraConfig, "model_request_options" | "prompt_cache">,
 ): ModelAdapter {
     return new ProviderRoutingAdapter(
         createAdapter,

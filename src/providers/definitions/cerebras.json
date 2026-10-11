@@ -22,5 +22,6 @@
         "response": ["openai-sse"],
         "error": ["http-status"],
         "catalog": ["cerebras-models"]
-    }
+    },
+    "cache": { "mode": "automatic", "usage": ["read"] }
 }

@@ -2,6 +2,7 @@ import type { VeraConfig, VeraProviderId } from "../config.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 import {
     resolveProviders,
+    type ProviderCacheDefinition,
     type ProviderDiscoveryDefinition,
     type ProviderLocalRuntime,
     type ProviderProtocol,
@@ -38,6 +39,7 @@ export interface ProviderDescriptor {
         readonly effort?: readonly string[];
         readonly catalog?: readonly string[];
     }>;
+    readonly cache?: ProviderCacheDefinition;
     readonly custom?: boolean;
     /** Why this provider is put in front of a cold user. Absent means it waits to be found. */
     readonly recommend?: ProviderRecommendation;
@@ -98,6 +100,7 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
         ...(provider.definition.behavior_id === undefined ? {} : { behaviorId: provider.definition.behavior_id }),
         discovery: provider.definition.discovery,
         compatibility: provider.definition.compatibility,
+        cache: provider.definition.cache,
         custom: provider.custom,
         ...(provider.definition.recommend === undefined
             ? {}

@@ -64,6 +64,20 @@ export interface RecommendedModel {
 /** Which local runtime seam drives this provider. One name per implementation, never a free string, so a definition cannot ask for a binary nothing knows how to run. */
 export type ProviderLocalRuntime = "outrider";
 
+/** How Vera asks this provider to reuse a prompt prefix. `key` sends the session key, `breakpoints` marks cache points, `automatic` needs neither. */
+export type ProviderCacheMode = "key" | "breakpoints" | "automatic" | "none";
+/** Which cache counts the provider reports back in usage. */
+export type ProviderCacheUsage = "read" | "write";
+
+export interface ProviderCacheDefinition {
+    readonly mode: ProviderCacheMode;
+    readonly usage: readonly ProviderCacheUsage[];
+    /** A header that carries the session key, for a gateway that pins a session to one backend by it. */
+    readonly affinity_header?: string;
+}
+
+export const NO_PROVIDER_CACHE: ProviderCacheDefinition = { mode: "none", usage: [] };
+
 export interface ProviderRequestOptionsDefinition {
     readonly behavior: "openrouter-provider-preferences";
     readonly label: string;
@@ -87,6 +101,7 @@ export interface ProviderDefinition {
     readonly fixed_endpoint?: boolean;
     readonly discovery: ProviderDiscoveryDefinition;
     readonly compatibility: ProviderCompatibilityLayers;
+    readonly cache: ProviderCacheDefinition;
     readonly request_options?: ProviderRequestOptionsDefinition;
     readonly recommend?: ProviderRecommendation;
     readonly recommend_models?: readonly RecommendedModel[];
@@ -106,12 +121,19 @@ export interface ProviderDeclaration {
     readonly images?: boolean;
     readonly max_tokens?: number;
     readonly thinking?: "adaptive";
+    /** Absent takes the protocol's default. */
+    readonly cache?: ProviderCacheDefinition;
 }
+
+// An extension that says nothing about caching gets none.
+export type ContributedProviderDefinition =
+    & Omit<ProviderDefinition, "cache">
+    & { readonly cache?: ProviderCacheDefinition };
 
 export interface ProviderResolutionInput {
     readonly providers?: Readonly<Record<string, ProviderDeclaration>>;
     readonly provider_endpoints?: Readonly<Record<string, string>>;
-    readonly contributed?: readonly ProviderDefinition[];
+    readonly contributed?: readonly ContributedProviderDefinition[];
 }
 
 export interface ResolvedProvider {
@@ -174,7 +196,11 @@ export function resolveProviders(
             custom: false,
         });
     }
-    for (const definition of input.contributed ?? []) {
+    for (const contributed of input.contributed ?? []) {
+        const definition: ProviderDefinition = {
+            ...contributed,
+            cache: contributed.cache ?? NO_PROVIDER_CACHE,
+        };
         addResolved(byId, {
             definition,
             id: definition.id,
@@ -253,7 +279,16 @@ function declarationToDefinition(
         default_base_url: declaration.base_url,
         discovery: { mode: "models", path: "/models", credential: declaration.credential === "none" ? "none" : "required" },
         compatibility: { request: ["openai-chat"], response: ["openai-sse"], error: ["http-status"] },
+        cache: declaration.cache ?? declaredProviderCacheDefault(declaration.protocol),
     }, `declared provider ${id}`);
+}
+
+export function declaredProviderCacheDefault(
+    protocol: ProviderDeclaration["protocol"],
+): ProviderCacheDefinition {
+    return protocol === "anthropic-messages"
+        ? { mode: "breakpoints", usage: ["read", "write"] }
+        : { mode: "automatic", usage: ["read"] };
 }
 
 export function parseProviderDefinition(
@@ -289,6 +324,7 @@ export function parseProviderDefinition(
     }
     const discovery = parseDiscovery(value.discovery, context);
     const compatibility = parseLayers(value.compatibility, context);
+    const cache = parseCache(value.cache, value.protocol, context);
     const requestOptions = parseRequestOptions(value.request_options, context);
     const recommend = parseRecommendation(value.recommend, context);
     const noModels = parseLines(value.no_models, context);
@@ -318,6 +354,7 @@ export function parseProviderDefinition(
         ...(value.fixed_endpoint === true ? { fixed_endpoint: true } : {}),
         discovery,
         compatibility,
+        cache,
         ...(requestOptions === undefined ? {} : { request_options: requestOptions }),
         ...(recommend === undefined ? {} : { recommend }),
         ...(recommendModels === undefined ? {} : { recommend_models: recommendModels }),
@@ -483,6 +520,49 @@ function parseLayers(value: unknown, context: string): ProviderCompatibilityLaye
     return result as ProviderCompatibilityLayers;
 }
 
+const CACHE_MODES_BY_PROTOCOL: Readonly<Record<ProviderProtocol, readonly ProviderCacheMode[]>> = {
+    "openai-chat": ["key", "automatic", "none"],
+    "anthropic-messages": ["breakpoints", "none"],
+    contributed: ["key", "breakpoints", "automatic", "none"],
+};
+
+export function parseCache(
+    value: unknown,
+    protocol: ProviderProtocol,
+    context: string,
+): ProviderCacheDefinition {
+    if (!isRecord(value)) {
+        throw new Error(`${context}: cache is required; say how the provider caches prompts, or mode none`);
+    }
+    if (!isCacheMode(value.mode)) throw new Error(`${context}: invalid cache mode`);
+    if (!CACHE_MODES_BY_PROTOCOL[protocol].includes(value.mode)) {
+        throw new Error(`${context}: cache mode ${value.mode} does not fit protocol ${protocol}`);
+    }
+    if (
+        !Array.isArray(value.usage)
+        || !value.usage.every(isCacheUsage)
+        || new Set(value.usage).size !== value.usage.length
+    ) {
+        throw new Error(`${context}: cache usage must list read and/or write once each`);
+    }
+    if (value.mode === "none" && (value.usage.length > 0 || value.affinity_header !== undefined)) {
+        throw new Error(`${context}: cache mode none cannot report usage or set affinity_header`);
+    }
+    if (
+        value.affinity_header !== undefined
+        && (typeof value.affinity_header !== "string" || !/^[A-Za-z0-9-]+$/.test(value.affinity_header))
+    ) {
+        throw new Error(`${context}: cache affinity_header must be a header name`);
+    }
+    return {
+        mode: value.mode,
+        usage: value.usage as readonly ProviderCacheUsage[],
+        ...(typeof value.affinity_header === "string"
+            ? { affinity_header: value.affinity_header }
+            : {}),
+    };
+}
+
 function validProviderUrl(value: string): boolean {
     try {
         const url = new URL(value);
@@ -504,6 +584,12 @@ function isProviderCredential(value: unknown): value is ProviderCredential {
 }
 function isProviderProtocol(value: unknown): value is ProviderProtocol {
     return value === "openai-chat" || value === "anthropic-messages" || value === "contributed";
+}
+function isCacheMode(value: unknown): value is ProviderCacheMode {
+    return value === "key" || value === "breakpoints" || value === "automatic" || value === "none";
+}
+function isCacheUsage(value: unknown): value is ProviderCacheUsage {
+    return value === "read" || value === "write";
 }
 function isDiscoveryMode(value: unknown): value is ProviderDiscoveryMode {
     return value === "models" || value === "cache" || value === "none";

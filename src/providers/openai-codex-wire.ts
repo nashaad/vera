@@ -80,6 +80,7 @@ export interface OpenAICodexRequest {
     readonly store: false;
     readonly stream: true;
     readonly include: readonly ["reasoning.encrypted_content"];
+    readonly prompt_cache_key?: string;
 }
 
 export interface OpenAICodexStreamEvent {
