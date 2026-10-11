@@ -12,6 +12,9 @@ export const agentSendTool: RegisteredTool = {
             "The message is stored in the recipient's inbox; the result reports",
             "whether the recipient was woken to read it. Use reply_to to reply",
             "to a message you previously read with agent_inbox.",
+            "Use it only when another conversation needs something from you",
+            "to do its own work. Don't use it for status updates, or for",
+            "questions that git or the files can answer.",
         ].join(" "),
         inputSchema: {
             type: "object",
