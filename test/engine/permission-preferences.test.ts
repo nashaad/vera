@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import {
     addPermissionPreference,
     listPermissionPreferences,
     loadPermissionPreferences,
+    type PermissionPreference,
     PermissionPreferenceStore,
     removePermissionPreference,
 } from "../../src/engine/permission-preferences.ts";
@@ -45,6 +46,26 @@ function bash(command: string): HookToolCall {
 test("a missing preferences file reads as no preferences", async () => {
     await withPreferencesFile(async (path) => {
         expect(await loadPermissionPreferences(path)).toEqual([]);
+    });
+});
+
+test("preferences saved with a verb but no tool are dropped on load", async () => {
+    await withPreferencesFile(async (path) => {
+        const scoped: PermissionPreference = {
+            id: "pref-scoped",
+            when: { tool: "shanty_write", verb: "unknown" },
+            createdAt: "2026-07-17T12:00:00.000Z",
+        };
+        await writeFile(path, JSON.stringify([
+            {
+                id: "pref-legacy",
+                when: { verb: "unknown" },
+                createdAt: "2026-07-17T12:00:00.000Z",
+            },
+            scoped,
+        ]));
+
+        expect(await loadPermissionPreferences(path)).toEqual([scoped]);
     });
 });
 

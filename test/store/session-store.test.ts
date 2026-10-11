@@ -14,6 +14,7 @@ import {
     readSessionIndexMetadata,
     SessionStore,
 } from "../../src/store/session-store.ts";
+import type { PermissionGrant } from "../../src/engine/permission-grants.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import type { SessionImageAttachmentMetadata } from "../../src/store/session-store.ts";
@@ -1191,6 +1192,39 @@ test("legacy claim-shaped grants migrate when the meaning is preserved", async (
         scope: "session",
         lifetime: "session",
     }]);
+});
+
+test("session grants saved with a verb but no tool are dropped on load", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    const scoped: PermissionGrant = {
+        id: "grant-1:1",
+        kind: "action",
+        when: { tool: "shanty_write", verb: "unknown" },
+        scope: "session",
+        lifetime: "session",
+    };
+    appendFileSync(path, `${JSON.stringify({
+        type: "permission_grants",
+        id: "grant-1",
+        timestamp: "2026-07-17T12:00:01.000Z",
+        grants: [
+            {
+                id: "grant-1:0",
+                kind: "action",
+                when: { verb: "unknown" },
+                scope: "session",
+                lifetime: "session",
+            },
+            scoped,
+        ],
+    })}\n`);
+
+    expect((await SessionStore.open(path)).permissionGrants()).toEqual([scoped]);
 });
 
 test("legacy command-prefix records remain readable but grant no authority", async () => {

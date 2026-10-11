@@ -23,7 +23,7 @@ import {
     isModelTurnSettings,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
-import { migratePermissionGrant } from "../engine/permission-compat.ts";
+import { isLegacyUnscopedGrant, migratePermissionGrant } from "../engine/permission-compat.ts";
 import {
     isApprovalMode,
     isPermissionGrant,
@@ -2505,7 +2505,7 @@ function parsePermissionGrantsEntry(
         const migrated = isPermissionGrant(grant)
             ? grant
             : migratePermissionGrant(grant);
-        if (migrated === undefined) {
+        if (migrated === undefined || isLegacyUnscopedGrant(migrated.when)) {
             continue;
         }
         grants.push(copyPermissionGrant(migrated));
