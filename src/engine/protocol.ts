@@ -2357,6 +2357,13 @@ function addSessionModelUsage(
         outputTokens: (prior?.outputTokens ?? 0) + message.usage.outputTokens,
         cachedInputTokens: (prior?.cachedInputTokens ?? 0)
             + message.usage.cachedInputTokens,
+        ...(prior?.cacheWriteInputTokens === undefined
+                && message.usage.cacheWriteInputTokens === undefined
+            ? {}
+            : {
+                cacheWriteInputTokens: (prior?.cacheWriteInputTokens ?? 0)
+                    + (message.usage.cacheWriteInputTokens ?? 0),
+            }),
         reasoningTokens: (prior?.reasoningTokens ?? 0)
             + message.usage.reasoningTokens,
         totalTokens: (prior?.totalTokens ?? 0) + message.usage.totalTokens,

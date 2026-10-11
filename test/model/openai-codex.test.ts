@@ -953,3 +953,52 @@ test("aborting settles a body read that would otherwise wait forever", async () 
     await reading.catch(() => {});
     expect(controller.signal.aborted).toBe(true);
 });
+
+test("the session key reaches Codex as a cache key and session headers", async () => {
+    const sent: { body: Record<string, unknown>; headers: Headers }[] = [];
+    const adapter = createOpenAICodexAdapter({
+        authStorage: {
+            getCredential: () => ({
+                type: "oauth" as const,
+                token: JSON.stringify({
+                    schema_version: 1,
+                    access_token: "access-token",
+                    refresh_token: "refresh-token",
+                    expires_at: 60_000,
+                }),
+            }),
+            setCredential() {},
+            deleteCredential() {},
+        },
+        now: () => 0,
+        fetch: (async (_input: string, init: RequestInit) => {
+            sent.push({
+                body: JSON.parse(String(init.body)) as Record<string, unknown>,
+                headers: new Headers(init.headers),
+            });
+            return new Response(
+                'data: {"type":"response.completed","response":{}}\n\ndata: [DONE]\n\n',
+                { status: 200, headers: { "Content-Type": "text/event-stream" } },
+            );
+        }) as unknown as typeof fetch,
+    });
+
+    await adapter.stream({
+        model: "gpt-5.6-sol",
+        messages: [],
+        cacheKey: "crow-nest-7",
+    }).result();
+    await adapter.stream({
+        model: "gpt-5.6-sol",
+        messages: [],
+        cacheKey: "crow-nest-7",
+        cacheRetention: "none",
+    }).result();
+
+    expect(sent[0]?.body.prompt_cache_key).toBe("crow-nest-7");
+    expect(sent[0]?.headers.get("session-id")).toBe("crow-nest-7");
+    expect(sent[0]?.headers.get("x-client-request-id")).toBe("crow-nest-7");
+    expect(sent[1]?.body).not.toHaveProperty("prompt_cache_key");
+    expect(sent[1]?.headers.get("session-id")).toBeNull();
+    expect(sent[1]?.headers.get("x-client-request-id")).toBeNull();
+});

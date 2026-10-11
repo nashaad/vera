@@ -2902,6 +2902,8 @@ function isModelUsage(value: unknown): boolean {
     return Number.isFinite(value.inputTokens)
         && Number.isFinite(value.outputTokens)
         && Number.isFinite(value.cachedInputTokens)
+        && (value.cacheWriteInputTokens === undefined
+            || Number.isFinite(value.cacheWriteInputTokens))
         && Number.isFinite(value.reasoningTokens)
         && Number.isFinite(value.totalTokens)
         && (value.cost === undefined || Number.isFinite(value.cost));

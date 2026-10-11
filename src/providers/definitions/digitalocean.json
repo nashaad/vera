@@ -15,5 +15,6 @@
         "request": ["openai-chat"],
         "response": ["openai-sse"],
         "error": ["http-status"]
-    }
+    },
+    "cache": { "mode": "automatic", "usage": ["read", "write"], "affinity_header": "X-Model-Affinity" }
 }

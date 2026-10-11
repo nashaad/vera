@@ -16,6 +16,7 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
+import type { CacheRetention } from "../model/prompt-cache.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import { normalizeGoogleToolSchema } from "./google-tool-schema.ts";
@@ -30,6 +31,9 @@ export interface OpenRouterChatRequest {
     readonly tools?: ChatFunctionTool[];
     readonly bodyExtensions?: Readonly<Record<string, JsonValue>>;
     readonly provider?: ProviderPreferences;
+    /** Already clamped, and absent when retention is none. */
+    readonly cacheKey?: string;
+    readonly cacheRetention: CacheRetention;
 }
 
 export type SendOpenRouterChat = (
@@ -146,6 +150,9 @@ export function openRouterUsage(usage: ChatUsage): ModelUsage {
         inputTokens: usage.promptTokens ?? 0,
         outputTokens: usage.completionTokens ?? 0,
         cachedInputTokens: usage.promptTokensDetails?.cachedTokens ?? 0,
+        ...(usage.promptTokensDetails?.cacheWriteTokens == null
+            ? {}
+            : { cacheWriteInputTokens: usage.promptTokensDetails.cacheWriteTokens }),
         reasoningTokens: usage.completionTokensDetails?.reasoningTokens ?? 0,
         totalTokens: usage.totalTokens ?? 0,
         ...(usage.cost == null ? {} : { cost: usage.cost }),

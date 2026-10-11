@@ -97,6 +97,10 @@ import {
     renderPromptContribution,
 } from "./prompt-contributions.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
+import {
+    type HistoryLineage,
+    PromptHistoryTracker,
+} from "./prompt-history-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
 import { formatScratchTodo, readScratchTodo } from "./scratch-state.ts";
 import { createToolResultSpill } from "./tool-result-spill.ts";
@@ -246,6 +250,7 @@ export interface RunTurnState {
     readonly modelContext?: (
         context?: CompactionContext,
     ) => readonly ModelMessage[];
+    readonly historyLineage?: () => HistoryLineage;
     readonly contextWatch?: ContextWatch;
     readonly compact?: (
         signal: AbortSignal,
@@ -288,6 +293,7 @@ export interface RunTurnState {
         signal: AbortSignal,
     ) => ReturnType<ReviewToolCall>;
     readonly promptPrefixTracker?: PromptPrefixTracker;
+    readonly promptHistoryTracker?: PromptHistoryTracker;
     readonly attachToolImage?: (path: string, signal: AbortSignal) => Promise<string>;
     readonly readImageContent?: (attachmentId: string) => Promise<ImageContent>;
     readonly imageSource?: (attachmentId: string) => string | undefined;
@@ -772,6 +778,7 @@ export async function runHeadlessLoop(
         messages,
         store,
         modelContext: compaction.modelContext,
+        historyLineage: compaction.historyLineage,
         contextWatch: compaction.contextWatch,
         get compactionPolicy() {
             return owned.compaction;
@@ -825,6 +832,7 @@ export async function runHeadlessLoop(
             owned.reviewLog,
         ),
         promptPrefixTracker: new PromptPrefixTracker(),
+        promptHistoryTracker: new PromptHistoryTracker(),
         attachToolImage: async (path, signal) => (await new ImageAttachmentService(store, IMAGE_ATTACHMENT_LIMITS).attachFile(path, signal)).id,
         readImageContent: (attachmentId) =>
             readSessionImageContent(store, attachmentId),
@@ -1294,6 +1302,16 @@ export async function runTurn(
                     ...prefixDrift,
                 });
             }
+            const historyDrift = state.promptHistoryTracker?.observe(
+                request.messages,
+                state.historyLineage?.(),
+            );
+            if (historyDrift !== undefined) {
+                state.events.emit({
+                    type: "prompt_history_drift",
+                    ...historyDrift,
+                });
+            }
             state.events.emit({
                 type: "model_request",
                 ...(request.provider === undefined
@@ -1366,6 +1384,9 @@ export async function runTurn(
             try {
                 modelRequest = {
                     ...request,
+                    ...(state.sessionId === undefined
+                        ? {}
+                        : { cacheKey: state.sessionId }),
                     messages: await hydrateImageAttachments(
                         request.messages,
                         requireImageReader(state),

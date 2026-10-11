@@ -225,6 +225,51 @@ effort can remain unknown until configured or supplied by a supported mapping.
 Thinking controls vary by server; do not assume every local model has the same
 effort levels.
 
+## Prompt caching
+
+Providers keep the start of a request they have already processed and charge
+less to reuse it. Vera keeps that start the same within a conversation and
+sends each provider what it needs to find it again. There is nothing to set
+up.
+
+- The ChatGPT subscription gets the conversation's id as a cache key.
+- Anthropic-style endpoints get cache markers on the system prompt, the tools,
+  and the latest message.
+- `anthropic/*` models through OpenRouter get cache markers too. Every OpenRouter
+  request carries the conversation's id, so OpenRouter keeps the conversation
+  on the same upstream provider.
+- Other OpenAI-style providers cache on their own.
+
+The [usage page](usage.md) counts cached input for every provider that reports
+it, and cache writes where the provider reports those.
+
+To change how long providers are asked to keep the cache, set
+`prompt_cache.retention` in `config.json` to `short` (the default), `long`, or
+`none` to send no cache hints at all:
+
+```json
+"prompt_cache": { "retention": "long" }
+```
+
+A provider you declare under `providers` caches the way its protocol
+suggests. If your endpoint caches differently, give it its own `cache` block:
+
+```json
+"providers": {
+  "crows-nest": {
+    "protocol": "openai-chat",
+    "base_url": "https://crows-nest.example/v1",
+    "cache": { "mode": "key", "usage": ["read", "write"] }
+  }
+}
+```
+
+`mode` is `key`, `automatic` or `none` for `openai-chat`, and `breakpoints`
+or `none` for `anthropic-messages`. `usage` lists what the endpoint reports
+back: `read`, `write`, both, or neither. `affinity_header` names a header
+that carries the conversation's id, for a gateway that pins a conversation to
+one server by it.
+
 ## Keyboard reference
 
 The footer shows the action for the focused control. Typing or pasting from

@@ -19,6 +19,7 @@ import {
     type ProviderFailure,
 } from "../model/provider-failure.ts";
 import { ModelEventStream } from "../model/stream.ts";
+import { promptCacheKey } from "../model/prompt-cache.ts";
 import { transformMessages } from "../model/transform.ts";
 import type {
     AssistantMessage,
@@ -89,6 +90,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
             if (substituted !== undefined) {
                 stream.push(substituted);
             }
+            const cacheKey = promptCacheKey(request);
             const providerRequest: OpenAICodexRequest = {
                 model: request.model,
                 instructions: request.systemPrompt ?? "",
@@ -105,6 +107,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 store: false,
                 stream: true,
                 include: ["reasoning.encrypted_content"],
+                ...(cacheKey === undefined ? {} : { prompt_cache_key: cacheKey }),
             };
 
             const events = await this.sendResponse(
@@ -218,6 +221,11 @@ export function createOpenAICodexAdapter(
         };
         if (authorization.accountId !== undefined) {
             headers["chatgpt-account-id"] = authorization.accountId;
+        }
+        // The backend pins a conversation to one cache by these headers as well as the body key.
+        if (request.prompt_cache_key !== undefined) {
+            headers["session-id"] = request.prompt_cache_key;
+            headers["x-client-request-id"] = request.prompt_cache_key;
         }
         return fetchRequest(`${baseUrl}/responses`, {
             method: "POST",

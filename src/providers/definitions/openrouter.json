@@ -23,5 +23,6 @@
         "request": ["openrouter-request-fields"],
         "response": ["openrouter-stream"],
         "error": ["openrouter-error"]
-    }
+    },
+    "cache": { "mode": "automatic", "usage": ["read", "write"] }
 }

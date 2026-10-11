@@ -277,6 +277,8 @@ function isModelUsage(value: unknown): boolean {
         && typeof value.inputTokens === "number"
         && typeof value.outputTokens === "number"
         && typeof value.cachedInputTokens === "number"
+        && (value.cacheWriteInputTokens === undefined
+            || typeof value.cacheWriteInputTokens === "number")
         && typeof value.reasoningTokens === "number"
         && typeof value.totalTokens === "number"
         && (value.cost === undefined || typeof value.cost === "number");

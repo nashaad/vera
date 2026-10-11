@@ -10,6 +10,7 @@ import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { decodeOpenAiSse, encodeOpenAiMessage } from "./ollama-openai.ts";
 import { providerEndpointUrl } from "./endpoint-url.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
+import type { ProviderCacheDefinition } from "./definitions.ts";
 import {
     enableThinkingFromEffort,
     joinSettingsOverlay,
@@ -24,6 +25,8 @@ export interface CustomOpenAIAdapterOptions {
     readonly supportsImageInput?: boolean;
     readonly imageSupport?: ImageSupportLookup;
     readonly requestLayers?: readonly string[];
+    /** Absent means the server caches on its own and is sent no key. */
+    readonly cache?: ProviderCacheDefinition;
     /** Test seam. Absent reads the shipped overlay. */
     readonly overlay?: SettingsOverlay;
     /** Test seam. Absent reads the default provider catalog cache. */
@@ -60,6 +63,7 @@ export function createCustomOpenAIAdapter(
                     ...(options.apiKey === undefined
                         ? {}
                         : { authorization: `Bearer ${options.apiKey}` }),
+                    ...affinityHeader(options.cache, request.cacheKey),
                 },
                 body: JSON.stringify(encodeRequest(
                     request,
@@ -67,6 +71,7 @@ export function createCustomOpenAIAdapter(
                     options.provider,
                     options.overlay,
                     options.cacheDir,
+                    options.cache,
                 )),
                 signal,
             });
@@ -99,6 +104,7 @@ function encodeRequest(
     provider: string,
     overlay?: SettingsOverlay,
     cacheDir?: string,
+    cache?: ProviderCacheDefinition,
 ): Record<string, unknown> {
     const reasoning = request.reasoning?.effort;
     const messages = request.messages.map((message) => {
@@ -141,7 +147,18 @@ function encodeRequest(
         ...(request.tools === undefined || request.tools.length === 0
             ? {}
             : { tools: request.tools }),
+        ...(cache?.mode === "key" && request.cacheKey !== undefined
+            ? { prompt_cache_key: request.cacheKey }
+            : {}),
     };
+}
+
+function affinityHeader(
+    cache: ProviderCacheDefinition | undefined,
+    cacheKey: string | undefined,
+): Record<string, string> {
+    if (cache?.affinity_header === undefined || cacheKey === undefined) return {};
+    return { [cache.affinity_header]: cacheKey };
 }
 
 function catalogThinkingFields(

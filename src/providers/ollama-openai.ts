@@ -280,11 +280,56 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
                     promptTokens: usage.prompt_tokens,
                     completionTokens: usage.completion_tokens,
                     totalTokens: usage.total_tokens,
+                    ...promptTokensDetails(usage),
+                    ...completionTokensDetails(usage),
                     ...(typeof usage.cost === "number" && Number.isFinite(usage.cost) && usage.cost >= 0
                         ? { cost: usage.cost } : {}),
                 },
             }),
     } as unknown as ChatStreamChunk;
+}
+
+// OpenAI-style servers report cache use under prompt_tokens_details; DeepSeek and DigitalOcean use their own fields.
+function promptTokensDetails(
+    usage: Record<string, unknown>,
+): { promptTokensDetails?: { cachedTokens?: number; cacheWriteTokens?: number } } {
+    const details = isRecord(usage.prompt_tokens_details)
+        ? usage.prompt_tokens_details
+        : {};
+    const cachedTokens = count(details.cached_tokens)
+        ?? count(usage.prompt_cache_hit_tokens)
+        ?? count(usage.cache_read_input_tokens);
+    const cacheWriteTokens = count(details.cache_write_tokens)
+        ?? count(usage.cache_created_input_tokens);
+    if (cachedTokens === undefined && cacheWriteTokens === undefined) return {};
+    return {
+        promptTokensDetails: {
+            ...(cachedTokens === undefined ? {} : { cachedTokens }),
+            ...(cacheWriteTokens === undefined ? {} : { cacheWriteTokens }),
+        },
+    };
+}
+
+function completionTokensDetails(
+    usage: Record<string, unknown>,
+): { completionTokensDetails?: { reasoningTokens: number } } {
+    const details = isRecord(usage.completion_tokens_details)
+        ? usage.completion_tokens_details
+        : {};
+    const reasoningTokens = count(details.reasoning_tokens);
+    return reasoningTokens === undefined
+        ? {}
+        : { completionTokensDetails: { reasoningTokens } };
+}
+
+function count(value: unknown): number | undefined {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0
+        ? value
+        : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function normalizeOllamaHost(value: string): string {

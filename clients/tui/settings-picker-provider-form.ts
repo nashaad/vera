@@ -302,6 +302,19 @@ export function submittedProviderForm(
     };
 }
 
+// The form edits three fields; anything else a hand-written declaration sets survives the save.
+export function mergedProviderDeclaration(
+    previous: VeraCustomProviderConfig | undefined,
+    edited: VeraCustomProviderConfig,
+): VeraCustomProviderConfig {
+    if (previous === undefined) return edited;
+    const merged: VeraCustomProviderConfig = { ...previous, ...edited };
+    if (previous.protocol === edited.protocol) return merged;
+    // Both are checked against the protocol, so a new protocol drops them.
+    const { thinking: _thinking, cache: _cache, ...portable } = merged;
+    return portable;
+}
+
 export function providerFormError(
     state: TuiProviderFormState,
     field: TuiProviderFormFieldId,

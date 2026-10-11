@@ -13,6 +13,7 @@ export interface ModelPricing {
     readonly input: number;
     readonly output: number;
     readonly cache?: number;
+    readonly cacheWrite?: number;
 }
 
 export interface CatalogModel {

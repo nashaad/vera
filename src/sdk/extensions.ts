@@ -1150,6 +1150,8 @@ export interface VeraClientSessionUsageRow {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly cachedInputTokens: number;
+    /** Absent when no call in this row reported cache writes. */
+    readonly cacheWriteInputTokens?: number;
     readonly reasoningTokens: number;
     readonly totalTokens: number;
     /** Absent when no call in this row reported a price. */

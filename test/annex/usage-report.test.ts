@@ -117,6 +117,20 @@ test("estimateUsd prices uncached, cached, and output separately", () => {
     )).toBeCloseTo(9.96, 8);
 });
 
+test("estimateUsd prices cache writes at the write rate, or input when unlisted", () => {
+    const written = usage({
+        inputTokens: 1_000_000,
+        cachedInputTokens: 200_000,
+        cacheWriteInputTokens: 300_000,
+        outputTokens: 0,
+    });
+    // 500k uncached at 3, 200k cached at 0.3, 300k written at 3.75.
+    expect(estimateUsd(written, { input: 3, output: 15, cache: 0.3, cacheWrite: 3.75 }))
+        .toBeCloseTo(1.5 + 0.06 + 1.125, 8);
+    expect(estimateUsd(written, { input: 3, output: 15, cache: 0.3 }))
+        .toBeCloseTo(1.5 + 0.06 + 0.9, 8);
+});
+
 test("a reported cost is not repriced from today's catalog", async () => {
     const sessionDirectory = tempDir("vera-usage-reported-");
     await writeSession({

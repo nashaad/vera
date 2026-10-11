@@ -42,6 +42,7 @@ import type {
 import type { ProjectInstructionMetadata } from "./project-instructions.ts";
 import type { PromptContributionMetadata } from "./prompt-contributions.ts";
 import type { PromptPrefixDrift } from "./prompt-prefix-drift.ts";
+import type { PromptHistoryDrift } from "./prompt-history-drift.ts";
 import type {
     ToolReviewRiskLevel,
     ToolReviewUserAuthorization,
@@ -407,6 +408,12 @@ export interface PromptPrefixDriftEvent {
     readonly changes: PromptPrefixDrift["changes"];
 }
 
+export interface PromptHistoryDriftEvent {
+    readonly type: "prompt_history_drift";
+    readonly cause: PromptHistoryDrift["cause"];
+    readonly changes: PromptHistoryDrift["changes"];
+}
+
 export interface ModelRetryScheduledEvent {
     readonly type: "model_retry_scheduled";
     readonly model: string;
@@ -576,6 +583,7 @@ export type EngineEvent =
     | CompactionStartedEvent
     | CompactionFinishedEvent
     | PromptPrefixDriftEvent
+    | PromptHistoryDriftEvent
     | ModelRetryScheduledEvent
     | ModelFallbackSelectedEvent
     | ModelEffortCoarsenedEvent
@@ -683,6 +691,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     permissions_rejected: "error",
     pool_admission_progress: "debug",
     pool_admission_result: "info",
+    prompt_history_drift: "warn",
     prompt_prefix_drift: "warn",
     prompt_queue_changed: "debug",
     prompt_queued: "info",

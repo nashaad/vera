@@ -148,3 +148,22 @@ test("the failure ledger reduces to the latest record per session", () => {
     expect(latest.get("a")?.detail).toBe("newest");
     expect(latest.get("b")?.detail).toBe("other session");
 });
+
+test("cache writes add up per model, and stay absent when never reported", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-session-facts-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "writes.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "writes",
+        cwd: "/work/vera",
+    });
+    await store.appendMessage(assistant("crow", usage({ cacheWriteInputTokens: 600 })));
+    await store.appendMessage(assistant("crow", usage()));
+    await store.appendMessage(assistant("crow", usage({ cacheWriteInputTokens: 50 })));
+    await store.appendMessage(assistant("gull", usage()));
+
+    const facts = await readSessionFacts(path, { include: ["usage"] });
+    const rows = facts.usage?.rows ?? [];
+    expect(rows.find((row) => row.model === "crow")?.cacheWriteInputTokens).toBe(650);
+    expect(rows.find((row) => row.model === "gull")).not.toHaveProperty("cacheWriteInputTokens");
+});

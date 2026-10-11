@@ -49,6 +49,9 @@ export function createGenericProviderAdapter(
         ...(options.imageSupport === undefined
             ? {}
             : { imageSupport: options.imageSupport }),
+        ...(options.provider.cache === undefined
+            ? {}
+            : { cache: options.provider.cache }),
     };
     if (protocol === "openai-chat") {
         const openai: CustomOpenAIAdapterOptions = {

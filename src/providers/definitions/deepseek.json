@@ -16,5 +16,6 @@
         "effort": ["deepseek-effort"],
         "response": ["openai-sse"],
         "error": ["http-status"]
-    }
+    },
+    "cache": { "mode": "automatic", "usage": ["read"] }
 }

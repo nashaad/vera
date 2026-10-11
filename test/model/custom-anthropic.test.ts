@@ -100,13 +100,17 @@ test("a named Anthropic endpoint streams signed thinking and tool use", async ()
     expect(requests[0]?.url).toBe("https://models.example.com/v1/messages");
     expect(requests[0]?.headers.get("x-api-key")).toBe("anthropic-secret");
     expect(await requests[0]?.json()).toMatchObject({
-        system: "Be precise.",
+        system: [{ type: "text", text: "Be precise.", cache_control: { type: "ephemeral" } }],
         model: "claude-test",
         stream: true,
         max_tokens: 16_000,
         thinking: { type: "adaptive" },
         output_config: { effort: "medium" },
-        tools: [{ name: "read_file" }],
+        tools: [{ name: "read_file", cache_control: { type: "ephemeral" } }],
+        messages: [{
+            role: "user",
+            content: [{ type: "text", text: "Read it.", cache_control: { type: "ephemeral" } }],
+        }],
     });
     const continuation = await requests[1]?.json() as {
         messages: Array<{ role: string; content: Array<Record<string, unknown>> }>;
