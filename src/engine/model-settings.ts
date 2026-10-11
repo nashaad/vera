@@ -96,7 +96,8 @@ export interface ReviewerModelDefault {
 }
 
 export interface SubagentModelDefault {
-    readonly mode: "inherit" | "fixed";
+    // "none": nothing is assigned and the parent's model is not allowed, so a spawn fails.
+    readonly mode: "inherit" | "fixed" | "none";
     readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort;
@@ -193,7 +194,8 @@ function isSubagentModelDefault(value: unknown): value is SubagentModelDefault {
         return false;
     }
     const settings = value as Record<string, unknown>;
-    return (settings.mode === "inherit" || settings.mode === "fixed")
+    return (settings.mode === "inherit" || settings.mode === "fixed"
+            || settings.mode === "none")
         && (settings.provider === undefined
             || (typeof settings.provider === "string"
                 && settings.provider.trim().length > 0))

@@ -151,11 +151,13 @@ function renderSessionDiagnostics(
                 "Subagents",
                 `${identity} (${child.reasoningEffort ?? "default"})`,
             ]);
-        } else {
+        } else if (child.mode === "inherit") {
             modelRows.push([
                 "Subagents",
                 `Inherit parent (${state.modelSettings.model}, ${effort})`,
             ]);
+        } else {
+            modelRows.push(["Subagents", "None (Defaults → Subagents)"]);
         }
     }
 

@@ -1,7 +1,7 @@
 import { isVeraProviderId } from "../../config.ts";
 import { modelSelectionCleared } from "../model-catalog-settings.ts";
 import type { PoolAdmissionVerdict } from "../../engine/events.ts";
-import { isModelReasoningEffort, publishedReasoningLevels, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch } from "../../engine/model-settings.ts";
+import { isModelReasoningEffort, publishedReasoningLevels, type ModelSettingsPatch, type ModelTurnSettings, type ReviewerModelDefault, type ReviewerSettingsPatch, type SubagentModelDefault } from "../../engine/model-settings.ts";
 import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import { admittedEffortIds } from "../../model/catalog-view.ts";
 import { isSessionOnlyEffort } from "../../model/effort-ladder.ts";
@@ -10,7 +10,7 @@ import type { SuggestedModel } from "../../model/supported-models.ts";
 import type { ModelReasoningEffort } from "../../model/types.ts";
 import type { SessionSettingOrigin } from "../../store/session-store.ts";
 import type { ToolOutput } from "../../tools/types.ts";
-import { delegationAllows, reviewerDefaultOf, settingsForClient, supportedModelSettings } from "./helpers.ts";
+import { delegationAllows, reviewerDefaultOf, settingsForClient, subagentDefaultOf, supportedModelSettings } from "./helpers.ts";
 import { samePair, type AgentRegistryOptions, type RegisteredAgentEntry } from "./support.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import { OVERRIDE_KEYS, type OverrideKey } from "../../engine/override-rows.ts";
@@ -72,7 +72,7 @@ export function readHostModelSettings(reg: AgentRegistry, workspace?: string): M
             reg.catalog,
             reg.modelsForClient(),
             reg.options.readPool?.(workspace),
-            reg.options.subagentModel,
+            subagentDefault(reg, workspace),
             undefined,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
@@ -246,7 +246,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                 reg.catalog,
                 reg.modelsForClient(),
                 reg.options.readPool?.(entry.store.header.cwd),
-                reg.options.subagentModel,
+                subagentDefault(reg, entry.store.header.cwd),
                 entry.requestedReasoningEffort,
                 reg.reviewerDefault(),
                 reg.options.contextLimit?.(),
@@ -271,7 +271,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                     reg.catalog,
                     reg.modelsForClient(),
                     reg.options.readPool?.(entry.store.header.cwd),
-                    reg.options.subagentModel,
+                    subagentDefault(reg, entry.store.header.cwd),
                     entry.requestedReasoningEffort,
                     reg.reviewerDefault(),
                     reg.options.contextLimit?.(),
@@ -297,7 +297,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
                     reg.catalog,
                     reg.modelsForClient(),
                     reg.options.readPool?.(entry.store.header.cwd),
-                    reg.options.subagentModel,
+                    subagentDefault(reg, entry.store.header.cwd),
                     entry.requestedReasoningEffort,
                     reg.reviewerDefault(),
                     reg.options.contextLimit?.(),
@@ -330,7 +330,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
             reg.catalog,
             reg.modelsForClient(),
             reg.options.readPool?.(entry.store.header.cwd),
-            reg.options.subagentModel,
+            subagentDefault(reg, entry.store.header.cwd),
             entry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
@@ -388,7 +388,7 @@ export async function applySessionModelSettings(reg: AgentRegistry, id: string, 
                 reg.catalog,
                 reg.modelsForClient(),
                 reg.options.readPool?.(entry.store.header.cwd),
-                reg.options.subagentModel,
+                subagentDefault(reg, entry.store.header.cwd),
                 entry.requestedReasoningEffort,
                 reg.reviewerDefault(),
                 reg.options.contextLimit?.(),
@@ -447,7 +447,7 @@ export async function poolAdd(reg: AgentRegistry, id: string, entry: { readonly 
                 reg.catalog,
                 reg.modelsForClient(),
                 reg.options.readPool?.(agentEntry.store.header.cwd),
-                reg.options.subagentModel,
+                subagentDefault(reg, agentEntry.store.header.cwd),
                 agentEntry.requestedReasoningEffort,
                 reg.reviewerDefault(),
                 reg.options.contextLimit?.(),
@@ -530,7 +530,7 @@ export async function refreshCatalog(reg: AgentRegistry, id: string, provider: s
             reg.catalog,
             reg.availableModels,
             reg.options.readPool?.(agentEntry.store.header.cwd),
-            reg.options.subagentModel,
+            subagentDefault(reg, agentEntry.store.header.cwd),
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
@@ -561,7 +561,7 @@ export async function poolRemove(reg: AgentRegistry, id: string, entry: { readon
             reg.catalog,
             reg.modelsForClient(),
             reg.options.readPool?.(agentEntry.store.header.cwd),
-            reg.options.subagentModel,
+            subagentDefault(reg, agentEntry.store.header.cwd),
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
@@ -595,7 +595,7 @@ export async function poolName(reg: AgentRegistry, id: string, entry: { readonly
             reg.catalog,
             reg.modelsForClient(),
             reg.options.readPool?.(agentEntry.store.header.cwd),
-            reg.options.subagentModel,
+            subagentDefault(reg, agentEntry.store.header.cwd),
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
@@ -629,7 +629,7 @@ export async function poolMove(reg: AgentRegistry, id: string, entry: { readonly
             reg.catalog,
             reg.modelsForClient(),
             reg.options.readPool?.(agentEntry.store.header.cwd),
-            reg.options.subagentModel,
+            subagentDefault(reg, agentEntry.store.header.cwd),
             agentEntry.requestedReasoningEffort,
             reg.reviewerDefault(),
             reg.options.contextLimit?.(),
@@ -639,3 +639,10 @@ export async function poolMove(reg: AgentRegistry, id: string, entry: { readonly
             reg.options.providerCatalogs?.(),
         );
     }
+
+export function subagentDefault(reg: AgentRegistry, projectRoot?: string): SubagentModelDefault {
+    return subagentDefaultOf(
+        reg.options.readPolicy?.(projectRoot) ?? { allowSelf: true },
+        reg.options.subagentModel,
+    );
+}

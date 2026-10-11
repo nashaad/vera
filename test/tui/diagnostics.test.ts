@@ -389,6 +389,24 @@ test("TUI diagnostics explains inherited subagent settings", () => {
     );
 });
 
+test("TUI diagnostics says when no subagent model is set", () => {
+    const text = renderTuiDiagnostics({
+        state: {
+            ...createTuiState(),
+            modelSettings: {
+                model: "parent-model",
+                subagentDefault: { mode: "none" },
+            },
+        },
+        activity: "thinking",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text).toContain("| Subagents | None (Defaults → Subagents) |");
+});
+
 test("TUI diagnostics describes the request after retry backoff ends", () => {
     const text = renderTuiDiagnostics({
         state: {

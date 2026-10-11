@@ -816,7 +816,7 @@ export class AgentRegistry {
                 this.catalog,
                 this.modelsForClient(),
                 this.options.readPool?.(store.header.cwd),
-                this.options.subagentModel,
+                registrySettings.subagentDefault(this, store.header.cwd),
                 entry.requestedReasoningEffort,
                 this.reviewerDefault(),
                 this.options.contextLimit?.(),

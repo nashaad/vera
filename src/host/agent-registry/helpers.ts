@@ -100,6 +100,7 @@ import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import type {
     ReviewerModelDefault,
     ReviewerSettingsPatch,
+    SubagentModelDefault,
 } from "../../engine/model-settings.ts";
 import type {
     ModelAdapter,
@@ -305,7 +306,7 @@ export function settingsForClient(
     catalog: EffectiveCatalogOptions = {},
     models: readonly SuggestedModel[] = availableModels(),
     pooled: readonly PooledModel[] = [],
-    subagentModel?: SpawnModelDefault,
+    subagentDefault?: SubagentModelDefault,
     requestedReasoningEffort?: ModelReasoningEffort,
     reviewerDefault?: ReviewerModelDefault,
     contextLimit?: number,
@@ -365,18 +366,7 @@ export function settingsForClient(
                 model.refreshable === true ? [model.provider] : []
             ))],
         pooled: listed.pooled,
-        subagentDefault: subagentModel === undefined
-            ? { mode: "inherit" }
-            : {
-                mode: "fixed",
-                ...(subagentModel.provider === undefined
-                    ? {}
-                    : { provider: subagentModel.provider }),
-                model: subagentModel.model,
-                ...(subagentModel.reasoningEffort === undefined
-                    ? {}
-                    : { reasoningEffort: subagentModel.reasoningEffort }),
-            },
+        ...(subagentDefault === undefined ? {} : { subagentDefault }),
         ...(reviewerDefault === undefined ? {} : { reviewerDefault }),
         ...(listed.webdevArenaSnapshot === undefined
             ? {}
@@ -485,6 +475,38 @@ export function loopStateOf(services: RunHeadlessLoopServices): LoopState {
             reviewer: services.readReviewer(),
         }),
         ...(compaction === undefined ? {} : { compaction }),
+    };
+}
+
+// Mirrors the first rung of resolveAssignedSubagentModel; the legacy block only
+// picks among assigned models, it never adds one.
+export function subagentDefaultOf(
+    policy: SubagentPoolPolicy,
+    legacy: SpawnModelDefault | undefined,
+): SubagentModelDefault {
+    const assigned = policy.assigned ?? [];
+    const wanted = policy.subagentDefault
+        ?? (legacy === undefined
+            ? undefined
+            : legacy.provider === undefined
+            ? legacy.model
+            : `${legacy.provider}/${legacy.model}`);
+    const exact = assigned.find((entry) =>
+        `${entry.provider ?? ""}/${entry.model}` === wanted);
+    const bare = assigned.filter((entry) => entry.model === wanted);
+    const preferred = exact ?? (bare.length === 1 ? bare[0] : undefined);
+    const first = preferred ?? assigned[0];
+    if (first === undefined) {
+        return policy.allowSelf === true ? { mode: "inherit" } : { mode: "none" };
+    }
+    const effort = preferred === undefined
+        ? first.reasoningEffort
+        : legacy?.reasoningEffort ?? first.reasoningEffort;
+    return {
+        mode: "fixed",
+        ...(first.provider === undefined ? {} : { provider: first.provider }),
+        model: first.model,
+        ...(effort === undefined ? {} : { reasoningEffort: effort }),
     };
 }
 
