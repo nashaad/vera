@@ -25,6 +25,7 @@ def ask(prompt: str) -> str:
             input_tokens=1200,
             output_tokens=310,
             cached_input_tokens=800,
+            cache_write_input_tokens=150,
             cost=0.0123,
         )
     with model_call("claude-haiku-4-5") as call:
@@ -101,6 +102,7 @@ class TestModelCalls(unittest.TestCase):
         self.assertEqual(opus["llm.token_count.completion"], 310)
         self.assertEqual(opus["llm.token_count.total"], 1510)
         self.assertEqual(opus["llm.token_count.prompt_details.cache_read"], 800)
+        self.assertEqual(opus["llm.token_count.prompt_details.cache_write"], 150)
         self.assertEqual(opus["llm.cost.total"], 0.0123)
 
     def test_a_call_with_no_provider_leaves_the_field_out(self) -> None:

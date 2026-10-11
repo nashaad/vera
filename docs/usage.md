@@ -57,7 +57,7 @@ table do not change these totals.
 | Spend | Reported billed cost plus available estimates, with unpriced calls counted separately. |
 | Requests | Recorded model calls, including compaction, classification, and extension side questions when usage was saved. |
 | Tokens | Input plus output tokens, with each shown separately. |
-| Cache hit | Cached input as a proportion of input tokens. |
+| Cache hit | Cached input as a proportion of input tokens. Cache writes appear beside it when a provider reported them. |
 | Blended $ / M | Priced spending per million tokens. Blank when there are no tokens. |
 
 Comparisons use the preceding window of the same length. All has no previous
@@ -100,7 +100,7 @@ Use **Usage** to go back to the overview, or the back link to return one level.
 | Label | Meaning |
 | --- | --- |
 | Reported | Cost billed by the provider for that call. It does not change with list prices. |
-| Estimated | Tokens multiplied by current OpenRouter list rates. The estimate can change when those rates change. |
+| Estimated | Tokens multiplied by current OpenRouter list rates, with cached and cache-write tokens at their own rates when listed. The estimate can change when those rates change. |
 | Unpriced | No billed cost and no usable rate. Vera leaves the dollar amount blank. |
 | Mixed | A row combines pricing states. The dollar figure contains the amounts Vera can calculate. |
 

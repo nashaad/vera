@@ -192,6 +192,9 @@ function optionalPricing(value: unknown): ModelPricing | undefined {
         input: pricing.input,
         output: pricing.output,
         ...(nonNegativeFinite(pricing.cache) ? { cache: pricing.cache } : {}),
+        ...(nonNegativeFinite(pricing.cacheWrite)
+            ? { cacheWrite: pricing.cacheWrite }
+            : {}),
     };
 }
 

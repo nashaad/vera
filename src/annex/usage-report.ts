@@ -39,6 +39,7 @@ export interface UsageTotals {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly cachedInputTokens: number;
+    readonly cacheWriteInputTokens: number;
     readonly totalTokens: number;
     readonly cacheHitRatio: number;
     readonly blendedPerMillion: number | undefined;
@@ -61,6 +62,7 @@ export interface UsageModelRow {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly cachedInputTokens: number;
+    readonly cacheWriteInputTokens: number;
     readonly spend: number;
     readonly share: number;
     readonly kind: UsageCostKind;
@@ -181,6 +183,7 @@ interface PricedCall {
     readonly inputTokens: number;
     readonly outputTokens: number;
     readonly cachedInputTokens: number;
+    readonly cacheWriteInputTokens: number;
     readonly totalTokens: number;
     readonly kind: "reported" | "estimated" | "unpriced";
     readonly callKind: UsageCallKind;
@@ -620,6 +623,7 @@ function priceCall(
     const inputTokens = numeric(usage.inputTokens);
     const outputTokens = numeric(usage.outputTokens);
     const cachedInputTokens = numeric(usage.cachedInputTokens);
+    const cacheWriteInputTokens = numeric(usage.cacheWriteInputTokens);
     const totalTokens = numeric(usage.totalTokens);
     const base = {
         timestamp,
@@ -629,6 +633,7 @@ function priceCall(
         inputTokens,
         outputTokens,
         cachedInputTokens,
+        cacheWriteInputTokens,
         totalTokens,
         callKind,
         tools,
@@ -654,10 +659,13 @@ export function estimateUsd(
     pricing: ModelPricing,
 ): number {
     const cached = numeric(usage.cachedInputTokens);
-    const uncached = Math.max(0, numeric(usage.inputTokens) - cached);
+    const written = numeric(usage.cacheWriteInputTokens);
+    const uncached = Math.max(0, numeric(usage.inputTokens) - cached - written);
     const cacheRate = pricing.cache ?? pricing.input;
+    const cacheWriteRate = pricing.cacheWrite ?? pricing.input;
     return uncached / 1e6 * pricing.input
         + cached / 1e6 * cacheRate
+        + written / 1e6 * cacheWriteRate
         + numeric(usage.outputTokens) / 1e6 * pricing.output;
 }
 
@@ -672,6 +680,7 @@ function totalsFrom(calls: readonly PricedCall[]): UsageTotals {
     let inputTokens = 0;
     let outputTokens = 0;
     let cachedInputTokens = 0;
+    let cacheWriteInputTokens = 0;
     let totalTokens = 0;
     for (const call of calls) {
         if (call.kind === "reported") reported += call.cost;
@@ -680,6 +689,7 @@ function totalsFrom(calls: readonly PricedCall[]): UsageTotals {
         inputTokens += call.inputTokens;
         outputTokens += call.outputTokens;
         cachedInputTokens += call.cachedInputTokens;
+        cacheWriteInputTokens += call.cacheWriteInputTokens;
         totalTokens += call.totalTokens;
     }
     const combined = reported + estimated;
@@ -689,6 +699,7 @@ function totalsFrom(calls: readonly PricedCall[]): UsageTotals {
         inputTokens,
         outputTokens,
         cachedInputTokens,
+        cacheWriteInputTokens,
         totalTokens,
         cacheHitRatio: inputTokens === 0 ? 0 : cachedInputTokens / inputTokens,
         blendedPerMillion: totalTokens === 0
@@ -781,6 +792,7 @@ function modelRowsFrom(
         inputTokens: number;
         outputTokens: number;
         cachedInputTokens: number;
+        cacheWriteInputTokens: number;
         spend: number;
         reported: boolean;
         estimated: boolean;
@@ -796,6 +808,7 @@ function modelRowsFrom(
             inputTokens: 0,
             outputTokens: 0,
             cachedInputTokens: 0,
+            cacheWriteInputTokens: 0,
             spend: 0,
             reported: false,
             estimated: false,
@@ -806,6 +819,7 @@ function modelRowsFrom(
         prior.inputTokens += call.inputTokens;
         prior.outputTokens += call.outputTokens;
         prior.cachedInputTokens += call.cachedInputTokens;
+        prior.cacheWriteInputTokens += call.cacheWriteInputTokens;
         prior.spend += call.cost;
         if (call.kind === "reported") prior.reported = true;
         else if (call.kind === "estimated") prior.estimated = true;
@@ -823,6 +837,7 @@ function modelRowsFrom(
             inputTokens: row.inputTokens,
             outputTokens: row.outputTokens,
             cachedInputTokens: row.cachedInputTokens,
+            cacheWriteInputTokens: row.cacheWriteInputTokens,
             spend: row.spend,
             share: combinedSpend === 0 ? 0 : row.spend / combinedSpend,
             kind: costKind(row.reported, row.estimated, row.unpriced),
@@ -1147,6 +1162,13 @@ function workflowCall(
         cachedInputTokens: numeric(
             attributes["llm.token_count.prompt_details.cache_read"],
         ),
+        ...(typeof attributes["llm.token_count.prompt_details.cache_write"] === "number"
+            ? {
+                cacheWriteInputTokens: numeric(
+                    attributes["llm.token_count.prompt_details.cache_write"],
+                ),
+            }
+            : {}),
         reasoningTokens: 0,
         totalTokens: numeric(attributes["llm.token_count.total"]),
         ...(typeof cost === "number" ? { cost } : {}),

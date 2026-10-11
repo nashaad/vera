@@ -158,10 +158,12 @@ function readPricing(
         return undefined;
     }
     const cache = perMillion(value.input_cache_read);
+    const cacheWrite = perMillion(value.input_cache_write);
     return {
         input,
         output,
         ...(cache === undefined ? {} : { cache }),
+        ...(cacheWrite === undefined ? {} : { cacheWrite }),
     };
 }
 

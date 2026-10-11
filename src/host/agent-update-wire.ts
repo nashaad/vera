@@ -461,6 +461,8 @@ function isSessionModelUsage(value: unknown): boolean {
             && nonNegative(row.inputTokens)
             && nonNegative(row.outputTokens)
             && nonNegative(row.cachedInputTokens)
+            && (row.cacheWriteInputTokens === undefined
+                || nonNegative(row.cacheWriteInputTokens))
             && nonNegative(row.reasoningTokens)
             && nonNegative(row.totalTokens)
             && nonNegative(row.callsWithoutCost)
