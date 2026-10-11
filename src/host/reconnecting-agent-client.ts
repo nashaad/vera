@@ -209,12 +209,14 @@ export function createReconnectingAgentClient(
             if (!current.closed) await current.detach();
         },
         close(): void {
-            if (closed) return;
-            closed = true;
-            lifecycle.abort(new Error("Agent attachment is closed"));
-            stopBackgroundAgentUpdates();
-            stopWorkIndexUpdates();
-            stopSessionTitleUpdates();
+            if (!closed) {
+                closed = true;
+                lifecycle.abort(new Error("Agent attachment is closed"));
+                stopBackgroundAgentUpdates();
+                stopWorkIndexUpdates();
+                stopSessionTitleUpdates();
+            }
+            // A release or detach still waiting on the host keeps the socket open until this closes it.
             current.close();
         },
         get closed(): boolean {

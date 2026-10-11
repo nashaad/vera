@@ -44,7 +44,7 @@ export interface ForceStopOptions {
     readonly escalateToKill?: boolean;
 }
 
-const DEFAULT_SIGTERM_GRACE_MS = 3_000;
+export const DEFAULT_SIGTERM_GRACE_MS = 3_000;
 const DEFAULT_SIGKILL_GRACE_MS = 2_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 

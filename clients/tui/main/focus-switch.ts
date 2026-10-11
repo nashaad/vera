@@ -314,7 +314,33 @@ export async function leaveSwitchSource(rt: TuiRuntime,
     };
 }
 
+// Quitting must not wait forever on a host that never answers the release.
+export const CLIENT_SHUTDOWN_TIMEOUT_MS = 3_000;
+
 export async function stopClientForShutdown(rt: TuiRuntime, source: TuiAgentClient): Promise<void> {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"timed_out">((resolve) => {
+        timeout = setTimeout(
+            () => resolve("timed_out"),
+            rt.dependencies.shutdownTimeoutMs ?? CLIENT_SHUTDOWN_TIMEOUT_MS,
+        );
+    });
+    const stopped = stopClientGracefully(rt, source).then(
+        () => "stopped" as const,
+        () => "stopped" as const,
+    );
+    const outcome = await Promise.race([stopped, deadline]);
+    clearTimeout(timeout);
+    if (outcome === "timed_out") {
+        rt.flightRecorder?.record({
+            type: "client_shutdown_timed_out",
+            agentId: source.agentId ?? "unknown",
+        });
+        source.close();
+    }
+}
+
+async function stopClientGracefully(rt: TuiRuntime, source: TuiAgentClient): Promise<void> {
     if (isWorkerFreeClient(source)) {
         await source.detach().catch(() => source.close());
         return;

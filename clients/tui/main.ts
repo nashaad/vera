@@ -568,6 +568,7 @@ export interface TuiDependencies {
     readonly initialDraft?: TuiDraft;
     readonly startupNotices?: readonly string[];
     readonly sessionSwitchTimeoutMs?: number;
+    readonly shutdownTimeoutMs?: number;
     readonly trashSession?: (sessionId: string) => Promise<TrashSessionResult>;
     readonly renameSession?: (
         sessionId: string,
