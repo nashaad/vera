@@ -1,4 +1,5 @@
 import { forgetProviderConnection } from "../providers/forget-provider.ts";
+import { TrustNoticeStore } from "./trust-notice.ts";
 import { connectedProviderCatalogs, modelsFromConnectedCatalogs } from "../providers/catalog-state.ts";
 import { readModelCatalog } from "../providers/read-model-catalog.ts";
 import { effectiveCatalog } from "../model/catalog.ts";
@@ -809,6 +810,10 @@ export async function startResidentHost(
         },
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
+        trustNotices: {
+            tools: extensions.installedUnreviewedTools(),
+            store: new TrustNoticeStore(),
+        },
         workerExtensions: () => currentConfig().extensions ?? [],
         registeredAgents: extensions.agents(),
         sessionIdentity,

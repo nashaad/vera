@@ -325,6 +325,15 @@ export class ResidentAgent {
         }
     }
 
+    // Persisted by the engine, which then pushes history to attached clients.
+    appendHarnessMessage(text: string, tone: "primary" | "soft" | "error"): void {
+        if (this.isClosed || this.terminalFailure !== undefined) return;
+        this.inbound.push({
+            command: { type: "append_harness_message", text, tone },
+            countsTowardLimit: false,
+        });
+    }
+
     triggerDeliveryTurn(): void {
         if (this.isClosed || this.terminalFailure !== undefined) {
             throw new ResidentAgentClosedError();

@@ -1,4 +1,5 @@
 import type { HostModelCatalogSettings } from "../model-catalog-settings.ts";
+import type { TrustNoticeStore } from "../trust-notice.ts";
 import type { ProviderCatalogState } from "../../providers/catalog-state.ts";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -398,6 +399,10 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly trustNotices?: {
+        readonly tools: ReadonlyMap<string, string>;
+        readonly store: TrustNoticeStore;
+    };
     readonly workerExtensions?: () => readonly VeraExtensionConfig[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
