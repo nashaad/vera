@@ -67,6 +67,7 @@ import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
 import * as registrySubagent from "./agent-registry/subagent.ts";
+import { trustNoticeSubscriber } from "./trust-notice.ts";
 
 export * from "./agent-registry/support.ts";
 export * from "./agent-registry/helpers.ts";
@@ -768,6 +769,15 @@ export class AgentRegistry {
         };
         this.agents.set(agent.id, entry);
         this.notifyRosterChanged();
+        const trustNotices = this.options.trustNotices;
+        if (trustNotices !== undefined && kind === "interactive" && startupProfile === "default") {
+            events.subscribe(trustNoticeSubscriber({
+                tools: trustNotices.tools,
+                store: trustNotices.store,
+                approvalMode: () => entry.approvalMode,
+                append: (text) => agent.appendHarnessMessage(text, "soft"),
+            }));
+        }
         void this.reconcileResumedSelectedAgent(entry, events);
         if (storedFailure !== undefined) {
             agent.restoreFailure({

@@ -63,7 +63,7 @@ import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./com
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
-import { checkToolOperation } from "./tool-operations.ts";
+import { checkToolOperation, isShippedDirectory, UNREVIEWED_OPERATIONS } from "./tool-operations.ts";
 import {
     ExtensionHostSlot,
     type ExtensionHostServices,
@@ -161,6 +161,8 @@ export interface ExtensionRegistry {
     modelMiddleware(): readonly ModelMiddleware[];
     commands(): readonly ExtensionCommandDescriptor[];
     tools(): readonly RegisteredTool[];
+    /** Tool name to extension id, for installed tools that run without review. */
+    installedUnreviewedTools(): ReadonlyMap<string, string>;
     agents(): readonly AgentDefinition[];
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
@@ -391,6 +393,19 @@ export async function startExtensionRegistry(
             return loaded.flatMap((extension) =>
                 extension.tools.map((registered) => registered.tool)
             );
+        },
+        installedUnreviewedTools(): ReadonlyMap<string, string> {
+            const owners = new Map<string, string>();
+            for (const extension of loaded) {
+                if (isShippedDirectory(extension.path)) continue;
+                for (const registered of extension.tools) {
+                    const operation = registered.tool.permissionOperation;
+                    if (operation !== undefined && UNREVIEWED_OPERATIONS.has(operation)) {
+                        owners.set(registered.tool.definition.name, extension.id);
+                    }
+                }
+            }
+            return owners;
         },
         agents(): readonly AgentDefinition[] {
             return loaded.flatMap((extension) => extension.agents);

@@ -31,7 +31,7 @@ export function checkToolOperation(
 }
 
 // loaded.directory is already a real path; the shipped roots may sit behind a symlink.
-function isShippedDirectory(directory: string): boolean {
+export function isShippedDirectory(directory: string): boolean {
     return [CORE_EXTENSIONS_DIRECTORY, SHIPPED_EXTENSIONS_DIRECTORY].some((root) => {
         const real = realPath(root);
         if (real === undefined) return false;

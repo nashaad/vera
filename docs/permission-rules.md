@@ -106,6 +106,12 @@ auto and readonly. Either one needs the tool's name in the manifest's
 `unreviewed_tools` list, and `/extension install` shows that list before you
 enable the extension. Installing the extension is the consent.
 
+In auto mode, the first time one of these tools from an extension you
+installed runs, the transcript shows a muted line such as "crow.tools ran
+shanty_write without review." It shows once per extension in each home.
+Extensions included with Vera do not show it. To stop an extension's tools
+from running, turn the extension off in `/extensions`.
+
 The other operations above belong to Vera. An extension you install that
 declares one of them fails to load, and `/extensions` shows it as `failed`
 with the reason once the host has restarted. An extension may name an
