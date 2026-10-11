@@ -52,6 +52,8 @@ test("artifact tools write, edit, read, and close comments on a named artifact",
     expect(written.output).toContain("http://127.0.0.1:9/x/vera.artifacts/artifacts?session=s1&artifact=raid");
     expect(written.presentation).toEqual({ kind: "tool_notice", text: "Artifact page: http://127.0.0.1:9/x/vera.artifacts/artifacts?session=s1&artifact=raid" });
     expect((await run("artifact_read", {})).output).toBe("raid");
+    expect((await run("artifact_read", { name: "" })).output).toBe("raid");
+    expect((await run("artifact_read", { name: null })).output).toBe("raid");
 
     expect((await run("artifact_edit", { name: "raid", old_string: "Dig", new_string: "Dig at dawn" })).isError).toBeUndefined();
     expect((await run("artifact_edit", { name: "raid", old_string: "nowhere", new_string: "x" })).isError).toBe(true);

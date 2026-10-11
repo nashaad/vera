@@ -60,11 +60,13 @@ export function activate(vera: VeraExtensionApi): void {
         },
         permissionOperation: STORAGE_READ,
         run: (request) => withSession(request, (sessionId) => {
-            if (request.input.name === undefined) {
+            // Some models send an empty string or null for an optional field.
+            const name = request.input.name;
+            if (name === undefined || name === null || name === "") {
                 const names = sessionArtifactNames(root(), sessionId);
                 return { output: names.length === 0 ? "No artifacts yet." : names.join("\n") };
             }
-            return withArtifact(sessionId, request.input.name, (artifact) => {
+            return withArtifact(sessionId, name, (artifact) => {
                 const stored = readArtifact(root(), artifact);
                 if (stored === undefined) {
                     return { output: `No artifact named ${artifact.name}. Write one with artifact_write.` };
