@@ -27,7 +27,7 @@ After both return, synthesize:
 
 When the user explicitly asks to consult named, paired, or already-running agents, call `agent_roster` and resolve them by participant ID. Send each the same self-contained question with `agent_send`.
 
-Messages are asynchronous and do not wake recipients. Do not block the current turn, spawn replacements, or invent replies. Report who received the request. On a later turn, read actual replies with `agent_inbox` and then synthesize them using the same rubric.
+Messages are asynchronous. The `agent_send` result says whether each recipient was woken; a woken recipient gets the whole question, and replies reach you the same way. Do not block the current turn, spawn replacements, or invent replies. Report who received the request. When replies arrive, or on a later turn through `agent_inbox`, synthesize them using the same rubric.
 
 Do not treat every live participant as consenting to consultation. Use only those the user names or clearly selects.
 
