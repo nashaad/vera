@@ -55,6 +55,7 @@ export interface ExtensionInstallPreview {
     readonly destination: string;
     readonly digest: string;
     readonly capabilities: readonly string[];
+    readonly unreviewedTools: readonly string[];
     readonly dryRun: boolean;
 }
 
@@ -803,6 +804,7 @@ function installPreview(
         destination: join(directory, prepared.loaded.manifest.id),
         digest: prepared.digest,
         capabilities: prepared.loaded.manifest.capabilities,
+        unreviewedTools: prepared.loaded.manifest.unreviewedTools,
         dryRun,
     };
 }

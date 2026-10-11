@@ -62,6 +62,7 @@ import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./com
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
+import { checkToolOperation } from "./tool-operations.ts";
 import {
     ExtensionHostSlot,
     type ExtensionHostServices,
@@ -266,13 +267,14 @@ export async function startExtensionRegistry(
         let extensionId: string | undefined;
         let admitted = false;
         const activationStarted = performance.now();
-        let activationOutcome: "loaded" | "failed" = "failed";
+        let activationOutcome: "loaded" | "failed" | "skipped" = "failed";
         try {
             const manifest = loadExtensionManifest(configured.path);
             const servesHost = manifest.manifest.capabilities.some(
                 (capability) => !capability.startsWith("client."),
             ) || hasContributions(manifest.manifest);
             if (!servesHost) {
+                activationOutcome = "skipped";
                 continue;
             }
             extensionId = manifest.manifest.id;
@@ -367,7 +369,7 @@ export async function startExtensionRegistry(
             });
 
         } finally {
-            options.onActivationTiming?.({
+            if (activationOutcome !== "skipped") options.onActivationTiming?.({
                 extensionId: extensionId ?? configured.path,
                 durationMs: performance.now() - activationStarted,
                 outcome: activationOutcome,
@@ -1190,6 +1192,7 @@ function registerTool(
     if (isBuiltInToolName(name)) {
         throw new Error(`Extension tool ${name} collides with a built-in tool`);
     }
+    checkToolOperation(loaded, name, permissionOperation?.trim());
     const properties = isPlainObject(inputSchema.properties)
         ? inputSchema.properties
         : undefined;

@@ -180,3 +180,28 @@ test("/extensions opens a manager list, not an inspect dump", async () => {
         await session.close();
     }
 }, 15_000);
+
+test("/extensions marks an extension the host could not load as failed", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-extensions-host-failed-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...createTuiExtensionCommandDependencies(home),
+            readHostExtensionLoadFailures: async () => [{
+                extensionId: "vera.budget",
+                message: "Extension vera.budget failed to load: the crow ate the map",
+            }],
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/extensions");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("the crow ate the map");
+        expect(pane).toMatch(/vera\.budget\s+v[\d.]+\s+failed/);
+        expect(pane).toMatch(/vera\.btw\s+v[\d.]+\s+enabled/);
+    } finally {
+        await session.close();
+    }
+}, 15_000);

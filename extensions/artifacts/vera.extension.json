@@ -4,6 +4,7 @@
     "sdk": "1",
     "entrypoint": "extension.ts",
     "capabilities": ["tools.register", "requests.handle", "sessions.send"],
+    "unreviewed_tools": ["artifact_read", "artifact_write", "artifact_edit", "artifact_comments"],
     "contributes": {
         "pages": [
             { "id": "artifacts", "label": "Artifacts", "server": "page-server.ts", "browser": "page.ts" }

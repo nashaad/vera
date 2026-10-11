@@ -1,5 +1,5 @@
 import type { JsonValue, SessionEndReason } from "../sdk/hooks.ts";
-import type { ModelOperationRequest } from "./protocol.ts";
+import type { ExtensionLoadFailure, ModelOperationRequest } from "./protocol.ts";
 import type { ModelOperationResult, ModelOperationStep } from "../model/model-operations.ts";
 import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { sessionScratchDir } from "../engine/run-turn.ts";
@@ -149,6 +149,7 @@ export interface StartHostServerOptions {
         | { readonly url: string }
         | { readonly unavailable: string }
         | undefined;
+    readonly readExtensionLoadFailures?: () => readonly ExtensionLoadFailure[];
     readonly checkpointStores?: (
         destination: string,
     ) => Promise<{
@@ -443,6 +444,7 @@ export async function startHostServer(
             options.operateModels,
             options.forgetProvider,
             options.readAnnex,
+            options.readExtensionLoadFailures,
             options.checkpointStores,
             options.handleExtensionRequest,
             resolveHostLimits(options.limits),
@@ -588,6 +590,7 @@ function receiveConnection(
         | { readonly url: string }
         | { readonly unavailable: string }
         | undefined) | undefined,
+    readExtensionLoadFailures: StartHostServerOptions["readExtensionLoadFailures"],
     checkpointStores: ((
         destination: string,
     ) => Promise<{
@@ -1229,6 +1232,22 @@ function receiveConnection(
                     : "url" in annex
                         ? { type: "annex_url", url: annex.url }
                         : { type: "annex_unavailable", reason: annex.unavailable },
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "extension_load_failures") {
+            clearDeadline();
+            finished = true;
+            void send(
+                readExtensionLoadFailures === undefined
+                    ? {
+                        type: "protocol_error",
+                        reason: "unsupported_or_invalid_command",
+                    }
+                    : {
+                        type: "extension_load_failures",
+                        failures: readExtensionLoadFailures(),
+                    },
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

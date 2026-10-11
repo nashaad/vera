@@ -12,7 +12,8 @@ It adds four tools and an Artifacts page in the annex.
 `artifact_read` declares `extension.storage.read`, which runs without a
 prompt in ask, auto and readonly mode. `artifact_write`, `artifact_edit` and
 `artifact_comments` declare `extension.storage.write`, so ask and auto mode
-run them without a prompt.
+run them without a prompt. The manifest lists all four in `unreviewed_tools`.
+
 Every artifact belongs to the session that wrote it. `artifact_write` replies
 with the artifact's page address, and the transcript shows it as a notice.
 Markdown images with an https address show as a picture, or as a player for
