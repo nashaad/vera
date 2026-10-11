@@ -548,8 +548,8 @@ export function drawWorkspaceSidebar(rt: TuiRuntime): void {
         activityFrame(rt),
         rt.clientExtensionRegistry?.renderSidebarSummary({ usage: rt.state.sessionUsage, extensionState: rt.state.extensionState }),
     );
-    // The rules are drawn to the rail width, which the view state does not carry.
-    const drawn = JSON.stringify({ rail: rt.workspaceRail, next });
+    // Rail width and theme colors are drawn but not carried in the view state.
+    const drawn = JSON.stringify({ rail: rt.workspaceRail, theme: rt.theme, next });
     if (drawn === rt.workspaceSidebarDrawn) return;
     rt.workspaceSidebarDrawn = drawn;
     rt.workspaceSidebarView.update(next);
