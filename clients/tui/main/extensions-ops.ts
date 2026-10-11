@@ -1,5 +1,5 @@
 import { includedExtensions } from "../../../src/extensions/included.ts";
-import { loadExtensionManifest } from "../../../src/extensions/manifest.ts";
+import { extensionServesHost, loadExtensionManifest } from "../../../src/extensions/manifest.ts";
 import {
     listExtensions,
     removeExtension,
@@ -131,10 +131,16 @@ function applyExtensionsListMutation(
     entry: TuiExtensionListRow,
 ): void {
     try {
+        // Read before the mutation: Remove deletes the managed copy. A failed
+        // copy has nothing on the host to unload.
+        const servesHost = entry.status === "failed" && operation !== "enable"
+            ? false
+            : readServesHost(entry.path);
         const record = operation === "remove"
             ? removeExtension(entry.id)
             : setAnyExtensionEnabled(entry.id, operation === "enable");
-        const line = renderExtensionMutation(operation, record).trimEnd();
+        const mutation = renderExtensionMutation(operation, record).trimEnd();
+        const line = servesHost ? `${mutation} ${reconnectHint(operation)}` : mutation;
         const changes = [
             ...tuiNoticeCardLines(
                 rt.state,
@@ -146,9 +152,7 @@ function applyExtensionsListMutation(
         rt.state = appendTuiNoticeCard(
             rt.state,
             [...changes, HOST_RESTART_NOTICE].join("\n"),
-            changes.length === 1
-                ? line
-                : `${changes.length} extension changes`,
+            changes.length === 1 ? line : multipleChangesSummary(changes),
             EXTENSION_NOTICE_KEY,
         );
         const previousScreen = rt.extensionsList?.screen;
@@ -174,6 +178,26 @@ function applyExtensionsListMutation(
         renderState(rt);
         focusActiveSurface(rt);
     }
+}
+
+function readServesHost(path: string): boolean {
+    try {
+        return extensionServesHost(loadExtensionManifest(path).manifest);
+    } catch {
+        // An unreadable manifest may still be loaded by the running host.
+        return true;
+    }
+}
+
+function reconnectHint(operation: "enable" | "disable" | "remove"): string {
+    return `Use Reconnect host (Ctrl+P) to ${operation === "enable" ? "load" : "unload"} it.`;
+}
+
+function multipleChangesSummary(changes: readonly string[]): string {
+    const summary = `${changes.length} extension changes`;
+    const needsReconnect = changes.some((change) => change.endsWith(reconnectHint("enable"))
+        || change.endsWith(reconnectHint("disable")));
+    return needsReconnect ? `${summary}. Use Reconnect host (Ctrl+P) to apply them.` : summary;
 }
 
 function reloadClientExtensionsForList(rt: TuiRuntime): void {

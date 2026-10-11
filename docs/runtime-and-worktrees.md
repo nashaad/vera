@@ -69,6 +69,8 @@ host and reattaches the conversation. It refuses to replace a healthy busy host.
 If you intend to terminate that host despite active work, `vera host stop
 --force` sends SIGKILL. Ordinary `vera host stop` sends SIGTERM and waits;
 it prints Stopped only after the process exits, otherwise exits with status 1.
+A host that cannot finish closing, for example because a turn is stuck, exits
+anyway after a short deadline, and quitting the TUI does not wait on it.
 
 Stopping and reconnecting do not install checkout changes.
 

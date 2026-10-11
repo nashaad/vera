@@ -292,6 +292,23 @@ test("reconnecting clients release through their current attachment", async () =
     expect(client.closed).toBeTrue();
 });
 
+test("closing during an unanswered release closes the attachment", async () => {
+    let attachmentClosed = false;
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 0),
+        release: () => new Promise(() => {}),
+        close: () => {
+            attachmentClosed = true;
+        },
+    };
+    const client = createReconnectingAgentClient(initial, async () => initial);
+
+    void client.release?.("stop_if_last");
+    client.close();
+
+    expect(attachmentClosed).toBeTrue();
+});
+
 test("a reconnect publishes the replacement background snapshot", async () => {
     const initial = fakeClient([], 4);
     const recovered = fakeClient([

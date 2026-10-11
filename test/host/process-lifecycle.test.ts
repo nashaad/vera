@@ -3,7 +3,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { runResidentHostProcess } from "../../clients/host/process-lifecycle.ts";
+import {
+    HOST_CLOSE_DEADLINE_MS,
+    runResidentHostProcess,
+} from "../../clients/host/process-lifecycle.ts";
+import { DEFAULT_SIGTERM_GRACE_MS } from "../../src/host/force-stop.ts";
+import type { HostLogEntry } from "../../src/host/host-log.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownIfIdle,
@@ -89,6 +94,33 @@ test("a removed checkout closes and exits a development host", async () => {
         "closed",
         "exited 0",
     ]);
+});
+
+test("a host whose close never finishes still exits after its deadline", async () => {
+    const signal = Promise.withResolvers<void>();
+    const exits: number[] = [];
+    const logged: HostLogEntry[] = [];
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: () => new Promise<void>(() => {}),
+    }, {
+        waitForSignal: () => ({ promise: signal.promise, dispose: () => {} }),
+        exit: (code) => exits.push(code),
+        closeDeadlineMs: 20,
+        log: (entry) => logged.push(entry),
+    });
+
+    signal.resolve();
+    await running;
+
+    expect(exits).toEqual([0]);
+    expect(logged).toMatchObject([
+        { type: "host_close_timed_out", deadline_ms: 20 },
+    ]);
+});
+
+test("the host gives up closing before the installer gives up waiting", () => {
+    expect(HOST_CLOSE_DEADLINE_MS).toBeLessThan(DEFAULT_SIGTERM_GRACE_MS);
 });
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
