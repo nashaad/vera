@@ -1360,6 +1360,7 @@ export function optionMeta(
             { text: size.padStart(SESSION_SIZE_COLUMNS) },
         ];
     }
+    if (state.kind === "model_defaults" && option.action === true) return [{ text: "\u203a" }];
     if (state.kind === "provider") {
         // The door it opens, at the trailing edge. The gutter column belongs to
         // the cursor, and a `+` sitting in it reads as a second cursor.
@@ -2147,6 +2148,12 @@ export function pickerSelection(
         };
     }
     if (kind === "model_assignment") {
+        if (state.assignsAll === true) {
+            if (option.provider === undefined || option.model === undefined) {
+                throw new Error("assign-all option is missing provider identity");
+            }
+            return { kind: "model_assignment_all", provider: option.provider, model: option.model };
+        }
         if (value === MODEL_ASSIGNMENT_BROWSE_VALUE) {
             return { kind: "model_assignment_browse" };
         }

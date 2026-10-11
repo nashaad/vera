@@ -137,6 +137,12 @@ that the verification request may cost money, a failed check or canceled
 assignment leaves the previous value in place, and Escape cancels the
 assignment, though an already-started check may still finish.
 
+After you pick a model for one default, you are back on the Defaults page
+with the new value showing. To give every default the same model, choose
+**Assign one model to all** at the bottom of the page and pick the model.
+Subagents get it first and keep the rest of their list, and a classifier
+failsafe stays in place. A toast confirms how many defaults changed.
+
 Assigning a default leaves your conversation model unchanged. Subagents use
 an ordered list of allowed models and an optional fallback to the spawning
 conversation's model. See [Agents and delegated work](agents.md).

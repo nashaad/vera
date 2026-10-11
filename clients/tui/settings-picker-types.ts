@@ -383,6 +383,7 @@ export interface TuiSettingsPickerState {
     readonly overrideKey?: OverrideKey;
     readonly overrides?: OverrideSettings;
     readonly modelAssignment?: ModelAssignmentId;
+    readonly assignsAll?: boolean;
     readonly assignedModels?: readonly string[];
     readonly assignmentAllowsSelf?: boolean;
     readonly revealAll?: boolean;
@@ -491,6 +492,8 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "model_shortlist_open" }
     | { readonly kind: "model_defaults_open" }
     | { readonly kind: "model_assignment_open"; readonly assignment: ModelAssignmentId }
+    | { readonly kind: "model_assignment_all_open" }
+    | { readonly kind: "model_assignment_all"; readonly provider: string; readonly model: string }
     | {
         readonly kind: "model_assignment";
         readonly assignment: ModelAssignmentId;
@@ -643,29 +646,13 @@ export function withTuiPickerParent(
     return parent === undefined ? state : { ...state, parent };
 }
 
-export function tuiPickerMenuAncestor(
-    state: TuiSettingsPickerState,
-): TuiSettingsPickerState | undefined {
-    let current = state.parent;
-    while (current !== undefined) {
-        if (
-            current.kind === "settings"
-            || current.kind === "permission_settings"
-            || current.kind === "reviewer_settings"
-            || current.kind === "overrides_settings"
-        ) {
-            return current;
-        }
-        current = current.parent;
-    }
-    return undefined;
-}
-
 export const REVIEWER_CLEAR_VALUE = "\u0000clear";
 
 export const MODEL_ASSIGNMENT_BROWSE_VALUE = "\u0000browse";
 
 export const MODEL_ASSIGNMENT_SELF_VALUE = "\u0000allow-self";
+
+export const MODEL_ASSIGNMENT_ALL_VALUE = "\u0000assign-all";
 
 export const MODEL_ASSIGNMENT_VALUE_PREFIX = "\u0000assignment:";
 

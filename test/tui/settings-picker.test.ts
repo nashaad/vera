@@ -42,7 +42,6 @@ import {
     pickerFooter,
     tuiPickerAfterSelection,
     tuiPickerViewportRows,
-    tuiPickerMenuAncestor,
     withTuiPickerParent,
     type TuiAnySettingsPickerState,
     type TuiSettingsPickerOption,
@@ -1604,31 +1603,30 @@ test("escape steps back to the pane a pane was opened from", () => {
         .toEqual({ handled: true });
 });
 
-test("a finished choice returns to the menu, not to the pane it just answered", () => {
+test("a finished choice returns to the page it was opened from", () => {
     const menu = startTuiSettingsMenu("settings");
     const theme = withTuiPickerParent(
         startTuiSettingsPicker("theme", undefined, undefined, undefined),
         menu,
     );
-    const chained = startTuiReasoningPicker(
-        [{ id: "high", label: "High" }],
-        undefined,
-        undefined,
-        {
-            provider: "openai-codex",
-            model: "gpt-5.2-codex",
-            modelPaneState: withTuiPickerParent(
-                startTuiSettingsPicker("model", undefined, undefined, undefined),
-                menu,
-            ),
-        },
-    );
+    expect(tuiPickerAfterSelection({ kind: "theme", theme: "orng" }, theme)).toBe(menu);
 
-    expect(tuiPickerMenuAncestor(theme)).toBe(menu);
-    // Two levels down: the level pane folds into the model pane, and neither is
-    // still a question once a model has been chosen.
-    expect(tuiPickerMenuAncestor(chained)).toBe(menu);
-    expect(tuiPickerMenuAncestor(menu)).toBeUndefined();
+    const defaults: TuiSettingsPickerState = {
+        kind: "model_defaults", title: "Assign model defaults", query: "", selectedIndex: 0, allOptions: [], options: [], parent: menu,
+    };
+    const eco = withTuiPickerParent(startTuiModelAssignmentPicker("eco", "Eco", "cheap work", pooledModels), defaults);
+    const selection = { kind: "model_assignment", assignment: "eco", provider: "openrouter", model: "moonshotai/kimi-k3" } as const;
+    expect(tuiPickerAfterSelection(selection, eco)).toBe(defaults);
+
+    // The level step folds into the assignment it follows, so neither is still open.
+    const levels = startTuiReasoningPicker([{ id: "high", label: "High" }], undefined, undefined, {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        assignment: "eco",
+        modelPaneState: eco,
+    });
+    expect(tuiPickerAfterSelection(selection, levels)).toBe(defaults);
+    expect(tuiPickerAfterSelection(selection, menu)).toBeUndefined();
 });
 
 test("extension picker renders its title, stable rows, and semantic action footer", async () => {
@@ -2652,7 +2650,7 @@ test("a snapshot keeps the pane the pane was opened from", () => {
     // Escape leaves the pane for whatever opened it.
     expect(handleTuiSettingsPickerKey(synced, { name: "escape" }).state)
         .toBe(menu);
-    expect(tuiPickerMenuAncestor(synced)).toBe(menu);
+    expect(synced.parent).toBe(menu);
 });
 
 const PROVIDER_ROWS = [

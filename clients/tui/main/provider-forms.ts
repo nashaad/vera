@@ -25,7 +25,7 @@ import { tuiProviderForgetDecision } from "../provider-forget-confirm.ts";
 import { startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "../request-options-editor.ts";
 import { startTuiSecretPrompt, type TuiSecretPromptState } from "../secret-prompt.ts";
 import { resolveTuiSettingsDestination } from "../settings-destination.ts";
-import { mergedProviderDeclaration, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { MODEL_ASSIGNMENT_ALL_VALUE, mergedProviderDeclaration, startTuiProviderForm, startTuiSessionPicker, startTuiSettingsMenu, type TuiProviderFormState, type TuiProviderFormTransition, type TuiSettingsPickerOption, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { appendTuiError, appendTuiNotice } from "../state.ts";
 import type { TuiRuntime } from "./runtime.ts";
 import { randomUUID } from "node:crypto";
@@ -577,11 +577,18 @@ export function openSettingsDestination(rt: TuiRuntime,
 export const MODEL_DEFAULTS_TITLE = "Assign model defaults";
 
 export function modelDefaultsOptions(rt: TuiRuntime): TuiSettingsPickerOption[] {
-    return currentModelAssignmentRows(rt).map((row) => ({
+    const rows: TuiSettingsPickerOption[] = currentModelAssignmentRows(rt).map((row) => ({
         value: row.assignment, label: row.label,
         description: row.declared.length > 0 ? row.declared.map((model) => `${model.provider}/${model.model}`).join(" → ")
             : ["snappy", "eco", "extra"].includes(row.assignment) ? "unset, no model bound" : "unset, inherits its intent",
     }));
+    rows.push({
+        value: MODEL_ASSIGNMENT_ALL_VALUE,
+        label: "Assign one model to all",
+        description: "every default above gets the same model",
+        action: true,
+    });
+    return rows;
 }
 
 export function openConfigurationRequiredRequest(rt: TuiRuntime, 

@@ -8,14 +8,14 @@ import { focusedAgentClient, modelSettingsForOpenPicker } from "../main/agents-d
 import { requestAgentSettings } from "../main/diagnostics-ops.ts";
 import { sendCommand } from "../main/extension-bridge.ts";
 import { focusActiveSurface } from "../main/focus-switch.ts";
-import { bindModelAssignmentFromPicker, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
+import { bindModelAssignmentFromPicker, bindModelToAllAssignments, connectProvider, homeNeedsProvider, isModelShortlisted, modelLevelFacts, modelPickerActionOptions, openConfigureEditor, openAssignAllPicker, openModelAssignmentPicker, openProviderEditForm, openProviderPicker, reviewerPatchFor, reviewerToast } from "../main/model-pickers.ts";
 import { enterWizardInstallStep, enterWizardModelStep } from "../main/onboarding-wizard-ops.ts";
 import { openSettingsMenuTarget } from "../main/palette-jump.ts";
 import { MODEL_DEFAULTS_TITLE, finishConfigurationPicker, forgetProvider, modelDefaultsOptions, openProviderEndpointForm, openRequestOptionsEditor, openSettingsDestination } from "../main/provider-forms.ts";
 import { renderState } from "../main/render-state.ts";
 import { importSessionFromTui, openImportPicker } from "../main/import-ops.ts";
 import { openNamePrompt } from "../main/workspace-ops.ts";
-import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, updateTuiSettingsPickerSearch, type TuiExtensionPickerTransition, type TuiSettingsPickerTransition } from "../settings-picker.ts";
+import { MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiProviderForm, startTuiReasoningPicker, syncTuiModelPicker, tuiPickerAfterSelection, updateTuiSettingsPickerSearch, type TuiExtensionPickerState, type TuiExtensionPickerTransition, type TuiSettingsPickerState, type TuiSettingsPickerTransition } from "../settings-picker.ts";
 import { readSessionPreview } from "../session-preview.ts";
 import { saveTuiThemePreference, saveModelPickerPreferences, saveTuiLiveReasoningRowsPreference } from "../theme-preference.ts";
 import { applyAnimationLevel } from "./animation-level.ts";
@@ -43,16 +43,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         ? previousPicker : undefined;
     const returningToModelPicker = rt.settingsPicker?.kind !== "model"
         && transition.state?.kind === "model";
-    rt.settingsPicker = transition.state;
-    // The defaults list is built on open, so a child picker may have just changed a row under it.
-    if (rt.settingsPicker?.kind === "model_defaults" && rt.settingsPicker.title === MODEL_DEFAULTS_TITLE
-        && previousPicker?.kind !== "model_defaults") {
-        const options = modelDefaultsOptions(rt);
-        const rebuilt = { ...rt.settingsPicker, allOptions: options, options };
-        rt.settingsPicker = rebuilt.query === ""
-            ? rebuilt
-            : updateTuiSettingsPickerSearch(rebuilt, rebuilt.query).state ?? rebuilt;
-    }
+    rt.settingsPicker = withFreshDefaultsRows(rt, transition.state, previousPicker);
     if (
         "previewSession" in transition
         && transition.previewSession !== undefined
@@ -708,45 +699,25 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
                 },
             );
             return;
+        } else if (selection.kind === "model_assignment_all_open") {
+            openAssignAllPicker(rt, previousPicker?.kind === "extension" ? undefined : previousPicker);
+            return;
+        } else if (selection.kind === "model_assignment_all") {
+            if (verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
+            const bindingError = bindModelToAllAssignments(rt, selection.provider, selection.model);
+            if (bindingError !== undefined) {
+                rt.settingsPicker = previousPicker?.kind === "model_assignment"
+                    ? { ...previousPicker, subtitle: bindingError }
+                    : previousPicker;
+                showStatusNotice(rt, bindingError);
+                renderState(rt);
+                focusActiveSurface(rt);
+                return;
+            }
         } else if (selection.kind === "model_assignment") {
             if (selection.model !== undefined && selection.provider !== undefined
                 && selection.remove !== true && selection.clear !== true && selection.allowSelf === undefined
-                && loadOptionalVeraConfig()?.verify_model_assignments === true
-                && !eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider, model: selection.model }, { requireVerified: true })) {
-                const operate = rt.dependencies.operateModels;
-                if (operate === undefined || previousPicker === undefined || previousPicker.kind === "extension") {
-                    rt.settingsPicker = previousPicker;
-                    showStatusNotice(rt, "Verification is unavailable. The default was not changed.");
-                    renderState(rt); return;
-                }
-                // A settings snapshot can rebuild the picker mid-check, so match by id, not identity.
-                const verificationId = randomUUID();
-                rt.settingsPicker = { ...previousPicker, loading: true, subtitle: "Verifying model before assignment. Esc cancels assignment.", verificationId };
-                renderState(rt); focusActiveSurface(rt);
-                let passed = false;
-                let reason = "Verification failed. The default was not changed.";
-                void operate({ operation: "verify", models: [{ provider: selection.provider, model: selection.model }] }, (result) => {
-                    passed = result.status === "passed";
-                    reason = result.reason?.trim() || reason;
-                }, focusedAgentClient(rt).workspace).then(() => {
-                    const current = rt.settingsPicker;
-                    if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
-                    const restored = { ...current, loading: previousPicker.loading, subtitle: previousPicker.subtitle, verificationId: undefined };
-                    rt.settingsPicker = restored;
-                    if (passed && eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider: selection.provider!, model: selection.model! }, { requireVerified: true })) applySettingsPickerTransition(rt, transition);
-                    else {
-                        if (passed) reason = "Verification could not be confirmed or the model is not permitted. The default was not changed.";
-                        rt.settingsPicker = { ...restored, subtitle: reason };
-                        showStatusNotice(rt, reason); renderState(rt); focusActiveSurface(rt);
-                    }
-                }).catch((error) => {
-                    const current = rt.settingsPicker;
-                    if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
-                    rt.settingsPicker = { ...current, loading: previousPicker.loading, subtitle: `Verification failed: ${String(error)}`, verificationId: undefined };
-                    renderState(rt); focusActiveSurface(rt);
-                });
-                return;
-            }
+                && verifiesBeforeAssigning(rt, transition, previousPicker, selection.provider, selection.model)) return;
             const bindingError = bindModelAssignmentFromPicker(rt, selection);
             if (bindingError !== undefined) {
                 rt.settingsPicker = previousPicker?.kind === "model_assignment"
@@ -805,7 +776,7 @@ export function applySettingsPickerTransition(rt: TuiRuntime,
         rt.settingsPicker = rt.confirmingFullAccess
                 || previousPicker?.kind === "extension"
             ? undefined
-            : tuiPickerAfterSelection(selection, previousPicker);
+            : withFreshDefaultsRows(rt, tuiPickerAfterSelection(selection, previousPicker), previousPicker);
     }
     if (rt.sessionTrashCandidate !== undefined) {
         rt.composer.blur();
@@ -902,6 +873,71 @@ export function applyOverrideCaution(rt: TuiRuntime): void {
     );
     focusActiveSurface(rt);
     renderState(rt);
+}
+
+// The defaults list is built on open, so a child picker may have just changed a row under it.
+function withFreshDefaultsRows(
+    rt: TuiRuntime,
+    next: TuiSettingsPickerState | TuiExtensionPickerState | undefined,
+    previous: TuiSettingsPickerState | TuiExtensionPickerState | undefined,
+): TuiSettingsPickerState | TuiExtensionPickerState | undefined {
+    if (next?.kind !== "model_defaults" || next.title !== MODEL_DEFAULTS_TITLE || previous?.kind === "model_defaults") {
+        return next;
+    }
+    const options = modelDefaultsOptions(rt);
+    const rebuilt = { ...next, allOptions: options, options };
+    return rebuilt.query === ""
+        ? rebuilt
+        : updateTuiSettingsPickerSearch(rebuilt, rebuilt.query).state ?? rebuilt;
+}
+
+// With verify_model_assignments on, an unverified model is checked first and the
+// transition is replayed only if it passes. Returns true when it took over.
+function verifiesBeforeAssigning(
+    rt: TuiRuntime,
+    transition: TuiSettingsPickerTransition | TuiExtensionPickerTransition,
+    previousPicker: TuiSettingsPickerState | TuiExtensionPickerState | undefined,
+    provider: string,
+    model: string,
+): boolean {
+    if (loadOptionalVeraConfig()?.verify_model_assignments !== true
+        || eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider, model }, { requireVerified: true })) {
+        return false;
+    }
+    const operate = rt.dependencies.operateModels;
+    if (operate === undefined || previousPicker === undefined || previousPicker.kind === "extension") {
+        rt.settingsPicker = previousPicker;
+        showStatusNotice(rt, "Verification is unavailable. The default was not changed.");
+        renderState(rt);
+        return true;
+    }
+    // A settings snapshot can rebuild the picker mid-check, so match by id, not identity.
+    const verificationId = randomUUID();
+    rt.settingsPicker = { ...previousPicker, loading: true, subtitle: "Verifying model before assignment. Esc cancels assignment.", verificationId };
+    renderState(rt); focusActiveSurface(rt);
+    let passed = false;
+    let reason = "Verification failed. The default was not changed.";
+    void operate({ operation: "verify", models: [{ provider, model }] }, (result) => {
+        passed = result.status === "passed";
+        reason = result.reason?.trim() || reason;
+    }, focusedAgentClient(rt).workspace).then(() => {
+        const current = rt.settingsPicker;
+        if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
+        const restored = { ...current, loading: previousPicker.loading, subtitle: previousPicker.subtitle, verificationId: undefined };
+        rt.settingsPicker = restored;
+        if (passed && eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider, model }, { requireVerified: true })) applySettingsPickerTransition(rt, transition);
+        else {
+            if (passed) reason = "Verification could not be confirmed or the model is not permitted. The default was not changed.";
+            rt.settingsPicker = { ...restored, subtitle: reason };
+            showStatusNotice(rt, reason); renderState(rt); focusActiveSurface(rt);
+        }
+    }).catch((error) => {
+        const current = rt.settingsPicker;
+        if (current === undefined || current.kind === "extension" || current.verificationId !== verificationId) return;
+        rt.settingsPicker = { ...current, loading: previousPicker.loading, subtitle: `Verification failed: ${String(error)}`, verificationId: undefined };
+        renderState(rt); focusActiveSurface(rt);
+    });
+    return true;
 }
 
 export function closeSettingsPickerSurface(rt: TuiRuntime): void {

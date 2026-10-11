@@ -79,6 +79,7 @@ import {
 import {
     MODEL_ASSIGNMENT_BROWSE_VALUE,
     type ModelBrowseSection,
+    MODEL_ASSIGNMENT_ALL_VALUE,
     MODEL_ASSIGNMENT_SELF_VALUE,
     REVIEWER_CLEAR_VALUE,
     SESSION_MODEL_VALUE,
@@ -265,6 +266,9 @@ export function handleTuiSettingsPickerKey(
         if (key.name === "escape") return { state: state.parent, handled: true };
         if (key.name === "enter" || key.name === "return") {
             const row = state.options[state.selectedIndex];
+            if (row?.value === MODEL_ASSIGNMENT_ALL_VALUE) {
+                return { state, handled: true, selection: { kind: "model_assignment_all_open" } };
+            }
             return row === undefined ? { state, handled: true } : { state, handled: true,
                 selection: { kind: "model_assignment_open", assignment: row.value as ModelAssignmentId } };
         }
@@ -763,6 +767,11 @@ const MODEL_FILTER_LABEL = "Filter Models: ";
 const MODEL_SORT_WIDTH = 20;
 // A blank line and the rule between the provider groups and the actions under them.
 const PROVIDER_ACTION_RULE_LINES = 2;
+
+// These pickers draw their action rows as buttons under a rule, apart from the list.
+function actionsUnderRule(state: TuiAnySettingsPickerState): boolean {
+    return state.kind === "provider" || state.kind === "model_defaults";
+}
 // A "more above" or "more below" line and the blank line between it and the list.
 const MORE_LINE_LINES = 2;
 // A sticky group heading and the cursor row.
@@ -1322,7 +1331,7 @@ export function renderListPickerRows(
     const sessionGapLines = state.kind === "session"
         ? Math.max(0, state.options.filter((option) => option.section !== undefined).length - 1)
         : 0;
-    const providerRuleLines = state.kind === "provider"
+    const providerRuleLines = actionsUnderRule(state)
             && state.options.some((option) => option.action !== true)
             && state.options.some((option) => option.action === true)
         ? PROVIDER_ACTION_RULE_LINES
@@ -1420,7 +1429,7 @@ export function renderListPickerRows(
                     : {}),
                 // One row of air between the providers a reader picks from and
                 // the thing they can do at the end of the list.
-                ...(state.kind === "provider" && row.option.action === true
+                ...(actionsUnderRule(state) && row.option.action === true
                     ? { spaced: true }
                     : {}),
                 // The detail pane carries the prose when there is one.
@@ -1564,7 +1573,7 @@ export function renderListPickerRows(
     (stackedPage ? [] : rows).forEach((row, position) => {
         const previous = rows[position - 1];
         if (
-            state.kind === "provider" && row.kind === "option"
+            actionsUnderRule(state) && row.kind === "option"
             && row.option.action === true && previous !== undefined
             && !(previous.kind === "option" && previous.option.action === true)
         ) {
@@ -1583,7 +1592,7 @@ export function renderListPickerRows(
             ? dialogGroupHeaderNode(renderer, row.label, position > 0)
             : optionNodes[optionNodeIndex++]!;
         lines += row.kind === "group" ? (position > 0 ? 2 : 1)
-            : state.kind === "provider" && row.option.action === true ? 2 : 1;
+            : actionsUnderRule(state) && row.option.action === true ? 2 : 1;
         modelTree.add(node);
         nodes.push(node);
     });
@@ -2288,7 +2297,7 @@ export function optionMarker(
     if (option.section !== undefined) {
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
-    if (state.kind === "provider") {
+    if (actionsUnderRule(state)) {
         return undefined;
     }
     if (option.action === true) {

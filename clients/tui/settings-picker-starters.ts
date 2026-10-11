@@ -147,7 +147,6 @@ import {
     type TuiSettingsPickerOption,
     type TuiSettingsPickerSelection,
     type TuiSettingsPickerState,
-    tuiPickerMenuAncestor,
     OVERRIDES_RESET_VALUE,
 } from "./settings-picker-types.ts";
 
@@ -981,6 +980,7 @@ export function tuiPickerAfterSelection(
     selection: TuiSettingsPickerSelection,
     previous: TuiSettingsPickerState | undefined,
 ): TuiSettingsPickerState | undefined {
+    // Switching model starts work in the transcript, so nothing stays in front of it.
     if (selection.kind === "model" || previous === undefined) {
         return undefined;
     }
@@ -989,7 +989,9 @@ export function tuiPickerAfterSelection(
     if (selection.kind === "overrides" && previous.kind === "overrides_settings") {
         return previous;
     }
-    return tuiPickerMenuAncestor(previous);
+    // A level step finishes the model choice it follows, so both close together.
+    const answered = previous.kind === "reasoning" ? previous.pendingModel?.modelPaneState ?? previous : previous;
+    return answered.parent;
 }
 
 export function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
@@ -1262,6 +1264,39 @@ export function startTuiModelAssignmentPicker(
             assignedModels: currentModels,
             assignmentAllowsSelf: allowSelf,
         } : {}),
+    };
+}
+
+export function startTuiAssignAllPicker(
+    pooled: readonly PooledModel[] = [],
+    verifiesAssignments = false,
+): TuiSettingsPickerState {
+    const seen = new Set<string>();
+    const options: TuiSettingsPickerOption[] = [];
+    for (const entry of pooled) {
+        if (!entry.available) continue;
+        const value = `${entry.provider}/${entry.model}`;
+        if (seen.has(value)) continue;
+        seen.add(value);
+        options.push({
+            value,
+            label: entry.poolName ?? entry.label,
+            description: entry.provider,
+            provider: entry.provider,
+            model: entry.model,
+            searchText: `${entry.provider} ${entry.model}`,
+        });
+    }
+    return {
+        kind: "model_assignment",
+        title: "Assign one model to all defaults",
+        subtitle: "Every default gets this model. Subagents try it first and keep the rest of their list."
+            + (verifiesAssignments ? " New assignments make a verification request, which may cost money." : ""),
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        assignsAll: true,
     };
 }
 

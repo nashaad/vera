@@ -524,6 +524,9 @@ test("assigning eco a model outside the pool lets explorer run on it", async () 
         );
         let pane = await session.waitForVisiblePane("eco → corvid");
         expect(pane).toContain("Adding corvid to favorites");
+        expect(pane).toMatch(/eco\s+ollama\/corvid/);
+        session.sendKey("Escape");
+        await session.waitForVisiblePaneWhere((visible) => !visible.includes("Assign model defaults"), "the defaults page to close");
 
         session.sendText("find the hoard");
         session.sendKey("Enter");

@@ -34,7 +34,7 @@ import { renderSidebarAgent } from "../main/sidebar-pane.ts";
 import { renderPermissionInspection } from "../permission-inspection.ts";
 import { startTuiPreferencesList } from "../preferences-list.ts";
 import { startTuiSecretPrompt } from "../secret-prompt.ts";
-import { startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiProviderRow, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
+import { startTuiAssignAllPicker, startTuiConfigurePicker, startTuiModelAssignmentPicker, startTuiProviderForm, startTuiProviderPicker, startTuiReasoningPicker, startTuiReviewerMenu, startTuiReviewerPicker, startTuiSettingsPicker, switchedModelTab, tuiModelActionOptions, tuiModelAssignmentOptions, tuiProviderGroup, withTuiPickerParent, type TuiConfigureFile, type TuiReviewerSlot, type TuiProviderRow, type TuiSettingsPickerOption, type TuiSettingsPickerState } from "../settings-picker.ts";
 import { openTuiStandingNudges } from "../standing-nudges.ts";
 import { appendTuiError, appendTuiNotice, type TuiState } from "../state.ts";
 import { tuiThemePreferencePath, loadModelPickerPreferences } from "../theme-preference.ts";
@@ -421,6 +421,70 @@ export function bindModelAssignmentFromPicker(rt: TuiRuntime,
             }. The conversation model is unchanged.`,
         "soft",
     );
+    return undefined;
+}
+
+export function openAssignAllPicker(rt: TuiRuntime, parent?: TuiSettingsPickerState): void {
+    const targetState = focusedAgentState(rt);
+    const started = startTuiAssignAllPicker(
+        targetState.modelSettings?.availableModels?.map((entry) => ({ ...entry, available: true, verified: entry.verified === true })),
+        loadOptionalVeraConfig()?.verify_model_assignments === true,
+    );
+    rt.settingsPicker = withTuiPickerParent(started, parent);
+    renderState(rt);
+    focusActiveSurface(rt);
+}
+
+// Each default is its own config write, so a failure part way leaves the earlier ones written.
+export function bindModelToAllAssignments(rt: TuiRuntime, provider: string, model: string): string | undefined {
+    const requireVerified = loadOptionalVeraConfig()?.verify_model_assignments === true;
+    if (!eligibleForDefault(loadPoolFile({ projectRoot: process.cwd() }).merged, { provider, model }, { requireVerified })) {
+        return requireVerified
+            ? "Verify this model before assigning it as a default."
+            : "This model is not permitted by your model policy.";
+    }
+    const ref = `${provider}/${model}`;
+    const entry = {
+        name: derivedModelName(provider as VeraProviderId, model),
+        provider: provider as VeraProviderId,
+        model,
+    };
+    const assigned: string[] = [];
+    for (const row of currentModelAssignmentRows(rt)) {
+        const others = row.declared.filter((declared) => `${declared.provider}/${declared.model}` !== ref);
+        let models = [entry];
+        if (row.assignment === "subagents") {
+            models = [entry, ...others];
+        } else if (row.assignment === "reviewer" && row.source === "assignment") {
+            // The Classifier menu's failsafe sits second; keep it.
+            models = [entry, ...row.declared.slice(1, 2).filter((declared) =>
+                `${declared.provider}/${declared.model}` !== ref)];
+        }
+        const allowSelf = row.assignment === "subagents" && row.allowSelf === true;
+        try {
+            updateVeraConfigDefaults({
+                model_assignment: {
+                    assignment: row.assignment,
+                    binding: { models, ...(allowSelf ? { allow_self: true } : {}) },
+                },
+            });
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            const message = assigned.length === 0
+                ? `Could not write the assignment: ${reason}`
+                : `Assigned ${model} to ${assigned.join(", ")}, but could not write ${row.label}: ${reason}`;
+            rt.state = appendTuiError(rt.state, message);
+            if (assigned.length > 0) {
+                requestAgentSettings(rt, focusedAgentClient(rt));
+                keepAssignedModel(rt, provider, model);
+            }
+            return message;
+        }
+        assigned.push(row.label);
+    }
+    requestAgentSettings(rt, focusedAgentClient(rt));
+    keepAssignedModel(rt, provider, model);
+    showModeToast(rt, `${model} assigned to all ${assigned.length} defaults`);
     return undefined;
 }
 
