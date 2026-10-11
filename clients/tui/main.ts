@@ -219,6 +219,7 @@ import type {
     SessionSearchResults,
 } from "../../src/store/session-search.ts";
 import { isTranscriptSelection, selectionSpeaker } from "./selection.ts";
+import { createClickCounter, expandClick } from "./multi-click.ts";
 import { renderTuiQuote, tuiQuoteMarker } from "./quote.ts";
 import {
     needsYouChipColumns,
@@ -2501,7 +2502,9 @@ export async function startTui(
         resizeComposer(rt, rt.requestedComposerTextRows);
         renderState(rt);
     });
-    rt.renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
+    const clickCounter = createClickCounter();
+    rt.renderer.on(CliRenderEvents.SELECTION, (clicked: Selection) => {
+        const selection = expandClick(rt.renderer, clicked, clickCounter, Date.now()) ?? clicked;
         const uiRequest = focusedUiRequest(rt);
         const copyableNodes = uiRequest !== undefined
                 && isToolApprovalUiRequestUpdate(uiRequest)

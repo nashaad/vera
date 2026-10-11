@@ -81,3 +81,6 @@ between split and single-pane layouts. See [BTW and Pair](included-extensions.md
 
 Drag over transcript text or your draft. Vera copies the selection immediately
 and reports the character count. Copying a draft does not change it.
+
+In the transcript, double-click a word or triple-click a line to select and
+copy it. A triple-click takes the whole line, even when it wraps.

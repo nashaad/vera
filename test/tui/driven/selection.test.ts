@@ -96,3 +96,36 @@ test("real TUI mouse drag copies text from the composer", async () => {
         await session.close();
     }
 }, 15_000);
+
+test("real TUI double-click copies a word and triple-click copies its line", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-multi-click-"));
+    const copiedTextPath = join(home, "copied-text");
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => createTuiSelectionDependencies(copiedTextPath),
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane("COPY THIS TEXT");
+        const lines = pane.split("\n");
+        const row = lines.findIndex((line) => line.includes("COPY THIS TEXT"));
+        const column = (lines[row] ?? "").indexOf("THIS") + 1;
+
+        await session.sendMouseClick(column, row);
+        await session.sendMouseClick(column, row);
+        await session.waitForVisiblePane("copied 4 characters");
+        expect(readFileSync(copiedTextPath, "utf8")).toBe("THIS");
+
+        await session.settle(600);
+        const line = "Please COPY THIS TEXT from the transcript.";
+        for (let click = 0; click < 3; click++) {
+            await session.sendMouseClick(column, row);
+        }
+        await session.waitForVisiblePane(`copied ${line.length} characters`);
+        expect(readFileSync(copiedTextPath, "utf8")).toBe(line);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
