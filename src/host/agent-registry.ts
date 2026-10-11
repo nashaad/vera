@@ -777,6 +777,7 @@ export class AgentRegistry {
                     sessionAttachmentName(store),
                     store.activeMessageStamps(),
                     store.projectedHarnessMessages(),
+                    store.deliveredMessages(),
                 ),
                 seq: 0,
             }, storedFailure.id, storedFailure.detail);
@@ -1285,6 +1286,7 @@ export class AgentRegistry {
                 sourceAgentId: delivery.sourceAgentId,
                 content: delivery.content,
                 kind: delivery.kind ?? "completion",
+                ...(delivery.sourceKind === undefined ? {} : { sourceKind: delivery.sourceKind }),
             });
         }
         if (

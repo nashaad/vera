@@ -18,6 +18,7 @@ export async function recordDeliveryAndNotify(
             sourceAgentId: delivery.sourceAgentId,
             content: delivery.content,
             kind: delivery.kind ?? "completion",
+            ...(delivery.sourceKind === undefined ? {} : { sourceKind: delivery.sourceKind }),
         });
     }
     return recorded;

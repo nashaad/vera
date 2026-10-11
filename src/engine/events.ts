@@ -77,6 +77,7 @@ export interface TaskNotificationEvent {
     readonly sourceAgentId: string;
     readonly content: string;
     readonly kind?: "attention" | "completion" | "peer";
+    readonly sourceKind?: "extension";
 }
 
 export interface NoticeEvent {

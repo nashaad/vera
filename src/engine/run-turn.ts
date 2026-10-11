@@ -511,6 +511,7 @@ export async function runHeadlessLoop(
             return budgetContextWindow(declared, settings?.contextLimit);
         },
         () => store.usageMessages(),
+        () => store.deliveredMessages(),
     );
     if (owned.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({

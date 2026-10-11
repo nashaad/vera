@@ -355,6 +355,34 @@ test("host wire validates task notifications", () => {
     })).toBeUndefined();
 });
 
+test("host wire carries an extension's delivery live and in history", () => {
+    const notice = {
+        type: "task_notification",
+        deliveryId: "inbox:1",
+        sourceAgentId: "example.scout",
+        content: "Gulls off the port bow.",
+        kind: "attention",
+        sourceKind: "extension",
+        seq: 3,
+    };
+    expect(parseAgentUpdate(notice)).toEqual(notice);
+    expect(parseAgentUpdate({ ...notice, sourceKind: "parrot" })).toBeUndefined();
+
+    const entry = {
+        id: "m1#0",
+        kind: "delivery",
+        deliveryId: "inbox:1",
+        sourceAgentId: "example.scout",
+        deliveryKind: "attention",
+        content: "Gulls off the port bow.",
+        sourceKind: "extension",
+    };
+    expect(parseAgentUpdate({ type: "history", entries: [entry], seq: 4 }))
+        .toEqual({ type: "history", entries: [entry], seq: 4 });
+    expect(parseAgentUpdate({ type: "history", entries: [{ ...entry, deliveryKind: undefined }], seq: 4 }))
+        .toBeUndefined();
+});
+
 test("host wire validates bounded-data notices", () => {
     const notice = {
         type: "notice" as const,

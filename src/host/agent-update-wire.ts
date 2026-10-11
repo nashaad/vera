@@ -203,6 +203,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || update.kind === "attention"
                     || update.kind === "completion"
                     || update.kind === "peer")
+                && (update.sourceKind === undefined || update.sourceKind === "extension")
             ? value as AgentUpdate
             : undefined;
     }
@@ -860,6 +861,17 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     }
     if (entry?.kind === "hook_context") {
         return isHookContextFacts(entry);
+    }
+    if (entry?.kind === "delivery") {
+        return typeof entry.deliveryId === "string"
+            && entry.deliveryId.length > 0
+            && typeof entry.sourceAgentId === "string"
+            && entry.sourceAgentId.length > 0
+            && typeof entry.content === "string"
+            && (entry.deliveryKind === "attention"
+                || entry.deliveryKind === "completion"
+                || entry.deliveryKind === "peer")
+            && (entry.sourceKind === undefined || entry.sourceKind === "extension");
     }
     if (entry?.kind === "user") {
         return typeof entry.text === "string"

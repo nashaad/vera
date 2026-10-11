@@ -756,6 +756,7 @@ export async function runSubagent(
             undefined,
             undefined,
             () => store.usageMessages(),
+            () => store.deliveredMessages(),
         );
         events.subscribe(protocol);
         const instructionRoot: InstructionRoot = options.instructionRoot

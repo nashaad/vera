@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import { projectTranscript, type AgentUpdate } from "../../src/engine/protocol.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { extensionMessageFamily } from "../../src/host/extension-messages.ts";
@@ -13,6 +13,7 @@ import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import type { TurnFinishedHookPayload } from "../../src/sdk/hooks.ts";
 import { Inbox } from "../../src/store/inbox.ts";
+import { readSessionSnapshot } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const temporaryDirectories: string[] = [];
@@ -148,6 +149,71 @@ test("a turn an extension message starts reports no prompt and only its own repl
     } finally {
         await registry.close();
         inbox.close();
+    }
+});
+
+test("an extension's message stays in the transcript as its own text after the turn and on reopen", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-extension-message-history-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("Aye, to the lighthouse.")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const sessionPath = join(root, "deck.jsonl");
+    const text = "Scout report: a crow is carrying a shiny button toward Skull Rock.";
+    const delivered = {
+        kind: "delivery",
+        sourceAgentId: "example.scout",
+        deliveryKind: "attention",
+        content: text,
+        sourceKind: "extension",
+    };
+    try {
+        const deck = await registry.create({ id: "deck", workspace: root, sessionPath });
+        const attachment = deck.attach();
+        await attachment.receive();
+
+        expect(await registry.sendExtensionMessage("example.scout", "deck", text)).toBe("queued");
+        expect(await receiveType(attachment, "task_notification")).toMatchObject({
+            content: text,
+            sourceKind: "extension",
+        });
+        const history = await receiveType(attachment, "history");
+        expect(history.entries.map((entry) => entry.kind)).toEqual(["delivery", "assistant"]);
+        expect(history.entries[0]).toMatchObject(delivered);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+
+    const snapshot = await readSessionSnapshot(sessionPath);
+    const reopened = projectTranscript(
+        snapshot.messages,
+        undefined,
+        snapshot.messageStamps,
+        snapshot.harnessMessages,
+        snapshot.deliveredMessages,
+    );
+    expect(reopened[0]).toMatchObject(delivered);
+
+    const resumed = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    try {
+        const deck = await resumed.resume({ sessionPath });
+        const attachment = deck.attach();
+        const history = await receiveType(attachment, "history");
+        expect(history.entries[0]).toMatchObject(delivered);
+        attachment.detach();
+    } finally {
+        await resumed.close();
     }
 });
 
