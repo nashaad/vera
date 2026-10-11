@@ -560,6 +560,39 @@ test("Vera config discovers global extension directories", () => {
     }]);
 });
 
+test("saving a setting keeps only the extensions the file declares", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-config-"));
+    const discovered = join(root, "extensions", "crow.shanties");
+    mkdirSync(discovered, { recursive: true });
+    writeFileSync(join(discovered, "vera.extension.json"), "{}");
+    const path = join(root, "config.json");
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+    }));
+
+    updateVeraConfigDefaults({ model: "test/other-model" }, { path });
+    expect(JSON.parse(readFileSync(path, "utf8")).extensions).toBeUndefined();
+
+    const declared = [{ path: "/tmp/crow-lookout", enabled: false }];
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        extensions: declared,
+    }));
+    const previous = process.env.VERA_EXTENSIONS;
+    process.env.VERA_EXTENSIONS = `${root}/side`;
+    try {
+        updateVeraConfigDefaults({ model: "test/other-model" }, { path });
+    } finally {
+        if (previous === undefined) delete process.env.VERA_EXTENSIONS;
+        else process.env.VERA_EXTENSIONS = previous;
+    }
+    expect(JSON.parse(readFileSync(path, "utf8")).extensions).toEqual(declared);
+});
+
 test("an explicit extension entry overrides its discovered defaults", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-config-"));
     const extensionDirectory = join(root, "extensions");

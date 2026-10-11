@@ -852,10 +852,14 @@ function writeVeraConfigFile(
     path: string,
     config: VeraConfig | Omit<VeraConfig, "approval_mode">,
 ): void {
+    // Loading resolves hooks and merges discovered and managed extensions;
+    // only what the file itself declares goes back to disk.
+    const { extensions: _resolvedExtensions, ...settings } = configForDisk(config);
     const written = {
         ...foreignConfigEntries(path),
-        ...configForDisk(config),
-        ...writtenHooks(path),
+        ...settings,
+        ...writtenEntry(path, "hooks"),
+        ...writtenEntry(path, "extensions"),
     };
     // Cross-field rules make some pairs of settings, each legal alone, invalid
     // together. A file holding such a pair does not load, and the config is
@@ -1086,14 +1090,14 @@ function foreignConfigEntries(path: string): Record<string, unknown> {
  * command against the profile's `hooks/` directory, so writing the loaded
  * config back would replace the user's short names with absolute paths.
  */
-function writtenHooks(path: string): Record<string, unknown> {
+function writtenEntry(path: string, key: "hooks" | "extensions"): Record<string, unknown> {
     try {
         const value: unknown = JSON.parse(readRegularFileTextSync(path));
         if (typeof value !== "object" || value === null || Array.isArray(value)) {
             return {};
         }
-        const hooks = (value as Record<string, unknown>).hooks;
-        return hooks === undefined ? {} : { hooks };
+        const entry = (value as Record<string, unknown>)[key];
+        return entry === undefined ? {} : { [key]: entry };
     } catch {
         return {};
     }

@@ -73,6 +73,14 @@ test("tip history at the home root is owned, not leftover", () => {
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 });
 
+test("spawn consent and standing nudges at the home root are owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera"), { recursive: true });
+    writeFileSync(join(root, ".vera", "spawn-consent.json"), "{}");
+    writeFileSync(join(root, ".vera", "standing-nudges.json"), "{}");
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
 test("the extension registry the installer writes is owned", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "extensions"), { recursive: true });
