@@ -92,6 +92,8 @@ export interface PendingDelivery {
     readonly sourceAgentId: string;
     readonly content: string;
     readonly kind?: "attention" | "completion" | "peer";
+    /** Set when an extension sent it, so a client shows its text without agent wording. */
+    readonly sourceKind?: "extension";
 }
 
 export interface SessionDeliveryEntry extends PendingDelivery {
@@ -301,6 +303,7 @@ export interface ReadonlySessionSnapshot {
     readonly header: SessionHeader;
     readonly messages: readonly ModelMessage[];
     readonly messageStamps: ReadonlyMap<ModelMessage, MessageStamp>;
+    readonly deliveredMessages: ReadonlyMap<ModelMessage, SessionDeliveryEntry>;
     readonly harnessMessages: readonly {
         readonly afterMessage: number;
         readonly text: string;
@@ -466,6 +469,10 @@ export class SessionStore {
 
     activeMessageStamps(): ReadonlyMap<ModelMessage, MessageStamp> {
         return messageStamps(this.activeEntries());
+    }
+
+    deliveredMessages(): ReadonlyMap<ModelMessage, SessionDeliveryEntry> {
+        return deliveredMessages(this.activeEntries(), this.projection.deliveryEntries);
     }
 
     activeHeadId(): string | null {
@@ -1267,6 +1274,9 @@ export class SessionStore {
         if (kind !== "attention" && kind !== "completion" && kind !== "peer") {
             throw new Error("delivery kind must be attention, completion or peer");
         }
+        if (delivery.sourceKind !== undefined && delivery.sourceKind !== "extension") {
+            throw new Error("delivery source kind must be extension");
+        }
         if (typeof delivery.content !== "string") {
             throw new Error("delivery content must be a string");
         }
@@ -1280,6 +1290,7 @@ export class SessionStore {
                 existing.sourceAgentId !== sourceAgentId
                 || existing.content !== delivery.content
                 || (existing.kind ?? "completion") !== kind
+                || existing.sourceKind !== delivery.sourceKind
             ) {
                 throw new Error(`Delivery ${id} conflicts with its stored payload`);
             }
@@ -1291,6 +1302,7 @@ export class SessionStore {
             sourceAgentId,
             content: delivery.content,
             ...(kind === "completion" ? {} : { kind }),
+            ...(delivery.sourceKind === undefined ? {} : { sourceKind: delivery.sourceKind }),
             timestamp: this.now().toISOString(),
         };
         await this.appendRecord(entry);
@@ -1485,6 +1497,21 @@ function messageStamps(
     ]));
 }
 
+function deliveredMessages(
+    entries: readonly SessionMessageEntry[],
+    deliveries: readonly SessionDeliveryEntry[],
+): ReadonlyMap<ModelMessage, SessionDeliveryEntry> {
+    const byId = new Map(deliveries.map((delivery) => [delivery.id, delivery]));
+    const delivered = new Map<ModelMessage, SessionDeliveryEntry>();
+    for (const entry of entries) {
+        const delivery = entry.deliveryId === undefined ? undefined : byId.get(entry.deliveryId);
+        if (delivery !== undefined) {
+            delivered.set(entry.message, delivery);
+        }
+    }
+    return delivered;
+}
+
 export async function readSessionSnapshot(
     path: string,
 ): Promise<ReadonlySessionSnapshot> {
@@ -1498,6 +1525,7 @@ export async function readSessionSnapshot(
         header: loaded.header,
         messages: active.map((entry) => entry.message),
         messageStamps: messageStamps(active),
+        deliveredMessages: deliveredMessages(active, loaded.state.deliveryEntries),
         harnessMessages: projectHarnessMessages(
             loaded.state.harnessMessageEntries,
             active,
@@ -2237,6 +2265,7 @@ function parseDeliveryEntry(
             && value.kind !== "completion"
             && value.kind !== "peer"
         )
+        || (value.sourceKind !== undefined && value.sourceKind !== "extension")
         || typeof value.timestamp !== "string"
     ) {
         throw invalidSession(

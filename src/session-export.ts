@@ -65,6 +65,7 @@ export async function exportSession(
             undefined,
             snapshot.messageStamps,
             snapshot.harnessMessages,
+            snapshot.deliveredMessages,
         ),
         ...(snapshot.agentFailure === undefined
             ? {}
@@ -120,6 +121,8 @@ export function renderSessionMarkdown(exported: SessionExport): string {
             ));
         } else if (entry.kind === "empty") {
             lines.push(quoteMarkdown("No response"));
+        } else if (entry.kind === "delivery") {
+            lines.push(quoteMarkdown(entry.content));
         } else if (entry.kind === "presentation") {
             if (entry.presentation.kind === "unified_diff") {
                 const fence = markdownFence(entry.presentation.patch);
@@ -211,6 +214,9 @@ function transcriptHeading(entry: TranscriptEntry): string {
     }
     if (entry.kind === "presentation") {
         return "## Tool result";
+    }
+    if (entry.kind === "delivery") {
+        return `## Message · ${escapeHeading(entry.sourceAgentId)}`;
     }
     return `## Tool · ${escapeHeading(entry.tool)}`;
 }

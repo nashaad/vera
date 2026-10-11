@@ -513,14 +513,12 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         };
     }
     if (update.type === "task_notification") {
-        return appendEntry(state, {
-            kind: "notification",
-            text: update.kind === "peer"
-                ? `Message from ${update.sourceAgentId}`
-                : update.kind === "attention"
-                ? `Async subagent ${update.sourceAgentId} needs attention:\n${update.content}`
-                : `Async subagent ${update.sourceAgentId}:\n${update.content}`,
-        });
+        return appendEntry(state, deliveryEntry(
+            update.sourceAgentId,
+            update.kind ?? "completion",
+            update.content,
+            update.sourceKind,
+        ));
     }
     if (update.type === "notice" && update.key === "inbox") {
         return appendEntry({
@@ -2422,9 +2420,29 @@ function toSingleTuiTranscriptEntry(
     if (entry.kind === "hook_context") {
         return hookContextEntry(entry.phase, entry.source, entry.display);
     }
+    if (entry.kind === "delivery") {
+        return deliveryEntry(entry.sourceAgentId, entry.deliveryKind, entry.content, entry.sourceKind);
+    }
     return entry.kind === "user"
         ? userEntry(entry.text, entry.attachments)
         : entry;
+}
+
+// An extension's text is shown as sent; Vera adds no wording to it.
+function deliveryEntry(
+    sourceAgentId: string,
+    kind: "attention" | "completion" | "peer",
+    content: string,
+    sourceKind: "extension" | undefined,
+): TuiTextTranscriptEntry {
+    const text = sourceKind === "extension"
+        ? content
+        : kind === "peer"
+        ? `Message from ${sourceAgentId}`
+        : kind === "attention"
+        ? `Async subagent ${sourceAgentId} needs attention:\n${content}`
+        : `Async subagent ${sourceAgentId}:\n${content}`;
+    return { kind: "notification", text };
 }
 
 function withHistoricalToolResult(

@@ -279,6 +279,7 @@ async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAg
             sourceAgentId: stored.source,
             content: message.text,
             kind: "attention",
+            sourceKind: "extension",
         });
         const consumer = recipient.inbox?.consumer;
         const next = consumer?.read({

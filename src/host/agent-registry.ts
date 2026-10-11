@@ -18,7 +18,7 @@ import type { RunHeadlessLoopData, RunHeadlessLoopServices } from "../engine/loo
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import { BUNDLED_COMPACTION_STRATEGIES, bindCompaction } from "../engine/compaction-binding.ts";
 import type { ResolvedCompactionProfile, VeraCatalogModel } from "../config/model-catalog.ts";
-import { createSubagentEffectApplier, type MissingSubagentConfigurationRequest, type SpawnModelResolution } from "../engine/subagent.ts";
+import { createSubagentSpawner, subagentEffectApplier, type MissingSubagentConfigurationRequest, type SpawnModelResolution } from "../engine/subagent.ts";
 import {
     type CompactionUpdate,
     type ToolApprovalUiRequestUpdate,
@@ -44,7 +44,7 @@ import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
 import { loadCustomizationCatalog } from "../customize/catalog.ts";
-import type { SessionIdentity, SessionIdentityProvider, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
+import type { SessionIdentity, SessionIdentityProvider, VeraInvestigateResult, VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../sdk/extensions.ts";
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
 import type { SessionEndReason } from "../sdk/hooks.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
@@ -62,6 +62,7 @@ import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, type RegisteredAgentKi
 import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
 import * as registryLifecycle from "./agent-registry/lifecycle.ts";
 import { askSession, sessionModelAdapter, type SessionAskCall, type SessionAskResult } from "./agent-registry/ask.ts";
+import { investigateSession, type SessionInvestigateCall } from "./agent-registry/investigate.ts";
 import * as registrySettings from "./agent-registry/settings.ts";
 import * as registrySelect from "./agent-registry/select.ts";
 import * as registryRoster from "./agent-registry/roster.ts";
@@ -581,6 +582,14 @@ export class AgentRegistry {
         return askSession(this, id, call, signal);
     }
 
+    async investigateSession(
+        id: string,
+        call: SessionInvestigateCall,
+        signal: AbortSignal,
+    ): Promise<VeraInvestigateResult> {
+        return investigateSession(this, id, call, signal);
+    }
+
     async setTitleIfUnnamed(
         id: string,
         title: string,
@@ -768,6 +777,7 @@ export class AgentRegistry {
                     sessionAttachmentName(store),
                     store.activeMessageStamps(),
                     store.projectedHarnessMessages(),
+                    store.deliveredMessages(),
                 ),
                 seq: 0,
             }, storedFailure.id, storedFailure.detail);
@@ -808,7 +818,7 @@ export class AgentRegistry {
         const hooks = startupProfile === "default"
             ? this.options.createToolHooks?.() ?? new ToolHooks()
             : new ToolHooks();
-        const applySubagentEffect = createSubagentEffectApplier({
+        const spawnSubagent = createSubagentSpawner({
             adapter,
             hooks,
             readWindowSettings: readModelSettings,
@@ -903,6 +913,8 @@ export class AgentRegistry {
                 ? {}
                 : { permissionModes: this.options.permissionModes }),
         });
+        entry.spawnSubagent = spawnSubagent;
+        const applySubagentEffect = subagentEffectApplier(spawnSubagent);
         const boundCompaction = (): ReturnType<typeof bindCompaction> =>
             bindCompaction(
                 this.options.compaction,
@@ -1274,6 +1286,7 @@ export class AgentRegistry {
                 sourceAgentId: delivery.sourceAgentId,
                 content: delivery.content,
                 kind: delivery.kind ?? "completion",
+                ...(delivery.sourceKind === undefined ? {} : { sourceKind: delivery.sourceKind }),
             });
         }
         if (

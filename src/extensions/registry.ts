@@ -34,6 +34,7 @@ import type {
     VeraSearchProvider,
     VeraExtensionRequestHandler,
     VeraExtensionOneshotRequest,
+    VeraInvestigateRequest,
     VeraSessionAskRequest,
 } from "../sdk/extensions.ts";
 import type {
@@ -116,6 +117,7 @@ const SESSION_TITLE_CAPABILITY = "sessions.title";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const SESSION_SEND_CAPABILITY = "sessions.send";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
+const AGENTS_INVESTIGATE_CAPABILITY = "agents.investigate";
 const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_RESULT_LIMIT = 1_000_000;
 
@@ -702,6 +704,12 @@ async function activateExtension(
                 }
                 agentNames.add(definition.name);
                 agents.push(definition);
+            },
+            async investigate(request: VeraInvestigateRequest) {
+                if (!loaded.manifest.capabilities.includes(AGENTS_INVESTIGATE_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${AGENTS_INVESTIGATE_CAPABILITY}`);
+                }
+                return host.investigate(request);
             },
         }),
         sessions: Object.freeze({

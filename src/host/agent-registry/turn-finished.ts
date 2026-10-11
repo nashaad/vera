@@ -18,9 +18,11 @@ export function turnFinishedPayload(
         if (startsTurn(entry.message)) {
             turns += 1;
             turnStart = index;
+        } else if (entry.deliveryId !== undefined) {
+            // A turn started by a delivery begins at it, so it has an empty prompt and only its own reply.
+            turnStart = index;
         }
     });
-    // A turn with no prompt of its own (a delivery or a resume) has an empty prompt.
     const turn = turnStart < 0 ? [] : entries.slice(turnStart);
     return {
         type: "turn_finished",
