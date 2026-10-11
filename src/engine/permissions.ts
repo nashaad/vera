@@ -31,8 +31,10 @@ import {
     applyPermissionGrant,
     isPermissionGrant,
     isPermissionPredicate,
+    permissionGrantProposals,
     permissionPredicateMatches,
     type PermissionGrant,
+    type PermissionGrantProposal,
 } from "./permission-grants.ts";
 import { urlHost } from "./permission-host.ts";
 import {
@@ -443,6 +445,16 @@ const GIT_OPTIONS_WITH_VALUE = new Set([
 
 const MAX_NESTED_SHELL_DEPTH = 4;
 
+export function reviewedGrantProposals(
+    decision: ToolPermissionDecision,
+): readonly PermissionGrantProposal[] {
+    // Core operations such as git.push stay reviewed on every call.
+    return permissionGrantProposals(decision).filter((proposal) =>
+        proposal.when.operation !== undefined
+        && !CORE_PERMISSION_OPERATIONS.has(proposal.when.operation)
+    );
+}
+
 export function decideToolPermission(
     mode: ApprovalMode,
     toolCall: HookToolCall,
@@ -680,8 +692,13 @@ export function extractPermissionActions(
         return [{ tool: "process", verb: "unknown" }];
     }
 
-    const declaredInputs = toolPermissionInputs(toolCall.name, extensionTools);
-    if (declaredInputs === undefined || declaredInputs.length === 0) {
+    const declaredInputs = (
+        toolPermissionInputs(toolCall.name, extensionTools) ?? []
+    ).filter((spec) =>
+        // An omitted url adds no action once an operation already covers the call; without one, it must stay unknown.
+        !(actions.length > 0 && spec.kind === "url" && isOmittedInput(toolCall.input[spec.field]))
+    );
+    if (declaredInputs.length === 0) {
         return actions.length === 0
             ? [{ tool: toolCall.name, verb: "unknown" }]
             : actions;
@@ -742,6 +759,10 @@ function applyPermissionSafetyNets(
     return afterPreference.outcome === "allow"
         ? afterPreference
         : applyPermissionGrant(afterPreference, grants);
+}
+
+function isOmittedInput(value: unknown): boolean {
+    return value === undefined || value === "";
 }
 
 function structuredInputAction(

@@ -10,6 +10,7 @@ import {
     inspectPermissions,
     isPermissionPredicate,
     permissionGrantProposals,
+    reviewedGrantProposals,
     type ApprovalMode,
     type PermissionGrant,
 } from "../../src/engine/permissions.ts";
@@ -1246,6 +1247,61 @@ test("a write URL does not put its host on the operation action", () => {
             host: "github.com",
         },
     ]);
+});
+
+function spyglassTool(operation?: string): RegisteredTool {
+    return {
+        definition: {
+            name: "spyglass",
+            description: "Look through the spyglass.",
+            inputSchema: {
+                type: "object",
+                properties: { url: { type: "string" } },
+                additionalProperties: false,
+            },
+        },
+        ...(operation === undefined ? {} : { permissionOperation: operation }),
+        permissionInputs: [{ field: "url", kind: "url", verb: "read" }],
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    };
+}
+
+test("an omitted url adds no action when an operation covers the call", () => {
+    const inputs: readonly JsonObject[] = [{}, { url: "" }];
+    for (const input of inputs) {
+        expect(extractPermissionActions({
+            toolCall: toolCall("spyglass", input),
+            workspace,
+            homeDirectory,
+        }, [spyglassTool("crow.spyglass")])).toEqual([
+            { tool: "spyglass", verb: "unknown", operation: "crow.spyglass" },
+        ]);
+    }
+});
+
+test("an omitted url without an operation still needs a decision", () => {
+    expect(extractPermissionActions({
+        toolCall: toolCall("spyglass", {}),
+        workspace,
+        homeDirectory,
+    }, [spyglassTool()])).toEqual([{ tool: "spyglass", verb: "unknown" }]);
+});
+
+test("a classifier allow keeps extension operations and drops core ones", () => {
+    const spyglass = decideToolPermission(
+        "auto",
+        toolCall("spyglass", { url: "https://treasure.example/map" }),
+        workspace,
+        [],
+        { homeDirectory, extensionTools: [spyglassTool("crow.spyglass")] },
+    );
+    expect(reviewedGrantProposals(spyglass).map((proposal) => proposal.when))
+        .toEqual([{ operation: "crow.spyglass" }]);
+    const push = decide("auto", bash("git push origin main"));
+    expect(push.behavior).toBe("review");
+    expect(reviewedGrantProposals(push)).toEqual([]);
 });
 
 test("a host predicate is valid only when the pattern would match as written", () => {
