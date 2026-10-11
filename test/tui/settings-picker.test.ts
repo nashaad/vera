@@ -255,12 +255,15 @@ test("session picker filters titled durable conversations and selects an agent",
         .toHaveLength(1);
 });
 
-test("new conversation asks close or keep running", () => {
+test("new conversation asks close or keep running", async () => {
     const state = startTuiCreateLeavePicker();
     expect(state.title).toBe("New conversation");
     expect(state.options.map((option) => option.label))
         .toEqual(["Close this conversation", "Keep running"]);
-    expect(pickerFooter(state)).toBe("↑↓ choose · ⏎ start · esc back");
+    expect(pickerFooter(state)).toBe("1/2 start · ↑↓ choose · ⏎ start · esc back");
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("1. Close this conversation");
+    expect(frame).toContain("2. Keep running");
     expect(handleTuiSettingsPickerKey(state, { name: "escape" }).handled)
         .toBe(true);
     expect(handleTuiSettingsPickerKey(state, { name: "escape" }).state)

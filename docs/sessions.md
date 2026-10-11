@@ -37,6 +37,11 @@ running. Keep running stays idle for ten minutes, then closes. `/clear stop`
 and `/clear keep` make that choice without asking. `/new` is the same command
 as `/clear`.
 
+In the New conversation picker, `1. Close this conversation` closes the source
+and starts fresh, while `2. Keep running` keeps the source running and starts
+fresh. Either number acts immediately without Enter. Arrow navigation, Enter,
+and Escape keep their usual picker behavior.
+
 Other conversations can remain running after the TUI exits.
 
 ## Recognize a finished turn
