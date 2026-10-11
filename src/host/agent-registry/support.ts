@@ -80,6 +80,7 @@ import {
     type MissingSubagentConfigurationRequest,
     type SpawnModelDefault,
     type SpawnModelResolution,
+    type SpawnSubagent,
     type SubagentPoolPolicy,
 } from "../../engine/subagent.ts";
 import { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
@@ -794,6 +795,7 @@ export interface RegisteredAgentEntry {
     failure?: unknown;
     /** Set once session_end has been announced, so racing closes report it once. */
     sessionEnded?: boolean;
+    spawnSubagent?: SpawnSubagent;
 }
 
 export interface PendingSubagentLaunch {

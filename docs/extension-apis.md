@@ -88,6 +88,7 @@ The included `/recap` command is built on these two calls. See
 | `vera.sessions.setTitle(sessionId, title)` | `sessions.title` | Names a session that has never had a name. |
 | `vera.sessions.ask(request)` | `sessions.ask` | Asks an open session's own model a side question. |
 | `vera.sessions.send(sessionId, text)` | `sessions.send` | Puts a message in an open session's inbox. |
+| `vera.agents.investigate(request)` | `agents.investigate` | Runs the explorer agent read-only under an open session and returns its answer. |
 
 These calls work once the host has started its sessions. Called earlier, or
 after the host has shut extensions down, they reject. Worker processes load
@@ -220,6 +221,40 @@ Vera asks whether to admit its source: the last part of your extension ID, so
 Your text is exactly what the model reads. Say who it is from and what you
 want done; Vera adds nothing. An extension whose ID ends in a name Vera uses
 for its own messages, such as `peer` or `schedule`, cannot send.
+
+### Investigate a question
+
+`agents.investigate` runs the explorer agent on a question, under an open
+conversation, and returns its final answer. Use it to check a claim against
+the workspace before you act on it.
+
+```ts
+const result = await vera.agents.investigate({
+    sessionId,
+    question: "Is the treasure map still in maps/skull-rock.md? Quote the line.",
+});
+if (result.outcome === "answered") {
+    console.log(result.text);
+}
+```
+
+It takes a `sessionId`, a `question`, and optionally `timeoutMs` and a
+`signal`. The timeout defaults to 5 minutes and can be at most 15.
+
+What you can rely on:
+
+- The run is explorer, with its read, grep and list tools, on the model
+  assigned to `eco` (see [Assign defaults](models.md#assign-defaults)).
+- It always runs `readonly`, whatever the conversation's approval mode, and
+  it never stops to ask the user anything.
+- It is saved as a subagent run of that conversation, named by
+  `runSessionId` when the run finished. The conversation's own transcript
+  does not change.
+- It counts toward the conversation's limit on agents running at once.
+
+The result's `outcome` is `answered` with the reply in `text`, `failed` with
+an `error`, `cancelled` when your signal aborted, or `timed_out`. A
+conversation that is not open, or a bad request, rejects instead.
 
 ## Annex pages
 

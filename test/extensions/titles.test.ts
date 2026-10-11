@@ -76,6 +76,7 @@ test("the included extension titles a first turn through the snappy slot", async
             },
             async askSession() { throw new Error("Not used by titles"); },
             async sendToSession() { throw new Error("Not used by titles"); },
+            async investigate() { throw new Error("Not used by titles"); },
         });
         const hooks = registry.turnFinishedHooks();
         const reported: string[] = [];
@@ -103,6 +104,7 @@ test("a failed title request is reported, not thrown", async () => {
             async setSessionTitle() { named = true; return "set"; },
             async askSession() { throw new Error("Not used by titles"); },
             async sendToSession() { throw new Error("Not used by titles"); },
+            async investigate() { throw new Error("Not used by titles"); },
         });
         const reported: string[] = [];
         notifyTurnFinished(registry.turnFinishedHooks(), first, (id, message) => reported.push(`${id}: ${message}`));

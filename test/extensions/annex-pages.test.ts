@@ -68,6 +68,9 @@ test("pageUrl names a declared page under the annex and is absent while the anne
         async sendToSession() {
             return "queued";
         },
+        async investigate() {
+            return { outcome: "answered", text: "" };
+        },
         annexUrl: () => annex,
     });
 

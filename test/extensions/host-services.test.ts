@@ -7,6 +7,7 @@ import {
     notifyObservers,
     notifyTurnFinished,
     type ExtensionHostServices,
+    type ExtensionInvestigateCall,
     type ExtensionOneshotCall,
     type ExtensionSessionAskCall,
 } from "../../src/extensions/host-services.ts";
@@ -144,12 +145,12 @@ test("pre-compact hooks need their capability and get the payload", async () => 
     await registry.close();
 });
 
-test("model, title, ask and send calls are capability-gated, wait for the host, and stop at close", async () => {
+test("model, title, ask, send and investigate calls are capability-gated, wait for the host, and stop at close", async () => {
     const extension = createExtension("host.extension", `
         export function activate(vera) {
             globalThis.__hostApi = vera;
         }
-    `, ["model.oneshot", "sessions.title", "sessions.ask", "sessions.send"]);
+    `, ["model.oneshot", "sessions.title", "sessions.ask", "sessions.send", "agents.investigate"]);
     const bare = createExtension("bare.extension", `
         export function activate(vera) {
             globalThis.__bareApi = vera;
@@ -174,11 +175,15 @@ test("model, title, ask and send calls are capability-gated, wait for the host, 
     await expect(api.sessions.ask(ask)).rejects.toThrow("not ready");
     await expect(bareApi.sessions.send("session-1", "caw")).rejects.toThrow("sessions.send");
     await expect(api.sessions.send("session-1", "caw")).rejects.toThrow("not ready");
+    const hunch = { sessionId: "session-1", question: "Is the map really missing from the chest?" };
+    await expect(bareApi.agents.investigate(hunch)).rejects.toThrow("agents.investigate");
+    await expect(api.agents.investigate(hunch)).rejects.toThrow("not ready");
 
     const calls: ExtensionOneshotCall[] = [];
     const titles: string[] = [];
     const asks: ExtensionSessionAskCall[] = [];
     const sent: string[] = [];
+    const investigations: ExtensionInvestigateCall[] = [];
     const services: ExtensionHostServices = {
         async oneshot(call) {
             calls.push(call);
@@ -195,6 +200,10 @@ test("model, title, ask and send calls are capability-gated, wait for the host, 
         async sendToSession(extensionId, sessionId, text) {
             sent.push(`${extensionId}>${sessionId}=${text}`);
             return "queued";
+        },
+        async investigate(call) {
+            investigations.push(call);
+            return { outcome: "answered", text: "The map is sewn into the crow's hat.", runSessionId: "run-1" };
         },
     };
     registry.bindHost(services);
@@ -222,20 +231,31 @@ test("model, title, ask and send calls are capability-gated, wait for the host, 
     expect(sent).toEqual(["host.extension>session-1=Bury it deeper"]);
     await expect(api.sessions.send("session-1", "  ")).rejects.toThrow("bytes of text");
     await expect(api.sessions.send("session-1", "x".repeat(16 * 1024 + 1))).rejects.toThrow("bytes of text");
+    expect(await api.agents.investigate(hunch)).toEqual({
+        outcome: "answered",
+        text: "The map is sewn into the crow's hat.",
+        runSessionId: "run-1",
+    });
+    await api.agents.investigate({ ...hunch, timeoutMs: 60_000 });
+    expect(investigations).toEqual([
+        { ...hunch, timeoutMs: 300_000 },
+        { ...hunch, timeoutMs: 60_000 },
+    ]);
 
     await registry.close();
     await expect(api.model.oneshot(request)).rejects.toThrow("closed");
     await expect(api.sessions.setTitle("session-1", "Loot")).rejects.toThrow("closed");
     await expect(api.sessions.ask(ask)).rejects.toThrow("closed");
     await expect(api.sessions.send("session-1", "caw")).rejects.toThrow("closed");
+    await expect(api.agents.investigate(hunch)).rejects.toThrow("closed");
 });
 
-test("bad oneshot, title and ask requests are refused before reaching the host", async () => {
+test("bad oneshot, title, ask and investigate requests are refused before reaching the host", async () => {
     const extension = createExtension("strict.extension", `
         export function activate(vera) {
             globalThis.__strictApi = vera;
         }
-    `, ["model.oneshot", "sessions.title", "sessions.ask"]);
+    `, ["model.oneshot", "sessions.title", "sessions.ask", "agents.investigate"]);
     const registry = await startExtensionRegistry({
         extensions: [configured(extension)],
     });
@@ -257,6 +277,10 @@ test("bad oneshot, title and ask requests are refused before reaching the host",
             reached += 1;
             return "queued";
         },
+        async investigate() {
+            reached += 1;
+            return { outcome: "answered", text: "" };
+        },
     });
     const api = globals().__strictApi as HostApi;
     const user = [{ role: "user", text: "caw" }];
@@ -274,6 +298,12 @@ test("bad oneshot, title and ask requests are refused before reaching the host",
     await expect(api.sessions.ask({ sessionId: "session-1", question: "x".repeat(256 * 1024 + 1) })).rejects.toThrow("exceeds");
     await expect(api.sessions.ask({ sessionId: "session-1", question: "caw", maxTokens: 1.5 })).rejects.toThrow("maxTokens");
     await expect(api.sessions.ask({ sessionId: "session-1", question: "caw", signal: "stop" })).rejects.toThrow("AbortSignal");
+    await expect(api.agents.investigate({ sessionId: "", question: "caw" })).rejects.toThrow("session ID");
+    await expect(api.agents.investigate({ sessionId: "session-1", question: " " })).rejects.toThrow("needs a question");
+    await expect(api.agents.investigate({ sessionId: "session-1", question: "x".repeat(256 * 1024 + 1) })).rejects.toThrow("exceeds");
+    await expect(api.agents.investigate({ sessionId: "session-1", question: "caw", timeoutMs: 0 })).rejects.toThrow("timeoutMs");
+    await expect(api.agents.investigate({ sessionId: "session-1", question: "caw", timeoutMs: 15 * 60_000 + 1 })).rejects.toThrow("timeoutMs");
+    await expect(api.agents.investigate({ sessionId: "session-1", question: "caw", signal: "stop" })).rejects.toThrow("AbortSignal");
     expect(reached).toBe(0);
     await registry.close();
 });
@@ -306,6 +336,9 @@ test("closing the registry cancels a oneshot in flight", async () => {
         async sendToSession() {
             return "queued";
         },
+        async investigate() {
+            return { outcome: "answered", text: "" };
+        },
     });
     const api = globals().__cancelApi as HostApi;
     const pending = api.model.oneshot({
@@ -324,6 +357,7 @@ interface HostApi {
         ask(request: unknown): Promise<unknown>;
         send(sessionId: string, text: string): Promise<unknown>;
     };
+    readonly agents: { investigate(request: unknown): Promise<unknown> };
 }
 
 function globals(): Record<string, unknown> {

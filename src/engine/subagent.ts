@@ -60,6 +60,7 @@ import { newStashingToolRuntime } from "./preimage.ts";
 import type {
     ApplyToolEffect,
     RegisteredTool,
+    SpawnSubagentEffect,
     ToolEffectContext,
 } from "../tools/types.ts";
 import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
@@ -435,23 +436,67 @@ export interface SubagentResult {
     readonly sessionPath: string;
 }
 
+export type SubagentSpawnOutcome =
+    | {
+        readonly ok: true;
+        readonly result: SubagentResult;
+        readonly notice?: string;
+        readonly substitutions: readonly ModelSubstitution[];
+    }
+    | { readonly ok: false; readonly error: string };
+
+export type SpawnSubagent = (
+    effect: SpawnSubagentEffect,
+    signal: AbortSignal,
+    context: ToolEffectContext,
+) => Promise<SubagentSpawnOutcome>;
+
 export function createSubagentEffectApplier(
     options: CreateSubagentEffectApplierOptions,
 ): ApplyToolEffect {
+    return subagentEffectApplier(createSubagentSpawner(options));
+}
+
+export function subagentEffectApplier(spawn: SpawnSubagent): ApplyToolEffect {
+    return async (effect, signal, context) => {
+        if (effect.type !== "spawn_subagent") {
+            throw new Error(`Unsupported subagent effect: ${effect.type}`);
+        }
+        const outcome = await spawn(effect, signal, context);
+        if (!outcome.ok) {
+            return { kind: "output", output: outcome.error, isError: true };
+        }
+        const output = formatSubagentResult(
+            outcome.result.text,
+            outcome.result.execution,
+        );
+        return {
+            kind: "output",
+            output: outcome.notice === undefined
+                ? output
+                : `${outcome.notice}\n\n${output}`,
+            isError: outcome.result.isError,
+            ...(outcome.substitutions.length === 0
+                ? {}
+                : { substitutions: outcome.substitutions }),
+        };
+    };
+}
+
+/** One spawner per parent session: every caller shares its child limit. */
+export function createSubagentSpawner(
+    options: CreateSubagentEffectApplierOptions,
+): SpawnSubagent {
     const maxConcurrentChildren = validChildAgentLimit(
         options.maxConcurrentChildren ?? DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     );
     let activeChildren = 0;
     return async (effect, signal, context) => {
-        if (effect.type !== "spawn_subagent") {
-            throw new Error(`Unsupported subagent effect: ${effect.type}`);
-        }
         if (activeChildren >= maxConcurrentChildren) {
             return {
-                kind: "output",
-                output:
+                ok: false,
+                error:
                     `Subagent limit reached (${maxConcurrentChildren} running).`,
-                isError: true,
             };
         }
         let selected: AgentSnapshot | undefined;
@@ -459,25 +504,22 @@ export function createSubagentEffectApplier(
         if (effect.agent !== undefined) {
             if (options.loadAgent === undefined) {
                 return {
-                    kind: "output",
-                    output: "This host does not support agents.",
-                    isError: true,
+                    ok: false,
+                    error: "This host does not support agents.",
                 };
             }
             const definition = await options.loadAgent(effect.agent);
             if (definition === undefined) {
                 return {
-                    kind: "output",
-                    output: `No agent named ${effect.agent}`,
-                    isError: true,
+                    ok: false,
+                    error: `No agent named ${effect.agent}`,
                 };
             }
             if (definition.nudges !== undefined) {
                 return {
-                    kind: "output",
-                    output:
+                    ok: false,
+                    error:
                         `Agent ${definition.name} carries nudges, which a subagent cannot show.`,
-                    isError: true,
                 };
             }
             selected = narrowAgainstParent(
@@ -535,23 +577,21 @@ export function createSubagentEffectApplier(
         }
         if (!resolved.ok) {
             return {
-                kind: "output",
-                output: assignment === undefined
+                ok: false,
+                error: assignment === undefined
                     ? resolved.error
                     : `Cannot start ${selected!.name} on Defaults -> ${assignment}: ${
                         resolved.reason === "configuration_required"
                             ? "no selectable models are assigned. Configure this assignment in /defaults."
                             : resolved.error
                     }`,
-                isError: true,
             };
         }
         if (activeChildren >= maxConcurrentChildren) {
             return {
-                kind: "output",
-                output:
+                ok: false,
+                error:
                     `Subagent limit reached (${maxConcurrentChildren} running).`,
-                isError: true,
             };
         }
         const notice = resolved.notice;
@@ -657,14 +697,11 @@ export function createSubagentEffectApplier(
                     text: result.text,
                 });
             }
-            const output = formatSubagentResult(result.text, result.execution);
             return {
-                kind: "output",
-                output: notice === undefined
-                    ? output
-                    : `${notice}\n\n${output}`,
-                isError: result.isError,
-                ...(substitutions.length === 0 ? {} : { substitutions }),
+                ok: true,
+                result,
+                ...(notice === undefined ? {} : { notice }),
+                substitutions,
             };
         } finally {
             activeChildren -= 1;
