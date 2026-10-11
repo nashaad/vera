@@ -309,7 +309,8 @@ export function workspaceSidebarViewState(
         // No rowId: a row without one draws as plain text and takes no pointer.
         lines.push({
             text: rightAlignedRow(row.text, row.detail, rowColumns),
-            tone: row.id === state.currentId ? "muted" as const : "text" as const,
+            tone: "text" as const,
+            ...(row.id === state.currentId ? { current: true } : {}),
             ...(row.marker === WORKSPACE_COMPLETED_MARKER
                 ? {
                     leading: {

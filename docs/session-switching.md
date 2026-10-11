@@ -34,7 +34,8 @@ From Home or a saved-file view, Enter opens the selected conversation directly.
 
 Press Ctrl+X, then B, or run `/sidebar`, to show a sidebar of running
 conversations and what each is doing: waiting for you, working, or idle. Do
-the same again to hide it. The sidebar only shows status; open a conversation
+the same again to hide it. A `●` marks the conversation on screen. The
+sidebar only shows status; open a conversation
 with `/resume`, Ctrl+E, or Ctrl+Shift+Left and Right, which its footer lists.
 Drag its right edge to change its width; Vera remembers the width. To show it
 whenever Vera starts, set `tui.sidebar.open_at_launch` to `true` in
