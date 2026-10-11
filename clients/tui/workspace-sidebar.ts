@@ -4,6 +4,9 @@ import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
 import {
     layoutWorkspacePanel,
     WORKSPACE_COMPLETED_MARKER,
+    WORKSPACE_CURRENT_MARKER,
+    WORKSPACE_IDLE_MARKER,
+    WORKSPACE_RECENT_MARKER,
     workspacePanelWidth,
     workspaceRowColumns,
     type WorkspacePanelLayout,
@@ -236,6 +239,12 @@ export function openWorkspaceSelection(
     };
 }
 
+const QUIET_MARKERS: ReadonlySet<string> = new Set([
+    WORKSPACE_IDLE_MARKER,
+    WORKSPACE_RECENT_MARKER,
+    WORKSPACE_COMPLETED_MARKER,
+]);
+
 export const WORKSPACE_SIDEBAR_WORDMARK = "VERA";
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
@@ -309,18 +318,20 @@ export function workspaceSidebarViewState(
             lines.push({ text: row.text, tone: "heading" as const });
             continue;
         }
+        const current = row.id === state.currentId;
+        const marker = current && QUIET_MARKERS.has(row.marker)
+            ? WORKSPACE_CURRENT_MARKER
+            : row.marker;
+        const text = `${marker}${row.text.slice(row.marker.length)}`;
         // No rowId: a row without one draws as plain text and takes no pointer.
         lines.push({
-            text: rightAlignedRow(row.text, row.detail, rowColumns),
+            text: rightAlignedRow(text, row.detail, rowColumns),
             tone: "text" as const,
-            ...(row.id === state.currentId ? { current: true } : {}),
-            ...(row.marker === WORKSPACE_COMPLETED_MARKER
-                ? {
-                    leading: {
-                        text: WORKSPACE_COMPLETED_MARKER,
-                        tone: "positive" as const,
-                    },
-                }
+            ...(current ? { current: true } : {}),
+            ...(marker === WORKSPACE_CURRENT_MARKER
+                ? { leading: { text: marker, tone: "accent" as const } }
+                : marker === WORKSPACE_COMPLETED_MARKER
+                ? { leading: { text: marker, tone: "positive" as const } }
                 : {}),
         });
     }

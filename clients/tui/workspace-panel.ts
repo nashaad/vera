@@ -45,8 +45,10 @@ export interface WorkspaceSession extends VeraClientSession {
 
 export const WORKSPACE_WAITING_MARKER = "!";
 export const WORKSPACE_COMPLETED_MARKER = "✓";
-export const WORKSPACE_IDLE_MARKER = ".";
+export const WORKSPACE_IDLE_MARKER = "·";
 export const WORKSPACE_RECENT_MARKER = "·";
+// Takes the status column of the session on screen, unless it needs you or is working.
+export const WORKSPACE_CURRENT_MARKER = "●";
 export const WORKSPACE_COMPLETED_WINDOW_MS = 10 * 60 * 1_000;
 
 export function workspaceStatusMarker(

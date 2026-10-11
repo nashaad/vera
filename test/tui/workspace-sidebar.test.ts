@@ -667,21 +667,36 @@ describe("the drawn card", () => {
         expect(text).not.toContain("(here)");
     });
 
-    test("an idle session you are looking at still reads as completed", () => {
+    test("the session on screen shows ● in place of ✓ or ·", () => {
         const state = open(
-            [running("a", {
-                title: "count to 5",
-                status: "idle",
-                updatedAt: "2026-08-22T11:55:00.000Z",
-            })],
+            [
+                running("a", {
+                    title: "count to 5",
+                    status: "idle",
+                    updatedAt: "2026-08-22T11:55:00.000Z",
+                }),
+                running("b", { title: "bury the chest", status: "idle" }),
+            ],
             [],
             "a",
         );
         const text = workspaceSidebarText(state, COLUMNS, NOW);
-        expect(text).toContain("✓ count to 5");
+        expect(text).toContain("● count to 5");
+        expect(text).toContain("· bury the chest");
+        expect(text).not.toContain("✓");
         expect(workspaceSidebarViewState(state, COLUMNS, NOW).lines.find(
             (line) => line.text.includes("count to 5"),
-        )?.leading).toEqual({ text: "✓", tone: "positive" });
+        )?.leading).toEqual({ text: "●", tone: "accent" });
+    });
+
+    test("the session on screen keeps ! when it needs you", () => {
+        const state = open(
+            [running("a", { title: "count to 5", status: "waiting" })],
+            [],
+            "a",
+        );
+        expect(workspaceSidebarText(state, COLUMNS, NOW))
+            .toContain("! count to 5");
     });
 
     test("a new session with no messages reads idle, not finished", () => {
@@ -692,7 +707,7 @@ describe("the drawn card", () => {
             hasUserContent: false,
         })]);
         const text = workspaceSidebarText(state, COLUMNS, NOW);
-        expect(text).toContain(". fresh");
+        expect(text).toContain("· fresh");
         expect(text).not.toContain("✓");
     });
 

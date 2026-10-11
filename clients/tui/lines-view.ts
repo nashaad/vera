@@ -44,11 +44,11 @@ export interface LinesViewLine {
     readonly tone?: LinesViewTone;
     readonly leading?: {
         readonly text: string;
-        readonly tone: "positive";
+        readonly tone: "positive" | "accent";
     };
     readonly rowId?: string;
     readonly selected?: boolean;
-    // The thing on screen, not a cursor: a hanging dot and a quiet band.
+    // The thing on screen, not a cursor: a quiet band behind the row.
     readonly current?: boolean;
     readonly emphasis?: { readonly start: number; readonly length: number };
 }
@@ -128,7 +128,6 @@ const CARD_CHROME_HEIGHT = 9;
 const RAIL_PADDING = 1;
 const RAIL_CHROME_HEIGHT = 8;
 const RAIL_TOP_MARGIN = 1;
-const CURRENT_MARKER = "● ";
 
 
 function footerContentRows(state: LinesViewState): number {
@@ -352,13 +351,9 @@ export function createTuiLinesView(
             // reader still needs to know where returning will land, and only
             // the panel holding the keyboard may carry the lit fill.
             const quiet = state.dimmed === true;
-            const hang = Math.min(
-                CURRENT_MARKER.length,
-                rail === undefined ? DIALOG_CARD_PADDING : railPadding,
-            );
             for (const line of visible) {
                 if (line.current === true) {
-                    add(currentLineNode(renderer, line, hang, view.contentWidth()));
+                    add(currentLineNode(renderer, line, view.contentWidth()));
                     continue;
                 }
                 add(lineNode(
@@ -489,22 +484,17 @@ function lineNode(
 function currentLineNode(
     renderer: RenderContext,
     line: LinesViewLine,
-    hang: number,
     contentWidth: number,
 ): BoxRenderable {
     // Text `bg` paints only its glyphs; the box fills the rest of the row.
     const row = new BoxRenderable(renderer, {
-        marginLeft: -hang,
-        width: contentWidth + hang,
+        width: contentWidth,
         height: 1,
         flexShrink: 0,
         backgroundColor: TUI_ELEMENT,
     });
     row.add(new TextRenderable(renderer, {
-        content: new StyledText([
-            fg(TUI_ACCENT)(CURRENT_MARKER),
-            ...lineContent(line, TUI_TEXT).chunks,
-        ]),
+        content: lineContent(line, TUI_TEXT),
         bg: TUI_ELEMENT,
         attributes: TextAttributes.BOLD,
         width: "100%",
@@ -528,7 +518,7 @@ function lineContent(line: LinesViewLine, color: string): StyledText {
     const leading = line.leading?.text ?? "";
     if (leading.length > 0 && line.text.startsWith(leading)) {
         return new StyledText([
-            fg(TUI_SUCCESS)(leading),
+            fg(line.leading?.tone === "accent" ? TUI_ACCENT : TUI_SUCCESS)(leading),
             fg(color)(line.text.slice(leading.length)),
         ]);
     }

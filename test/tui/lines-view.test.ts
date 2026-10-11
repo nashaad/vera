@@ -274,7 +274,7 @@ test("a card left to itself is as tall as the rows it has", async () => {
     }
 });
 
-test("the current row hangs a dot into the rail padding on a quiet band", async () => {
+test("the current row keeps its column and sits on a quiet band", async () => {
     const { renderer, renderOnce, captureCharFrame } = await createTestRenderer({
         width: 60,
         height: 20,
@@ -291,7 +291,7 @@ test("the current row hangs a dot into the rail padding on a quiet band", async 
             ...STATE,
             lines: [
                 { text: "! plunder the map" },
-                { text: ". polish the cutlass", current: true },
+                { text: "● polish the cutlass", current: true },
             ],
             cursorLine: undefined,
         });
@@ -299,12 +299,11 @@ test("the current row hangs a dot into the rail padding on a quiet band", async 
         const frame = captureCharFrame().split("\n");
         const other = frame.find((line) => line.includes("plunder the map"))!;
         const current = frame.find((line) => line.includes("polish the cutlass"))!;
-        // The dot takes the padding columns, so both titles start together.
-        expect(current.indexOf(". polish")).toBe(other.indexOf("! plunder"));
-        expect(current.slice(0, current.indexOf(". polish")).trimStart()).toBe("● ");
+        expect(current.indexOf("● polish")).toBe(other.indexOf("! plunder"));
+        expect(current.slice(0, current.indexOf("● polish")).trim()).toBe("");
         const band = rowsOn(view.box, TUI_ELEMENT);
         expect(band).toHaveLength(1);
-        expect(band[0]!.width).toBe(28 + 2);
+        expect(band[0]!.width).toBe(28);
     } finally {
         renderer.destroy();
     }
