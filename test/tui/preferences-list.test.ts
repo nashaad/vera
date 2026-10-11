@@ -245,3 +245,61 @@ test("the heading follows the window rather than scrolling away with row zero", 
         setup.renderer.destroy();
     }
 });
+
+test("a long grant wraps inside the box instead of running past its edge", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiPreferencesListView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    const chart: PermissionPreference = {
+        id: "chart",
+        when: {
+            verb: "write",
+            path: "/Users/crow/Charts/Spanish Main/2026-10-11 buried doubloons.md",
+        },
+        createdAt: "2026-07-25T00:00:00.000Z",
+    };
+
+    try {
+        view.update(startTuiPreferencesList(inspection([], [chart])));
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const boxRight = Math.floor(60 * 0.8);
+        for (const line of lines) {
+            expect(line.slice(boxRight).trim()).toBe("");
+        }
+        const text = lines.map((line) => line.trim()).join("");
+        expect(text).toContain("/Users/crow/Charts/Spanish");
+        expect(text).toContain("buried doubloons.md");
+        expect(text).toContain("[esc] close");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("wrapped rows still page around the cursor and keep the footer", async () => {
+    const charts = Array.from({ length: 12 }, (_unused, index): PermissionPreference => ({
+        id: `c${index}`,
+        when: { verb: "write", path: `/Users/crow/Charts/Spanish Main/chart number ${index}.md` },
+        createdAt: "2026-07-25T00:00:00.000Z",
+    }));
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiPreferencesListView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        let state = startTuiPreferencesList(inspection([], charts));
+        for (let step = 0; step < 11; step += 1) {
+            state = handleTuiPreferencesListKey(state, { name: "down" }).state!;
+        }
+        view.update(state);
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("chart number 11.md");
+        expect(frame).not.toContain("chart number 0.md");
+        expect(frame).toContain("[esc] close");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
