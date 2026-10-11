@@ -49,9 +49,10 @@ Other conversations can remain running after the TUI exits.
 
 ## Recognize a finished turn
 
-A **Worked for** divider records elapsed time after turns that ran at least
-five minutes, whether they finished, failed or were interrupted. Shorter
-turns omit it during live conversation.
+A **Worked for** divider records active turn time after turns that ran at least
+five minutes, whether they finished, failed or were interrupted. It counts
+model and tool work but pauses while Vera waits for your response or approval.
+Shorter turns omit it during live conversation.
 Reopening finished work shows its final divider even for a short turn.
 When the classifier allowed low-risk actions during a turn, the divider also
 shows how many, such as `Worked for 6m 00s · 3 auto-approved`. A short turn's

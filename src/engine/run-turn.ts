@@ -981,11 +981,11 @@ export async function runTurn(
     // The permission classifier is synchronous but the bash parser it uses loads a wasm grammar asynchronously.
     await initBashParser();
     const turn = await state.inbound.startTurn();
-    const turnStartedAt = performance.now();
+    const turnClock = state.inbound.beginTurnTiming();
     const withTurnTiming = (message: AssistantMessage): AssistantMessage => ({
         ...message,
         turnTiming: {
-            durationMs: Math.max(0, performance.now() - turnStartedAt),
+            durationMs: state.inbound.finishTurnTiming(turnClock),
             finishedAt: Date.now(),
         },
     });
@@ -1876,6 +1876,7 @@ export async function runTurn(
                 : assistantMessage.stopReason === "error"
                 ? "failed"
                 : "completed";
+        state.inbound.finishTurnTiming(turnClock);
         state.inbound.finishTurn(outcome);
     }
 
