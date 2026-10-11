@@ -364,7 +364,7 @@ test("host wire carries an extension's delivery live and in history", () => {
         kind: "attention",
         sourceKind: "extension",
         seq: 3,
-    };
+    } as const;
     expect(parseAgentUpdate(notice)).toEqual(notice);
     expect(parseAgentUpdate({ ...notice, sourceKind: "parrot" })).toBeUndefined();
 
@@ -376,7 +376,7 @@ test("host wire carries an extension's delivery live and in history", () => {
         deliveryKind: "attention",
         content: "Gulls off the port bow.",
         sourceKind: "extension",
-    };
+    } as const;
     expect(parseAgentUpdate({ type: "history", entries: [entry], seq: 4 }))
         .toEqual({ type: "history", entries: [entry], seq: 4 });
     expect(parseAgentUpdate({ type: "history", entries: [{ ...entry, deliveryKind: undefined }], seq: 4 }))
