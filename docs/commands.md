@@ -43,6 +43,7 @@ conversation unless they open a broader browser.
 | `/resume` | Choose a saved conversation to resume. Same picker as Ctrl+E. |
 | `/search` | Search past work. |
 | `/work` | Show conversations that need you or are running. |
+| `/sidebar` | Show or hide the sidebar of running conversations. Same as Ctrl+X, then B. |
 | `/rename [name]` | Name the conversation, or remove its name when omitted. |
 | `/clone` | Duplicate the conversation. |
 | `/fork` | Choose an earlier prompt to fork from. |

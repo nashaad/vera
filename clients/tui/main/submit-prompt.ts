@@ -9,7 +9,7 @@ import { clientExtensionReloadFailed, clientExtensionReloadStarted, clientExtens
 import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
-import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
+import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, toggleWorkspaceSidebar, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
 import { importSessionFromTui, openImportPicker } from "./import-ops.ts";
 import { homeNeedsProvider } from "./model-pickers.ts";
@@ -837,6 +837,12 @@ export function submitPrompt(rt: TuiRuntime,
         renderCommandSuggestions(rt);
         renderState(rt);
         rt.composer.focus();
+        return;
+    }
+    if (commandAction?.type === "toggle_session_rail") {
+        rt.composer.clearComposer();
+        renderCommandSuggestions(rt);
+        toggleWorkspaceSidebar(rt);
         return;
     }
     if (commandAction?.type === "open_work_tab") {

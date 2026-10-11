@@ -434,7 +434,7 @@ export function renderStatus(rt: TuiRuntime): void {
     setTextContent(rt.agentNoticeText, new StyledText(noticeChunks));
     rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
     rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
-    const modelPrefixHint = `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · esc cancel`;
+    const modelPrefixHint = `${tuiKeyHint("model_prefix_open")} · ${tuiKeyHint("model_prefix_keys")} · ${tuiKeyHint("model_prefix_sidebar")} · esc cancel`;
     const workerFree = isWorkerFreeClient(rt.client);
     const showStrip = !workerFree;
     const footer = fitFooter(rt.footerLayout, footerItemContents({

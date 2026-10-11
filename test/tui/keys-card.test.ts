@@ -8,7 +8,8 @@ test("idle lists the keys without the stop keys", () => {
     expect(rows).toContainEqual({ chord: "Ctrl+P", label: "commands" });
     expect(rows.map((row) => row.label)).not.toContain("stop");
     expect(rows.map((row) => row.chord)).not.toContain("Ctrl+X");
-    expect(rows.slice(-2)).toEqual([
+    expect(rows.slice(-3)).toEqual([
+        { chord: "Ctrl+X b", label: "sidebar" },
         { chord: "Ctrl+X m", label: "models" },
         { chord: "Ctrl+X h", label: "this card" },
     ]);

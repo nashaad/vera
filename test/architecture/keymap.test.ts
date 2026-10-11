@@ -9,7 +9,6 @@ import {
     tuiChordOwner,
     tuiKeyHint,
     tuiKeymapConflicts,
-    WORKSPACE_JUMP_IDS,
 } from "../../clients/tui/keymap.ts";
 import type { TuiKeyScope } from "../../clients/tui/keymap.ts";
 
@@ -81,10 +80,6 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "toggle_workspace_sidebar",
     "cycle_live_session_prev",
     "cycle_live_session_next",
-    // Not blind: the row moves under the pinned heading as the key is pressed,
-    // and the side bar showing it is already on screen.
-    "toggle_workspace_pin",
-    ...WORKSPACE_JUMP_IDS,
     "workspace_new_session",
     "toggle_tool_details",
     "scroll_line_up",
@@ -194,7 +189,7 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
         .toBe("cycle_live_session_next");
 });
 
-test("left and right move between the composer and workspace sidebar", () => {
+test("right and i return focus to the composer", () => {
     expect(tuiBindingId("unfocused", { name: "i" })).toBe("focus_composer");
     expect(tuiBindingId("unfocused", { name: "right" }))
         .toBe("focus_composer");
@@ -283,10 +278,6 @@ test("no binding claims the tmux prefix", () => {
 const WORKSPACE_BINDINGS = [
     "switch_pane",
     "toggle_workspace_sidebar",
-    // Not blind: the row moves under the pinned heading as the key is pressed,
-    // and the side bar showing it is already on screen.
-    "toggle_workspace_pin",
-    ...WORKSPACE_JUMP_IDS,
 ];
 
 test("a workspace chord is free in every scope it can be reached from", () => {
@@ -312,7 +303,12 @@ test("the workspace chords resolve to their own bindings", () => {
         .toBe("switch_pane");
     expect(tuiBindingId("global", { name: "e", ctrl: true }))
         .toBe("toggle_workspace_sidebar");
-    expect(WORKSPACE_JUMP_IDS).toHaveLength(9);
+});
+
+test("ctrl+x then b toggles the running-sessions rail", () => {
+    expect(tuiBindingId("model_prefix", { name: "b" }))
+        .toBe("model_prefix_sidebar");
+    expect(tuiBindingId("composer", { name: "b" })).toBeUndefined();
 });
 
 test("the workspace list inherits picker half-page movement", () => {
@@ -342,21 +338,6 @@ test("ctrl+n starts a new chat from anywhere except the model picker", () => {
     // The model picker already names a pooled model with this chord.
     expect(tuiBindingId("model_picker", { name: "n", ctrl: true }))
         .toBe("name_pooled");
-});
-
-test("a digit jumps only while the side bar holds focus", () => {
-    for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
-        expect(tuiBindingId("workspace", { name: digit }))
-            .toBe(`workspace_jump_${digit}`);
-        // The composer types the digit. Nothing else in the TUI claims it.
-        expect(tuiBindingId("composer", { name: digit })).toBeUndefined();
-        expect(tuiBindingId("conversation", { name: digit })).toBeUndefined();
-        expect(tuiBindingId("global", { name: digit })).toBeUndefined();
-        // A ctrl digit is what the old shape bound, and no terminal reports it
-        // outside the kitty keyboard protocol.
-        expect(tuiBindingId("workspace", { name: digit, ctrl: true }))
-            .toBeUndefined();
-    }
 });
 
 test("the moved chords take nothing that already resolved", () => {

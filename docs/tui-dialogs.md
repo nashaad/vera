@@ -87,6 +87,5 @@ typing, selection, cursor movement, and paste behavior.
 
 ## Dialogs and background work
 
-Global dialogs dim the screen, including the rail. A question or approval
-from the current conversation leaves the rail visible for context, but its
-controls stay inactive until the request ends.
+Global dialogs dim the screen, including the sidebar. A question or approval
+from the current conversation leaves the sidebar visible for context.

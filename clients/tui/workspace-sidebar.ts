@@ -1,55 +1,26 @@
 import { importedSessionLabel } from "../../src/store/session-import-provenance.ts";
+import { tuiKeyChordLabel } from "./keymap.ts";
 import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
-import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
-    moveWorkspaceSelection,
     WORKSPACE_COMPLETED_MARKER,
-    WORKSPACE_PINS_ENABLED,
     workspacePanelWidth,
     workspaceRowColumns,
     type WorkspacePanelLayout,
     type WorkspaceSession,
     type WorkspaceSessionStatus,
 } from "./workspace-panel.ts";
-import {
-    tuiBindingId,
-    tuiChordPairLabel,
-    tuiKeyChord,
-    tuiKeyChordLabel,
-} from "./keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 
 /** The workspace side bar's presentation model, with no OpenTUI in it. `workspace-panel.ts` decides rows, order and markers. */
 
-export const WORKSPACE_JUMP_ROWS = 9;
-export const WORKSPACE_JUMPS_ENABLED = false;
-export const WORKSPACE_SELECTION_MARKER = "›";
-
-export const WORKSPACE_RECENT_IDLE = 5;
-
-export const WORKSPACE_HEADER_ALL_ACTION = "workspace:all-sessions";
-export const WORKSPACE_HEADER_NEW_ACTION = "workspace:new-session";
-
-export function workspaceHeaderAction(
-    id: string,
-): WorkspaceSidebarAction | undefined {
-    if (id === WORKSPACE_HEADER_ALL_ACTION) return { kind: "resume_picker" };
-    if (id === WORKSPACE_HEADER_NEW_ACTION) return { kind: "new_session" };
-    return undefined;
-}
-
 export const WORKSPACE_EMPTY_LINES: readonly string[] = [
-    "No sessions yet.",
-    "Ctrl+N new session",
-    "Ctrl+R all sessions",
+    "Nothing running.",
 ];
 
 const ROW_PREFIX_COLUMNS = 2;
 const RAIL_DIVIDER_COLUMNS = 1;
-const AGE_WITH_GAP_COLUMNS = 9;
-const MIN_TITLE_WITH_AGE_COLUMNS = 8;
 export const MIN_RAIL_COLUMNS = 28;
 const MIN_CHAT_COLUMNS = 35;
 
@@ -84,29 +55,11 @@ export interface WorkspaceSidebarState {
     readonly currentId?: string;
 }
 
-export type WorkspaceSidebarAction =
-    | { readonly kind: "close" }
-    | { readonly kind: "hide" }
-    | { readonly kind: "new_session" }
-    | { readonly kind: "resume_picker" }
-    | {
-        readonly kind: "rename_session";
-        readonly session_id: string;
-        readonly label: string;
-        readonly value?: string;
-    }
-    | {
-        readonly kind: "open_session";
-        readonly session_id: string;
-        readonly session_path: string;
-        readonly active: boolean;
-    }
-    | { readonly kind: "pin"; readonly pinnedIds: readonly string[] };
-
-export interface WorkspaceSidebarTransition {
-    readonly state?: WorkspaceSidebarState;
-    readonly action?: WorkspaceSidebarAction;
-    readonly handled: boolean;
+export interface WorkspaceSidebarAction {
+    readonly kind: "open_session";
+    readonly session_id: string;
+    readonly session_path: string;
+    readonly active: boolean;
 }
 
 export function workspaceSidebarSessions(
@@ -141,33 +94,11 @@ export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
         || session.workerPid !== undefined;
 }
 
+// Running sessions only. Parked history is behind `/resume`.
 export function workspaceWorkingSet(
     sessions: readonly WorkspaceSidebarSession[],
-    currentId?: string,
-    pinnedIds: readonly string[] = [],
 ): readonly WorkspaceSidebarSession[] {
-    const pinned = new Set(WORKSPACE_PINS_ENABLED ? pinnedIds : []);
-    const kept = new Set<string>();
-    for (const session of sessions) {
-        if (
-            isWorkspaceActive(session)
-            || session.id === currentId
-            || pinned.has(session.id)
-        ) {
-            kept.add(session.id);
-        }
-    }
-    const recentIdle = new Set(
-        sessions
-            .filter((session) => !kept.has(session.id))
-            .slice()
-            .sort(byIdleRecency)
-            .slice(0, WORKSPACE_RECENT_IDLE)
-            .map((session) => session.id),
-    );
-    return sessions.filter((session) =>
-        kept.has(session.id) || recentIdle.has(session.id)
-    );
+    return sessions.filter(isWorkspaceActive);
 }
 
 export function workspaceCycleTarget(
@@ -190,21 +121,6 @@ export function workspaceCycleTarget(
     const nextId = activeIds[nextIndex];
     if (nextId === undefined || nextId === current) return undefined;
     return state.sessions.find((session) => session.id === nextId);
-}
-
-function byIdleRecency(
-    left: WorkspaceSidebarSession,
-    right: WorkspaceSidebarSession,
-): number {
-    const difference = idleTimestamp(right.updatedAt)
-        - idleTimestamp(left.updatedAt);
-    return difference === 0 ? left.id.localeCompare(right.id) : difference;
-}
-
-function idleTimestamp(value: string | undefined): number {
-    if (value === undefined) return 0;
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function startWorkspaceSidebar(
@@ -278,11 +194,7 @@ export function workspaceSidebarLayout(
     input: WorkspaceSidebarLayoutInput,
 ): WorkspacePanelLayout {
     return layoutWorkspacePanel({
-        sessions: workspaceWorkingSet(
-            state.sessions,
-            state.currentId,
-            state.pinnedIds,
-        ),
+        sessions: workspaceWorkingSet(state.sessions),
         columns: input.columns,
         now: input.now,
         ...(input.contentColumns === undefined
@@ -300,150 +212,6 @@ export function workspaceSidebarLayout(
         isActive: (session) =>
             isWorkspaceActive(session as WorkspaceSidebarSession),
     });
-}
-
-export function workspaceJumpTargets(
-    layout: WorkspacePanelLayout,
-): readonly string[] {
-    return layout.rows
-        .filter((row) => row.kind === "session" && row.active)
-        .map((row) => (row as { id: string }).id)
-        .slice(0, WORKSPACE_JUMP_ROWS);
-}
-
-export function workspaceJumpTarget(
-    layout: WorkspacePanelLayout,
-    position: number,
-): string | undefined {
-    if (position < 1 || position > WORKSPACE_JUMP_ROWS) return undefined;
-    return workspaceJumpTargets(layout)[position - 1];
-}
-
-export function toggleWorkspacePin(
-    pinnedIds: readonly string[],
-    sessionId: string,
-): readonly string[] {
-    return pinnedIds.includes(sessionId)
-        ? pinnedIds.filter((id) => id !== sessionId)
-        : [...pinnedIds, sessionId];
-}
-
-export interface WorkspaceSidebarKey {
-    readonly name: string;
-    readonly ctrl?: boolean;
-    readonly meta?: boolean;
-    readonly shift?: boolean;
-}
-
-export function handleWorkspaceSidebarKey(
-    state: WorkspaceSidebarState,
-    key: WorkspaceSidebarKey,
-    now: Date,
-    columns: number,
-    viewportRows?: number,
-): WorkspaceSidebarTransition {
-    const binding = tuiBindingId("workspace", key);
-    if (binding === "half_page_down" || binding === "half_page_up") {
-        const layout = workspaceSidebarLayout(state, { columns, now });
-        const selectable = layout.selectable;
-        if (selectable.length === 0) return { state, handled: true };
-        const current = layout.selectedId === undefined
-            ? 0
-            : Math.max(0, selectable.indexOf(layout.selectedId));
-        const selectedId = selectable[halfPageCursor(
-            current,
-            selectable.length,
-            viewportRows ?? 10,
-            binding === "half_page_down" ? "down" : "up",
-        )];
-        return {
-            state: selectedId === undefined ? state : { ...state, selectedId },
-            handled: true,
-        };
-    }
-    if (binding === "workspace_new_session") {
-        return { action: { kind: "new_session" }, handled: true };
-    }
-    if (binding === "workspace_resume_picker") {
-        return { action: { kind: "resume_picker" }, handled: true };
-    }
-    if (binding === "workspace_rename_session") {
-        const layout = workspaceSidebarLayout(state, { columns, now });
-        const row = layout.rows.find(
-            (candidate) => candidate.kind === "session"
-                && candidate.id === layout.selectedId,
-        );
-        const session = state.sessions.find(
-            (candidate) => candidate.id === layout.selectedId,
-        );
-        return row === undefined || row.kind !== "session"
-            ? { state, handled: true }
-            : {
-                action: {
-                    kind: "rename_session",
-                    session_id: row.id,
-                    label: row.title,
-                    ...(session?.title === undefined
-                        ? {}
-                        : { value: session.title }),
-                },
-                handled: true,
-            };
-    }
-    if (key.ctrl || key.meta) return { state, handled: false };
-    const layout = workspaceSidebarLayout(state, { columns, now });
-    if (key.name === "escape") {
-        return { action: { kind: "hide" }, handled: true };
-    }
-    if (tuiBindingId("unfocused", key) === "focus_composer") {
-        return { action: { kind: "close" }, handled: true };
-    }
-    if (
-        key.name === "up" || key.name === "down"
-        || key.name === "j" || key.name === "k"
-    ) {
-        const selectedId = moveWorkspaceSelection(
-            layout,
-            key.name === "up" || key.name === "k" ? -1 : 1,
-        );
-        return {
-            state: selectedId === undefined ? state : { ...state, selectedId },
-            handled: true,
-        };
-    }
-    if (key.name === "return" || key.name === "enter") {
-        const action = openWorkspaceSelection(state, layout.selectedId);
-        return action === undefined
-            ? { state, handled: true }
-            : { action, handled: true };
-    }
-    if (
-        WORKSPACE_PINS_ENABLED
-        && tuiBindingId("workspace", key) === "toggle_workspace_pin"
-    ) {
-        const selectedId = layout.selectedId;
-        if (selectedId === undefined) return { state, handled: true };
-        const pinnedIds = toggleWorkspacePin(state.pinnedIds, selectedId);
-        return {
-            state: { ...state, pinnedIds },
-            action: { kind: "pin", pinnedIds },
-            handled: true,
-        };
-    }
-    if (
-        WORKSPACE_JUMPS_ENABLED
-        && binding !== undefined
-        && binding.startsWith("workspace_jump_")
-    ) {
-        const position = Number(binding.slice("workspace_jump_".length));
-        const target = workspaceJumpTarget(layout, position);
-        if (target === undefined) return { state, handled: true };
-        const action = openWorkspaceSelection(state, target);
-        return action === undefined
-            ? { state, handled: true }
-            : { action, handled: true };
-    }
-    return { state, handled: true };
 }
 
 export function openWorkspaceSelection(
@@ -465,51 +233,28 @@ export function openWorkspaceSelection(
 export const WORKSPACE_SIDEBAR_WORDMARK = "VERA";
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
-    const listed = workspaceWorkingSet(
-        state.sessions,
-        state.currentId,
-        state.pinnedIds,
-    ).length;
+    const listed = workspaceWorkingSet(state.sessions).length;
     return listed === 0
         ? WORKSPACE_SIDEBAR_WORDMARK
         : `${WORKSPACE_SIDEBAR_WORDMARK} · ${listed}`;
 }
 
-export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
+// From the keymap, so a remap cannot leave the legend naming unbound keys.
+export function workspaceSidebarHintTable(): readonly LinesViewFooterRow[] {
     return [
-        { label: "Move", value: "↑↓  j/k" },
-        { label: "Page", value: "Ctrl+D/U" },
-        { label: "Open", value: "enter" },
-        { label: "Rename", value: tuiKeyChordLabel("workspace_rename_session") },
-        ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
-        ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
-        { label: "New", value: "Ctrl+N" },
-        { label: "Resume", value: "Ctrl+R" },
-        { label: "Cycle", value: sessionCycleChords() },
-        { label: "Chat", value: "→" },
-        { label: "Hide", value: "Ctrl+E" },
-    ];
-}
-
-/** Both directions written as one chord, from the keymap rather than by hand, so the legend cannot name keys the table no longer binds. */
-function sessionCycleChords(): string {
-    return tuiChordPairLabel(
-        tuiKeyChord("cycle_live_session_prev"),
-        tuiKeyChord("cycle_live_session_next"),
-    );
-}
-
-export function workspaceQuietFooterTable(): readonly LinesViewFooterRow[] {
-    return [
-        { label: "Cycle", value: sessionCycleChords() },
-        { label: "Focus", value: "←" },
-        { label: "Hide", value: "Ctrl+E" },
+        { label: "Prev session", value: tuiKeyChordLabel("cycle_live_session_prev") },
+        { label: "Next session", value: tuiKeyChordLabel("cycle_live_session_next") },
+        { label: "Switch", value: tuiKeyChordLabel("toggle_workspace_sidebar") },
+        {
+            label: "Hide",
+            value: `${tuiKeyChordLabel("open_model_prefix")} ${tuiKeyChordLabel("model_prefix_sidebar")}`,
+        },
     ];
 }
 
 export function workspaceSidebarFooter(
     _width: number,
-    table: readonly LinesViewFooterRow[] = workspaceSidebarFooterTable(),
+    table: readonly LinesViewFooterRow[],
 ): string {
     const labelWidth = Math.max(
         ...table.map((row) => row.label.length + 2),
@@ -524,7 +269,6 @@ export function workspaceSidebarViewState(
     columns: number,
     now: Date = new Date(),
     railColumns = workspaceRailColumns(columns),
-    focused = false,
     animationFrame = 0,
     summary: readonly LinesViewFooterRow[] = [],
 ): LinesViewState {
@@ -540,51 +284,29 @@ export function workspaceSidebarViewState(
         animationFrame,
         ...(railContentColumns === undefined
             ? {}
-            : {
-                contentColumns: railContentColumns,
-                showAge: railContentColumns
-                    >= AGE_WITH_GAP_COLUMNS + MIN_TITLE_WITH_AGE_COLUMNS,
-            }),
+            : { contentColumns: railContentColumns }),
     });
-    const width = railColumns ?? columns;
     const rowColumns = railColumns === undefined
         ? workspaceRowColumns(layout.width)
         : railColumns - RAIL_DIVIDER_COLUMNS;
-    let position = 0;
     const lines: LinesViewState["lines"][number][] = [];
     for (const text of layout.rows.length === 0 ? WORKSPACE_EMPTY_LINES : []) {
         lines.push({ text, tone: "muted" as const });
     }
     let seenGroup = false;
-    const rowTone = focused ? "text" as const : "muted" as const;
     for (const row of layout.rows) {
         if (row.kind === "group") {
             if (seenGroup) {
                 lines.push({ text: "", tone: "muted" as const });
             }
             seenGroup = true;
-            lines.push({
-                text: row.text,
-                tone: focused ? "heading" as const : "muted" as const,
-            });
+            lines.push({ text: row.text, tone: "heading" as const });
             continue;
         }
-        if (WORKSPACE_JUMPS_ENABLED && row.active) position += 1;
-        const showDigit = WORKSPACE_JUMPS_ENABLED
-            && row.active
-            && position <= WORKSPACE_JUMP_ROWS;
-        const digit = showDigit ? `${position}` : " ";
-        const trailing = row.active
-            ? [row.detail, digit.trim()].filter((value) => value.length > 0)
-                .join(" · ")
-            : row.detail;
-        const selectedText = row.selected
-            ? `${row.text} ${WORKSPACE_SELECTION_MARKER}`
-            : row.text;
+        // No rowId: a row without one draws as plain text and takes no pointer.
         lines.push({
-            text: rightAlignedRow(selectedText, trailing, rowColumns),
-            tone: rowTone,
-            rowId: row.id,
+            text: rightAlignedRow(row.text, row.detail, rowColumns),
+            tone: row.id === state.currentId ? "muted" as const : "text" as const,
             ...(row.marker === WORKSPACE_COMPLETED_MARKER
                 ? {
                     leading: {
@@ -593,33 +315,22 @@ export function workspaceSidebarViewState(
                     },
                 }
                 : {}),
-            ...(row.selected ? { selected: true } : {}),
         });
     }
-    const cursorLine = lines.findIndex((line) =>
-        line.rowId !== undefined && line.rowId === layout.selectedId
-    );
-    const navigation = focused
-        ? workspaceSidebarFooterTable()
-        : workspaceQuietFooterTable();
-    const footerTable = summary.length === 0 ? navigation : [...summary, { label: "", value: "" }, ...navigation];
+    const hints = workspaceSidebarHintTable();
+    const footerTable = summary.length === 0
+        ? hints
+        : [...summary, { label: "", value: "" }, ...hints];
     return {
         title: workspaceSidebarHeader(state),
         titleLeading: {
             text: WORKSPACE_SIDEBAR_WORDMARK,
             tone: "accent",
         },
-        headerActions: [
-            { id: WORKSPACE_HEADER_ALL_ACTION, text: "≡" },
-            { id: WORKSPACE_HEADER_NEW_ACTION, text: "+" },
-        ],
-        ...(focused ? { focused: true } : {}),
         ...(railColumns === undefined ? {} : { hint: "" }),
-        ...(cursorLine === -1 ? {} : { cursorLine }),
         lines,
-        footer: workspaceSidebarFooter(width, footerTable),
+        footer: workspaceSidebarFooter(columns, footerTable),
         footerTable,
-        ...(focused ? {} : { dimmed: true }),
     };
 }
 

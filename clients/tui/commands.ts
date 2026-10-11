@@ -108,6 +108,10 @@ export interface OpenWorkTabTuiCommandAction {
     readonly type: "open_work_tab";
 }
 
+export interface ToggleSessionRailTuiCommandAction {
+    readonly type: "toggle_session_rail";
+}
+
 export interface OpenSearchTuiCommandAction {
     readonly type: "open_search";
 }
@@ -245,6 +249,7 @@ export type TuiCommandAction =
     | OpenAnimationsPreviewTuiCommandAction
     | OpenResumePickerTuiCommandAction
     | OpenWorkTabTuiCommandAction
+    | ToggleSessionRailTuiCommandAction
     | OpenSearchTuiCommandAction
     | OpenSubagentsPickerTuiCommandAction
     | GoToParentTuiCommandAction
@@ -310,6 +315,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_preferences_list":
         case "open_standing_nudges":
         case "open_work_tab":
+        case "toggle_session_rail":
         case "open_search":
         case "open_command_palette":
         case "open_help":
@@ -370,6 +376,7 @@ export interface TuiCommandDefinition {
         | OpenAnimationsPreviewTuiCommandAction
         | OpenResumePickerTuiCommandAction
         | OpenWorkTabTuiCommandAction
+        | ToggleSessionRailTuiCommandAction
         | OpenSearchTuiCommandAction
         | OpenSubagentsPickerTuiCommandAction
         | GoToParentTuiCommandAction
@@ -473,6 +480,12 @@ const WORK_COMMAND = {
     name: "work",
     description: "Show every session that needs you or is running",
     usage: "/work",
+} as const satisfies TuiCommandCatalogEntry;
+
+const SIDEBAR_COMMAND = {
+    name: "sidebar",
+    description: "Show or hide the sidebar of running sessions",
+    usage: "/sidebar",
 } as const satisfies TuiCommandCatalogEntry;
 
 const SEARCH_COMMAND = {
@@ -597,6 +610,7 @@ export const BUILTIN_COMMANDS = [
     ANIMATIONS_COMMAND,
     RESUME_COMMAND,
     WORK_COMMAND,
+    SIDEBAR_COMMAND,
     SEARCH_COMMAND,
     SUBAGENTS_COMMAND,
     PARENT_COMMAND,
@@ -1425,6 +1439,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "work",
             action: { type: "open_work_tab" },
+        },
+    });
+    registry.registerCommand({
+        ...SIDEBAR_COMMAND,
+        action: { type: "toggle_session_rail" },
+        palette: {
+            name: "sidebar",
+            label: "Toggle sidebar",
+            description: "running sessions and their status",
+            group: "Session",
+            slashName: "sidebar",
+            action: { type: "toggle_session_rail" },
         },
     });
     registry.registerCommand({

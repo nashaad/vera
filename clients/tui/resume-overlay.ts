@@ -89,8 +89,6 @@ export type JsonlViewKeyAction =
     | "resume_picker"
     | "scroll"
     | "toggle_sidebar"
-    | "focus_sidebar"
-    | "sidebar"
     | "new_session"
     | "cycle_session"
     | "palette"
@@ -115,8 +113,6 @@ export function jsonlViewKeyAction(
         readonly conversationBinding?: string;
         readonly globalBinding?: string;
         readonly workspaceBinding?: string;
-        readonly sidebarFocused: boolean;
-        readonly sidebarVisible?: boolean;
     },
 ): JsonlViewKeyAction {
     if (isJsonlViewScrollId(options.conversationBinding)) {
@@ -142,16 +138,6 @@ export function jsonlViewKeyAction(
         || options.globalBinding === "search_sessions"
     ) {
         return "search";
-    }
-    if (options.sidebarFocused) {
-        return "sidebar";
-    }
-    if (
-        options.sidebarVisible === true
-        && isUnmodified(key)
-        && key.name === "left"
-    ) {
-        return "focus_sidebar";
     }
     if (options.workspaceBinding === "workspace_resume_picker") {
         return "resume_picker";

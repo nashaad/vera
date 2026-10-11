@@ -6,7 +6,7 @@ import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-const hint = "m Models · h Keys · esc cancel";
+const hint = "m Models · h Keys · b Sidebar · esc cancel";
 const home = () => mkdtempSync(join(tmpdir(), "vera-model-shortcut-"));
 
 test("Ctrl+X then M opens models from Home after waiting, without creating a conversation", async () => {

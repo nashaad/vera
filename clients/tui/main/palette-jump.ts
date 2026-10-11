@@ -2,7 +2,7 @@ import { openDials } from "./agents-dials.ts";
 import { openPoolVerifyScopePicker } from "./pool-admission.ts";
 import type { TuiCommandAction, TuiPaletteEntry } from "../commands.ts";
 import { jumpMenuLines, type JumpRow } from "../jump.ts";
-import { beginSessionResume, openHelp, openSearchOverlay, openWorkTab, renderCommandSuggestions, resumeJsonlView } from "../main.ts";
+import { beginSessionResume, openHelp, openSearchOverlay, openWorkTab, toggleWorkspaceSidebar, renderCommandSuggestions, resumeJsonlView } from "../main.ts";
 import { positionCommandSuggestions } from "../main/chrome.ts";
 import { beginHostReconnect, focusActiveSurface } from "../main/focus-switch.ts";
 import { openPreferencesList, openReviewerMenu, openReviewerPicker, openThemePicker } from "../main/model-pickers.ts";
@@ -125,6 +125,7 @@ export function runStandalonePaletteAction(rt: TuiRuntime, action: TuiCommandAct
         return;
     }
     if (action.type === "open_work_tab") return openWorkTab(rt);
+    if (action.type === "toggle_session_rail") return toggleWorkspaceSidebar(rt);
     if (action.type === "reconnect") return runManualReconnect(rt);
     if (action.type === "go_back") return runBack(rt);
     if (action.type === "open_search") return openSearchOverlay(rt, "workspace");

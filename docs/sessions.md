@@ -18,7 +18,7 @@ Run `/resume` to choose saved work. From the terminal, `vera -c` continues the
 most recent conversation. See [Switch and search conversations](session-switching.md)
 for moving between active tasks.
 
-The rail can also open a saved file for reading. That view has no worker
+`/close` leaves the conversation's saved file on screen for reading. That view has no worker
 attached for this client. Use its resume overlay when you want to continue
 working. Home means no conversation is open.
 

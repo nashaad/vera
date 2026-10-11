@@ -30,6 +30,7 @@ export function tuiKeysCardRows(working: boolean): TuiKeysCardRow[] {
     }
     const prefix = tuiKeyChordLabel("open_model_prefix");
     rows.push(
+        { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_sidebar")}`, label: "sidebar" },
         { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_open")}`, label: "models" },
         { chord: `${prefix} ${tuiKeyChordLabel("model_prefix_keys")}`, label: "this card" },
     );
