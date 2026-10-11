@@ -13,7 +13,7 @@ ask you, send it to the [classifier](permission-classifier.md), or refuse it.
 | Mode | What runs without asking | Everything else |
 |---|---|---|
 | `readonly` | Reads, `ask_user`, reading process output | Refused, including every shell command |
-| `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, memory notes | Asks you |
+| `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, memory notes, extensions writing their own data | Asks you |
 | `auto` | Same as `ask` | Goes to the classifier |
 | `full_access` | Everything | None |
 
@@ -93,9 +93,13 @@ A `when` must name at least one field, and every field it names must match.
 anywhere needs a `reviewer_profile` naming an entry in `reviewer_profiles`.
 
 Operations you can name: `agent.close`, `agent.inbox`, `agent.message`,
-`agent.roster`, `agent.spawn`, `git.clone`, `git.commit`, `git.fetch`,
+`agent.roster`, `agent.spawn`, `extension.storage.write`, `git.clone`, `git.commit`, `git.fetch`,
 `git.ls_remote`, `git.pull`, `git.push`, `git.remote_update`, `memory.write`,
 `process.kill`, `process.read`, `web.download`, `web.fetch`, `web.search`.
+
+An extension tool that writes only the extension's own data can declare
+`permissionOperation: "extension.storage.write"`. Ask and auto run it without
+asking, and readonly refuses it. Installing the extension is the consent.
 
 > [!WARNING]
 > A mistake in any custom mode stops the whole config from loading. Mode names

@@ -1117,6 +1117,44 @@ test("web download and fetch carry the URL host on both actions", () => {
     ]);
 });
 
+test("an extension tool that writes only its own storage is routine; an undeclared one is reviewed", () => {
+    const tool = (name: string, permissionOperation?: string): RegisteredTool => ({
+        definition: {
+            name,
+            description: "Edit a shanty.",
+            inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+        ...(permissionOperation === undefined ? {} : { permissionOperation }),
+        async execute() {
+            return { kind: "output", output: "", isError: false };
+        },
+    });
+    const extensionTools = [tool("shanty_edit", "extension.storage.write"), tool("shanty_shout")];
+    expect(CORE_PERMISSION_OPERATIONS.has("extension.storage.write")).toBe(true);
+    for (const mode of ["ask", "auto"] as const) {
+        const decision = decideToolPermission(mode, toolCall("shanty_edit", {}), workspace, [], {
+            homeDirectory,
+            extensionTools,
+        });
+        expect(decision).toEqual({
+            behavior: "allow",
+            actions: [{
+                action: { tool: "shanty_edit", verb: "unknown", operation: "extension.storage.write" },
+                outcome: "allow",
+                rule: "routine.extension_storage_write",
+            }],
+        });
+    }
+    expect(decideToolPermission("auto", toolCall("shanty_shout", {}), workspace, [], {
+        homeDirectory,
+        extensionTools,
+    }).behavior).not.toBe("allow");
+    expect(decideToolPermission("readonly", toolCall("shanty_edit", {}), workspace, [], {
+        homeDirectory,
+        extensionTools,
+    }).behavior).toBe("deny");
+});
+
 test("a write URL does not put its host on the operation action", () => {
     const demoPush: RegisteredTool = {
         definition: {

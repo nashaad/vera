@@ -216,6 +216,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.extension_storage_write",
+        when: { operation: "extension.storage.write" },
+        then: "allow",
+    },
+    {
         name: "routine.web_search",
         when: { operation: "web.search" },
         then: "allow",
@@ -399,6 +404,7 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "agent.message",
     "agent.roster",
     "agent.spawn",
+    "extension.storage.write",
     "git.clone",
     "git.commit",
     "git.fetch",
