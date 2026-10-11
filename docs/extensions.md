@@ -26,8 +26,10 @@ Enter this in the composer with the source directory's path:
 /extension install <path>
 ```
 
-Then open `/extensions` to inspect the installed copy. `/extension list`
-opens the same manager.
+The result lists the extension's capabilities, and under `unreviewed` the
+tools that run without asking in ask and auto mode. See
+[Permission rules](permission-rules.md). Then open `/extensions` to inspect
+the installed copy. `/extension list` opens the same manager.
 
 ## Inspect or change a copy
 

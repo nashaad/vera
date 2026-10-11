@@ -31,6 +31,10 @@ included `vera.titles` extension:
 }
 ```
 
+A tool that declares `extension.storage.read` or `extension.storage.write`
+must also be named in an `unreviewed_tools` list in the manifest. See
+[Permission rules](permission-rules.md).
+
 Install the directory with `/extension install <path>`, or load it from a
 development checkout with `VERA_EXTENSIONS`. See
 [Manage extensions](extensions.md). After a change, the client half reloads on

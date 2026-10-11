@@ -62,6 +62,7 @@ import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./com
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
+import { checkToolOperation } from "./tool-operations.ts";
 import {
     ExtensionHostSlot,
     type ExtensionHostServices,
@@ -1190,6 +1191,7 @@ function registerTool(
     if (isBuiltInToolName(name)) {
         throw new Error(`Extension tool ${name} collides with a built-in tool`);
     }
+    checkToolOperation(loaded, name, permissionOperation?.trim());
     const properties = isPlainObject(inputSchema.properties)
         ? inputSchema.properties
         : undefined;

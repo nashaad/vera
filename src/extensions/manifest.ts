@@ -27,6 +27,8 @@ export interface ExtensionManifest {
     readonly entrypoint: string;
     readonly capabilities: readonly string[];
     readonly contributes: ExtensionContributions;
+    // Tools that may declare an extension.storage operation and so skip review.
+    readonly unreviewedTools: readonly string[];
 }
 
 export interface LoadedExtensionManifest {
@@ -70,6 +72,7 @@ export function parseExtensionManifest(
     }
 
     const capabilities = parseCapabilities(value.capabilities);
+    const unreviewedTools = parseUnreviewedTools(value.unreviewed_tools);
     if (
         typeof value.id !== "string"
         || !isExtensionId(value.id)
@@ -80,6 +83,7 @@ export function parseExtensionManifest(
         || value.entrypoint.trim().length === 0
         || isAbsolute(value.entrypoint)
         || capabilities === undefined
+        || unreviewedTools === undefined
     ) {
         return undefined;
     }
@@ -91,7 +95,21 @@ export function parseExtensionManifest(
         entrypoint: value.entrypoint,
         capabilities,
         contributes: parseExtensionContributions(value.contributes, value.id),
+        unreviewedTools,
     };
+}
+
+function parseUnreviewedTools(value: unknown): readonly string[] | undefined {
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) return undefined;
+    const names: string[] = [];
+    for (const name of value) {
+        if (typeof name !== "string" || !/^[a-z][a-z0-9_]*$/.test(name) || names.includes(name)) {
+            return undefined;
+        }
+        names.push(name);
+    }
+    return names;
 }
 
 export function hasContributions(manifest: ExtensionManifest): boolean {
