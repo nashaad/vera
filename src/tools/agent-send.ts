@@ -10,8 +10,8 @@ export const agentSendTool: RegisteredTool = {
         description: [
             "Send a durable note to another Vera participant from agent_roster.",
             "The message is stored in the recipient's inbox; the result reports",
-            "whether the recipient was woken to read it. Use reply_to to reply",
-            "to a message you previously read with agent_inbox.",
+            "whether the recipient was woken to read it.",
+            "To reply to a message, pass its message_id as reply_to.",
             "Use it only when another conversation needs something from you",
             "to do its own work. Don't use it for status updates, or for",
             "questions that git or the files can answer.",
