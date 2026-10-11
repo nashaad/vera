@@ -97,7 +97,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 input: encodeOpenAICodexInput(messages, request.model),
                 tools: encodeOpenAICodexTools(request.tools ?? []),
                 tool_choice: "auto",
-                parallel_tool_calls: false,
+                parallel_tool_calls: true,
                 reasoning: {
                     ...(reasoning?.providerEffort === undefined
                         ? {}

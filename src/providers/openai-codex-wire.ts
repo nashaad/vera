@@ -72,7 +72,7 @@ export interface OpenAICodexRequest {
     readonly input: readonly OpenAICodexInputItem[];
     readonly tools: readonly OpenAICodexTool[];
     readonly tool_choice: "auto";
-    readonly parallel_tool_calls: false;
+    readonly parallel_tool_calls: boolean;
     readonly reasoning: {
         readonly effort?: ProviderReasoningEffort;
         readonly summary: "auto";

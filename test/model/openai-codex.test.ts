@@ -327,6 +327,97 @@ describe("OpenAI Codex adapter", () => {
         ]);
     });
 
+    test("asks for parallel calls and replays two calls from one response", async () => {
+        const requests: OpenAICodexRequest[] = [];
+        const call = (index: number, id: string, command: string): OpenAICodexStreamEvent[] => [
+            {
+                type: "response.output_item.added",
+                output_index: index,
+                item: { type: "function_call", call_id: id, name: "bash" },
+            },
+            {
+                type: "response.output_item.done",
+                output_index: index,
+                item: {
+                    type: "function_call",
+                    call_id: id,
+                    name: "bash",
+                    arguments: JSON.stringify({ command }),
+                },
+            },
+        ];
+        const responses: OpenAICodexStreamEvent[][] = [
+            [
+                ...call(0, "call-map", "cat map.txt"),
+                ...call(1, "call-chest", "ls chest"),
+                { type: "response.completed", response: {} },
+            ],
+            [{ type: "response.completed", response: {} }],
+        ];
+        const adapter = new OpenAICodexAdapter(
+            async (request) => {
+                requests.push(request);
+                return events(responses.shift() ?? []);
+            },
+            mkdtempSync(join(tmpdir(), "vera-catalog-")),
+        );
+        const ask: ModelMessage = {
+            role: "user",
+            content: [{ type: "text", text: "Find the treasure." }],
+        };
+
+        const first = await adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [ask],
+        }).result();
+
+        expect(requests[0]?.parallel_tool_calls).toBe(true);
+        expect(first.stopReason).toBe("tool_use");
+        expect(first.content).toEqual([
+            { type: "tool_call", id: "call-map", name: "bash", input: { command: "cat map.txt" } },
+            { type: "tool_call", id: "call-chest", name: "bash", input: { command: "ls chest" } },
+        ]);
+
+        await adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [
+                ask,
+                first,
+                {
+                    role: "tool_result",
+                    toolCallId: "call-map",
+                    toolName: "bash",
+                    content: [{ type: "text", text: "X marks the cove" }],
+                    isError: false,
+                },
+                {
+                    role: "tool_result",
+                    toolCallId: "call-chest",
+                    toolName: "bash",
+                    content: [{ type: "text", text: "doubloons" }],
+                    isError: false,
+                },
+            ],
+        }).result();
+
+        expect(requests[1]?.input.slice(1)).toEqual([
+            {
+                type: "function_call",
+                call_id: "call-map",
+                name: "bash",
+                arguments: '{"command":"cat map.txt"}',
+            },
+            {
+                type: "function_call",
+                call_id: "call-chest",
+                name: "bash",
+                arguments: '{"command":"ls chest"}',
+            },
+            { type: "function_call_output", call_id: "call-map", output: "X marks the cove" },
+            { type: "function_call_output", call_id: "call-chest", output: "doubloons" },
+        ]);
+    });
+
     test("keeps separate text items in provider output order", async () => {
         const adapter = new OpenAICodexAdapter(async () => events([
             {
