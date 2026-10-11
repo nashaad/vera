@@ -24,7 +24,7 @@ import {
 } from "../../src/model/types.ts";
 
 const transientFailure: ProviderFailure = {
-    kind: "connection",
+    kind: "unknown",
     resolution: "retry",
     message: "temporary failure",
 };
@@ -33,6 +33,12 @@ const overloadFailure: ProviderFailure = {
     kind: "server",
     resolution: "retry",
     message: "provider overloaded",
+};
+
+const droppedConnection: ProviderFailure = {
+    kind: "connection",
+    resolution: "retry",
+    message: "socket closed",
 };
 
 const malformedToolCallFailure: ProviderFailure = {
@@ -586,6 +592,194 @@ test("engine recovery does not select fallback after abort", async () => {
         errorMessage: "stop now",
     });
     expect(models).toEqual(["primary"]);
+});
+
+test("a dropped connection retries on the overload ladder", async () => {
+    const adapter = scriptedAdapter([
+        (stream) => fail(stream, droppedConnection),
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const retries: ModelRetryScheduled[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(retries).toEqual([{
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 7,
+        delayMs: 1_000,
+        failure: droppedConnection,
+    }]);
+});
+
+test("a connection dropped during reasoning replaces the partial attempt", async () => {
+    const adapter = scriptedAdapter([
+        (stream) => {
+            stream.push({ type: "thinking_start", contentIndex: 0 });
+            stream.push({
+                type: "thinking_delta",
+                contentIndex: 0,
+                text: "plotting a course",
+            });
+            fail(stream, droppedConnection);
+        },
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const retries: ModelRetryScheduled[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(retries).toHaveLength(1);
+    expect(retries[0]?.replacesPartialAttempt).toBe(true);
+});
+
+test("a connection dropped after visible text keeps the text and ends", async () => {
+    const adapter = scriptedAdapter([
+        (stream) => {
+            stream.push({ type: "text_start", contentIndex: 0 });
+            stream.push({ type: "text_delta", contentIndex: 0, text: "Ahoy" });
+            fail(stream, droppedConnection, "Ahoy");
+        },
+    ]);
+    const events: ModelStreamEvent[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            onEvent: (event) => events.push(event),
+            onRetry: () => {
+                throw new Error("retry should not be scheduled");
+            },
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result).toMatchObject({
+        stopReason: "error",
+        content: [{ type: "text", text: "Ahoy" }],
+    });
+    expect(events.at(-1)?.type).toBe("error");
+});
+
+test("a silent stream times out and retries", async () => {
+    const signals: AbortSignal[] = [];
+    const adapter = scriptedAdapter([
+        (_stream, request) => {
+            if (request.signal !== undefined) {
+                signals.push(request.signal);
+            }
+        },
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const retries: ModelRetryScheduled[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            idleTimeoutMs: 20,
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(retries).toHaveLength(1);
+    expect(retries[0]?.failure.kind).toBe("timeout");
+    expect(signals[0]?.aborted).toBe(true);
+});
+
+test("a silent stream that keeps timing out ends with an error", async () => {
+    const adapter = scriptedAdapter([() => {}, () => {}]);
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [] },
+        {
+            idleTimeoutMs: 20,
+            policy: { delaysMs: [0] },
+            onEvent: () => {},
+            onRetry: () => {},
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("No response from test for 0s");
+});
+
+test("an adapter that honours cancellation reports why it stopped", async () => {
+    const controller = new AbortController();
+    const adapter = scriptedAdapter([
+        (stream, request) => {
+            request.signal?.addEventListener("abort", () => {
+                stream.push({
+                    type: "error",
+                    error: new Error("stopped by the captain"),
+                    message: { ...assistant("", "error"), stopReason: "aborted" },
+                });
+            });
+        },
+    ]);
+
+    const result = requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [], signal: controller.signal },
+        { onEvent: () => {}, onRetry: () => {}, onFallback: () => {} },
+    );
+    setTimeout(() => controller.abort(new Error("stop now")), 0);
+
+    await expect(result).resolves.toMatchObject({ stopReason: "aborted" });
+});
+
+test("abort ends a request whose adapter never settles", async () => {
+    const controller = new AbortController();
+    const adapter = scriptedAdapter([() => {}]);
+    const events: ModelStreamEvent[] = [];
+    const started = Date.now();
+
+    const result = requestModelWithRecovery(
+        adapter,
+        { model: "test", messages: [], signal: controller.signal },
+        {
+            onEvent: (event) => events.push(event),
+            onRetry: () => {},
+            onFallback: () => {},
+        },
+    );
+    setTimeout(() => controller.abort(new Error("stop now")), 0);
+
+    await expect(result).resolves.toMatchObject({
+        stopReason: "aborted",
+        errorMessage: "stop now",
+    });
+    expect(events.map((event) => event.type)).toEqual(["start", "error"]);
+    expect(Date.now() - started).toBeLessThan(3_000);
 });
 
 function scriptedAdapter(

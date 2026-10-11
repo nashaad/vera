@@ -139,7 +139,11 @@ export class OpenAICodexStreamDecoder {
 
     finish(): AssistantMessage {
         if (!this.completed || this.finishReason === undefined) {
-            throw new Error("OpenAI Codex stream ended without response.completed");
+            const message = "OpenAI Codex stream ended without response.completed";
+            throw new ProviderFailureError(
+                { kind: "connection", resolution: "retry", message },
+                new Error(message),
+            );
         }
         this.finishOpenBlocks();
         return this.message(this.finishReason);
