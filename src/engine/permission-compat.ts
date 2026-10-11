@@ -74,6 +74,18 @@ export function migratePermissionGrant(
     };
 }
 
+// Older grants for an unclassified action saved verb "unknown" but no tool, so
+// one approval matched every unclassified call, bash included. Dropped on load.
+export function isLegacyUnscopedGrant(when: PermissionPredicate): boolean {
+    return when.verb === "unknown"
+        && when.tool === undefined
+        && when.executable === undefined
+        && when.path === undefined
+        && when.pathGlob === undefined
+        && when.host === undefined
+        && when.operation === undefined;
+}
+
 function migrateGrantKind(value: unknown): PermissionGrantKind | undefined {
     if (value === "capability") {
         return "action";

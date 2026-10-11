@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { isLegacyUnscopedGrant } from "./permission-compat.ts";
 import {
     isPermissionPredicate,
     permissionPredicateMatches,
@@ -54,7 +55,11 @@ export async function loadPermissionPreferences(
     } catch {
         return [];
     }
-    return Array.isArray(parsed) ? parsed.filter(isPermissionPreference) : [];
+    return Array.isArray(parsed)
+        ? parsed.filter((value) =>
+            isPermissionPreference(value) && !isLegacyUnscopedGrant(value.when)
+        )
+        : [];
 }
 
 export async function addPermissionPreference(
