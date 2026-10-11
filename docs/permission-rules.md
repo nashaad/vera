@@ -107,8 +107,9 @@ auto and readonly. Either one needs the tool's name in the manifest's
 enable the extension. Installing the extension is the consent.
 
 The other operations above belong to Vera. An extension you install that
-declares one of them fails to load. An extension may name an operation of
-its own, such as `crow.shout`; ask asks and auto reviews it.
+declares one of them fails to load, and `/extensions` shows it as `failed`
+with the reason once the host has restarted. An extension may name an
+operation of its own, such as `crow.shout`; ask asks and auto reviews it.
 
 > [!WARNING]
 > A mistake in any custom mode stops the whole config from loading. Mode names

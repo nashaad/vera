@@ -49,7 +49,7 @@ shortcut.
 | --- | --- |
 | enabled | The copy is enabled. |
 | disabled | The copy is turned off. |
-| failed | Loading failed. Inspect the details. |
+| failed | The manifest did not load, or the host could not load the code. The row shows why. |
 | unmanaged | The copy is not managed through this installation registry. |
 
 Installed copies appear above included ones. Desktop and web expose the same facts in their own lists.

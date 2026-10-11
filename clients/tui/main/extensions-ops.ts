@@ -44,6 +44,23 @@ export function openExtensionsList(rt: TuiRuntime): void {
     rt.composer.blur();
     renderState(rt);
     focusActiveSurface(rt);
+    refreshHostExtensionLoadFailures(rt);
+}
+
+// The host loads extensions once at startup, so its failures change only on restart.
+function refreshHostExtensionLoadFailures(rt: TuiRuntime): void {
+    const read = rt.dependencies.readHostExtensionLoadFailures;
+    if (read === undefined) return;
+    void read().then((failures) => {
+        if (rt.shuttingDown) return;
+        rt.hostExtensionLoadFailures = failures;
+        if (rt.extensionsList === undefined || rt.extensionsList.screen === "error") return;
+        refreshOpenExtensionsList(rt);
+        renderState(rt);
+        focusActiveSurface(rt);
+    }, () => {
+        // The list still shows what the client can see without the host.
+    });
 }
 
 export function applyExtensionsListKey(
@@ -230,7 +247,15 @@ function readExtensionEntries(rt: TuiRuntime): readonly ExtensionListEntry[] {
                 ?? !rt.disabledIncludedExtensions.includes(manifest.id), managed: false,
             path: included.path, source: included.core ? "Core" : "Included", capabilities: manifest.capabilities });
     }
-    return entries;
+    return entries.map((entry) => withHostLoadFailure(rt, entry));
+}
+
+function withHostLoadFailure(rt: TuiRuntime, entry: ExtensionListEntry): ExtensionListEntry {
+    if (entry.error !== undefined || !entry.enabled) return entry;
+    const failure = rt.hostExtensionLoadFailures.find((candidate) =>
+        candidate.extensionId === entry.id || candidate.extensionId === entry.path
+    );
+    return failure === undefined ? entry : { ...entry, error: failure.message };
 }
 
 function withSettingsCommands(rt: TuiRuntime, state: TuiExtensionsListState): TuiExtensionsListState {

@@ -218,7 +218,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
-import type { CatalogRefreshOutcome } from "./protocol.ts";
+import type { CatalogRefreshOutcome, ExtensionLoadFailure } from "./protocol.ts";
 import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
     startExtensionRegistry,
@@ -356,6 +356,7 @@ export async function startResidentHost(
         PermissionPreferenceStore.open(options.permissionPreferencesPath)
     );
     const startupFindings = options.startupFindings ?? new StartupFindings();
+    const extensionLoadFailures: ExtensionLoadFailure[] = [];
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
@@ -374,6 +375,10 @@ export async function startResidentHost(
                 startupFindings.record({
                     extensionId: failure.extensionId ?? failure.path,
                     detail: `did not load: ${failure.message}`,
+                });
+                extensionLoadFailures.push({
+                    extension_id: failure.extensionId ?? failure.path,
+                    message: failure.message,
                 });
                 options.onExtensionFailure?.(failure);
             },
@@ -1128,6 +1133,7 @@ export async function startResidentHost(
                 catalogRefreshes = refreshed.then(() => undefined, () => undefined);
                 return refreshed;
             },
+            readExtensionLoadFailures: () => extensionLoadFailures,
             readAnnex: () => annexUrl === undefined
                 ? {
                     unavailable: annexUnavailable
