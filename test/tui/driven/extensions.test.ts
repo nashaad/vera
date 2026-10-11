@@ -201,6 +201,49 @@ test("/extensions marks an extension the host could not load as failed", async (
         const pane = await session.waitForVisiblePane("the crow ate the map");
         expect(pane).toMatch(/vera\.budget\s+v[\d.]+\s+failed/);
         expect(pane).toMatch(/vera\.btw\s+v[\d.]+\s+enabled/);
+
+        session.sendKey("Down");
+        session.sendKey("Down");
+        session.sendKey(" ");
+        session.sendKey("Escape");
+        const notice = await session.waitForVisiblePane("Disabled vera.budget.");
+        expect(notice).not.toContain("Reconnect host");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("toggling an extension in /extensions says when the host needs Reconnect host", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-extensions-reconnect-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiExtensionCommandDependencies(home),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/extensions");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Included");
+        session.sendKey(" ");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane(
+            "Disabled vera.artifacts. Use Reconnect host (Ctrl+P) to unload it.",
+        );
+
+        session.sendText("/extensions");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Included");
+        session.sendKey("Down");
+        session.sendKey(" ");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane(
+            "2 extension changes. Use Reconnect host (Ctrl+P) to apply them.",
+        );
+        session.sendKey("C-t");
+        const pane = await session.waitForVisiblePane("Disabled vera.btw.");
+        expect(pane).toContain("Disabled vera.artifacts. Use Reconnect host (Ctrl+P) to unload it.");
+        expect(pane).not.toContain("Disabled vera.btw. Use");
     } finally {
         await session.close();
     }
