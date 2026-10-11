@@ -61,8 +61,11 @@ example, choose `vera.web-search`, then **Search providers**, to configure
 [web search](web-search.md).
 
 After a change, the TUI side of an extension reloads and the manager
-refreshes. The host side needs a resident-host restart. The transcript collects changes
-in one note; Ctrl+T collapses or expands it.
+refreshes. The host side needs a resident-host restart: when the extension has
+host code, the note says to choose **Reconnect host** from Ctrl+P, which
+replaces an idle host. Until then the row shows the new status, but the host
+still runs what it loaded at startup. The transcript collects changes in one
+note; Ctrl+T collapses or expands it.
 
 For credentials, use exact `{env:NAME}` references in extension configuration.
 See [Extension credentials](extension-credentials.md).

@@ -112,7 +112,12 @@ function parseUnreviewedTools(value: unknown): readonly string[] | undefined {
     return names;
 }
 
-export function hasContributions(manifest: ExtensionManifest): boolean {
+export function extensionServesHost(manifest: ExtensionManifest): boolean {
+    return manifest.capabilities.some((capability) => !capability.startsWith("client."))
+        || hasContributions(manifest);
+}
+
+function hasContributions(manifest: ExtensionManifest): boolean {
     return manifest.contributes.watches.length > 0
         || manifest.contributes.sidecars.length > 0
         || manifest.contributes.pages.length > 0;

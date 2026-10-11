@@ -87,7 +87,7 @@ import {
     type HostContributionSet,
 } from "./contribution-set.ts";
 import {
-    hasContributions,
+    extensionServesHost,
     loadExtensionManifest,
     type LoadedExtensionManifest,
 } from "./manifest.ts";
@@ -272,10 +272,7 @@ export async function startExtensionRegistry(
         let activationOutcome: "loaded" | "failed" | "skipped" = "failed";
         try {
             const manifest = loadExtensionManifest(configured.path);
-            const servesHost = manifest.manifest.capabilities.some(
-                (capability) => !capability.startsWith("client."),
-            ) || hasContributions(manifest.manifest);
-            if (!servesHost) {
+            if (!extensionServesHost(manifest.manifest)) {
                 activationOutcome = "skipped";
                 continue;
             }
