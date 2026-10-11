@@ -267,13 +267,14 @@ export async function startExtensionRegistry(
         let extensionId: string | undefined;
         let admitted = false;
         const activationStarted = performance.now();
-        let activationOutcome: "loaded" | "failed" = "failed";
+        let activationOutcome: "loaded" | "failed" | "skipped" = "failed";
         try {
             const manifest = loadExtensionManifest(configured.path);
             const servesHost = manifest.manifest.capabilities.some(
                 (capability) => !capability.startsWith("client."),
             ) || hasContributions(manifest.manifest);
             if (!servesHost) {
+                activationOutcome = "skipped";
                 continue;
             }
             extensionId = manifest.manifest.id;
@@ -368,7 +369,7 @@ export async function startExtensionRegistry(
             });
 
         } finally {
-            options.onActivationTiming?.({
+            if (activationOutcome !== "skipped") options.onActivationTiming?.({
                 extensionId: extensionId ?? configured.path,
                 durationMs: performance.now() - activationStarted,
                 outcome: activationOutcome,

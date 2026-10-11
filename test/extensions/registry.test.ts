@@ -123,6 +123,9 @@ test("registry reports one activation timing for each enabled host extension", a
             throw new Error("activation failed");
         }
     `);
+    const clientOnly = createExtension("client.extension", `
+        export function activate() {}
+    `, ["client.commands.register"]);
     const timings: Array<{
         extensionId: string;
         durationMs: number;
@@ -130,7 +133,7 @@ test("registry reports one activation timing for each enabled host extension", a
     }> = [];
 
     const registry = await startExtensionRegistry({
-        extensions: [configured(loaded), configured(failed)],
+        extensions: [configured(loaded), configured(failed), configured(clientOnly)],
         onActivationTiming: (timing) => timings.push(timing),
     });
 
