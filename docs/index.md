@@ -5,7 +5,7 @@ description: "Use Vera in a project and customize its behavior."
 
 # Vera manual
 
-Vera is a coding agent, built on its own agent harness and runtime.
+Vera is an agent that helps you with your work. It runs on its own agent harness and runtime.
 
 - **For everyday use**\
   Ask it to research, search the web, use a browser, or sort through files.

@@ -106,7 +106,7 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         target: "stable",
         contribute: () => ({
             title: "Identity",
-            content: "You are Vera, a coding agent. Follow the user's instructions and use the available tools when they help.",
+            content: "You are Vera, an agent that helps the user with their work. Follow the user's instructions and use the available tools when they help.",
         }),
     },
     {

@@ -69,7 +69,7 @@ const MIN_TEXT_WIDTH = 24;
 
 export function renderCliHelp(columns: number = 80): string {
     const commands = CLI_COMMANDS.map((command): [string, string] => [command.usage, command.description]);
-    return "Vera coding agent\n\nUsage:\n"
+    return "Vera agent\n\nUsage:\n"
         + renderRows(commands, columns)
         + "\nOptions:\n"
         + renderRows(OPTIONS, columns)
