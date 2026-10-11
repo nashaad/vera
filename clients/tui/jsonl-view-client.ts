@@ -35,6 +35,7 @@ export async function createJsonlViewClient(
             undefined,
             snapshot.messageStamps,
             snapshot.harnessMessages,
+            snapshot.deliveredMessages,
         ),
         seq: 0,
     };

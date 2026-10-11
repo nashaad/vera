@@ -214,6 +214,34 @@ export interface VeraExtensionTools {
  */
 export interface VeraExtensionAgents {
     register(spec: VeraExtensionAgentSpec): void;
+    /**
+     * Needs `agents.investigate`. Runs the explorer agent on `readonly` as a
+     * hidden child of an open session and returns its final reply. Only usable after activation.
+     */
+    investigate(request: VeraInvestigateRequest): Promise<VeraInvestigateResult>;
+}
+
+export interface VeraInvestigateRequest {
+    readonly sessionId: string;
+    readonly question: string;
+    /** Defaults to 5 minutes; at most 15. */
+    readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
+}
+
+export type VeraInvestigateOutcome =
+    | "answered"
+    | "failed"
+    | "cancelled"
+    | "timed_out";
+
+export interface VeraInvestigateResult {
+    readonly outcome: VeraInvestigateOutcome;
+    /** Empty unless the outcome is `answered`. */
+    readonly text: string;
+    readonly error?: string;
+    /** Absent unless the run returned; a cancelled or timed-out run may leave an unnamed child. */
+    readonly runSessionId?: string;
 }
 
 export interface VeraExtensionAgentSpec {

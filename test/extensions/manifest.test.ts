@@ -35,7 +35,17 @@ test("an extension manifest declares one runtime entrypoint", () => {
             "models.complete",
         ],
         contributes: { watches: [], sidecars: [], skills: [], pages: [] },
+        unreviewedTools: [],
     });
+});
+
+test("a manifest lists the tools that may skip review", () => {
+    expect(parseExtensionManifest(validManifest({
+        unreviewed_tools: ["shanty_read", "shanty_write"],
+    }))?.unreviewedTools).toEqual(["shanty_read", "shanty_write"]);
+    for (const unreviewed of ["shanty_read", ["Shanty"], ["shanty_read", "shanty_read"], [7]]) {
+        expect(parseExtensionManifest(validManifest({ unreviewed_tools: unreviewed }))).toBeUndefined();
+    }
 });
 
 test("manifest identity, SDK, entrypoint, and capabilities are explicit", () => {

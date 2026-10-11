@@ -141,6 +141,17 @@ export interface HookContextTranscriptEntry {
     readonly display?: string;
 }
 
+/** A delivered message, such as a subagent's report or an extension's text, as facts. */
+export interface DeliveryTranscriptEntry {
+    readonly id?: string;
+    readonly kind: "delivery";
+    readonly deliveryId: string;
+    readonly sourceAgentId: string;
+    readonly deliveryKind: "attention" | "completion" | "peer";
+    readonly content: string;
+    readonly sourceKind?: "extension";
+}
+
 export interface TranscriptTurnTiming {
     readonly turnTiming?: TurnTiming;
     /** When the stored message behind this entry was written, in epoch ms. */
@@ -165,6 +176,7 @@ export type TranscriptEntry = (
     | EmptyTranscriptEntry
     | HarnessTranscriptEntry
     | HookContextTranscriptEntry
+    | DeliveryTranscriptEntry
 ) & TranscriptTurnTiming;
 
 export interface PromptCommand {
@@ -753,6 +765,7 @@ export interface TaskNotificationUpdate {
     readonly sourceAgentId: string;
     readonly content: string;
     readonly kind?: "attention" | "completion" | "peer";
+    readonly sourceKind?: "extension";
     readonly seq: number;
 }
 
@@ -1704,6 +1717,7 @@ export function createProtocolEncoder(
         model: string,
     ) => number | undefined = () => undefined,
     usageMessages?: () => readonly ModelMessage[],
+    deliveries?: () => DeliveryLookup,
 ): ProtocolEncoder {
     let seq = 0;
     let sessionUsage: SessionModelUsage = { rows: [] };
@@ -1756,6 +1770,7 @@ export function createProtocolEncoder(
                 sourceAgentId: event.sourceAgentId,
                 content: event.content,
                 ...(event.kind === undefined ? {} : { kind: event.kind }),
+                ...(event.sourceKind === undefined ? {} : { sourceKind: event.sourceKind }),
                 seq,
             });
             return;
@@ -2311,6 +2326,7 @@ export function createProtocolEncoder(
                     attachmentName,
                     messageStamps,
                     harnessMessages(),
+                    deliveries?.(),
                 ),
                 ...(context === undefined ? {} : { context }),
                 usage: sessionUsage,
@@ -2537,6 +2553,14 @@ export function isEmptyAssistantMessage(message: ModelMessage): boolean {
 // Keyed by object identity rather than position so a caller cannot silently misalign the two lists.
 export type MessageStampLookup = ReadonlyMap<ModelMessage, MessageStamp>;
 
+export type DeliveryLookup = ReadonlyMap<ModelMessage, {
+    readonly id: string;
+    readonly sourceAgentId: string;
+    readonly content: string;
+    readonly kind?: "attention" | "completion" | "peer";
+    readonly sourceKind?: "extension";
+}>;
+
 export function projectTranscript(
     messages: readonly ModelMessage[],
     attachmentName?: AttachmentNameLookup,
@@ -2546,6 +2570,7 @@ export function projectTranscript(
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[] = [],
+    deliveries?: DeliveryLookup,
 ): readonly TranscriptEntry[] {
     const entries: TranscriptEntry[] = [];
     const appendHarnessMessages = (afterMessage: number): void => {
@@ -2580,7 +2605,17 @@ export function projectTranscript(
             );
         };
         if (message.internal === true) {
-            if (message.role === "user" && message.contextSource === "session_start") {
+            const delivery = deliveries?.get(message);
+            if (delivery !== undefined) {
+                push({
+                    kind: "delivery",
+                    deliveryId: delivery.id,
+                    sourceAgentId: delivery.sourceAgentId,
+                    deliveryKind: delivery.kind ?? "completion",
+                    content: delivery.content,
+                    ...(delivery.sourceKind === undefined ? {} : { sourceKind: delivery.sourceKind }),
+                });
+            } else if (message.role === "user" && message.contextSource === "session_start") {
                 push({ kind: "harness", text: textContent(message.content), tone: "soft" });
             } else if (
                 message.role === "user"

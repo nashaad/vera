@@ -102,7 +102,14 @@ An extension tool that writes only the extension's own data can declare
 `permissionOperation: "extension.storage.write"`. Ask and auto run it without
 asking, and readonly refuses it. A tool that only reads the extension's own
 data can declare `extension.storage.read`, which runs without asking in ask,
-auto and readonly. Installing the extension is the consent.
+auto and readonly. Either one needs the tool's name in the manifest's
+`unreviewed_tools` list, and `/extension install` shows that list before you
+enable the extension. Installing the extension is the consent.
+
+The other operations above belong to Vera. An extension you install that
+declares one of them fails to load, and `/extensions` shows it as `failed`
+with the reason once the host has restarted. An extension may name an
+operation of its own, such as `crow.shout`; ask asks and auto reviews it.
 
 > [!WARNING]
 > A mistake in any custom mode stops the whole config from loading. Mode names

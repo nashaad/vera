@@ -34,6 +34,7 @@ import type {
     VeraSearchProvider,
     VeraExtensionRequestHandler,
     VeraExtensionOneshotRequest,
+    VeraInvestigateRequest,
     VeraSessionAskRequest,
 } from "../sdk/extensions.ts";
 import type {
@@ -62,6 +63,7 @@ import { commandHookPhase, createCommandHook, type CommandHookSpec } from "./com
 import type { RegisteredTool } from "../tools/types.ts";
 import { isBuiltInToolName } from "../tools/execute.ts";
 import { runExtensionOperation } from "./operation.ts";
+import { checkToolOperation } from "./tool-operations.ts";
 import {
     ExtensionHostSlot,
     type ExtensionHostServices,
@@ -115,6 +117,7 @@ const SESSION_TITLE_CAPABILITY = "sessions.title";
 const SESSION_ASK_CAPABILITY = "sessions.ask";
 const SESSION_SEND_CAPABILITY = "sessions.send";
 const MODEL_ONESHOT_CAPABILITY = "model.oneshot";
+const AGENTS_INVESTIGATE_CAPABILITY = "agents.investigate";
 const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_RESULT_LIMIT = 1_000_000;
 
@@ -266,13 +269,14 @@ export async function startExtensionRegistry(
         let extensionId: string | undefined;
         let admitted = false;
         const activationStarted = performance.now();
-        let activationOutcome: "loaded" | "failed" = "failed";
+        let activationOutcome: "loaded" | "failed" | "skipped" = "failed";
         try {
             const manifest = loadExtensionManifest(configured.path);
             const servesHost = manifest.manifest.capabilities.some(
                 (capability) => !capability.startsWith("client."),
             ) || hasContributions(manifest.manifest);
             if (!servesHost) {
+                activationOutcome = "skipped";
                 continue;
             }
             extensionId = manifest.manifest.id;
@@ -367,7 +371,7 @@ export async function startExtensionRegistry(
             });
 
         } finally {
-            options.onActivationTiming?.({
+            if (activationOutcome !== "skipped") options.onActivationTiming?.({
                 extensionId: extensionId ?? configured.path,
                 durationMs: performance.now() - activationStarted,
                 outcome: activationOutcome,
@@ -700,6 +704,12 @@ async function activateExtension(
                 }
                 agentNames.add(definition.name);
                 agents.push(definition);
+            },
+            async investigate(request: VeraInvestigateRequest) {
+                if (!loaded.manifest.capabilities.includes(AGENTS_INVESTIGATE_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${AGENTS_INVESTIGATE_CAPABILITY}`);
+                }
+                return host.investigate(request);
             },
         }),
         sessions: Object.freeze({
@@ -1190,6 +1200,7 @@ function registerTool(
     if (isBuiltInToolName(name)) {
         throw new Error(`Extension tool ${name} collides with a built-in tool`);
     }
+    checkToolOperation(loaded, name, permissionOperation?.trim());
     const properties = isPlainObject(inputSchema.properties)
         ? inputSchema.properties
         : undefined;

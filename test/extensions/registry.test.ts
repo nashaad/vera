@@ -123,6 +123,9 @@ test("registry reports one activation timing for each enabled host extension", a
             throw new Error("activation failed");
         }
     `);
+    const clientOnly = createExtension("client.extension", `
+        export function activate() {}
+    `, ["client.commands.register"]);
     const timings: Array<{
         extensionId: string;
         durationMs: number;
@@ -130,7 +133,7 @@ test("registry reports one activation timing for each enabled host extension", a
     }> = [];
 
     const registry = await startExtensionRegistry({
-        extensions: [configured(loaded), configured(failed)],
+        extensions: [configured(loaded), configured(failed), configured(clientOnly)],
         onActivationTiming: (timing) => timings.push(timing),
     });
 
@@ -209,7 +212,7 @@ test("registry exposes extension tools through the ordinary tool and permission 
                 },
                 parallel: true,
                 invocation: "top_level",
-                permissionOperation: "web.search",
+                permissionOperation: "extension.storage.read",
                 run({ input, workspace }) {
                     return {
                         output: workspace + ":" + input.query,
@@ -221,7 +224,7 @@ test("registry exposes extension tools through the ordinary tool and permission 
                 },
             });
         }
-    `, ["tools.register"]);
+    `, ["tools.register"], undefined, { unreviewed_tools: ["web_search"] });
     const registry = await startExtensionRegistry({
         extensions: [configured(extension)],
     });
@@ -240,9 +243,9 @@ test("registry exposes extension tools through the ordinary tool and permission 
     )).toMatchObject({
         behavior: "allow",
         actions: [{
-            action: { operation: "web.search" },
+            action: { operation: "extension.storage.read" },
             outcome: "allow",
-            rule: "routine.web_search",
+            rule: "routine.extension_storage_read",
         }],
     });
     await expect(executeToolHandler(
@@ -822,6 +825,61 @@ test("registry rejects extension tools that collide with built-ins", async () =>
         "Extension tool read collides with a built-in tool",
     );
     await registry.close();
+});
+
+function operationSource(name: string, operation: string): string {
+    return `
+        export function activate(vera) {
+            vera.tools.register({
+                name: ${JSON.stringify(name)},
+                description: "Sing a shanty",
+                inputSchema: { type: "object", properties: {} },
+                permissionOperation: ${JSON.stringify(operation)},
+                run() { return { output: "yo ho" }; },
+            });
+        }
+    `;
+}
+
+async function loadFailures(extension: string): Promise<{ tools: string[]; failures: string[] }> {
+    const failures: string[] = [];
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure.message),
+    });
+    const tools = registry.tools().map((tool) => tool.definition.name);
+    await registry.close();
+    return { tools, failures };
+}
+
+test("an installed extension cannot claim one of Vera's own operations", async () => {
+    const extension = createExtension("crow.tools", operationSource("shanty_fetch", "web.fetch"), ["tools.register"]);
+    const { tools, failures } = await loadFailures(extension);
+    expect(tools).toEqual([]);
+    expect(failures[0]).toContain("Extension tool shanty_fetch declares reserved operation web.fetch");
+});
+
+test("a storage operation needs the tool listed in unreviewed_tools", async () => {
+    const unlisted = createExtension("crow.tools", operationSource("shanty_write", "extension.storage.write"), ["tools.register"]);
+    const refused = await loadFailures(unlisted);
+    expect(refused.tools).toEqual([]);
+    expect(refused.failures[0]).toContain(
+        "Extension tool shanty_write declares extension.storage.write but is not listed in unreviewed_tools",
+    );
+
+    const listed = createExtension(
+        "crow.tools",
+        operationSource("shanty_write", "extension.storage.write"),
+        ["tools.register"],
+        undefined,
+        { unreviewed_tools: ["shanty_write"] },
+    );
+    expect(await loadFailures(listed)).toEqual({ tools: ["shanty_write"], failures: [] });
+});
+
+test("an installed extension may name an operation of its own", async () => {
+    const extension = createExtension("crow.tools", operationSource("shanty_shout", "crow.shout"), ["tools.register"]);
+    expect(await loadFailures(extension)).toEqual({ tools: ["shanty_shout"], failures: [] });
 });
 
 test("registry reserves the first-party skill script tool name", async () => {
@@ -1437,6 +1495,7 @@ function createExtension(
     source: string,
     capabilities: readonly string[] = ["commands.register"],
     contributes?: unknown,
+    fields: Record<string, unknown> = {},
 ): string {
     const directory = createDirectory();
     writeFileSync(join(directory, "vera.extension.json"), JSON.stringify({
@@ -1446,6 +1505,7 @@ function createExtension(
         entrypoint: "./extension.ts",
         capabilities,
         ...(contributes === undefined ? {} : { contributes }),
+        ...fields,
     }));
     writeFileSync(join(directory, "extension.ts"), source);
     return directory;

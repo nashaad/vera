@@ -197,6 +197,10 @@ import {
     refreshCatalogThroughHost,
 } from "../../src/host/model-settings-client.ts";
 import { requestExtensionThroughHost } from "../../src/host/extension-request-client.ts";
+import {
+    readExtensionLoadFailuresThroughHost,
+    type HostExtensionLoadFailure,
+} from "../../src/host/extension-load-failures-client.ts";
 import type { ClientExtensionHostRequest } from "../../src/extensions/client-registry.ts";
 import {
     readAnnexUrlThroughHost,
@@ -592,6 +596,7 @@ export interface TuiDependencies {
     };
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly openUsagePage?: () => Promise<AnnexUrlResult>;
+    readonly readHostExtensionLoadFailures?: () => Promise<readonly HostExtensionLoadFailure[]>;
     readonly readSubscriptionLimits?: (signal: AbortSignal) => Promise<readonly SubscriptionLimits[]>;
     /** Test override for `~/.vera/auth.json`. */
     readonly authStorage?: AuthStorage;
@@ -849,6 +854,7 @@ export async function startConfiguredTui(
                 hostStartedAt: host.started_at,
             },
             openUsagePage: () => readAnnexUrlThroughHost(host.socket_path),
+            readHostExtensionLoadFailures: () => readExtensionLoadFailuresThroughHost(host.socket_path),
             readSubscriptionLimits: (signal) => readAnnexSubscriptionLimits(
                 () => readAnnexUrlThroughHost(host.socket_path), signal,
             ),
@@ -1058,6 +1064,7 @@ export async function startTui(
     rt.sessionSwitchClearingMain = false;
     rt.extensionCommandPending = false;
     rt.clientExtensionReloadPending = false;
+    rt.hostExtensionLoadFailures = [];
     rt.clientExtensionReload = {
         status: "never",
         loadedExtensionIds: [],

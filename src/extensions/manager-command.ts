@@ -149,6 +149,9 @@ export function renderExtensionInstallPreview(
         `destination: ${preview.destination}`,
         `digest:      ${preview.digest}`,
         `capabilities: ${preview.capabilities.join(", ") || "none"}`,
+        ...(preview.unreviewedTools.length === 0
+            ? []
+            : [`unreviewed:   ${preview.unreviewedTools.join(", ")}`]),
         "",
     ].join("\n");
 }

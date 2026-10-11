@@ -65,6 +65,7 @@ test("extension CLI renders dry-run plans and delegates mutations", async () => 
                     destination: "/managed/extensions/sample.extension",
                     digest: "sha256:abc",
                     capabilities: ["context"],
+                    unreviewedTools: ["shanty_read", "shanty_write"],
                     dryRun: options.dryRun === true,
                 },
             };
@@ -111,6 +112,7 @@ test("extension CLI renders dry-run plans and delegates mutations", async () => 
     })).toBe(0);
     expect(output).toContain("Extension install plan (dry run)");
     expect(output).toContain("sha256:abc");
+    expect(output).toContain("unreviewed:   shanty_read, shanty_write");
     expect(errorOutput).toBe("");
 
     output = "";

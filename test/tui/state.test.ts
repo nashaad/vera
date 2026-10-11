@@ -1227,6 +1227,52 @@ test("TUI identifies an async subagent attention request", () => {
     }]);
 });
 
+test("TUI shows an extension's message as its own text, live and after a history refresh", () => {
+    const text = "Scout report: a crow is carrying a shiny button toward Skull Rock.";
+    const live = applyAgentUpdate(createTuiState(), {
+        type: "task_notification",
+        deliveryId: "inbox:1",
+        sourceAgentId: "example.scout",
+        content: text,
+        kind: "attention",
+        sourceKind: "extension",
+        seq: 1,
+    });
+    expect(live.entries).toEqual([{ kind: "notification", text }]);
+
+    const refreshed = applyAgentUpdate(live, {
+        type: "history",
+        entries: [
+            {
+                id: "m1#0",
+                kind: "delivery",
+                deliveryId: "inbox:1",
+                sourceAgentId: "example.scout",
+                deliveryKind: "attention",
+                content: text,
+                sourceKind: "extension",
+            },
+            {
+                id: "m2#0",
+                kind: "delivery",
+                deliveryId: "attention:child-1:message-1",
+                sourceAgentId: "child-1",
+                deliveryKind: "attention",
+                content: "Which file should I inspect?",
+            },
+        ],
+        seq: 2,
+    });
+    expect(refreshed.entries).toEqual([
+        { kind: "notification", text, entryId: "m1#0" },
+        {
+            kind: "notification",
+            text: "Async subagent child-1 needs attention:\nWhich file should I inspect?",
+            entryId: "m2#0",
+        },
+    ]);
+});
+
 test("TUI state keeps host-reported model settings", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "model_settings",

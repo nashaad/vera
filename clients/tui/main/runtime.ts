@@ -1,6 +1,7 @@
 import type { TuiLiveReasoningRows } from "../theme-preference.ts";
 import type { ImportedSessionSummary } from "../../../src/host/agent-registry/support.ts";
 import type { VeraConfig, VeraExtensionConfig } from "../../../src/config.ts";
+import type { HostExtensionLoadFailure } from "../../../src/host/extension-load-failures-client.ts";
 import type { ModelSettingsPatch, ModelTurnSettings } from "../../../src/engine/model-settings.ts";
 import type { AgentCatalogUpdate, AgentUpdate, UiRequestUpdate } from "../../../src/engine/protocol.ts";
 import type { ClientExtensionRegistry } from "../../../src/extensions/client-registry.ts";
@@ -328,6 +329,7 @@ export interface TuiRuntime {
     sessionSwitchClearingMain: boolean;
     extensionCommandPending: boolean;
     clientExtensionReloadPending: boolean;
+    hostExtensionLoadFailures: readonly HostExtensionLoadFailure[];
     clientExtensionReload: TuiClientExtensionReloadSnapshot;
     extensionCommandActivity: string | undefined;
     sidebarPromptSubmitting: boolean;

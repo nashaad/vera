@@ -1,5 +1,6 @@
 import type {
     VeraExtensionModelAssignment,
+    VeraInvestigateResult,
     VeraExtensionOneshotMessage,
     VeraExtensionOneshotResult,
     VeraSessionAskResult,
@@ -17,6 +18,8 @@ import type {
 const MAX_ONESHOT_TEXT_BYTES = 256 * 1024;
 const MAX_TITLE_BYTES = 200;
 const MAX_EXTENSION_MESSAGE_BYTES = 16 * 1024;
+const DEFAULT_INVESTIGATE_TIMEOUT_MS = 5 * 60_000;
+const MAX_INVESTIGATE_TIMEOUT_MS = 15 * 60_000;
 const MODEL_ASSIGNMENTS: readonly VeraExtensionModelAssignment[] = [
     "snappy",
     "eco",
@@ -34,6 +37,12 @@ export interface ExtensionSessionAskCall {
     readonly sessionId: string;
     readonly question: string;
     readonly maxTokens?: number;
+}
+
+export interface ExtensionInvestigateCall {
+    readonly sessionId: string;
+    readonly question: string;
+    readonly timeoutMs: number;
 }
 
 /** What the host lends extensions once its sessions exist. */
@@ -57,6 +66,10 @@ export interface ExtensionHostServices {
         sessionId: string,
         text: string,
     ): Promise<VeraSessionSendOutcome>;
+    investigate(
+        call: ExtensionInvestigateCall,
+        signal: AbortSignal,
+    ): Promise<VeraInvestigateResult>;
 }
 
 export interface RegisteredTurnFinishedHook {
@@ -132,6 +145,15 @@ export class ExtensionHostSlot {
                 ? {}
                 : { provider: result.provider }),
         };
+    }
+
+    async investigate(request: unknown): Promise<VeraInvestigateResult> {
+        const { call, signal } = parseInvestigateRequest(request);
+        const services = this.require();
+        const combined = signal === undefined
+            ? this.closed.signal
+            : AbortSignal.any([signal, this.closed.signal]);
+        return services.investigate(call, combined);
     }
 
     async setTitle(
@@ -327,6 +349,48 @@ function parseAskRequest(request: unknown): {
             question,
             ...(maxTokens === undefined ? {} : { maxTokens }),
         },
+        ...(signal === undefined ? {} : { signal }),
+    };
+}
+
+function parseInvestigateRequest(request: unknown): {
+    readonly call: ExtensionInvestigateCall;
+    readonly signal?: AbortSignal;
+} {
+    if (typeof request !== "object" || request === null) {
+        throw new Error("Invalid investigate request");
+    }
+    const value = request as Record<string, unknown>;
+    const sessionId = value.sessionId;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+        throw new Error("Invalid session ID");
+    }
+    const question = value.question;
+    if (typeof question !== "string" || question.trim().length === 0) {
+        throw new Error("Investigate needs a question");
+    }
+    if (Buffer.byteLength(question, "utf8") > MAX_ONESHOT_TEXT_BYTES) {
+        throw new Error(
+            `Investigate question exceeds ${MAX_ONESHOT_TEXT_BYTES} bytes`,
+        );
+    }
+    const timeoutMs = value.timeoutMs ?? DEFAULT_INVESTIGATE_TIMEOUT_MS;
+    if (
+        typeof timeoutMs !== "number"
+        || !Number.isSafeInteger(timeoutMs)
+        || timeoutMs <= 0
+        || timeoutMs > MAX_INVESTIGATE_TIMEOUT_MS
+    ) {
+        throw new Error(
+            `Investigate timeoutMs must be a whole number from 1 to ${MAX_INVESTIGATE_TIMEOUT_MS}`,
+        );
+    }
+    const signal = value.signal;
+    if (signal !== undefined && !(signal instanceof AbortSignal)) {
+        throw new Error("Investigate signal must be an AbortSignal");
+    }
+    return {
+        call: { sessionId, question, timeoutMs },
         ...(signal === undefined ? {} : { signal }),
     };
 }

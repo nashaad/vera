@@ -87,6 +87,13 @@ export function createExtensionHostServices(
         setSessionTitle(sessionId, title) {
             return options.registry.setTitleIfUnnamed(sessionId, title);
         },
+        investigate(call, signal) {
+            return options.registry.investigateSession(
+                call.sessionId,
+                { question: call.question, timeoutMs: call.timeoutMs },
+                signal,
+            );
+        },
         sendToSession(extensionId, sessionId, text) {
             return options.registry.sendExtensionMessage(extensionId, sessionId, text);
         },

@@ -166,6 +166,21 @@ export interface AnnexUnavailableResponse {
     readonly reason: string;
 }
 
+export interface ExtensionLoadFailuresRequest {
+    readonly type: "extension_load_failures";
+}
+
+export interface ExtensionLoadFailure {
+    // The manifest id, or the configured path when the manifest did not load.
+    readonly extension_id: string;
+    readonly message: string;
+}
+
+export interface ExtensionLoadFailuresResponse {
+    readonly type: "extension_load_failures";
+    readonly failures: readonly ExtensionLoadFailure[];
+}
+
 export interface CheckpointStoresRequest {
     readonly type: "checkpoint_stores";
     readonly destination: string;
@@ -680,6 +695,7 @@ export type HostRequest =
     | ImportSessionRequest
     | ListImportableSessionsRequest
     | AnnexUrlRequest
+    | ExtensionLoadFailuresRequest
     | CheckpointStoresRequest
     | AttachRequest;
 export type AttachedClientMessage =
@@ -733,6 +749,7 @@ export type HostResponse =
     | ExtensionCommandHostResponse
     | AnnexUrlResponse
     | AnnexUnavailableResponse
+    | ExtensionLoadFailuresResponse
     | CheckpointStoresFinishedResponse
     | CheckpointStoresFailedResponse
     | ProtocolErrorResponse;
@@ -821,6 +838,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "annex_url") {
         return { type: "annex_url" };
+    }
+    if (value?.type === "extension_load_failures") {
+        return { type: "extension_load_failures" };
     }
     if (
         value?.type === "checkpoint_stores"
