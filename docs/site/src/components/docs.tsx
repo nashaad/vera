@@ -55,9 +55,9 @@ export function Manual({ tree, title, description, markdownUrl, pathname, toc, h
                 >
                     <p className="manual-eyebrow">{section ?? 'Vera manual'}</p>
                     <DocsTitle>{title}</DocsTitle>
-                    <DocsDescription>{description}</DocsDescription>
+                    <DocsDescription className="mb-0">{description}</DocsDescription>
                     {draft && <p className="text-sm text-fd-muted-foreground">Preview page. Excluded from the public site.</p>}
-                    <div className="flex flex-row flex-wrap items-center gap-2 border-b pt-2 pb-6">
+                    <div className="flex flex-row flex-wrap items-center gap-2 border-b pb-6">
                         <MarkdownCopyButton markdownUrl={markdownUrl} />
                         <ViewOptionsPopover markdownUrl={markdownUrl} />
                     </div>
