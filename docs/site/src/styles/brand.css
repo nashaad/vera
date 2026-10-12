@@ -41,7 +41,7 @@
     --tw-prose-bullets: var(--brand-dim);
 }
 
-.prose :where(p, li):not(:where(.not-prose *)) { font-weight: 300; }
+.prose :where(p, li):not(:where(.not-prose *)) { font-weight: 400; }
 
 .dark #nd-sidebar {
     --color-fd-muted: #15171d;
@@ -53,19 +53,17 @@ body {
     font-family: var(--brand-sans);
 }
 
-.prose :where(h1, h2, h3):not(:where(.not-prose *)),
-#nd-page h1 {
-    font-family: "Instrument Serif", serif;
-    font-style: italic;
-    font-weight: 400;
-    letter-spacing: -0.01em;
+.prose :where(h2, h3):not(:where(.not-prose *)) {
+    font-family: var(--brand-sans);
+    font-weight: 600;
+    letter-spacing: -0.025em;
 }
 
-#nd-page h1 { font-family: var(--brand-serif); font-style: normal; font-size: 3.75rem; line-height: 1.1; letter-spacing: -0.015em; margin-top: -0.25rem; }
+#nd-page h1 { font-family: var(--brand-serif); font-weight: 400; font-size: 3.75rem; line-height: 1.1; letter-spacing: -0.015em; margin-top: -0.25rem; }
 .manual-eyebrow { margin: 0; font: 500 0.75rem var(--brand-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--color-fd-foreground); }
-.prose h2:not(:where(.not-prose *)) { font-size: 2.25rem; line-height: 1.2; }
-.prose h3:not(:where(.not-prose *)) { font-size: 1.625rem; line-height: 1.3; }
-@media (max-width: 640px) { #nd-page h1 { font-size: 2.5rem; } .prose h2:not(:where(.not-prose *)) { font-size: 1.875rem; } }
+.prose h2:not(:where(.not-prose *)) { font-size: 1.5rem; line-height: 1.33; margin: 2.25rem 0 1.125rem; }
+.prose h3:not(:where(.not-prose *)) { font-size: 1.25rem; line-height: 1.4; margin: 1.75rem 0 0.75rem; }
+@media (max-width: 640px) { #nd-page h1 { font-size: 2.5rem; } .prose h2:not(:where(.not-prose *)) { font-size: 1.375rem; } }
 
 .dark .manual-toc {
     --color-fd-primary: var(--brand-accent);
@@ -178,7 +176,8 @@ body::after {
 .early-access[aria-checked="true"] .early-access-track { background: var(--color-fd-primary); border-color: var(--color-fd-primary); }
 .early-access[aria-checked="true"] .early-access-track::after { transform: translateX(0.875rem); background: var(--color-fd-primary-foreground); }
 @media (prefers-reduced-motion: reduce) { .early-access-track, .early-access-track::after { transition: none; } }
-html { font-size: 110%; overscroll-behavior-y: none; }
+html { overscroll-behavior-y: none; }
+html:has(.home-backdrop) { font-size: 110%; }
 
 /* Overrides the theme callout: a tinted, square box with no side bar. */
 .manual-callout.manual-callout {
