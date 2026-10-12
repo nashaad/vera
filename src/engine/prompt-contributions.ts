@@ -142,12 +142,13 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             input.tools.some((tool) => tool.name === "subagent") ? {
                 title: "Subagents",
                 content:
-                    "Use the subagent tool when a task benefits from it: "
-                    + "parallelizing independent queries, or protecting your "
-                    + "context window from large intermediate results. Do not "
-                    + "spawn subagents when direct work is simpler. A change "
-                    + "you can make in a few edits is direct work, and so is "
-                    + "anything you already have the context for. Do not "
+                    "Work directly by default. Small changes remain direct "
+                    + "work even when they span several files. When delegation "
+                    + "is justified, use subagent and wait for its result; "
+                    + "independent subagent calls can run in parallel. Use "
+                    + "async_subagent only when you have substantial independent "
+                    + "work to continue while the child runs and can proceed "
+                    + "without its answer. Do not "
                     + "duplicate work you have delegated (if a subagent is "
                     + "researching something, do not run the same searches "
                     + "yourself). The child starts with only the description "

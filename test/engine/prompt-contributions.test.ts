@@ -81,7 +81,7 @@ test("an empty optional contribution does not disturb built-in order", () => {
     ]);
 });
 
-test("subagent prompt copy says the child cannot see this conversation", () => {
+test("subagent guidance prefers waiting and explains the child's context", () => {
     const contributions = collectBuiltInPromptContributions({
         tools: [{
             name: "subagent",
@@ -94,6 +94,13 @@ test("subagent prompt copy says the child cannot see this conversation", () => {
     });
     const subagents = contributions.find((contribution) =>
         contribution.id === "core.subagents"
+    );
+    expect(subagents?.content).toContain("Work directly by default.");
+    expect(subagents?.content).toContain(
+        "use subagent and wait for its result; independent subagent calls can run in parallel.",
+    );
+    expect(subagents?.content).toContain(
+        "Use async_subagent only when you have substantial independent work to continue while the child runs and can proceed without its answer.",
     );
     expect(subagents?.content).toContain(
         "The child starts with only the description you pass; it cannot see this conversation.",
@@ -394,7 +401,7 @@ test("the loop policy decides the order a real turn sends", async () => {
         },
         "test",
         undefined,
-        {},
+        { enabledToolEffects: ["spawn_subagent", "spawn_async_subagent"] },
         {
             sessionStore: store,
             readPolicy: () => ({
@@ -414,6 +421,13 @@ test("the loop policy decides the order a real turn sends", async () => {
         const prompt = requests[0]?.systemPrompt ?? "";
         expect(prompt.indexOf("## Tools"))
             .toBeLessThan(prompt.indexOf("## Narration"));
+        expect(prompt).toContain("Work directly by default.");
+        expect(prompt).toContain("use subagent and wait for its result");
+        expect(prompt).toContain("Use async_subagent only when");
+        expect(requests[0]?.tools?.find((tool) => tool.name === "subagent")
+            ?.description).toContain("wait for it");
+        expect(requests[0]?.tools?.find((tool) => tool.name === "async_subagent")
+            ?.description).toContain("otherwise use subagent");
     } finally {
         attachment.detach();
         resident.close();

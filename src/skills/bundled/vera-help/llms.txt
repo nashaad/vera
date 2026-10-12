@@ -104,7 +104,7 @@ Ctrl+X then B, or `/sidebar`, shows or hides a sidebar listing running conversat
 Ctrl+Shift+←/→ cycle live conversations, including leftovers still idle. Pairing panes from `/btw` stay beside the transcript. Park a live conversation with `/close`, or `Ctrl+W` from the composer.
 Manual: `docs/sessions.md`.
 
-## Tools, permissions, and agents [lines=21]
+## Tools, permissions, and agents [lines=22]
 The selected agent definition supplies instructions and an exact tool allow-list. An omitted tool list means all available tools; an empty list means no tools.
 The session permission posture is the outer ceiling. An agent may narrow it but cannot widen it.
 Automatic approval uses deterministic rules first and a classifier only when needed. The classifier does not see tool results.
@@ -124,6 +124,7 @@ The included explorer investigates questions using read, search, and listing too
 Explorer uses Defaults then eco when called through the subagent tool. Its eco model does not also need to be assigned under Subagents. If eco is unset or unavailable, the launch fails with the assignment named; it does not use the parent or the Subagents list. Selecting explorer directly with `/agent` leaves the conversation model unchanged.
 The subagent tool lists available agent names and descriptions so the parent can choose a definition. You can ask for explorer by name. Custom definitions can bind delegated launches to a named assignment with `subagent_assignment`; definitions without this field keep the ordinary Subagents rules.
 A delegated child starts without the parent conversation; put the task in the spawn description.
+Vera's delegation guidance defaults to direct work, prefers waiting for delegated results, and reserves background delegation for substantial independent work.
 Manual: `docs/agents.md`, `docs/permission-rules.md`.
 
 ## Skills, rules, and standing instructions [lines=13]

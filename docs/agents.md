@@ -13,6 +13,13 @@ A delegated child starts without the parent conversation. Put the goal, why
 it matters, what you already know, paths, and what to return in the spawn
 description.
 
+Vera's delegation guidance defaults to direct work, including small changes
+that span several files. When delegation is justified, it prefers `subagent`,
+which waits for the result. Independent calls can run in parallel.
+`async_subagent` returns a child ID immediately and delivers its summary on
+a later turn. The guidance reserves it for substantial independent work the
+parent can continue without the child's answer.
+
 Definitions can restrict the conversation's permissions. They cannot grant
 access beyond what the conversation allows.
 
