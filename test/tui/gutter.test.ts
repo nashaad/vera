@@ -112,8 +112,8 @@ test("a rule takes its own row and leaves the marker beside the answer", async (
     expect(answer).toBeGreaterThan(rule);
     expect(answer - rule).toBe(2);
     expect(rule).toBe(1);
-    expect(lines[rule]).not.toContain("•");
-    expect(lines[answer]).toContain("•");
+    expect(lines[rule]).not.toContain("●");
+    expect(lines[answer]).toStartWith("● Final answer");
 });
 
 test("separator spacing is independently configurable on both sides", async () => {
@@ -145,8 +145,10 @@ test("separator spacing is independently configurable on both sides", async () =
     }
 });
 
-test("an unruled block draws no rule", async () => {
-    expect(await frameFor(false)).not.toContain("──────────");
+test("an unruled block keeps one space after the filled circle and draws no rule", async () => {
+    const frame = await frameFor(false);
+    expect(frame).not.toContain("──────────");
+    expect(frame.split("\n")[0]).toStartWith("● Final answer");
 });
 
 test("the separator can be hidden while keeping its spacing", async () => {
@@ -208,7 +210,7 @@ test("the separator is a quiet element-colored hairline", async () => {
     }
 });
 
-test("the assistant marker is a muted weighted bullet", async () => {
+test("the assistant marker is a muted bold filled circle", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
@@ -227,7 +229,7 @@ test("the assistant marker is a muted weighted bullet", async () => {
         const marker = node.findDescendantById("answer-marker");
         expect(marker).toBeInstanceOf(TextRenderable);
         expect(marker instanceof TextRenderable ? marker.plainText : undefined)
-            .toBe("•");
+            .toBe("●");
         expect(marker instanceof TextRenderable
             ? marker.fg.equals(parseColor(TUI_MUTED))
             : false).toBe(true);
@@ -237,6 +239,38 @@ test("the assistant marker is a muted weighted bullet", async () => {
         setup.renderer.destroy();
     }
 });
+
+for (const assistantMarker of ["●", "•", ""] as const) {
+    test(`assistant marker ${JSON.stringify(assistantMarker)} preserves text alignment`, async () => {
+        const setup = await createTestRenderer({ width: 30, height: 6 });
+        const node = createTuiGutterEntry(
+            setup.renderer,
+            "configured-answer",
+            { kind: "assistant", text: "Pirate crow\nsets sail" },
+            new TextRenderable(setup.renderer, {
+                id: "configured-content",
+                content: "Pirate crow\nsets sail",
+            }),
+            0,
+            false,
+            { assistantMarker },
+        );
+        setup.renderer.root.add(node);
+        try {
+            await setup.flush();
+            const lines = setup.captureCharFrame().split("\n");
+            expect(lines[0]).toStartWith(`${assistantMarker || " "} Pirate crow`);
+            expect(lines[1]).toStartWith("  sets sail");
+            markTuiGutterEntry(node);
+            unmarkTuiGutterEntry(node, { kind: "assistant", text: "Pirate crow" });
+            const marker = node.findDescendantById("configured-answer-marker");
+            expect(marker instanceof TextRenderable ? marker.plainText : undefined)
+                .toBe(assistantMarker);
+        } finally {
+            setup.renderer.destroy();
+        }
+    });
+}
 
 test("a searched-to block carries a rule down its marker column", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
@@ -268,8 +302,8 @@ test("a searched-to block carries a rule down its marker column", async () => {
         };
         // The mark is the rule alone, so the block keeps the marker it would
         // have had either way.
-        expect(glyph(landed, "landed-marker")).toBe("•");
-        expect(glyph(plain, "plain-marker")).toBe("•");
+        expect(glyph(landed, "landed-marker")).toBe("●");
+        expect(glyph(plain, "plain-marker")).toBe("●");
 
         const rule = (node: Renderable, id: string): BoxRenderable =>
             node.findDescendantById(id) as BoxRenderable;

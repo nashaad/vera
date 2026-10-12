@@ -3,6 +3,7 @@ import type { TuiDialogHeaderStyle } from "./dialog-header.ts";
 import type { TuiDialogSearchStyle } from "./dialog-search.ts";
 
 export interface TuiAppearance {
+    readonly assistantMarker: "●" | "•" | "";
     readonly dialogHeaderStyle: TuiDialogHeaderStyle;
     readonly dialogSearchStyle: TuiDialogSearchStyle;
     readonly transcriptPaddingLeft: number;
@@ -22,6 +23,7 @@ export interface TuiAppearance {
 }
 
 export const DEFAULT_TUI_APPEARANCE: TuiAppearance = {
+    assistantMarker: "●",
     dialogHeaderStyle: "underline",
     dialogSearchStyle: "fill",
     transcriptPaddingLeft: 0,
@@ -47,6 +49,7 @@ export function resolveTuiAppearance(
     const margin = config?.composer?.margin_horizontal
         ?? DEFAULT_TUI_APPEARANCE.composerMarginHorizontal;
     return {
+        assistantMarker: config?.assistant_marker ?? DEFAULT_TUI_APPEARANCE.assistantMarker,
         dialogHeaderStyle: config?.dialogs?.header_style ?? DEFAULT_TUI_APPEARANCE.dialogHeaderStyle,
         dialogSearchStyle: config?.dialogs?.search_style ?? DEFAULT_TUI_APPEARANCE.dialogSearchStyle,
         transcriptPaddingLeft: config?.transcript?.padding_left

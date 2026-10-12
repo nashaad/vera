@@ -185,6 +185,7 @@ export interface VeraTuiSidebarConfig {
 
 /** Client-owned visual tuning. Absent values retain Vera's current layout. */
 export interface VeraTuiConfig {
+    readonly assistant_marker?: "●" | "•" | "";
     readonly transcript?: VeraTuiTranscriptConfig;
     readonly composer?: VeraTuiComposerConfig;
     readonly dialogs?: VeraTuiDialogsConfig;
@@ -1543,6 +1544,14 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
         return undefined;
     }
     const raw = value as Record<string, unknown>;
+    if (
+        raw.assistant_marker !== undefined
+        && raw.assistant_marker !== "●"
+        && raw.assistant_marker !== "•"
+        && raw.assistant_marker !== ""
+    ) {
+        return undefined;
+    }
     const transcript = parseTuiTranscriptConfig(raw.transcript);
     const composer = parseTuiComposerConfig(raw.composer);
     const dialogs = parseTuiDialogsConfig(raw.dialogs);
@@ -1551,6 +1560,9 @@ function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
         return undefined;
     }
     return {
+        ...(raw.assistant_marker === undefined
+            ? {}
+            : { assistant_marker: raw.assistant_marker }),
         ...(raw.transcript === undefined ? {} : { transcript }),
         ...(raw.composer === undefined ? {} : { composer }),
         ...(raw.dialogs === undefined ? {} : { dialogs }),

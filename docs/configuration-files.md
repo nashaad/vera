@@ -28,3 +28,18 @@ already exist; choosing configuration does not create them.
 
 `/settings` remains a separate menu of settings controls. For a map of other
 saved data, see [Vera's files and settings](config-reference.md).
+
+## Assistant message dots
+
+Set `assistant_marker` at the top level of the home's `tui.json`:
+
+```json
+{
+    "assistant_marker": "●"
+}
+```
+
+Use `"●"` for large dots (the default), `"•"` for small dots, or `""` to hide
+them. Hiding the dot keeps the text aligned. This affects only assistant
+messages, not list bullets or status indicators. There is no Settings control.
+Restart the TUI after editing the file.

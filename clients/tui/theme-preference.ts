@@ -20,7 +20,10 @@ import {
 export type TuiLiveReasoningRows = 0 | 1 | 8 | "all";
 export const DEFAULT_LIVE_REASONING_ROWS: TuiLiveReasoningRows = 1;
 
+export type TuiAssistantMarker = "●" | "•" | "";
+
 interface TuiClientPreferences {
+    readonly assistant_marker?: TuiAssistantMarker;
     readonly model_picker?: ModelPickerPreferences;
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
@@ -86,6 +89,22 @@ export interface TuiPersistedAgentPane {
 
 export function tuiThemePreferencePath(): string {
     return join(veraProfileDirectory(), "tui.json");
+}
+
+export function loadTuiAssistantMarkerPreference(
+    path = tuiThemePreferencePath(),
+): TuiAssistantMarker | undefined {
+    return loadTuiClientPreferences(path).assistant_marker;
+}
+
+export function saveTuiAssistantMarkerPreference(
+    marker: TuiAssistantMarker,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        assistant_marker: marker,
+    }, path);
 }
 
 export function loadTuiThemePreference(
@@ -391,6 +410,7 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
         const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
         if (typeof value === "object" && value !== null) {
             const theme = Reflect.get(value, "theme");
+            const assistantMarker = Reflect.get(value, "assistant_marker");
             const animation = Reflect.get(value, "animation");
             const storedLevel = Reflect.get(value, "animation_level");
             const level: TuiAnimationLevel = isTuiAnimationLevel(storedLevel)
@@ -438,6 +458,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             );
             return {
                 ...(Reflect.get(value, "model_picker") === undefined ? {} : { model_picker: parseModelPickerPreferences(Reflect.get(value, "model_picker")) }),
+                ...(assistantMarker === "●" || assistantMarker === "•" || assistantMarker === ""
+                    ? { assistant_marker: assistantMarker }
+                    : {}),
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
                     ? animation

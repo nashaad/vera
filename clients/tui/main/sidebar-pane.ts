@@ -139,6 +139,7 @@ export function createTuiEntryNode(rt: TuiRuntime,
             marginTop,
             separated,
             {
+                assistantMarker: rt.appearance.assistantMarker,
                 width: tuiGutterWidth(entry, rt.appearance.activityIndent),
                 separatorVisible: rt.appearance.separatorVisible,
                 separatorColor: rt.appearance.transcriptSeparatorColor

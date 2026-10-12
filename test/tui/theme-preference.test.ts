@@ -8,6 +8,7 @@ import {
     loadModelPickerPreferences,
     saveModelPickerPreferences,
     loadTuiActivityAnimationPreference,
+    loadTuiAssistantMarkerPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
     loadTuiFooterLayout,
@@ -20,6 +21,7 @@ import {
     loadTuiThemePreference,
     loadTuiWorkspaceSidebarWidth,
     saveTuiActivityAnimationPreference,
+    saveTuiAssistantMarkerPreference,
     loadTuiAnimationLevelPreference,
     saveTuiAnimationLevelPreference,
     loadTuiLiveReasoningRowsPreference,
@@ -33,6 +35,26 @@ import {
     saveTuiThemePreference,
     saveTuiWorkspaceSidebarWidth,
 } from "../../clients/tui/theme-preference.ts";
+
+test("assistant marker preference round-trips supported values and ignores invalid ones", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "vera-assistant-marker-")), "tui.json");
+
+    expect(loadTuiAssistantMarkerPreference(path)).toBeUndefined();
+    for (const assistant_marker of ["●", "•", ""] as const) {
+        saveTuiAssistantMarkerPreference(assistant_marker, path);
+        expect(loadTuiAssistantMarkerPreference(path)).toBe(assistant_marker);
+        expect(JSON.parse(readFileSync(path, "utf8")).assistant_marker)
+            .toBe(assistant_marker);
+    }
+
+    saveTuiThemePreference("github", path);
+    expect(loadTuiAssistantMarkerPreference(path)).toBe("");
+
+    for (const assistant_marker of ["x", null, 1, false, []]) {
+        writeFileSync(path, JSON.stringify({ assistant_marker }));
+        expect(loadTuiAssistantMarkerPreference(path)).toBeUndefined();
+    }
+});
 
 test("picker preferences survive other writes", () => {
     const path = join(mkdtempSync(join(tmpdir(), "vera-picker-prefs-")), "tui.json");

@@ -20,6 +20,7 @@ const contentNodes = new WeakMap<Renderable, Renderable>();
 const markedRows = new WeakSet<Renderable>();
 
 export interface TuiGutterAppearance {
+    readonly assistantMarker?: "●" | "•" | "";
     readonly width?: number;
     readonly separatorVisible?: boolean;
     readonly separatorColor?: string;
@@ -38,14 +39,14 @@ export function tuiGutterWidth(
         : alignedIndent;
 }
 
-function entryMarker(entry: TuiTranscriptEntry): {
+function entryMarker(entry: TuiTranscriptEntry, appearance: TuiGutterAppearance): {
     readonly glyph: string;
     readonly color: string;
     readonly attributes?: number;
 } {
     if (entry.kind === "assistant") {
         return {
-            glyph: "•",
+            glyph: appearance.assistantMarker ?? "●",
             color: TUI_MUTED,
             attributes: TextAttributes.BOLD,
         };
@@ -62,7 +63,7 @@ export function createTuiGutterEntry(
     ruled = false,
     appearance: TuiGutterAppearance = {},
 ): BoxRenderable {
-    const marker = entryMarker(entry);
+    const marker = entryMarker(entry, appearance);
     const width = appearance.width ?? TUI_GUTTER_WIDTH;
     const row = new BoxRenderable(renderer, {
         id: `${id}-gutter`,

@@ -2086,6 +2086,44 @@ test("a compaction block with no numbers overrides nothing", () => {
         .toBeUndefined();
 });
 
+test("Vera config loads and persists assistant marker values", () => {
+    for (const assistant_marker of ["●", "•", ""] as const) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "test/model",
+            tui: { assistant_marker },
+        }));
+
+        expect(loadVeraConfig({ path }).tui?.assistant_marker).toBe(assistant_marker);
+        updateVeraConfigDefaults({ model: "test/other-model" }, { path });
+        expect(loadVeraConfig({ path }).tui?.assistant_marker).toBe(assistant_marker);
+        expect(JSON.parse(readFileSync(path, "utf8")).tui.assistant_marker)
+            .toBe(assistant_marker);
+    }
+
+    const absent = temporaryConfigPath();
+    writeFileSync(absent, JSON.stringify({
+        schema_version: 1,
+        model: "test/model",
+        tui: {},
+    }));
+    expect(loadVeraConfig({ path: absent }).tui?.assistant_marker).toBeUndefined();
+});
+
+test("Vera config rejects unsupported assistant marker values", () => {
+    for (const assistant_marker of ["x", null, 1, false, []]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "test/model",
+            tui: { assistant_marker },
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow("not a Vera config");
+    }
+});
+
 test("Vera config loads disabled skill patterns", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

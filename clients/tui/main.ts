@@ -291,7 +291,7 @@ import { reloadTuiThemeCatalog, resolveTuiTheme } from "./theme-catalog.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
 import { EMPTY_TURN_METER } from "./turn-meter.ts";
 import { createDragShield } from "./drag-shield.ts";
-import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiFooterLayout, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
+import { loadTuiActivityAnimationPreference, loadTuiAnimationLevelPreference, loadTuiLiveReasoningRowsPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiAssistantMarkerPreference, loadTuiFooterLayout, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiKeysCardView } from "./keys-card.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
@@ -892,6 +892,13 @@ export async function startTui(
     rt.flightRecorder?.sessionEntered(rt.client.agentId ?? "unknown");
     rt.configuredAppearance = rt.dependencies.appearance
         ?? resolveTuiAppearance();
+    const assistantMarker = loadTuiAssistantMarkerPreference();
+    if (assistantMarker !== undefined) {
+        rt.configuredAppearance = {
+            ...rt.configuredAppearance,
+            assistantMarker,
+        };
+    }
     setTuiWorkspaceRoot(rt.client.workspace ?? process.cwd());
     rt.renderer = await (rt.dependencies.createRenderer?.()
         ?? createCliRenderer({

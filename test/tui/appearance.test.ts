@@ -40,6 +40,7 @@ test("TUI appearance resolves JSON overrides and derives tip alignment", () => {
     });
 
     expect(appearance).toEqual({
+        assistantMarker: "●",
         dialogHeaderStyle: "underline",
         dialogSearchStyle: "fill",
         transcriptPaddingLeft: 2,
@@ -58,6 +59,17 @@ test("TUI appearance resolves JSON overrides and derives tip alignment", () => {
         sidebarOpenAtLaunch: false,
     });
     expect(tuiComposerContentIndent(appearance)).toBe(7);
+});
+
+test("assistant marker defaults to large and preserves small and hidden overrides", () => {
+    expect(resolveTuiAppearance().assistantMarker).toBe("●");
+    expect(resolveTuiAppearance({ assistant_marker: "•" }).assistantMarker).toBe("•");
+    expect(resolveTuiAppearance({ assistant_marker: "" }).assistantMarker).toBe("");
+    for (const assistant_marker of ["●", "•", ""] as const) {
+        const configured = resolveTuiAppearance({ assistant_marker });
+        expect(fitTuiAppearance(configured, 12).assistantMarker).toBe(assistant_marker);
+        expect(fitTuiAppearance(configured, 120).assistantMarker).toBe(assistant_marker);
+    }
 });
 
 test("an explicit composer tip indent wins over derived alignment", () => {
