@@ -12,7 +12,7 @@ ask you, send it to the [classifier](permission-classifier.md), or refuse it.
 
 | Mode | What runs without asking | Everything else |
 |---|---|---|
-| `readonly` | Reads, `ask_user`, reading process output | Refused, including every shell command |
+| `readonly` | Reads, including shell commands that only read such as `cat` or `git log`, `ask_user`, reading process output | Refused |
 | `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, memory notes, extensions writing their own data | Asks you |
 | `auto` | Same as `ask` | Goes to the classifier |
 | `full_access` | Everything | None |

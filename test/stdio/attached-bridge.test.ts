@@ -432,9 +432,9 @@ test("stdio carries a breaker trip out of a real resident host turn", async () =
         },
         createAdapter: () =>
             new FauxAdapter([
-                toolCallResponse("b1", "bash", { command: "echo one" }),
-                toolCallResponse("b2", "bash", { command: "echo two" }),
-                toolCallResponse("b3", "bash", { command: "echo three" }),
+                toolCallResponse("b1", "bash", { command: "touch one" }),
+                toolCallResponse("b2", "bash", { command: "touch two" }),
+                toolCallResponse("b3", "bash", { command: "touch three" }),
                 textResponse("stopped"),
             ]),
         socketPath,
