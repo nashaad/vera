@@ -6,8 +6,8 @@ description: "Search available actions or read the command-line reference."
 # Find a command
 
 Vera has a command palette for actions and help pages for learning the controls.
-Use Ctrl+P to find an action, `/commands` to browse executable commands, or
-`/help` to read guidance without running anything.
+Use Ctrl+P or `/palette` to find and run an action, or `/help` to read guidance
+without running anything.
 
 ## From the terminal
 

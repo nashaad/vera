@@ -22,9 +22,9 @@ also requires Chrome debugger permission for native actions.
 
 ## Follow the activity
 
-Vera shows a temporary blue activity marker and an on-page pointer while it
-acts. The pointer shows where it clicks or types, then disappears. Existing
-tab groups and pinned tabs retain their arrangement.
+Vera shows a temporary orange tab group named Vera is working and an on-page
+pointer while it acts. The pointer shows where it clicks or types, then
+disappears. Existing tab groups and pinned tabs retain their arrangement.
 
 A click being dispatched does not establish that the page accepted it. Check
 the resulting page before retrying an action that reported failure, because
