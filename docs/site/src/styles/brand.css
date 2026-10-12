@@ -178,7 +178,7 @@ body::after {
 .early-access[aria-checked="true"] .early-access-track { background: var(--color-fd-primary); border-color: var(--color-fd-primary); }
 .early-access[aria-checked="true"] .early-access-track::after { transform: translateX(0.875rem); background: var(--color-fd-primary-foreground); }
 @media (prefers-reduced-motion: reduce) { .early-access-track, .early-access-track::after { transition: none; } }
-html { font-size: 110%; }
+html { font-size: 110%; overscroll-behavior-y: none; }
 
 /* Overrides the theme callout: a tinted, square box with no side bar. */
 .manual-callout.manual-callout {
