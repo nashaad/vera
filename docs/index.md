@@ -8,7 +8,7 @@ description: "Use Vera in a project and customize its behavior."
 Vera is an agent that helps you with your work. It runs on its own agent harness and runtime.
 
 - **For everyday use**\
-  Ask it to research, search the web, use a browser, or sort through files.
+  Ask it to research, search the web, or sort through files.
 - **For coding**\
   It reads and changes code in your project, within your permissions.
 - **For app builders**\

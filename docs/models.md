@@ -17,9 +17,10 @@ choose models for jobs such as compaction and delegated work.
 | Assign models to other jobs | Defaults, in `/models` |
 | Connect a provider | Providers, in `/models` Actions, or Configure providers on Ctrl+P |
 
-Switch model changes what runs next and writes nothing that outlives the
-conversation, except a favorite. `/models` is the opposite: it browses,
-favorites, assigns, and connects, and never changes what runs next.
+Switch model changes what runs next, and the model and effort you pick also
+become what new conversations start on, including after Vera restarts (`max`
+effort stays with the current conversation). `/models` is the opposite: it
+browses, favorites, assigns, and connects, and never changes what runs next.
 
 These choices are independent. Selecting a model does not favorite it, and
 removing a favorite does not clear a default assignment.
@@ -33,10 +34,11 @@ removing a favorite does not clear a default assignment.
 3. Use Up/Down to highlight a model, then press Enter.
 4. If the model offers reasoning effort levels, choose one to finish.
 
-The list opens as Favorites, then Recent from this conversation, then every
-connected model grouped by provider. Typing drops the grouping and ranks one
-list by how well each name matches. Ctrl+F adds or removes the highlighted
-favorite; that is the only thing this dialog writes to disk.
+The list opens on your current model, your favorites, and the models you used
+recently in this conversation. Ctrl+G swaps it for every connected model,
+grouped by provider, and back. Typing searches every connected model and ranks
+one list by how well each name matches. Ctrl+F adds or removes the highlighted
+favorite.
 
 Switch model has no filters, sort, scores, prices, or details panel. Those are
 in `/models`.
@@ -102,8 +104,10 @@ Open Favorites from `/models`, highlight a model, and press Enter to add or
 remove it. Ctrl+S does the same on a highlighted model anywhere in the model
 page, and Ctrl+F does it in Switch model.
 
-Connected providers start with a few favorites already saved, so the list is
-not empty before you curate it.
+Adding a provider saves no favorites. Until you add one, Switch model lists
+nothing at rest: type a name to search every connected model, or press Ctrl+G
+to list them all. Recommended in `/models` shows Vera's curated picks for the
+connected providers.
 
 Favoriting saves a shortcut. It does not switch the conversation or make a
 verification request. Removing a favorite keeps its verification results and
@@ -167,12 +171,15 @@ shows all four values whether or not the quick controls are open.
 
 ## Set reasoning effort
 
-`/effort` lists the levels the current model supports, each with a line saying
-what it is for. `/effort <level>` sets one directly. Levels differ by model,
-and not every model has an off setting.
+`/effort` lists the levels the current model supports, each with a short line
+on how much it reasons. Vera's own lines for `off`, `xhigh`, and `max` also say
+what they cost: `off` is fastest and cheapest, `xhigh` is slower and costs more,
+and `max` is slowest and costs the most. When a provider publishes its own
+wording for a level, Vera shows that instead. `/effort <level>` sets one
+directly. Levels differ by model, and not every model has an off setting.
 
-Switching models keeps your effort level when the new model also supports it.
-You are asked to choose again only when it does not.
+Switching to a model with effort levels always asks which level to run, with
+your current level highlighted when the new model has it.
 
 Choosing a level saves it as the default for new conversations, except `max`.
 `max` applies to the current conversation only, and new conversations keep the

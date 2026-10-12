@@ -13,9 +13,9 @@ ask you, send it to the [classifier](permission-classifier.md), or refuse it.
 | Mode | What runs without asking | Everything else |
 |---|---|---|
 | `readonly` | Reads, including shell commands that only read such as `cat` or `git log`, `ask_user`, reading process output | Refused |
-| `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, memory notes, extensions writing their own data | Asks you |
+| `ask` | Reads, writes inside the workspace, `git commit`, web searches and page fetches, subagent messages, extensions writing their own data | Asks you |
 | `auto` | Same as `ask` | Goes to the classifier |
-| `full_access` | Everything | None |
+| `full_access` | Everything except the recursive `rm` cases below | Refused |
 
 In readonly, ask, and auto, the file tools refuse to read a file named `.env`,
 `*.pem`, or `id_rsa`. A shell command such as `cat .env` is not caught by this
@@ -26,9 +26,13 @@ switches it and also makes that mode your default. For a one-shot run, pass
 `--permission-mode <mode>` to `vera -p`. With no default set, the mode is
 `auto`.
 
-A recursive `rm` is refused in every mode, including full access, when it
-targets a filesystem root, your home directory, the workspace, everything in
-it (`./*`), or a folder above it.
+In every mode, including full access, Vera refuses a recursive `rm` in the
+`bash` tool when it targets a filesystem root, your home directory or everything
+in it (`~/*`), the workspace or everything in it (`./*`), or a folder above the
+workspace. This check runs before the mode, so an Always answer or a Session
+grant cannot allow it. Run the deletion yourself if you mean it. The check reads
+the command as written, so a target built from a variable or a command
+substitution, such as `$HOME`, is not caught.
 
 ## Answer a prompt
 

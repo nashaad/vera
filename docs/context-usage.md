@@ -44,17 +44,17 @@ counts and keeps the meter, the percentage, the model, and the effort.
 ## Large instruction files
 
 Everything in the INSTRUCTIONS section is sent with every request: home and
-project rules, `AGENTS.md`, `AGENTS.local.md`, memory, the selected agent's
-instructions, and the skill catalog. When that total reaches 8,000 estimated
-tokens, `/context` shows a red line under INSTRUCTIONS with the total and the
-biggest source, and Vera shows one short notice after the first reply in a
-conversation, plus the same sentence as a brief overlay that types on
-quickly, then a tick. Press Escape to close it when no dialog is open;
-otherwise it clears after a few seconds. The numbers
-match the Instructions row and the section heading.
-While the red line shows, the per-file size warnings are hidden. Trim or split
-the biggest source to clear it. The notice appears again in a new or resumed
-conversation while the total stays over.
+project rules, `AGENTS.md`, `AGENTS.local.md`, the selected agent's
+instructions, and the skill catalog. Memory files are not loaded, so they add
+nothing to it. When that total reaches 8,000 estimated tokens, `/context` shows
+a red line under INSTRUCTIONS with the total and the biggest source, and Vera
+shows one short notice after the first reply in a conversation, plus the same
+sentence as a brief overlay that types on quickly, then a tick. Press Escape to
+close it when no dialog is open; otherwise it clears after a few seconds. The
+numbers match the Instructions row and the section heading. While the red line
+shows, the per-file size warnings are hidden. Trim or split the biggest source
+to clear it. The notice appears again in a new or resumed conversation while the
+total stays over.
 
 ### Change the instruction budget
 
