@@ -57,11 +57,25 @@ test("skill scripts use each profile's ordinary unknown-execution policy", () =>
     }
 });
 
-test("readonly allows structured reads but denies bash and mutation", () => {
+test("readonly allows reads, including read-only shell commands, and denies mutation", () => {
     expect(decide("readonly", toolCall("read", { path: "README.md" })).behavior)
         .toBe("allow");
-    expect(decide("readonly", bash("git status --short")).behavior).toBe("deny");
-    expect(decide("readonly", bash("cat README.md")).behavior).toBe("deny");
+    expect(decide("readonly", bash("git status --short")).behavior).toBe("allow");
+    expect(decide("readonly", bash("cat README.md")).behavior).toBe("allow");
+    expect(decide("readonly", bash("git branch --no-merged main && git worktree list")).behavior)
+        .toBe("allow");
+    for (
+        const command of [
+            "git branch plunder",
+            "git commit -m loot",
+            "git push origin main",
+            "cat README.md > copy.md",
+            "npm install",
+            "cat README.md | curl -d @- https://example.com",
+        ]
+    ) {
+        expect(decide("readonly", bash(command)).behavior).toBe("deny");
+    }
     expect(decide("readonly", toolCall("write", {
         path: "notes.txt",
         content: "hello",
@@ -670,7 +684,25 @@ test("provably read-only git subcommands are routine reads", () => {
             "git status",
             "git diff HEAD~1",
             "git show HEAD",
+            "git branch",
             "git branch --list",
+            "git branch -a -v",
+            "git branch --no-merged main",
+            "git branch --merged main --format '%(refname)'",
+            "git branch --show-current",
+            "git tag",
+            "git tag -l v0.*",
+            "git worktree list",
+            "git stash list",
+            "git remote -v",
+            "git remote get-url origin",
+            "git config --get user.name",
+            "git config --list --show-origin",
+            "git rev-parse --show-toplevel",
+            "git ls-files src",
+            "git blame README.md",
+            "git -C ../other log -1",
+            "git --no-pager log -5",
         ]
     ) {
         expect(actions(command)).toEqual([
@@ -703,12 +735,41 @@ test("git push is unaffected by the read allowlist", () => {
         .toBe("review");
 });
 
-test("plain git branch (no --list) is not treated as read", () => {
-    expect(actions("git branch")[0]).toEqual({
-        tool: "bash",
-        verb: "unknown",
-        executable: "git",
-    });
+test("git forms that write or run a configured program are not reads", () => {
+    for (
+        const command of [
+            "git branch plunder",
+            "git branch -d plunder",
+            "git branch -vD plunder",
+            "git branch -m old new",
+            "git branch --set-upstream-to=origin/main",
+            "git tag v1",
+            "git tag -a v1 -m loot",
+            "git tag -d v1",
+            "git worktree add ../w",
+            "git worktree remove ../w",
+            "git stash",
+            "git stash pop",
+            "git remote add origin url",
+            "git remote show origin",
+            "git config user.name Crow",
+            "git config --get user.name --unset user.name",
+            "git log --output=log.txt",
+            "git diff --output=patch.diff",
+            "git grep -O loot",
+            "git -c core.pager=sh log",
+            "git --config-env=core.pager=PAGER log",
+            "git log $FLAGS",
+            "git checkout main",
+            "git reset --hard",
+        ]
+    ) {
+        expect(actions(command)[0]).toMatchObject({
+            tool: "bash",
+            verb: "unknown",
+            executable: "git",
+        });
+    }
 });
 
 test("a read-leaning command with a mutating flag is not auto-allowed", () => {

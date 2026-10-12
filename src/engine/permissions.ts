@@ -261,11 +261,6 @@ const READONLY_RULES: readonly PermissionRule[] = [
         then: "deny",
     })),
     {
-        name: "readonly.bash_deny",
-        when: { tool: "bash" },
-        then: "deny",
-    },
-    {
         name: "readonly.user_interaction",
         when: { tool: "ask_user" },
         then: "allow",
@@ -408,7 +403,133 @@ const NETWORK_GIT_OPERATIONS = new Map([
     ["push", "git.push"],
 ]);
 
-const GIT_READ_SUBCOMMANDS = new Set(["log", "status", "diff", "show"]);
+// Config passed on the command line can name a program for git to run.
+const GIT_UNSAFE_GLOBAL_OPTIONS = ["-c", "--config-env", "--exec-path"];
+
+function listingRefs(
+    writeFlags: readonly string[],
+    listFlags: readonly string[],
+): ReadOnlyClassifier {
+    return (args) => {
+        if (args.some((word) => writeFlags.some((flag) => matchesFlag(word, flag)))) {
+            return false;
+        }
+        return args.every((word) => word.startsWith("-"))
+            || args.some((word) => listFlags.some((flag) => matchesFlag(word, flag)));
+    };
+}
+
+function readingRemotes(args: readonly string[]): boolean {
+    return args[0] === "get-url"
+        || args.every((word) => word === "-v" || word === "--verbose");
+}
+
+function readingConfig(args: readonly string[]): boolean {
+    if (args[0] === "get" || args[0] === "list") {
+        return true;
+    }
+    const readFlags = ["--get", "--get-all", "--get-regexp", "--list", "-l"];
+    const writeFlags = [
+        "--add",
+        "--unset",
+        "--unset-all",
+        "--replace-all",
+        "--rename-section",
+        "--remove-section",
+        "-e",
+        "--edit",
+    ];
+    return args.some((word) => readFlags.some((flag) => matchesFlag(word, flag)))
+        && !args.some((word) => writeFlags.some((flag) => matchesFlag(word, flag)));
+}
+
+const GIT_READ_SUBCOMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
+    log: excludingDangerousFlags(["--output"]),
+    show: excludingDangerousFlags(["--output"]),
+    diff: excludingDangerousFlags(["--output"]),
+    status: alwaysReadOnly,
+    blame: alwaysReadOnly,
+    shortlog: alwaysReadOnly,
+    describe: alwaysReadOnly,
+    "rev-parse": alwaysReadOnly,
+    "rev-list": alwaysReadOnly,
+    "ls-files": alwaysReadOnly,
+    "ls-tree": alwaysReadOnly,
+    "cat-file": alwaysReadOnly,
+    "merge-base": alwaysReadOnly,
+    "show-ref": alwaysReadOnly,
+    "for-each-ref": alwaysReadOnly,
+    "name-rev": alwaysReadOnly,
+    grep: excludingDangerousFlags(["-O", "--open-files-in-pager"]),
+    branch: listingRefs(
+        [
+            "-d",
+            "-D",
+            "--delete",
+            "-m",
+            "-M",
+            "--move",
+            "-c",
+            "-C",
+            "--copy",
+            "-f",
+            "--force",
+            "-t",
+            "--track",
+            "--no-track",
+            "-u",
+            "--set-upstream-to",
+            "--unset-upstream",
+            "--edit-description",
+            "--create-reflog",
+        ],
+        [
+            "-l",
+            "--list",
+            "--merged",
+            "--no-merged",
+            "--contains",
+            "--no-contains",
+            "--points-at",
+            "--show-current",
+        ],
+    ),
+    tag: listingRefs(
+        [
+            "-a",
+            "--annotate",
+            "-s",
+            "--sign",
+            "-u",
+            "--local-user",
+            "-f",
+            "--force",
+            "-d",
+            "--delete",
+            "-v",
+            "--verify",
+            "-m",
+            "--message",
+            "-F",
+            "--file",
+            "-e",
+            "--edit",
+        ],
+        [
+            "-l",
+            "--list",
+            "--merged",
+            "--no-merged",
+            "--contains",
+            "--no-contains",
+            "--points-at",
+        ],
+    ),
+    worktree: matchingSubcommand(["list"]),
+    stash: matchingSubcommand(["list", "show"]),
+    remote: readingRemotes,
+    config: readingConfig,
+};
 
 export const CORE_PERMISSION_OPERATIONS = new Set([
     "agent.close",
@@ -954,7 +1075,10 @@ function actionsForSimpleCommand(
         return [{ tool: "bash", verb: "unknown" }, ...redirects];
     }
     if (executable === "git") {
-        return [...gitActions(words, executableIndex), ...redirects];
+        return [
+            ...gitActions(words, executableIndex, command.hasNonLiteralWords),
+            ...redirects,
+        ];
     }
     if (executable === "rm") {
         return [
@@ -1076,6 +1200,7 @@ function redirectActions(
 function gitActions(
     words: readonly string[],
     executableIndex: number,
+    hasNonLiteralWords: boolean,
 ): readonly PermissionAction[] {
     const subcommandIndex = gitSubcommandIndex(words, executableIndex + 1);
     const subcommand = words[subcommandIndex] ?? "";
@@ -1104,9 +1229,17 @@ function gitActions(
             executable: "git",
         }];
     }
+    const readOnlyClassifier = Object.hasOwn(GIT_READ_SUBCOMMANDS, subcommand)
+        ? GIT_READ_SUBCOMMANDS[subcommand]
+        : undefined;
+    const globalOptions = words.slice(executableIndex + 1, subcommandIndex);
     if (
-        GIT_READ_SUBCOMMANDS.has(subcommand)
-        || (subcommand === "branch" && words[subcommandIndex + 1] === "--list")
+        readOnlyClassifier !== undefined
+        && !hasNonLiteralWords
+        && !globalOptions.some((word) =>
+            GIT_UNSAFE_GLOBAL_OPTIONS.some((flag) => matchesFlag(word, flag))
+        )
+        && readOnlyClassifier(words.slice(subcommandIndex + 1))
     ) {
         return [{ tool: "bash", verb: "read", executable: "git" }];
     }

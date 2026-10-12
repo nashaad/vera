@@ -112,9 +112,9 @@ function drain(channel: ReturnType<typeof createInProcessChannel>): void {
 test("a tool the policy keeps refusing stops being offered, and switching tools ends the turn", async () => {
     const { harness: h } = await harness(
         [
-            toolCall("b1", "bash", { command: "echo one" }),
-            toolCall("b2", "bash", { command: "echo two" }),
-            toolCall("b3", "bash", { command: "echo three" }),
+            toolCall("b1", "bash", { command: "touch one" }),
+            toolCall("b2", "bash", { command: "touch two" }),
+            toolCall("b3", "bash", { command: "touch three" }),
             toolCall("w1", "write", { path: "a.txt", content: "a" }),
             toolCall("w2", "write", { path: "b.txt", content: "b" }),
             toolCall("w3", "write", { path: "c.txt", content: "c" }),
@@ -165,10 +165,10 @@ test("a tool the policy keeps refusing stops being offered, and switching tools 
 test("a call of a withheld tool is refused rather than run, and ends the turn", async () => {
     const { harness: h } = await harness(
         [
-            toolCall("b1", "bash", { command: "echo one" }),
-            toolCall("b2", "bash", { command: "echo two" }),
-            toolCall("b3", "bash", { command: "echo three" }),
-            toolCall("b4", "bash", { command: "echo four" }),
+            toolCall("b1", "bash", { command: "touch one" }),
+            toolCall("b2", "bash", { command: "touch two" }),
+            toolCall("b3", "bash", { command: "touch three" }),
+            toolCall("b4", "bash", { command: "touch four" }),
             DONE,
         ],
         "readonly",
@@ -187,8 +187,8 @@ test("a call of a withheld tool is refused rather than run, and ends the turn", 
 test("a turn denied twice and then working normally is untouched", async () => {
     const { harness: h } = await harness(
         [
-            toolCall("b1", "bash", { command: "echo one" }),
-            toolCall("b2", "bash", { command: "echo two" }),
+            toolCall("b1", "bash", { command: "touch one" }),
+            toolCall("b2", "bash", { command: "touch two" }),
             toolCall("r1", "read", { path: "note.txt" }),
             toolCall("r2", "read", { path: "note.txt" }),
             toolCall("r3", "read", { path: "note.txt" }),
@@ -278,11 +278,11 @@ test("a third refusal spread across a working turn costs only that tool", async 
         );
     const { harness: h } = await harness(
         [
-            toolCall("b1", "bash", { command: "echo one" }),
+            toolCall("b1", "bash", { command: "touch one" }),
             ...reads(10, 0),
-            toolCall("b2", "bash", { command: "echo two" }),
+            toolCall("b2", "bash", { command: "touch two" }),
             ...reads(10, 10),
-            toolCall("b3", "bash", { command: "echo three" }),
+            toolCall("b3", "bash", { command: "touch three" }),
             ...reads(10, 20),
             DONE,
         ],
@@ -321,9 +321,9 @@ test("the breaker's terminal outcome survives to the real session file and log",
         cwd: root,
     });
     const faux = new FauxAdapter([
-        toolCall("b1", "bash", { command: "echo one" }),
-        toolCall("b2", "bash", { command: "echo two" }),
-        toolCall("b3", "bash", { command: "echo three" }),
+        toolCall("b1", "bash", { command: "touch one" }),
+        toolCall("b2", "bash", { command: "touch two" }),
+        toolCall("b3", "bash", { command: "touch three" }),
         toolCall("w1", "write", { path: "a.txt", content: "a" }),
         toolCall("w2", "write", { path: "b.txt", content: "b" }),
         toolCall("w3", "write", { path: "c.txt", content: "c" }),
