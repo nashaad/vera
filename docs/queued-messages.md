@@ -30,6 +30,9 @@ With the composer empty and the queue visible:
 | Enter | Stop the active turn and send the whole queue together. |
 | Ctrl+C | Stop the active turn without sending queued prompts. |
 
+A turn stopped by Escape or Enter ends with "Stopped for your message". A turn
+stopped by Ctrl+C ends with "Interrupted".
+
 Sending the whole queue preserves prompt order as separate user messages and
 produces one response to the batch. Sending only the oldest starts a turn for
 it; the rest join that turn at its next tool step, or wait for its reply.

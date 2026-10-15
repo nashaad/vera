@@ -109,6 +109,32 @@ test("turn finished accepts an optional model error", () => {
     expect(parseAgentUpdate({ ...update, error: "   " })).toBeUndefined();
 });
 
+test("turn finished and history accept only a true steered flag", () => {
+    const finished = {
+        type: "turn_finished" as const,
+        outcome: "aborted" as const,
+        steered: true as const,
+        seq: 1,
+    };
+    expect(parseAgentUpdate(finished)).toEqual(finished);
+    expect(parseAgentUpdate({ ...finished, steered: false })).toBeUndefined();
+
+    const history = {
+        type: "history" as const,
+        entries: [{
+            kind: "error" as const,
+            outcome: "aborted" as const,
+            steered: true as const,
+        }],
+        seq: 2,
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ kind: "error", outcome: "aborted", steered: "yes" }],
+    })).toBeUndefined();
+});
+
 test("host wire accepts only complete tool presentations", () => {
     const update = {
         type: "tool_presentation" as const,

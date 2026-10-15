@@ -1034,6 +1034,24 @@ test("TUI shows model failures when a turn finishes", () => {
             "Interrupted",
         ),
     });
+
+    const steered = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "testing"),
+        {
+            type: "turn_finished",
+            outcome: "aborted",
+            steered: true,
+            seq: 3,
+        },
+    );
+    expect(steered.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "turn_interrupted",
+            "Stopped for your message",
+        ),
+    });
 });
 
 test("TUI draws attachment failures as errors", () => {
@@ -1120,6 +1138,23 @@ test("TUI restores an interrupted turn from history as a notice", () => {
         kind: "notice",
         text: "",
         diagnostic: resolveTuiDiagnostic("turn_interrupted", "Interrupted"),
+    }]);
+});
+
+test("TUI restores a turn stopped by a queue release from history", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "error", outcome: "aborted", steered: true }],
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "turn_interrupted",
+            "Stopped for your message",
+        ),
     }]);
 });
 

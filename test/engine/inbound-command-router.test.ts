@@ -9,6 +9,7 @@ import {
     InboundCommandRouter,
     PERMISSION_SYNC_WARNING,
     PermissionModeSyncError,
+    TurnSteeredError,
 } from "../../src/engine/inbound-command-router.ts";
 import {
     createInProcessChannel,
@@ -49,6 +50,7 @@ test("plain abort holds queued prompts until an explicit release", async () => {
     channel.client.send({ type: "abort" });
     await aborted;
     expect(active.signal.aborted).toBe(true);
+    expect(active.signal.reason).not.toBeInstanceOf(TurnSteeredError);
     router.finishTurn();
 
     const waiting = router.startTurn();
@@ -104,6 +106,7 @@ test("send one resumes FIFO and send all batches the remaining snapshot", async 
     await new Promise<void>((resolve) => {
         active.signal.addEventListener("abort", () => resolve(), { once: true });
     });
+    expect(active.signal.reason).toBeInstanceOf(TurnSteeredError);
     router.finishTurn();
 
     const one = await router.startTurn();
@@ -752,6 +755,7 @@ test("send all can steer before the direct turn has started", async () => {
     const direct = await router.startTurn();
     expect(direct.prompt.content).toBe("direct");
     expect(direct.signal.aborted).toBe(true);
+    expect(direct.signal.reason).toBeInstanceOf(TurnSteeredError);
     router.finishTurn();
 
     const batch = await router.startTurn();
@@ -777,6 +781,7 @@ test("a prompt submitted during a pre-start abort becomes the next turn", async 
     const direct = await router.startTurn();
     expect(direct.prompt.content).toBe("direct");
     expect(direct.signal.aborted).toBe(true);
+    expect(direct.signal.reason).not.toBeInstanceOf(TurnSteeredError);
     router.finishTurn();
 
     const followUp = await router.startTurn();

@@ -45,6 +45,7 @@ import {
 
 const SUBSTITUTION_MARKER = "\u21c4";
 const INTERRUPTED_TURN_TEXT = "Interrupted";
+const STEERED_TURN_TEXT = "Stopped for your message";
 
 /** The palette lives in `palette.ts`, which knows nothing about sessions. Imported for this module's own rendering and re-exported because most views take state and colour together. */
 import {
@@ -461,7 +462,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             finished = appendTuiDiagnostic(
                 finished,
                 "turn_interrupted",
-                INTERRUPTED_TURN_TEXT,
+                update.steered === true ? STEERED_TURN_TEXT : INTERRUPTED_TURN_TEXT,
             );
         } else {
             const error = update.error
@@ -2397,7 +2398,7 @@ function toSingleTuiTranscriptEntry(
             diagnostic: entry.outcome === "aborted"
                 ? resolveTuiDiagnostic(
                     "turn_interrupted",
-                    INTERRUPTED_TURN_TEXT,
+                    entry.steered === true ? STEERED_TURN_TEXT : INTERRUPTED_TURN_TEXT,
                 )
                 : resolveTuiDiagnostic(
                     "model_request_failed",

@@ -2936,6 +2936,7 @@ function isModelMessage(value: unknown): value is ModelMessage {
         && isModelStopReason(message.stopReason)
         && (message.errorMessage === undefined
             || typeof message.errorMessage === "string")
+        && (message.steered === undefined || message.steered === true)
         && message.content.every(isAssistantContent);
 }
 

@@ -370,6 +370,80 @@ test("a prompt queued during a tool batch joins the turn before the next request
     state.inbound.finishTurn();
 });
 
+for (const stop of ["release", "abort"] as const) {
+    test(`a turn stopped by ${stop} records ${stop === "release" ? "a steer" : "no steer"} through a reopen`, async () => {
+        const workspace = mkdtempSync(join(tmpdir(), "vera-steered-"));
+        temporaryWorkspaces.push(workspace);
+        const sessionPath = join(workspace, "session.jsonl");
+        const store = await SessionStore.create(sessionPath, {
+            sessionId: "steered",
+            cwd: workspace,
+        });
+        const channel = createInProcessChannel();
+        const events = new EngineEventBus();
+        const updates: AgentUpdate[] = [];
+        events.subscribe(createProtocolEncoder({ send: (update) => updates.push(update) }));
+        const adapter: ModelAdapter = {
+            stream(request) {
+                const stopped = new Promise<AssistantMessage>((resolve) => {
+                    request.signal?.addEventListener("abort", () => resolve({
+                        ...assistantText(""),
+                        content: [],
+                        stopReason: "aborted",
+                        errorMessage: String(request.signal?.reason),
+                    }), { once: true });
+                });
+                return {
+                    async *[Symbol.asyncIterator]() {
+                        channel.client.send({ type: "prompt", content: "what are you doing now" });
+                        channel.client.send(stop === "release"
+                            ? { type: "release_queued_prompts", mode: "all" }
+                            : { type: "abort" });
+                        const message = await stopped;
+                        yield { type: "error", error: new Error(message.errorMessage), message };
+                    },
+                    result: () => stopped,
+                };
+            },
+        };
+        const state: RunTurnState = {
+            messages: [],
+            store,
+            toolRuntime: new ToolRuntime(workspace),
+            inbound: new InboundCommandRouter(channel.engine, events),
+            events,
+            hooks: new ToolHooks(),
+            approvalMode: "auto",
+        };
+
+        channel.client.send({ type: "prompt", content: "chart a course for the crow's nest" });
+        const finished = await runTurn(adapter, "test", state);
+
+        expect(finished.stopReason).toBe("aborted");
+        const turnFinished = updates.find((update) => update.type === "turn_finished");
+        expect(turnFinished).toMatchObject({ type: "turn_finished", outcome: "aborted" });
+        const reopened = await SessionStore.open(sessionPath);
+        const stored = reopened.messages().at(-1);
+        const entry = projectTranscript(reopened.messages())
+            .find((candidate) => candidate.kind === "error");
+        if (stop === "release") {
+            expect(finished.steered).toBe(true);
+            expect(turnFinished).toMatchObject({ steered: true });
+            expect(stored).toMatchObject({ role: "assistant", steered: true });
+            expect(entry).toMatchObject({ kind: "error", outcome: "aborted", steered: true });
+            const batch = await state.inbound.startTurn();
+            expect(batch.prompt.content).toBe("what are you doing now");
+            state.inbound.finishTurn();
+        } else {
+            expect(finished.steered).toBeUndefined();
+            expect(turnFinished).not.toHaveProperty("steered");
+            expect(stored).not.toHaveProperty("steered");
+            expect(entry).toMatchObject({ kind: "error", outcome: "aborted" });
+            expect(entry).not.toHaveProperty("steered");
+        }
+    });
+}
+
 test("pre-turn context lands after each prompt and survives a reopen", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-hook-context-"));
     temporaryWorkspaces.push(workspace);
