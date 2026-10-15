@@ -208,12 +208,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
     margin-bottom: 16px; min-width: 0;
 }
 .table-scroll { overflow-x: auto; }
-table { width: 100%; min-width: 800px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-th, td { padding: 8px 10px; text-align: right; white-space: nowrap; }
-th { font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; }
-td { border-top: 1px solid var(--line); font-size: 12.5px; }
-th:first-child, td:first-child { text-align: left; }
-td.title {
+:where(.table-scroll) table { width: 100%; min-width: 800px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+:where(.table-scroll) th, :where(.table-scroll) td { padding: 8px 10px; text-align: right; white-space: nowrap; }
+:where(.table-scroll) th { font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: 0.04em; text-transform: uppercase; }
+:where(.table-scroll) td { border-top: 1px solid var(--line); font-size: 12.5px; }
+:where(.table-scroll) th:first-child, :where(.table-scroll) td:first-child { text-align: left; }
+:where(.table-scroll) td.title {
     max-width: 18rem; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap;
 }
