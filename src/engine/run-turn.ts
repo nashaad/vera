@@ -139,6 +139,7 @@ import {
 } from "./hooks.ts";
 import {
     InboundCommandRouter,
+    TurnSteeredError,
     type InboundTurnOutcome,
 } from "./inbound-command-router.ts";
 import type {
@@ -1557,6 +1558,10 @@ export async function runTurn(
             assistantMessage = {
                 ...assistantMessage,
                 durationMs: performance.now() - modelRequestStarted,
+                ...(assistantMessage.stopReason === "aborted"
+                    && turn.signal.reason instanceof TurnSteeredError
+                    ? { steered: true as const }
+                    : {}),
             };
             if (
                 state.effortPool !== undefined

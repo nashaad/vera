@@ -112,6 +112,7 @@ export interface ErrorTranscriptEntry {
     readonly kind: "error";
     readonly outcome?: "error" | "aborted";
     readonly detail?: string;
+    readonly steered?: true;
 }
 
 /**
@@ -740,6 +741,8 @@ export interface TurnFinishedUpdate {
     readonly turnTiming?: TurnTiming;
     readonly outcome?: "error" | "aborted";
     readonly error?: string;
+    // Set with outcome "aborted" when a queue release stopped the turn.
+    readonly steered?: true;
     /** The turn ended with no text, no tool call, and no reasoning. */
     readonly empty?: true;
     readonly usage?: SessionModelUsage;
@@ -2265,6 +2268,7 @@ export function createProtocolEncoder(
                     ? {} : { turnTiming: event.message.turnTiming }),
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
+                ...(event.message.steered === true ? { steered: true as const } : {}),
                 ...(isEmptyAssistantMessage(event.message)
                     ? { empty: true as const }
                     : {}),
@@ -2697,6 +2701,7 @@ export function projectTranscript(
                 kind: "error",
                 outcome,
                 ...(detail === undefined ? {} : { detail }),
+                ...(message.steered === true ? { steered: true as const } : {}),
             });
         }
         if (message.turnTiming !== undefined) {

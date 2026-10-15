@@ -225,7 +225,8 @@ test("empty Enter steers a released prompt that is still running", async () => {
             "the steered batch ran both held prompts",
         );
         // The released prompt's turn was stopped, not left to finish.
-        expect(pane).toContain("Interrupted");
+        expect(pane).toContain("Stopped for your message");
+        expect(pane).not.toContain("Interrupted");
 
         const userTexts = requests.at(-1)?.messages.flatMap((message) =>
             message.role !== "user"

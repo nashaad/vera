@@ -172,6 +172,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
             && (update.turnTiming === undefined || isTurnTiming(update.turnTiming))
+            && (update.steered === undefined || update.steered === true)
             && (update.empty === undefined || update.empty === true)
             && (update.usage === undefined || isSessionModelUsage(update.usage))
             && (update.extensionState === undefined || isExtensionSessionStates(update.extensionState))
@@ -889,7 +890,8 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
                 || outcome === "aborted")
             && (entry.detail === undefined
                 || (typeof entry.detail === "string"
-                    && entry.detail.trim().length > 0));
+                    && entry.detail.trim().length > 0))
+            && (entry.steered === undefined || entry.steered === true);
     }
     if (entry?.kind === "empty") {
         return true;

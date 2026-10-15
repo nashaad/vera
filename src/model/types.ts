@@ -168,6 +168,8 @@ export interface AssistantMessage {
     readonly turnTiming?: TurnTiming;
     readonly stopReason: ModelStopReason;
     readonly errorMessage?: string;
+    // An aborted turn that a queue release stopped to run the released prompts.
+    readonly steered?: true;
     /**
      * Carried on the message so a substitution survives replay: the transcript
      * is projected from stored messages, not from the update stream.

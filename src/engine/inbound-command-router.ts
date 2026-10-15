@@ -48,6 +48,14 @@ export interface SessionModelSettingsResult {
 export const PERMISSION_SYNC_WARNING =
     "The permission change took effect, but synchronizing it failed.";
 
+// The abort reason when a queue release stops the active turn.
+export class TurnSteeredError extends Error {
+    constructor() {
+        super("Turn steered");
+        this.name = "TurnSteeredError";
+    }
+}
+
 export class PermissionModeSyncError extends Error {
     readonly mode: ApprovalMode;
 
@@ -547,7 +555,9 @@ export class InboundCommandRouter {
             this.release = followUp === undefined
                 ? undefined
                 : this.newRelease(followUp.mode, followUp.boundary);
-            controller.abort(new Error("Turn aborted before it started"));
+            controller.abort(followUp === undefined || followUp.mode === "direct"
+                ? new Error("Turn aborted before it started")
+                : new TurnSteeredError());
         }
         this.emitPromptQueue();
         const context = {
@@ -728,7 +738,7 @@ export class InboundCommandRouter {
         this.emitPromptQueue();
         if (this.activeTurn !== undefined) {
             this.events.emit({ type: "abort_requested" });
-            this.activeTurn.abort(new Error("Turn steered"));
+            this.activeTurn.abort(new TurnSteeredError());
         }
         this.signalTurnAvailable();
     }
