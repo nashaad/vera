@@ -84,7 +84,7 @@ export function activate(vera: VeraExtensionApi): void {
         name: "artifact_write",
         permissionOperation: STORAGE_WRITE,
         description:
-            "Create or replace one of this session's markdown artifacts. The user reads it on the artifacts page and can comment on any block. A fenced block marked `html embed` runs as a sandboxed page, for players or charts.",
+            "Create or replace one of this session's markdown artifacts. The user reads it on the artifacts page and can comment on any block. A fenced block marked `html embed` runs as a sandboxed page, for players or charts. People read artifacts on a laptop or a phone. Keep each table row under 80 characters, counting all its cells together, so it fits on one line on a laptop.",
         inputSchema: {
             type: "object",
             properties: {
