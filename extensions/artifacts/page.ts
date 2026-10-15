@@ -657,6 +657,7 @@ function installStyle(): void {
     document.head.append(style);
 }
 
+// The 80-character table row limit in the artifact_write description (extension.ts) fits this 720px column; change both together.
 const PAGE_CSS = `
 .artifacts { max-width: 760px; margin: 0 auto; padding: 4px 0 64px; }
 .artifacts-artifact { max-width: 1100px; }
@@ -720,8 +721,8 @@ const PAGE_CSS = `
 .pb-body pre code { background: none; padding: 0; }
 .pb-body blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--line-2); color: var(--muted); }
 .pb-body a { color: var(--est); }
-.pb-body table { border-collapse: collapse; margin: 10px 0; }
-.pb-body th, .pb-body td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.pb-body table { display: block; width: max-content; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 10px 0; }
+.pb-body th, .pb-body td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
 .pb-body hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 .pt-thread { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.45; }
 .pt-thread .artifacts-avatar { margin-top: 6px; width: 24px; height: 24px; font-size: 11px; }
