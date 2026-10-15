@@ -25,8 +25,8 @@ import type { TuiState } from "../state.ts";
 
 /**
  * The rows the switcher lists: every connected model, favorites and recents
- * first. Reduction-hidden entries stay out; they are duplicates and dated
- * snapshots of rows already here, not models the pool is holding back.
+ * first. Reduction-hidden entries stay out unless they are favorites; an old
+ * model the user saved is still theirs to pick.
  */
 export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[] {
     const settings = focusedAgentState(rt).modelSettings;
@@ -35,7 +35,8 @@ export function modelSwitcherRows(rt: TuiRuntime): readonly TuiModelSwitcherRow[
     const efforts = lastEfforts(focusedAgentState(rt));
     const config = loadOptionalVeraConfig();
     return (settings?.availableModels ?? [])
-        .filter((model) => model.hiddenByDefault === undefined)
+        .filter((model) => model.hiddenByDefault === undefined
+            || favorites.has(`${model.provider}/${model.model}`))
         .map((model) => {
             const key = `${model.provider}/${model.model}`;
             const effort = efforts.get(key);
