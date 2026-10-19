@@ -92,13 +92,24 @@ describe("model switcher ordering", () => {
 
 describe("model switcher search", () => {
     const typed = (query: string) => searchedTuiModelSwitcher(started(), query);
+    const allConnected = () =>
+        handleTuiModelSwitcherKey(started(), { name: "g", ctrl: true }).state!;
+
+    test("typing in favorites reaches only favorites", () => {
+        expect(typed("gpt").rows.map((row) => row.label)).toEqual(["GPT-5.6"]);
+        expect(typed("qwen").rows).toEqual([]);
+        expect(switcherScopeLabel(typed("gpt"))).toBe("Search favorites");
+        expect(switcherHeader(typed("gpt"), 80)).toBe("Switch model · Search favorites");
+    });
 
     test("typing reaches a model from any provider", () => {
-        expect(typed("qwen").rows.map((row) => row.label)).toEqual(["qwen3:32b"]);
+        const searching = searchedTuiModelSwitcher(allConnected(), "qwen");
+        expect(searching.rows.map((row) => row.label)).toEqual(["qwen3:32b"]);
+        expect(switcherScopeLabel(searching)).toBe("Search all connected models");
     });
 
     test("typing reaches past the shortlist into the whole catalog", () => {
-        const searching = typed("gpt");
+        const searching = searchedTuiModelSwitcher(allConnected(), "gpt");
         expect(searching.rows.map((row) => row.label)).toEqual(["GPT-5.6", "GPT-5.6 mini"]);
         expect(searching.hidden).toBe(0);
         expect(browseRowLabel(searching)).toBe("More models");
@@ -116,7 +127,32 @@ describe("model switcher search", () => {
     });
 
     test("a match on the model id reaches a model the label does not name", () => {
-        expect(typed("sonnet").rows.map((row) => row.label)).toEqual(["Claude Sonnet 5"]);
+        expect(searchedTuiModelSwitcher(allConnected(), "sonnet").rows.map((row) => row.label))
+            .toEqual(["Claude Sonnet 5"]);
+    });
+
+    test("ctrl+g during a search keeps the query and runs it in the other scope", () => {
+        const favorites = typed("gpt");
+        const all = handleTuiModelSwitcherKey(favorites, { name: "g", ctrl: true }).state!;
+        expect(all.query).toBe("gpt");
+        expect(switcherScope(all)).toBe("all");
+        expect(all.rows.map((row) => row.label)).toEqual(["GPT-5.6", "GPT-5.6 mini"]);
+        const back = handleTuiModelSwitcherKey(all, { name: "g", ctrl: true, shift: true }).state!;
+        expect(back.query).toBe("gpt");
+        expect(switcherScope(back)).toBe("favorites");
+        expect(back.rows.map((row) => row.label)).toEqual(["GPT-5.6"]);
+    });
+
+    test("the current model and recents are skipped unless they are favorites", () => {
+        const state = started({
+            current: "ollama/qwen3:32b",
+            recents: ["anthropic/claude-sonnet-5"],
+        });
+        const missed = searchedTuiModelSwitcher(state, "qwen");
+        expect(missed.rows).toEqual([]);
+        expect(switcherEmptyMessage(missed))
+            .toBe("No favorites match. Ctrl+G searches all connected models.");
+        expect(searchedTuiModelSwitcher(state, "sonnet").rows).toEqual([]);
     });
 
     test("clearing the search restores the resting list", () => {
@@ -127,7 +163,11 @@ describe("model switcher search", () => {
     test("a search that matches nothing says so rather than offering providers", () => {
         const empty = typed("zzz");
         expect(empty.rows).toEqual([]);
-        expect(switcherEmptyMessage(empty)).toContain("No models match that search.");
+        expect(switcherEmptyMessage(empty))
+            .toBe("No favorites match. Ctrl+G searches all connected models.");
+        const catalog = searchedTuiModelSwitcher(allConnected(), "zzz");
+        expect(catalog.rows).toEqual([]);
+        expect(switcherEmptyMessage(catalog)).toContain("No models match that search.");
     });
 
     test("an empty catalog sends the user to providers", () => {
@@ -329,7 +369,11 @@ describe("model switcher card", () => {
             expect(at[1]).toBeGreaterThan(at[0]!);
             const all = handleTuiModelSwitcherKey(resting, { name: "g", ctrl: true }).state!;
             expect(await edges(all)).toEqual(at);
-            expect(await edges(searchedTuiModelSwitcher(resting, "claude"))).toEqual(at);
+            const searching = searchedTuiModelSwitcher(resting, "claude");
+            expect(await edges(searching)).toEqual(at);
+            const searchingFrame = setup.captureCharFrame();
+            expect(searchingFrame).toContain("Search favorites");
+            expect(searchingFrame).toContain("Ctrl+G scope");
         } finally {
             setup.renderer.destroy();
         }
@@ -358,6 +402,9 @@ describe("model switcher with no favorites", () => {
     test("typing still finds every model", () => {
         const state = searchedTuiModelSwitcher(startTuiModelSwitcher(none), "opus");
         expect(state.rows.map((row) => row.label)).toEqual(["Claude Opus 5"]);
+        expect(switcherScope(state)).toBe("favorites");
+        expect(switcherScopeLabel(state)).toBe("Search all connected models");
+        expect(switcherHeader(state, 80)).toBe("Switch model · Search all connected models");
     });
 });
 
@@ -473,11 +520,23 @@ describe("model switcher favoriting", () => {
 
     test("a search typed before the models arrive switches to its first match", () => {
         const empty = startTuiModelSwitcher([], {});
-        const typed = searchedTuiModelSwitcher(empty, "mini");
+        const typed = searchedTuiModelSwitcher(empty, "opus");
         const next = refreshedTuiModelSwitcher(typed, rows, []);
         const enter = handleTuiModelSwitcherKey(next, { name: "return" });
         expect(enter.browse).toBeUndefined();
-        expect(enter.selection?.label).toBe("GPT-5.6 mini");
+        expect(enter.selection?.label).toBe("Claude Opus 5");
+    });
+
+    test("a non-favorite query narrows once favorites arrive", () => {
+        const empty = startTuiModelSwitcher([], {});
+        const typed = searchedTuiModelSwitcher(empty, "mini");
+        expect(switcherScopeLabel(typed)).toBe("Search all connected models");
+        const next = refreshedTuiModelSwitcher(typed, rows, []);
+        expect(next.query).toBe("mini");
+        expect(next.rows).toEqual([]);
+        expect(switcherScopeLabel(next)).toBe("Search favorites");
+        expect(switcherEmptyMessage(next))
+            .toBe("No favorites match. Ctrl+G searches all connected models.");
     });
 
     test("the footer names the action the highlighted row would take", () => {

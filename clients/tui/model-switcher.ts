@@ -194,7 +194,8 @@ export const MODEL_SWITCHER_MATCHES = 20;
 /**
  * At rest the switcher answers "which model now?" with a handful: the current
  * model, your favorites, then what you used last. With no favorites it lists
- * nothing and says how to get some. Everything else is a search away.
+ * nothing and says how to get some. Search follows the scope, and with no
+ * favorites it covers the catalog.
  */
 function orderedRows(
     allRows: readonly TuiModelSwitcherRow[],
@@ -209,7 +210,8 @@ function orderedRows(
 } {
     const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
     if (terms.length > 0) {
-        const matched = allRows
+        const pool = searchPool(allRows, scope);
+        const matched = pool
             .filter((row) => terms.every((term) => searchable(row).includes(term)))
             .toSorted((left, right) => searchRank(right, terms) - searchRank(left, terms));
         const shown = matched.slice(0, MODEL_SWITCHER_MATCHES);
@@ -260,6 +262,23 @@ function orderedRows(
         }
     }
     return { rows, hidden: allRows.length - rows.length, headings };
+}
+
+/** Favorites scope searches favorites once any exist. An empty pool still searches the catalog. */
+function searchesFavoritesOnly(
+    allRows: readonly TuiModelSwitcherRow[],
+    scope: TuiModelSwitcherScope,
+): boolean {
+    return scope === "favorites" && allRows.some((row) => row.favorite === true);
+}
+
+function searchPool(
+    allRows: readonly TuiModelSwitcherRow[],
+    scope: TuiModelSwitcherScope,
+): readonly TuiModelSwitcherRow[] {
+    return searchesFavoritesOnly(allRows, scope)
+        ? allRows.filter((row) => row.favorite === true)
+        : allRows;
 }
 
 /** Providers in the order the catalog first names them, so the groups do not shuffle. */
@@ -528,7 +547,7 @@ export function createTuiModelSwitcherView(
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
 
-            const hint = state.query.trim().length === 0 ? "Ctrl+G scope · esc" : "esc";
+            const hint = "Ctrl+G scope · esc";
             const header = dialogHeaderNode(
                 renderer,
                 switcherHeader(state, switcherContentWidth(renderer) - Bun.stringWidth(hint) - 2),
@@ -722,7 +741,9 @@ export function switcherEmptyLines(
 ): readonly string[] {
     if (state.allRows.length === 0) return ["No models. ⏎ connects a provider."];
     if (state.query.trim().length !== 0) {
-        return ["No models match that search. /models adds a provider."];
+        return searchesFavoritesOnly(state.allRows, switcherScope(state))
+            ? ["No favorites match. Ctrl+G searches all connected models."]
+            : ["No models match that search. /models adds a provider."];
     }
     return [
         "Your favorite models land here.",
@@ -803,7 +824,11 @@ export function switcherCaption(state: TuiModelSwitcherState): string {
 
 /** What the header says the list holds, in the browse page's words. */
 export function switcherScopeLabel(state: TuiModelSwitcherState): string {
-    if (state.query.trim().length !== 0) return "Search all connected models";
+    if (state.query.trim().length !== 0) {
+        return searchesFavoritesOnly(state.allRows, switcherScope(state))
+            ? "Search favorites"
+            : "Search all connected models";
+    }
     return switcherScope(state) === "all" ? "All connected models" : "Favorites";
 }
 

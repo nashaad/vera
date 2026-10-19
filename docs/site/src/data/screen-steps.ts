@@ -339,6 +339,11 @@ const MODELS_TYPED: SketchRow[] = [
     { label: 'jollyroger/model-large', hit: 'large' },
 ];
 
+const FAVORITE_MATCHES: SketchRow[] = [
+    { label: 'model-large', hit: 'large', favorite: true },
+    { label: 'model-large-local', hit: 'large', favorite: true },
+];
+
 const EFFORT_ROWS: SketchRow[] = [{ label: 'low' }, { label: 'medium' }, { label: 'high' }];
 
 const CONVERSATIONS: SketchRow[] = [
@@ -363,6 +368,15 @@ function models(at: number): SketchDialog {
 
 function modelsTyped(at: number): SketchDialog {
     return { title: 'Switch model', search: 'large', searchFocused: true, rows: active(MODELS_TYPED, at) };
+}
+
+function favoriteMatches(at: number): SketchDialog {
+    return {
+        title: 'Switch model',
+        search: 'large',
+        searchFocused: true,
+        rows: active(FAVORITE_MATCHES, at),
+    };
 }
 
 const EFFORT: SketchDialog = { title: 'Reasoning effort', rows: active(EFFORT_ROWS, 1) };
@@ -418,17 +432,17 @@ export const screenSteps: Record<ScreenStepsName, ScreenSteps> = {
             {
                 action: 'Type part of a model name.',
                 keys: [],
-                result: 'The list narrows. Search covers every connected model, not only favorites.',
+                result: 'The list narrows to favorites. Ctrl+G searches every connected model.',
                 composer: '',
                 composerFocused: false,
-                dialog: modelsTyped(0),
+                dialog: favoriteMatches(0),
             },
             {
                 keys: ['Down'],
-                result: 'The highlight moves to the next match.',
+                result: 'The highlight moves to the next favorite.',
                 composer: '',
                 composerFocused: false,
-                dialog: modelsTyped(1),
+                dialog: favoriteMatches(1),
             },
             {
                 keys: ['Enter'],
