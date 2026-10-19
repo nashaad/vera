@@ -30,15 +30,17 @@ removing a favorite does not clear a default assignment.
 <div data-widget="screen-steps" data-steps="switch-model"></div>
 
 1. Enter `/model` to open **Switch model**.
-2. Type a model name. Search includes connected models outside your favorites.
+2. Type a model name. On Favorites, search stays inside your favorites. Ctrl+G searches every connected model.
 3. Use Up/Down to highlight a model, then press Enter.
 4. If the model offers reasoning effort levels, choose one to finish.
 
 The list opens on your current model, your favorites, and the models you used
 recently in this conversation. Ctrl+G swaps it for every connected model,
-grouped by provider, and back. Typing searches every connected model and ranks
-one list by how well each name matches. Ctrl+F adds or removes the highlighted
-favorite.
+grouped by provider, and back. Typing searches favorites. Ctrl+G during that
+search keeps what you typed and searches every connected model. The current
+model and recent models are included only when they are favorites. With no
+favorites, typing searches every connected model. Ctrl+F adds or removes the
+highlighted favorite.
 
 Switch model has no filters, sort, scores, prices, or details panel. Those are
 in `/models`.
@@ -106,8 +108,9 @@ page, and Ctrl+F does it in Switch model.
 
 Adding a provider saves no favorites. Until you add one, Switch model lists
 nothing at rest: type a name to search every connected model, or press Ctrl+G
-to list them all. Recommended in `/models` shows Vera's curated picks for the
-connected providers.
+to list them all. Once you have a favorite, typing searches only favorites.
+Recommended in `/models` shows Vera's curated picks for the connected
+providers.
 
 Favoriting saves a shortcut. It does not switch the conversation or make a
 verification request. Removing a favorite keeps its verification results and
@@ -296,7 +299,7 @@ any picker control moves into Search.
 | Ctrl+R | | Rename the highlighted model. |
 | Ctrl+Y | | Verify the highlighted model. |
 | Ctrl+K | | Open actions for the highlighted model. |
-| Ctrl+G | | Move to the next scope: Favorites, Recommended, All connected. |
+| Ctrl+G | Swap Favorites and All connected, including during a search. | Move to the next scope: Favorites, Recommended, All connected. |
 | Ctrl+D / Ctrl+U | Move half a page down / up. | Move half a page down / up. |
 | Space in the list | | Fold or unfold a provider group. |
 | Ctrl+A outside Search | | Show or hide extra variants. |

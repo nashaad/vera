@@ -27,9 +27,10 @@ available; it does not select, favorite, verify, or assign a default model.
 
 Open **Switch model** with `/model`. It lists your current model, your
 favorites, and recent models; before you have favorites it lists nothing. Type
-to search every connected model, or press Ctrl+G to list them all. Highlight a
-model and press Enter. If it offers effort levels, choose one to start the
-conversation.
+to search every connected model, or press Ctrl+G to list them all. After you
+save a favorite, typing searches favorites and Ctrl+G searches every connected
+model. Highlight a model and press Enter. If it offers effort levels, choose
+one to start the conversation.
 
 Favorites save models for quick access. You do not need to favorite a model
 before selecting it, verifying it, or assigning it as a default. See
