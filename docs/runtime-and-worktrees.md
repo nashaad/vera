@@ -60,6 +60,10 @@ launcher to stop a trial.
 > [!CAUTION]
 > Do not run two hosts against one runtime directory.
 
+A host stops itself within about half a minute once its socket file is deleted
+or replaced, for example when a script deletes its home. Run `vera host stop`
+first anyway, so the host closes while its home still exists.
+
 ## Recover a host connection
 
 **Reconnect host** in the Ctrl+P palette starts or replaces the current home's

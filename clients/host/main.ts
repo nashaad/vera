@@ -12,6 +12,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { waitForCheckoutRemoval } from "./checkout-watch.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
+import { waitForSocketLoss } from "./socket-watch.ts";
 import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
 import {
@@ -61,6 +62,7 @@ await runResidentHostProcess(host, {
     waitForCheckoutRemoval: developmentSource === undefined
         ? undefined
         : () => waitForCheckoutRemoval(developmentSource),
+    waitForSocketLoss: () => waitForSocketLoss(host.server.socketPath),
 });
 
 /**

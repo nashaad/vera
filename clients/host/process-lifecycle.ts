@@ -12,6 +12,7 @@ export interface ShutdownSignalWait {
 export interface ResidentHostProcessOptions {
     readonly waitForSignal?: () => ShutdownSignalWait;
     readonly waitForCheckoutRemoval?: () => ShutdownSignalWait;
+    readonly waitForSocketLoss?: () => ShutdownSignalWait;
     readonly exit?: (code: number) => void;
     readonly stopAbsorbingFaults?: () => void;
     readonly closeDeadlineMs?: number;
@@ -32,15 +33,18 @@ export async function runResidentHostProcess(
     const exit = options.exit ?? ((code) => process.exit(code));
     const signal = (options.waitForSignal ?? waitForShutdownSignal)();
     const checkout = options.waitForCheckoutRemoval?.();
+    const socket = options.waitForSocketLoss?.();
     try {
         await Promise.race([
             signal.promise,
             host.shutdownRequested,
             ...(checkout === undefined ? [] : [checkout.promise]),
+            ...(socket === undefined ? [] : [socket.promise]),
         ]);
     } finally {
         signal.dispose();
         checkout?.dispose();
+        socket?.dispose();
         options.stopAbsorbingFaults?.();
         const deadlineMs = options.closeDeadlineMs ?? HOST_CLOSE_DEADLINE_MS;
         const outcome = await closeBeforeDeadline(host, deadlineMs);
