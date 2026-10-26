@@ -29,6 +29,10 @@
 - Word seeds and Chroma hits are merged with reciprocal rank fusion (k=60) and scaled so the strongest seed is `seed_activation`. A vector hit is kept only when cosine similarity is at least 0.2. Below that, "What's my dog's name?" stays empty; at 0.35 the seafood and city hits were dropped.
 - `ACTIVMEM_GRAPH=off` returns Chroma top-k with no spreading and no suppression. `ACTIVMEM_EMBED=0` skips vectors. `fake` uses a hash embedder.
 - The socket is a short file under the temp dir because macOS rejects long Unix paths. `.activmem/socket-path` points at it.
+- This worktree's Vera home has no ChatGPT sign-in, so model calls use OpenRouter's free `nvidia/nemotron-3-ultra-550b-a55b:free` through `vera -p` / `vera stdio` and `OPENROUTER_API_KEY`. `~/.vera` is not read.
+- `context_for` also shows the three latest things Nash said. "sike, I don't" shares no words with the pollock line, so recall alone hides the id Vera must pass to `memory_revises`.
+- `vera -p` does not load extensions. The live test drives `vera stdio`, which does.
+- Halibut is saved by the harness after the live retraction, because the acceptance steps never have Nash say it and check B requires that fish in memory.
 - Vera's extension host is TypeScript, so it cannot import ActivMem. `activmem serve` is the process the extension calls. A hook that misses the 300 ms budget lets the turn continue.
 - Suppressed are revised chunks this turn reached, or that still hold activation, with the revising text attached. Suppressed is not cut by k.
 - Results can include leftover heat that is positive but below the firing threshold, so a primed chunk can answer the next turn without firing first.

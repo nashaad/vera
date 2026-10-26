@@ -1,0 +1,35 @@
+{
+  "condition": "control",
+  "run": 5,
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "sessions": [
+    {
+      "prompt": "I really like pollock.",
+      "reply": "Nice! Are you thinking of the fish (great for fish tacos, fish and chips, or a simple pan-fry) or Jackson Pollock's drip paintings?",
+      "tools": []
+    },
+    {
+      "prompt": "sike, I don't.",
+      "reply": "There's no memory in the recent context that matches \"sike, I don't\" \u2014 the only recent item is \"I really like pollock.\" \n\nAre you retracting something else, or just having fun? If there's a specific memory you want me to revise, point me to it and I'll call `memory_revises` with the correct item ID.",
+      "tools": []
+    },
+    {
+      "prompt": "What seafood should I order tonight?",
+      "reply": "For seafood tonight, it depends on what you're in the mood for and what's available near you. Here are a few directions:\n\n**If you want something classic & reliable:**\n- **Salmon** \u2014 versatile (grilled, roasted, pan-seared), widely available, hard to mess up\n- **Shrimp** \u2014 quick-cooking, great in pasta, tacos, stir-fry, or just garlic-butter\n- **Cod or halibut** \u2014 mild, flaky, takes well to almost any preparation\n\n**If you want something special:**\n- **Scallops** \u2014 seared with a golden crust, pair with risotto or corn pur\u00e9e\n- **Lobster roll or whole lobster** \u2014 if you're treating yourself\n- **Whole branzino or snapper** \u2014 roasted with herbs, lemon, olive oil\n\n**If you're ordering takeout/delivery:**\n- **Sushi/sashimi** \u2014 safe bet for fresh raw fish\n- **Fish tacos** \u2014 ideally with cabbage slaw and crema\n- **Cioppino or bouillabaisse** \u2014 if a good seafood stew is on the menu\n- **Grilled octopus** \u2014 increasingly common at Mediterranean spots\n\n**Quick decision framework:**\n| Craving | Order this |\n|---------|------------|\n| Light & clean | Sashimi, ceviche, crudo |\n| Rich & buttery | Lobster, scallops, black cod |\n| Comforting | Fish & chips, chowder, shrimp pasta |\n| Spicy | Spicy tuna roll, shrimp diavolo, Cajun blackened fish |\n\nAny dietary preferences, cuisine leanings, or price range I should factor in?",
+      "tools": []
+    },
+    {
+      "prompt": "Why not pollock?",
+      "reply": "Fair point \u2014 pollock is a perfectly good choice and I should've included it. It's the quiet workhorse of the seafood world:\n\n**Why pollock works:**\n- **Mild, lean, flaky** \u2014 similar to cod but usually cheaper\n- **Fish & chips / fish tacos / fish sandwiches** \u2014 it's what you're often getting in all three\n- **Surimi (imitation crab)** \u2014 that's pollock\n- **Sustainable** \u2014 Alaska pollock is one of the best-managed fisheries globally\n- **Freezes well** \u2014 so quality holds up in grocery stores and takeout\n\n**Why it doesn't get top billing on menus:**\n- It's rarely *featured* at restaurants \u2014 more of a behind-the-scenes staple\n- Less fat than cod/halibut, so it can dry out if overcooked\n- Not \"sexy\" \u2014 no one posts Instagram stories of a pollock fillet\n\nIf you like it, order it confidently \u2014 especially as fish and chips, a fried sandwich, or battered tacos. It delivers exactly what those dishes need.\n\nWant a specific prep idea for pollock tonight?",
+      "tools": []
+    }
+  ],
+  "injected": "[recent] filler2998-alpha2998-beta2998-213b (nash): Filler2998 alpha2998 beta2998 gamma2998.\n[recent] filler2999-alpha2999-beta2999-092e (nash): Filler2999 alpha2999 beta2999 gamma2999.\n[recent] pollock-2df5 (nash): Why not pollock?\n[current] fair-point-pollock-da97 (vera): Fair point \u2014 pollock is a perfectly good choice and I should've included it. It's the quiet workhorse of the seafood world:\n\n**Why pollock works:**\n- **Mild, lean, flaky** \u2014 similar to cod but usually cheaper\n- **Fish & chips / fish tacos / fish sandwiches** \u2014 it's what you're often getting in all three\n- **Surimi (imitation crab)** \u2014 that's pollock\n- **Sustainable** \u2014 Alaska pollock is one of the best-managed fisheries globally\n- **Freezes well** \u2014 so quality holds up in grocery stores and takeout\n\n**Why it doesn't get top billing on menus:**\n- It's rarely *featured* at restaurants \u2014 more of a behind-the-scenes staple\n- Less fat than cod/halibut, so it can dry out if overcooked\n- Not \"sexy\" \u2014 no one posts Instagram stories of a pollock fillet\n\nIf you like it, order it confidently \u2014 especially as fish and chips, a fried sandwich, or battered tacos. It delivers exactly what those dishes need.\n\nWant a specific prep idea for pollock tonight?\n[current] seafood-tonight-depends-482d (vera): For seafood tonight, it depends on what you're in the mood for and what's available near you. Here are a few directions:\n\n**If you want something classic & reliable:**\n- **Salmon** \u2014 versatile (grilled, roasted, pan-seared), widely available, hard to mess up\n- **Shrimp** \u2014 quick-cooking, great in pasta, tacos, stir-fry, or just garlic-butter\n- **Cod or halibut** \u2014 mild, flaky, takes well to almost any preparation\n\n**If you want something special:**\n- **Scallops** \u2014 seared with a golden crust, pair with risotto or corn pur\u00e9e\n- **Lobster roll or whole lobster** \u2014 if you're treating yourself\n- **Whole branzino or snapper** \u2014 roasted with herbs, lemon, olive oil\n\n**If you're ordering takeout/delivery:**\n- **Sushi/sashimi** \u2014 safe bet for fresh raw fish\n- **Fish tacos** \u2014 ideally with cabbage slaw and crema\n- **Cioppino or bouillabaisse** \u2014 if a good seafood stew is on the menu\n- **Grilled octopus** \u2014 increasingly common at Mediterranean spots\n\n**Quick decision framework:**\n| Craving | Order this |\n|---------|------------|\n| Light & clean | Sashimi, ceviche, crudo |\n| Rich & buttery | Lobster, scallops, black cod |\n| Comforting | Fish & chips, chowder, shrimp pasta |\n| Spicy | Spicy tuna roll, shrimp diavolo, Cajun blackened fish |\n\nAny dietary preferences, cuisine leanings, or price range I should factor in?\n[current] memory-recent-context-59dd (vera): There's no memory in the recent context that matches \"sike, I don't\" \u2014 the only recent item is \"I really like pollock.\" \n\nAre you retracting something else, or just having fun? If there's a specific memory you want me to revise, point me to it and I'll call `memory_revises` with the correct item ID.\n[current] nice-thinking-fish-dff0 (vera): Nice! Are you thinking of the fish (great for fish tacos, fish and chips, or a simple pan-fry) or Jackson Pollock's drip paintings?\n[current] seafood-order-tonight-fd7e (nash): What seafood should I order tonight?\nIf Nash retracts or replaces one of these, call memory_revises with the new wording and that item's id.",
+  "a": false,
+  "b": false,
+  "c": false,
+  "d": true,
+  "judge_c": "no\nno",
+  "judge_d": "yes\nno",
+  "passed": false
+}

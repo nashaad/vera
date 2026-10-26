@@ -54,6 +54,21 @@ class VectorStore:
         )
         self.known().add(item_id)
 
+    def add_many(self, rows: list[tuple[str, str, str, dict]], batch: int = 128) -> None:
+        """rows are (item_id, document, embed_text, metadata). Skips ids already stored."""
+        pending = [row for row in rows if row[0] not in self.known()]
+        for start in range(0, len(pending), batch):
+            chunk = pending[start:start + batch]
+            embedded = self._embedding.embed_documents([row[2] for row in chunk])
+            ids = [row[0] for row in chunk]
+            documents = [row[1] for row in chunk]
+            metadatas = []
+            for row in chunk:
+                clean = {key: value for key, value in row[3].items() if value is not None}
+                metadatas.append(clean or {"item_id": row[0]})
+            self._open().upsert(ids=ids, documents=documents, embeddings=embedded, metadatas=metadatas)
+            self.known().update(ids)
+
     def query(self, text: str, k: int) -> list[tuple[str, float]]:
         if k <= 0 or not self.known():
             return []

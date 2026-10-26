@@ -1,5 +1,36 @@
 # Results
 
+## Live acceptance
+
+Model: `nvidia/nemotron-3-ultra-550b-a55b:free` (OpenRouter). ActivMem 1 / 5. Control failed C or D in 5 / 5. About 60 model calls. No usage limit hit.
+
+Vera called `memory_revises` on 4 of 5 ActivMem runs. The seafood reply named halibut only once. The other replies were generic menus, and "Why not pollock?" often recommended pollock.
+
+## Hard scenarios
+
+ActivMem 9 / 9. Plain Chroma, graph off, 3 / 9 (cod, dog, Maya).
+
+| # | ActivMem | Plain Chroma |
+|---|---|---|
+| 1 fish | halibut first, pollock suppressed | no suppression |
+| 2 seafood | halibut 0.980, pollock suppressed | no suppression |
+| 3 cities | Berlin current; Toronto and Lisbon suppressed | Toronto ranks above Berlin |
+| 4 time | Corvine now, Acme in 2020 | no true_at filter |
+| 5 cod | no record | no record |
+| 6 dog | nothing | nothing |
+| 7 decoy | halibut, then inferred tuna | tuna not kept below a confirmed line |
+| 8 Maya | bakery via Sam | bakery is already a vector neighbour |
+| 9 Priya | found from leftover heat | not found |
+
+## Latency at 50,000 real chunks
+
+Median recall 121.3 ms (min 108.1, max 188.4) over 20 warmed calls. Embedding the question was about 164 ms of the slower calls. Nodes touched: 39. Context size: 650 characters with the graph, 125 for plain Chroma. "What seafood do I like?" ranked "sike, I don't" first, with pollock suppressed.
+
+## Not run
+
+LongMemEval-S, LoCoMo, and `demo/my_history_export.json`.
+
+
 ## Hard scenarios
 
 `ACTIVMEM_RUN_VECTORS=1 uv run python demo/hard.py` — 9 / 9 passed.

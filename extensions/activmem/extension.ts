@@ -7,11 +7,11 @@ import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
 const HOOK_BUDGET_MS = 300;
 
 const TOOL_DESCRIPTION = [
-    "Record that Nash just took back or replaced an earlier memory.",
-    "Call this on your own when his message retracts, corrects, or supersedes",
-    "a memory you were shown. new_text is what he said now.",
-    "old_item_id is the id in brackets on the memory he is changing.",
-    "Do not call it for a brand new fact.",
+    "Required when Nash takes back, denies, or replaces a memory you were shown.",
+    "Call it before you answer, even if his words share nothing with the old sentence",
+    "(for example \"sike, I don't\").",
+    "new_text is his exact words. old_item_id is the id in brackets.",
+    "Do not only agree in prose. Do not call it for a brand-new fact.",
 ].join(" ");
 
 export function activate(vera: VeraExtensionApi): void {

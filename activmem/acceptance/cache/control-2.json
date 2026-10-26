@@ -1,0 +1,43 @@
+{
+  "condition": "control",
+  "run": 2,
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "sessions": [
+    {
+      "prompt": "I really like pollock.",
+      "reply": "Nice! Pollock's a great choice\u2014mild, flaky, and super versatile. It works well in fish tacos, fish and chips, chowders, or just pan-seared with lemon and herbs. Do you have a favorite way to prepare it?",
+      "tools": []
+    },
+    {
+      "prompt": "sike, I don't.",
+      "reply": "Done. The memory has been updated: \"I really like pollock\" \u2192 \"I don't like pollock.\"",
+      "tools": [
+        {
+          "tool": "memory_revises",
+          "args": {
+            "new_text": "I don't like pollock.",
+            "old_item_id": "like-pollock-71c2"
+          }
+        }
+      ]
+    },
+    {
+      "prompt": "What seafood should I order tonight?",
+      "reply": "That depends on what you're in the mood for! A few directions:\n\n**Light & fresh:** Oysters, ceviche, crudo, or a chilled shrimp cocktail  \n**Rich & buttery:** Lobster roll, crab cakes, butter-poached lobster, or scallops  \n**Grilled/wood-fired:** Whole branzino, swordfish steak, or salmon  \n**Steamed/classic:** Mussels in white wine broth, clams, or Dungeness crab  \n**Fried/comfort:** Fish & chips, fried clams, or a shrimp po'boy  \n**Raw bar adventure:** A tower with a little of everything\n\nAny preferences\u2014cuisine style, cooked vs. raw, budget, or something you've been craving?",
+      "tools": []
+    },
+    {
+      "prompt": "Why not pollock?",
+      "reply": "Fair question! Pollock's a solid choice\u2014mild, flaky, affordable, and sustainable. It's the workhorse behind fish sticks, Filet-O-Fish, and a lot of fish & chips. Great for tacos, chowders, or a simple pan-fry with lemon.\n\nOnly reasons you *wouldn't* pick it tonight:\n- You want something richer (halibut, sablefish, salmon)\n- You're after a \"special occasion\" texture\u2014pollock's more everyday\n- You want raw applications (not a sashimi-grade fish)\n\nSince halibut's your favorite, maybe that's the move? Or if you want pollock-style mild but a step up: cod, haddock, or hake.\n\nWhat's the vibe\u2014casual weeknight, or something nicer?",
+      "tools": []
+    }
+  ],
+  "injected": "[recent] filler2998-alpha2998-beta2998-213b (nash): Filler2998 alpha2998 beta2998 gamma2998.\n[recent] filler2999-alpha2999-beta2999-092e (nash): Filler2999 alpha2999 beta2999 gamma2999.\n[recent] pollock-2df5 (nash): Why not pollock?\n[current] fair-question-pollock-e8a2 (vera): Fair question! Pollock's a solid choice\u2014mild, flaky, affordable, and sustainable. It's the workhorse behind fish sticks, Filet-O-Fish, and a lot of fish & chips. Great for tacos, chowders, or a simple pan-fry with lemon.\n\nOnly reasons you *wouldn't* pick it tonight:\n- You want something richer (halibut, sablefish, salmon)\n- You're after a \"special occasion\" texture\u2014pollock's more everyday\n- You want raw applications (not a sashimi-grade fish)\n\nSince halibut's your favorite, maybe that's the move? Or if you want pollock-style mild but a step up: cod, haddock, or hake.\n\nWhat's the vibe\u2014casual weeknight, or something nicer?\n[current] depends-re-mood-9f41 (vera): That depends on what you're in the mood for! A few directions:\n\n**Light & fresh:** Oysters, ceviche, crudo, or a chilled shrimp cocktail  \n**Rich & buttery:** Lobster roll, crab cakes, butter-poached lobster, or scallops  \n**Grilled/wood-fired:** Whole branzino, swordfish steak, or salmon  \n**Steamed/classic:** Mussels in white wine broth, clams, or Dungeness crab  \n**Fried/comfort:** Fish & chips, fried clams, or a shrimp po'boy  \n**Raw bar adventure:** A tower with a little of everything\n\nAny preferences\u2014cuisine style, cooked vs. raw, budget, or something you've been craving?\n[current] nice-pollock-great-678a (vera): Nice! Pollock's a great choice\u2014mild, flaky, and super versatile. It works well in fish tacos, fish and chips, chowders, or just pan-seared with lemon and herbs. Do you have a favorite way to prepare it?\n[current] seafood-order-tonight-fd7e (nash): What seafood should I order tonight?\n[current] halibut-favourite-fish-88eb (nash): Halibut is my favourite fish.\n[revised] like-pollock-71c2 (nash): I really like pollock.\n  taken back by like-pollock-6b84: I don't like pollock.\nIf Nash retracts or replaces one of these, call memory_revises with the new wording and that item's id.",
+  "a": false,
+  "b": false,
+  "c": false,
+  "d": false,
+  "judge_c": "recommend pollock: no\ntook it back: no",
+  "judge_d": "recommend pollock: yes\ntook it back: no",
+  "passed": false
+}

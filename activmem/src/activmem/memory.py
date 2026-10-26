@@ -220,7 +220,7 @@ class ActivMem:
         result = self.recall(next_message, k=k)
         return {
             "session": session,
-            "context": format_context(result),
+            "context": _context_with_recent(self, result),
             "recall": result.to_dict(),
         }
 
@@ -326,6 +326,41 @@ def _learned(learned_at: str | None) -> str:
     if learned_at is None:
         return utc_now()
     return check_as_of(learned_at)
+
+
+def _context_with_recent(mem: ActivMem, result: RecallResult) -> str:
+    """Recall, plus the latest things Nash said.
+
+    A retraction such as "sike, I don't" shares no words with the belief it
+    cancels, so recall alone would hide the item id Vera has to name.
+    """
+    shown = {hit.item_id for hit in result.results} | {hit.item_id for hit in result.suppressed}
+    recent: list[str] = []
+    for event in reversed(mem.log.events):
+        if event.get("type") != "save" or event.get("actor") != "nash":
+            continue
+        item_id = event.get("item_id")
+        if not item_id or item_id in shown or item_id not in mem.index.graph:
+            continue
+        if mem.index.graph.nodes[item_id].get("revised_by"):
+            continue
+        recent.append(f"[recent] {item_id} (nash): {event.get('text')}")
+        if len(recent) == 3:
+            break
+    body = format_context(result)
+    if not recent:
+        return body
+    tail = (
+        "If the user takes back, denies, or contradicts a memory above, you must call "
+        "memory_revises before you answer. new_text is their exact words. "
+        "old_item_id is the id in brackets. Saying you understand is not enough."
+    )
+    lines = list(reversed(recent))
+    if body:
+        lines.append(body)
+    else:
+        lines.append(tail)
+    return "\n".join(lines)
 
 
 def _source_key(source: str | None, source_line: int | None) -> tuple[str, int] | None:
