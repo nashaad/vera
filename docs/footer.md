@@ -43,7 +43,8 @@ slots in the first two columns, and on the right for the last two.
 
 When a row runs short, the item in the highest-numbered slot shortens first,
 then steps aside. Slot 1 holds on longest. The key hints never step aside,
-so the way to the keys card is always visible.
+and when they shorten `Ctrl+P commands` goes first, so the way to the keys
+card is always visible, including while a turn is stopping.
 
 The activity strip keeps its space while it has nothing to show, so the
 items beside it do not move when a turn starts or ends.

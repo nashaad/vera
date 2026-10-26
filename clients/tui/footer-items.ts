@@ -21,7 +21,7 @@ export function footerItemContents(facts: FooterItemFacts): FooterItemContents {
                 ? []
                 : [[{ text: facts.status.text, tone: "muted", color: facts.status.color }]],
         },
-        keys: { forms: dotForms(facts.keys, "muted") },
+        keys: { forms: keyHintForms(facts.keys) },
         limits: { forms: facts.limits.map((form) => [muted(form)]) },
         activity: {
             forms: facts.activity.length === 0 ? [] : [facts.activity],
@@ -48,6 +48,17 @@ function dotForms(text: string, tone: TuiStatusTone): TuiStatusChunk[][] {
     const forms: TuiStatusChunk[][] = [];
     for (let end = parts.length; end >= 1; end -= 1) {
         forms.push([{ text: parts.slice(0, end).join(" · "), tone }]);
+    }
+    return forms;
+}
+
+// "a · b", then "b": the last hint opens the keys card, so it goes last.
+function keyHintForms(text: string): TuiStatusChunk[][] {
+    if (text.length === 0) return [];
+    const parts = text.split(" · ");
+    const forms: TuiStatusChunk[][] = [];
+    for (let start = 0; start < parts.length; start += 1) {
+        forms.push([muted(parts.slice(start).join(" · "))]);
     }
     return forms;
 }

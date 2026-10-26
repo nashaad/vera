@@ -123,6 +123,46 @@ test("Ctrl+C while a stop is in flight quits the TUI", async () => {
     }
 }, 15_000);
 
+test("while a stop is in flight the footer still names the keys card", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-abort-hint-"));
+    const sent: ClientCommand[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => {
+            const { client } = slowTurnDependencies(["SLOW ANSWER"], sent);
+            // The host never acts on the abort, so the client stays stopping.
+            return {
+                client: {
+                    ...client,
+                    async send(command): Promise<void> {
+                        if (command.type === "abort") {
+                            sent.push(command);
+                            return;
+                        }
+                        await client.send(command);
+                    },
+                },
+            };
+        },
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("long answer please");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
+
+        session.sendKey("Escape");
+        const pane = await session.waitForVisiblePane("stopping…");
+        expect(pane).toContain("Ctrl+X h keys");
+        expect(pane).not.toContain(READY);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("mid-turn the keys card closes with Ctrl+X h, since Escape stops the turn", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-keys-card-turn-"));
     const sent: ClientCommand[] = [];

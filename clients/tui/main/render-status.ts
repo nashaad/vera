@@ -201,7 +201,10 @@ export function renderStatus(rt: TuiRuntime): void {
         tuiDevInstancePrefix(),
         rt.statusNotice ?? lifecycleHint,
     ].filter((part) => part.length > 0).join(" ");
-    const keysHint = statusState.working && uiRequest === undefined && !focusedAbort
+    // Approval and question hints need the room; stopping and compacting keep the way to the card.
+    const keysHint = uiRequest !== undefined
+        ? ""
+        : turnRunningNow(statusState)
         ? WORKING_HINT
         : placeIdle
         ? IDLE_KEYS_HINT

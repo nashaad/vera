@@ -81,6 +81,12 @@ test("a full row shortens the highest slot first, then drops it, never the key h
     expect(crowded.rows[0]!.map((chunk) => chunk.text).join("")).toBe(`${" ".repeat(7)}Ctrl+X h keys`);
 });
 
+test("idle and short of room, the commands hint gives way before the keys card hint", () => {
+    const crowded = fitFooter(DEFAULT_FOOTER_LAYOUT, footerItemContents(facts(false)), false, 24);
+    expect(crowded.fates.get("keys")).toBe("shortened");
+    expect(crowded.rows[0]!.map((chunk) => chunk.text).join("")).toBe(`ready${" ".repeat(6)}Ctrl+X h keys`);
+});
+
 test("the last item standing is cut with an ellipsis", () => {
     const layout = withSlots(["status", null, null, null, "place", null, "activity", "panes", null, "limits", null, "keys"]);
     const fit = fitFooter(layout, footerItemContents(facts(true, {
