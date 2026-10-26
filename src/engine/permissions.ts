@@ -86,6 +86,8 @@ export interface PermissionRequest {
     readonly toolCall: HookToolCall;
     readonly workspace: string;
     readonly homeDirectory: string;
+    // Keyed by bashTargetPaths output. When set, a target missing from it is unknown.
+    readonly realShellTargets?: ReadonlyMap<string, string>;
 }
 
 export interface PermissionPredicate {
@@ -165,6 +167,7 @@ export interface DecideToolPermissionOptions {
     readonly permissionPreferences?: readonly PermissionPreference[];
     readonly extensionTools?: readonly RegisteredTool[];
     readonly scratchDir?: string;
+    readonly realShellTargets?: ReadonlyMap<string, string>;
 }
 
 const SECRET_FILE_HYGIENE_DENY_GLOBS: readonly string[] = [
@@ -647,6 +650,9 @@ export function decideToolPermission(
         toolCall,
         workspace,
         homeDirectory,
+        ...(options.realShellTargets === undefined
+            ? {}
+            : { realShellTargets: options.realShellTargets }),
     }, options.extensionTools).map((action) =>
         rescopeScratchAction(action, options.scratchDir)
     ).map((action) =>
@@ -832,6 +838,7 @@ export function extractPermissionActions(
             request.homeDirectory,
             resolve(workspace),
             0,
+            shellTargetPath(request.realShellTargets),
         );
     }
     if (toolCall.name === "process") {
@@ -956,12 +963,50 @@ function structuredInputAction(
     };
 }
 
+// The bash write and delete targets as the shell would open them, unnormalized,
+// for the caller to resolve into realShellTargets.
+export function bashTargetPaths(
+    toolCall: HookToolCall,
+    workspace: string,
+    options: DecideToolPermissionOptions = {},
+): readonly string[] {
+    const command = toolCall.input.command;
+    if (toolCall.name !== "bash" || typeof command !== "string") {
+        return [];
+    }
+    const requested: string[] = [];
+    extractBashActions(
+        command,
+        workspace,
+        options.homeDirectory ?? homedir(),
+        resolve(workspace),
+        0,
+        (requestedPath) => {
+            requested.push(requestedPath);
+            return resolve(requestedPath);
+        },
+    );
+    return requested;
+}
+
+type ShellTargetPath = (requestedPath: string) => string | undefined;
+
+function shellTargetPath(
+    realShellTargets: ReadonlyMap<string, string> | undefined,
+): ShellTargetPath {
+    if (realShellTargets === undefined) {
+        return (requestedPath) => resolve(requestedPath);
+    }
+    return (requestedPath) => realShellTargets.get(requestedPath);
+}
+
 function extractBashActions(
     command: string,
     workspace: string,
     homeDirectory: string,
     initialDirectory: string | undefined,
     depth: number,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     if (!isBashParserReady()) {
         return [{ tool: "bash", verb: "unknown" }];
@@ -974,7 +1019,12 @@ function extractBashActions(
         }];
     }
 
-    const walk = new BashActionWalk(workspace, homeDirectory, initialDirectory);
+    const walk = new BashActionWalk(
+        workspace,
+        homeDirectory,
+        initialDirectory,
+        targetPath,
+    );
     for (const statement of script.statements) {
         walk.visit(statement);
     }
@@ -997,6 +1047,7 @@ function extractBashActions(
                 homeDirectory,
                 walk.directoryChanged ? undefined : walk.workingDirectory,
                 depth + 1,
+                targetPath,
             )
         ),
     ];
@@ -1013,6 +1064,7 @@ class BashActionWalk {
         private readonly workspace: string,
         private readonly homeDirectory: string,
         initialDirectory: string | undefined,
+        private readonly targetPath: ShellTargetPath,
     ) {
         this.workingDirectory = initialDirectory;
     }
@@ -1069,6 +1121,7 @@ class BashActionWalk {
                 this.workspace,
                 this.workingDirectory,
                 this.homeDirectory,
+                this.targetPath,
             ),
         );
         if (executableName(command.words) === "cd") {
@@ -1165,6 +1218,7 @@ function actionsForSimpleCommand(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const { words } = command;
     const executableIndex = simpleCommandExecutableIndex(words);
@@ -1174,6 +1228,7 @@ function actionsForSimpleCommand(
         workspace,
         workingDirectory,
         homeDirectory,
+        targetPath,
     );
     if (executable.length === 0) {
         return [{ tool: "bash", verb: "unknown" }, ...redirects];
@@ -1192,6 +1247,7 @@ function actionsForSimpleCommand(
                 workspace,
                 workingDirectory,
                 homeDirectory,
+                targetPath,
             ),
             ...redirects,
         ];
@@ -1213,6 +1269,7 @@ function actionsForSimpleCommand(
                 workspace,
                 workingDirectory,
                 homeDirectory,
+                targetPath,
             ),
             ...redirects,
         ];
@@ -1283,6 +1340,7 @@ function redirectActions(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const actions: PermissionAction[] = [];
     for (const redirect of redirects) {
@@ -1312,6 +1370,7 @@ function redirectActions(
             workspace,
             workingDirectory,
             homeDirectory,
+            targetPath,
         ));
     }
     return actions;
@@ -1372,6 +1431,7 @@ function rmActions(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const parsed = parseRm(words.slice(executableIndex + 1));
     if (parsed.targets.length === 0) {
@@ -1385,6 +1445,7 @@ function rmActions(
             workspace,
             workingDirectory,
             homeDirectory,
+            targetPath,
         )
     );
 }
@@ -1417,6 +1478,7 @@ function writeCommandActions(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const unknown = [{ tool: "bash", verb: "unknown", executable }] as const;
     const operands = parseWriteCommandOperands(
@@ -1436,6 +1498,7 @@ function writeCommandActions(
                 workspace,
                 workingDirectory,
                 homeDirectory,
+                targetPath,
             );
     if (spec.operands === "targets") {
         return operands.length === 0
@@ -1494,8 +1557,16 @@ function shellPathAction(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): PermissionAction {
-    const path = resolveShellTarget(target, workingDirectory, homeDirectory);
+    const requestedPath = requestedShellTarget(
+        target,
+        workingDirectory,
+        homeDirectory,
+    );
+    const path = requestedPath === undefined
+        ? undefined
+        : targetPath(requestedPath);
     return path === undefined
         ? { tool: "bash", verb: "unknown", executable }
         : {
@@ -1735,6 +1806,29 @@ function resolveShellTarget(
     return workingDirectory === undefined
         ? undefined
         : resolve(workingDirectory, target);
+}
+
+// Left unnormalized: after a symlink, `..` climbs from where the link points.
+function requestedShellTarget(
+    target: string,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): string | undefined {
+    if (target.length === 0 || hasShellExpansion(target)) {
+        return undefined;
+    }
+    if (target === "~" || target.startsWith("~/")) {
+        return `${homeDirectory}${target.slice(1)}`;
+    }
+    if (target.startsWith("~")) {
+        return undefined;
+    }
+    if (isAbsolute(target)) {
+        return target;
+    }
+    return workingDirectory === undefined
+        ? undefined
+        : `${workingDirectory}${sep}${target}`;
 }
 
 function isWorkspaceOrAncestor(candidate: string, workspace: string): boolean {

@@ -5,6 +5,7 @@ import { initBashParser } from "../../src/tools/bash-parser.ts";
 import {
     BUILT_IN_PERMISSION_MODES,
     CORE_PERMISSION_OPERATIONS,
+    bashTargetPaths,
     decideToolPermission,
     extractPermissionActions,
     inspectPermissions,
@@ -1231,6 +1232,71 @@ test("commands that name a write target reach the scratch rescoping", () => {
         [],
         { homeDirectory, scratchDir },
     ).behavior).not.toBe("allow");
+});
+
+test("bash targets are listed as the shell would open them, before resolving", () => {
+    const paths = (command: string) =>
+        bashTargetPaths(bash(command), workspace, { homeDirectory });
+    expect(paths("printf x > link/hosts")).toEqual([`${workspace}/link/hosts`]);
+    // Normalizing would drop the `..` that climbs out of where link points.
+    expect(paths("cd ./link && printf x > ../hosts"))
+        .toEqual([`${workspace}/link/../hosts`]);
+    expect(paths("cp README.md ./link/x && rm -f ~/notes.md")).toEqual([
+        `${workspace}/./link/x`,
+        `${homeDirectory}/notes.md`,
+    ]);
+    expect(paths("cat README.md > /dev/null")).toEqual([]);
+    expect(bashTargetPaths(
+        toolCall("write", { path: "link/hosts", content: "x" }),
+        workspace,
+        { homeDirectory },
+    )).toEqual([]);
+});
+
+test("real shell targets decide whether a bash write is inside the workspace", () => {
+    const decideReal = (
+        mode: ApprovalMode,
+        command: string,
+        realShellTargets: ReadonlyMap<string, string>,
+    ) => decideToolPermission(mode, bash(command), workspace, [], {
+        homeDirectory,
+        realShellTargets,
+    });
+    const outside = new Map([[`${workspace}/link/hosts`, "/etc/hosts"]]);
+    const escaped = decideReal("auto", "printf x > link/hosts", outside);
+    expect(escaped.behavior).toBe("review");
+    expect(escaped.behavior === "review" && escaped.reason)
+        .toContain("write /etc/hosts");
+    expect(decide("auto", bash("printf x > link/hosts")).behavior).toBe("allow");
+
+    const inside = new Map([[`${workspace}/out/x`, `${workspace}/build/x`]]);
+    expect(decideReal("auto", "touch out/x", inside).behavior).toBe("allow");
+
+    // A target the caller could not resolve is not guessed at.
+    const unresolved = new Map<string, string>();
+    expect(decideReal("readonly", "rm -f out/x", unresolved).behavior)
+        .toBe("deny");
+    expect(decideReal("ask", "rm -f out/x", unresolved).behavior).toBe("ask");
+    expect(decideReal("auto", "rm -f out/x", unresolved).behavior)
+        .toBe("review");
+});
+
+test("a real target inside the scratch dir is still routine", () => {
+    const scratchDir = "/private/tmp/vera/session-1";
+    expect(decideToolPermission(
+        "ask",
+        bash("printf x > /tmp/vera/session-1/notes.txt"),
+        workspace,
+        [],
+        {
+            homeDirectory,
+            scratchDir,
+            realShellTargets: new Map([[
+                "/tmp/vera/session-1/notes.txt",
+                `${scratchDir}/notes.txt`,
+            ]]),
+        },
+    ).behavior).toBe("allow");
 });
 
 test("a write command whose operands cannot be split stays unknown", () => {
