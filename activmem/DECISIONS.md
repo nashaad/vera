@@ -18,6 +18,7 @@
 - `ACTIVMEM_GRAPH=off` is Chroma top-k with no spreading and no suppression. `ACTIVMEM_EMBED=0` skips vectors. `fake` uses a hash embedder.
 - The socket is a short file under the temp dir. `.activmem/socket-path` points at it. The extension is TypeScript, so it talks to `activmem serve`. A hook that misses 300 ms lets the turn continue.
 - Every model call uses `ACTIVMEM_MODEL`, default `openrouter/deepseek/deepseek-v4.1-flash`, on a throwaway home. The key comes from `OPENROUTER_API_KEY`. `~/.vera` is not read. `vera inspect` records the model without the provider prefix; the event log stores both, and the check joins them.
+- The memory folder lives outside the agent workspace (`ACTIVMEM_DIR`). Vera reaches it only through the extension. A statement does not list its own words under no record. A later fact may revise a fact that already revised an older one, which is how Berlin replaces Toronto. The tool text tells Vera not to aim a new fact at a retraction such as "sike, I don't".
 - `vera -p` does not load extensions. The live test drives `vera stdio`. Nash says the halibut line in his own session. The harness does not seed it.
 - The token `worked` is stored and queried as `work`. Apostrophes are separators. `really` is a stopword so "I really like pollock." mints `like-pollock-`.
 - Chat ingest maps `user` to actor `nash` and `assistant` to `assistant`. A missing session becomes the file stem.

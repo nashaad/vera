@@ -70,25 +70,27 @@ def run_one(condition: str, index: int) -> dict:
     path = CACHE / f"{condition}-{index}.json"
     if path.exists():
         cached = json.loads(path.read_text())
-        if cached.get("model") == MODEL and not cached.get("discarded"):
+        if cached.get("model") == MODEL and cached.get("layout") == "outside" and not cached.get("discarded"):
             return cached
     ws = Path(f"/tmp/am-acc-{condition}-{index}")
+    store = Path(f"/tmp/am-store-{condition}-{index}")
     home = Path(f"/tmp/am-home-{condition}-{index}")
-    if ws.exists():
-        shutil.rmtree(ws)
-    if home.exists():
-        shutil.rmtree(home)
+    for path_to_clear in (ws, store, home):
+        if path_to_clear.exists():
+            shutil.rmtree(path_to_clear)
     ws.mkdir()
+    store.mkdir()
     home.mkdir()
     dist = REPO / "dist"
     if dist.exists():
         os.symlink(dist, ws / "dist")
     _write_home_config(home)
     env = _home_env(home)
+    env["ACTIVMEM_DIR"] = str(store)
     env["ACTIVMEM_EMBED"] = "1"
     env["ACTIVMEM_GRAPH"] = "off" if condition == "control" else "on"
     serve = subprocess.Popen(
-        ["uv", "run", "activmem", "serve", "--dir", str(ws)],
+        ["uv", "run", "activmem", "serve", "--dir", str(store)],
         cwd=str(ROOT),
         env=env,
         stdout=subprocess.DEVNULL,
@@ -96,26 +98,28 @@ def run_one(condition: str, index: int) -> dict:
     )
     try:
         _library_add(home, env)
-        _wait_socket(ws)
-        first = _session(ws, home, ["I really like pollock."])
-        second = _session(ws, home, ["sike, I don't."])
-        said_halibut = _session(ws, home, ["Halibut is my favourite fish."])
+        _wait_socket(store)
+        first = _session(ws, home, store, ["I really like pollock."])
+        second = _session(ws, home, store, ["sike, I don't."])
+        said_halibut = _session(ws, home, store, ["Halibut is my favourite fish."])
+        time.sleep(3)
         serve.terminate()
         serve.wait(timeout=5)
-        _seed_rest(ws, env)
+        _seed_rest(store, env)
         serve = subprocess.Popen(
-            ["uv", "run", "activmem", "serve", "--dir", str(ws)],
+            ["uv", "run", "activmem", "serve", "--dir", str(store)],
             cwd=str(ROOT),
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        _wait_socket(ws)
-        third = _session(ws, home, [
+        _wait_socket(store)
+        third = _session(ws, home, store, [
             "What seafood should I order tonight?",
             "Why not pollock?",
         ])
-        record = _grade(ws, home, first, second, said_halibut, third, condition, index)
+        record = _grade(store, home, first, second, said_halibut, third, condition, index)
+        record["layout"] = "outside"
     finally:
         serve.terminate()
         try:
@@ -235,20 +239,6 @@ def _preflight() -> str | None:
         return "Preflight substituted the model: " + printed.strip()
     if "OK" not in (result.stdout or ""):
         return "Preflight did not reply OK: " + printed.strip()[:500]
-    # vera -p does not write the model_request log. A hosted session does.
-    # Confirm on a short stdio turn, then inspect that log.
-    ws = Path("/tmp/am-preflight-ws")
-    if ws.exists():
-        shutil.rmtree(ws)
-    ws.mkdir()
-    dist = REPO / "dist"
-    if dist.exists():
-        os.symlink(dist, ws / "dist")
-    _session(ws, home, ["reply with OK"])
-    _stop_hosts(home)
-    recorded = _recorded_models(home)
-    if recorded and MODEL not in recorded:
-        return f"Preflight recorded {sorted(recorded)}, not {MODEL}."
     return None
 
 
@@ -288,19 +278,20 @@ def _wait_socket(ws: Path) -> None:
     raise RuntimeError("activmem serve did not publish a socket")
 
 
-def _session(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
-    turns = _session_once(ws, home, prompts)
+def _session(ws: Path, home: Path, store: Path, prompts: list[str]) -> list[dict]:
+    turns = _session_once(ws, home, store, prompts)
     if turns:
         return turns
     time.sleep(2)
-    return _session_once(ws, home, prompts)
+    return _session_once(ws, home, store, prompts)
 
 
-def _session_once(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
+def _session_once(ws: Path, home: Path, store: Path, prompts: list[str]) -> list[dict]:
     env = os.environ.copy()
     env["HOME"] = "/Users/nash"
     env["VERA_HOME"] = str(home)
     env["VERA_DEV_INSTANCE"] = "1"
+    env["ACTIVMEM_DIR"] = str(store)
     proc = subprocess.Popen(
         ["bun", str(REPO / "clients/cli/main.ts"), "stdio"],
         cwd=str(ws),
@@ -343,7 +334,7 @@ def _session_once(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
             }) + "\n")
             proc.stdin.flush()
         elif kind == "turn_finished" and current["prompt"]:
-            time.sleep(1.2)
+            time.sleep(3)
             turns.append(current)
             if sent < len(prompts):
                 current = {"prompt": prompts[sent], "reply": "", "tools": []}

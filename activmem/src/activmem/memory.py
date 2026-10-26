@@ -111,6 +111,9 @@ class ActivMem:
         return user_id, reply_id
 
     def revise(self, new_item: str, old_item: str, actor: str = "vera", session: str | None = None) -> str:
+        # A later fact may revise a fact that already revised an older one
+        # (Berlin revises Toronto, which revised Lisbon). The tool text tells
+        # Vera not to aim at a pure retraction such as "sike, I don't".
         if new_item not in self.index.graph:
             new_item = self.save(new_item, actor=actor, session=session)
         self.annotate(new_item, "revises", old_item, actor=actor)

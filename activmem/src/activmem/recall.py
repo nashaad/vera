@@ -187,6 +187,14 @@ def _vectors_only(graph, question, hits, k, started, vector_ms) -> RecallResult:
     )
 
 
+def _is_question(text: str) -> bool:
+    """A statement being saved is not a question about a missing entity."""
+    stripped = text.strip().lower()
+    if "?" in text:
+        return True
+    return stripped.startswith(("why ", "what ", "where ", "who ", "when ", "how "))
+
+
 def _seeds(
     question: str,
     graph: nx.MultiDiGraph,
@@ -199,7 +207,7 @@ def _seeds(
         node = f"t:{term}"
         if node in graph and learned_ok(graph.nodes[node].get("learned_at"), as_of):
             seeds[node] = amount
-        elif term not in QUESTION_FRAME:
+        elif _is_question(question) and term not in QUESTION_FRAME:
             missing.append(term)
     return seeds, missing
 

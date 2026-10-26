@@ -77,6 +77,15 @@ def test_revision_is_invisible_before_it_was_learned(tmp_path):
     mem.close()
 
 
+def test_saying_a_new_fact_does_not_report_it_missing(tmp_path):
+    from activmem.memory import ActivMem
+
+    mem = ActivMem(tmp_path)
+    result = mem.recall("Halibut is my favourite fish.")
+    assert "halibut" not in result.no_record_of
+    mem.close()
+
+
 def test_saying_it_again_after_taking_it_back_is_current(tmp_path):
     from activmem.memory import ActivMem
 

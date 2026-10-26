@@ -5,13 +5,14 @@ import { join } from "node:path";
 import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
 
 const HOOK_BUDGET_MS = 300;
+const WRITE_BUDGET_MS = 5000;
 
 const TOOL_DESCRIPTION = [
-    "Required when Nash takes back, denies, or replaces a memory in the context.",
-    "If a Current line is shown and his message retracts it, call this before you answer.",
-    "\"sike, I don't\" is that case: new_text is those exact words, and old_item_id is the id in square brackets on the Current line.",
-    "\"No record of\" means that word is new. It does not mean there is nothing to revise.",
-    "Do not only agree in prose. Do not call it for a brand-new fact.",
+    "Call this only when Nash takes back, denies, or changes something he already said.",
+    "new_text is his exact words. old_item_id is the id in square brackets on the Current line he is taking back.",
+    "\"sike, I don't\" takes back the Current line. A new fact, such as naming a new favourite, is not a revision.",
+    "Never call it against a line that is itself a revision, such as \"sike, I don't\".",
+    "Do not only agree in prose.",
 ].join(" ");
 
 export function activate(vera: VeraExtensionApi): void {
@@ -31,7 +32,7 @@ export function activate(vera: VeraExtensionApi): void {
             user_text: turn.prompt,
             reply_text: turn.reply,
             session: turn.sessionId,
-        }, HOOK_BUDGET_MS);
+        }, WRITE_BUDGET_MS);
     });
 
     vera.tools.register({
@@ -64,13 +65,20 @@ export function activate(vera: VeraExtensionApi): void {
                 old_item: oldId,
                 actor: "vera",
                 session: request.sessionId,
-            }, HOOK_BUDGET_MS);
+            }, WRITE_BUDGET_MS);
             if (result === undefined) {
                 return { output: "Memory is not running. The turn continues without a revision.", isError: true };
+            }
+            if (result.ok === false) {
+                return { output: String(result.error || "Revision refused."), isError: true };
             }
             return { output: `Recorded that ${result.new_id} revises ${result.old_id}.` };
         },
     });
+}
+
+function storeRoot(workspace: string): string {
+    return process.env.ACTIVMEM_DIR || workspace;
 }
 
 function ask(
@@ -79,8 +87,9 @@ function ask(
     params: Record<string, unknown>,
     timeoutMs: number,
 ): Promise<any | undefined> {
-    const pointer = join(workspace, ".activmem", "socket-path");
-    let sock = join(workspace, ".activmem", "activmem.sock");
+    const root = storeRoot(workspace);
+    const pointer = join(root, ".activmem", "socket-path");
+    let sock = join(root, ".activmem", "activmem.sock");
     try {
         sock = readFileSync(pointer, "utf8").trim() || sock;
     } catch {
@@ -105,7 +114,7 @@ function ask(
             if (end < 0) return;
             try {
                 const message = JSON.parse(buffer.slice(0, end));
-                finish(message.ok ? message.result : undefined);
+                finish(message.ok ? message.result : message);
             } catch {
                 finish(undefined);
             }
