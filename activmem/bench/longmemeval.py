@@ -327,8 +327,13 @@ def _one_model(home: Path) -> str:
 
 def _when(value: str) -> str:
     stamp = value.split(" (")[0].strip()
-    parsed = datetime.strptime(stamp, "%Y/%m/%d %H:%M")
-    return parsed.strftime("%Y-%m-%dT%H:%M:00Z")
+    for pattern in ("%Y/%m/%d %H:%M", "%Y/%m/%d"):
+        try:
+            parsed = datetime.strptime(stamp, pattern)
+        except ValueError:
+            continue
+        return parsed.strftime("%Y-%m-%dT%H:%M:00Z")
+    raise ValueError(f"bad LongMemEval date: {value}")
 
 
 def _report(rows: list[dict], sample: list[str]) -> None:
