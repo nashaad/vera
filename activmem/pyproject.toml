@@ -1,0 +1,22 @@
+[project]
+name = "activmem"
+version = "0.1.0"
+description = "Throwaway spreading-activation memory for agent chat history"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["networkx>=3.2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+activmem = "activmem.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+markers = ["slow: fifty-thousand-turn timing run"]

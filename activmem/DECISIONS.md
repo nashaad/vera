@@ -1,0 +1,38 @@
+# Decisions
+
+- This pass implements only the section 0 MVP. Vectors, blocks, grants, sources, intentions, traces, dreaming, and the later benchmarks are not built.
+- The working directory is `<root>/.activmem/`. `events.jsonl` is the record. The networkx graph is rebuilt in memory and is never written out.
+- An event id is the first 16 hex characters of SHA-256 over the canonical JSON of the event, including `prev_hash`. The first event uses `prev_hash` `""`.
+- Canonical JSON is hashed, so a changed value breaks the chain. Insignificant whitespace is not part of the record.
+- The chain is checked when a log is opened. Later appends extend an in-memory tip and do not rescan the file on every write.
+- `--force` drops the broken tail from the first bad line, rewrites the valid prefix, and then allows appends.
+- `forget` is a third event type: a content-free tombstone. The original save line and any link that touches the item are removed, the chain is recomputed, and the tombstone stays.
+- A forgotten actor+text cannot be saved or ingested again. The tombstone keeps the content hash and not the text.
+- Forget and rebuild replay into a new graph and clear leftover heat. Heat is not written to the log.
+- Item ids are minted at save time (up to three content words plus four hash characters) and stored on the event. Replay uses that id.
+- A colliding slug grows the hash suffix. The suffix is a hash of the text; the actor is mixed in only when two different texts collide.
+- A bare `true_at` date means that calendar day only. A pair is an inclusive range, and `to` may be null for an open end.
+- `true_on` filters which chunks are returned. It does not stop other chunks from carrying activation.
+- `as_of` hides nodes and edges learned after that time. A date-only value compares calendar days. Term fan-out uses the visible neighbours, not edges from the future.
+- A recall with `as_of` starts from an empty activation and does not change leftover heat.
+- `carry` on a call decays heat at the start of that call. `carry=0` clears it. Omitted `steps`, `retain`, `carry`, and `k` use config, whose defaults are 4, 0.8, 0.5, and 5.
+- Firing threshold defaults to 0.01. Values below `min_activation` (1e-8) are dropped from the activation map. Explain lists the 8 largest changes per step and every inhibition.
+- Seed strength defaults to 1.0. Inferred chunks keep `inferred_factor` (0.5) of each delivery. Clamp defaults to [-1, 1]. These live in config so the loop has no private knobs.
+- Edge weights come from the current config at replay time. Editing `config.toml` and reopening retunes the graph.
+- Mention edges are derived: chunk `-mentions->` term and term `-mentioned_by->` chunk. Order edges are derived for saves that share a session. They are not events.
+- `revises` is the only annotate kind. It adds an inhibiting `revises` edge and an exciting `revised_by` edge. A duplicate of the same pair is not appended again.
+- Results are the top k non-revised chunks with positive activation. On a tie, the chunk that contains more of the question's terms ranks first, then the later `learned_at`. With the starting weights, "Halibut is my favourite fish." and "psych, I don't" both clamp to 1.0 for "What fish do I like?"; halibut contains "fish" and the psych line does not. Weights were not changed.
+- Suppressed are revised chunks this turn reached, or that still hold activation, with the revising text attached. Suppressed is not cut by k.
+- Results can include leftover heat that is positive but below the firing threshold, so a primed chunk can answer the next turn without firing first.
+- Chat ingest maps `user` to actor `nash` and `assistant` to `assistant`. Any other role string is the actor. The role is not stored separately.
+- A missing chat `session` becomes the file stem, so one file is one session. `ts` is `learned_at` when it is a string. Other `ts` types are ignored.
+- Text ingest defaults the actor to `nash` because the command names no actor and every save must have one. Paragraphs split on blank lines. The session is the file stem.
+- Ingest and `save` dedupe on SHA-256 of actor plus stripped text. A repeat returns the existing id and does not append.
+- The token `worked` is stored and queried as `work`, so "Where do I work?" can meet "I worked at Acme". There is no general stemmer.
+- Apostrophes are separators, so "don't" becomes "don" and "t", and "Nash's" becomes "nash". Tokens shorter than two characters are dropped.
+- The stopword list includes function words and `really`, so "I really like pollock." mints `like-pollock-` plus four hash characters. `like` is not a stopword.
+- Empty text is rejected. Status must be `confirmed` or `inferred`.
+- `load` on the activation engine does not clear activation. `LoopEngine` is the only implementation.
+- `nodes_touched` is returned on every recall along with `ms`, in addition to results, suppressed, and no_record_of.
+- `--json` with `--explain` returns the structured trace. The prose trace is the human `--explain` output.
+- Exact word match only. "seafood" does not find "fish".
