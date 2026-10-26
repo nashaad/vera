@@ -2,7 +2,7 @@
 
 ## Live acceptance
 
-BLOCKED. The answering model had to be `openai-codex/gpt-6-luna`. This worktree's `vera library list` contains only `openrouter/openai/gpt-5.6-luna`. No model call was made. The OpenRouter run from the previous pass does not count.
+Model: `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`. ActivMem passed 1 / 5. The control failed C or D in 5 / 5. Vera called `memory_revises` on all 5 ActivMem runs. The injected block had halibut current and pollock taken back on 4 of 5. The seafood reply named halibut only once. The other replies were generic menus. "Why not pollock?" said the preference was taken back on 4 of 5 ActivMem runs and on none of the control runs. About 60 model calls. No usage limit hit.
 
 ## Hard scenarios
 

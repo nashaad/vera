@@ -1,43 +1,43 @@
 {
   "condition": "activmem",
   "run": 2,
-  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Pollock's a great choice\u2014mild, flaky, and versatile. Good for fish tacos, fish and chips, or just pan-fried with lemon and herbs. Any favorite way to prepare it?",
+      "reply": "Nice! Jackson Pollock's drip paintings are iconic, or if you mean the fish\u2014it's a versatile, mild white fish that works great in fish tacos, fish and chips, or simply pan-seared with lemon.\n\nWhich one did you have in mind?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Got it \u2014 the memory's been updated. \"I really like pollock\" is now replaced with \"sike, I don't.\"",
+      "reply": "Done. The memory \"I really like pollock\" has been replaced with \"sike, I don't.\"",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
             "old_item_id": "like-pollock-71c2",
-            "new_text": "sike, I don't."
+            "new_text": "sike, I don't"
           }
         }
       ]
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "For tonight, it depends on what you're in the mood for:\n\n**Light & fresh:**  \n- Grilled branzino or whole fish with lemon-herb olive oil  \n- Shrimp ceviche or aguachile  \n- Oysters on the half shell with mignonette  \n\n**Rich & comforting:**  \n- Lobster roll (butter-toasted bun, warm lobster)  \n- Cioppino or bouillabaisse with crusty bread  \n- Black cod with miso glaze  \n\n**Quick & easy:**  \n- Scallops seared in brown butter, served over risotto or pasta  \n- Fish tacos with cabbage slaw and crema  \n- Mussels steamed in white wine, garlic, and herbs  \n\nWhat sounds good\u2014something light, something saucy, or something you can eat with your hands?",
+      "reply": "That depends on what you're in the mood for! Here are a few directions:\n\n**Light & fresh:** Grilled branzino, ceviche, or oysters on the half shell\n**Rich & buttery:** Lobster roll, black cod miso, or scallops with brown butter\n**Classic comfort:** Fish & chips, clam chowder, or shrimp scampi\n**Adventurous:** Whole fried fish, octopus, or uni pasta\n\nWhat sounds good\u2014something delicate, something indulgent, or a specific cuisine (Mediterranean, Japanese, New England, etc.)?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "You said \"sike, I don't\" when I noted you like pollock\u2014so I left it off the list.  \n\nIf you *do* want pollock tonight, it's solid for:\n- **Fish & chips** (holds up to batter, flakes clean)\n- **Fish tacos** (mild enough for bold slaw/sauce)\n- **Sheet-pan roast** with lemon, capers, butter\n- **Chowder** (won't fall apart)\n\nWant a pollock recipe, or something else?",
+      "reply": "Fair point! The memory shows you said \"I really like pollock\" but then took it back with \"sike, I don't\"\u2014so I didn't suggest it since you don't actually like it.\n\nIf you're reconsidering, pollock's solid for fish tacos, fish & chips, or a simple pan-fry with lemon-caper butter. Mild, flaky, and usually affordable.\n\nWant it back on the list, or skip it?",
       "tools": []
     }
   ],
-  "injected": "[recent] filler2997-alpha2997-beta2997-cf7b (nash): Filler2997 alpha2997 beta2997 gamma2997.\n[recent] filler2998-alpha2998-beta2998-213b (nash): Filler2998 alpha2998 beta2998 gamma2998.\n[recent] filler2999-alpha2999-beta2999-092e (nash): Filler2999 alpha2999 beta2999 gamma2999.\n[current] tonight-depends-re-ca47 (vera): For tonight, it depends on what you're in the mood for:\n\n**Light & fresh:**  \n- Grilled branzino or whole fish with lemon-herb olive oil  \n- Shrimp ceviche or aguachile  \n- Oysters on the half shell with mignonette  \n\n**Rich & comforting:**  \n- Lobster roll (butter-toasted bun, warm lobster)  \n- Cioppino or bouillabaisse with crusty bread  \n- Black cod with miso glaze  \n\n**Quick & easy:**  \n- Scallops seared in brown butter, served over risotto or pasta  \n- Fish tacos with cabbage slaw and crema  \n- Mussels steamed in white wine, garlic, and herbs  \n\nWhat sounds good\u2014something light, something saucy, or something you can eat with your hands?\n[current] said-sike-noted-bf16 (vera): You said \"sike, I don't\" when I noted you like pollock\u2014so I left it off the list.  \n\nIf you *do* want pollock tonight, it's solid for:\n- **Fish & chips** (holds up to batter, flakes clean)\n- **Fish tacos** (mild enough for bold slaw/sauce)\n- **Sheet-pan roast** with lemon, capers, butter\n- **Chowder** (won't fall apart)\n\nWant a pollock recipe, or something else?\n[current] seafood-order-tonight-fd7e (nash): What seafood should I order tonight?\n[current] nice-pollock-great-7cef (vera): Nice! Pollock's a great choice\u2014mild, flaky, and versatile. Good for fish tacos, fish and chips, or just pan-fried with lemon and herbs. Any favorite way to prepare it?\n[current] pollock-2df5 (nash): Why not pollock?\n[revised] like-pollock-71c2 (nash): I really like pollock.\n  taken back by sike-df25: sike, I don't.\nIf Nash retracts or replaces one of these, call memory_revises with the new wording and that item's id.",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:21:43Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: seafood, order, tonight",
   "a": true,
-  "b": false,
+  "b": true,
   "c": false,
   "d": true,
-  "judge_c": "no\nno",
-  "judge_d": "Line 1: recommend pollock: no\nLine 2: took it back: yes",
+  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
+  "judge_d": "recommend pollock: no\ntook it back: yes",
   "passed": false
 }

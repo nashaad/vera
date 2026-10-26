@@ -1,35 +1,43 @@
 {
   "condition": "activmem",
   "run": 3,
-  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Pollock's great \u2014 mild, flaky, and works in everything from fish tacos to a simple pan-fry with lemon. Are you cooking it up tonight, or just appreciating it in general?",
+      "reply": "That's great! Are you thinking of the fish (a mild, flaky white fish that's great for fish tacos or fish and chips) or Jackson Pollock's drip paintings?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "No worries \u2014 I didn't claim you liked Pollock anyway. That was a memory from Nash (a different conversation). \ud83c\udfa8\n\nWhat's up?",
-      "tools": []
+      "reply": "Got it \u2014 the memory about liking pollock has been retracted.",
+      "tools": [
+        {
+          "tool": "memory_revises",
+          "args": {
+            "new_text": "sike, I don't",
+            "old_item_id": "like-pollock-71c2"
+          }
+        }
+      ]
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "What are you in the mood for? A few quick questions to narrow it down:\n\n- **Cooking at home or ordering takeout/delivery?**\n- **Any strong preferences or things you avoid?** (e.g., shellfish, very fishy flavors, bones)\n- **What's available near you?** (a good fish market, specific restaurants, frozen aisle)\n- **Light & simple, or rich & indulgent?**\n\nFrom the chat above it sounds like you've enjoyed pollock and halibut before \u2014 both are mild, versatile white fish. If you want something similar: **cod, haddock, or sole** are in that same lane. If you're feeling adventurous: **salmon** (richer), **shrimp** (quick), **scallops** (sweet, buttery), or a **white fish en papillote** with herbs and lemon.",
+      "reply": "That depends on what you're in the mood for! Here are a few directions you could go:\n\n**Light & clean:**  \n- Oysters on the half shell (with mignonette)  \n- Ceviche or crudo  \n- Steamed mussels or clams in white wine broth  \n\n**Rich & buttery:**  \n- Lobster roll (warm with butter or cold with mayo)  \n- Black cod / sablefish (miso-glazed is classic)  \n- Scallops, seared hard with a brown-butter sauce  \n\n**Grilled / hearty:**  \n- Whole branzino or snapper, grilled with herbs  \n- Swordfish or tuna steak  \n- Shrimp skewers with garlic and chili  \n\n**Fried / comfort:**  \n- Fish & chips (cod or haddock)  \n- Fried clam bellies or soft-shell crab  \n- Calamari  \n\n**If you tell me:**  \n- What restaurant/cuisine you're ordering from  \n- Whether you want light vs. indulgent  \n- Any allergies or strong dislikes  \n\n\u2026I can narrow it down. Otherwise, you can't go wrong with **oysters to start + a whole grilled fish to share**.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "No reason at all \u2014 pollock is a perfectly great choice! I mentioned it in my last message as something you've enjoyed before (\"From the chat above it sounds like you've enjoyed pollock and halibut before\"). I just threw out other options in case you wanted variety.\n\nIf you're craving pollock tonight, go for it. It's mild, flaky, affordable, and works in a ton of preparations: fish tacos, beer-battered, pan-fried with lemon-butter, baked en papillote, or even a simple fish sandwich.\n\n**How do you usually like it prepared?**",
+      "reply": "Because you just told me you don't like it. \ud83d\ude04\n\nThe memory system shows you retracted \"I really like pollock\" with \"sike, I don't\" \u2014 so I crossed it off the list.",
       "tools": []
     }
   ],
-  "injected": "[recent] filler2997-alpha2997-beta2997-cf7b (nash): Filler2997 alpha2997 beta2997 gamma2997.\n[recent] filler2998-alpha2998-beta2998-213b (nash): Filler2998 alpha2998 beta2998 gamma2998.\n[recent] filler2999-alpha2999-beta2999-092e (nash): Filler2999 alpha2999 beta2999 gamma2999.\n[current] reason-all-pollock-038c (vera): No reason at all \u2014 pollock is a perfectly great choice! I mentioned it in my last message as something you've enjoyed before (\"From the chat above it sounds like you've enjoyed pollock and halibut before\"). I just threw out other options in case you wanted variety.\n\nIf you're craving pollock tonight, go for it. It's mild, flaky, affordable, and works in a ton of preparations: fish tacos, beer-battered, pan-fried with lemon-butter, baked en papillote, or even a simple fish sandwich.\n\n**How do you usually like it prepared?**\n[current] mood-few-quick-9ebf (vera): What are you in the mood for? A few quick questions to narrow it down:\n\n- **Cooking at home or ordering takeout/delivery?**\n- **Any strong preferences or things you avoid?** (e.g., shellfish, very fishy flavors, bones)\n- **What's available near you?** (a good fish market, specific restaurants, frozen aisle)\n- **Light & simple, or rich & indulgent?**\n\nFrom the chat above it sounds like you've enjoyed pollock and halibut before \u2014 both are mild, versatile white fish. If you want something similar: **cod, haddock, or sole** are in that same lane. If you're feeling adventurous: **salmon** (richer), **shrimp** (quick), **scallops** (sweet, buttery), or a **white fish en papillote** with herbs and lemon.\n[current] nice-pollock-great-c0a7 (vera): Nice! Pollock's great \u2014 mild, flaky, and works in everything from fish tacos to a simple pan-fry with lemon. Are you cooking it up tonight, or just appreciating it in general?\n[current] seafood-order-tonight-fd7e (nash): What seafood should I order tonight?\n[current] pollock-2df5 (nash): Why not pollock?\nIf Nash retracts or replaces one of these, call memory_revises with the new wording and that item's id.",
-  "a": false,
-  "b": false,
-  "c": true,
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:24:34Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: seafood, order, tonight",
+  "a": true,
+  "b": true,
+  "c": false,
   "d": true,
-  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
-  "judge_d": "yes\nno",
+  "judge_c": "recommend pollock: no\ntook it back: no",
+  "judge_d": "no\nyes",
   "passed": false
 }

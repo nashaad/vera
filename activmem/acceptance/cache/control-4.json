@@ -1,35 +1,35 @@
 {
   "condition": "control",
   "run": 4,
-  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Jackson Pollock's drip paintings are iconic\u2014so much energy and motion captured on canvas. Are you working on something related to his work, or just sharing an appreciation?",
+      "reply": "Nice! Are you talking about **Jackson Pollock** the abstract expressionist painter, or **pollock the fish** (Alaska pollock / walleye pollock)? Or something else entirely?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "You got me\u2014there's no \"sike\" in the record, just the Pollock appreciation. Fair play.",
+      "reply": "That's fine \u2014 nothing to revise. What can I help you with?",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on what you're in the mood for! Here are a few directions you could go:\n\n**Light & fresh:**\n- Grilled branzino or whole fish with lemon-herb olive oil\n- Ceviche or crudo (scallop, hamachi, or fluke)\n- Oysters on the half shell with mignonette\n\n**Rich & comforting:**\n- Lobster roll (buttery Connecticut-style or mayo-based Maine)\n- Shrimp scampi or garlic butter shrimp over pasta\n- Black cod/miso-glazed sablefish\n\n**Bold & spicy:**\n- Cajun blackened fish sandwich or tacos\n- Spicy cioppino or seafood stew\n- Kung pao shrimp or salt & pepper calamari\n\n**If you want low-effort:**\n- Good fish & chips\n- Shrimp po' boy\n- Salmon teriyaki bowl\n\nWhat sounds appealing\u2014something light, rich, spicy, or classic? Any dietary preferences or cooking vs. takeout?",
+      "reply": "That depends on what you're in the mood for! Here are a few directions you could go:\n\n**Light & fresh:** Grilled branzino, ceviche, or a raw bar platter (oysters, shrimp, crudo)\n\n**Rich & buttery:** Lobster roll, seared scallops with brown butter, or black cod miso\n\n**Bold & spicy:** Cajun shrimp, whole fried fish with chili sauce, or spicy cioppino\n\n**Cozy & comforting:** New England clam chowder, shrimp and grits, or seafood risotto\n\nAny cravings, dietary preferences, or type of restaurant you're thinking (casual, fancy, takeout)? That'd help narrow it down.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Fair point! You *do* like pollock (per the record), and it's a great choice\u2014mild, flaky, affordable, and incredibly versatile. Some solid ways to have it tonight:\n\n**Classic preparations:**\n- **Fish & chips** \u2013 pollock is a top-tier choice for this (often better than cod for batter adhesion)\n- **Fish sandwich/tacos** \u2013 beer-battered or panko-crusted with slaw and tartar\n- **Pan-seared** with lemon-caper butter or brown butter & herbs\n\n**Low-effort:**\n- **Frozen fillets** \u2013 bake or air-fry from frozen in ~15 min (pollock handles this well)\n- **Fish sticks/nuggets** \u2013 nostalgia comfort food, but good ones exist\n- **Surimi/imitation crab** \u2013 if you want a crab salad or crab melt without the price\n\n**More interesting:**\n- **Pollock en papillote** with fennel, tomato, white wine\n- **Korean-style** braised with gochujang, soy, garlic (saengseon jorim vibe)\n- **Fish chowder** \u2013 holds shape better than cod\n\nAny of those sound good, or do you have a go-to way you like it prepared?",
+      "reply": "Good call \u2014 pollock's a solid choice and I should've included it. Since you like it, here are a few ways to go tonight:\n\n**Classic:** Fish & chips (pollock's the standard for a reason \u2014 mild, flaky, holds batter perfectly)\n\n**Light:** Grilled or pan-seared with lemon-caper butter, or en papillote with herbs and white wine\n\n**Cozy:** Fish tacos with slaw and crema, or a pollock chowder (lighter than clam but still satisfying)\n\n**Bold:** Blackened with Cajun spice, or Korean-style braised in gochujang-soy broth (saengseon-jorim style)\n\n**Easy takeout:** Most \"white fish\" sandwiches/tacos at casual spots are pollock \u2014 reliable and affordable\n\nAny of those sound good, or do you have a go-to prep you keep coming back to?",
       "tools": []
     }
   ],
-  "injected": "[recent] filler2997-alpha2997-beta2997-cf7b (nash): Filler2997 alpha2997 beta2997 gamma2997.\n[recent] filler2998-alpha2998-beta2998-213b (nash): Filler2998 alpha2998 beta2998 gamma2998.\n[recent] filler2999-alpha2999-beta2999-092e (nash): Filler2999 alpha2999 beta2999 gamma2999.\n[current] fair-point-like-10b0 (vera): Fair point! You *do* like pollock (per the record), and it's a great choice\u2014mild, flaky, affordable, and incredibly versatile. Some solid ways to have it tonight:\n\n**Classic preparations:**\n- **Fish & chips** \u2013 pollock is a top-tier choice for this (often better than cod for batter adhesion)\n- **Fish sandwich/tacos** \u2013 beer-battered or panko-crusted with slaw and tartar\n- **Pan-seared** with lemon-caper butter or brown butter & herbs\n\n**Low-effort:**\n- **Frozen fillets** \u2013 bake or air-fry from frozen in ~15 min (pollock handles this well)\n- **Fish sticks/nuggets** \u2013 nostalgia comfort food, but good ones exist\n- **Surimi/imitation crab** \u2013 if you want a crab salad or crab melt without the price\n\n**More interesting:**\n- **Pollock en papillote** with fennel, tomato, white wine\n- **Korean-style** braised with gochujang, soy, garlic (saengseon jorim vibe)\n- **Fish chowder** \u2013 holds shape better than cod\n\nAny of those sound good, or do you have a go-to way you like it prepared?\n[current] depends-re-mood-861f (vera): That depends on what you're in the mood for! Here are a few directions you could go:\n\n**Light & fresh:**\n- Grilled branzino or whole fish with lemon-herb olive oil\n- Ceviche or crudo (scallop, hamachi, or fluke)\n- Oysters on the half shell with mignonette\n\n**Rich & comforting:**\n- Lobster roll (buttery Connecticut-style or mayo-based Maine)\n- Shrimp scampi or garlic butter shrimp over pasta\n- Black cod/miso-glazed sablefish\n\n**Bold & spicy:**\n- Cajun blackened fish sandwich or tacos\n- Spicy cioppino or seafood stew\n- Kung pao shrimp or salt & pepper calamari\n\n**If you want low-effort:**\n- Good fish & chips\n- Shrimp po' boy\n- Salmon teriyaki bowl\n\nWhat sounds appealing\u2014something light, rich, spicy, or classic? Any dietary preferences or cooking vs. takeout?\n[current] seafood-order-tonight-fd7e (nash): What seafood should I order tonight?\n[current] pollock-2df5 (nash): Why not pollock?\n[current] got-sike-record-4078 (vera): You got me\u2014there's no \"sike\" in the record, just the Pollock appreciation. Fair play.\nIf Nash retracts or replaces one of these, call memory_revises with the new wording and that item's id.",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Okay. [okay-03b2] (2026-10-26T15:44:10Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
   "c": false,
   "d": false,
-  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
+  "judge_c": "recommend pollock: no\ntook it back: no",
   "judge_d": "recommend pollock: yes\ntook it back: no",
   "passed": false
 }

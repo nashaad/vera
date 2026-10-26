@@ -406,16 +406,17 @@ def format_context(result: RecallResult) -> str:
     lines = [
         'Items under "Taken back" are no longer true and must not be recommended.',
     ]
-    if result.results:
-        hit = result.results[0]
+    current = [hit for hit in result.results if hit.actor == "nash"]
+    hit = current[0] if current else (result.results[0] if result.results else None)
+    if hit is not None:
         when = hit.learned_at or "unknown time"
         who = hit.actor or "unknown"
-        lines.append(f"Current: {hit.text} ({when}, {who})")
+        lines.append(f"Current: {hit.text} [{hit.item_id}] ({when}, {who})")
     else:
         lines.append("Current: none")
     if result.suppressed:
         for hit in result.suppressed:
-            lines.append(f"Taken back: {hit.text} — {hit.revising_text}")
+            lines.append(f"Taken back: {hit.text} [{hit.item_id}] — {hit.revising_text}")
     else:
         lines.append("Taken back: none")
     if result.no_record_of:

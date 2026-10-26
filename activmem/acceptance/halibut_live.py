@@ -1,7 +1,9 @@
-"""Live halibut acceptance through Vera's ChatGPT subscription.
+"""Live halibut acceptance through a free OpenRouter Nemotron model.
 
-Every model call uses openai-codex/gpt-6-luna. If that id is not in the
-worktree home's `vera library list`, this exits 2 and does not call a model.
+Nash asked for any free Nemotron. Every call uses
+openrouter/nvidia/nemotron-3-ultra-550b-a55b:free. Sessions use a throwaway
+home so the worktree's development host keeps its own model. The daily
+~/.vera home is never read.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -19,7 +22,7 @@ REPO = ROOT.parent
 EXT = REPO / "extensions" / "activmem"
 CACHE = ROOT / "acceptance" / "cache"
 REPORT = ROOT / "ACCEPTANCE.md"
-MODEL = "openai-codex/gpt-6-luna"
+MODEL = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
 DEV_HOME = os.environ.get(
     "ACTIVMEM_VERA_HOME",
     "/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera-dev/faf872b0021f/.vera",
@@ -33,7 +36,7 @@ def main() -> int:
     if MODEL not in library:
         _write(
             "BLOCKED",
-            "openai-codex/gpt-6-luna is not in this worktree home's vera library list. "
+            f"{MODEL} is not in this worktree home's vera library list. "
             f"The list is: {library or '(empty)'}. No other model was called.",
         )
         return 2
@@ -66,24 +69,28 @@ def run_one(condition: str, index: int) -> dict:
         if cached.get("model") == MODEL:
             return cached
     ws = Path(f"/tmp/am-acc-{condition}-{index}")
+    home = Path(f"/tmp/am-home-{condition}-{index}")
     if ws.exists():
         shutil.rmtree(ws)
+    if home.exists():
+        shutil.rmtree(home)
     ws.mkdir()
-    config_path = Path(DEV_HOME) / "config.json"
-    original = config_path.read_text(encoding="utf-8")
-    cfg = json.loads(original)
+    home.mkdir()
+    dist = REPO / "dist"
+    if dist.exists():
+        os.symlink(dist, ws / "dist")
     provider, model_id = MODEL.split("/", 1)
-    cfg["provider"] = provider
-    cfg["model"] = model_id
-    extensions = [
-        item for item in cfg.get("extensions", [])
-        if item.get("path") != str(EXT)
-    ]
-    extensions.append({"path": str(EXT), "enabled": True})
-    cfg["extensions"] = extensions
-    config_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    (home / "config.json").write_text(json.dumps({
+        "schema_version": 1,
+        "provider": provider,
+        "model": model_id,
+        "reasoning_effort": "low",
+        "approval_mode": "auto",
+        "extensions": [{"path": str(EXT), "enabled": True}],
+    }, indent=2) + "\n", encoding="utf-8")
     env = os.environ.copy()
-    env["VERA_HOME"] = DEV_HOME
+    env["HOME"] = "/Users/nash"
+    env["VERA_HOME"] = str(home)
     env["VERA_DEV_INSTANCE"] = "1"
     env["ACTIVMEM_EMBED"] = "1"
     env["ACTIVMEM_GRAPH"] = "off" if condition == "control" else "on"
@@ -96,8 +103,8 @@ def run_one(condition: str, index: int) -> dict:
     )
     try:
         _wait_socket(ws)
-        first = _session(ws, ["I really like pollock."])
-        second = _session(ws, ["sike, I don't."])
+        first = _session(ws, home, ["I really like pollock."])
+        second = _session(ws, home, ["sike, I don't."])
         serve.terminate()
         serve.wait(timeout=5)
         _seed_rest(ws, env)
@@ -109,21 +116,34 @@ def run_one(condition: str, index: int) -> dict:
             stderr=subprocess.DEVNULL,
         )
         _wait_socket(ws)
-        third = _session(ws, [
+        third = _session(ws, home, [
             "What seafood should I order tonight?",
             "Why not pollock?",
         ])
         record = _grade(ws, first, second, third, condition, index)
     finally:
-        config_path.write_text(original, encoding="utf-8")
         serve.terminate()
         try:
             serve.wait(timeout=5)
         except subprocess.TimeoutExpired:
             serve.kill()
+        _stop_hosts(home)
     path.write_text(json.dumps(record, indent=2))
     print(condition, index, "PASS" if record["passed"] else "FAIL", flush=True)
     return record
+
+
+def _stop_hosts(home: Path) -> None:
+    listing = subprocess.run(["ps", "eww", "-ax"], capture_output=True, text=True)
+    marker = str(home)
+    for line in (listing.stdout or "").splitlines():
+        if "vera-host" not in line or marker not in line:
+            continue
+        pid = int(line.split()[0])
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
 
 
 def _library() -> str:
@@ -149,9 +169,10 @@ def _wait_socket(ws: Path) -> None:
     raise RuntimeError("activmem serve did not publish a socket")
 
 
-def _session(ws: Path, prompts: list[str]) -> list[dict]:
+def _session(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
     env = os.environ.copy()
-    env["VERA_HOME"] = DEV_HOME
+    env["HOME"] = "/Users/nash"
+    env["VERA_HOME"] = str(home)
     env["VERA_DEV_INSTANCE"] = "1"
     proc = subprocess.Popen(
         ["bun", str(REPO / "clients/cli/main.ts"), "stdio"],
@@ -241,6 +262,20 @@ mem.close()
     )
 
 
+def _injected(ws: Path, message: str) -> str:
+    path = ws / ".activmem" / "context-log.jsonl"
+    if not path.exists() or not message:
+        return ""
+    found = ""
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("message") == message:
+            found = row.get("context") or ""
+    return found
+
+
 def _grade(ws, first, second, third, condition, index) -> dict:
     sys.path[:0] = [str(ROOT / "src")]
     from activmem.memory import ActivMem
@@ -260,7 +295,7 @@ def _grade(ws, first, second, third, condition, index) -> dict:
         revising = (source or {}).get("text") or ""
     check_a = link is not None and "sike" in revising.lower()
     seafood = third[0]["prompt"] if third else ""
-    injected = mem.context_for("session-3", seafood)["context"] if seafood else ""
+    injected = _injected(ws, seafood)
     lowered = injected.lower()
     check_b = (
         "current:" in lowered
@@ -275,8 +310,8 @@ def _grade(ws, first, second, third, condition, index) -> dict:
     keyword_c = "halibut" in order.lower() and not _recommends_pollock(order)
     judge_c = _judge(order, "Does this reply recommend pollock as what to order? Does it reflect that Nash's current fish is halibut, not pollock?")
     judge_d = _judge(why, "Does this reply say Nash took the pollock preference back?")
-    check_c = keyword_c and "recommend pollock: no" in judge_c.lower()
-    check_d = "took it back: yes" in judge_d.lower() or "yes" in judge_d.lower()[:12]
+    check_c = keyword_c and not _answer_yes(judge_c, 0)
+    check_d = _answer_yes(judge_d, 1)
     mem.close()
     return {
         "condition": condition,
@@ -295,6 +330,16 @@ def _grade(ws, first, second, third, condition, index) -> dict:
         "judge_d": judge_d,
         "passed": check_a and check_b and check_c and check_d,
     }
+
+
+def _answer_yes(text: str, line_index: int) -> bool:
+    lines = [line.strip().lower() for line in text.splitlines() if line.strip()]
+    if line_index >= len(lines):
+        return False
+    line = lines[line_index]
+    if ":" in line:
+        line = line.split(":", 1)[1].strip()
+    return line.startswith("yes")
 
 
 def _recommends_pollock(text: str) -> bool:
@@ -316,7 +361,7 @@ def _judge(reply: str, rubric: str) -> str:
     result = subprocess.run(
         ["bun", str(REPO / "clients/cli/main.ts"), "-p", prompt, "--prompt-only", "--model", MODEL],
         cwd=str(REPO),
-        env={**os.environ, "VERA_HOME": DEV_HOME, "VERA_DEV_INSTANCE": "1"},
+        env={**os.environ, "HOME": "/Users/nash", "VERA_HOME": DEV_HOME, "VERA_DEV_INSTANCE": "1"},
         text=True,
         capture_output=True,
         timeout=120,
@@ -332,7 +377,7 @@ def _write_report(rows: list[dict], activmem_pass: int, control_fail: int, passe
     lines = [
         "# Acceptance",
         "",
-        f"Model: `{MODEL}`.",
+        f"Model: `{MODEL}` (free OpenRouter Nemotron).",
         "",
         f"ActivMem passed {activmem_pass} / {RUNS}. Control failed C or D in {control_fail} / {RUNS}.",
         f"Gate: {'pass' if passed else 'fail'}.",

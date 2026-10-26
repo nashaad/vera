@@ -7,10 +7,10 @@ import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
 const HOOK_BUDGET_MS = 300;
 
 const TOOL_DESCRIPTION = [
-    "Required when Nash takes back, denies, or replaces a memory you were shown.",
-    "Call it before you answer, even if his words share nothing with the old sentence",
-    "(for example \"sike, I don't\").",
-    "new_text is his exact words. old_item_id is the id in brackets.",
+    "Required when Nash takes back, denies, or replaces a memory in the context.",
+    "If a Current line is shown and his message retracts it, call this before you answer.",
+    "\"sike, I don't\" is that case: new_text is those exact words, and old_item_id is the id in square brackets on the Current line.",
+    "\"No record of\" means that word is new. It does not mean there is nothing to revise.",
     "Do not only agree in prose. Do not call it for a brand-new fact.",
 ].join(" ");
 

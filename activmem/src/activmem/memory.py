@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from pathlib import Path
@@ -104,6 +105,9 @@ class ActivMem:
     ) -> tuple[str, str]:
         user_id = self.save(user_text, actor="nash", session=session, learned_at=learned_at)
         reply_id = self.save(reply_text, actor="vera", session=session, learned_at=learned_at)
+        # The next turn may share no words with this one. Leave what Nash just
+        # said warm so leftover heat can show it. The reply stays cold.
+        self.engine.poke({user_id: self.config.seed_activation})
         return user_id, reply_id
 
     def revise(self, new_item: str, old_item: str, actor: str = "vera", session: str | None = None) -> str:
@@ -198,12 +202,18 @@ class ActivMem:
                 for item_id, score in raw
                 if score >= self.config.vector_min_similarity and item_id in self.index.graph
             ]
-            if qualified:
-                best = max(score for _item_id, score in qualified)
-                floor = best * self.config.vector_similarity_ratio
-                vector_hits = [
-                    (item_id, score) for item_id, score in qualified if score >= floor
-                ]
+            by_id = {item_id: score for item_id, score in qualified}
+            vector_hits = []
+            for item_id, score in qualified:
+                # The next filler line embeds this sentence as context and can
+                # outrank it. Drop that neighbor. A separate memory stays.
+                neighbor = False
+                for kind in ("previous", "next"):
+                    other = _neighbor(self.index.graph, item_id, kind)
+                    if other is not None and by_id.get(other, -1) > score:
+                        neighbor = True
+                if not neighbor:
+                    vector_hits.append((item_id, score))
         return run_recall(
             self.index,
             self.engine,
@@ -224,9 +234,16 @@ class ActivMem:
 
     def context_for(self, session: str, next_message: str, k: int | None = None) -> dict:
         result = self.recall(next_message, k=k)
+        context = format_context(result)
+        with (self.home / "context-log.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "session": session,
+                "message": next_message,
+                "context": context,
+            }) + "\n")
         return {
             "session": session,
-            "context": format_context(result),
+            "context": context,
             "recall": result.to_dict(),
         }
 

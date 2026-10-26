@@ -1,16 +1,16 @@
 {
   "condition": "activmem",
   "run": 1,
-  "model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Jackson Pollock's drip paintings are iconic\u2014there's something mesmerizing about that energy captured on canvas. The way he moved around the painting, making the act of creation part of the work itself.\n\nDo you have a favorite piece or period? *Number 1A, 1948* and *Autumn Rhythm* always stick with me, but his earlier surrealist-influenced work like *The She-Wolf* has a totally different vibe.\n\nOr are you thinking of something else by \"Pollock\"\u2014like the fish, or something else entirely?",
+      "reply": "That's great! Are you thinking of **Jackson Pollock** (the abstract expressionist painter known for his drip paintings), or **pollock the fish** (a mild, flaky white fish often used in fish sticks, surimi, and fish sandwiches)?\n\nEither way, good taste.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Recorded. The memory now reflects \"sike, I don't\" instead of \"I really like pollock.\"",
+      "reply": "Done. The memory has been updated to reflect that you don't like pollock.",
       "tools": [
         {
           "tool": "memory_revises",
@@ -23,21 +23,21 @@
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on what you're in the mood for! Here are a few directions:\n\n**Light & fresh**\n- Oysters on the half shell with mignonette\n- Ceviche or crudo (scallops, fluke, hamachi)\n- Grilled whole branzino or snapper with herbs and lemon\n\n**Rich & buttery**\n- Lobster roll (hot with butter or cold with mayo)\n- Seared scallops with brown butter, corn, or risotto\n- Black cod / sablefish with miso glaze\n\n**Bold & spicy**\n- Shrimp or crab boil (Old Bay, garlic, corn, potatoes)\n- Spicy garlic crab (Singapore/Asian-style)\n- Fish tacos with slaw and crema\n\n**Comfort classics**\n- Fish & chips (cod or haddock)\n- New England clam chowder + oyster crackers\n- Cioppino / bouillabaisse with crusty bread\n\nAny dietary restrictions, cuisine cravings, or cooking-vs-takeout preference? I can narrow it down.",
+      "reply": "Based on your preferences, **halibut** is your favorite fish \u2014 so that would be a great choice for tonight! \n\nSince you've explicitly noted you don't like pollock (that preference was retracted), I'd steer clear of that one.\n\nWant me to suggest a preparation style or any sides to go with it?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Fair question! Pollock is totally legitimate seafood\u2014it just didn't make my shortlist because it's usually more of a **workhorse fish** than a star attraction. Here's the rundown:\n\n**Why it's overlooked:**\n- **Mild, lean, flaky** \u2014 similar to cod/haddock but less distinctive flavor\n- **Low oil content** \u2014 dries out easily if overcooked\n- **Mostly sold as**: fish sticks, Filet-O-Fish, surimi (imitation crab), frozen blocks for institutions\n\n**Where it shines:**\n- **Fish & chips** \u2014 batter protects the delicate flesh\n- **Fish tacos** \u2014 strong toppings (slaw, crema, salsa) carry the flavor\n- **Chowders/stews** \u2014 holds shape in liquid, absorbs broth\n- **Budget-friendly** \u2014 often half the price of cod\n\n**The two main types:**\n| | **Alaska Pollock** (Walleye) | **Atlantic Pollock** |\n|---|---|---|\n| Flavor | Very mild | Stronger, slightly sweet |\n| Texture | Delicate, fine flake | Firmer, larger flake |\n| Sustainability | MSC-certified, huge biomass | Less abundant, check sourcing |\n\n**Bottom line:** If you want a **canvas for bold sauces/toppings** or a **cheap protein**, pollock works. If you want the fish itself to be memorable\u2014rich, sweet, or briny\u2014cod, halibut, sablefish, or even hake deliver more.\n\nWant a specific pollock recipe, or should I steer you toward something with more personality?",
+      "reply": "Because you explicitly said \"sike, I don't\" \u2014 you retracted the statement that you like pollock. So based on what you've told me, you don't like it.",
       "tools": []
     }
   ],
-  "injected": "[recent] filler2998-alpha2998-beta2998-213b (nash): Filler2998 alpha2998 beta2998 gamma2998.\n[recent] filler2999-alpha2999-beta2999-092e (nash): Filler2999 alpha2999 beta2999 gamma2999.\n[recent] pollock-2df5 (nash): Why not pollock?\n[current] fair-question-pollock-e4ea (vera): Fair question! Pollock is totally legitimate seafood\u2014it just didn't make my shortlist because it's usually more of a **workhorse fish** than a star attraction. Here's the rundown:\n\n**Why it's overlooked:**\n- **Mild, lean, flaky** \u2014 similar to cod/haddock but less distinctive flavor\n- **Low oil content** \u2014 dries out easily if overcooked\n- **Mostly sold as**: fish sticks, Filet-O-Fish, surimi (imitation crab), frozen blocks for institutions\n\n**Where it shines:**\n- **Fish & chips** \u2014 batter protects the delicate flesh\n- **Fish tacos** \u2014 strong toppings (slaw, crema, salsa) carry the flavor\n- **Chowders/stews** \u2014 holds shape in liquid, absorbs broth\n- **Budget-friendly** \u2014 often half the price of cod\n\n**The two main types:**\n| | **Alaska Pollock** (Walleye) | **Atlantic Pollock** |\n|---|---|---|\n| Flavor | Very mild | Stronger, slightly sweet |\n| Texture | Delicate, fine flake | Firmer, larger flake |\n| Sustainability | MSC-certified, huge biomass | Less abundant, check sourcing |\n\n**Bottom line:** If you want a **canvas for bold sauces/toppings** or a **cheap protein**, pollock works. If you want the fish itself to be memorable\u2014rich, sweet, or briny\u2014cod, halibut, sablefish, or even hake deliver more.\n\nWant a specific pollock recipe, or should I steer you toward something with more personality?\n[current] depends-re-mood-69f5 (vera): That depends on what you're in the mood for! Here are a few directions:\n\n**Light & fresh**\n- Oysters on the half shell with mignonette\n- Ceviche or crudo (scallops, fluke, hamachi)\n- Grilled whole branzino or snapper with herbs and lemon\n\n**Rich & buttery**\n- Lobster roll (hot with butter or cold with mayo)\n- Seared scallops with brown butter, corn, or risotto\n- Black cod / sablefish with miso glaze\n\n**Bold & spicy**\n- Shrimp or crab boil (Old Bay, garlic, corn, potatoes)\n- Spicy garlic crab (Singapore/Asian-style)\n- Fish tacos with slaw and crema\n\n**Comfort classics**\n- Fish & chips (cod or haddock)\n- New England clam chowder + oyster crackers\n- Cioppino / bouillabaisse with crusty bread\n\nAny dietary restrictions, cuisine cravings, or cooking-vs-takeout preference? I can narrow it down.\n[current] nice-jackson-pollock-cae0 (vera): Nice! Jackson Pollock's drip paintings are iconic\u2014there's something mesmerizing about that energy captured on canvas. The way he moved around the painting, making the act of creation part of the work itself.\n\nDo you have a favorite piece or period? *Number 1A, 1948* and *Autumn Rhythm* always stick with me, but his earlier surrealist-influenced work like *The She-Wolf* has a totally different vibe.\n\nOr are you thinking of something else by \"Pollock\"\u2014like the fish, or something else entirely?\n[current] seafood-order-tonight-fd7e (nash): What seafood should I order tonight?\n[current] halibut-favourite-fish-88eb (nash): Halibut is my favourite fish.\n[revised] like-pollock-71c2 (nash): I really like pollock.\n  taken back by sike-b145: sike, I don't\nIf Nash retracts or replaces one of these, call memory_revises with the new wording and that item's id.",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:18:52Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: seafood, order, tonight",
   "a": true,
   "b": true,
-  "c": false,
-  "d": false,
-  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
-  "judge_d": "recommend pollock: yes\ntook it back: no",
-  "passed": false
+  "c": true,
+  "d": true,
+  "judge_c": "no\nyes",
+  "judge_d": "recommend pollock: no\ntook it back: yes",
+  "passed": true
 }
