@@ -14,9 +14,11 @@ import {
     tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
 import {
+    commandsOf,
     isBashParserReady,
     parseBashScript,
     type BashCommand,
+    type BashLoop,
     type BashRedirect,
     type BashRedirectOperator,
     type BashStatement,
@@ -84,6 +86,8 @@ export interface PermissionRequest {
     readonly toolCall: HookToolCall;
     readonly workspace: string;
     readonly homeDirectory: string;
+    // Keyed by bashTargetPaths output. When set, a target missing from it is unknown.
+    readonly realShellTargets?: ReadonlyMap<string, string>;
 }
 
 export interface PermissionPredicate {
@@ -163,6 +167,7 @@ export interface DecideToolPermissionOptions {
     readonly permissionPreferences?: readonly PermissionPreference[];
     readonly extensionTools?: readonly RegisteredTool[];
     readonly scratchDir?: string;
+    readonly realShellTargets?: ReadonlyMap<string, string>;
 }
 
 const SECRET_FILE_HYGIENE_DENY_GLOBS: readonly string[] = [
@@ -365,6 +370,28 @@ function readingDate(args: readonly string[]): boolean {
         || args.every((arg) => arg.startsWith("+"));
 }
 
+// hostname NAME and -F FILE set the host name; only the query flags read.
+function queryingHostname(args: readonly string[]): boolean {
+    return args.every((arg) => arg.startsWith("-"))
+        && excludingDangerousFlags(["-F", "--file", "-b", "--boot"])(args);
+}
+
+// -o and --output write a file and --compress-program runs one. Long options
+// may be abbreviated, so only the spelled-out safe ones pass.
+const SORT_LONG_FLAGS = new RegExp(
+    "^--(?:reverse|unique|ignore-case|numeric-sort|general-numeric-sort"
+    + "|human-numeric-sort|version-sort|month-sort|stable|ignore-leading-blanks"
+    + "|dictionary-order|ignore-nonprinting|key|field-separator)(?:=.*)?$",
+);
+
+function sortingToStdout(args: readonly string[]): boolean {
+    return args.every((word) =>
+        word.startsWith("--")
+            ? SORT_LONG_FLAGS.test(word)
+            : !(word.startsWith("-") && word.slice(1).includes("o"))
+    );
+}
+
 const READ_ONLY_COMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
     cat: alwaysReadOnly,
     head: alwaysReadOnly,
@@ -374,6 +401,21 @@ const READ_ONLY_COMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
     stat: alwaysReadOnly,
     ls: alwaysReadOnly,
     grep: alwaysReadOnly,
+    cd: alwaysReadOnly,
+    true: alwaysReadOnly,
+    exit: alwaysReadOnly,
+    test: alwaysReadOnly,
+    ps: alwaysReadOnly,
+    pgrep: alwaysReadOnly,
+    which: alwaysReadOnly,
+    du: alwaysReadOnly,
+    nl: alwaysReadOnly,
+    seq: alwaysReadOnly,
+    cut: alwaysReadOnly,
+    tr: alwaysReadOnly,
+    hostname: queryingHostname,
+    sort: sortingToStdout,
+    rg: excludingDangerousFlags(["--pre", "--hostname-bin"]),
     sleep: boundedSleep,
     date: readingDate,
     find: excludingDangerousFlags([
@@ -608,6 +650,9 @@ export function decideToolPermission(
         toolCall,
         workspace,
         homeDirectory,
+        ...(options.realShellTargets === undefined
+            ? {}
+            : { realShellTargets: options.realShellTargets }),
     }, options.extensionTools).map((action) =>
         rescopeScratchAction(action, options.scratchDir)
     ).map((action) =>
@@ -793,6 +838,7 @@ export function extractPermissionActions(
             request.homeDirectory,
             resolve(workspace),
             0,
+            shellTargetPath(request.realShellTargets),
         );
     }
     if (toolCall.name === "process") {
@@ -917,12 +963,50 @@ function structuredInputAction(
     };
 }
 
+// The bash write and delete targets as the shell would open them, unnormalized,
+// for the caller to resolve into realShellTargets.
+export function bashTargetPaths(
+    toolCall: HookToolCall,
+    workspace: string,
+    options: DecideToolPermissionOptions = {},
+): readonly string[] {
+    const command = toolCall.input.command;
+    if (toolCall.name !== "bash" || typeof command !== "string") {
+        return [];
+    }
+    const requested: string[] = [];
+    extractBashActions(
+        command,
+        workspace,
+        options.homeDirectory ?? homedir(),
+        resolve(workspace),
+        0,
+        (requestedPath) => {
+            requested.push(requestedPath);
+            return resolve(requestedPath);
+        },
+    );
+    return requested;
+}
+
+type ShellTargetPath = (requestedPath: string) => string | undefined;
+
+function shellTargetPath(
+    realShellTargets: ReadonlyMap<string, string> | undefined,
+): ShellTargetPath {
+    if (realShellTargets === undefined) {
+        return (requestedPath) => resolve(requestedPath);
+    }
+    return (requestedPath) => realShellTargets.get(requestedPath);
+}
+
 function extractBashActions(
     command: string,
     workspace: string,
     homeDirectory: string,
     initialDirectory: string | undefined,
     depth: number,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     if (!isBashParserReady()) {
         return [{ tool: "bash", verb: "unknown" }];
@@ -935,7 +1019,12 @@ function extractBashActions(
         }];
     }
 
-    const walk = new BashActionWalk(workspace, homeDirectory, initialDirectory);
+    const walk = new BashActionWalk(
+        workspace,
+        homeDirectory,
+        initialDirectory,
+        targetPath,
+    );
     for (const statement of script.statements) {
         walk.visit(statement);
     }
@@ -956,8 +1045,9 @@ function extractBashActions(
                 source,
                 workspace,
                 homeDirectory,
-                walk.workingDirectory,
+                walk.directoryChanged ? undefined : walk.workingDirectory,
                 depth + 1,
+                targetPath,
             )
         ),
     ];
@@ -966,11 +1056,15 @@ function extractBashActions(
 class BashActionWalk {
     readonly actions: PermissionAction[] = [];
     workingDirectory: string | undefined;
+    // Substitutions and shell -c payloads are checked after the walk, not
+    // where they ran, so once a cd happened their directory is unknown.
+    directoryChanged = false;
 
     constructor(
         private readonly workspace: string,
         private readonly homeDirectory: string,
         initialDirectory: string | undefined,
+        private readonly targetPath: ShellTargetPath,
     ) {
         this.workingDirectory = initialDirectory;
     }
@@ -983,6 +1077,10 @@ class BashActionWalk {
         if (statement.kind === "chain") {
             this.visit(statement.left);
             this.visit(statement.right);
+            return;
+        }
+        if (statement.kind === "loop") {
+            this.visitLoop(statement);
             return;
         }
         if (statement.kind === "pipeline") {
@@ -998,6 +1096,24 @@ class BashActionWalk {
         this.workingDirectory = undefined;
     }
 
+    // A cd in the body moves every later iteration, so no relative path in
+    // the loop can be resolved from where it started.
+    private visitLoop(loop: BashLoop): void {
+        const changesDirectory = commandsOf(loop).some((command) =>
+            executableName(command.words) === "cd"
+        );
+        if (changesDirectory) {
+            this.workingDirectory = undefined;
+            this.directoryChanged = true;
+        }
+        for (const statement of [...loop.condition, ...loop.body]) {
+            this.visit(statement);
+        }
+        if (changesDirectory) {
+            this.workingDirectory = undefined;
+        }
+    }
+
     private visitCommand(command: BashCommand): void {
         this.actions.push(
             ...actionsForSimpleCommand(
@@ -1005,16 +1121,17 @@ class BashActionWalk {
                 this.workspace,
                 this.workingDirectory,
                 this.homeDirectory,
+                this.targetPath,
             ),
         );
-        this.workingDirectory = command.hasNonLiteralWords
-                && basename(command.words[0] ?? "") === "cd"
-            ? undefined
-            : nextWorkingDirectory(
-                command.words,
-                this.workingDirectory,
-                this.homeDirectory,
-            );
+        if (executableName(command.words) === "cd") {
+            this.directoryChanged = true;
+        }
+        this.workingDirectory = nextTrackedDirectory(
+            command,
+            this.workingDirectory,
+            this.homeDirectory,
+        );
     }
 }
 
@@ -1041,6 +1158,10 @@ function shellCommandPayloads(
 
 const NESTED_SHELLS = new Set(["bash", "sh", "zsh"]);
 
+function executableName(words: readonly string[]): string {
+    return basename(words[simpleCommandExecutableIndex(words)] ?? "");
+}
+
 function nextWorkingDirectory(
     words: readonly string[],
     workingDirectory: string | undefined,
@@ -1056,11 +1177,48 @@ function nextWorkingDirectory(
         : resolveShellTarget(target, workingDirectory, homeDirectory);
 }
 
+// Allowing `cd` makes this load-bearing: a wrong answer lets a later relative
+// write look like it is inside the workspace. The accident guard keeps the
+// looser function above.
+function nextTrackedDirectory(
+    command: BashCommand,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): string | undefined {
+    const { words } = command;
+    const executableIndex = simpleCommandExecutableIndex(words);
+    if (basename(words[executableIndex] ?? "") !== "cd") {
+        return workingDirectory;
+    }
+    const targets = words.slice(executableIndex + 1);
+    const [target] = targets;
+    if (
+        command.hasNonLiteralWords
+        || targets.length > 1
+        || (target !== undefined && !isFollowableCdTarget(target))
+    ) {
+        return undefined;
+    }
+    return nextWorkingDirectory(words, workingDirectory, homeDirectory);
+}
+
+// A bare name may be found through CDPATH, and an option or `-` is not a path.
+function isFollowableCdTarget(target: string): boolean {
+    return isAbsolute(target)
+        || target === "~"
+        || target.startsWith("~/")
+        || target === "."
+        || target === ".."
+        || target.startsWith("./")
+        || target.startsWith("../");
+}
+
 function actionsForSimpleCommand(
     command: BashCommand,
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const { words } = command;
     const executableIndex = simpleCommandExecutableIndex(words);
@@ -1070,6 +1228,7 @@ function actionsForSimpleCommand(
         workspace,
         workingDirectory,
         homeDirectory,
+        targetPath,
     );
     if (executable.length === 0) {
         return [{ tool: "bash", verb: "unknown" }, ...redirects];
@@ -1088,6 +1247,7 @@ function actionsForSimpleCommand(
                 workspace,
                 workingDirectory,
                 homeDirectory,
+                targetPath,
             ),
             ...redirects,
         ];
@@ -1109,6 +1269,7 @@ function actionsForSimpleCommand(
                 workspace,
                 workingDirectory,
                 homeDirectory,
+                targetPath,
             ),
             ...redirects,
         ];
@@ -1116,7 +1277,7 @@ function actionsForSimpleCommand(
     const readOnlyClassifier = READ_ONLY_COMMANDS[executable];
     if (
         readOnlyClassifier !== undefined
-        && !command.hasNonLiteralWords
+        && wordsCanBeChecked(command, executableIndex, readOnlyClassifier)
         && readOnlyClassifier(words.slice(executableIndex + 1))
     ) {
         return [{ tool: "bash", verb: "read", executable }, ...redirects];
@@ -1127,6 +1288,22 @@ function actionsForSimpleCommand(
             : redirects;
     }
     return [{ tool: "bash", verb: "unknown", executable }, ...redirects];
+}
+
+// A non-literal word can hide a flag, so only a command that is read-only
+// whatever its flags may take one. A non-literal word at or before the
+// executable could be the command itself, so that never passes.
+function wordsCanBeChecked(
+    command: BashCommand,
+    executableIndex: number,
+    classifier: ReadOnlyClassifier,
+): boolean {
+    if (!command.hasNonLiteralWords) {
+        return true;
+    }
+    return classifier === alwaysReadOnly
+        && command.firstNonLiteralIndex !== undefined
+        && executableIndex < command.firstNonLiteralIndex;
 }
 
 const INERT_REDIRECT_TARGETS = new Set([
@@ -1163,6 +1340,7 @@ function redirectActions(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const actions: PermissionAction[] = [];
     for (const redirect of redirects) {
@@ -1192,6 +1370,7 @@ function redirectActions(
             workspace,
             workingDirectory,
             homeDirectory,
+            targetPath,
         ));
     }
     return actions;
@@ -1252,6 +1431,7 @@ function rmActions(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const parsed = parseRm(words.slice(executableIndex + 1));
     if (parsed.targets.length === 0) {
@@ -1265,6 +1445,7 @@ function rmActions(
             workspace,
             workingDirectory,
             homeDirectory,
+            targetPath,
         )
     );
 }
@@ -1297,6 +1478,7 @@ function writeCommandActions(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): readonly PermissionAction[] {
     const unknown = [{ tool: "bash", verb: "unknown", executable }] as const;
     const operands = parseWriteCommandOperands(
@@ -1316,6 +1498,7 @@ function writeCommandActions(
                 workspace,
                 workingDirectory,
                 homeDirectory,
+                targetPath,
             );
     if (spec.operands === "targets") {
         return operands.length === 0
@@ -1374,8 +1557,16 @@ function shellPathAction(
     workspace: string,
     workingDirectory: string | undefined,
     homeDirectory: string,
+    targetPath: ShellTargetPath,
 ): PermissionAction {
-    const path = resolveShellTarget(target, workingDirectory, homeDirectory);
+    const requestedPath = requestedShellTarget(
+        target,
+        workingDirectory,
+        homeDirectory,
+    );
+    const path = requestedPath === undefined
+        ? undefined
+        : targetPath(requestedPath);
     return path === undefined
         ? { tool: "bash", verb: "unknown", executable }
         : {
@@ -1615,6 +1806,29 @@ function resolveShellTarget(
     return workingDirectory === undefined
         ? undefined
         : resolve(workingDirectory, target);
+}
+
+// Left unnormalized: after a symlink, `..` climbs from where the link points.
+function requestedShellTarget(
+    target: string,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): string | undefined {
+    if (target.length === 0 || hasShellExpansion(target)) {
+        return undefined;
+    }
+    if (target === "~" || target.startsWith("~/")) {
+        return `${homeDirectory}${target.slice(1)}`;
+    }
+    if (target.startsWith("~")) {
+        return undefined;
+    }
+    if (isAbsolute(target)) {
+        return target;
+    }
+    return workingDirectory === undefined
+        ? undefined
+        : `${workingDirectory}${sep}${target}`;
 }
 
 function isWorkspaceOrAncestor(candidate: string, workspace: string): boolean {

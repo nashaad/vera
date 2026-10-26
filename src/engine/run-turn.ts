@@ -71,6 +71,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import { newStashingToolRuntime } from "./preimage.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
+import { resolveRealTargets } from "../tools/real-target.ts";
 import type {
     ApplyCommittedToolEffect,
     ApplyToolEffect,
@@ -156,6 +157,7 @@ import {
 } from "./host-boundary.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
+    bashTargetPaths,
     decideToolPermission,
     stricterToolPermission,
     inspectPermissions,
@@ -2423,6 +2425,10 @@ async function executePreparedTool(
         state.toolRuntime.workspace,
         hookCall,
     );
+    const realShellTargets = await resolveRealTargets(bashTargetPaths(
+        permissionContext.toolCall,
+        permissionContext.workspace,
+    ));
     let approvalMode = state.approvalMode;
     permissionCheck: while (true) {
         approvalMode = state.readApprovalMode?.() ?? state.approvalMode;
@@ -2430,6 +2436,7 @@ async function executePreparedTool(
             permissionModes: state.permissionModes,
             permissionPreferences: state.readPermissionPreferences?.() ?? [],
             extensionTools: state.extensionTools,
+            realShellTargets,
             ...(state.scratchDir === undefined
                 ? {}
                 : { scratchDir: state.scratchDir }),

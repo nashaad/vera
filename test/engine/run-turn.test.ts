@@ -6,6 +6,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -4103,6 +4104,30 @@ function outsideWriteResponses(path: string): AssistantMessage[] {
     ];
 }
 
+function bashCallResponses(command: string): AssistantMessage[] {
+    return [
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "call_1",
+                name: "bash",
+                input: { command },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        },
+    ];
+}
+
 test("auto sends a boundary crossing to the reviewer, not the user", async () => {
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
@@ -4234,6 +4259,45 @@ test("auto reviews and executes a structured write outside the workspace", async
         }),
     ]]);
     expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
+});
+
+test("auto reviews a bash write that a symlink sends outside the workspace", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-bash-link-"));
+    temporaryWorkspaces.push(root);
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace);
+    mkdirSync(join(root, "island"));
+    symlinkSync("../island", join(workspace, "link"));
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const reasons: string[] = [];
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async (request) => {
+            reasons.push(request.reason);
+            return {
+                decision: "deny",
+                reason: "The link leaves the workspace.",
+                riskLevel: "medium",
+                userAuthorization: "unknown",
+            };
+        }),
+        toolRuntime: new ToolRuntime(workspace),
+    };
+
+    channel.client.send({ type: "prompt", content: "bury the map" });
+    const turn = runTurn(
+        new FauxAdapter(bashCallResponses("printf x > link/map.txt")),
+        "test",
+        state,
+    );
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toContain(
+        `write ${join(realpathSync(root), "island", "map.txt")}`,
+    );
+    expect(existsSync(join(root, "island", "map.txt"))).toBe(false);
 });
 
 test("full access executes a structured outside write without review", async () => {

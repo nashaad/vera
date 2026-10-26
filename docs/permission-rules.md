@@ -17,6 +17,24 @@ ask you, send it to the [classifier](permission-classifier.md), or refuse it.
 | `auto` | Same as `ask` | Goes to the classifier |
 | `full_access` | Everything except the recursive `rm` cases below | Refused |
 
+Shell commands that only look run without review in readonly, ask, and auto.
+That covers `cd`, `ps`, `du`, `which`, and `hostname -s`, and a read such as
+`cat "$FILE"` whose argument comes from a variable. A `for`, `while`, or
+`until` loop is judged by the commands inside it. `sed`, `find`, `rg`, `sort`,
+and `git` still go to review when an argument comes from a variable, because
+the variable could hold a flag that writes.
+
+After `cd`, relative paths are read from the new folder when the target starts
+with `/`, `~`, `./`, or `../`. For any other `cd`, such as `cd src` or `cd -`,
+later relative paths are not resolved, so a write through one goes to review in
+auto and asks in ask.
+
+Shell write and delete targets are checked where they really land. Vera follows
+symlinks in the path, so `printf x > hold/map.txt`, with `hold` linking to a
+folder outside the workspace, is a write outside the workspace. Deleting a
+symlink is judged by what it points to. A target Vera cannot follow, such as a
+symlink loop, goes to review in auto and asks in ask.
+
 In readonly, ask, and auto, the file tools refuse to read a file named `.env`,
 `*.pem`, or `id_rsa`. A shell command such as `cat .env` is not caught by this
 rule. Stopping a process this conversation started is always allowed.
