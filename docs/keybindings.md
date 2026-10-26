@@ -14,7 +14,7 @@ current screen. A picker may use a shortcut differently from the composer.
 | --- | --- |
 | Ctrl+P | Open the command palette. |
 | Ctrl+X, then M | Open Switch model. Release Ctrl before M. |
-| Ctrl+X, then H | Show or hide a card of the common keys. The composer keeps typing. |
+| Ctrl+X, then H | Show or hide a card of the common keys. The composer keeps typing. On a short screen the card shows the keys that fit, and `/help` lists every key. |
 | Ctrl+X, then B | Show or hide the sidebar of running conversations. |
 | Shift+Tab | Open the quick controls for agent and access. |
 | Ctrl+E | Open the conversation list. |

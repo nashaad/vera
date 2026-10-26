@@ -106,3 +106,22 @@ test("Ctrl+X then H shows the keys card without taking the composer's keys", asy
         expect(session.captureVisiblePane()).not.toContain("esc close");
     } finally { await session.close(); }
 }, 15_000);
+
+test("on a short, narrow screen the keys card keeps to half the height", async () => {
+    const session = await startTuiTestSession({ home: home(), width: 64, height: 24,
+        dependencies: () => createTuiCatalogRefreshDependencies(),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-x"); session.sendText("h");
+        const pane = await session.waitForVisiblePane("esc close");
+        const lines = pane.split("\n");
+        const title = lines.findIndex((line) => line.trim() === "Keys");
+        const close = lines.findIndex((line) => line.includes("esc close"));
+        expect(title).toBeGreaterThanOrEqual(0);
+        expect(close - title + 4).toBeLessThanOrEqual(12);
+        expect(lines.findIndex((line) => line.includes("╭"))).toBeGreaterThan(close);
+        expect(lines.findIndex((line) => line.includes("╰"))).toBeGreaterThan(close);
+        expect(pane).toContain("Ctrl+X h keys");
+    } finally { await session.close(); }
+}, 15_000);

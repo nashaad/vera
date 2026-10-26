@@ -155,9 +155,15 @@ test("while a stop is in flight the footer still names the keys card", async () 
         await session.waitForVisiblePaneWhere(turnRunning, "turn running");
 
         session.sendKey("Escape");
-        const pane = await session.waitForVisiblePane("stopping…");
+        let pane = await session.waitForVisiblePane("stopping…");
         expect(pane).toContain("Ctrl+X h keys");
         expect(pane).not.toContain(READY);
+
+        session.sendKey("C-x");
+        session.sendText("h");
+        pane = await session.waitForVisiblePane("/help every key · Ctrl+X h close");
+        expect(pane).toMatch(/Ctrl\+C +quit/);
+        expect(pane).not.toMatch(/\bstop\b/);
     } finally {
         await session.close();
     }
@@ -182,10 +188,16 @@ test("mid-turn the keys card closes with Ctrl+X h, since Escape stops the turn",
         session.sendText("h");
         let pane = await session.waitForVisiblePane("/help every key · Ctrl+X h close");
         expect(pane).not.toContain("esc close");
+        expect(pane).toMatch(/esc or Ctrl\+C +stop/);
+        const keysRow = (text: string) => text.split("\n").findIndex((line) => line.trim() === "Keys");
+        const turnShape = [keysRow(pane), pane.split("\n").findIndex((line) => /Ctrl\+P +commands/.test(line))];
 
         session.sendKey("Escape");
         pane = await session.waitForVisiblePane("/help every key · esc close");
         expect(sent.some((command) => command.type === "abort")).toBe(true);
+        // Same rows in the same cells once the turn has stopped.
+        expect([keysRow(pane), pane.split("\n").findIndex((line) => /Ctrl\+P +commands/.test(line))]).toEqual(turnShape);
+        expect(pane).toMatch(/Ctrl\+C Ctrl\+C +quit/);
 
         session.sendKey("Escape");
         await session.settle();
