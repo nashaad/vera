@@ -37,6 +37,7 @@ import { handleTuiSettingsPickerKey, tuiPickerViewportRows, type TuiExtensionPic
 import { applyExtensionsListKey } from "./extensions-ops.ts";
 import { handleTuiStandingNudgesKey } from "../standing-nudges.ts";
 import { appendTuiNotice, toggleTuiThinking, toggleTuiToolDetails } from "../state.ts";
+import { armQuit, disarmQuit } from "./notices.ts";
 import { handleTuiTimelineKey, startTuiTimelinePicker } from "../timeline-picker.ts";
 import { handleWorkTabKey } from "../work-tab.ts";
 import type { TuiRuntime } from "./runtime.ts";
@@ -338,6 +339,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         ) {
             key.preventDefault();
             key.stopPropagation();
+            // Clearing a draft starts the two-press quit over.
+            disarmQuit(rt);
             rt.composer.clearComposer();
             renderCommandSuggestions(rt);
             renderState(rt);
@@ -348,12 +351,17 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
             focusedAgentState(rt).working,
             focusedAbortRequested(rt),
             focusedAgentState(rt).compactingSince !== undefined,
+            rt.quitArmTimer !== undefined,
         );
         key.preventDefault();
         key.stopPropagation();
         if (action === "quit") {
+            disarmQuit(rt);
             rt.renderer.destroy();
+        } else if (action === "arm_quit") {
+            armQuit(rt);
         } else if (action === "abort") {
+            disarmQuit(rt);
             abortFocusedAgent(rt);
             renderStatus(rt);
         }

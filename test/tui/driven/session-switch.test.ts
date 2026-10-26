@@ -102,6 +102,7 @@ test("idle TUI exit stops the current conversation", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
@@ -127,6 +128,7 @@ test("idle TUI exit only detaches when another viewer remains", async () => {
 
     try {
         await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -180,6 +182,7 @@ test("clear command leaves the current conversation for a fresh one", async () =
         expect(pane).toContain("FULL ACCESS · RED ZONE");
         expect(pane).not.toContain("current-model");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
@@ -214,6 +217,7 @@ test("keep running leaves the source idle", async () => {
         await chooseCreateLeave(session, "keep_running");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
@@ -245,6 +249,7 @@ test("new and clear with a leave word skip the leave menu", async () => {
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("fresh-model");
         expect(pane).not.toContain("Close this conversation");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -283,6 +288,7 @@ test("clear keeps a multiply-attached source running and says why", async () => 
             "The previous conversation is still running in another client",
         );
         expect(pane).toContain("fresh-model");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -323,6 +329,7 @@ test("resume leaves a multiply-attached source running and says why", async () =
             "The previous conversation is still running in another client",
         );
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
@@ -358,6 +365,7 @@ test("clear keeps the source and cleans up its target when close fails", async (
         );
         expect(pane).toContain("current-model");
         expect(pane).not.toContain("fresh-model");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -424,6 +432,7 @@ test("a delayed extension insertion goes stale across clear", async () => {
         expect(pane).not.toContain("stale text must not land");
 
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
     } finally {
@@ -449,6 +458,7 @@ test("rename commands name and clear without reaching the model", async () => {
         session.sendText("/rename");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("session name cleared");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
         expect(readFileSync(join(home, "rename-result.txt"), "utf8"))
@@ -494,6 +504,7 @@ test("clone switches to the replacement without restarting the TUI", async () =>
         expect(pane).toContain("FULL ACCESS · RED ZONE");
         expect(pane).not.toContain("source-model");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "clone-session-result.txt"), "utf8"))
@@ -534,6 +545,7 @@ test("fork prepares a replacement and restores the selected prompt", async () =>
         session.sendKey("C-c");
         await session.settle(50);
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(JSON.parse(readFileSync(
@@ -573,6 +585,7 @@ test("a stalled fork returns control to the source session", async () => {
             "Could not fork this session: timed out",
         );
         expect(pane).toContain("ready");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -630,6 +643,7 @@ for (const stalled of stalledSwitches) {
             // The session that was on screen is still the attached one.
             expect(pane).toContain(stalled.survivor);
             session.sendKey("C-c");
+            session.sendKey("C-c");
             await session.waitForSessionExit();
         } finally {
             await session.close();
@@ -669,6 +683,7 @@ test("a stalled resume returns control to the current session", async () => {
         expect(pane).toContain("current-model");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
         await session.close();
@@ -697,6 +712,7 @@ test("Ctrl+C quits while a session switch is still pending", async () => {
         // The deadline is a minute out, so the switch is still pending and
         // Ctrl+C is the only way out of it.
         await session.waitForVisiblePane("forking session");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -729,6 +745,7 @@ test("resuming a session from the list offers no way back", async () => {
         expect(pane).not.toContain("/back");
         expect(pane).not.toContain("This conversation is idle.");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
         await session.close();
@@ -760,6 +777,7 @@ test("resume asks, and switch keep running leaves the source running", async () 
         session.sendKey("Down");
         session.sendKey("Enter");
         await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -799,6 +817,7 @@ test("resume stays on the source when its tree cannot be stopped", async () => {
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
@@ -835,6 +854,7 @@ test("resume does not show the destination before source quiescence", async () =
         expect(pending).not.toContain(IDLE_TARGET_TRANSCRIPT);
         expect(pending).not.toContain("RESUMED HISTORY LOADED");
         await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -885,6 +905,7 @@ test("Ctrl+E opens the same conversation picker as /resume", async () => {
             (visible) => !visible.includes("Continue the theme picker"),
             "the conversation picker to close",
         );
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -957,6 +978,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).toContain("resumed-model");
         expect(pane).not.toContain("This conversation is idle.");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -1086,6 +1108,7 @@ test("picking a live conversation from Ctrl+E asks, then attaches", async () => 
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
@@ -1212,6 +1235,7 @@ test("Ctrl+N starts a new chat and asks how to leave", async () => {
         await chooseCreateLeave(session, "keep_running");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
@@ -1245,6 +1269,7 @@ test("close command parks the current session as a resume file", async () => {
         );
         expect(pane).not.toContain("Start a conversation");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
@@ -1274,6 +1299,7 @@ test("Ctrl+W parks the current session as a resume file", async () => {
                 && visible.includes("hello from disk"),
             "the parked file with resume overlay",
         );
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -1317,6 +1343,7 @@ test("closing in-flight work asks first", async () => {
                 && visible.includes("hello from disk"),
             "the parked file after confirmed close",
         );
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);

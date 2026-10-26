@@ -125,6 +125,8 @@ export async function startTuiTestSession(
     const setup = await createTestRenderer({
         width: options.width ?? 100,
         height: options.height ?? 35,
+        // As in production: Vera decides what Ctrl+C does, not the renderer.
+        exitOnCtrlC: false,
     });
     let exited = false;
     let exitError: unknown;

@@ -29,7 +29,7 @@ working. Home means no conversation is open.
 | Ctrl+C while working | Stop the active turn. |
 | Ctrl+C while a stop is in progress | Exit the TUI. |
 | Ctrl+C while idle with a draft | Clear the draft. |
-| Ctrl+C while idle with an empty composer | Exit the TUI. |
+| Ctrl+C twice while idle with an empty composer | Exit the TUI. |
 | `/close` or Ctrl+W from the composer | Park the live conversation and keep its saved history. |
 
 `/clear` starts a new conversation and asks Close this conversation or Keep

@@ -53,6 +53,7 @@ test("resident stream failure auto-reconnects without a manual reconnect", async
         session.sendKey("Escape");
         await session.settle(50);
         session.sendKey("C-c");
+        session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
         await session.close();
@@ -124,6 +125,7 @@ test("a reconnected session that dies again does not restart the host in a loop"
         const still = session.captureVisiblePane();
         expect(still).toContain("disconnected:");
         expect(still).not.toContain("restarting host");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -221,6 +223,7 @@ test("agent death does not restart the host in a loop", async () => {
         expect(pane).toContain("· Ctrl+P reconnect · Ctrl+C quit");
         expect(pane).not.toContain("restarting host");
         expect(reconnects).toBe(0);
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {

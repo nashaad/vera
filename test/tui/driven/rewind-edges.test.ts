@@ -43,6 +43,7 @@ test("rewind picker preserves global Ctrl-C and restores focus after failure", a
         interrupt.sendKey("Enter");
         await interrupt.waitForVisiblePane("Rewind: select a point");
         interrupt.sendKey("C-c");
+        interrupt.sendKey("C-c");
         await interrupt.waitForSessionExit();
     } finally {
         await interrupt.close();

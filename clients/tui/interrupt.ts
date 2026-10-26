@@ -1,6 +1,6 @@
 import { tuiBindingId } from "./keymap.ts";
 
-export type TuiInterruptAction = "pass" | "abort" | "consume" | "quit";
+export type TuiInterruptAction = "pass" | "abort" | "consume" | "arm_quit" | "quit";
 
 export interface TuiInterruptKey {
     readonly name: string;
@@ -34,6 +34,7 @@ export function tuiInterruptAction(
     working: boolean,
     abortRequested: boolean,
     compacting = false,
+    quitArmed = false,
 ): TuiInterruptAction {
     const ctrlC = parseRawInputEvent(key)?.type === "interrupt";
     const plainEscape = key.name === "escape" &&
@@ -45,7 +46,8 @@ export function tuiInterruptAction(
         return "pass";
     }
     if (!working && !compacting) {
-        return ctrlC ? "quit" : "pass";
+        if (!ctrlC) return "pass";
+        return quitArmed ? "quit" : "arm_quit";
     }
     if (abortRequested) {
         return ctrlC ? "quit" : "consume";

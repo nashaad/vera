@@ -3,9 +3,10 @@ import { expect, test } from "bun:test";
 import { layoutTuiKeysCard, tuiKeysCardRows } from "../../clients/tui/keys-card.ts";
 import { activeTuiKeymap, installTuiKeymap } from "../../clients/tui/keymap.ts";
 
-test("idle lists the keys without the stop keys", () => {
+test("idle lists the quit press instead of the stop keys", () => {
     const rows = tuiKeysCardRows(false);
     expect(rows).toContainEqual({ chord: "Ctrl+P", label: "commands" });
+    expect(rows).toContainEqual({ chord: "Ctrl+C Ctrl+C", label: "quit" });
     expect(rows.map((row) => row.label)).not.toContain("stop");
     expect(rows.map((row) => row.chord)).not.toContain("Ctrl+X");
     expect(rows.slice(-3)).toEqual([

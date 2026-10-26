@@ -8,6 +8,7 @@ import type { TuiAgentClient } from "../agent-client.ts";
 import { clientExtensionReloadFailed, clientExtensionReloadStarted, clientExtensionReloadSucceeded, reloadTuiClientExtensions } from "../client-extension-reload.ts";
 import { extensionCommandResultText, tuiCommandScope } from "../commands.ts";
 import { startTuiHelp } from "../help.ts";
+import { disarmQuit } from "./notices.ts";
 import { isJsonlViewClient } from "../jsonl-view-client.ts";
 import { DIRECT_EXTENSION_COMMAND_TIMEOUT_MS, activeFlightSurface, applyTimelineTransition, beginCreateSession, requestCreateSession, beginSessionResume, discardSwitchTarget, focusActiveSurface, isModelShortlisted, offerMessageToExtensions, openCommandPalette, openConfigurePicker, openHelp, openModelPicker, openPreferencesList, openResumePicker, openSearchOverlay, openSettingsDestination, openStandingNudges, openThemePicker, openWorkTab, toggleWorkspaceSidebar, refuseJsonlCommand, renderCommandSuggestions, renderState, renderStatus, reportConnectionError, requestCloseSession, requestModelSettingsChange, requestPermissionsChange, requestPoolAdmission, routeVisibleAgentPrompt, runBack, sendCommand, showStatusNotice, switchToClient, withSessionSwitchDeadline } from "../main.ts";
 import { openExtensionsList, refreshOpenExtensionsList } from "./extensions-ops.ts";
@@ -32,6 +33,7 @@ export function submitPrompt(rt: TuiRuntime,
     injectedPrefix?: number,
 ): void {
     if (rt.shuttingDown) return;
+    disarmQuit(rt);
     clearSearchLanding(rt);
     rt.flightRecorder?.record({
         type: "submit_requested",

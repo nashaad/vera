@@ -20,6 +20,7 @@ for (const digit of ["1", "2"]) {
             const pane = await session.waitForVisiblePane("fresh-model");
             expect(pane).not.toContain("Close this conversation");
             session.sendKey("C-c");
+            session.sendKey("C-c");
             await scenario.finish(await session.waitForSessionExit());
             expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
                 "new-session-id\ndetached\nnext detached\nattempts 1\n/work/vera\nclosed "
