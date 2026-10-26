@@ -241,6 +241,49 @@ test("Escape mid-turn stops the turn and keeps the draft", async () => {
     }
 }, 15_000);
 
+test("with the keys card open, Escape stops the turn, then closes the card, then clears the draft", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-keys-card-draft-"));
+    const sent: ClientCommand[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => slowTurnDependencies(["The crow keeps the wheel through the squall"], sent),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("sail through it");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
+        session.sendKey("C-x");
+        session.sendText("h");
+        await session.waitForVisiblePane("/help every key · Ctrl+X h close");
+        session.sendText("chart the next cove");
+        let pane = await session.waitForVisiblePane("chart the next cove");
+        expect(pane).toContain("Ctrl+X h keys");
+
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePane("/help every key · esc close");
+        expect(sent.some((command) => command.type === "abort")).toBe(true);
+        expect(pane).toContain("chart the next cove");
+        expect(pane).toContain("Ctrl+X h keys");
+
+        session.sendKey("Escape");
+        await session.settle();
+        pane = session.captureVisiblePane();
+        expect(pane).not.toContain("every key");
+        expect(pane).toContain("chart the next cove");
+
+        session.sendKey("Escape");
+        await session.settle();
+        expect(session.captureVisiblePane()).not.toContain("chart the next cove");
+        expect(sent.filter((command) => command.type === "prompt")).toHaveLength(1);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("empty Enter releases every queued prompt in one model turn", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-send-all-"));
     const sent: ClientCommand[] = [];
