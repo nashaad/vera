@@ -16,6 +16,7 @@ import {
     tuiGutterWidth,
     unmarkTuiGutterEntry,
 } from "../../clients/tui/gutter.ts";
+import { createTuiErrorRow } from "../../clients/tui/error-row.ts";
 import { createTuiMarkdownEntry } from "../../clients/tui/markdown-entry.ts";
 import {
     createTuiToolHeader,
@@ -389,10 +390,7 @@ test("a runtime failure uses the indented activity gutter", async () => {
             "Resident agent stopped unexpectedly",
         ),
     };
-    const content = new TextRenderable(setup.renderer, {
-        id: "content",
-        content: renderTuiEntry(entry),
-    });
+    const content = createTuiErrorRow(setup.renderer, "content", entry, 0);
     const node = createTuiGutterEntry(
         setup.renderer,
         "failure",
@@ -409,7 +407,7 @@ test("a runtime failure uses the indented activity gutter", async () => {
         expect(marker instanceof TextRenderable ? marker.plainText : undefined)
             .toBe(" ");
         expect(setup.captureCharFrame()).toMatch(
-            /^ {2}× stopped  Resident agent stopped unexpectedly/m,
+            /^ {2}× AGENT STOPPED *\n {4}Resident agent stopped unexpectedly/m,
         );
     } finally {
         setup.renderer.destroy();

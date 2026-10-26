@@ -1,4 +1,9 @@
-import { isHookDisplay, isToolPresentation, isTurnTiming } from "../model/types.ts";
+import {
+    isClassifierOutcome,
+    isHookDisplay,
+    isToolPresentation,
+    isTurnTiming,
+} from "../model/types.ts";
 import { randomUUID } from "node:crypto";
 import {
     chmod,
@@ -2919,6 +2924,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
                 || isToolPresentation(message.presentation))
             && (message.toolResultSource === undefined
                 || isToolResultSource(message.toolResultSource))
+            && (message.classifierOutcome === undefined
+                || isClassifierOutcome(message.classifierOutcome))
+            && (message.withheld === undefined || message.withheld === true)
             && message.content.every(isTextContent);
     }
     if (message.role !== "assistant") {

@@ -2118,11 +2118,17 @@ for (const recovers of [true, false]) {
                 type: "assistant_delta", text: "recovered",
             });
         }
-        expect(await channel.client.receive()).toMatchObject({
+        const finished = await channel.client.receive();
+        expect(finished).toMatchObject({
             type: "turn_finished",
             ...(recovers ? {} : { outcome: "error", error: "provider overloaded" }),
         });
-        expect((await turn).stopReason).toBe(recovers ? "stop" : "error");
+        const message = await turn;
+        expect(message.stopReason).toBe(recovers ? "stop" : "error");
+        // Only a request that still failed after its retries keeps the failure.
+        const modelFailure = recovers ? undefined : { model: "faux/test", kind: "server" as const };
+        expect(message.modelFailure).toEqual(modelFailure);
+        expect(finished.type === "turn_finished" ? finished.modelFailure : undefined).toEqual(modelFailure);
         expect(attempts).toBe(7);
         channel.client.send({ type: "prompt", content: "next" });
         expect((await runTurn(adapter, "test", state)).stopReason).toBe("stop");
@@ -3244,6 +3250,7 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         toolName: "bash",
         content: [{ type: "text", text: "blocked by test" }],
         isError: true,
+        withheld: true,
     });
 });
 
@@ -3516,6 +3523,7 @@ test("hook failures fail closed without breaking durable tool history", async ()
             text: "pre_tool_use hook failed: broken extension",
         }],
         isError: true,
+        withheld: true,
     });
     expect(observedEvents).toContainEqual({
         type: "tool_hook_failed",
@@ -3850,6 +3858,7 @@ test("ask mode turns a client denial into a tool result", async () => {
         toolName: "bash",
         content: [{ type: "text", text: "Tool use was denied by the user." }],
         isError: true,
+        withheld: true,
     });
 });
 
@@ -4411,6 +4420,11 @@ test("a reviewer denial goes back to the model, not to the user", async () => {
         role: "tool_result",
         toolName: "bash",
         isError: true,
+        classifierOutcome: {
+            kind: "denied",
+            riskLevel: "medium",
+            reason: "Not needed for the task.",
+        },
     });
     const text = JSON.stringify(result);
     expect(text).toContain("Not needed for the task.");
@@ -4447,8 +4461,43 @@ test("an unavailable reviewer rejects the tool without asking the user", async (
         role: "tool_result",
         isError: true,
     });
+    expect(state.messages[2]).not.toHaveProperty("classifierOutcome");
     expect(JSON.stringify(state.messages[2])).toContain("timed out");
     expect(JSON.stringify(message)).toContain("done");
+});
+
+test("a turn cancelled during review stores the cancel on the withheld result", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let reviewing: () => void = () => {};
+    const reviewStarted = new Promise<void>((resolve) => {
+        reviewing = resolve;
+    });
+    const state = reviewedTurnState(channel, events, (_request, signal) =>
+        new Promise((resolve) => {
+            reviewing();
+            signal.addEventListener("abort", () => resolve({
+                decision: "unavailable",
+                reason: "The turn was cancelled before classification finished.",
+                riskLevel: "high",
+                userAuthorization: "unknown",
+            }));
+        }));
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(new FauxAdapter(boundaryCrossingResponses()), "test", state);
+    await reviewStarted;
+    channel.client.send({ type: "abort" });
+    await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(message.stopReason).toBe("aborted");
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+        withheld: true,
+        classifierOutcome: { kind: "cancelled" },
+    });
 });
 
 test("repeated reviewer denials stop the turn", async () => {
@@ -4509,9 +4558,60 @@ test("auto rejects without asking when no reviewer is configured", async () => {
         role: "tool_result",
         isError: true,
     });
+    expect(state.messages[2]).toMatchObject({ withheld: true, classifierOutcome: { kind: "failed" } });
     expect(JSON.stringify(state.messages[2]))
         .toContain("automatic classifier is not configured");
-    expect(JSON.stringify(message)).toContain("done");
+    // With no classifier every later call is withheld too, so the turn stops.
+    expect(message.stopReason).toBe("error");
+    expect(message.classifierFailure).toEqual({ tool: "bash", kind: "no_route" });
+});
+
+test("a classifier that cannot answer ends the turn with its failure facts", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const failure = {
+        classifier: "openai-codex/gpt-6-luna",
+        kind: "rate_limit" as const,
+        detail: "OpenAI Codex usage limit reached: The usage limit has been reached",
+        resetsAt: 1792103726000,
+    };
+    const state = reviewedTurnState(channel, events, async () => ({
+        decision: "unavailable",
+        reason: "The approval classifier failed (usage limit). The action did not run.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        failure,
+    }));
+    const adapter = new FauxAdapter(boundaryCrossingResponses());
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(adapter, "test", state);
+    const updates = await receiveThroughTurnFinished(channel);
+    const message = await turn;
+
+    expect(state.messages[2]).toMatchObject({
+        role: "tool_result",
+        isError: true,
+        withheld: true,
+        classifierOutcome: { kind: "failed" },
+    });
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    // Clients draw the call that did not run from these args.
+    expect(updates.find((update) => update.type === "tool_review")).toMatchObject({
+        tool: "bash",
+        args: { command: "env" },
+        decision: "unavailable",
+    });
+    // The model is not asked again: its next call would be withheld the same way.
+    expect(JSON.stringify(state.messages)).not.toContain("done");
+    expect(message.stopReason).toBe("error");
+    expect(message.classifierFailure).toEqual({ tool: "bash", ...failure });
+    expect(state.messages.at(-1)).toEqual(message);
+    expect(updates.at(-1)).toMatchObject({
+        type: "turn_finished",
+        outcome: "error",
+        classifierFailure: { tool: "bash", ...failure },
+    });
 });
 
 function createTestEvents(sender: AgentUpdateSender): EngineEventBus {

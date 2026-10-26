@@ -442,6 +442,8 @@ export function renderStatus(rt: TuiRuntime): void {
     const footer = fitFooter(rt.footerLayout, footerItemContents({
         status: rt.modelPrefixPending
             ? { text: modelPrefixHint, color: TUI_ACCENT }
+            : rt.quitArmTimer !== undefined
+            ? { text: `Press ${tuiKeyChordLabel("interrupt")} again to quit`, color: TUI_ACCENT }
             : { text: statusLine, color: statusColor },
         keys: keysHint,
         limits: rt.subscriptionLimits.forms(),

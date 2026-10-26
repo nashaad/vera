@@ -10,8 +10,6 @@ export interface TuiKeysCardRow {
 }
 
 const CARD_SCOPES: readonly TuiKeyScope[] = ["global", "conversation", "composer"];
-// Shown only while a turn runs; idle they read as quit or do nothing.
-const WORKING_ONLY: ReadonlySet<string> = new Set(["interrupt"]);
 const HIDDEN: ReadonlySet<string> = new Set(["open_model_prefix"]);
 // Bindings whose hint is the bare chord; their descriptions are too long for a cell.
 const SHORT_LABELS: Readonly<Record<string, string>> = {
@@ -25,8 +23,14 @@ export function tuiKeysCardRows(working: boolean): TuiKeysCardRow[] {
     const rows: TuiKeysCardRow[] = working ? [{ chord: "esc", label: "stop" }] : [];
     for (const binding of activeTuiKeymap()) {
         if (!CARD_SCOPES.includes(binding.scope) || binding.hint === undefined || binding.hint === "") continue;
-        if (HIDDEN.has(binding.id) || (!working && WORKING_ONLY.has(binding.id))) continue;
-        rows.push({ chord: tuiKeyChordLabel(binding.id), label: hintLabel(binding.id, binding.hint, binding.description) });
+        if (HIDDEN.has(binding.id)) continue;
+        const chord = tuiKeyChordLabel(binding.id);
+        if (binding.id === "interrupt" && !working) {
+            // Idle, one press only arms the quit.
+            rows.push({ chord: `${chord} ${chord}`, label: "quit" });
+            continue;
+        }
+        rows.push({ chord, label: hintLabel(binding.id, binding.hint, binding.description) });
     }
     const prefix = tuiKeyChordLabel("open_model_prefix");
     rows.push(

@@ -62,6 +62,7 @@ test("resume picker switches conversation without restarting the TUI", async () 
         expect(pane).toContain("Message Vera");
         expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
@@ -104,6 +105,7 @@ test("space previews a conversation and escape returns to the picker", async () 
         expect(picker).toContain("Search");
         expect(picker).not.toContain("current on disk");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
         await session.close();
@@ -141,6 +143,7 @@ test("session picker renames a conversation it is not attached to", async () => 
         pane = await session.waitForVisiblePane(
             "session renamed: Continue the theme color picker",
         );
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -199,6 +202,7 @@ test("ctrl+e opens the conversation picker and renames its selected row", async 
         session.sendKey("Escape");
         await session.waitForVisiblePane("session renamed: release notes");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(
@@ -240,6 +244,7 @@ test("renaming the attached row goes through its own session", async () => {
         pane = await session.waitForVisiblePane(
             "session renamed: the current one",
         );
+        session.sendKey("C-c");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -287,6 +292,7 @@ test("a refused rename says so and leaves the pane open", async () => {
         session.sendKey("Escape");
         pane = await session.waitForVisiblePane("open in another client");
         session.sendKey("C-c");
+        session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
         await session.close();
@@ -320,6 +326,7 @@ test("session trash rejection keeps the picker usable", async () => {
         expect(pane).toContain("Continue the theme picker");
         session.sendKey("Escape");
         pane = await session.waitForVisiblePane("That con");
+        session.sendKey("C-c");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {

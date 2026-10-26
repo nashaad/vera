@@ -17,6 +17,7 @@ import {
     type ModelStream,
 } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 
 const request: ToolReviewRequest = {
     toolCall: {
@@ -169,6 +170,15 @@ test("configured reviewer bypasses project-pool availability and effort checks",
         model: "not-in-project-pool",
         reasoningEffort: "xhigh",
     });
+});
+
+test("a reviewer with no model routes reports that no classifier is set", async () => {
+    const review = createRoutedToolReviewer(new RouteAdapter(), { models: [] });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("unavailable");
+    expect(decision.failure).toEqual({ kind: "no_route" });
 });
 
 test("reviewer routes do not fall through a valid denial", async () => {
@@ -688,11 +698,58 @@ test("a classifier that answers after the deadline reports a timeout, not a deni
 
     // Not a denial: the reviewer said nothing about the action.
     expect(decision.decision).toBe("unavailable");
+    expect(decision.failure).toEqual({
+        classifier: "test",
+        kind: "timeout",
+        timeoutMs: 5,
+    });
     expect(decision.reason).toBe(
         "The approval classifier timed out after 5ms. The action did not run. "
             + "The classifier is test, so every tool call is withheld until it "
             + "answers: check that provider, or change the classifier.",
     );
+});
+
+test("a spent usage limit reaches the decision as facts with its reset time", async () => {
+    class LimitedAdapter implements ModelAdapter {
+        stream(): ModelStream {
+            const stream = new ModelEventStream();
+            const failure = {
+                kind: "rate_limit" as const,
+                resolution: "retry" as const,
+                message: "OpenAI Codex usage limit reached: The usage limit has been reached",
+                statusCode: 429,
+                providerErrorType: "usage_limit_reached",
+                resetsAt: 1792103726000,
+            };
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error: new ProviderFailureError(failure, undefined),
+                message: {
+                    ...assistantText(""),
+                    stopReason: "error",
+                    errorMessage: failure.message,
+                },
+            });
+            return stream;
+        }
+    }
+    const review = createToolReviewer({
+        adapter: new LimitedAdapter(),
+        provider: "openai-codex",
+        model: "gpt-6-luna",
+    });
+
+    const decision = await review(request, new AbortController().signal);
+
+    expect(decision.decision).toBe("unavailable");
+    expect(decision.failure).toEqual({
+        classifier: "openai-codex/gpt-6-luna",
+        kind: "rate_limit",
+        detail: "OpenAI Codex usage limit reached: The usage limit has been reached",
+        resetsAt: 1792103726000,
+    });
 });
 
 test("a provider failure reaches the reason and names a next action", async () => {
@@ -745,6 +802,7 @@ test("a decision that arrives after cancellation is not acted on", async () => {
     // A verdict that arrives after the user cancelled is not acted on.
     expect(decision.decision).toBe("unavailable");
     expect(decision.reason).toContain("cancelled");
+    expect(decision.failure).toBeUndefined();
 });
 
 test("an unreadable decision fails closed without becoming a verdict", async () => {
@@ -755,6 +813,7 @@ test("an unreadable decision fails closed without becoming a verdict", async () 
 
     expect(decision.decision).toBe("unavailable");
     expect(decision.reason).toContain("unreadable");
+    expect(decision.failure).toEqual({ classifier: "test", kind: "unreadable" });
 });
 
 test("a provider failure fails closed instead of allowing", async () => {
@@ -767,6 +826,11 @@ test("a provider failure fails closed instead of allowing", async () => {
 
     expect(decision.decision).toBe("unavailable");
     expect(decision.reason).toContain("classifier failed");
+    expect(decision.failure).toEqual({
+        classifier: "test",
+        kind: "unknown",
+        detail: "provider exploded",
+    });
 });
 
 test("a review cancelled before it starts is not a verdict", async () => {
@@ -783,6 +847,7 @@ test("a review cancelled before it starts is not a verdict", async () => {
     // breaker never sees it.
     expect(decision.decision).toBe("unavailable");
     expect(decision.reason).toContain("cancelled");
+    expect(decision.failure).toBeUndefined();
 });
 
 test("parseReviewDecision rejects anything that is not allow or deny", () => {

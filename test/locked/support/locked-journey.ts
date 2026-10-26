@@ -121,6 +121,7 @@ export function createLockedJourney(options: LockedJourneyOptions): LockedJourne
         try {
             if (running !== undefined) {
                 running.sendKey("C-c");
+                running.sendKey("C-c");
                 try {
                     await running.waitForSessionExit();
                 } finally {

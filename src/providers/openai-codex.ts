@@ -270,6 +270,7 @@ export function createOpenAICodexAdapter(
 
 class OpenAICodexHttpError extends Error {
     readonly statusCode: number;
+    readonly detail: string;
 
     constructor(statusCode: number, detail: string) {
         super(
@@ -279,7 +280,42 @@ class OpenAICodexHttpError extends Error {
         );
         this.name = "OpenAICodexHttpError";
         this.statusCode = statusCode;
+        this.detail = detail;
     }
+}
+
+interface CodexUsageLimit {
+    readonly message: string;
+    readonly resetsAt?: number;
+}
+
+// The subscription's usage window is spent; the body says when it resets.
+function codexUsageLimit(detail: string): CodexUsageLimit | undefined {
+    let body: unknown;
+    try {
+        body = JSON.parse(detail);
+    } catch {
+        return undefined;
+    }
+    const error = typeof body === "object" && body !== null
+        ? (body as { error?: unknown }).error
+        : undefined;
+    if (typeof error !== "object" || error === null) return undefined;
+    const fields = error as {
+        type?: unknown;
+        message?: unknown;
+        resets_at?: unknown;
+    };
+    if (fields.type !== "usage_limit_reached") return undefined;
+    const message = typeof fields.message === "string" && fields.message.length > 0
+        ? fields.message
+        : "The usage limit has been reached";
+    const resetsAt = typeof fields.resets_at === "number"
+        ? fields.resets_at * 1_000
+        : undefined;
+    return resetsAt !== undefined && Number.isSafeInteger(resetsAt) && resetsAt > 0
+        ? { message, resetsAt }
+        : { message };
 }
 
 function classifyOpenAICodexError(value: unknown): ProviderFailure {
@@ -317,6 +353,18 @@ function httpFailure(error: OpenAICodexHttpError): ProviderFailure {
             resolution: "retry",
             message: error.message,
             statusCode,
+        };
+    }
+    const usageLimit = statusCode === 429 ? codexUsageLimit(error.detail) : undefined;
+    if (usageLimit !== undefined) {
+        return {
+            kind: "rate_limit",
+            resolution: "retry",
+            message: `OpenAI Codex usage limit reached: ${usageLimit.message}`,
+            statusCode,
+            providerErrorType: "usage_limit_reached",
+            providerMessage: usageLimit.message,
+            ...(usageLimit.resetsAt === undefined ? {} : { resetsAt: usageLimit.resetsAt }),
         };
     }
     if (statusCode === 429 || statusCode >= 500) {

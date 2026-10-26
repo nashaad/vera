@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { createDeepSeekAdapter } from "../../src/providers/deepseek-openai.ts";
+import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 
 test("DeepSeek streams native thinking, text, and tool calls", async () => {
     let request: Request | undefined;
@@ -143,13 +144,25 @@ test("DeepSeek HTTP failures become terminal model errors", async () => {
         }),
     });
 
-    const result = await adapter.stream({
+    const stream = adapter.stream({
         model: "deepseek-v4-pro",
         messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-    }).result();
+    });
+    const failures: unknown[] = [];
+    for await (const event of stream) {
+        if (event.type === "error" && event.error instanceof ProviderFailureError) {
+            failures.push(event.error.failure);
+        }
+    }
+    const result = await stream.result();
 
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain("DeepSeek returned HTTP 401");
+    expect(failures).toEqual([expect.objectContaining({
+        kind: "authentication",
+        statusCode: 401,
+        providerMessage: "invalid key",
+    })]);
 });
 
 test("DeepSeek tolerates a null usage field on a stream chunk", async () => {

@@ -7,6 +7,7 @@ import {
     createTuiModelFailureDependencies,
 } from "../../support/tui-model-failure-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+import { readModelFailures } from "../../../src/store/model-failures.ts";
 
 function occurrences(text: string, value: string): number {
     return text.split(value).length - 1;
@@ -30,7 +31,7 @@ test("a repeated model failure is named once with somewhere to go", async () => 
         session.sendText("hello");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(
-            "Model error: Model returned no visible response",
+            "MODEL REQUEST FAILED",
         );
         expect(pane).not.toContain("has failed this way");
 
@@ -47,6 +48,36 @@ test("a repeated model failure is named once with somewhere to go", async () => 
         await session.settle(300);
         pane = session.captureVisiblePane();
         expect(occurrences(pane, "has failed this way")).toBe(1);
+    } finally {
+        await session.close();
+    }
+}, 20_000);
+
+// A failure with a kind ends in its own Fix line, so a live error reads the
+// same as the reopened one, which never carried the nudge.
+test("a repeated failure that has a Fix line gets no second piece of advice", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-model-failure-"));
+    const session = await startTuiTestSession({
+        home,
+        height: 60,
+        dependencies: () => createTuiModelFailureDependencies("rejected"),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        for (const [index, prompt] of ["hello", "again", "once more"].entries()) {
+            session.sendText(prompt);
+            session.sendKey("Enter");
+            await session.waitForVisiblePaneWhere(
+                (pane) => occurrences(pane, "MODEL REQUEST FAILED") === index + 1,
+                `failure ${index + 1}`,
+            );
+        }
+        await session.settle(300);
+        const pane = session.captureVisiblePane();
+        expect(occurrences(pane, "Fix: pick another model with /model.")).toBe(3);
+        expect(pane).not.toContain("has failed this way");
+        expect(readModelFailures().length).toBe(3);
     } finally {
         await session.close();
     }

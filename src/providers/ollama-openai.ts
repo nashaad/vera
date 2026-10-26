@@ -8,6 +8,7 @@ import {
 } from "./openrouter.ts";
 import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
+import { providerHttpDiagnostics, providerHttpError } from "./http-error.ts";
 
 export interface OllamaAdapterOptions {
     readonly host?: string;
@@ -60,12 +61,7 @@ export function createOllamaAdapter(
                 signal,
             });
             if (!response.ok) {
-                const detail = (await response.text()).slice(0, 4_096).trim();
-                const error = new Error(
-                    `Ollama returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
-                ) as Error & { status?: number };
-                error.status = response.status;
-                throw error;
+                throw await providerHttpError("Ollama", response);
             }
             if (response.body === null) {
                 throw new Error("Ollama returned an empty response body");
@@ -365,7 +361,13 @@ function classifyOllamaError(value: unknown): ProviderFailure {
         return { kind: "connection", resolution: "retry", message };
     }
     if (statusCode >= 500) {
-        return { kind: "server", resolution: "retry", message, statusCode };
+        return {
+            kind: "server",
+            resolution: "retry",
+            message,
+            statusCode,
+            ...providerHttpDiagnostics(value),
+        };
     }
     const kind = statusCode === 404 ? "not_found"
         : statusCode === 429 ? "rate_limit"
@@ -378,5 +380,6 @@ function classifyOllamaError(value: unknown): ProviderFailure {
             : "user_action",
         message,
         statusCode,
+        ...providerHttpDiagnostics(value),
     };
 }

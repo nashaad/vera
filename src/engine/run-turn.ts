@@ -9,11 +9,14 @@ import { join } from "node:path";
 import {
     emptyUsage,
     type AssistantMessage,
+    type ClassifierFailure,
     type HookContextPhase,
     type ImageContent,
     type ModelAdapter,
+    type ModelFailure,
     type ModelMessage,
     type ModelReasoningEffort,
+    type ModelSource,
     type ModelSubstitution,
     type ToolCallContent,
     type ToolResultMessage,
@@ -1417,12 +1420,16 @@ export async function runTurn(
                 return assistantMessage;
             }
             const modelRequestStarted = performance.now();
+            let lastFailure: ProviderFailure | undefined;
             assistantMessage = await requestModelWithRecovery(
                 adapter,
                 modelRequest,
                 {
                     onEvent(event): void {
                         if (event.type === "error") {
+                            lastFailure = event.error instanceof ProviderFailureError
+                                ? sanitizedProviderFailure(event.error.failure)
+                                : undefined;
                             const cause = event.error.cause instanceof Error
                                 ? event.error.cause
                                 : undefined;
@@ -1562,6 +1569,9 @@ export async function runTurn(
                     && turn.signal.reason instanceof TurnSteeredError
                     ? { steered: true as const }
                     : {}),
+                ...(assistantMessage.stopReason === "error" && lastFailure !== undefined
+                    ? { modelFailure: modelFailureFacts(assistantMessage.source, lastFailure) }
+                    : {}),
             };
             if (
                 state.effortPool !== undefined
@@ -1673,7 +1683,7 @@ export async function runTurn(
             }
 
             let toolIndex = 0;
-            let interrupt: string | undefined;
+            let interrupt: TurnInterrupt | undefined;
             const batchCompleted: CompletedToolCall[] = [];
             const toolCapacity = capacityForModel(activeModel);
             while (toolIndex < preparedToolCalls.length) {
@@ -1891,6 +1901,18 @@ function requireImageReader(
     });
 }
 
+function modelFailureFacts(source: ModelSource, failure: ProviderFailure): ModelFailure {
+    return {
+        model: `${source.provider}/${source.model}`,
+        kind: failure.kind,
+        ...(failure.statusCode === undefined ? {} : { statusCode: failure.statusCode }),
+        ...(failure.providerMessage === undefined
+            ? {}
+            : { providerMessage: failure.providerMessage }),
+        ...(failure.resetsAt === undefined ? {} : { resetsAt: failure.resetsAt }),
+    };
+}
+
 function sanitizedProviderFailure(failure: ProviderFailure): ProviderFailure {
     return {
         ...failure,
@@ -1936,7 +1958,7 @@ function sanitizedErrorMessage(message: AssistantMessage): AssistantMessage {
 
 function reviewInterruptedMessage(
     model: string,
-    detail: string,
+    interrupt: TurnInterrupt,
 ): AssistantMessage {
     return {
         role: "assistant",
@@ -1944,7 +1966,10 @@ function reviewInterruptedMessage(
         source: { provider: "vera", api: "review", model },
         usage: emptyUsage(),
         stopReason: "error",
-        errorMessage: detail,
+        errorMessage: interrupt.detail,
+        ...(interrupt.classifierFailure === undefined
+            ? {}
+            : { classifierFailure: interrupt.classifierFailure }),
     };
 }
 
@@ -2187,11 +2212,16 @@ const REVIEW_TIMEOUT_INSTRUCTIONS =
     + " action is unsafe on that basis. You may retry once, or ask the user for"
     + " guidance or explicit approval.";
 
+interface TurnInterrupt {
+    readonly detail: string;
+    readonly classifierFailure?: ClassifierFailure;
+}
+
 interface CompletedToolCall {
     readonly imagePaths?: readonly string[];
     readonly result: ToolResultMessage;
     readonly afterCommit?: CommitEffect;
-    readonly interrupt?: string;
+    readonly interrupt?: TurnInterrupt;
     readonly readPath?: string;
 }
 
@@ -2358,7 +2388,7 @@ async function executePreparedTool(
         });
         return trip.action === "withheld"
             ? { result }
-            : { result, interrupt: toolDenialBreakerInterrupt(trip) };
+            : { result, interrupt: { detail: toolDenialBreakerInterrupt(trip) } };
     };
     if (denialBreaker.isWithheld(toolCall.name)) {
         return autoDenial(
@@ -2454,7 +2484,16 @@ async function executePreparedTool(
                     riskLevel: "high",
                     userAuthorization: "unknown",
                 });
-                return { result: deniedToolResult(toolCall, reason) };
+                return {
+                    result: {
+                        ...deniedToolResult(toolCall, reason),
+                        classifierOutcome: { kind: "failed" },
+                    },
+                    interrupt: {
+                        detail: reason,
+                        classifierFailure: { tool: toolCall.name, kind: "no_route" },
+                    },
+                };
             }
             const review = await reviewCall(
                 {
@@ -2488,20 +2527,40 @@ async function executePreparedTool(
             if (review.decision === "deny") {
                 const interrupt = breaker.record("deny");
                 return {
-                    result: deniedByPolicy(
-                        state,
-                        toolCall,
-                        `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
-                        undefined,
-                        "reviewer",
-                    ),
-                    ...(interrupt === undefined ? {} : { interrupt }),
+                    result: {
+                        ...deniedByPolicy(
+                            state,
+                            toolCall,
+                            `${review.reason}\n\n${REVIEW_REJECTION_INSTRUCTIONS}`,
+                            undefined,
+                            "reviewer",
+                        ),
+                        classifierOutcome: {
+                            kind: "denied",
+                            riskLevel: review.riskLevel,
+                            reason: review.reason,
+                        },
+                    },
+                    ...(interrupt === undefined ? {} : { interrupt: { detail: interrupt } }),
                 };
             }
             if (review.decision === "unavailable") {
-                return {
-                    result: deniedToolResult(toolCall, review.reason),
-                };
+                const denied = deniedToolResult(toolCall, review.reason);
+                const result: ToolResultMessage = review.failure !== undefined
+                    ? { ...denied, classifierOutcome: { kind: "failed" } }
+                    : signal.aborted
+                        ? { ...denied, classifierOutcome: { kind: "cancelled" } }
+                        : denied;
+                // A classifier that cannot answer withholds every later call too, so the turn stops here.
+                return review.failure === undefined
+                    ? { result }
+                    : {
+                        result,
+                        interrupt: {
+                            detail: review.reason,
+                            classifierFailure: { tool: toolCall.name, ...review.failure },
+                        },
+                    };
             }
             breaker.record("allow");
             const reviewedGrants = reviewedGrantProposals(permission);
@@ -2824,7 +2883,7 @@ async function finishToolCalls(
     pending: readonly Promise<CompletedToolCall>[],
 ): Promise<{
     readonly completed: readonly CompletedToolCall[];
-    readonly interrupt?: string;
+    readonly interrupt?: TurnInterrupt;
 }> {
     const settled = await Promise.allSettled(pending);
     const completed = settled.flatMap((toolCall) =>
@@ -3134,6 +3193,7 @@ function deniedToolResult(
             text: note === undefined ? reason : `${reason} ${note}`,
         }],
         isError: true,
+        withheld: true,
     };
 }
 

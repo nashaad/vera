@@ -67,7 +67,8 @@ in your next message.
 ## Stop and return later
 
 Ctrl+C stops active work. When idle, it clears a draft first; with an empty
-composer, it exits the TUI. Pressing it while a stop is in progress also exits.
+composer, press it twice within five seconds to exit the TUI. The footer asks
+for the second press. Pressing it while a stop is in progress also exits.
 Other conversations can remain running in the background.
 
 Your conversation stays saved. Start Vera again and use `/resume` to choose

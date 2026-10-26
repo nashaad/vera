@@ -26,6 +26,7 @@ export function createTuiFatalDiagnosticDependencies(
     updates.push({
         type: "tool_review",
         tool: "bash",
+        args: { command: "rm -rf ~/crows-nest" },
         decision: "deny",
         reason: "The permission gate denied this operation.",
         riskLevel: "high",

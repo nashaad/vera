@@ -904,6 +904,110 @@ describe("OpenAI Codex adapter", () => {
             });
         }
     });
+
+    test("reads the reset time from an exhausted usage limit", async () => {
+        const body = JSON.stringify({
+            error: {
+                type: "usage_limit_reached",
+                message: "The usage limit has been reached",
+                plan_type: "plus",
+                resets_at: 1792103726,
+                resets_in_seconds: 9000,
+            },
+        });
+        const adapter = createOpenAICodexAdapter({
+            authStorage: {
+                getCredential: () => ({
+                    type: "oauth" as const,
+                    token: JSON.stringify({
+                        schema_version: 1,
+                        access_token: "access-token",
+                        refresh_token: "refresh-token",
+                        expires_at: 60_000,
+                    }),
+                }),
+                setCredential() {},
+                deleteCredential() {},
+            },
+            now: () => 0,
+            fetch: (async () => new Response(body, {
+                status: 429,
+            })) as unknown as typeof fetch,
+        });
+        const stream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [],
+        });
+        const observed: ModelStreamEvent[] = [];
+
+        for await (const event of stream) {
+            observed.push(event);
+        }
+
+        const error = observed.at(-1);
+        expect(error?.type).toBe("error");
+        if (error?.type === "error") {
+            expect(error.error).toMatchObject({
+                failure: {
+                    kind: "rate_limit",
+                    resolution: "retry",
+                    statusCode: 429,
+                    providerErrorType: "usage_limit_reached",
+                    providerMessage: "The usage limit has been reached",
+                    resetsAt: 1792103726000,
+                    message: "OpenAI Codex usage limit reached: The usage limit has been reached",
+                },
+            });
+        }
+    });
+
+    test("keeps a plain 429 as a retryable rate limit", async () => {
+        const adapter = createOpenAICodexAdapter({
+            authStorage: {
+                getCredential: () => ({
+                    type: "oauth" as const,
+                    token: JSON.stringify({
+                        schema_version: 1,
+                        access_token: "access-token",
+                        refresh_token: "refresh-token",
+                        expires_at: 60_000,
+                    }),
+                }),
+                setCredential() {},
+                deleteCredential() {},
+            },
+            now: () => 0,
+            fetch: (async () => new Response("slow down", {
+                status: 429,
+            })) as unknown as typeof fetch,
+        });
+        const stream = adapter.stream({
+            model: "gpt-5.6-sol",
+            messages: [],
+        });
+        const observed: ModelStreamEvent[] = [];
+
+        for await (const event of stream) {
+            observed.push(event);
+        }
+
+        const error = observed.at(-1);
+        expect(error?.type).toBe("error");
+        if (error?.type === "error") {
+            expect(error.error).toMatchObject({
+                failure: {
+                    kind: "rate_limit",
+                    resolution: "retry",
+                    statusCode: 429,
+                    message: "OpenAI Codex returned 429: slow down",
+                },
+            });
+            expect(error.error).toBeInstanceOf(ProviderFailureError);
+            if (error.error instanceof ProviderFailureError) {
+                expect(error.error.failure.resetsAt).toBeUndefined();
+            }
+        }
+    });
 });
 
 async function* events(

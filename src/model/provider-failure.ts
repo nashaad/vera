@@ -29,6 +29,8 @@ export interface ProviderFailure {
         readonly available: number;
     };
     readonly userAction?: string;
+    /** Epoch ms when an exhausted usage limit resets. */
+    readonly resetsAt?: number;
 }
 
 export class ProviderFailureError extends Error {

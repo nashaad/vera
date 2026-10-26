@@ -37,9 +37,12 @@ test("Ctrl+C quits while a stop is already in flight", () => {
     expect(tuiInterruptAction(key, false, true, true)).toBe("quit");
 });
 
-test("Ctrl+C quits the TUI while idle", () => {
-    expect(tuiInterruptAction({ name: "c", ctrl: true }, false, false))
-        .toBe("quit");
+test("Ctrl+C quits the TUI while idle only on a second press", () => {
+    const key = { name: "c", ctrl: true };
+
+    expect(tuiInterruptAction(key, false, false)).toBe("arm_quit");
+    expect(tuiInterruptAction(key, false, false, false, true)).toBe("quit");
+    expect(tuiInterruptAction({ name: "escape", ctrl: false }, false, false, false, true)).toBe("pass");
 });
 
 test("Escape aborts a working TUI turn and passes while idle", () => {

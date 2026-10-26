@@ -36,8 +36,10 @@ import {
     TUI_CRITICAL,
     TUI_SUCCESS,
     type TuiState,
+    type TuiTextTranscriptEntry,
     type TuiTranscriptEntry,
 } from "../../clients/tui/state.ts";
+import { classifierFailureText, modelFailureText } from "../../clients/tui/failure-text.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
@@ -1014,7 +1016,7 @@ test("TUI shows model failures when a turn finishes", () => {
         text: "",
         diagnostic: resolveTuiDiagnostic(
             "model_request_failed",
-            "Model error: Kimi only supports reasoning max",
+            "Kimi only supports reasoning max",
         ),
     });
 
@@ -1070,8 +1072,7 @@ test("TUI draws attachment failures as errors", () => {
         text: "",
         diagnostic: resolveTuiDiagnostic(
             "attachment_failed",
-            "Attachment error: the selected model provider does not "
-                + "support image input",
+            "the selected model provider does not support image input",
         ),
     });
 });
@@ -1170,7 +1171,7 @@ test("TUI keeps model failures restored from canonical history", () => {
         text: "",
         diagnostic: resolveTuiDiagnostic(
             "model_request_failed",
-            "Model error: rate limited after retries",
+            "rate limited after retries",
         ),
     }]);
 
@@ -1184,7 +1185,7 @@ test("TUI keeps model failures restored from canonical history", () => {
         text: "",
         diagnostic: resolveTuiDiagnostic(
             "model_request_failed",
-            "Model error: Model request failed",
+            "Model request failed",
         ),
     });
 });
@@ -1556,7 +1557,7 @@ test("TUI entries render with kind-specific prefixes", () => {
             "model_request_failed",
             "Model request failed",
         ),
-    }))).toBe("× Model request failed");
+    }))).toBe("MODEL REQUEST FAILED\nModel request failed");
     expect(plainText(renderTuiEntry({
         kind: "notice",
         text: "",
@@ -1564,7 +1565,7 @@ test("TUI entries render with kind-specific prefixes", () => {
             "resident_agent_stopped",
             "Resident agent stopped unexpectedly",
         ),
-    }))).toBe("× stopped  Resident agent stopped unexpectedly");
+    }))).toBe("AGENT STOPPED\nResident agent stopped unexpectedly");
 });
 
 test("tool rows accent semantic actions and mute their targets", () => {
@@ -2472,7 +2473,7 @@ test("an image sent with no prose still carries its file name", () => {
     });
 });
 
-test("classifier decisions and failures use distinct visible language", () => {
+test("classifier decisions use distinct visible language", () => {
     let state = createTuiState();
     state = applyAgentUpdate(state, {
         type: "tool_review",
@@ -2521,28 +2522,264 @@ test("classifier decisions and failures use distinct visible language", () => {
         text: "",
         diagnostic: resolveTuiDiagnostic(
             "permission_denied",
-            "Classifier denied bash (critical risk):"
-                + " Deletes files outside the workspace.",
+            "Critical risk: Deletes files outside the workspace.",
+            { headline: "bash did not run" },
         ),
     });
-    expect(state.entries[2]).toEqual({
+    // A failure is shown by turn_finished, and a cancel by the history that follows it.
+    expect(state.entries).toHaveLength(2);
+});
+
+test("a classifier denial and a cancelled review are drawn from history", () => {
+    const deniedRow: TuiTranscriptEntry = {
         kind: "notice",
         text: "",
         diagnostic: resolveTuiDiagnostic(
-            "unknown",
-            "Classifier failed for bash: The approval classifier timed out"
-                + " after 60s. The action did not run."
-                + " To pick another classifier, open /settings, then Classifier.",
+            "permission_denied",
+            "High risk: Deletes the crow's nest, which the user never asked for.",
+            { headline: "bash did not run" },
         ),
+    };
+    const history = {
+        type: "history" as const,
+        entries: [
+            { kind: "user" as const, text: "Burn the crow's nest" },
+            { kind: "tool" as const, tool: "bash", args: { command: "rm -rf ~/crows-nest" } },
+            {
+                kind: "tool_result" as const,
+                tool: "bash",
+                output: "Deletes the crow's nest, which the user never asked for.",
+                isError: true,
+                withheld: true as const,
+                classifierOutcome: {
+                    kind: "denied" as const,
+                    riskLevel: "high" as const,
+                    reason: "Deletes the crow's nest, which the user never asked for.",
+                },
+            },
+            { kind: "assistant" as const, text: "The crow stands down." },
+            { kind: "user" as const, text: "Hang the lantern" },
+            { kind: "tool" as const, tool: "write", args: { path: "lantern.md", content: "lit" } },
+            {
+                kind: "tool_result" as const,
+                tool: "write",
+                output: "The turn was cancelled before classification finished.",
+                isError: true,
+                withheld: true as const,
+                classifierOutcome: { kind: "cancelled" as const },
+            },
+            { kind: "error" as const, outcome: "aborted" as const },
+        ],
+        seq: 9,
+    };
+
+    let live = beginTuiTurn(createTuiState(), "Burn the crow's nest");
+    live = applyAgentUpdate(live, {
+        type: "tool_review",
+        tool: "bash",
+        args: { command: "rm -rf ~/crows-nest" },
+        decision: "deny",
+        reason: "Deletes the crow's nest, which the user never asked for.",
+        riskLevel: "high",
+        userAuthorization: "low",
+        seq: 1,
     });
-    expect(state.entries[3]).toEqual({
+    expect(live.entries.at(-1)).toEqual(deniedRow);
+    live = applyAgentUpdate(live, { type: "assistant_delta", text: "The crow stands down.", seq: 2 });
+    const firstTurn = applyAgentUpdate(createTuiState(), {
+        ...history,
+        entries: history.entries.slice(0, 4),
+    });
+    expect(live.entries).toEqual(firstTurn.entries);
+
+    for (const state of [
+        applyAgentUpdate(live, history),
+        applyAgentUpdate(createTuiState(), history),
+    ]) {
+        const notices = state.entries.filter(
+            (entry): entry is TuiTextTranscriptEntry => entry.kind === "notice",
+        );
+        expect(notices.map((entry) => entry.diagnostic?.code)).toEqual([
+            "permission_denied",
+            "turn_interrupted",
+            "turn_interrupted",
+        ]);
+        expect(notices[0]).toEqual(deniedRow);
+        expect(notices[1]?.diagnostic?.message).toBe(
+            "The turn was cancelled before the classifier answered, so write did not run.",
+        );
+        const denied = state.entries.indexOf(notices[0]!);
+        expect(state.entries[denied - 1]).toMatchObject({
+            kind: "tool",
+            header: "Did not run",
+            text: "rm -rf ~/crows-nest",
+        });
+        expect(state.entries[denied + 1]).toMatchObject({ text: "The crow stands down." });
+        const cancelled = state.entries.indexOf(notices[1]!);
+        expect(state.entries[cancelled - 1]).toMatchObject({ kind: "tool", header: "Did not run" });
+        // The reason is in the row below the call, not repeated as a tool result.
+        expect(state.entries.some((entry) => entry.kind === "tool" && entry.result === true)).toBe(false);
+    }
+    expect(plainText(renderTuiEntry(deniedRow))).toBe(
+        "CLASSIFIER DENIED · bash did not run\n"
+            + "High risk: Deletes the crow's nest, which the user never asked for.",
+    );
+});
+
+test("a cancelled review draws its note at turn end, as history does", () => {
+    let live = beginTuiTurn(createTuiState(), "Hang the lantern");
+    live = applyAgentUpdate(live, {
+        type: "tool_review",
+        tool: "write",
+        args: { path: "lantern.md", content: "lit" },
+        decision: "unavailable",
+        reason: "The turn was cancelled before classification finished.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        seq: 1,
+    });
+    expect(live.entries.some((entry) => entry.kind === "notice")).toBe(false);
+    live = applyAgentUpdate(live, { type: "turn_finished", outcome: "aborted", seq: 2 });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "Hang the lantern" },
+            { kind: "tool", tool: "write", args: { path: "lantern.md", content: "lit" } },
+            {
+                kind: "tool_result",
+                tool: "write",
+                output: "The turn was cancelled before classification finished.",
+                isError: true,
+                withheld: true,
+                classifierOutcome: { kind: "cancelled" },
+            },
+            { kind: "error", outcome: "aborted" },
+        ],
+        seq: 1,
+    });
+
+    expect(live.entries).toEqual(replayed.entries);
+    expect(live.entries.slice(-2).map((entry) => entry.kind === "notice" ? entry.diagnostic?.message : entry.kind)).toEqual([
+        "The turn was cancelled before the classifier answered, so write did not run.",
+        "Interrupted",
+    ]);
+    // A later turn that is cancelled without a pending review adds no note.
+    let next = beginTuiTurn(live, "Douse the lantern");
+    next = applyAgentUpdate(next, { type: "turn_finished", outcome: "aborted", seq: 3 });
+    expect(next.entries.length - live.entries.length).toBe(2);
+});
+
+test("a classifier failure that ended the turn reads the same live and replayed", () => {
+    const classifierFailure = {
+        tool: "write",
+        classifier: "openai-codex/gpt-6-luna",
+        kind: "rate_limit" as const,
+        detail: "OpenAI Codex usage limit reached: The usage limit has been reached",
+        resetsAt: Date.now() + 60 * 60 * 1_000,
+    };
+    let live = beginTuiTurn(createTuiState(), "save the crow's map");
+    live = applyAgentUpdate(live, {
+        type: "tool_review",
+        tool: "write",
+        args: { path: "crow-map.md", content: "X marks the nest" },
+        decision: "unavailable",
+        reason: "The approval classifier failed (usage limit). The action did not run.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        seq: 1,
+    });
+    live = applyAgentUpdate(live, {
+        type: "turn_finished",
+        outcome: "error",
+        error: "The approval classifier failed (usage limit). The action did not run.",
+        classifierFailure,
+        seq: 2,
+    });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "save the crow's map" },
+            { kind: "tool", tool: "write", args: { path: "crow-map.md", content: "X marks the nest" } },
+            {
+                kind: "tool_result",
+                tool: "write",
+                output: "The approval classifier failed (usage limit). The action did not run.",
+                isError: true,
+                withheld: true,
+                classifierOutcome: { kind: "failed" },
+            },
+            {
+                kind: "error",
+                outcome: "error",
+                detail: "The approval classifier failed (usage limit). The action did not run.",
+                classifierFailure,
+            },
+        ],
+        seq: 1,
+    });
+
+    const text = classifierFailureText(classifierFailure);
+    const expected: TuiTranscriptEntry = {
         kind: "notice",
         text: "",
-        diagnostic: resolveTuiDiagnostic(
-            "unknown",
-            "Classification cancelled for write. The action did not run.",
-        ),
+        diagnostic: resolveTuiDiagnostic("classifier_failed", text.message, {
+            headline: text.headline,
+            fix: text.fix,
+        }),
+    };
+    const liveNotices = live.entries.filter((entry) => entry.kind === "notice");
+    expect(liveNotices).toEqual([expected]);
+    expect(replayed.entries.at(-1)).toEqual(expected);
+    expect(live.entries).toEqual(replayed.entries);
+    expect(replayed.entries.at(-2)).toMatchObject({ kind: "tool", header: "Did not run" });
+    expect(plainText(renderTuiEntry(replayed.entries.at(-1)!))).toBe(
+        `CLASSIFIER FAILED · write did not run\n${text.message}\nFix: ${text.fix}`,
+    );
+    expect(text.message).toStartWith(
+        "The classifier, openai-codex/gpt-6-luna, is out of usage until ",
+    );
+});
+
+test("a failed model request says what failed and how to fix it, live and replayed", () => {
+    const modelFailure = {
+        model: "faux/crow-main",
+        kind: "invalid_request" as const,
+        statusCode: 400,
+        providerMessage: "The crow dropped the request in a storm.",
+    };
+    const error = "faux returned HTTP 400: {\"error\":{\"message\":\"The crow dropped the request in a storm.\"}}"
+        + " (request captured at /tmp/crow/request.json)";
+    let live = beginTuiTurn(createTuiState(), "fly into the storm");
+    live = applyAgentUpdate(live, {
+        type: "turn_finished",
+        outcome: "error",
+        error,
+        modelFailure,
+        seq: 1,
     });
+    const replayed = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [
+            { kind: "user", text: "fly into the storm" },
+            { kind: "error", outcome: "error", detail: error, modelFailure },
+        ],
+        seq: 1,
+    });
+
+    const text = modelFailureText(modelFailure);
+    expect(live.entries.at(-1)).toEqual(replayed.entries.at(-1));
+    expect(plainText(renderTuiEntry(replayed.entries.at(-1)!))).toBe(
+        "MODEL REQUEST FAILED\n"
+            + "The model, faux/crow-main, rejected the request: The crow dropped the request in a storm.\n"
+            + `Fix: ${text.fix}`,
+    );
+
+    const older = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "error", outcome: "error", detail: error }],
+        seq: 1,
+    });
+    expect(plainText(renderTuiEntry(older.entries.at(-1)!))).toBe(`MODEL REQUEST FAILED\n${error}`);
 });
 
 function autoReviewEntry(

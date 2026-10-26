@@ -1,10 +1,18 @@
 import type { HookToolCall } from "../sdk/hooks.ts";
-import type {
-    AssistantMessage,
-    ModelAdapter,
-    ModelMessage,
-    ModelReasoningEffort,
+import {
+    CLASSIFIER_RISK_LEVELS,
+    type AssistantMessage,
+    type ClassifierFailure,
+    type ClassifierRiskLevel,
+    type ModelAdapter,
+    type ModelMessage,
+    type ModelReasoningEffort,
+    type ModelStream,
 } from "../model/types.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../model/provider-failure.ts";
 import type {
     ReviewLog,
     ReviewLogOutcome,
@@ -24,8 +32,10 @@ export interface ToolReviewRequest {
     readonly transcript?: readonly ModelMessage[];
 }
 
-export type ToolReviewRiskLevel = "low" | "medium" | "high" | "critical";
+export type ToolReviewRiskLevel = ClassifierRiskLevel;
 export type ToolReviewUserAuthorization = "unknown" | "low" | "medium" | "high";
+
+export type ToolReviewFailure = Omit<ClassifierFailure, "tool">;
 
 export interface ToolReviewDecision {
     readonly decision: "allow" | "deny" | "unavailable";
@@ -33,6 +43,8 @@ export interface ToolReviewDecision {
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
     readonly escalated?: boolean;
+    // Set when the classifier itself failed; a cancelled review leaves it unset.
+    readonly failure?: ToolReviewFailure;
 }
 
 export type ReviewToolCall = (
@@ -132,12 +144,10 @@ export function createRoutedToolReviewer(
             }
             unavailable = decision;
         }
-        return unavailable ?? {
-            decision: "unavailable",
-            reason: "The approval classifier has no configured model route, so the action did not run.",
-            riskLevel: "high",
-            userAuthorization: "unknown",
-        };
+        return unavailable ?? reviewFailed(
+            "The approval classifier has no configured model route, so the action did not run.",
+            { kind: "no_route" },
+        );
     };
 }
 
@@ -294,6 +304,7 @@ export function createToolReviewer(
                 trace.error = "The action could not be described.";
                 return reviewFailed(
                     "The approval classifier could not describe this action, so the action did not run.",
+                    { classifier, kind: "undescribed" },
                 );
             }
 
@@ -317,7 +328,8 @@ export function createToolReviewer(
                     messages: [...baseHistory, question],
                     signal: combined,
                 });
-                message = await withDeadline(stream.result(), combined);
+                const reply = await withDeadline(readClassifierReply(stream), combined);
+                message = reply.message;
                 trace.stopReason = message.stopReason;
                 if (signal.aborted) {
                     trace.outcome = "cancelled";
@@ -325,15 +337,13 @@ export function createToolReviewer(
                 }
                 if (timeout.aborted) {
                     trace.error = "timed out";
-                    return reviewFailed(classifierTimedOutReason(timeoutMs, classifier));
+                    return classifierTimedOut(timeoutMs, classifier);
                 }
                 if (message.stopReason !== "stop") {
-                    return reviewFailed(
-                        classifierFailedReason(
-                            message.errorMessage
-                                ?? `stopped with ${message.stopReason}`,
-                            classifier,
-                        ),
+                    return classifierFailed(
+                        message.errorMessage ?? `stopped with ${message.stopReason}`,
+                        classifier,
+                        reply.failure,
                     );
                 }
             } catch (error) {
@@ -343,10 +353,12 @@ export function createToolReviewer(
                 }
                 trace.error = errorSummary(error);
                 if (timeout.aborted) {
-                    return reviewFailed(classifierTimedOutReason(timeoutMs, classifier));
+                    return classifierTimedOut(timeoutMs, classifier);
                 }
-                return reviewFailed(
-                    classifierFailedReason(errorSummary(error), classifier),
+                return classifierFailed(
+                    errorSummary(error),
+                    classifier,
+                    error instanceof ProviderFailureError ? error.failure : undefined,
                 );
             }
 
@@ -360,6 +372,7 @@ export function createToolReviewer(
                 trace.outcome = "unreadable";
                 return reviewFailed(
                     "The approval classifier returned an unreadable decision, so the action did not run.",
+                    { classifier, kind: "unreadable" },
                 );
             }
             trace.usage = message.usage;
@@ -461,13 +474,6 @@ export function parseReviewDecision(
     };
 }
 
-const RISK_LEVELS: readonly ToolReviewRiskLevel[] = [
-    "low",
-    "medium",
-    "high",
-    "critical",
-];
-
 const USER_AUTHORIZATIONS: readonly ToolReviewUserAuthorization[] = [
     "unknown",
     "low",
@@ -476,7 +482,7 @@ const USER_AUTHORIZATIONS: readonly ToolReviewUserAuthorization[] = [
 ];
 
 function parseRiskLevel(value: unknown): ToolReviewRiskLevel | undefined {
-    return RISK_LEVELS.find((level) => level === value);
+    return CLASSIFIER_RISK_LEVELS.find((level) => level === value);
 }
 
 function parseUserAuthorization(
@@ -638,13 +644,57 @@ function classifierNextAction(classifier: string): string {
     return `The classifier is ${classifier}, so every tool call is withheld until it answers: check that provider, or change the classifier.`;
 }
 
-function reviewFailed(reason: string): ToolReviewDecision {
+function reviewFailed(
+    reason: string,
+    failure?: ToolReviewFailure,
+): ToolReviewDecision {
     return {
         decision: "unavailable",
         reason,
         riskLevel: "high",
         userAuthorization: "unknown",
+        ...(failure === undefined ? {} : { failure }),
     };
+}
+
+function classifierTimedOut(timeoutMs: number, classifier: string): ToolReviewDecision {
+    return reviewFailed(
+        classifierTimedOutReason(timeoutMs, classifier),
+        { classifier, kind: "timeout", timeoutMs },
+    );
+}
+
+function classifierFailed(
+    detail: string,
+    classifier: string,
+    failure: ProviderFailure | undefined,
+): ToolReviewDecision {
+    return reviewFailed(classifierFailedReason(detail, classifier), {
+        classifier,
+        kind: failure?.kind ?? "unknown",
+        detail: failure?.providerMessage ?? detail,
+        ...(failure?.resetsAt === undefined ? {} : { resetsAt: failure.resetsAt }),
+    });
+}
+
+interface ClassifierReply {
+    readonly message: AssistantMessage;
+    readonly failure?: ProviderFailure;
+}
+
+// Read events rather than result(): only the error event carries the typed failure.
+async function readClassifierReply(stream: ModelStream): Promise<ClassifierReply> {
+    for await (const event of stream) {
+        if (event.type === "error") {
+            return event.error instanceof ProviderFailureError
+                ? { message: event.message, failure: event.error.failure }
+                : { message: event.message };
+        }
+        if (event.type === "done") {
+            return { message: event.message };
+        }
+    }
+    return { message: await stream.result() };
 }
 
 function reviewCancelled(): ToolReviewDecision {

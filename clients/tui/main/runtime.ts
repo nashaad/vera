@@ -150,6 +150,7 @@ export interface TuiRuntime {
     statusNotice: string | undefined;
     statusNoticeVersion: number;
     modelPrefixPending?: boolean;
+    quitArmTimer?: ReturnType<typeof setTimeout>;
     requestedModelChanges: Map<string, { readonly subject: string; readonly patch: ModelSettingsPatch; readonly target: TuiAgentClient; }>;
     requestedPermissionChanges: Map<string, string>;
     abortRequested: boolean;

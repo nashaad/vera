@@ -118,6 +118,23 @@ export function showStatusNotice(rt: TuiRuntime, message: string): void {
     }, COPY_NOTICE_DURATION_MS);
 }
 
+export const QUIT_ARM_DURATION_MS = 5_000;
+
+export function armQuit(rt: TuiRuntime): void {
+    disarmQuit(rt);
+    rt.quitArmTimer = setTimeout(() => {
+        rt.quitArmTimer = undefined;
+        renderStatus(rt);
+    }, QUIT_ARM_DURATION_MS);
+    renderStatus(rt);
+}
+
+export function disarmQuit(rt: TuiRuntime): void {
+    if (rt.quitArmTimer === undefined) return;
+    clearTimeout(rt.quitArmTimer);
+    rt.quitArmTimer = undefined;
+}
+
 export function modeToastTakesEscape(
     visible: boolean,
     overlayOpen: boolean,

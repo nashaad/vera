@@ -9,6 +9,9 @@ import type {
 } from "./events.ts";
 import type {
     AssistantMessage,
+    ClassifierFailure,
+    ClassifierOutcome,
+    ModelFailure,
     ModelMessage,
     ModelReasoningEffort,
     ModelSubstitution,
@@ -87,6 +90,9 @@ export interface ToolResultTranscriptEntry {
     readonly output: string;
     readonly isError: boolean;
     readonly processId?: string;
+    readonly classifierOutcome?: ClassifierOutcome;
+    /** The tool never ran; the output says why. */
+    readonly withheld?: true;
 }
 
 export interface ModelSubstitutionTranscriptEntry {
@@ -100,6 +106,13 @@ export interface ModelSubstitutionTranscriptEntry {
 // importing the engine.
 export { formatHookContext, formatModelSubstitution } from "../model/types.ts";
 export type { HookContextPhase } from "../model/types.ts";
+export type {
+    ClassifierDenial,
+    ClassifierFailure,
+    ClassifierFailureKind,
+    ClassifierOutcome,
+    ModelFailure,
+} from "../model/types.ts";
 
 export interface PresentationTranscriptEntry {
     readonly id?: string;
@@ -113,6 +126,8 @@ export interface ErrorTranscriptEntry {
     readonly outcome?: "error" | "aborted";
     readonly detail?: string;
     readonly steered?: true;
+    readonly classifierFailure?: ClassifierFailure;
+    readonly modelFailure?: ModelFailure;
 }
 
 /**
@@ -694,6 +709,8 @@ export interface ToolStartedUpdate {
 export interface ToolReviewUpdate {
     readonly type: "tool_review";
     readonly tool: string;
+    /** Absent from hosts that predate it. */
+    readonly args?: Readonly<Record<string, unknown>>;
     readonly decision: "allow" | "deny" | "unavailable";
     readonly reason: string;
     /** The reviewer's own scoring, so clients can show what drove the call. */
@@ -743,6 +760,8 @@ export interface TurnFinishedUpdate {
     readonly error?: string;
     // Set with outcome "aborted" when a queue release stopped the turn.
     readonly steered?: true;
+    readonly classifierFailure?: ClassifierFailure;
+    readonly modelFailure?: ModelFailure;
     /** The turn ended with no text, no tool call, and no reasoning. */
     readonly empty?: true;
     readonly usage?: SessionModelUsage;
@@ -1845,6 +1864,7 @@ export function createProtocolEncoder(
             sender.send({
                 type: "tool_review",
                 tool: event.toolCall.name,
+                args: event.toolCall.input,
                 decision: event.decision,
                 reason: event.reason,
                 riskLevel: event.riskLevel,
@@ -2269,6 +2289,12 @@ export function createProtocolEncoder(
                 ...(outcome === undefined ? {} : { outcome }),
                 ...(error === undefined ? {} : { error }),
                 ...(event.message.steered === true ? { steered: true as const } : {}),
+                ...(event.message.classifierFailure === undefined
+                    ? {}
+                    : { classifierFailure: event.message.classifierFailure }),
+                ...(event.message.modelFailure === undefined
+                    ? {}
+                    : { modelFailure: event.message.modelFailure }),
                 ...(isEmptyAssistantMessage(event.message)
                     ? { empty: true as const }
                     : {}),
@@ -2653,6 +2679,10 @@ export function projectTranscript(
                 ...(message.processId === undefined
                     ? {}
                     : { processId: message.processId }),
+                ...(message.classifierOutcome === undefined
+                    ? {}
+                    : { classifierOutcome: { ...message.classifierOutcome } }),
+                ...(message.withheld === true ? { withheld: true as const } : {}),
             });
             if (message.presentation !== undefined) {
                 push({
@@ -2702,6 +2732,12 @@ export function projectTranscript(
                 outcome,
                 ...(detail === undefined ? {} : { detail }),
                 ...(message.steered === true ? { steered: true as const } : {}),
+                ...(message.classifierFailure === undefined
+                    ? {}
+                    : { classifierFailure: message.classifierFailure }),
+                ...(message.modelFailure === undefined
+                    ? {}
+                    : { modelFailure: message.modelFailure }),
             });
         }
         if (message.turnTiming !== undefined) {

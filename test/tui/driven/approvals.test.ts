@@ -65,6 +65,38 @@ test("auto reviews a boundary crossing without asking the user", async () => {
     }
 }, 15_000);
 
+test("a classifier denial stays in the transcript after the turn ends", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-auto-deny-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiAutoReviewDependencies(home, "deny"),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("run the routine command");
+        session.sendKey("Enter");
+
+        await session.waitForVisiblePane("AUTO REVIEW COMPLETED");
+        // The turn's history refresh replaces live rows, so wait past it.
+        await session.settle(500);
+        const pane = session.captureVisiblePane();
+        expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
+            .toBe("denied\n");
+        expect(pane).toMatch(
+            /^ {2}× CLASSIFIER DENIED · bash did not run\n {4}Critical risk: Scuttles the ship, which the user never asked for\.$/m,
+        );
+        expect(pane.split("CLASSIFIER DENIED")).toHaveLength(2);
+        expect(pane).toMatch(/^ {2}Did not run\n {2}└ env AUTO_REVIEW=ran\n\n {2}× CLASSIFIER DENIED/m);
+        // The reason is said once, by the denial row.
+        expect(pane.split("Scuttles the ship")).toHaveLength(2);
+        expect(pane).not.toContain("Ran  env");
+        expect(pane.indexOf("CLASSIFIER DENIED")).toBeLessThan(pane.indexOf("AUTO REVIEW COMPLETED"));
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("approval actions stay visible above long details", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-approval-layout-"));
     const session = await startTuiTestSession({

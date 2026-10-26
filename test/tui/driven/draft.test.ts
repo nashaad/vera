@@ -27,6 +27,38 @@ test("ctrl+c clears an idle draft before it quits", async () => {
         expect(pane).toContain("ready");
 
         session.sendKey("C-c");
+        session.sendKey("C-c");
+        await session.waitForSessionExit();
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("ctrl+c on an empty composer asks for a second press before it quits", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-draft-interrupt-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiChildDependencies(),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-c");
+        await session.waitForVisiblePane("Press Ctrl+C again to quit");
+
+        // Typing shows the first press did not quit; clearing the draft starts over.
+        session.sendText("still here");
+        await session.waitForVisiblePane("still here");
+        session.sendKey("C-c");
+        const pane = await session.waitForVisiblePaneWhere(
+            (visible) => !visible.includes("still here") && !visible.includes("again to quit"),
+            "the draft cleared and the quit disarmed",
+        );
+        expect(pane).toContain("ready");
+
+        session.sendKey("C-c");
+        await session.waitForVisiblePane("Press Ctrl+C again to quit");
+        session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
         await session.close();
