@@ -68,9 +68,39 @@ the action's own tool row has the full command. An action shows no reason when
 the classifier gave none. Ctrl+T opens or closes every list along with
 the tool details. The count and its list are not saved, so a reopened
 conversation does not show them.
-A denial says the action was denied. A timeout or provider error names the
-tool, confirms that the action did not run, names the classifier model, and
-points to `/settings` then **Classifier** to pick another.
+A denial shows as a **CLASSIFIER DENIED** error that names the tool, the risk
+level and the classifier's reason. The action's own row reads **Did not run**
+over the full command, and the reason shows once, in the error under it. The
+turn goes on, so the model can try another way. The denial is saved with the
+conversation, so a reopened conversation shows it too:
+
+```text
+Did not run
+└ rm -rf ~/crows-nest
+
+× CLASSIFIER DENIED · bash did not run
+  High risk: Deletes the crow's nest outside the workspace.
+```
+
+When the classifier cannot answer, the action does not run and the turn stops,
+because every later action would be held up the same way. A **CLASSIFIER
+FAILED** error names the tool, the classifier model, and what went wrong, with a
+**Fix** line under it:
+
+```text
+× CLASSIFIER FAILED · write did not run
+  The classifier, openai-codex/gpt-6-luna, is out of usage until 6:35 PM.
+  Fix: open /settings, then Classifier, and pick a model on another provider, or set a failsafe there.
+```
+
+A spent subscription usage limit shows when it resets. A rate limit with no
+reset time says to wait a minute and send again, or pick a model on another
+provider. A timeout shows how long Vera waited. When no classifier model is
+set, the error says so. The error is
+saved with the conversation, so a reopened conversation shows it too. Cancelling
+a turn while the classifier works is not a failure. It says the turn was
+cancelled before the classifier answered, so the action did not run, and that
+note is saved too.
 
 The classifier receives user turns and tool calls. It does not receive tool
 results.
@@ -79,8 +109,9 @@ results.
 
 A failsafe handles a classifier that errors or cannot be reached. Set it in
 `/settings` under Classifier. If the provider itself is the problem, such as
-an exhausted credit balance, pick a classifier on another provider there or in
-Defaults.
+an exhausted credit balance or a spent usage limit, pick a classifier on another
+provider there or in Defaults. Then send the request again: the turn that hit
+the failure has already stopped.
 
 ## Inspect review logs
 

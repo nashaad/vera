@@ -14,8 +14,11 @@ import {
 import { formatHookContext, formatModelSubstitution } from "../../src/engine/protocol.ts";
 import type { HookContextPhase } from "../../src/engine/protocol.ts";
 import type {
+    ClassifierDenial,
+    ClassifierOutcome,
     CompactionUpdate,
     ModelActivityUpdate,
+    ModelFailure,
     PoolAdmissionProgressUpdate,
     PoolAdmissionResultUpdate,
     SessionModelUsage,
@@ -39,9 +42,12 @@ import { renderTuiChecklist, tuiChecklistText } from "./checklist.ts";
 import { tuiShimmerChunks } from "./activity-pulse.ts";
 import {
     resolveTuiDiagnostic,
+    tuiDiagnosticTitle,
     type TuiDiagnostic,
     type TuiDiagnosticCode,
+    type TuiDiagnosticDetail,
 } from "./diagnostic-severity.ts";
+import { classifierFailureText, modelFailureText } from "./failure-text.ts";
 
 const SUBSTITUTION_MARKER = "\u21c4";
 const INTERRUPTED_TURN_TEXT = "Interrupted";
@@ -178,6 +184,8 @@ export interface TuiState {
     readonly toolDetailsExpanded?: boolean;
     // Low-risk classifier allows since the last turn ended; shown as a count, not rows.
     readonly autoApprovals?: readonly TuiAutoApproval[];
+    // The tool whose review ended with no answer; a cancel draws its note at turn end.
+    readonly unansweredReviewTool?: string;
     readonly admission?: TuiAdmissionState;
     readonly modelSettingsHistory?: readonly {
         readonly settings: ModelTurnSettings;
@@ -398,20 +406,23 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
                     + ` ${update.reason}`,
             });
         }
-        const message = update.decision === "deny"
-            ? `Classifier denied ${update.tool}`
-                + ` (${update.riskLevel} risk): ${update.reason}`
-            : update.reason
-                === "The turn was cancelled before classification finished."
-                ? `Classification cancelled for ${update.tool}.`
-                    + " The action did not run."
-                : `Classifier failed for ${update.tool}: ${update.reason}`
-                    + " To pick another classifier, open /settings, then Classifier.";
-        return appendTuiDiagnostic(
-            state,
-            update.decision === "deny" ? "permission_denied" : "unknown",
-            message,
-        );
+        const withheld = update.args === undefined ? state : {
+            ...state,
+            entries: applyToolDetailPreference(
+                withWithheldToolEntry(state.entries, update.tool, update.args),
+                state.toolDetailsExpanded,
+            ),
+        };
+        if (update.decision === "deny") {
+            const row = classifierDenialRow(update.tool, {
+                kind: "denied",
+                riskLevel: update.riskLevel,
+                reason: update.reason,
+            });
+            return appendTuiDiagnostic(withheld, row.code, row.message, row.detail);
+        }
+        // Both end the turn: turn_finished says whether it failed or was cancelled.
+        return { ...withheld, unansweredReviewTool: update.tool };
     }
     if (update.type === "tool_breaker_tripped") {
         return appendEntry(state, {
@@ -446,6 +457,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             working: false,
             transcriptStarted: true,
             autoApprovals: undefined,
+            unansweredReviewTool: undefined,
             modelActivity: undefined,
             compactingSince: undefined,
             compactionStrategy: undefined,
@@ -459,22 +471,34 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
         if (update.empty === true) {
             finished = appendEntry(finished, emptyTurnEntry());
         } else if (update.outcome === "aborted") {
+            if (state.unansweredReviewTool !== undefined) {
+                // History puts the same note under the call; drawing it now keeps that refresh a no-op.
+                const note = classifierCancelRow(state.unansweredReviewTool);
+                finished = appendTuiDiagnostic(finished, note.code, note.message, note.detail);
+            }
             finished = appendTuiDiagnostic(
                 finished,
                 "turn_interrupted",
                 update.steered === true ? STEERED_TURN_TEXT : INTERRUPTED_TURN_TEXT,
             );
+        } else if (update.classifierFailure !== undefined) {
+            const text = classifierFailureText(update.classifierFailure);
+            finished = appendTuiDiagnostic(
+                finished,
+                "classifier_failed",
+                text.message,
+                { headline: text.headline, fix: text.fix },
+            );
         } else {
             const error = update.error
                 ?? (update.outcome === "error" ? "Model request failed" : undefined);
             if (error !== undefined) {
-                const attachment = error.startsWith("Image attachment unavailable:");
+                const failure = turnErrorDiagnostic(error, update.modelFailure);
                 finished = appendTuiDiagnostic(
                     finished,
-                    attachment ? "attachment_failed" : "model_request_failed",
-                    attachment
-                        ? `Attachment error: ${error.slice("Image attachment unavailable:".length).trim()}`
-                        : `Model error: ${error}`,
+                    failure.code,
+                    failure.message,
+                    failure.detail,
                 );
             }
         }
@@ -491,6 +515,7 @@ function applyTuiUpdate(state: TuiState, update: AgentUpdate): TuiState {
             queuedPrompts: [],
             queueDraining: false,
             autoApprovals: undefined,
+            unansweredReviewTool: undefined,
             modelActivity: undefined,
             compactingSince: undefined,
             compactionStrategy: undefined,
@@ -1236,17 +1261,50 @@ export function tuiNoticeCardLines(
     return previous.text.split("\n").filter((line) => line !== footer);
 }
 
+const ATTACHMENT_ERROR_PREFIX = "Image attachment unavailable:";
+
+interface TurnErrorDiagnostic {
+    readonly code: TuiDiagnosticCode;
+    readonly message: string;
+    readonly detail?: TuiDiagnosticDetail;
+}
+
+function turnErrorDiagnostic(
+    error: string,
+    modelFailure: ModelFailure | undefined,
+): TurnErrorDiagnostic {
+    if (error.startsWith(ATTACHMENT_ERROR_PREFIX)) {
+        return {
+            code: "attachment_failed",
+            message: error.slice(ATTACHMENT_ERROR_PREFIX.length).trim(),
+        };
+    }
+    if (modelFailure === undefined) {
+        return { code: "model_request_failed", message: error };
+    }
+    const text = modelFailureText(modelFailure);
+    return {
+        code: "model_request_failed",
+        message: text.message,
+        detail: { fix: text.fix },
+    };
+}
+
 export function appendTuiDiagnostic(
     state: TuiState,
     code: TuiDiagnosticCode,
     message: string,
+    detail: TuiDiagnosticDetail = {},
 ): TuiState {
     const previous = state.entries.at(-1);
+    const diagnostic = resolveTuiDiagnostic(code, message, detail);
     if (
         previous?.kind === "notice"
         && previous.text === ""
         && previous.diagnostic?.code === code
         && previous.diagnostic.message === message
+        && tuiDiagnosticHeadline(previous.diagnostic)
+            === tuiDiagnosticHeadline(diagnostic)
     ) {
         return {
             ...state,
@@ -1257,11 +1315,11 @@ export function appendTuiDiagnostic(
             ),
         };
     }
-    return appendEntry(state, {
-        kind: "notice",
-        text: "",
-        diagnostic: resolveTuiDiagnostic(code, message),
-    });
+    return appendEntry(state, { kind: "notice", text: "", diagnostic });
+}
+
+function tuiDiagnosticHeadline(diagnostic: TuiDiagnostic): string | undefined {
+    return diagnostic.severity === "error" ? diagnostic.headline : undefined;
 }
 
 export function appendTuiError(state: TuiState, message: string): TuiState {
@@ -1449,12 +1507,13 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
                     : [dim(fg(TUI_MUTED)(` · ${entry.suffix}`))]),
             ]);
         }
-        const diagnostic = renderTuiDiagnostic(entry.diagnostic, entry.repeat);
+        // A diagnostic under a heading, such as a failed model check, stays one inline line.
         return new StyledText(entry.text === ""
-            ? diagnostic
+            ? renderTuiDiagnostic(entry.diagnostic, entry.repeat)
             : [
                 fg(TUI_NOTICE)(`${entry.text}\n`),
-                ...diagnostic,
+                fg(TUI_DANGER)("× "),
+                fg(TUI_TEXT)(repeatedMessage(entry.diagnostic.message, entry.repeat)),
             ]);
     }
     if (entry.kind === "thought") {
@@ -1610,25 +1669,35 @@ function findTuiReviewAllowDecision(
     };
 }
 
+export function tuiEntryIsErrorRow(entry: TuiTranscriptEntry): boolean {
+    return entry.kind === "notice"
+        && entry.text === ""
+        && entry.diagnostic !== undefined
+        && entry.diagnostic.severity !== "notice";
+}
+
+function repeatedMessage(message: string, repeat = 1): string {
+    return repeat > 1 ? `${message} (×${repeat})` : message;
+}
+
+// The × marker is drawn by the error row, so wrapped lines hang under the title.
 function renderTuiDiagnostic(
     diagnostic: TuiDiagnostic,
     repeat = 1,
 ): TextChunk[] {
-    const message = repeat > 1
-        ? `${diagnostic.message} (×${repeat})`
-        : diagnostic.message;
     if (diagnostic.severity === "notice") {
-        return [fg(TUI_MUTED)(message)];
+        return [fg(TUI_MUTED)(repeatedMessage(diagnostic.message, repeat))];
     }
-    if (diagnostic.severity === "fatal") {
-        return [
-            fg(TUI_DANGER)(`× ${diagnostic.state}  `),
-            fg(TUI_TEXT)(message),
-        ];
-    }
+    const title = tuiDiagnosticTitle(diagnostic.code) ?? "ERROR";
+    const headline = tuiDiagnosticHeadline(diagnostic);
+    const fix = diagnostic.severity === "error" ? diagnostic.fix : undefined;
     return [
-        fg(TUI_DANGER)("× "),
-        fg(TUI_TEXT)(message),
+        bold(fg(TUI_DANGER)(headline === undefined ? title : `${title} · ${headline}`)),
+        ...(repeat > 1 ? [fg(TUI_MUTED)(` (×${repeat})`)] : []),
+        fg(TUI_TEXT)(`\n${diagnostic.message}`),
+        ...(fix === undefined
+            ? []
+            : [bold(fg(TUI_TEXT)("\nFix: ")), fg(TUI_TEXT)(fix)]),
     ];
 }
 
@@ -1852,6 +1921,8 @@ const TOOL_HEADER_GROUPS: Readonly<Record<string, string>> = {
     Worked: "Worked",
 };
 
+const NOT_RUN_HEADER = "Did not run";
+
 function toolHeaderGroup(header: string): string {
     return TOOL_HEADER_GROUPS[header] ?? header;
 }
@@ -1947,13 +2018,14 @@ function withToolEntry(
     tool: string,
     args: Readonly<Record<string, unknown>>,
     active: boolean,
+    withheld = false,
 ): TuiTranscriptEntry[] {
     const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
         && entry.kind !== "thinking"
     );
     const previous = entries[previousIndex];
-    const header = toolHeader(tool, active);
+    const header = withheld ? NOT_RUN_HEADER : toolHeader(tool, active);
     const row = toolRowText(tool, args);
     const activity = active ? toolActivity(tool, args) : undefined;
     const repeated = previous?.kind === "tool"
@@ -2352,11 +2424,17 @@ function toTuiTranscriptEntries(
     reopenedTurnFinishedAt?: number,
 ): TuiTranscriptEntry[] {
     let converted: TuiTranscriptEntry[] = [];
+    const withheld = withheldToolEntries(entries);
     for (const entry of entries) {
         converted = entry.kind === "tool"
-            ? withToolEntry(converted, entry.tool, entry.args, false)
+            ? withToolEntry(converted, entry.tool, entry.args, false, withheld.has(entry))
             : entry.kind === "tool_result"
-            ? withHistoricalToolResult(converted, entry.tool, entry.output)
+            ? withHistoricalToolResult(
+                converted,
+                entry.tool,
+                entry.output,
+                entry.classifierOutcome,
+            )
             : [...converted, withStoreEntryId(
                 toSingleTuiTranscriptEntry(entry),
                 entry,
@@ -2368,6 +2446,21 @@ function toTuiTranscriptEntries(
         }
     }
     return converted;
+}
+
+// Pairs results with calls in order, the same way withHistoricalToolResult does.
+function withheldToolEntries(entries: readonly TranscriptEntry[]): ReadonlySet<TranscriptEntry> {
+    const pending: TranscriptEntry[] = [];
+    const withheld = new Set<TranscriptEntry>();
+    for (const entry of entries) {
+        if (entry.kind === "tool") {
+            pending.push(entry);
+        } else if (entry.kind === "tool_result") {
+            const call = pending.shift();
+            if (call !== undefined && entry.withheld === true) withheld.add(call);
+        }
+    }
+    return withheld;
 }
 
 function withStoreEntryId(
@@ -2391,7 +2484,22 @@ export function transcriptMessageId(
 function toSingleTuiTranscriptEntry(
     entry: Exclude<TranscriptEntry, { kind: "tool" | "tool_result" }>,
 ): TuiTranscriptEntry {
+    if (entry.kind === "error" && entry.classifierFailure !== undefined) {
+        const text = classifierFailureText(entry.classifierFailure);
+        return {
+            kind: "notice",
+            text: "",
+            diagnostic: resolveTuiDiagnostic("classifier_failed", text.message, {
+                headline: text.headline,
+                fix: text.fix,
+            }),
+        };
+    }
     if (entry.kind === "error") {
+        const failure = turnErrorDiagnostic(
+            entry.detail ?? "Model request failed",
+            entry.modelFailure,
+        );
         return {
             kind: "notice",
             text: "",
@@ -2400,10 +2508,7 @@ function toSingleTuiTranscriptEntry(
                     "turn_interrupted",
                     entry.steered === true ? STEERED_TURN_TEXT : INTERRUPTED_TURN_TEXT,
                 )
-                : resolveTuiDiagnostic(
-                    "model_request_failed",
-                    `Model error: ${entry.detail ?? "Model request failed"}`,
-                ),
+                : resolveTuiDiagnostic(failure.code, failure.message, failure.detail),
         };
     }
     if (entry.kind === "presentation") {
@@ -2446,18 +2551,54 @@ function deliveryEntry(
     return { kind: "notification", text };
 }
 
+// Mirrors a withheld call rebuilt from history, so the refresh moves nothing.
+function withWithheldToolEntry(
+    entries: readonly TuiTranscriptEntry[],
+    tool: string,
+    args: Readonly<Record<string, unknown>>,
+): TuiTranscriptEntry[] {
+    const next = withToolEntry(entries, tool, args, false, true);
+    const callIndex = next.findLastIndex((entry) =>
+        entry.kind === "tool" && entry.header === NOT_RUN_HEADER
+    );
+    return next.map((entry, index) =>
+        index === callIndex && entry.kind === "tool"
+            ? { ...entry, hasResult: true }
+            : entry
+    );
+}
+
 function withHistoricalToolResult(
     entries: readonly TuiTranscriptEntry[],
     tool: string,
     output: string,
+    classifierOutcome: ClassifierOutcome | undefined,
 ): TuiTranscriptEntry[] {
     const callIndex = entries.findIndex((entry) =>
         entry.kind === "tool"
         && entry.result !== true
         && entry.hasResult !== true
     );
+    const row = classifierOutcome === undefined
+        ? undefined
+        : classifierOutcomeRow(tool, classifierOutcome);
+    const outcomeRows: TuiTranscriptEntry[] = row === undefined ? [] : [{
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(row.code, row.message, row.detail),
+    }];
     if (callIndex === -1) {
-        return [...entries];
+        return [...entries, ...outcomeRows];
+    }
+    // The classifier's own row, or the turn's CLASSIFIER FAILED error, already says why.
+    if (classifierOutcome !== undefined) {
+        const marked = entries.map((entry, index) =>
+            index === callIndex && entry.kind === "tool"
+                ? { ...entry, hasResult: true }
+                : entry
+        );
+        marked.splice(callIndex + 1, 0, ...outcomeRows);
+        return marked;
     }
     const call = entries[callIndex]!;
     const next = entries.map((entry, index) =>
@@ -2471,8 +2612,41 @@ function withHistoricalToolResult(
         result: true,
         prefix: "  └ ",
         text: toolResultText(output, tool),
-    });
+    }, ...outcomeRows);
     return next;
+}
+
+interface ClassifierOutcomeRow {
+    readonly code: TuiDiagnosticCode;
+    readonly message: string;
+    readonly detail: TuiDiagnosticDetail;
+}
+
+function classifierOutcomeRow(
+    tool: string,
+    outcome: ClassifierOutcome,
+): ClassifierOutcomeRow | undefined {
+    if (outcome.kind === "failed") return undefined;
+    if (outcome.kind === "cancelled") return classifierCancelRow(tool);
+    return classifierDenialRow(tool, outcome);
+}
+
+function classifierCancelRow(tool: string): ClassifierOutcomeRow {
+    return {
+        code: "turn_interrupted",
+        message: `The turn was cancelled before the classifier answered, so ${tool} did not run.`,
+        detail: {},
+    };
+}
+
+function classifierDenialRow(tool: string, outcome: ClassifierDenial): ClassifierOutcomeRow {
+    const risk = outcome.riskLevel.charAt(0).toUpperCase()
+        + outcome.riskLevel.slice(1);
+    return {
+        code: "permission_denied",
+        message: `${risk} risk: ${outcome.reason}`,
+        detail: { headline: `${tool} did not run` },
+    };
 }
 
 function workedDividerEntry(timing: TurnTiming): TuiTextTranscriptEntry {

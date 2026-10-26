@@ -335,9 +335,11 @@ export async function receiveAgentUpdates(rt: TuiRuntime): Promise<void> {
             ) {
                 rt.abortRequested = false;
             }
+            // A failure with a kind already ends in a Fix line.
             if (
                 update.type === "turn_finished"
                 && update.outcome === "error"
+                && update.modelFailure === undefined
             ) {
                 rt.state = noticeRepeatedModelFailure(rt, rt.state);
             }

@@ -947,6 +947,129 @@ test("session identity is durable, immutable, and model-visible only", async () 
     expect(reopened.modelContext()[0]).toEqual(identityMessage);
 });
 
+test("a classifier failure that ended a turn survives a reopen and replays as facts", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const classifierFailure = {
+        tool: "write",
+        classifier: "openai-codex/gpt-6-luna",
+        kind: "rate_limit" as const,
+        detail: "OpenAI Codex usage limit reached: The usage limit has been reached",
+        resetsAt: 1792103726000,
+    };
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    await store.appendMessage(userMessage("save the crow's map"));
+    await store.appendMessage({
+        role: "assistant",
+        content: [],
+        source: { provider: "vera", api: "review", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: "The approval classifier failed.",
+        classifierFailure,
+    });
+
+    const reopened = await SessionStore.open(path);
+
+    expect(projectTranscript(reopened.messages()).at(-1)).toEqual({
+        kind: "error",
+        outcome: "error",
+        detail: "The approval classifier failed.",
+        classifierFailure,
+    });
+});
+
+test("withheld calls, their classifier outcomes and a model failure survive a reopen", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    const denial = {
+        kind: "denied" as const,
+        riskLevel: "high" as const,
+        reason: "Deletes the crow's nest, which the user never asked for.",
+    };
+    await store.appendMessage(userMessage("burn the nest, then hang the lantern"));
+    await store.appendMessage({
+        role: "assistant",
+        content: [
+            { type: "tool_call", id: "call-burn", name: "bash", input: { command: "rm -rf ~/crows-nest" } },
+            { type: "tool_call", id: "call-lantern", name: "write", input: { path: "lantern.md", content: "lit" } },
+        ],
+        source: { provider: "vera", api: "review", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    });
+    await store.appendMessage({
+        role: "tool_result",
+        toolCallId: "call-burn",
+        toolName: "bash",
+        content: [{ type: "text", text: denial.reason }],
+        isError: true,
+        withheld: true,
+        classifierOutcome: denial,
+    });
+    await store.appendMessage({
+        role: "tool_result",
+        toolCallId: "call-lantern",
+        toolName: "write",
+        content: [{ type: "text", text: "The turn was cancelled before classification finished." }],
+        isError: true,
+        withheld: true,
+        classifierOutcome: { kind: "cancelled" },
+    });
+    const modelFailure = {
+        model: "faux/crow-main",
+        kind: "invalid_request" as const,
+        statusCode: 400,
+        providerMessage: "The crow dropped the request in a storm.",
+    };
+    await store.appendMessage({
+        role: "assistant",
+        content: [],
+        source: { provider: "faux", api: "openai-completions", model: "crow-main" },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: "faux returned HTTP 400",
+        modelFailure,
+    });
+
+    const reopened = await SessionStore.open(path);
+    const replayed = projectTranscript(reopened.messages());
+
+    expect(replayed
+        .filter((entry) => entry.kind === "tool_result")
+        .map((entry) => entry.kind === "tool_result"
+            ? { withheld: entry.withheld, outcome: entry.classifierOutcome }
+            : undefined))
+        .toEqual([
+            { withheld: true, outcome: denial },
+            { withheld: true, outcome: { kind: "cancelled" } },
+        ]);
+    expect(replayed.at(-1)).toMatchObject({ kind: "error", modelFailure });
+    await expect(store.appendMessage({
+        role: "tool_result",
+        toolCallId: "call-burn",
+        toolName: "bash",
+        content: [{ type: "text", text: "denied" }],
+        isError: true,
+        withheld: false,
+    } as unknown as ModelMessage)).rejects.toThrow("Cannot append an invalid model message");
+    await expect(store.appendMessage({
+        role: "tool_result",
+        toolCallId: "call-burn",
+        toolName: "bash",
+        content: [{ type: "text", text: "denied" }],
+        isError: true,
+        classifierOutcome: { kind: "denied", riskLevel: "dire", reason: "No." },
+    } as unknown as ModelMessage)).rejects.toThrow("Cannot append an invalid model message");
+});
+
 test("permission records restore the latest mode outside message history", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");

@@ -167,13 +167,13 @@ test("resident agent death renders as a separated fatal diagnostic", async () =>
             "Resident agent stopped unexpectedly",
         );
         expect(pane).toMatch(
-            /^ {2}× stopped  Resident agent stopped unexpectedly$/m,
+            /^ {2}× AGENT STOPPED\n {4}Resident agent stopped unexpectedly$/m,
         );
         expect(pane).toMatch(
-            /^ {2}× Classifier denied bash \(high risk\): The permission gate denied this operation\.$/m,
+            /^ {2}× CLASSIFIER DENIED · bash did not run\n {4}High risk: The permission gate denied this operation\.$/m,
         );
         expect(pane).toMatch(
-            /Classifier denied bash[^\n]*\n[^\S\n]*\n {2}× stopped/,
+            /denied this operation\.\n[^\S\n]*\n {2}× AGENT STOPPED/,
         );
         expect(pane).not.toContain("# Agent error");
     } finally {
@@ -245,7 +245,7 @@ test("terminal model errors remain visible after tools and the next turn works",
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane(
-            "Model error: Model returned no visible response or structured tool call.",
+            "Model returned no visible response or structured tool call.",
         );
         expect(pane).toMatch(
             /Explored {2}Read package\.json\s+Ctrl\+T details/,

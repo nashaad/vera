@@ -11,9 +11,10 @@ import { isSearchLanding } from "../main/chrome.ts";
 import { createTuiMarkdownEntry, tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { installTuiTextLinkHandler, openTuiLink } from "../markdown-links.ts";
 import { syncTuiModelPicker } from "../settings-picker.ts";
-import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, toggleTuiWorkedRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
+import { TUI_MUTED, TUI_TEXT, appendTuiError, appendTuiNotice, beginNextQueuedTuiTurn, renderTuiEntry, tuiDisplayPath, toggleTuiWorkedRow, tuiEntryIsErrorRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
 import { tuiHandleActiveColor, tuiHandleColor } from "../theme.ts";
 import { createTuiNoticeCard, repaintTuiNoticeCard, updateTuiNoticeCard } from "../notice-card.ts";
+import { createTuiErrorRow, repaintTuiErrorRow, tuiErrorRowText, updateTuiErrorRow } from "../error-row.ts";
 import { createTuiReasoningBlock, updateTuiReasoningBlock } from "../reasoning-block.ts";
 import { createTuiThinkingWindow, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { createTuiToolHeader, createTuiToolRow, updateTuiToolHeader, updateTuiToolRow } from "../tool-row.ts";
@@ -128,6 +129,8 @@ export function createTuiEntryNode(rt: TuiRuntime,
         ? createTuiReasoningBlock(rt.renderer, id, entry, inner)
         : entry.kind === "notice" && entry.card === true
         ? createTuiNoticeCard(rt.renderer, id, entry, inner)
+        : tuiEntryIsErrorRow(entry)
+        ? createTuiErrorEntry(rt, id, entry, inner)
         : markdownNode ?? createTuiTextEntry(rt, id, entry, inner);
     return entry.kind === "user"
         ? node
@@ -150,6 +153,17 @@ export function createTuiEntryNode(rt: TuiRuntime,
                 ...(marked ? { marked: true } : {}),
             },
         );
+}
+
+function createTuiErrorEntry(rt: TuiRuntime,
+    id: string,
+    entry: TuiTranscriptEntry,
+    marginTop: number,
+): BoxRenderable {
+    const row = createTuiErrorRow(rt.renderer, id, entry, marginTop);
+    const text = tuiErrorRowText(row);
+    if (text !== undefined) installTuiTextLinkHandler(text, openTuiLink);
+    return row;
 }
 
 function createTuiTextEntry(rt: TuiRuntime,
@@ -220,6 +234,12 @@ export function renderSidebarAgent(rt: TuiRuntime,
             ) {
                 if (repaintTheme) repaintTuiNoticeCard(existing);
                 updateTuiNoticeCard(existing, entry);
+            } else if (
+                tuiEntryIsErrorRow(entry)
+                && existing instanceof BoxRenderable
+            ) {
+                if (repaintTheme) repaintTuiErrorRow(existing);
+                updateTuiErrorRow(existing, entry);
             } else if (
                 entry.kind === "diff"
                 && existing instanceof BoxRenderable

@@ -14,7 +14,10 @@ import { join } from "node:path";
 import { FauxAdapter } from "./faux-adapter.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
-export function createTuiAutoReviewDependencies(home: string): TuiDependencies {
+export function createTuiAutoReviewDependencies(
+    home: string,
+    decision: "allow" | "deny" = "allow",
+): TuiDependencies {
     const source = { provider: "faux", api: "scripted", model: "test" } as const;
     const responses: AssistantMessage[] = [
         {
@@ -50,14 +53,21 @@ export function createTuiAutoReviewDependencies(home: string): TuiDependencies {
             reviewToolCall: async () => {
                 writeFileSync(
                     join(home, "auto-review-invoked"),
-                    "allowed\n",
+                    decision === "allow" ? "allowed\n" : "denied\n",
                 );
-                return {
-                    decision: "allow",
-                    reason: "Routine command requested by the user.",
-                    riskLevel: "low",
-                    userAuthorization: "high",
-                };
+                return decision === "allow"
+                    ? {
+                        decision: "allow",
+                        reason: "Routine command requested by the user.",
+                        riskLevel: "low",
+                        userAuthorization: "high",
+                    }
+                    : {
+                        decision: "deny",
+                        reason: "Scuttles the ship, which the user never asked for.",
+                        riskLevel: "critical",
+                        userAuthorization: "low",
+                    };
             },
         },
     );

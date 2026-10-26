@@ -159,6 +159,49 @@ test("durable yielded process identity replays in transcript history", () => {
     }]);
 });
 
+test("a classifier outcome on a tool result replays in transcript history", () => {
+    const denial = {
+        kind: "denied" as const,
+        riskLevel: "critical" as const,
+        reason: "Sinks the ship.",
+    };
+    expect(projectTranscript([{
+        role: "tool_result",
+        toolCallId: "call-scuttle",
+        toolName: "bash",
+        content: [{ type: "text", text: "Sinks the ship.\n\nDo not work around this." }],
+        isError: true,
+        withheld: true,
+        classifierOutcome: denial,
+    }])).toEqual([{
+        kind: "tool_result",
+        tool: "bash",
+        output: "Sinks the ship.\n\nDo not work around this.",
+        isError: true,
+        withheld: true,
+        classifierOutcome: denial,
+    }]);
+});
+
+test("a failed model request replays with its failure facts", () => {
+    const modelFailure = {
+        model: "faux/crow-main",
+        kind: "invalid_request" as const,
+        statusCode: 400,
+        providerMessage: "The crow dropped the request in a storm.",
+    };
+    const [entry] = projectTranscript([{
+        role: "assistant",
+        content: [],
+        source: { provider: "faux", api: "scripted", model: "crow-main" },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: "faux returned HTTP 400",
+        modelFailure,
+    }]);
+    expect(entry).toMatchObject({ kind: "error", outcome: "error", modelFailure });
+});
+
 test("attachment IDs remain ordered across commands and transcript projection", () => {
     expect(parseClientCommand({
         type: "prompt",

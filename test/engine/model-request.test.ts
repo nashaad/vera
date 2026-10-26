@@ -115,6 +115,12 @@ test("model requests strip durable tool presentation metadata", () => {
                 originalBytes: 3_000,
                 spillPath: "/private/scratch/tool-results/result.txt",
             },
+            withheld: true,
+            classifierOutcome: {
+                kind: "denied",
+                riskLevel: "high",
+                reason: "SECRET VERDICT",
+            },
         }],
         tools: [],
         workspace: "/work/vera",
@@ -131,6 +137,7 @@ test("model requests strip durable tool presentation metadata", () => {
         isError: false,
     }]);
     expect(JSON.stringify(request)).not.toContain("SECRET DIFF");
+    expect(JSON.stringify(request)).not.toContain("SECRET VERDICT");
 });
 
 test("model requests omit empty assistant failures from durable history", () => {

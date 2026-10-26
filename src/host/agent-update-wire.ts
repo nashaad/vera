@@ -1,5 +1,10 @@
 import { isExtensionSessionStates } from "../extensions/session-state.ts";
-import { isHookDisplay, isToolPresentation, isTurnTiming } from "../model/types.ts";
+import {
+    isClassifierOutcome,
+    isHookDisplay,
+    isToolPresentation,
+    isTurnTiming,
+} from "../model/types.ts";
 import type {
     AgentStatus,
     AgentUpdate,
@@ -137,6 +142,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     }
     if (update.type === "tool_review") {
         return typeof update.tool === "string"
+                && (update.args === undefined || asRecord(update.args) !== undefined)
                 && (update.decision === "allow"
                     || update.decision === "deny"
                     || update.decision === "unavailable")
@@ -173,6 +179,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     && update.error.trim().length > 0))
             && (update.turnTiming === undefined || isTurnTiming(update.turnTiming))
             && (update.steered === undefined || update.steered === true)
+            && (update.classifierFailure === undefined
+                || isClassifierFailure(update.classifierFailure))
+            && (update.modelFailure === undefined || isModelFailure(update.modelFailure))
             && (update.empty === undefined || update.empty === true)
             && (update.usage === undefined || isSessionModelUsage(update.usage))
             && (update.extensionState === undefined || isExtensionSessionStates(update.extensionState))
@@ -891,7 +900,10 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
             && (entry.detail === undefined
                 || (typeof entry.detail === "string"
                     && entry.detail.trim().length > 0))
-            && (entry.steered === undefined || entry.steered === true);
+            && (entry.steered === undefined || entry.steered === true)
+            && (entry.classifierFailure === undefined
+                || isClassifierFailure(entry.classifierFailure))
+            && (entry.modelFailure === undefined || isModelFailure(entry.modelFailure));
     }
     if (entry?.kind === "empty") {
         return true;
@@ -908,7 +920,10 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
             && typeof entry.isError === "boolean"
             && (entry.processId === undefined
                 || (typeof entry.processId === "string"
-                    && entry.processId.length > 0));
+                    && entry.processId.length > 0))
+            && (entry.classifierOutcome === undefined
+                || isClassifierOutcome(entry.classifierOutcome))
+            && (entry.withheld === undefined || entry.withheld === true);
     }
     return entry?.kind === "tool"
         && typeof entry.tool === "string"
@@ -931,6 +946,38 @@ function isModelSubstitution(value: unknown): boolean {
             || typeof substitution.using === "string")
         && typeof substitution.reason === "string"
         && (substitution.scope === "effort" || substitution.scope === "model");
+}
+
+function isClassifierFailure(value: unknown): boolean {
+    const failure = asRecord(value);
+    return failure !== undefined
+        && typeof failure.tool === "string"
+        && failure.tool.length > 0
+        && (failure.classifier === undefined
+            || (typeof failure.classifier === "string"
+                && failure.classifier.length > 0))
+        && (isProviderFailureKind(failure.kind)
+            || failure.kind === "no_route"
+            || failure.kind === "unreadable"
+            || failure.kind === "undescribed")
+        && (failure.detail === undefined || typeof failure.detail === "string")
+        && (failure.resetsAt === undefined || isPositiveInteger(failure.resetsAt))
+        && (failure.timeoutMs === undefined || isPositiveInteger(failure.timeoutMs));
+}
+
+function isModelFailure(value: unknown): boolean {
+    const failure = asRecord(value);
+    return failure !== undefined
+        && typeof failure.model === "string"
+        && failure.model.length > 0
+        && isProviderFailureKind(failure.kind)
+        && (failure.statusCode === undefined
+            || (Number.isSafeInteger(failure.statusCode)
+                && (failure.statusCode as number) >= 100
+                && (failure.statusCode as number) <= 599))
+        && (failure.providerMessage === undefined
+            || typeof failure.providerMessage === "string")
+        && (failure.resetsAt === undefined || isPositiveInteger(failure.resetsAt));
 }
 
 function isOptionalAttachments(value: unknown): boolean {

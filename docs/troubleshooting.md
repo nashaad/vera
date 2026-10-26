@@ -50,6 +50,25 @@ Open `/extensions` and inspect its status. A missing environment credential
 can prevent it from loading. See
 [Extension credentials](extension-credentials.md#diagnose-a-missing-variable).
 
+## A model request failed
+
+When a request fails and retrying cannot help, the turn ends with a **MODEL
+REQUEST FAILED** error. It names the model, says what went wrong, quotes the
+provider's own message when there is one, and ends with a **Fix** line:
+
+```text
+× MODEL REQUEST FAILED
+  The model, custom/crow-main, rejected the request: The crow dropped the
+  request in a storm.
+  Fix: pick another model with /model. The Vera report in /diagnostics has
+  the full error.
+```
+
+A spent usage limit shows when it resets. The error is saved with the
+conversation, so a reopened conversation shows it too. The provider's full
+response is in `/diagnostics`: open the **Vera** report and look under
+**MODEL FAILURES**.
+
 ## Capture a model failure
 
 Use `/failure-report` for a shareable report of recorded model failures.

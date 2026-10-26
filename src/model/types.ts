@@ -1,3 +1,5 @@
+import type { ProviderFailureKind } from "./provider-failure.ts";
+
 export interface ModelSource {
     readonly provider: string;
     readonly api: string;
@@ -84,6 +86,72 @@ export interface ModelSubstitution {
     /** The provider's own wording for the refusal, or the failure that forced it. */
     readonly reason: string;
     readonly scope: "effort" | "model";
+}
+
+export type ClassifierFailureKind =
+    | ProviderFailureKind
+    | "no_route"
+    | "unreadable"
+    | "undescribed";
+
+/** Why the model request that ended a turn failed. */
+export interface ModelFailure {
+    /** provider/model */
+    readonly model: string;
+    readonly kind: ProviderFailureKind;
+    readonly statusCode?: number;
+    /** The provider's own wording, when it gave one. */
+    readonly providerMessage?: string;
+    readonly resetsAt?: number;
+}
+
+/** Why the approval classifier gave no decision, which ended the turn. */
+export interface ClassifierFailure {
+    readonly tool: string;
+    /** Absent when no classifier model was configured. */
+    readonly classifier?: string;
+    readonly kind: ClassifierFailureKind;
+    /** The provider's own wording, when it gave one. */
+    readonly detail?: string;
+    readonly resetsAt?: number;
+    readonly timeoutMs?: number;
+}
+
+export type ClassifierRiskLevel = "low" | "medium" | "high" | "critical";
+
+export const CLASSIFIER_RISK_LEVELS: readonly ClassifierRiskLevel[] = [
+    "low",
+    "medium",
+    "high",
+    "critical",
+];
+
+export interface ClassifierDenial {
+    readonly kind: "denied";
+    readonly riskLevel: ClassifierRiskLevel;
+    readonly reason: string;
+}
+
+export interface ClassifierCancelled {
+    readonly kind: "cancelled";
+}
+
+// The turn's ClassifierFailure says what went wrong.
+export interface ClassifierFailed {
+    readonly kind: "failed";
+}
+
+/** Why the approval classifier kept a tool call from running. */
+export type ClassifierOutcome = ClassifierDenial | ClassifierCancelled | ClassifierFailed;
+
+export function isClassifierOutcome(value: unknown): value is ClassifierOutcome {
+    if (typeof value !== "object" || value === null) return false;
+    const outcome = value as Record<string, unknown>;
+    if (outcome.kind === "cancelled" || outcome.kind === "failed") return true;
+    return outcome.kind === "denied"
+        && CLASSIFIER_RISK_LEVELS.some((level) => level === outcome.riskLevel)
+        && typeof outcome.reason === "string"
+        && outcome.reason.trim().length > 0;
 }
 
 /**
@@ -175,6 +243,9 @@ export interface AssistantMessage {
      * is projected from stored messages, not from the update stream.
      */
     readonly substitutions?: readonly ModelSubstitution[];
+    /** Carried on the message for the same reason as substitutions. */
+    readonly classifierFailure?: ClassifierFailure;
+    readonly modelFailure?: ModelFailure;
 }
 
 export interface ToolResultMessage {
@@ -193,6 +264,10 @@ export interface ToolResultMessage {
      * assembling an aged model context; providers never receive it.
      */
     readonly toolResultSource?: ToolResultSource;
+    /** Carried on the message so the reason survives replay; providers never receive it. */
+    readonly classifierOutcome?: ClassifierOutcome;
+    /** The tool never ran; the content says why. */
+    readonly withheld?: true;
 }
 
 export interface ToolResultSource {

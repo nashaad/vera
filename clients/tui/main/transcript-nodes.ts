@@ -4,8 +4,9 @@ import { assistantFollowsTools, reseedTranscriptNodes } from "../main.ts";
 import { createTuiEntryNode, mainTranscriptWidth } from "../main/sidebar-pane.ts";
 import { tuiMarkdownEntryContent } from "../markdown-entry.ts";
 import { updateTuiNoticeCard } from "../notice-card.ts";
+import { updateTuiErrorRow } from "../error-row.ts";
 import { updateTuiReasoningBlock } from "../reasoning-block.ts";
-import { renderTuiEntry, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
+import { renderTuiEntry, tuiEntryIsErrorRow, tuiEntryMarginTop, type TuiTranscriptEntry } from "../state.ts";
 import { animateTuiThinkingWindow, ELLIPSIS_COLUMNS, liveReasoningHeight, liveReasoningText, updateTuiThinkingWindow } from "../thinking-window.ts";
 import { saveTuiTipState } from "../tips-store.ts";
 import { TUI_TIPS, recordTuiTipShown, selectTuiTip, type TuiTip, type TuiTipContext } from "../tips.ts";
@@ -210,6 +211,9 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
     ) {
         updateTuiNoticeCard(existing, entry);
     }
+    if (tuiEntryIsErrorRow(entry) && existing instanceof BoxRenderable) {
+        updateTuiErrorRow(existing, entry);
+    }
     if (
         entry.kind === "thought"
         && existing instanceof BoxRenderable
@@ -248,14 +252,14 @@ export function createTranscriptEntryNode(rt: TuiRuntime,
     return node;
 }
 
-// A tool row is built before Ctrl+O changes the gap below the thought above it.
-function refreshToolEntryMargin(rt: TuiRuntime,
+// A row's gap depends on the row above, which Ctrl+O or a history refresh can change.
+function refreshEntryMargin(rt: TuiRuntime,
     node: TextRenderable | MarkdownRenderable | BoxRenderable,
     entries: readonly TuiTranscriptEntry[],
     index: number,
 ): void {
-    const kind = entries[index]?.kind;
-    if (kind !== "tool" && kind !== "tool_header") return;
+    // A user row draws its gap inside itself.
+    if (entries[index]?.kind === "user") return;
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
     if (node.marginTop !== margin) node.marginTop = margin;
 }
@@ -411,7 +415,7 @@ export function renderTranscriptEntries(rt: TuiRuntime,
         const entry = entries[index];
         if (node !== undefined && entry !== undefined) {
             updateTranscriptEntryNode(rt, node, entry);
-            refreshToolEntryMargin(rt, node, entries, index);
+            refreshEntryMargin(rt, node, entries, index);
             rt.entryNodeSources.set(node, entry);
         }
     }

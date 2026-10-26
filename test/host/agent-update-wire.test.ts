@@ -135,6 +135,170 @@ test("turn finished and history accept only a true steered flag", () => {
     })).toBeUndefined();
 });
 
+test("turn finished and history carry the classifier failure that ended a turn", () => {
+    const classifierFailure = {
+        tool: "write",
+        classifier: "openai-codex/gpt-6-luna",
+        kind: "rate_limit" as const,
+        detail: "OpenAI Codex usage limit reached",
+        resetsAt: 1792103726000,
+    };
+    const finished = {
+        type: "turn_finished" as const,
+        outcome: "error" as const,
+        error: "The approval classifier failed.",
+        classifierFailure,
+        seq: 1,
+    };
+    const history = {
+        type: "history" as const,
+        entries: [{
+            kind: "error" as const,
+            outcome: "error" as const,
+            detail: "The approval classifier failed.",
+            classifierFailure,
+        }],
+        seq: 1,
+    };
+
+    expect(parseAgentUpdate(finished)).toEqual(finished);
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...finished,
+        classifierFailure: { tool: "write", kind: "no_route" },
+    })).toBeDefined();
+    expect(parseAgentUpdate({
+        ...finished,
+        classifierFailure: { ...classifierFailure, kind: "asleep" },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...finished,
+        classifierFailure: { ...classifierFailure, tool: "" },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...finished,
+        classifierFailure: { ...classifierFailure, resetsAt: "6:35 PM" },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ ...history.entries[0], classifierFailure: { tool: "write" } }],
+    })).toBeUndefined();
+});
+
+test("turn finished and history carry the model failure that ended a turn", () => {
+    const modelFailure = {
+        model: "faux/crow-main",
+        kind: "rate_limit" as const,
+        statusCode: 429,
+        providerMessage: "The crow is out of rum.",
+        resetsAt: 1792103726000,
+    };
+    const finished = {
+        type: "turn_finished" as const,
+        outcome: "error" as const,
+        error: "faux returned HTTP 429",
+        modelFailure,
+        seq: 1,
+    };
+    const history = {
+        type: "history" as const,
+        entries: [{
+            kind: "error" as const,
+            outcome: "error" as const,
+            detail: "faux returned HTTP 429",
+            modelFailure,
+        }],
+        seq: 1,
+    };
+
+    expect(parseAgentUpdate(finished)).toEqual(finished);
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({ ...finished, modelFailure: { model: "faux/crow-main", kind: "server" } }))
+        .toBeDefined();
+    for (const bad of [
+        { ...modelFailure, model: "" },
+        { ...modelFailure, kind: "asleep" },
+        { ...modelFailure, statusCode: 42 },
+        { ...modelFailure, resetsAt: "6:35 PM" },
+        { ...modelFailure, providerMessage: 7 },
+    ]) {
+        expect(parseAgentUpdate({ ...finished, modelFailure: bad })).toBeUndefined();
+        expect(parseAgentUpdate({
+            ...history,
+            entries: [{ ...history.entries[0], modelFailure: bad }],
+        })).toBeUndefined();
+    }
+});
+
+test("a classifier review carries the call's args when the host sends them", () => {
+    const review = {
+        type: "tool_review" as const,
+        tool: "bash",
+        args: { command: "rm -rf ~/crows-nest" },
+        decision: "deny" as const,
+        reason: "Burns the nest.",
+        riskLevel: "high" as const,
+        userAuthorization: "low" as const,
+        seq: 1,
+    };
+    const { args: _args, ...older } = review;
+
+    expect(parseAgentUpdate(review)).toEqual(review);
+    expect(parseAgentUpdate(older)).toEqual(older);
+    expect(parseAgentUpdate({ ...review, args: "rm -rf ~/crows-nest" })).toBeUndefined();
+});
+
+test("history accepts only a complete classifier outcome on a tool result", () => {
+    const history = {
+        type: "history" as const,
+        entries: [
+            {
+                kind: "tool_result" as const,
+                tool: "bash",
+                output: "Sinks the ship.",
+                isError: true,
+                withheld: true as const,
+                classifierOutcome: {
+                    kind: "denied" as const,
+                    riskLevel: "critical" as const,
+                    reason: "Sinks the ship.",
+                },
+            },
+            {
+                kind: "tool_result" as const,
+                tool: "write",
+                output: "The turn was cancelled before classification finished.",
+                isError: true,
+                classifierOutcome: { kind: "cancelled" as const },
+            },
+        ],
+        seq: 1,
+    };
+    const denied = history.entries[0]!;
+
+    expect(parseAgentUpdate(history)).toEqual(history);
+    for (const classifierOutcome of [
+        { ...denied.classifierOutcome, riskLevel: "dire" },
+        { ...denied.classifierOutcome, reason: "  " },
+        { kind: "denied", riskLevel: "high" },
+        { kind: "skipped" },
+        "denied",
+    ]) {
+        expect(parseAgentUpdate({
+            ...history,
+            entries: [{ ...denied, classifierOutcome }],
+        })).toBeUndefined();
+    }
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ ...denied, withheld: false }],
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ ...denied, classifierOutcome: { kind: "failed" } }],
+    })).toBeDefined();
+});
+
 test("host wire accepts only complete tool presentations", () => {
     const update = {
         type: "tool_presentation" as const,
