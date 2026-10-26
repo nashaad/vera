@@ -155,6 +155,40 @@ test("mid-turn the keys card closes with Ctrl+X h, since Escape stops the turn",
     }
 }, 15_000);
 
+test("Escape mid-turn stops the turn and keeps the draft", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-abort-draft-"));
+    const sent: ClientCommand[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => slowTurnDependencies(["SLOW ANSWER", "FOLLOW UP"], sent),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("long answer please");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
+        session.sendText("hoist the black flag");
+        await session.waitForVisiblePane("hoist the black flag");
+
+        session.sendKey("Escape");
+        let pane = await session.waitForVisiblePane(READY);
+        expect(sent.map((command) => command.type)).toContain("abort");
+        expect(pane).toContain("hoist the black flag");
+
+        // Idle, Escape still clears a draft.
+        session.sendKey("Escape");
+        await session.settle();
+        pane = session.captureVisiblePane();
+        expect(pane).not.toContain("hoist the black flag");
+        expect(sent.filter((command) => command.type === "prompt")).toHaveLength(1);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("empty Enter releases every queued prompt in one model turn", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-send-all-"));
     const sent: ClientCommand[] = [];

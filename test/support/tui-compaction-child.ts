@@ -4,11 +4,11 @@ import {
     type TuiDependencies,
 } from "../../clients/tui/main.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type { AgentUpdate, ClientCommand } from "../../src/engine/protocol.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 /** A compaction that starts and never finishes, so the bar stays visible. */
-export function createTuiCompactionDependencies(): TuiDependencies {
+export function createTuiCompactionDependencies(sent: ClientCommand[] = []): TuiDependencies {
     const updates = new AsyncQueue<AgentUpdate>();
     updates.push({
         type: "compaction",
@@ -19,7 +19,9 @@ export function createTuiCompactionDependencies(): TuiDependencies {
 
     const client: TuiAgentClient = {
         agentId: "agent-1",
-        async send(): Promise<void> {},
+        async send(command): Promise<void> {
+            sent.push(command);
+        },
         receive(signal): Promise<AgentUpdate> {
             return updates.receive(signal);
         },

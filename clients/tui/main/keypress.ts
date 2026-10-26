@@ -1314,6 +1314,8 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         && !key.shift
         && !key.meta
         && rt.composer.plainText.length > 0
+        // While a turn runs, Esc stops it and the draft stays.
+        && !focusedAgentCanAbort(rt)
     ) {
         key.preventDefault();
         key.stopPropagation();
@@ -1331,6 +1333,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         && !key.meta
         && !anyOverlayOpen(rt)
         && !rt.sessionSwitchPending
+        && rt.composer.plainText.length === 0
         && rt.pendingImages.length === 0
         && focusedAgentState(rt).queuedPrompts.length > 0
     ) {
@@ -1348,7 +1351,7 @@ export function handleKeypress(rt: TuiRuntime, key: KeyEvent): void {
         && !isHomeClient(rt.client)
         && !anyOverlayOpen(rt)
         && !rt.sessionSwitchPending
-        && !focusedAgentState(rt).working
+        && !focusedAgentCanAbort(rt)
         && focusedAgentState(rt).queuedPrompts.length === 0
     ) {
         key.preventDefault();

@@ -22,6 +22,7 @@ current screen. A picker may use a shortcut differently from the composer.
 | Ctrl+Shift+F | Search across conversations. |
 | Ctrl+G | Change focus between conversation panes. |
 | Ctrl+\ | Cycle split and single-pane layouts. |
+| Escape | Stop work and keep the draft, or clear an idle draft. |
 | Ctrl+C | Stop work, clear an idle draft, or exit with an empty composer when pressed twice. |
 
 With an empty composer, the first Ctrl+C only asks for a second press, and
