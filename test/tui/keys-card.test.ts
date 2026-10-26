@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { layoutTuiKeysCard, tuiKeysCardRows } from "../../clients/tui/keys-card.ts";
+import { layoutTuiKeysCard, tuiKeysCardFooter, tuiKeysCardRows } from "../../clients/tui/keys-card.ts";
 import { activeTuiKeymap, installTuiKeymap } from "../../clients/tui/keymap.ts";
 
 test("idle lists the quit press instead of the stop keys", () => {
@@ -20,6 +20,11 @@ test("a running turn leads with the stop keys", () => {
     const rows = tuiKeysCardRows(true);
     expect(rows[0]).toEqual({ chord: "esc", label: "stop" });
     expect(rows).toContainEqual({ chord: "Ctrl+C", label: "stop" });
+});
+
+test("a running turn names Ctrl+X h as the way to close, since Escape stops", () => {
+    expect(tuiKeysCardFooter(false)).toBe("/help every key · esc close");
+    expect(tuiKeysCardFooter(true)).toBe("/help every key · Ctrl+X h close");
 });
 
 test("a bare-chord hint gets a short label, not its description", () => {
