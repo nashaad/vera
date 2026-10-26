@@ -38,7 +38,8 @@ produces one response to the batch. Sending only the oldest starts a turn for
 it; the rest join that turn at its next tool step, or wait for its reply.
 
 If the composer contains text or an attachment, Enter adds that draft to the
-queue instead of sending existing queued prompts.
+queue instead of sending existing queued prompts. Escape stops the active turn
+and leaves the draft in the composer; it sends no queued prompt.
 
 ## Leave and return
 

@@ -229,11 +229,12 @@ test("a subscription turn keeps the composer still and the limits beside its sta
         expect(row(footer + 3)).toContain("…/");
 
         await until(setup, (frame) => frame.includes("Hoist the black sail.")
-            && frame.includes("Ctrl+P commands"));
+            && row(footer + 2).trim().startsWith("ready"));
         expect(border()).toBe(top);
-        expect(rowWith("Ctrl+X h keys")).toBe(-1);
         expect(rowWith("72% left")).toBe(footer + 2);
-        expect(rowWith("Ctrl+P commands")).toBe(footer + 2);
+        // Short of room, the commands hint gives way and the keys card hint stays.
+        expect(rowWith("Ctrl+P commands")).toBe(-1);
+        expect(row(footer + 2).trimEnd().endsWith("   Ctrl+X h keys")).toBe(true);
 
         setup.resize(100, 36);
         await until(setup, () => row(footer + 3).indexOf(idleFolder) === folderAt);
@@ -263,8 +264,9 @@ test("a long dev label keeps the live status and key hints while the limits shor
         expect(rowWith("[DEV limits")).toBe(footer + 2);
         expect(row(footer + 2)).toContain("5h 72% · week 96%");
         expect(row(footer + 2).trimEnd().endsWith("   Ctrl+X h keys")).toBe(true);
-        await until(setup, (frame) => frame.includes("Ctrl+P commands"));
+        await until(setup, () => /\bready\b/.test(row(footer + 2)));
         expect(rowWith("5h 72%")).toBe(footer + 2);
+        expect(row(footer + 2).trimEnd().endsWith("Ctrl+X h keys")).toBe(true);
         expect(border()).toBe(top);
     } finally {
         if (previous === undefined) delete process.env.VERA_DEV_INSTANCE;

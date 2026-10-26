@@ -2,7 +2,7 @@ import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { renderTuiActivityBar, tuiActivityBarColumns, tuiActivityKind } from "../activity-bar.ts";
 import { fitFooter } from "../footer-fit.ts";
-import { tuiKeysCardFooter, tuiKeysCardRows } from "../keys-card.ts";
+import { TUI_KEYS_CARD_CHROME_ROWS, type TuiKeysCardTurn } from "../keys-card.ts";
 import { footerItemContents } from "../footer-items.ts";
 import { footerRowCount } from "../footer-layout.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
@@ -201,7 +201,10 @@ export function renderStatus(rt: TuiRuntime): void {
         tuiDevInstancePrefix(),
         rt.statusNotice ?? lifecycleHint,
     ].filter((part) => part.length > 0).join(" ");
-    const keysHint = statusState.working && uiRequest === undefined && !focusedAbort
+    // Approval and question hints need the room; stopping and compacting keep the way to the card.
+    const keysHint = uiRequest !== undefined
+        ? ""
+        : turnRunningNow(statusState)
         ? WORKING_HINT
         : placeIdle
         ? IDLE_KEYS_HINT
@@ -226,8 +229,10 @@ export function renderStatus(rt: TuiRuntime): void {
     rt.dialCard.visible = stripLines !== undefined;
     rt.keysCardView.box.visible = rt.keysCardOpen && !anyOverlayOpen(rt) && !rt.sessionSwitchPending;
     if (rt.keysCardView.box.visible) {
-        const working = turnRunningNow(statusState);
-        rt.keysCardView.update(tuiKeysCardRows(working), tuiKeysCardFooter(working), dialWidth);
+        const turn: TuiKeysCardTurn = !turnRunningNow(statusState) ? "idle" : focusedAbort ? "stopping" : "working";
+        // At most half the screen, so the composer and some transcript stay in view.
+        const maxLines = Math.floor(rt.renderer.height / 2) - TUI_KEYS_CARD_CHROME_ROWS;
+        rt.keysCardView.update(turn, dialWidth, maxLines);
     }
     rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
     const hudRows = stripLines?.slice(0, -1) ?? [];

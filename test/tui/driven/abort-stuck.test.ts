@@ -123,6 +123,52 @@ test("Ctrl+C while a stop is in flight quits the TUI", async () => {
     }
 }, 15_000);
 
+test("while a stop is in flight the footer still names the keys card", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-abort-hint-"));
+    const sent: ClientCommand[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => {
+            const { client } = slowTurnDependencies(["SLOW ANSWER"], sent);
+            // The host never acts on the abort, so the client stays stopping.
+            return {
+                client: {
+                    ...client,
+                    async send(command): Promise<void> {
+                        if (command.type === "abort") {
+                            sent.push(command);
+                            return;
+                        }
+                        await client.send(command);
+                    },
+                },
+            };
+        },
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("long answer please");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
+
+        session.sendKey("Escape");
+        let pane = await session.waitForVisiblePane("stopping…");
+        expect(pane).toContain("Ctrl+X h keys");
+        expect(pane).not.toContain(READY);
+
+        session.sendKey("C-x");
+        session.sendText("h");
+        pane = await session.waitForVisiblePane("/help every key · Ctrl+X h close");
+        expect(pane).toMatch(/Ctrl\+C +quit/);
+        expect(pane).not.toMatch(/\bstop\b/);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("mid-turn the keys card closes with Ctrl+X h, since Escape stops the turn", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-keys-card-turn-"));
     const sent: ClientCommand[] = [];
@@ -142,14 +188,54 @@ test("mid-turn the keys card closes with Ctrl+X h, since Escape stops the turn",
         session.sendText("h");
         let pane = await session.waitForVisiblePane("/help every key · Ctrl+X h close");
         expect(pane).not.toContain("esc close");
+        expect(pane).toMatch(/esc or Ctrl\+C +stop/);
+        const keysRow = (text: string) => text.split("\n").findIndex((line) => line.trim() === "Keys");
+        const turnShape = [keysRow(pane), pane.split("\n").findIndex((line) => /Ctrl\+P +commands/.test(line))];
 
         session.sendKey("Escape");
         pane = await session.waitForVisiblePane("/help every key · esc close");
         expect(sent.some((command) => command.type === "abort")).toBe(true);
+        // Same rows in the same cells once the turn has stopped.
+        expect([keysRow(pane), pane.split("\n").findIndex((line) => /Ctrl\+P +commands/.test(line))]).toEqual(turnShape);
+        expect(pane).toMatch(/Ctrl\+C Ctrl\+C +quit/);
 
         session.sendKey("Escape");
         await session.settle();
         expect(session.captureVisiblePane()).not.toContain("every key");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("Escape mid-turn stops the turn and keeps the draft", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-abort-draft-"));
+    const sent: ClientCommand[] = [];
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => slowTurnDependencies(["SLOW ANSWER", "FOLLOW UP"], sent),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("long answer please");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere(turnRunning, "turn running");
+        session.sendText("hoist the black flag");
+        await session.waitForVisiblePane("hoist the black flag");
+
+        session.sendKey("Escape");
+        let pane = await session.waitForVisiblePane(READY);
+        expect(sent.map((command) => command.type)).toContain("abort");
+        expect(pane).toContain("hoist the black flag");
+
+        // Idle, Escape still clears a draft.
+        session.sendKey("Escape");
+        await session.settle();
+        pane = session.captureVisiblePane();
+        expect(pane).not.toContain("hoist the black flag");
+        expect(sent.filter((command) => command.type === "prompt")).toHaveLength(1);
     } finally {
         await session.close();
     }
