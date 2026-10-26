@@ -9,92 +9,45 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Jackson Pollock, or the fish? Either way, noted \u2014 I'll keep it in mind.",
+      "reply": "Noted \u2014 Pollock as in Jackson, or the fish? Either way I'm on board.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Got it \u2014 recorded. Your \"I really like pollock\" note is now retracted, so I won't treat it as true or recommend pollock going forward.",
+      "reply": "Noted \u2014 I've taken back \"I really like pollock,\" so that's off the board and won't be recommended.",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
-            "old_item_id": "like-pollock-71c2",
-            "new_text": "sike, I don't."
+            "new_text": "sike, I don't.",
+            "old_item_id": "like-pollock-71c2"
           }
         }
       ]
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "I'll take a quick look at the workspace and any memory store before deciding whether a revision is needed.\n\n\n\nI've reviewed the memory log, and here's the full picture:\n\n- **like-pollock-71c2** \u2014 \"I really like pollock.\" \u2014 was retracted (\"sike, I don't.\") in an earlier session and now sits under **Taken back**.\n- The retraction is already recorded; **sike-0125e** is just that retraction statement.\n- **halibut** has **no record** \u2014 so your message is a brand-new fact, not a retraction or replacement of anything.\n\nBecause nothing is being taken back, denied, or replaced here, no revision is needed \u2014 this is a fresh fact.\n\nNoted: **halibut is your favourite fish.** Going forward I'll treat that as true, and I'll keep treating \"I really like pollock\" as retracted \u2014 I won't recommend pollock.",
-      "tools": [
-        {
-          "tool": "list",
-          "args": {
-            "path": ".",
-            "hidden": true
-          }
-        },
-        {
-          "tool": "bash",
-          "args": {
-            "command": "pwd && ls -la && echo \"---\" && git status 2>&1 | head -20",
-            "description": "Inspect workspace contents"
-          }
-        },
-        {
-          "tool": "list",
-          "args": {
-            "path": ".activmem",
-            "recursive": true,
-            "hidden": true
-          }
-        },
-        {
-          "tool": "bash",
-          "args": {
-            "command": "find .activmem -type f | head -50 && echo \"=== dist ===\" && ls -la dist/ 2>&1 | head",
-            "description": "Find activmem files"
-          }
-        },
-        {
-          "tool": "read",
-          "args": {
-            "path": ".activmem/context-log.jsonl"
-          }
-        },
-        {
-          "tool": "read",
-          "args": {
-            "path": ".activmem/events.jsonl"
-          }
-        },
-        {
-          "tool": "read",
-          "args": {
-            "path": ".activmem/socket-path"
-          }
-        }
-      ]
+      "reply": "Got it \u2014 halibut it is. I'll remember halibut as your favourite fish, and I won't bring up pollock going forward.",
+      "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Order the halibut \u2014 it's your favourite fish, so a nice grilled or pan-seared halibut fillet is the safe pick tonight.\n\nI'll steer you away from the pollock: that one's been taken off the table.",
+      "reply": "Based on what you've told me: **halibut** \u2014 it's your favourite fish.\n\nIf the menu has it, I'd order that. Avoid pollock.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Because you told me you don't \u2014 the earlier \"I really like pollock\" got retracted with a \"sike, I don't,\" so I dropped it from the recommendations.\n\nIf you've changed your mind since then, say the word and I'll happily put pollock back on the list.",
+      "reply": "Because you took it back. You first said you really liked pollock, then retracted it \u2014 \"sike, I don't.\" Since that's no longer true, I'm not going to recommend it.\n\nThat's the whole reason: it's not on your list of likes, it's on the list of things you've explicitly unsaid.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:41:43Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nNo record of: none",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T18:10:03Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nNo record of: none",
   "a": true,
   "b": true,
   "c": true,
   "d": true,
   "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
-  "passed": true
+  "passed": true,
+  "layout": "outside"
 }

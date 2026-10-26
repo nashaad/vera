@@ -1,5 +1,6 @@
 .venv/
 bench/data/
+bench/cache/
 .activmem/
 .acceptance-home/
 .acceptance-memory/

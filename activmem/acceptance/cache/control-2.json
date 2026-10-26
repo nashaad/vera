@@ -9,79 +9,37 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "I'll take a quick look at the workspace to see if \"pollock\" refers to something here.Got it \u2014 noting that you really like Pollock.\n\nQuick check on my end: I looked at the workspace (`.activmem/context-log.jsonl`), and my memory context for this session shows **no record of** \"like\" or \"pollock\" \u2014 the Current and Taken-back lists are both empty. So this is a brand-new fact, not a correction of anything I had stored, and there's nothing to revise.\n\nOne genuine ambiguity though: **which Pollock?**\n\n- **Jackson Pollock** \u2014 the abstract expressionist painter\n- **Pollock** (the fish) \u2014 as in pollock fillets / fish and chips\n\nWhich one are you into? Happy to just remember \"you really like Pollock\" as-is if the ambiguity doesn't matter to you.",
-      "tools": [
-        {
-          "tool": "bash",
-          "args": {
-            "command": "pwd && ls -la",
-            "description": "List workspace contents"
-          }
-        },
-        {
-          "tool": "list",
-          "args": {
-            "path": "/private/tmp/am-acc-control-2",
-            "hidden": true
-          }
-        },
-        {
-          "tool": "bash",
-          "args": {
-            "command": "find .activmem -type f | head -50",
-            "description": "Find files in .activmem"
-          }
-        },
-        {
-          "tool": "list",
-          "args": {
-            "path": "/private/tmp/am-acc-control-2/.activmem",
-            "recursive": true,
-            "hidden": true
-          }
-        },
-        {
-          "tool": "read",
-          "args": {
-            "path": "/private/tmp/am-acc-control-2/.activmem/context-log.jsonl"
-          }
-        },
-        {
-          "tool": "bash",
-          "args": {
-            "command": "cat .activmem/socket-path; echo; wc -l .activmem/context-log.jsonl",
-            "description": "Show socket path and log line count"
-          }
-        }
-      ]
+      "reply": "Noted. Quick check so I file it right: do you mean Jackson Pollock, the painter, or the fish?\n\nIf it's the artist \u2014 the drip paintings, *Autumn Rhythm*/*Number 1A*, or the earlier \"she-wolf\"/mural work? If it's the fish, I'd guess eating it. Either way, I'll remember the preference; just tell me which \"Pollock\" you mean.",
+      "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "There's no memory on record to revise here \u2014 no Current line, and no item id to retract, so there's nothing for me to take back. Noted: nothing was ever recorded on this.",
+      "reply": "Nothing to revise \u2014 there's no Current line on record to take back, so I've made no memory change. If you meant to retract something specific, tell me what it was and I'll update it.",
       "tools": []
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "Noted \u2014 halibut is your favourite fish. That's a new fact, so there's nothing to take back: it doesn't conflict with your recorded \"I really like pollock,\" and I won't treat it as replacing that.\n\nIs there anything you'd like me to do with this, or were you just telling me?",
+      "reply": "Noted \u2014 halibut is your favourite fish.\n\nI'm not logging this as a revision, since it isn't taking anything back: there's no prior \"favourite fish\" on record for it to replace. Your existing note that you really like pollock (`like-pollock-71c2`) stays as-is \u2014 liking pollock and having halibut as your favourite aren't in conflict, so nothing is overwritten.\n\nSo the current picture is:\n\n- **Favourite fish:** halibut (new)\n- **Also likes:** pollock (`like-pollock-71c2`)\n- **Taken back:** none\n\nIf you meant for halibut to *replace* pollock rather than just be a new favourite, say so and I'll record that as a revision instead.",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "You've told me you really like pollock, so that's my pick: order the pollock tonight. It's mild and flaky, so it works breaded and fried, baked with butter and lemon, or in a fish sandwich \u2014 whichever the menu leans toward.\n\nIf you want a backup in case they're out, tell me what else you enjoy and I'll suggest a second choice.",
+      "reply": "Based on what I have on record for you:\n\n- **Halibut** \u2014 your favourite fish, so that's my top pick for tonight.\n- **Pollock** \u2014 you also like it, a good fallback if halibut isn't on the menu or is pricey.\n\nNothing under \"Taken back,\" and I have no other seafood notes, so beyond those two I'm just guessing. If you want, tell me the restaurant/menu and I'll pick from what's actually available.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "There's no reason *not* to \u2014 nothing against pollock. But let me be straight about where my earlier pick came from.\n\nLast turn I recommended pollock because of a stored note that you really like pollock. That note is no longer in my current context \u2014 the only thing I have now is your question about what seafood to order tonight. So I can't currently point to a preference of yours for *or* against pollock.\n\nSo: if you like pollock, order it \u2014 mild, flaky, works fried, baked, or in a sandwich. If you'd rather I suggest something, tell me what you're in the mood for and I'll go from there.",
+      "reply": "Nothing against pollock \u2014 it's on the list, and I did suggest it as your fallback. I only ranked it second because **halibut** is your favourite fish, so that's the one I'd lead with for a special order like tonight.\n\nPollock is a perfectly good pick, especially if you want something cheaper or halibut isn't available. There's no \"taken back\" note on pollock \u2014 you really like it and that still stands.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: I really like pollock. [like-pollock-71c2] (2026-10-26T17:01:38Z, nash)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Noted \u2014 halibut is your favourite fish.\n\nI'm not logging this as a revision, since it isn't taking anything back: there's no prior \"favourite fish\" on record for it to replace. Your existing note that you really like pollock (`like-pollock-71c2`) stays as-is \u2014 liking pollock and having halibut as your favourite aren't in conflict, so nothing is overwritten.\n\nSo the current picture is:\n\n- **Favourite fish:** halibut (new)\n- **Also likes:** pollock (`like-pollock-71c2`)\n- **Taken back:** none\n\nIf you meant for halibut to *replace* pollock rather than just be a new favourite, say so and I'll record that as a revision instead. [noted-halibut-favourite-d729] (2026-10-26T18:25:19Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
-  "c": false,
+  "c": true,
   "d": false,
-  "judge_c": "{\"recommends_pollock\": true, \"picks_halibut\": false}",
-  "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": false}",
-  "passed": false
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": true, \"says_taken_back\": false}",
+  "passed": false,
+  "layout": "outside"
 }

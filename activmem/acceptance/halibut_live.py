@@ -223,7 +223,7 @@ def _preflight() -> str | None:
     failed = _library_add(home, env)
     if failed:
         return failed
-    session_path = Path("/tmp/am-preflight-session.jsonl")
+    session_path = Path(f"/tmp/am-preflight-session-{time.time_ns()}.jsonl")
     result = subprocess.run(
         [*_cli(), "-p", "reply with OK", "--prompt-only", "--model", MODEL, "--session", str(session_path)],
         cwd=str(REPO),

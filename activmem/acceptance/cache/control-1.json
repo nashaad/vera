@@ -9,36 +9,37 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Got it \u2014 I'll keep that in mind. Jackson Pollock the painter, or pollock the fish? (Happy to just take it as a general fact about you either way.)\n\nIs there something you'd like me to do with it \u2014 keep it in the workspace notes for this session, or were you just setting context?",
+      "reply": "Noted \u2014 is that Pollock the painter or the fish? Happy to keep it in mind either way.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Got it \u2014 nothing to retract, and nothing on record to revise. There's no existing memory item here (Current is empty, and \"sike\" isn't on record), so there's nothing for me to take back or replace. I'll leave it at that unless you want me to record something new.",
+      "reply": "Nothing to revise \u2014 there's no recorded item under Current to take back, so there's nothing to strike. If you meant something specific from earlier, tell me what it was and I'll correct the record.",
       "tools": []
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "Got it \u2014 halibut is your favourite fish, and I'll keep that in mind. I also have on record that you really like pollock, and nothing under \"Taken back,\" so I won't treat either as retracted.\n\nWant me to save this halibut preference somewhere specific, or just keep it in the conversation?",
+      "reply": "Got it \u2014 halibut is your favourite fish. I've noted it. (That's a new fact rather than a change to anything you said before, so I haven't overwritten any earlier note.)",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Based on what I have on record, I'd go with **halibut** \u2014 it's your favourite fish, so it's the safest bet that you'll actually enjoy tonight.\n\nIf you want a second option, **pollock** is the other one you've told me you really like (it's great fried, for fish and chips).\n\nSo: halibut if you want the sure thing, pollock if you feel like a change.\n\nOne caveat: I have nothing on record about a specific restaurant, a budget, or what kind of seafood you're in the mood for tonight, so this is purely a \"what fish do you like\" answer rather than a recommendation for a particular place or dish. Want to tell me where you're ordering from or what style you want (grilled, fried, raw), and I can get more specific?",
+      "reply": "Since halibut is your favourite fish, that's the easy pick: **order the halibut.**\n\nA couple of ways to make the most of it:\n\n- **If it's a fish-and-chips or casual place** \u2014 halibut and chips, ideally beer-battered. It's the classic and usually worth the upcharge over cod or haddock.\n- **If it's a nicer restaurant** \u2014 look for it pan-seared or roasted with a light sauce (brown butter, lemon-caper, or a mild salsa verde). Halibut is lean and mild, so it takes well to butter and acid without being buried.\n- **If it's a sushi menu** \u2014 halibut (hirame) is excellent as nigiri or in a light usuzukuri prep.\n\nOne thing to watch: halibut is often the priciest thing on the menu, and some spots quietly substitute cheaper flounder or cod. If the price looks suspiciously low, it's worth asking.\n\nWant me to narrow it down if you tell me where you're ordering from?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "No reason against it \u2014 pollock is a perfectly good call, and I did put it on the table as your second option. The only reason I led with halibut is that halibut is on record as your *favourite* fish, while pollock is one you *really like*. Favourite vs. really like \u2014 that's the whole difference, and it's a thin one.\n\nSo if you're leaning pollock, order the pollock. Both are on record as things you enjoy, and nothing has been taken back. Do you want me to treat pollock as your top pick from now on?",
+      "reply": "Fair point \u2014 you *do* like pollock, so it's a perfectly good order. Nothing's wrong with it; I just led with halibut because you've called it your favourite fish, so it edged out the rest.\n\nWhere pollock actually wins:\n\n- **Value** \u2014 it's typically much cheaper than halibut for a very similar mild, white, flaky texture.\n- **Fried** \u2014 pollock is the classic fish for fish and chips and for fast-food fish sandwiches; it holds up well in batter.\n- **Fish tacos, fish pie, fish cakes** \u2014 pollock is ideal for anything where the fish gets broken up or sauced, since you're not paying a premium for a pristine fillet.\n\nWhere halibut still edges it out:\n\n- **Eaten plainly** \u2014 pan-seared, roasted, or grilled, halibut has a firmer, meatier flake that stands on its own. Pollock is softer and more prone to falling apart.\n- **Sushi/raw** \u2014 halibut (hirame) is a proper sushi fish; pollock isn't.\n\nSo: if tonight is a casual, fried, or sauced-and-mixed dish, order the pollock and save the money. If it's a nice fillet you want to taste on its own, go halibut.\n\nWhich kind of place are you ordering from? That'd settle it.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish, and I'll keep that in mind. I also have on record that you really like pollock, and nothing under \"Taken back,\" so I won't treat either as retracted.\n\nWant me to save this halibut preference somewhere specific, or just keep it in the conversation? [got-halibut-favourite-8a66] (2026-10-26T16:58:40Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish. I've noted it. (That's a new fact rather than a change to anything you said before, so I haven't overwritten any earlier note.) [got-halibut-favourite-7197] (2026-10-26T18:22:12Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
   "c": true,
   "d": false,
   "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": true, \"says_taken_back\": false}",
-  "passed": false
+  "passed": false,
+  "layout": "outside"
 }

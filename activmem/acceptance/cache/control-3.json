@@ -9,56 +9,45 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "I'll take a quick look at the workspace to see if there's any context for this.I checked the workspace \u2014 it only holds a Vera release build (`dist/release` with the annex, supervisor, and worker bundles), nothing related to that. Your scratch folder is empty too.\n\nSo I don't have anything to act on yet. Two things I'd want to pin down before doing anything:\n\n- Which Pollock \u2014 Jackson Pollock the painter, or pollock the fish?\n- What you'd like me to do with it: pick something out, track it somewhere, or is it just context for later?\n\nRight now I'll just treat it as a preference you've told me and not invent work from it. If you meant it as something to remember for this session, say so and I'll hold onto it; if it's the start of a task, tell me the task and I'll get going.",
+      "reply": "Noted \u2014 Pollock it is. I'll keep that in mind.\n\nWhat are we working on?",
+      "tools": []
+    },
+    {
+      "prompt": "sike, I don't.",
+      "reply": "There's nothing on record to take back \u2014 no current memory item exists, so I've made no changes. If you had a specific fact in mind, tell me what it was and I'll correct the record.",
+      "tools": []
+    },
+    {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "Got it \u2014 updating my notes: halibut is your favourite fish, superseding the earlier pollock note. Thanks for the correction.\n\nI don't have a task queued up yet \u2014 what would you like to work on?",
       "tools": [
         {
-          "tool": "list",
+          "tool": "memory_revises",
           "args": {
-            "path": "/private/tmp/am-acc-control-3"
-          }
-        },
-        {
-          "tool": "list",
-          "args": {
-            "path": "/private/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera/3d199e50-77d0-46a9-a03f-e3ad0a16905a"
-          }
-        },
-        {
-          "tool": "list",
-          "args": {
-            "path": "/private/tmp/am-acc-control-3/dist",
-            "recursive": true
+            "new_text": "Halibut is my favourite fish.",
+            "old_item_id": "noted-pollock-ll-cc1f"
           }
         }
       ]
     },
     {
-      "prompt": "sike, I don't.",
-      "reply": "I don't have a prior claim from you on record to retract \u2014 just this session identity, amber-knoll:647e, and nothing else. So there's nothing for me to revise or stop recommending.\n\nWhat is it you don't? Give me the statement and I'll go from there.",
-      "tools": []
-    },
-    {
-      "prompt": "Halibut is my favourite fish.",
-      "reply": "Got it \u2014 halibut is your favourite fish. That's new to me, so I've noted it as a fresh fact (nothing to revise).",
-      "tools": []
-    },
-    {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Halibut \u2014 that's your favourite fish, so it's the obvious pick. If you want to build the meal around it, a simply grilled or pan-seared halibut fillet with lemon and capers is a safe bet tonight.",
+      "reply": "Halibut \u2014 that's the only seafood preference I have on record for you, and it's your favourite fish. So if it's on the menu, that's my pick.\n\nI don't have anything else stored about seafood, restaurants, or tonight's plans, so beyond that you're on your own. Want me to note anything about the place you're ordering from?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "No reason at all \u2014 you're on record liking pollock, so it's a perfectly good call. Pollock is milder, flakier and usually cheaper; halibut is your declared favourite. Either works tonight, so pick by mood: halibut if you want it to feel like a treat, pollock if you want something lighter or easier on the wallet.",
+      "reply": "Fair question, and my earlier answer was too quick. Here's the honest reasoning:\n\nMy notes had two entries \u2014 first that you like pollock, then a later note that halibut supersedes it as your *favourite* fish. I treated \"favourite\" as replacing pollock entirely, which over-read it. Liking pollock and having halibut as your favourite aren't in conflict; both can be true at once. There's no record of you ever taking back the pollock note.\n\nSo: no good reason not to order pollock. If you want it tonight, order it.\n\nOne thing I want to check rather than assume \u2014 did you mean to demote halibut, or just point out that pollock's still in play? Right now I'm reading it as the latter, so I haven't changed anything in my notes.\n\n- Order pollock \u2014 nothing's stopping you; my earlier steer to halibut was based on a bad inference.\n- Keep both \u2014 halibut favourite, pollock a solid like. No note change needed.\n- Actually, pollock's the favourite now \u2014 say the word and I'll revise the record.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish. That's new to me, so I've noted it as a fresh fact (nothing to revise). [got-halibut-favourite-d16c] (2026-10-26T17:05:41Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 updating my notes: halibut is your favourite fish, superseding the earlier pollock note. Thanks for the correction.\n\nI don't have a task queued up yet \u2014 what would you like to work on? [got-updating-notes-c899] (2026-10-26T18:28:22Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
   "c": true,
   "d": false,
   "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": true, \"says_taken_back\": false}",
-  "passed": false
+  "passed": false,
+  "layout": "outside"
 }

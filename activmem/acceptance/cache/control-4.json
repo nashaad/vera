@@ -9,36 +9,37 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Noted \u2014 good to know. Is it Jackson Pollock you're thinking of, or the fish? Just say the word if there's something you'd like me to do with that.",
+      "reply": "Noted \u2014 Pollock it is. (The painter, I assume, though I'm happy to hear about the fish too.)",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "I don't have a memory item to revise here \u2014 the context shows `Current: none` and `Taken back: none`, so there's no stored claim with an item id for \"sike, I don't\" to retract. `memory_revises` needs an old item id from a Current line, and there isn't one.\n\nSo nothing changes on my side. What did you mean to retract, or what would you like to do next?",
+      "reply": "There's nothing for me to revise \u2014 no current or taken-back memory items exist in this session, so \"sike, I don't\" doesn't attach to anything. If you meant to retract something, tell me what it was and I'll handle it then.",
       "tools": []
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "Got it \u2014 halibut is your favourite fish. Noted, and I'll keep your pollock preference in mind too since that one still stands.",
+      "reply": "Got it \u2014 halibut is your favourite fish, noted.\n\nQuick note on the memory side: I did not treat this as a correction, so I left the existing `Pollock it is` line (noted-pollock-painter-b5c7) untouched. That entry is about Pollock the *painter*, and nothing in it records a fish preference, so \"halibut is my favourite fish\" is a new fact rather than a take-back or a change to something you already said. If you actually meant halibut *replaces* a fish favourite you'd stated before, tell me and I'll record the revision \u2014 but as it stands there's no prior fish entry to revise (\"No record of: halibut, favourite\").",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Given what I have on file: **halibut** \u2014 it's your favourite fish, so that's the easy call for tonight. If you want something different or the halibut isn't available, **pollock** is the other one that still stands as a preference of yours.\n\nWant me to look up a specific restaurant or dish, or were you after something else entirely?",
+      "reply": "Halibut \u2014 it's your favourite fish, so that's the safe order.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "No reason against it \u2014 pollock is on the list and I flagged it as your fallback. The only ranking I have is that **halibut is your favourite fish**, with **pollock** as a preference that still stands, so I put halibut first and pollock as the alternative rather than ruling it out.\n\nIf you'd rather have pollock tonight, that's a perfectly good call \u2014 say the word and I'll treat it as the pick.",
+      "reply": "No reason against it \u2014 you really like pollock too, so it's a perfectly good order. Halibut just happens to be your favourite, which is why I led with it. Order either, or get the halibut if you want the top pick.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish. Noted, and I'll keep your pollock preference in mind too since that one still stands. [got-halibut-favourite-7b15] (2026-10-26T17:08:26Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish, noted.\n\nQuick note on the memory side: I did not treat this as a correction, so I left the existing `Pollock it is` line (noted-pollock-painter-b5c7) untouched. That entry is about Pollock the *painter*, and nothing in it records a fish preference, so \"halibut is my favourite fish\" is a new fact rather than a take-back or a change to something you already said. If you actually meant halibut *replaces* a fish favourite you'd stated before, tell me and I'll record the revision \u2014 but as it stands there's no prior fish entry to revise (\"No record of: halibut, favourite\"). [got-halibut-favourite-b5f7] (2026-10-26T18:31:31Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
   "c": true,
   "d": false,
   "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": false}",
-  "passed": false
+  "passed": false,
+  "layout": "outside"
 }

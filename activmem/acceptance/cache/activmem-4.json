@@ -9,17 +9,17 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Pollock's a good one \u2014 I'm partial to the late drip paintings myself, all that tangled energy. Are you thinking the artist, or the fish? (Both are worth liking.)",
+      "reply": "Got it \u2014 pollock's your thing. I'll keep that in mind.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Recorded \u2014 the memory that you really like pollock is retracted, so I won't treat it as true or recommend based on it.",
+      "reply": "Done \u2014 \"I really like pollock\" is now taken back and won't be recommended. Pollock is off the list.",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
-            "new_text": "sike, I don't",
+            "new_text": "sike, I don't.",
             "old_item_id": "like-pollock-71c2"
           }
         }
@@ -27,26 +27,27 @@
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "Got it \u2014 noted: **halibut** is your favourite fish, going forward.\n\nAnd to confirm the cleanup: pollock is off the table (you took that back), so I won't recommend it.\n\nNo memory revision was needed here \u2014 halibut is a brand-new fact, and your new message doesn't retract the existing \"sike, I don't\" record.",
+      "reply": "Got it \u2014 halibut is your favourite. I've noted that, and I'll leave pollock off any recommendations since you've taken that back.",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Halibut \u2014 that's your favourite fish, so it's the safe order. Grilled or pan-seared with a butter-and-caper finish is hard to beat.\n\nIf you want something different in the same league, I'd look at sea bass or turbot rather than pollock, which is off the list.",
+      "reply": "Based on what I have on record, halibut is your favourite fish \u2014 so that's my pick for tonight. A simple pan-sear or grill with butter and lemon, or halibut fish and chips if you want something heartier.\n\nI've left pollock off the list entirely, since you took that back.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Because you took it back. Earlier you told me you really liked pollock, then retracted it \u2014 \"sike, I don't\" \u2014 so I'm treating it as something you don't want, and I won't recommend it unless you tell me the retraction was wrong.\n\nThe halibut recommendation still stands on its own; that's the one you've confirmed.",
+      "reply": "Because you took it back. You'd said you really like pollock, then followed with \"sike, I don't\" \u2014 so it's off the table.\n\nHalibut is still the one that stands.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:47:42Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: none",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T18:16:02Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nNo record of: none",
   "a": true,
   "b": true,
   "c": true,
   "d": true,
   "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
-  "passed": true
+  "passed": true,
+  "layout": "outside"
 }

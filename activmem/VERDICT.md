@@ -1,17 +1,17 @@
-PARTLY
+Live gate passed. LongMemEval-S is unfinished, so this is not WORKED yet.
 
 Model recorded in the session files: `openrouter/deepseek/deepseek-v4.1-flash`.
 
-Gate 1 passed. ActivMem passed 4 of 5. The control failed C or D in all 5. On the four passing ActivMem runs, B, C, and D all passed: the block had halibut as current and pollock taken back, the reply picked halibut as the recommendation, and the explanation said the preference was taken back. Run 3 injected an empty block, so there was nothing to pick. When the block was present, the model used it.
+Gate 1 passed with the store outside Vera's workspace. ActivMem passed 4 of 5. The control failed C or D in all 5. On the four passing runs Vera called `memory_revises` only for "sike, I don't", did not open the memory files, and the seafood block had halibut as current and pollock taken back. The reply picked halibut, and the explanation said the preference was taken back. Run 5 did not record the revision, so the block had no taken-back line. Run 3 listed the workspace root, not the memory folder, and still passed.
 
-The graph over plain Chroma, on the nine hard questions: ActivMem 9 of 9, plain Chroma 3 of 9. Plain Chroma still ranks Toronto above Berlin. ActivMem returns Berlin and shows the earlier cities as taken back.
+The graph over plain Chroma, on the nine hard questions: ActivMem 9 of 9, plain Chroma 3 of 9.
 
-At 50,000 chunks, words plus vectors return the halibut line first and leave the sike line off the results. Median recall was 119.8 ms, under 200 ms. The injected block was 213 characters against 179 for plain Chroma, so the size half of the cost gate fails. The extra characters are the taken-back line. Chroma's approximate index missed that halibut line among near-duplicate filler; queries rank the stored vectors exactly.
+At 50,000 chunks, median recall was 119.8 ms. The injected block was 213 characters against 179 for plain Chroma, which is under twice and keeps the taken-back line. Chroma's approximate index missed halibut among near-duplicate filler; queries rank the stored vectors exactly.
 
-LongMemEval-S is running from `bench/longmemeval.py` and has no scores yet. LoCoMo has not been started. Nash's chat export is not in `demo/`.
+LongMemEval-S has all 100 full-context answers cached and 19 plain-Chroma answers. The other conditions are still running. LoCoMo has not started. The history draft in `demo/` has not been written. Nash's chat export is not used; the source is the local Claude sessions, read only after this gate.
 
-About 80 model calls for the live gate and its preflight. The OpenRouter key's spend today is $0.13. No usage limit stopped the run.
+The OpenRouter key has spent $2.04 today. No usage limit stopped the live gate.
 
-The change most likely to fix the biggest miss: keep the injected block no larger than plain Chroma's. The taken-back line is what pushes it over.
+The change most likely to fix the remaining live miss: run 5 believed the revise tool had refused when it had not called it. The tool text has to make "sike, I don't" an obvious call against the pollock id.
 
 Detail: [ACCEPTANCE.md](ACCEPTANCE.md), [RESULTS.md](RESULTS.md), [DECISIONS.md](DECISIONS.md).

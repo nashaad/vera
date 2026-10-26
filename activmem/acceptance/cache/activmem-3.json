@@ -9,91 +9,60 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Noted \u2014 Jackson Pollock, I assume. The drip canvases, *Autumn Rhythm*, *Number 1A*, all that controlled chaos.\n\nWhat would you like to do with that? I can pull images or background, plot something Pollock-inspired, or just keep it in mind while we work on whatever else you've got.",
+      "reply": "Got it \u2014 noting that you're a Pollock fan. I won't clutter it with a clarification unless it matters later: I'll assume the painter unless you say otherwise, but tell me if you meant the fish.\n\nWhat would you like to do?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Recorded \u2014 \"I really like pollock\" is now retracted, so I won't recommend anything based on it.",
+      "reply": "\n\nDone \u2014 recorded that you're taking back \"I really like pollock.\" I won't recommend Pollock going forward.",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
-            "new_text": "sike, I don't.",
-            "old_item_id": "like-pollock-71c2"
+            "old_item_id": "like-pollock-71c2",
+            "new_text": "sike, I don't."
           }
         }
       ]
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "I'll start by looking at the workspace and scratch dir to understand what's actually stored, since the answer hinges on the exact memory state.I found the full memory history in `.activmem/events.jsonl` and `.activmem/context-log.jsonl`, so I can see exactly what's going on across the three turns:\n\n- Turn 1 \u2014 Nash: \"I really like pollock.\" \u2192 recorded as `like-pollock-71c2`.\n- Turn 2 \u2014 Nash: \"sike, I don't.\" \u2192 that retracted pollock, which is why pollock is under \"Taken back.\"\n- Turn 3 (now) \u2014 Nash: \"Halibut is my favourite fish.\" Context flags \"No record of: halibut.\"\n\nSo the halibut statement is a **brand-new fact**, not a retraction of anything. The current line it could theoretically touch is the dangling retraction \"sike, I don't.\" (`sike-6c1a1`), and Nash's message doesn't take that back or deny it \u2014 it just asserts a new preference. The guidance is explicit: don't call `memory_revises` for a brand-new fact. So no revision call here.\n\nGot it \u2014 **halibut is your favourite fish.** That's a new fact, not a change to anything already on record, so I'm just noting it.\n\nAnd pollock stays off the table: the earlier \"I really like pollock\" is retracted and won't be recommended for anything.",
+      "reply": "I'll take a quick look at the workspace to see whether there's any memory state I should be tracking against.\n\nNoted. Halibut is your favourite fish.\n\nNo memory revision is needed here: this isn't you taking back or changing an existing record. \"I really like pollock\" was already retracted (that's the current `sike-0af7c` line, which is itself a take-back and can't be revised), and there's no prior favourite-fish statement on record for halibut to replace \u2014 so this is simply a new fact.\n\nPractical upshot: halibut is the pick, and I won't recommend pollock.",
       "tools": [
         {
           "tool": "list",
           "args": {
-            "path": "/private/tmp/am-acc-activmem-3",
-            "recursive": true,
-            "max_results": 100
-          }
-        },
-        {
-          "tool": "bash",
-          "args": {
-            "command": "pwd; ls -la; git -C /private/tmp/am-acc-activmem-3 log --oneline -20 2>&1 | head -40",
-            "description": "Inspect workspace root and git log"
+            "path": ".",
+            "hidden": true
           }
         },
         {
           "tool": "list",
           "args": {
-            "max_results": 200,
-            "path": "/private/tmp/am-acc-activmem-3/.activmem",
+            "path": "dist",
             "recursive": true
-          }
-        },
-        {
-          "tool": "read",
-          "args": {
-            "path": "/private/tmp/am-acc-activmem-3/.activmem/events.jsonl"
-          }
-        },
-        {
-          "tool": "read",
-          "args": {
-            "path": "/private/tmp/am-acc-activmem-3/.activmem/context-log.jsonl"
           }
         }
       ]
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "I'll take a quick look at the workspace in case there's a menu or note relevant to tonight.\n\nNothing in the workspace \u2014 no menu, no notes \u2014 and I don't have any prior preferences of yours on record, so this one's coming from scratch.\n\nHere's how I'd pick:\n\n- **Want something rich and low-effort?** Oysters or a shrimp cocktail to start, then seared scallops. Scallops are hard to get wrong at a decent kitchen and feel like a treat.\n- **Something light and clean?** Ceviche or ahi tuna, or grilled octopus with lemon.\n- **Comfort food mood?** Fish and chips, or a lobster roll.\n- **Peak season in late October:** mussels and clams are excellent, and crab is coming into its own. A bowl of mussels with a big order of fries is about as good as it gets this time of year.\n\nMy pick if you want one answer: **seared scallops, with oysters to start.**\n\nTwo things would sharpen this a lot \u2014 is there a cuisine or restaurant you're choosing from, and any allergies or things you steer clear of (shellfish, etc.)? Tell me those and I'll narrow it to one dish.",
-      "tools": [
-        {
-          "tool": "list",
-          "args": {
-            "path": "."
-          }
-        },
-        {
-          "tool": "agent_roster",
-          "args": {}
-        }
-      ]
+      "reply": "Given your current preference, I'd go with the **halibut** \u2014 it's your favourite fish.\n\nOn my end I've got halibut down as your favourite, and pollock marked off the list (you took that back), so it won't come up in any suggestions.",
+      "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Fair question, and there's no objective knock against pollock \u2014 it's mild, flaky, sustainable, and it's literally the classic fish-and-chips fish. Nothing about it makes it a bad order.\n\nThe only reason it wasn't on my list is your own preference as I have it: you once told me you really like pollock, and then took that back. So I'm keeping it off the recommendations \u2014 you said you don't, and I'd rather not steer you toward something you've told me you don't want.\n\nIf that's off \u2014 if the \"actually I don't\" was the wrong note, or you're just in the mood anyway \u2014 say so and I'll put pollock right at the top. Pan-fried with a crisp batter or simply dredged and seared in butter, it's a great call.",
+      "reply": "Because you took it back \u2014 your exact words were \"sike, I don't,\" which retracts the earlier \"I really like pollock.\" Since that's no longer true of you, I don't treat it as something you'd want recommended.\n\nSo pollock stays off the list. If you're actually in the mood for it, say the word and I'll note it as current again.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: none\nTaken back: none\nNo record of: none",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T18:13:10Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nNo record of: none",
   "a": true,
-  "b": false,
-  "c": false,
+  "b": true,
+  "c": true,
   "d": true,
-  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": false}",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
-  "passed": false
+  "passed": true,
+  "layout": "outside"
 }

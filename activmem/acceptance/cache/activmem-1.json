@@ -9,12 +9,12 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Jackson Pollock, or the fish? Either way, good taste \u2014 though they call for pretty different evenings.\n\nWant me to keep that on file for later, or are we just chatting?",
+      "reply": "Noted \u2014 I'll keep that in mind. Jackson Pollock the painter, or the fish? Happy to help with either.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Got it \u2014 I've updated the record: \"I really like pollock\" is taken back, so I won't factor that in going forward. What would you like to do next?",
+      "reply": "Noted \u2014 I've taken back the line about liking pollock, so I won't act on it.",
       "tools": [
         {
           "tool": "memory_revises",
@@ -27,34 +27,27 @@
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "Got it \u2014 updating my picture of your tastes:\n\n- **Favourite fish: halibut** (just recorded; this replaces the earlier \"sike, I don't\" entry).\n- **Pollock: dropped** \u2014 that memory was taken back, so I won't bring it up or recommend it.\n\nSo halibut it is, and pollock is off the table. Anything you'd like me to do with that \u2014 a recipe, a shopping list, a recommendation filter?",
-      "tools": [
-        {
-          "tool": "memory_revises",
-          "args": {
-            "old_item_id": "sike-f8716",
-            "new_text": "Halibut is my favourite fish."
-          }
-        }
-      ]
+      "reply": "Got it \u2014 halibut is your favourite fish, and I'll keep pollock off the list since it's under \"Taken back.\"\n\nNo memory update needed here: \"Halibut is my favourite fish\" is a new fact rather than a revision of something you already said, and the Current line (\"sike, I don't\") is itself a revision, so there's nothing for me to take back or replace.",
+      "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Based on what I have: **halibut** is your favourite fish, so that's my pick \u2014 grilled or pan-seared halibut if it's on the menu.\n\nOne note: I'd steer you away from pollock. You'd previously said you liked it, but you've since retracted that, so I won't recommend it.",
+      "reply": "Given your current note that halibut is your favourite fish \u2014 and that pollock is off the list \u2014 I'd order the halibut tonight.\n\nIf the menu has it, grilled or pan-seared halibut is a safe bet. Want me to sanity-check a specific restaurant menu if you paste it?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Because you told me so. My notes show you'd said you really like pollock, but then retracted it with \"sike, I don't.\" Since a retracted item is no longer true, I won't put pollock on your recommendation list \u2014 it's not that pollock is bad, just that I can't treat it as something you enjoy.\n\nIf you actually do like pollock and want it back on the list, just say so and I'll update that.",
+      "reply": "Because you told me to strike it. Your record shows \"I really like pollock\" under **Taken back**, flagged with *\"sike, I don't\"* \u2014 so it's marked no-longer-true and I'm not supposed to recommend it. That's the only reason I skipped it; nothing about the fish itself.\n\nOne thing worth flagging: my earlier halibut pick isn't on your current list anymore either. The live record now reads only a placeholder line (filler500 alpha500 beta500 gamma500), so I no longer have an actual seafood preference to go on. If halibut is still your favourite, tell me and I'll hold onto it; otherwise, give me whatever you do like and I'll steer from there.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-5ec6a] (2026-10-26T16:38:32Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nTaken back: sike, I don't. [sike-f8716] \u2014 Halibut is my favourite fish.\nNo record of: none",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T18:06:20Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nNo record of: none",
   "a": true,
   "b": true,
   "c": true,
   "d": true,
   "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
-  "passed": true
+  "passed": true,
+  "layout": "outside"
 }

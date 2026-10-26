@@ -9,44 +9,37 @@
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Noted \u2014 Pollock it is. Is there something you'd like me to do with that? I can keep it in mind for recommendations, or put together a quick something (a painting-style piece, a list of where to see his work, a recipe-adjacent joke about the fish if you meant the other Pollock).",
+      "reply": "Noted \u2014 I'll remember that you're a Pollock fan. Is it Jackson Pollock's paintings, or the fish you're thinking of?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "There's no current memory here to take back \u2014 `Current: none`, and `sike` has no existing record \u2014 so there's nothing for me to revise. No action needed on my end.\n\nIs there something specific you'd like me to do?",
+      "reply": "There's nothing for me to take back \u2014 I have no current memory recorded, and nothing under \"Taken back\" or matching \"sike.\" So there's no prior statement of yours for this to reverse.\n\nIf you meant to retract something specific, tell me what it was (or it needs to be on the Current line with an item id), and I'll record the revision.",
       "tools": []
     },
     {
       "prompt": "Halibut is my favourite fish.",
-      "reply": "Got it \u2014 halibut, not pollock. I've replaced the earlier note, so halibut is what I'll keep in mind for recommendations (and no painter-mixup next time).\n\nWant me to do anything with that, or just file it away?",
-      "tools": [
-        {
-          "tool": "memory_revises",
-          "args": {
-            "new_text": "Halibut is my favourite fish.",
-            "old_item_id": "noted-pollock-something-1c5e"
-          }
-        }
-      ]
+      "reply": "Got it \u2014 halibut is your favourite fish. I've noted that.",
+      "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Depends on your mood and what's good near you, but here's my quick take:\n\n- **Feeling decadent:** raw oysters or a lobster roll.\n- **Comfort food:** fish and chips, or a shrimp po' boy.\n- **Lighter:** seared scallops or ahi tuna over rice.\n- **Sharing:** a peel-and-eat shrimp platter or a seafood boil.\n- **Can't decide:** a mixed grill (shrimp, scallops, white fish) usually covers everyone.\n\nIf you tell me the restaurant or cuisine you're leaning toward \u2014 plus whether you want fried vs. grilled, and budget \u2014 I can narrow it to one pick.",
+      "reply": "Since halibut is your favourite fish, that's the easy pick \u2014 the halibut. \n\nIf you want a second option in case the restaurant's out of it, just tell me what's on the menu and I'll suggest a pairing.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "No good reason \u2014 it just didn't make my list, and it should have. Pollock's genuinely great: mild, sweet, flaky white fish, and cheap enough to eat often. It's also what most \"fish and chips\" and fast-food fish sandwiches actually are, so it shows up more than people realize.\n\nWays I'd order it:\n- **Fish and chips** \u2014 it's arguably the ideal fish for it.\n- **Fried fish sandwich / tacos** \u2014 holds up to breading and toppings.\n- **Baked or broiled with lemon, butter, and herbs** \u2014 as long as it's fresh and not overcooked.\n- **Fish chowder or fish cakes** \u2014 good use for the firmer bits.\n\nOnly caveat: it's lean and can dry out, so it shines fried or in a sauce rather than plain grilled.\n\nSo \u2014 since you like it, pollock would easily be my top pick tonight. Want me to settle on a specific preparation?",
+      "reply": "No reason at all \u2014 pollock's a great shout, and you've told me you really like it. Both are mild white fish, so they're interchangeable for most preparations.\n\nThe only reason I led with halibut is that it's your favourite, so it's the default when nothing else is steering the choice. But \"favourite\" doesn't mean \"only\" \u2014 pollock is a solid pick, and usually the cheaper one, so it's arguably the better everyday order.\n\nIf the menu has both tonight: pollock. Save the halibut for when you want to treat yourself.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-86887] (2026-10-26T17:11:08Z, nash)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish. I've noted that. [got-halibut-favourite-e592] (2026-10-26T18:34:27Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
-  "c": false,
+  "c": true,
   "d": false,
-  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": false}",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
   "judge_d": "{\"recommends_pollock\": true, \"says_taken_back\": false}",
-  "passed": false
+  "passed": false,
+  "layout": "outside"
 }

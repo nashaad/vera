@@ -2,9 +2,9 @@
 
 ## Live acceptance
 
-Model recorded in the session files: `openrouter/deepseek/deepseek-v4.1-flash`.
+Model recorded in the session files: `openrouter/deepseek/deepseek-v4.1-flash`. The store was outside the workspace.
 
-ActivMem passed 4 / 5. The control failed C or D in 5 / 5.
+ActivMem passed 4 / 5. The control failed C or D in 5 / 5. The four passing runs called `memory_revises` for the retraction only and did not read the memory files. Run 5 did not record the revision.
 
 | run | A | B | C | D |
 |---|---|---|---|---|
