@@ -14,9 +14,11 @@ import {
     tokenizeSimpleCommands,
 } from "../tools/bash-danger.ts";
 import {
+    commandsOf,
     isBashParserReady,
     parseBashScript,
     type BashCommand,
+    type BashLoop,
     type BashRedirect,
     type BashRedirectOperator,
     type BashStatement,
@@ -365,6 +367,28 @@ function readingDate(args: readonly string[]): boolean {
         || args.every((arg) => arg.startsWith("+"));
 }
 
+// hostname NAME and -F FILE set the host name; only the query flags read.
+function queryingHostname(args: readonly string[]): boolean {
+    return args.every((arg) => arg.startsWith("-"))
+        && excludingDangerousFlags(["-F", "--file", "-b", "--boot"])(args);
+}
+
+// -o and --output write a file and --compress-program runs one. Long options
+// may be abbreviated, so only the spelled-out safe ones pass.
+const SORT_LONG_FLAGS = new RegExp(
+    "^--(?:reverse|unique|ignore-case|numeric-sort|general-numeric-sort"
+    + "|human-numeric-sort|version-sort|month-sort|stable|ignore-leading-blanks"
+    + "|dictionary-order|ignore-nonprinting|key|field-separator)(?:=.*)?$",
+);
+
+function sortingToStdout(args: readonly string[]): boolean {
+    return args.every((word) =>
+        word.startsWith("--")
+            ? SORT_LONG_FLAGS.test(word)
+            : !(word.startsWith("-") && word.slice(1).includes("o"))
+    );
+}
+
 const READ_ONLY_COMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
     cat: alwaysReadOnly,
     head: alwaysReadOnly,
@@ -374,6 +398,21 @@ const READ_ONLY_COMMANDS: Readonly<Record<string, ReadOnlyClassifier>> = {
     stat: alwaysReadOnly,
     ls: alwaysReadOnly,
     grep: alwaysReadOnly,
+    cd: alwaysReadOnly,
+    true: alwaysReadOnly,
+    exit: alwaysReadOnly,
+    test: alwaysReadOnly,
+    ps: alwaysReadOnly,
+    pgrep: alwaysReadOnly,
+    which: alwaysReadOnly,
+    du: alwaysReadOnly,
+    nl: alwaysReadOnly,
+    seq: alwaysReadOnly,
+    cut: alwaysReadOnly,
+    tr: alwaysReadOnly,
+    hostname: queryingHostname,
+    sort: sortingToStdout,
+    rg: excludingDangerousFlags(["--pre", "--hostname-bin"]),
     sleep: boundedSleep,
     date: readingDate,
     find: excludingDangerousFlags([
@@ -956,7 +995,7 @@ function extractBashActions(
                 source,
                 workspace,
                 homeDirectory,
-                walk.workingDirectory,
+                walk.directoryChanged ? undefined : walk.workingDirectory,
                 depth + 1,
             )
         ),
@@ -966,6 +1005,9 @@ function extractBashActions(
 class BashActionWalk {
     readonly actions: PermissionAction[] = [];
     workingDirectory: string | undefined;
+    // Substitutions and shell -c payloads are checked after the walk, not
+    // where they ran, so once a cd happened their directory is unknown.
+    directoryChanged = false;
 
     constructor(
         private readonly workspace: string,
@@ -985,6 +1027,10 @@ class BashActionWalk {
             this.visit(statement.right);
             return;
         }
+        if (statement.kind === "loop") {
+            this.visitLoop(statement);
+            return;
+        }
         if (statement.kind === "pipeline") {
             const before = this.workingDirectory;
             for (const stage of statement.stages) {
@@ -998,6 +1044,24 @@ class BashActionWalk {
         this.workingDirectory = undefined;
     }
 
+    // A cd in the body moves every later iteration, so no relative path in
+    // the loop can be resolved from where it started.
+    private visitLoop(loop: BashLoop): void {
+        const changesDirectory = commandsOf(loop).some((command) =>
+            executableName(command.words) === "cd"
+        );
+        if (changesDirectory) {
+            this.workingDirectory = undefined;
+            this.directoryChanged = true;
+        }
+        for (const statement of [...loop.condition, ...loop.body]) {
+            this.visit(statement);
+        }
+        if (changesDirectory) {
+            this.workingDirectory = undefined;
+        }
+    }
+
     private visitCommand(command: BashCommand): void {
         this.actions.push(
             ...actionsForSimpleCommand(
@@ -1007,14 +1071,14 @@ class BashActionWalk {
                 this.homeDirectory,
             ),
         );
-        this.workingDirectory = command.hasNonLiteralWords
-                && basename(command.words[0] ?? "") === "cd"
-            ? undefined
-            : nextWorkingDirectory(
-                command.words,
-                this.workingDirectory,
-                this.homeDirectory,
-            );
+        if (executableName(command.words) === "cd") {
+            this.directoryChanged = true;
+        }
+        this.workingDirectory = nextTrackedDirectory(
+            command,
+            this.workingDirectory,
+            this.homeDirectory,
+        );
     }
 }
 
@@ -1041,6 +1105,10 @@ function shellCommandPayloads(
 
 const NESTED_SHELLS = new Set(["bash", "sh", "zsh"]);
 
+function executableName(words: readonly string[]): string {
+    return basename(words[simpleCommandExecutableIndex(words)] ?? "");
+}
+
 function nextWorkingDirectory(
     words: readonly string[],
     workingDirectory: string | undefined,
@@ -1054,6 +1122,42 @@ function nextWorkingDirectory(
     return target === undefined
         ? resolve(homeDirectory)
         : resolveShellTarget(target, workingDirectory, homeDirectory);
+}
+
+// Allowing `cd` makes this load-bearing: a wrong answer lets a later relative
+// write look like it is inside the workspace. The accident guard keeps the
+// looser function above.
+function nextTrackedDirectory(
+    command: BashCommand,
+    workingDirectory: string | undefined,
+    homeDirectory: string,
+): string | undefined {
+    const { words } = command;
+    const executableIndex = simpleCommandExecutableIndex(words);
+    if (basename(words[executableIndex] ?? "") !== "cd") {
+        return workingDirectory;
+    }
+    const targets = words.slice(executableIndex + 1);
+    const [target] = targets;
+    if (
+        command.hasNonLiteralWords
+        || targets.length > 1
+        || (target !== undefined && !isFollowableCdTarget(target))
+    ) {
+        return undefined;
+    }
+    return nextWorkingDirectory(words, workingDirectory, homeDirectory);
+}
+
+// A bare name may be found through CDPATH, and an option or `-` is not a path.
+function isFollowableCdTarget(target: string): boolean {
+    return isAbsolute(target)
+        || target === "~"
+        || target.startsWith("~/")
+        || target === "."
+        || target === ".."
+        || target.startsWith("./")
+        || target.startsWith("../");
 }
 
 function actionsForSimpleCommand(
@@ -1116,7 +1220,7 @@ function actionsForSimpleCommand(
     const readOnlyClassifier = READ_ONLY_COMMANDS[executable];
     if (
         readOnlyClassifier !== undefined
-        && !command.hasNonLiteralWords
+        && wordsCanBeChecked(command, executableIndex, readOnlyClassifier)
         && readOnlyClassifier(words.slice(executableIndex + 1))
     ) {
         return [{ tool: "bash", verb: "read", executable }, ...redirects];
@@ -1127,6 +1231,22 @@ function actionsForSimpleCommand(
             : redirects;
     }
     return [{ tool: "bash", verb: "unknown", executable }, ...redirects];
+}
+
+// A non-literal word can hide a flag, so only a command that is read-only
+// whatever its flags may take one. A non-literal word at or before the
+// executable could be the command itself, so that never passes.
+function wordsCanBeChecked(
+    command: BashCommand,
+    executableIndex: number,
+    classifier: ReadOnlyClassifier,
+): boolean {
+    if (!command.hasNonLiteralWords) {
+        return true;
+    }
+    return classifier === alwaysReadOnly
+        && command.firstNonLiteralIndex !== undefined
+        && executableIndex < command.firstNonLiteralIndex;
 }
 
 const INERT_REDIRECT_TARGETS = new Set([

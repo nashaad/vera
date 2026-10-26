@@ -3,9 +3,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
     initBashParser,
     isBashParserReady,
+    commandsOf,
     parseBashScript,
     type BashChain,
     type BashCommand,
+    type BashLoop,
     type BashPipeline,
 } from "../../src/tools/bash-parser.ts";
 
@@ -181,7 +183,8 @@ test("constructs the module doesn't model become unknown, carrying their source"
     for (
         const source of [
             "if true; then echo hi; fi",
-            "for f in *; do echo $f; done",
+            "select f in a b; do echo $f; done",
+            "for f in a b; do echo $f; done > out.txt",
             "(cd /tmp && ls)",
         ]
     ) {
@@ -189,6 +192,45 @@ test("constructs the module doesn't model become unknown, carrying their source"
         expect(script.statements[0]).toMatchObject({ kind: "unknown" });
         expect((script.statements[0] as { text: string }).text).toBe(source);
     }
+});
+
+test("a non-literal word records where it sat among the literal ones", () => {
+    const first = (source: string) =>
+        (parseBashScript(source).commands[0] as BashCommand).firstNonLiteralIndex;
+    expect(first("cat notes.md")).toBeUndefined();
+    expect(first("cat $FILE")).toBe(1);
+    expect(first("grep -n \"$PATTERN\" src")).toBe(2);
+    // The name itself is dropped, so `cat` moves to index 0 and the index says
+    // the first word is not the one that was written.
+    expect(first("$TOOL cat notes.md")).toBe(0);
+});
+
+test("for, while, and until loops keep their condition and body", () => {
+    const loop = parseBashScript("for f in a b; do cat $f; echo done; done")
+        .statements[0] as BashLoop;
+    expect(loop.kind).toBe("loop");
+    expect(loop.condition).toEqual([]);
+    expect(loop.body.map((statement) => (statement as BashCommand).words))
+        .toEqual([["cat"], ["echo", "done"]]);
+
+    const waiting = parseBashScript("until ls out.txt; cat in.txt; do sleep 1; done")
+        .statements[0] as BashLoop;
+    expect(waiting.condition.map((statement) => (statement as BashCommand).words))
+        .toEqual([["ls", "out.txt"], ["cat", "in.txt"]]);
+    expect(waiting.body.map((statement) => (statement as BashCommand).words))
+        .toEqual([["sleep", "1"]]);
+});
+
+test("commands inside a loop are collected with the rest of the script", () => {
+    // shellCommandPayloads reads script.commands; a bash -c inside a loop body
+    // must not hide from it.
+    const script = parseBashScript(
+        "while ls a; do bash -c \"rm -rf x\"; done; pwd",
+    );
+    expect(script.commands.map((command) => command.words[0]))
+        .toEqual(["ls", "bash", "pwd"]);
+    expect(commandsOf(script.statements[0]!).map((command) => command.words[0]))
+        .toEqual(["ls", "bash"]);
 });
 
 test("a heredoc redirect is still recognized (fd/operator), just without a literal target", () => {

@@ -447,6 +447,199 @@ test("targets Vera cannot resolve become unknown actions, not guessed paths", ()
     }
 });
 
+test("cd and other commands that only look run without review", () => {
+    for (
+        const command of [
+            "cd /tmp",
+            "cd ~/Projects/vera && git status --short",
+            "true",
+            "exit 0",
+            "test -f package.json",
+            "ps aux | grep bun",
+            "pgrep -f vera || true",
+            "hostname -s",
+            "seq 1 3",
+            "nl -ba README.md | cut -d: -f1",
+            "du -sh .",
+            "which bun",
+            "echo hi | tr a-z A-Z",
+            "sort -u -k2,2 -t, notes.csv",
+            "rg -n pattern src",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("allow");
+    }
+    expect(decide("readonly", bash("cd /tmp && ls")).behavior).toBe("allow");
+});
+
+test("a read-only command accepts arguments Vera cannot read", () => {
+    for (
+        const command of [
+            "cat $FILE",
+            "grep -rn \"$PATTERN\" src",
+            "ls \"$(pwd)\"",
+            "tail -n 20 \"$LOG\"",
+            "cd \"$WORK\" && ls",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("allow");
+    }
+});
+
+test("a command whose flags can write never takes an argument Vera cannot read", () => {
+    // $FLAGS could be -i, -exec, --pre, or -o.
+    for (
+        const command of [
+            "sed -n \"${A},${B}p\" notes.md",
+            "find . $FLAGS",
+            "rg $ARGS src",
+            "sort $ARGS notes.csv",
+            "hostname $NAME",
+            "date $FORMAT",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+    }
+});
+
+test("a non-literal word at or before the command name never borrows a read-only name", () => {
+    // `$TOOL cat notes.md` parses as the words [cat, notes.md]; $TOOL could be rm.
+    for (
+        const command of [
+            "$TOOL cat notes.md",
+            "env $TOOL cat notes.md",
+            "command $TOOL ls",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+    }
+});
+
+test("sort, hostname and rg stay read-only only in their reading forms", () => {
+    for (
+        const command of [
+            "sort -o out.txt in.txt",
+            "sort -ro out.txt in.txt",
+            "sort --output=out.txt in.txt",
+            "sort --out=out.txt in.txt",
+            "sort --compress-program=sh in.txt",
+            "hostname crowsnest",
+            "hostname -F names.txt",
+            "rg --pre ./hook pattern",
+            "rg --pre=./hook pattern",
+            "rg --hostname-bin ./hook pattern",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+    }
+});
+
+test("a loop is judged by the commands in its condition and body", () => {
+    for (
+        const command of [
+            "for f in a b; do cat $f; done",
+            "for i in $(seq 1 3); do echo $i; sleep 1; done",
+            "while true; do sleep 1; done",
+            "until ls out.txt; do sleep 1; done",
+            "for f in *.ts; do wc -l $f; done | sort -n",
+            "for f in a b; do echo $f > out.txt; done",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("allow");
+    }
+    expect(decide("readonly", bash("for f in a b; do cat $f; done")).behavior)
+        .toBe("allow");
+});
+
+test("a loop with a command that needs review needs review", () => {
+    for (
+        const command of [
+            "for f in a b; do bun install; done",
+            "for f in a b; do rm $f; done",
+            "while true; do bun run build; done",
+            "select f in a b; do echo $f; done",
+            "for f in $(bun run list); do cat $f; done",
+            "for f in a; do bash -c 'git push'; done",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).not.toBe("allow");
+    }
+    expect(decide("readonly", bash("for f in a b; do rm $f; done")).behavior)
+        .toBe("deny");
+});
+
+test("a recursive rm inside a loop is still refused in full access", () => {
+    for (
+        const command of [
+            "for i in 1 2; do rm -rf ~; done",
+            "for i in 1 2; do bash -c 'rm -rf ~'; done",
+        ]
+    ) {
+        expect(decide("full_access", bash(command)).behavior).toBe("deny");
+    }
+});
+
+test("a cd inside a loop leaves every relative path in it unresolved", () => {
+    // Each pass starts where the last one ended: the writes land in ., .., ../..
+    const command = "for i in 1 2 3; do echo x > f.txt; cd ..; done";
+    const actions = extractPermissionActions({
+        toolCall: bash(command),
+        workspace,
+        homeDirectory,
+    });
+    expect(actions.every((action) => action.path === undefined)).toBe(true);
+    expect(decide("auto", bash(command)).behavior).toBe("review");
+    expect(decide("auto", bash(`cd /tmp && for f in a; do echo x > $f; done`))
+        .behavior).toBe("review");
+});
+
+test("a cd the tracker cannot follow leaves later relative paths unresolved", () => {
+    for (
+        const command of [
+            // Options and OLDPWD: the target is not the next word.
+            "cd -P /tmp && printf hi > notes.txt",
+            "cd -- /tmp && printf hi > notes.txt",
+            "cd - && printf hi > notes.txt",
+            // CDPATH can send a bare name anywhere.
+            "cd src && printf hi > notes.txt",
+            "CDPATH=/tmp cd src && printf hi > notes.txt",
+            "cd a b && printf hi > notes.txt",
+            // The $X is dropped from the words, which would read as `cd` alone.
+            "command cd $X && printf hi > notes.txt",
+        ]
+    ) {
+        const redirect = extractPermissionActions({
+            toolCall: bash(command),
+            workspace,
+            homeDirectory,
+        }).at(-1);
+        expect(redirect?.path).toBeUndefined();
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+    }
+});
+
+test("a cd the tracker can follow still resolves relative paths", () => {
+    expect(decide("auto", bash("cd ./src && printf hi > notes.txt")).behavior)
+        .toBe("allow");
+    expect(decide("auto", bash("cd ~/Projects/vera && printf hi > notes.txt"))
+        .behavior).toBe("allow");
+    expect(decide("auto", bash("cd .. && printf hi > notes.txt")).behavior)
+        .toBe("review");
+});
+
+test("a substitution is checked where the script leaves it, so a cd cannot hide it", () => {
+    // touch runs in /tmp, but the script ends back in the workspace.
+    for (
+        const command of [
+            "cd /tmp && echo $(touch f.txt) && cd /Users/nash/Projects/vera",
+            "cd /tmp; bash -c 'touch f.txt'; cd /Users/nash/Projects/vera",
+        ]
+    ) {
+        expect(decide("auto", bash(command)).behavior).toBe("review");
+    }
+    expect(decide("auto", bash("echo $(touch f.txt)")).behavior).toBe("allow");
+});
+
 test("a routine action never allows the rest of the tool call", () => {
     // A recognized read plus an unresolved command still falls back.
     expect(decide("auto", bash("cat README.md && bun install")).behavior)

@@ -24,6 +24,10 @@ export interface BashCommand {
     readonly words: readonly string[];
     readonly redirects: readonly BashRedirect[];
     readonly hasNonLiteralWords: boolean;
+    // Index in `words` where the first non-literal word sat. `words` drops
+    // non-literal words, so a command name like $CMD leaves the next word in
+    // the executable's place.
+    readonly firstNonLiteralIndex?: number;
 }
 
 export interface BashPipeline {
@@ -40,12 +44,23 @@ export interface BashChain {
     readonly right: BashStatement;
 }
 
+export interface BashLoop {
+    readonly kind: "loop";
+    readonly condition: readonly BashStatement[];
+    readonly body: readonly BashStatement[];
+}
+
 export interface BashUnknown {
     readonly kind: "unknown";
     readonly text: string;
 }
 
-export type BashStatement = BashCommand | BashPipeline | BashChain | BashUnknown;
+export type BashStatement =
+    | BashCommand
+    | BashPipeline
+    | BashChain
+    | BashLoop
+    | BashUnknown;
 
 export interface ParsedBashScript {
     readonly statements: readonly BashStatement[];
@@ -141,6 +156,9 @@ function convertStatement(node: SyntaxNode): BashStatement {
             return convertPipeline(node);
         case "list":
             return convertChain(node);
+        case "for_statement":
+        case "while_statement":
+            return convertLoop(node);
         default:
             return { kind: "unknown", text: node.text };
     }
@@ -148,13 +166,13 @@ function convertStatement(node: SyntaxNode): BashStatement {
 
 function convertCommand(node: SyntaxNode): BashCommand {
     const words: string[] = [];
-    let hasNonLiteralWords = false;
+    let firstNonLiteralIndex: number | undefined;
     for (const child of namedChildrenOf(node)) {
         if (child.type === "command_name") {
             const nameWord = child.namedChild(0);
             const name = nameWord === null ? undefined : literalWord(nameWord);
             if (name === undefined) {
-                hasNonLiteralWords = true;
+                firstNonLiteralIndex ??= words.length;
             } else {
                 words.push(name);
             }
@@ -165,14 +183,36 @@ function convertCommand(node: SyntaxNode): BashCommand {
         }
         const word = literalWord(child);
         if (word === undefined) {
-            hasNonLiteralWords = true;
+            firstNonLiteralIndex ??= words.length;
             continue;
         }
         if (word.length > 0) {
             words.push(word);
         }
     }
-    return { kind: "command", words, redirects: [], hasNonLiteralWords };
+    return {
+        kind: "command",
+        words,
+        redirects: [],
+        hasNonLiteralWords: firstNonLiteralIndex !== undefined,
+        ...(firstNonLiteralIndex === undefined ? {} : { firstNonLiteralIndex }),
+    };
+}
+
+// `select` shares the for_statement node but waits on input; leave it unknown.
+function convertLoop(node: SyntaxNode): BashStatement {
+    const body = node.childForFieldName("body");
+    if (body === null || node.child(0)?.type === "select") {
+        return { kind: "unknown", text: node.text };
+    }
+    return {
+        kind: "loop",
+        // The field also holds the `;` between conditions.
+        condition: fieldChildrenOf(node, "condition")
+            .filter((child) => child.isNamed)
+            .map(convertStatement),
+        body: namedChildrenOf(body).map(convertStatement),
+    };
 }
 
 function literalWord(node: SyntaxNode): string | undefined {
@@ -275,9 +315,22 @@ function convertChain(node: SyntaxNode): BashStatement {
     };
 }
 
+/** Every simple command inside a statement, including loop conditions and bodies. */
+export function commandsOf(statement: BashStatement): BashCommand[] {
+    const commands: BashCommand[] = [];
+    collectCommands(statement, commands);
+    return commands;
+}
+
 function collectCommands(statement: BashStatement, into: BashCommand[]): void {
     if (statement.kind === "command") {
         into.push(statement);
+        return;
+    }
+    if (statement.kind === "loop") {
+        for (const inner of [...statement.condition, ...statement.body]) {
+            collectCommands(inner, into);
+        }
         return;
     }
     if (statement.kind === "pipeline") {
