@@ -21,7 +21,15 @@
 - Edge weights come from the current config at replay time. Editing `config.toml` and reopening retunes the graph.
 - Mention edges are derived: chunk `-mentions->` term and term `-mentioned_by->` chunk. Order edges are derived for saves that share a session. They are not events.
 - `revises` is the only annotate kind. It adds an inhibiting `revises` edge and an exciting `revised_by` edge. A duplicate of the same pair is not appended again.
-- Results are the top k non-revised chunks with positive activation. On a tie, the chunk that contains more of the question's terms ranks first, then the later `learned_at`. With the starting weights, "Halibut is my favourite fish." and "psych, I don't" both clamp to 1.0 for "What fish do I like?"; halibut contains "fish" and the psych line does not. Weights were not changed.
+- Each spread step squashes with tanh instead of a hard clamp, so two strong memories no longer tie at 1.0. A query-term overlap breaks whatever ties remain.
+- `revised_by` is 0.6 and `next`/`previous` are 0.15. At 1.0 and 0.3 the correction and the adjacent filler outranked the current fact once tanh let them separate.
+- Imports dedupe by source path and line (paragraph index for text files), not by sentence text. Saying a forgotten sentence again saves a new item.
+- `save_turn` stores the user as actor nash and the reply as actor vera. `forget(item)` records actor nash when the caller omits one.
+- Chroma lives at `.activmem/chroma`. The embedded text is speaker plus previous and next chunk; the stored document is the chunk alone. Replay embeds only ids missing from the collection. A new chunk refreshes the previous chunk's embedding.
+- Word seeds and Chroma hits are merged with reciprocal rank fusion (k=60) and scaled so the strongest seed is `seed_activation`. A vector hit is kept only when cosine similarity is at least 0.2. Below that, "What's my dog's name?" stays empty; at 0.35 the seafood and city hits were dropped.
+- `ACTIVMEM_GRAPH=off` returns Chroma top-k with no spreading and no suppression. `ACTIVMEM_EMBED=0` skips vectors. `fake` uses a hash embedder.
+- The socket is a short file under the temp dir because macOS rejects long Unix paths. `.activmem/socket-path` points at it.
+- Vera's extension host is TypeScript, so it cannot import ActivMem. `activmem serve` is the process the extension calls. A hook that misses the 300 ms budget lets the turn continue.
 - Suppressed are revised chunks this turn reached, or that still hold activation, with the revising text attached. Suppressed is not cut by k.
 - Results can include leftover heat that is positive but below the firing threshold, so a primed chunk can answer the next turn without firing first.
 - Chat ingest maps `user` to actor `nash` and `assistant` to `assistant`. Any other role string is the actor. The role is not stored separately.

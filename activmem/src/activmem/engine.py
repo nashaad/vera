@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+import math
+
 import networkx as nx
 
 from activmem.config import Config
@@ -19,6 +21,7 @@ class SettleParams:
     inferred_factor: float
     clamp_min: float
     clamp_max: float
+    squash_gain: float
     min_activation: float
     explain_top: int
     as_of: str | None = None
@@ -43,12 +46,14 @@ class ActivationEngine(Protocol):
     def decay_between_turns(self, carry: float) -> None: ...
 
 
-def _clamp(value: float, low: float, high: float) -> float:
-    if value > high:
+def _squash(value: float, gain: float, low: float, high: float) -> float:
+    """tanh so two strong memories do not both sit on a hard ceiling."""
+    squashed = math.tanh(gain * value)
+    if squashed > high:
         return high
-    if value < low:
+    if squashed < low:
         return low
-    return value
+    return squashed
 
 
 class LoopEngine:
@@ -65,11 +70,8 @@ class LoopEngine:
         self.graph = graph
 
     def poke(self, seeds: dict[str, float]) -> None:
-        low = self.config.clamp_min
-        high = self.config.clamp_max
         for node, value in seeds.items():
-            updated = self.activation.get(node, 0.0) + value
-            self.activation[node] = _clamp(updated, low, high)
+            self.activation[node] = self.activation.get(node, 0.0) + value
 
     def decay_between_turns(self, carry: float) -> None:
         if carry == 0:
@@ -89,7 +91,7 @@ class LoopEngine:
         It sends activation × weight × sign to each visible neighbour. Term
         nodes divide by how many of those neighbours they have. Inferred
         targets keep inferred_factor of each delivery. Every awake node then
-        keeps its previous activation × retain, clamped to the configured range.
+        keeps its previous activation × retain, then tanh squashes the sum.
         """
         if self.graph is None:
             raise RuntimeError("activation engine has no graph")
@@ -137,7 +139,12 @@ class LoopEngine:
                         new_act[node] = kept
                     continue
                 old = act.get(node, 0.0)
-                updated = _clamp(old * params.retain + incoming.get(node, 0.0), params.clamp_min, params.clamp_max)
+                updated = _squash(
+                    old * params.retain + incoming.get(node, 0.0),
+                    params.squash_gain,
+                    params.clamp_min,
+                    params.clamp_max,
+                )
                 if abs(updated) >= params.min_activation:
                     new_act[node] = updated
                 delta = updated - old

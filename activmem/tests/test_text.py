@@ -12,7 +12,7 @@ def test_question_terms():
     assert term_tokens("What fish do I like?") == ["fish", "like"]
     assert term_tokens("I really like pollock.") == ["like", "pollock"]
     assert term_tokens("Halibut is my favourite fish.") == ["halibut", "favourite", "fish"]
-    assert term_tokens("psych, I don't") == ["psych"]
+    assert term_tokens("sike, I don't") == ["sike"]
     assert term_tokens("Why do I love cod?") == ["love", "cod"]
     assert term_tokens("Who should I ask?") == ["ask"]
     assert term_tokens("How is the routing engine going?") == ["routing", "engine", "going"]

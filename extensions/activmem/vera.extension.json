@@ -1,0 +1,9 @@
+{
+    "id": "vera.activmem",
+    "version": "0.1.0",
+    "sdk": "1",
+    "entrypoint": "extension.ts",
+    "capabilities": ["tools.register", "hooks.pre_turn", "hooks.turn_finished"],
+    "unreviewed_tools": ["memory_revises"],
+    "contributes": {}
+}

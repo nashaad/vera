@@ -24,6 +24,7 @@ class RecallHit:
     learned_at: str | None
     true_at: dict | None
     session: str | None
+    flag: str = "current"
 
 
 @dataclass(slots=True)
@@ -38,6 +39,7 @@ class SuppressedHit:
     session: str | None
     revised_by: str
     revising_text: str
+    flag: str = "revised"
 
 
 @dataclass(slots=True)
@@ -54,6 +56,7 @@ class RecallResult:
     ms: float
     nodes_touched: int
     explain: Explain | None = None
+    vector_ms: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -72,10 +75,17 @@ def run_recall(
     as_of: str | None,
     true_on: str | None,
     explain: bool,
+    seeds_mode: str = "both",
+    vector_hits: list[tuple[str, float]] | None = None,
+    vector_ms: float = 0.0,
+    graph_on: bool = True,
 ) -> RecallResult:
     started = time.perf_counter()
     graph = index.graph
-    seeds, missing = _seeds(question, graph, as_of, config.seed_activation)
+    if not graph_on:
+        return _vectors_only(graph, question, vector_hits or [], k, started, vector_ms)
+    term_seeds, missing = _seeds(question, graph, as_of, 1.0)
+    seeds = _fuse(term_seeds, vector_hits or [], seeds_mode, config)
     saved: dict[str, float] | None = None
     if as_of is not None:
         saved = dict(engine.activation)
@@ -91,6 +101,7 @@ def run_recall(
             inferred_factor=config.inferred_factor,
             clamp_min=config.clamp_min,
             clamp_max=config.clamp_max,
+            squash_gain=config.squash_gain,
             min_activation=config.min_activation,
             explain_top=config.explain_top,
             as_of=as_of,
@@ -109,7 +120,7 @@ def run_recall(
         k,
         set(term_tokens(question)),
     )
-    elapsed_ms = (time.perf_counter() - started) * 1000
+    elapsed_ms = (time.perf_counter() - started) * 1000 + vector_ms
     explained = Explain(seeds=sorted(seeds.items()), steps=trace) if explain else None
     return RecallResult(
         results=results,
@@ -118,6 +129,61 @@ def run_recall(
         ms=elapsed_ms,
         nodes_touched=len(touched),
         explain=explained,
+        vector_ms=vector_ms,
+    )
+
+
+def _fuse(
+    term_seeds: dict[str, float],
+    vector_hits: list[tuple[str, float]],
+    mode: str,
+    config: Config,
+) -> dict[str, float]:
+    """Reciprocal rank fusion of word terms and Chroma hits, scaled to seed_activation."""
+    lists: list[list[str]] = []
+    if mode in ("words", "both"):
+        lists.append(list(term_seeds))
+    if mode in ("vectors", "both"):
+        lists.append([item_id for item_id, _score in vector_hits])
+    fused: dict[str, float] = {}
+    for ranked in lists:
+        for rank, item_id in enumerate(ranked, start=1):
+            fused[item_id] = fused.get(item_id, 0.0) + 1.0 / (config.rrf_k + rank)
+    if not fused:
+        return {}
+    top = max(fused.values())
+    scale = config.seed_activation / top
+    return {item_id: score * scale for item_id, score in fused.items()}
+
+
+def _vectors_only(graph, question, hits, k, started, vector_ms) -> RecallResult:
+    results = []
+    for item_id, score in hits:
+        if item_id not in graph or graph.nodes[item_id].get("kind") != "chunk":
+            continue
+        data = graph.nodes[item_id]
+        results.append(
+            RecallHit(
+                item_id=item_id,
+                text=data.get("text") or "",
+                activation=score,
+                actor=data.get("actor"),
+                status=data.get("status"),
+                learned_at=data.get("learned_at"),
+                true_at=data.get("true_at"),
+                session=data.get("session"),
+                flag="inferred" if data.get("status") == "inferred" else "current",
+            )
+        )
+    results.sort(key=lambda hit: hit.activation, reverse=True)
+    missing = [term for term in term_tokens(question) if f"t:{term}" not in graph]
+    return RecallResult(
+        results=results[:k],
+        suppressed=[],
+        no_record_of=missing,
+        ms=(time.perf_counter() - started) * 1000 + vector_ms,
+        nodes_touched=len(hits),
+        vector_ms=vector_ms,
     )
 
 
@@ -178,6 +244,7 @@ def _shape(
                     session=data.get("session"),
                     revised_by=revised_by,
                     revising_text=revising_text,
+                    flag="revised",
                 )
             )
             continue
@@ -192,6 +259,7 @@ def _shape(
                     learned_at=data.get("learned_at"),
                     true_at=data.get("true_at"),
                     session=data.get("session"),
+                    flag="inferred" if data.get("status") == "inferred" else "current",
                     )
             )
     # Activation is the rank. A tie (both clamped at the ceiling) prefers the
@@ -314,6 +382,25 @@ def format_explain(result: RecallResult, graph: nx.MultiDiGraph) -> str:
         lines.append(f"    {hit.text}")
         lines.append(f"    revising: {hit.revising_text}")
     lines.append(f"{result.ms:.1f} ms, {result.nodes_touched} nodes touched")
+    return "\n".join(lines)
+
+
+def format_context(result: RecallResult) -> str:
+    """Excerpts injected into a Vera turn. Empty when there is nothing to say."""
+    lines: list[str] = []
+    for hit in result.results:
+        lines.append(f"[{hit.flag}] {hit.item_id} ({hit.actor}): {hit.text}")
+    for hit in result.suppressed:
+        lines.append(f"[revised] {hit.item_id} ({hit.actor}): {hit.text}")
+        lines.append(f"  taken back by {hit.revised_by}: {hit.revising_text}")
+    if result.no_record_of:
+        lines.append("no record of: " + ", ".join(result.no_record_of))
+    if not lines:
+        return ""
+    lines.append(
+        "If Nash retracts or replaces one of these, call memory_revises "
+        "with the new wording and that item's id."
+    )
     return "\n".join(lines)
 
 

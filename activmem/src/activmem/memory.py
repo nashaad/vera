@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 
 from activmem.config import load_config
@@ -10,7 +12,6 @@ from activmem.events import (
     ActivMemError,
     ChainBreak,
     BadLinkKindError,
-    ForgottenError,
     UnknownItemError,
     check_as_of,
     normalize_true_at,
@@ -20,8 +21,9 @@ from activmem.events import (
     EventLog,
 )
 from activmem.graph import GraphIndex
-from activmem.recall import RecallResult, run_recall
+from activmem.recall import RecallResult, format_context, run_recall
 from activmem.text import content_hash, mint_id
+from activmem.vectors import open_vectors
 
 
 class ActivMem:
@@ -33,6 +35,8 @@ class ActivMem:
         self.log = EventLog(self.home / "events.jsonl", force=force)
         self.engine = LoopEngine(self.config)
         self.index = GraphIndex(self.config)
+        self.vectors = open_vectors(self.home / "chroma")
+        self.graph_on = os.environ.get("ACTIVMEM_GRAPH", "on") != "off"
         self._replay()
 
     def close(self) -> None:
@@ -58,6 +62,8 @@ class ActivMem:
         true_at: object = None,
         status: str = "confirmed",
         learned_at: str | None = None,
+        source: str | None = None,
+        source_line: int | None = None,
     ) -> str:
         actor = require_actor(actor)
         if status not in ("confirmed", "inferred"):
@@ -65,28 +71,46 @@ class ActivMem:
         if not isinstance(text, str) or not text.strip():
             raise ActivMemError("text is empty")
         text = text.strip()
+        source_key = _source_key(source, source_line)
+        if source_key is not None and source_key in self.index.by_source:
+            return self.index.by_source[source_key]
         content = content_hash(actor, text)
-        if content in self.index.forgotten_hashes:
-            raise ForgottenError(text)
-        existing = self.index.by_hash.get(content)
-        if existing is not None:
-            return existing
         item_id = mint_id(text, actor, self.index.graph, content)
-        record = self.log.append(
-            {
-                "type": "save",
-                "actor": actor,
-                "text": text,
-                "session": _session(session),
-                "true_at": normalize_true_at(true_at),
-                "status": status,
-                "learned_at": _learned(learned_at),
-                "item_id": item_id,
-                "content_hash": content,
-            }
-        )
+        body = {
+            "type": "save",
+            "actor": actor,
+            "text": text,
+            "session": _session(session),
+            "true_at": normalize_true_at(true_at),
+            "status": status,
+            "learned_at": _learned(learned_at),
+            "item_id": item_id,
+            "content_hash": content,
+        }
+        if source_key is not None:
+            body["source"] = source_key[0]
+            body["source_line"] = source_key[1]
+        record = self.log.append(body)
         self.index.apply(record)
+        self._embed_new(item_id)
         return item_id
+
+    def save_turn(
+        self,
+        user_text: str,
+        reply_text: str,
+        session: str,
+        learned_at: str | None = None,
+    ) -> tuple[str, str]:
+        user_id = self.save(user_text, actor="nash", session=session, learned_at=learned_at)
+        reply_id = self.save(reply_text, actor="vera", session=session, learned_at=learned_at)
+        return user_id, reply_id
+
+    def revise(self, new_item: str, old_item: str, actor: str = "vera", session: str | None = None) -> str:
+        if new_item not in self.index.graph:
+            new_item = self.save(new_item, actor=actor, session=session)
+        self.annotate(new_item, "revises", old_item, actor=actor)
+        return new_item
 
     def annotate(
         self,
@@ -119,12 +143,13 @@ class ActivMem:
         )
         self.index.apply(record)
 
-    def forget(self, item_id: str, actor: str) -> None:
+    def forget(self, item_id: str, actor: str = "nash") -> None:
         actor = require_actor(actor)
         graph = self.index.graph
         if item_id not in graph or graph.nodes[item_id].get("kind") != "chunk":
             raise UnknownItemError(item_id)
         content = graph.nodes[item_id].get("content_hash")
+        self.vectors.delete(item_id)
         kept = []
         for event in self.log.events:
             if event.get("type") == "save" and event.get("item_id") == item_id:
@@ -154,11 +179,25 @@ class ActivMem:
         as_of: str | None = None,
         true_on: str | None = None,
         explain: bool = False,
+        seeds: str = "both",
     ) -> RecallResult:
+        if seeds not in ("words", "vectors", "both"):
+            raise ActivMemError(f"bad seeds: {seeds}")
         if as_of is not None:
             as_of = check_as_of(as_of)
         if true_on is not None:
             true_on = check_as_of(true_on)[:10]
+        vector_hits: list[tuple[str, float]] = []
+        vector_ms = 0.0
+        if seeds != "words" or not self.graph_on:
+            started = time.perf_counter()
+            raw = self.vectors.query(question, self.config.vector_k)
+            vector_ms = (time.perf_counter() - started) * 1000
+            vector_hits = [
+                (item_id, score)
+                for item_id, score in raw
+                if score >= self.config.vector_min_similarity and item_id in self.index.graph
+            ]
         return run_recall(
             self.index,
             self.engine,
@@ -171,7 +210,19 @@ class ActivMem:
             as_of=as_of,
             true_on=true_on,
             explain=explain,
+            seeds_mode="vectors" if not self.graph_on else seeds,
+            vector_hits=[] if seeds == "words" and self.graph_on else vector_hits,
+            vector_ms=vector_ms,
+            graph_on=self.graph_on,
         )
+
+    def context_for(self, session: str, next_message: str, k: int | None = None) -> dict:
+        result = self.recall(next_message, k=k)
+        return {
+            "session": session,
+            "context": format_context(result),
+            "recall": result.to_dict(),
+        }
 
     def show(self, item_id: str) -> dict:
         graph = self.index.graph
@@ -234,6 +285,34 @@ class ActivMem:
             self.index.apply(event)
         self.engine.load(self.index.graph)
         self.engine.decay_between_turns(0)
+        for node, data in self.index.graph.nodes(data=True):
+            if data.get("kind") == "chunk":
+                self._embed(node)
+
+    def _embed_new(self, item_id: str) -> None:
+        previous = _neighbor(self.index.graph, item_id, "previous")
+        self._embed(item_id)
+        if previous:
+            self.vectors.delete(previous)
+            self._embed(previous)
+
+    def _embed(self, item_id: str) -> None:
+        if item_id not in self.index.graph or self.vectors.has(item_id):
+            return
+        data = self.index.graph.nodes[item_id]
+        if data.get("kind") != "chunk":
+            return
+        self.vectors.add(
+            item_id,
+            data.get("text") or "",
+            _embed_text(self.index.graph, item_id),
+            {
+                "actor": data.get("actor") or "",
+                "session": data.get("session") or "",
+                "content_hash": data.get("content_hash") or "",
+                "status": data.get("status") or "",
+            },
+        )
 
 
 def _session(session: str | None) -> str | None:
@@ -247,6 +326,32 @@ def _learned(learned_at: str | None) -> str:
     if learned_at is None:
         return utc_now()
     return check_as_of(learned_at)
+
+
+def _source_key(source: str | None, source_line: int | None) -> tuple[str, int] | None:
+    if not source or source_line is None:
+        return None
+    return str(Path(source).resolve()), int(source_line)
+
+
+def _neighbor(graph, item_id: str, kind: str) -> str | None:
+    for _src, dest, _key, edge in graph.out_edges(item_id, keys=True, data=True):
+        if edge.get("kind") == kind:
+            return dest
+    return None
+
+
+def _embed_text(graph, item_id: str) -> str:
+    data = graph.nodes[item_id]
+    parts = [f"speaker: {data.get('actor') or ''}"]
+    previous = _neighbor(graph, item_id, "previous")
+    nxt = _neighbor(graph, item_id, "next")
+    if previous and previous in graph:
+        parts.append(graph.nodes[previous].get("text") or "")
+    parts.append(data.get("text") or "")
+    if nxt and nxt in graph:
+        parts.append(graph.nodes[nxt].get("text") or "")
+    return "\n".join(parts)
 
 
 def _edge_view(other: str, edge: dict) -> dict:

@@ -15,7 +15,7 @@ def assert_halibut(mem):
     assert "halibut" in result.results[0].text.lower(), _dump(result)
     assert all("pollock" not in hit.text.lower() for hit in result.results), _dump(result)
     assert any("pollock" in hit.text.lower() for hit in result.suppressed), _dump(result)
-    assert any("psych" in hit.revising_text.lower() for hit in result.suppressed), _dump(result)
+    assert any("sike" in hit.revising_text.lower() for hit in result.suppressed), _dump(result)
     assert result.explain is not None
     assert result.ms >= 0
     assert result.nodes_touched > 0
@@ -42,8 +42,8 @@ def test_revision_is_invisible_before_it_was_learned(tmp_path):
 
     mem = ActivMem(tmp_path)
     pollock = mem.save("I really like pollock.", actor="nash", learned_at="2024-01-01T00:00:00Z")
-    psych = mem.save("psych, I don't", actor="nash", learned_at="2024-06-01T00:00:00Z")
-    mem.annotate(psych, "revises", pollock, actor="nash", learned_at="2024-06-01T00:00:00Z")
+    correction = mem.save("sike, I don't", actor="nash", learned_at="2024-06-01T00:00:00Z")
+    mem.annotate(correction, "revises", pollock, actor="nash", learned_at="2024-06-01T00:00:00Z")
     before = mem.recall("What do I like?", as_of="2024-03-01")
     assert any("pollock" in hit.text.lower() for hit in before.results), _dump(before)
     assert before.suppressed == []

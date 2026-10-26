@@ -8,7 +8,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from activmem.events import ActivMemError
-from activmem.text import content_hash
 
 _BLANK = re.compile(r"\n\s*\n")
 
@@ -51,7 +50,7 @@ def ingest_chat(mem, path: str | Path) -> IngestReport:
             actor = role
         session = record.get("session") or default_session
         learned = record.get("ts") if isinstance(record.get("ts"), str) else None
-        if _skip_or_save(mem, text, actor, session, learned):
+        if _skip_or_save(mem, text, actor, session, learned, file, lineno):
             skipped += 1
         else:
             added += 1
@@ -66,21 +65,28 @@ def ingest_text(mem, path: str | Path, *, actor: str = "nash") -> IngestReport:
     paragraphs = [part.strip() for part in _BLANK.split(raw) if part.strip()]
     added = 0
     skipped = 0
-    for paragraph in paragraphs:
-        if _skip_or_save(mem, paragraph, actor, file.stem, None):
+    for index, paragraph in enumerate(paragraphs, start=1):
+        if _skip_or_save(mem, paragraph, actor, file.stem, None, file, index):
             skipped += 1
         else:
             added += 1
     return IngestReport(added=added, skipped=skipped, path=str(file))
 
 
-def _skip_or_save(mem, text: str, actor: str, session: str | None, learned_at: str | None) -> bool:
-    """Return True when the save was skipped as a duplicate or a forgotten text."""
+def _skip_or_save(mem, text, actor, session, learned_at, source, source_line) -> bool:
+    """Return True when this file line was imported before."""
     cleaned = text.strip()
     if not cleaned:
         return True
-    content = content_hash(actor, cleaned)
-    if content in mem.index.forgotten_hashes or content in mem.index.by_hash:
+    key = (str(Path(source).resolve()), int(source_line))
+    if key in mem.index.by_source:
         return True
-    mem.save(cleaned, actor=actor, session=session, learned_at=learned_at)
+    mem.save(
+        cleaned,
+        actor=actor,
+        session=session,
+        learned_at=learned_at,
+        source=key[0],
+        source_line=key[1],
+    )
     return False

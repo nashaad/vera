@@ -42,6 +42,7 @@ class GraphIndex:
     graph: nx.MultiDiGraph = field(default_factory=nx.MultiDiGraph)
     last_in_session: dict[str, str] = field(default_factory=dict)
     by_hash: dict[str, str] = field(default_factory=dict)
+    by_source: dict[tuple[str, int], str] = field(default_factory=dict)
     forgotten_hashes: set[str] = field(default_factory=set)
 
     def apply(self, event: dict) -> None:
@@ -71,9 +72,9 @@ class GraphIndex:
 
     def _apply_save(self, event: dict) -> None:
         content = event["content_hash"]
-        if content in self.forgotten_hashes or content in self.by_hash:
-            return
         item_id = event["item_id"]
+        if item_id in self.graph:
+            return
         learned = event["learned_at"]
         self.graph.add_node(
             item_id,
@@ -90,6 +91,10 @@ class GraphIndex:
             revised_at=None,
         )
         self.by_hash[content] = item_id
+        source = event.get("source")
+        source_line = event.get("source_line")
+        if source and source_line is not None:
+            self.by_source[(str(source), int(source_line))] = item_id
         for term in term_tokens(event["text"]):
             term_id = f"t:{term}"
             if term_id not in self.graph:

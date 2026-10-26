@@ -78,10 +78,7 @@ def mint_id(text: str, actor: str, graph: nx.MultiDiGraph, content: str) -> str:
     base = f"{slug}-{digest[:ID_SUFFIX]}"
     if base not in graph:
         return base
-    existing = graph.nodes[base]
-    if existing.get("content_hash") == content and existing.get("text") == text:
-        return base
-    mixed = hashlib.sha256(f"{actor}\n{text}".encode("utf-8")).hexdigest()
+    mixed = hashlib.sha256(f"{actor}\n{text}\n{graph.number_of_nodes()}".encode("utf-8")).hexdigest()
     for length in range(ID_SUFFIX + 1, 17):
         candidate = f"{slug}-{mixed[:length]}"
         if candidate not in graph:

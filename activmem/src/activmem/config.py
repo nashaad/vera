@@ -10,10 +10,10 @@ from pathlib import Path
 DEFAULT_WEIGHTS: dict[str, float] = {
     "mentions": 1.0,
     "mentioned_by": 0.5,
-    "next": 0.3,
-    "previous": 0.3,
+    "next": 0.15,
+    "previous": 0.15,
     "revises": -1.5,
-    "revised_by": 1.0,
+    "revised_by": 0.6,
 }
 
 
@@ -28,8 +28,12 @@ class Config:
     inferred_factor: float = 0.5
     clamp_min: float = -1.0
     clamp_max: float = 1.0
+    squash_gain: float = 1.0
     min_activation: float = 1e-8
     explain_top: int = 8
+    rrf_k: int = 60
+    vector_k: int = 8
+    vector_min_similarity: float = 0.2
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
 
     def weight(self, kind: str) -> tuple[float, int]:
@@ -57,8 +61,12 @@ def load_config(path: Path) -> Config:
         "inferred_factor",
         "clamp_min",
         "clamp_max",
+        "squash_gain",
         "min_activation",
         "explain_top",
+        "rrf_k",
+        "vector_k",
+        "vector_min_similarity",
     )
     for key in numeric:
         if key in data:

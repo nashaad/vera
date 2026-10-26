@@ -1,6 +1,3 @@
-import pytest
-
-from activmem.events import ForgottenError
 from activmem.memory import ActivMem
 
 
@@ -22,6 +19,7 @@ def test_forget_drops_the_item_on_replay(tmp_path):
     assert all(hit.item_id != item for hit in missed.results)
     assert all("jar" not in hit.text.lower() for hit in missed.results)
     assert "jar" in missed.no_record_of or "spare" in missed.no_record_of
-    with pytest.raises(ForgottenError):
-        again.save("The spare key is under the jar.", actor="nash")
+    again_id = again.save("The spare key is under the jar.", actor="nash")
+    refound = again.recall("Where is the spare key?")
+    assert any(hit.item_id == again_id for hit in refound.results)
     again.close()

@@ -1,5 +1,7 @@
 .venv/
 .activmem/
+.acceptance-home/
+.acceptance-memory/
 .pytest_cache/
 __pycache__/
 *.py[cod]

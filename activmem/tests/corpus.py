@@ -19,9 +19,9 @@ def seed_halibut(root, n: int, *, annotate: bool) -> ActivMem:
         if i == early:
             pollock = mem.save("I really like pollock.", actor="nash", session="life")
         elif i == mid:
-            psych = mem.save("psych, I don't", actor="nash", session="life")
+            correction = mem.save("sike, I don't", actor="nash", session="life")
             if annotate and pollock is not None:
-                mem.annotate(psych, "revises", pollock, actor="nash")
+                mem.annotate(correction, "revises", pollock, actor="nash")
         elif i == late:
             mem.save("Halibut is my favourite fish.", actor="nash", session="life")
         else:

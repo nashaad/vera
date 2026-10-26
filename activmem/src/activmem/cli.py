@@ -54,6 +54,7 @@ def _main(argv: list[str] | None) -> int:
     recall.add_argument("--as-of")
     recall.add_argument("--true-on")
     recall.add_argument("--explain", action="store_true")
+    recall.add_argument("--seeds", choices=("words", "vectors", "both"), default="both")
 
     ingest = sub.add_parser("ingest", help="import chat jsonl or plain text")
     ingest_sub = ingest.add_subparsers(dest="ingest_command", required=True)
@@ -72,10 +73,18 @@ def _main(argv: list[str] | None) -> int:
     show = sub.add_parser("show", help="text, metadata, and links for an item")
     show.add_argument("item_id")
     sub.add_parser("verify", help="check the hash chain")
+    sub.add_parser("serve", help="listen on .activmem/activmem.sock")
 
     args = parser.parse_args(rest)
     if args.command == "verify":
         return _verify(directory, as_json)
+    if args.command == "serve":
+        from activmem.server import serve
+
+        return serve(directory, force=force)
+    remote = _remote(directory, args, as_json)
+    if remote is not None:
+        return remote
 
     mem = ActivMem(directory, force=force)
     try:
@@ -112,6 +121,7 @@ def _main(argv: list[str] | None) -> int:
                 as_of=args.as_of,
                 true_on=args.true_on,
                 explain=args.explain,
+                seeds=args.seeds,
             )
             if as_json:
                 return _emit(result.to_dict(), True, "")
@@ -156,6 +166,59 @@ def _main(argv: list[str] | None) -> int:
     finally:
         mem.close()
     return 0
+
+
+def _remote(directory: str, args, as_json: bool) -> int | None:
+    from activmem.server import try_call
+
+    method = None
+    params: dict = {}
+    human = ""
+    if args.command == "save":
+        # CLI save is one chunk. Vera uses save_turn on the socket.
+        return None
+    if args.command == "recall":
+        method = "recall"
+        params = {
+            "question": " ".join(args.question),
+            "k": args.k,
+            "seeds": args.seeds,
+            "explain": args.explain,
+            "carry": args.carry,
+        }
+    elif args.command == "forget":
+        method = "forget"
+        params = {"item": args.item_id, "actor": args.actor}
+        human = f"forgot {args.item_id}"
+    elif args.command == "annotate":
+        method = "revise"
+        params = {"new_item": args.from_id, "old_item": args.to_id, "actor": args.actor}
+        human = f"linked {args.from_id} {args.kind} {args.to_id}"
+    elif args.command == "stats":
+        method = "stats"
+    else:
+        return None
+    response = try_call(directory, method, params)
+    if response is None:
+        return None
+    if not response.get("ok"):
+        print(response.get("error") or "server error", file=sys.stderr)
+        return 1
+    result = response.get("result")
+    if args.command == "recall" and not as_json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "stats" and not as_json and isinstance(result, dict):
+        human = (
+            f"events: {result.get('events')}\n"
+            f"chunks: {result.get('chunks')}\n"
+            f"terms: {result.get('terms')}\n"
+            f"edges: {result.get('edges')}\n"
+            f"log_bytes: {result.get('log_bytes')}"
+        )
+    if args.command == "forget":
+        human = f"forgot {args.item_id}"
+    return _emit(result if isinstance(result, dict) else {"result": result}, as_json, human)
 
 
 def _verify(directory: str, as_json: bool) -> int:

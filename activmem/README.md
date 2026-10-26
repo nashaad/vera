@@ -56,19 +56,23 @@ revised_by = 1.0
 
 ## Halibut
 
-Early on, Nash says he likes pollock. Much later he says "psych, I don't", and the caller, who understood that at the time, records that the new line revises the pollock line. Later still he says halibut is his favourite fish. "What fish do I like?" should return the halibut line first. Pollock is not a current result. It is listed as suppressed, with the psych line attached, because the revision was stored when it was said.
+Early on, Nash says he likes pollock. Much later he says "sike, I don't", and Vera, which understood that at the time, calls `memory_revises`. Later still he says halibut is his favourite fish. "What fish do I like?" returns the halibut line first. Pollock is suppressed, with the sike line attached.
 
 ```sh
 uv run activmem save "I really like pollock." --actor nash --session life
 # note the printed id, called POLLOCK below
-uv run activmem save "psych, I don't" --actor nash --session life
+uv run activmem save "sike, I don't" --actor nash --session life
 # note that id, called PSYCH below
 uv run activmem annotate PSYCH revises POLLOCK --actor nash
 uv run activmem save "Halibut is my favourite fish." --actor nash --session life
 uv run activmem recall "What fish do I like?" --explain
 ```
 
-Without the `revises` annotation, pollock comes back as a current like. The engine does not guess that "psych, I don't" cancels the earlier sentence. Exact words only: a question about seafood does not find fish. That needs the vector phase, which is not in this pass.
+Without the `revises` annotation, pollock comes back as a current like. The engine does not guess that "sike, I don't" cancels the earlier sentence. Exact words do not turn "seafood" into "fish". Chroma's local embedder does that, and the graph still decides which of those hits is current.
+
+## With Vera
+
+Vera's extension host is TypeScript, so it cannot import this package. Run `uv run activmem serve --dir <workspace>` and enable `extensions/activmem`. Before each turn the extension injects `context_for`. After the turn it calls `save_turn`. The `memory_revises` tool is how Vera records a correction. If the socket is missing or slower than 300 ms, the turn continues without memory.
 
 ## Tests
 

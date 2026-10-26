@@ -24,15 +24,15 @@ def test_commands_run_end_to_end(tmp_path):
     pollock = out.strip()
     assert pollock.startswith("like-pollock-")
 
-    code, out, err = _run(["--dir", root, "save", "psych, I don't", "--actor", "nash", "--session", "life"])
+    code, out, err = _run(["--dir", root, "save", "sike, I don't", "--actor", "nash", "--session", "life"])
     assert code == 0, err
-    psych = out.strip()
+    correction = out.strip()
 
     code, out, err = _run(["--dir", root, "save", "Halibut is my favourite fish.", "--actor", "nash"])
     assert code == 0, err
     assert out.strip().startswith("halibut-favourite-fish-")
 
-    code, out, err = _run(["--dir", root, "annotate", psych, "revises", pollock, "--actor", "nash"])
+    code, out, err = _run(["--dir", root, "annotate", correction, "revises", pollock, "--actor", "nash"])
     assert code == 0, err
     assert "revises" in out
 
@@ -98,7 +98,7 @@ def test_commands_run_end_to_end(tmp_path):
     assert code == 1
     assert "unknown item" in err
 
-    code, out, err = _run(["--dir", root, "annotate", psych, "causes", psych, "--actor", "nash"])
+    code, out, err = _run(["--dir", root, "annotate", correction, "causes", correction, "--actor", "nash"])
     assert code == 1
     assert "bad link kind" in err
 
