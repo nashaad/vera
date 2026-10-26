@@ -96,6 +96,37 @@ test("a removed checkout closes and exits a development host", async () => {
     ]);
 });
 
+test("a lost socket closes and exits the host", async () => {
+    const lost = Promise.withResolvers<void>();
+    const order: string[] = [];
+    const running = runResidentHostProcess({
+        shutdownRequested: new Promise<void>(() => {}),
+        close: async () => {
+            order.push("closed");
+        },
+    }, {
+        waitForSignal: () => ({
+            promise: new Promise<void>(() => {}),
+            dispose: () => order.push("signal disposed"),
+        }),
+        waitForSocketLoss: () => ({
+            promise: lost.promise,
+            dispose: () => order.push("socket watch disposed"),
+        }),
+        exit: (code) => order.push(`exited ${code}`),
+    });
+
+    lost.resolve();
+    await running;
+
+    expect(order).toEqual([
+        "signal disposed",
+        "socket watch disposed",
+        "closed",
+        "exited 0",
+    ]);
+});
+
 test("a host whose close never finishes still exits after its deadline", async () => {
     const signal = Promise.withResolvers<void>();
     const exits: number[] = [];
