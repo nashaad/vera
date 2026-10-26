@@ -8,7 +8,7 @@ The graph over plain Chroma, on the nine hard questions: ActivMem 9 of 9, plain 
 
 At 50,000 chunks, words plus vectors return the halibut line first and leave the sike line off the results. Median recall was 119.8 ms, under 200 ms. The injected block was 213 characters against 179 for plain Chroma, so the size half of the cost gate fails. The extra characters are the taken-back line. Chroma's approximate index missed that halibut line among near-duplicate filler; queries rank the stored vectors exactly.
 
-LongMemEval-S and LoCoMo have not produced scores. The S file is on disk and the runner is `bench/longmemeval.py`. Nash's chat export is not in `demo/`.
+LongMemEval-S is running from `bench/longmemeval.py` and has no scores yet. LoCoMo has not been started. Nash's chat export is not in `demo/`.
 
 About 80 model calls for the live gate and its preflight. The OpenRouter key's spend today is $0.13. No usage limit stopped the run.
 

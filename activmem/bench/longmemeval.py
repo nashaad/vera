@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -262,7 +263,7 @@ def _ask(prompt: str, bare: bool) -> tuple[str, str, int]:
     mode = "bare" if bare else "prompt_only"
     prompt_path = home / "prompt.txt"
     prompt_path.write_text(prompt, encoding="utf-8")
-    session = home / "turn.jsonl"
+    session = home / f"turn-{os.getpid()}-{time.time_ns()}.jsonl"
     result = subprocess.run(
         ["bun", str(ROOT / "bench" / "ask.ts"), str(prompt_path), mode, MODEL, str(session)],
         cwd=str(Path(tempfile.mkdtemp(prefix="lme-ws-"))),
