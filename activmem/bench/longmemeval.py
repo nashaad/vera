@@ -48,6 +48,9 @@ def main() -> int:
         if record.get("blocked"):
             print("BLOCKED", record["blocked"], flush=True)
             return 2
+        if record.get("error") or not (record.get("answer") or "").strip():
+            print("skip", qid, (record.get("error") or "empty")[:200], flush=True)
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(record), encoding="utf-8")
     _report(rows, sample)
@@ -87,11 +90,15 @@ def _run(condition: str, row: dict) -> tuple[dict, int]:
         excerpts, recall_ms, calls = _memory(row, condition)
     answer, answer_model, used = _ask(_answer_prompt(row["question"], excerpts), bare=True)
     calls += used
+    if answer_model == "error":
+        return {"error": answer}, calls
     if answer_model != MODEL:
         return {"blocked": f"answer model {answer_model}"}, calls
     prompt = _judge_prompt(row, answer)
     judgement, judge_model, used = _ask(prompt, bare=False)
     calls += used
+    if judge_model == "error":
+        return {"error": judgement}, calls
     if judge_model != MODEL:
         return {"blocked": f"judge model {judge_model}"}, calls
     return {
@@ -252,13 +259,21 @@ _HOME: Path | None = None
 
 def _ask(prompt: str, bare: bool) -> tuple[str, str, int]:
     home, env = _model_home()
-    flag = "--bare" if bare else "--prompt-only"
+    mode = "bare" if bare else "prompt_only"
+    prompt_path = home / "prompt.txt"
+    prompt_path.write_text(prompt, encoding="utf-8")
     session = home / "turn.jsonl"
     result = subprocess.run(
-        ["bun", str(REPO / "clients/cli/main.ts"), "-p", prompt, flag, "--model", MODEL, "--session", str(session)],
-        cwd=str(REPO), env=env, text=True, capture_output=True, timeout=180,
+        ["bun", str(ROOT / "bench" / "ask.ts"), str(prompt_path), mode, MODEL, str(session)],
+        cwd=str(Path(tempfile.mkdtemp(prefix="lme-ws-"))),
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=300,
     )
     printed = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        return printed.strip(), "error", 1
     if "model " in printed and "->" in printed:
         return printed.strip(), "substituted", 1
     recorded = _one_model(home)
