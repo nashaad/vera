@@ -2,7 +2,7 @@ import { setTextContent } from "../text-content.ts";
 import { isToolApprovalUiRequestUpdate } from "../../../src/engine/protocol.ts";
 import { renderTuiActivityBar, tuiActivityBarColumns, tuiActivityKind } from "../activity-bar.ts";
 import { fitFooter } from "../footer-fit.ts";
-import { tuiKeysCardRows } from "../keys-card.ts";
+import { tuiKeysCardFooter, tuiKeysCardRows } from "../keys-card.ts";
 import { footerItemContents } from "../footer-items.ts";
 import { footerRowCount } from "../footer-layout.ts";
 import { renderTuiActivityAnimation, renderTuiSpokes, transcriptShimmerFrame } from "../activity-pulse.ts";
@@ -226,7 +226,8 @@ export function renderStatus(rt: TuiRuntime): void {
     rt.dialCard.visible = stripLines !== undefined;
     rt.keysCardView.box.visible = rt.keysCardOpen && !anyOverlayOpen(rt) && !rt.sessionSwitchPending;
     if (rt.keysCardView.box.visible) {
-        rt.keysCardView.update(tuiKeysCardRows(turnRunningNow(statusState)), dialWidth);
+        const working = turnRunningNow(statusState);
+        rt.keysCardView.update(tuiKeysCardRows(working), tuiKeysCardFooter(working), dialWidth);
     }
     rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
     const hudRows = stripLines?.slice(0, -1) ?? [];

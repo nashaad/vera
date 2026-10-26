@@ -41,6 +41,14 @@ export function tuiKeysCardRows(working: boolean): TuiKeysCardRow[] {
     return rows;
 }
 
+// A running turn owns Esc, so the card names the keys that still close it.
+export function tuiKeysCardFooter(working: boolean): string {
+    const close = working
+        ? `${tuiKeyChordLabel("open_model_prefix")} ${tuiKeyChordLabel("model_prefix_keys")}`
+        : "esc";
+    return `/help every key · ${close} close`;
+}
+
 // Hints are written with the default chord in front: "Ctrl+P commands".
 function hintLabel(id: string, hint: string, description: string): string {
     const original = TUI_KEYMAP.find((binding) => binding.id === id)?.keys[0];
@@ -77,7 +85,7 @@ export function layoutTuiKeysCard(rows: readonly TuiKeysCardRow[], width: number
 
 export interface TuiKeysCardView {
     readonly box: BoxRenderable;
-    update(rows: readonly TuiKeysCardRow[], width: number): void;
+    update(rows: readonly TuiKeysCardRow[], footer: string, width: number): void;
 }
 
 export function createTuiKeysCardView(renderer: RenderContext): TuiKeysCardView {
@@ -104,7 +112,7 @@ export function createTuiKeysCardView(renderer: RenderContext): TuiKeysCardView 
     box.add(text);
     return {
         box,
-        update(rows, width) {
+        update(rows, footer, width) {
             const layout = layoutTuiKeysCard(rows, width);
             const muted = TUI_HUD?.muted ?? TUI_MUTED;
             const accent = TUI_HUD?.accent ?? TUI_ACCENT;
@@ -121,7 +129,7 @@ export function createTuiKeysCardView(renderer: RenderContext): TuiKeysCardView 
                 });
                 if (index < layout.lines.length - 1) chunks.push(fg(muted)("\n"));
             });
-            chunks.push(fg(muted)("\n\n/help every key · esc close"));
+            chunks.push(fg(muted)(`\n\n${footer}`));
             box.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
             text.height = layout.lines.length + 4;
             box.height = text.height + 2;
