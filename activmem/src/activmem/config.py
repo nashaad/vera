@@ -33,8 +33,8 @@ class Config:
     explain_top: int = 8
     rrf_k: int = 60
     vector_k: int = 8
+    vector_scan: int = 32
     vector_min_similarity: float = 0.2
-    vector_similarity_ratio: float = 0.95
     weights: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
 
     def weight(self, kind: str) -> tuple[float, int]:
@@ -67,8 +67,8 @@ def load_config(path: Path) -> Config:
         "explain_top",
         "rrf_k",
         "vector_k",
+        "vector_scan",
         "vector_min_similarity",
-        "vector_similarity_ratio",
     )
     for key in numeric:
         if key in data:

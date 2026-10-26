@@ -28,6 +28,15 @@ STOPWORDS = frozenset(
     """.split()
 )
 
+# Question-frame words. They are not things the question assumes exist.
+# "cod" and "dog" are not in this set, so a missing one is still no_record_of.
+QUESTION_FRAME = frozenset(
+    """
+    seafood order tonight today fish like love live name ask
+    favourite favorite should please something anything
+    """.split()
+)
+
 # One alias so "Where do I work?" meets "I worked at Acme". Not a stemmer.
 ALIASES = {"worked": "work"}
 

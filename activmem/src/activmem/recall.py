@@ -11,7 +11,7 @@ from activmem.config import Config
 from activmem.engine import LoopEngine, SettleParams, StepTrace
 from activmem.events import covers, learned_ok
 from activmem.graph import GraphIndex
-from activmem.text import term_tokens
+from activmem.text import QUESTION_FRAME, term_tokens
 
 
 @dataclass(slots=True)
@@ -199,7 +199,7 @@ def _seeds(
         node = f"t:{term}"
         if node in graph and learned_ok(graph.nodes[node].get("learned_at"), as_of):
             seeds[node] = amount
-        else:
+        elif term not in QUESTION_FRAME:
             missing.append(term)
     return seeds, missing
 

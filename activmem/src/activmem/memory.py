@@ -195,7 +195,7 @@ class ActivMem:
         vector_ms = 0.0
         if seeds != "words" or not self.graph_on:
             started = time.perf_counter()
-            raw = self.vectors.query(question, self.config.vector_k)
+            raw = self.vectors.query(question, self.config.vector_scan)
             vector_ms = (time.perf_counter() - started) * 1000
             qualified = [
                 (item_id, score)
@@ -203,7 +203,8 @@ class ActivMem:
                 if score >= self.config.vector_min_similarity and item_id in self.index.graph
             ]
             by_id = {item_id: score for item_id, score in qualified}
-            vector_hits = []
+            seed_hits: list[tuple[str, float]] = []
+            revised: list[tuple[str, float]] = []
             for item_id, score in qualified:
                 # The next filler line embeds this sentence as context and can
                 # outrank it. Drop that neighbor. A separate memory stays.
@@ -212,8 +213,15 @@ class ActivMem:
                     other = _neighbor(self.index.graph, item_id, kind)
                     if other is not None and by_id.get(other, -1) > score:
                         neighbor = True
-                if not neighbor:
-                    vector_hits.append((item_id, score))
+                if neighbor:
+                    continue
+                if _is_revised(self.index.graph, item_id):
+                    revised.append((item_id, score))
+                elif len(seed_hits) < self.config.vector_k:
+                    seed_hits.append((item_id, score))
+            # A revised belief can sit below the top seeds once filler crowds
+            # the index. It still has to come back as taken back.
+            vector_hits = seed_hits + revised
         return run_recall(
             self.index,
             self.engine,
@@ -355,6 +363,13 @@ def _source_key(source: str | None, source_line: int | None) -> tuple[str, int] 
     if not source or source_line is None:
         return None
     return str(Path(source).resolve()), int(source_line)
+
+
+def _is_revised(graph, item_id: str) -> bool:
+    for _src, _dst, _key, edge in graph.in_edges(item_id, keys=True, data=True):
+        if edge.get("kind") == "revises":
+            return True
+    return False
 
 
 def _neighbor(graph, item_id: str, kind: str) -> str | None:

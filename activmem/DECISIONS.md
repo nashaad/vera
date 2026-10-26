@@ -1,55 +1,23 @@
 # Decisions
 
-- This pass implements only the section 0 MVP. Vectors, blocks, grants, sources, intentions, traces, dreaming, and the later benchmarks are not built.
-- The working directory is `<root>/.activmem/`. `events.jsonl` is the record. The networkx graph is rebuilt in memory and is never written out.
+- The working directory is `<root>/.activmem/`. `events.jsonl` is the record. The networkx graph is rebuilt in memory and is never written out. Chroma at `.activmem/chroma` is the meaning index.
 - An event id is the first 16 hex characters of SHA-256 over the canonical JSON of the event, including `prev_hash`. The first event uses `prev_hash` `""`.
-- Canonical JSON is hashed, so a changed value breaks the chain. Insignificant whitespace is not part of the record.
-- The chain is checked when a log is opened. Later appends extend an in-memory tip and do not rescan the file on every write.
-- `--force` drops the broken tail from the first bad line, rewrites the valid prefix, and then allows appends.
-- `forget` is a third event type: a content-free tombstone. The original save line and any link that touches the item are removed, the chain is recomputed, and the tombstone stays.
-- A forgotten actor+text cannot be saved or ingested again. The tombstone keeps the content hash and not the text.
-- Forget and rebuild replay into a new graph and clear leftover heat. Heat is not written to the log.
-- Item ids are minted at save time (up to three content words plus four hash characters) and stored on the event. Replay uses that id.
-- A colliding slug grows the hash suffix. The suffix is a hash of the text; the actor is mixed in only when two different texts collide.
-- A bare `true_at` date means that calendar day only. A pair is an inclusive range, and `to` may be null for an open end.
-- `true_on` filters which chunks are returned. It does not stop other chunks from carrying activation.
-- `as_of` hides nodes and edges learned after that time. A date-only value compares calendar days. Term fan-out uses the visible neighbours, not edges from the future.
-- A recall with `as_of` starts from an empty activation and does not change leftover heat.
-- `carry` on a call decays heat at the start of that call. `carry=0` clears it. Omitted `steps`, `retain`, `carry`, and `k` use config, whose defaults are 4, 0.8, 0.5, and 5.
-- Firing threshold defaults to 0.01. Values below `min_activation` (1e-8) are dropped from the activation map. Explain lists the 8 largest changes per step and every inhibition.
-- Seed strength defaults to 1.0. Inferred chunks keep `inferred_factor` (0.5) of each delivery. Clamp defaults to [-1, 1]. These live in config so the loop has no private knobs.
-- Edge weights come from the current config at replay time. Editing `config.toml` and reopening retunes the graph.
-- Mention edges are derived: chunk `-mentions->` term and term `-mentioned_by->` chunk. Order edges are derived for saves that share a session. They are not events.
-- `revises` is the only annotate kind. It adds an inhibiting `revises` edge and an exciting `revised_by` edge. A duplicate of the same pair is not appended again.
-- Each spread step squashes with tanh instead of a hard clamp, so two strong memories no longer tie at 1.0. A query-term overlap breaks whatever ties remain.
-- `revised_by` is 0.6 and `next`/`previous` are 0.15. At 1.0 and 0.3 the correction and the adjacent filler outranked the current fact once tanh let them separate.
-- Imports dedupe by source path and line (paragraph index for text files), not by sentence text. Saying a forgotten sentence again saves a new item.
-- `save_turn` stores the user as actor nash and the reply as actor vera. `forget(item)` records actor nash when the caller omits one.
-- Chroma lives at `.activmem/chroma`. The embedded text is the speaker, then the chunk's own sentence, then the previous and next chunk. The stored document is the chunk alone. Own sentence first, because leading with the neighbors made the next filler line outrank "Halibut is my favourite fish." Replay embeds only ids missing from the collection. A new chunk refreshes the previous chunk's embedding.
-- Word seeds and Chroma hits are merged with reciprocal rank fusion (k=60) and scaled so the strongest seed is `seed_activation`. A vector hit is kept only when cosine similarity is at least 0.2. Below that, "What's my dog's name?" stays empty; at 0.35 the seafood and city hits were dropped.
-- Chroma's HNSW index, at 50,000 near-duplicate filler vectors, returned a best cosine of 0.10 and missed halibut, whose true cosine was 0.33. Queries rank the stored vectors exactly. Chroma still stores them.
-- A vector hit that is only the previous or next chunk of a stronger hit is dropped. That neighbor embeds the real sentence as context and was outranking it. A separate memory, such as the old pollock line, stays.
-- The one current line shown to Vera is the top chunk Nash said. Vera's own previous reply is not the memory.
-- `ACTIVMEM_GRAPH=off` returns Chroma top-k with no spreading and no suppression. `ACTIVMEM_EMBED=0` skips vectors. `fake` uses a hash embedder.
-- The socket is a short file under the temp dir because macOS rejects long Unix paths. `.activmem/socket-path` points at it.
-- `openai-codex/gpt-6-luna` is not in this worktree home's library. Nash said to use any free Nemotron, so every model call uses `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`. `~/.vera` is not read. Live sessions use a throwaway home; the development host keeps its own model.
-- A revising line is a note on the item it changes, so it is left out of the results when any other current chunk was reached. When the new fact is itself that revising line, as with "Berlin now", it stays the current result.
-- `context_for` injects one current line, the taken-back lines, and no-record. The three newest turns are not included. The block opens with the sentence that taken-back items must not be recommended. Each line includes the item id in brackets so Vera can pass it to `memory_revises`.
-- `save_turn` leaves the user chunk warm. The next turn can show it through leftover heat when the new words do not overlap, which is how "sike, I don't" sees the pollock id. The reply is not warmed.
-- `vera -p` does not load extensions. The live test drives `vera stdio`, which does.
-- Halibut is saved by the harness after the live retraction, because the acceptance steps never have Nash say it and check B requires that fish in memory.
-- Vera's extension host is TypeScript, so it cannot import ActivMem. `activmem serve` is the process the extension calls. A hook that misses the 300 ms budget lets the turn continue.
-- Suppressed are revised chunks this turn reached, or that still hold activation, with the revising text attached. Suppressed is not cut by k.
-- Results can include leftover heat that is positive but below the firing threshold, so a primed chunk can answer the next turn without firing first.
-- Chat ingest maps `user` to actor `nash` and `assistant` to `assistant`. Any other role string is the actor. The role is not stored separately.
-- A missing chat `session` becomes the file stem, so one file is one session. `ts` is `learned_at` when it is a string. Other `ts` types are ignored.
-- Text ingest defaults the actor to `nash` because the command names no actor and every save must have one. Paragraphs split on blank lines. The session is the file stem.
-- Ingest and `save` dedupe on SHA-256 of actor plus stripped text. A repeat returns the existing id and does not append.
-- The token `worked` is stored and queried as `work`, so "Where do I work?" can meet "I worked at Acme". There is no general stemmer.
-- Apostrophes are separators, so "don't" becomes "don" and "t", and "Nash's" becomes "nash". Tokens shorter than two characters are dropped.
-- The stopword list includes function words and `really`, so "I really like pollock." mints `like-pollock-` plus four hash characters. `like` is not a stopword.
-- Empty text is rejected. Status must be `confirmed` or `inferred`.
-- `load` on the activation engine does not clear activation. `LoopEngine` is the only implementation.
-- `nodes_touched` is returned on every recall along with `ms`, in addition to results, suppressed, and no_record_of.
-- `--json` with `--explain` returns the structured trace. The prose trace is the human `--explain` output.
-- Exact word match only. "seafood" does not find "fish".
+- The chain is checked on open. Later appends extend an in-memory tip. `--force` drops a broken tail. `activmem verify` reports where a chain breaks.
+- `forget` rewrites the log without the original save and any link that touches it, and keeps a content-free tombstone. Replay drops the item. The same sentence can be saved again afterwards.
+- Item ids are minted at save time: up to three content words plus four hash characters. A second save of the same words gets a new id. Replay uses the stored id.
+- Live `save` and `save_turn` always append. Only file import dedupes, and it dedupes by path and line, not by sentence text.
+- A bare `true_at` date means that calendar day only. A pair is an inclusive range, and `to` may be null. `true_on` filters returned chunks. `as_of` hides events learned after that time and does not change leftover heat.
+- Spread uses tanh, not a hard clamp. `revised_by` is 0.6 and `next`/`previous` are 0.15. Other weights stay at the brief's starting values. Threshold is 0.01, retain 0.8, carry 0.5, steps 4. All of these live in config.
+- A chunk that revises another is left out of the results when any other current chunk was reached. When the new fact is itself the revising line, as with "Berlin now", that line stays current.
+- The injected block is one current line, the taken-back lines, and no-record. It opens with the sentence that taken-back items must not be recommended. Each line includes the item id in brackets. The current line is the top chunk Nash said.
+- `no_record_of` names a question term memory has nothing on, except question-frame words such as seafood, order, and tonight. `cod` and `dog` are not frame words.
+- Word seeds and Chroma hits merge with reciprocal rank fusion. A hit is kept at cosine similarity at least 0.2. The scan looks at 32 hits. The top 8 current hits seed spreading. A revised hit anywhere in that scan is still returned as taken back, so filler cannot hide it.
+- A vector hit that is only the previous or next chunk of a stronger hit is dropped. The chunk's own sentence is embedded before its neighbors, because leading with the neighbors made the next filler line outrank the fish sentence.
+- Chroma's HNSW index, at 50,000 near-duplicate filler vectors, returned a best cosine of 0.10 and missed halibut, whose true cosine was 0.33. Queries rank the stored vectors exactly.
+- `save_turn` leaves the user chunk warm so the next turn can show it when the words do not overlap. The reply is not warmed.
+- `ACTIVMEM_GRAPH=off` is Chroma top-k with no spreading and no suppression. `ACTIVMEM_EMBED=0` skips vectors. `fake` uses a hash embedder.
+- The socket is a short file under the temp dir. `.activmem/socket-path` points at it. The extension is TypeScript, so it talks to `activmem serve`. A hook that misses 300 ms lets the turn continue.
+- Every model call uses `ACTIVMEM_MODEL`, default `openrouter/deepseek/deepseek-v4.1-flash`, on a throwaway home. The key comes from `OPENROUTER_API_KEY`. `~/.vera` is not read. `vera inspect` records the model without the provider prefix; the event log stores both, and the check joins them.
+- `vera -p` does not load extensions. The live test drives `vera stdio`. Nash says the halibut line in his own session. The harness does not seed it.
+- The token `worked` is stored and queried as `work`. Apostrophes are separators. `really` is a stopword so "I really like pollock." mints `like-pollock-`.
+- Chat ingest maps `user` to actor `nash` and `assistant` to `assistant`. A missing session becomes the file stem.

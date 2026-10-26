@@ -1,9 +1,8 @@
-"""Live halibut acceptance through a free OpenRouter Nemotron model.
+"""Live halibut acceptance.
 
-Nash asked for any free Nemotron. Every call uses
-openrouter/nvidia/nemotron-3-ultra-550b-a55b:free. Sessions use a throwaway
-home so the worktree's development host keeps its own model. The daily
-~/.vera home is never read.
+Every model call uses ACTIVMEM_MODEL, which defaults to
+openrouter/deepseek/deepseek-v4.1-flash. A preflight checks vera inspect.
+A run whose session file records a different model is discarded.
 """
 
 from __future__ import annotations
@@ -22,7 +21,7 @@ REPO = ROOT.parent
 EXT = REPO / "extensions" / "activmem"
 CACHE = ROOT / "acceptance" / "cache"
 REPORT = ROOT / "ACCEPTANCE.md"
-MODEL = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+MODEL = os.environ.get("ACTIVMEM_MODEL", "openrouter/deepseek/deepseek-v4.1-flash")
 DEV_HOME = os.environ.get(
     "ACTIVMEM_VERA_HOME",
     "/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera-dev/faf872b0021f/.vera",
@@ -32,13 +31,9 @@ FILLER = int(os.environ.get("ACTIVMEM_ACCEPT_FILLER", "3000"))
 
 
 def main() -> int:
-    library = _library()
-    if MODEL not in library:
-        _write(
-            "BLOCKED",
-            f"{MODEL} is not in this worktree home's vera library list. "
-            f"The list is: {library or '(empty)'}. No other model was called.",
-        )
+    blocked = _preflight()
+    if blocked:
+        _write("BLOCKED", blocked)
         return 2
     if not (EXT / "extension.ts").exists():
         _write("BLOCKED", f"Extension missing at {EXT}.")
@@ -57,6 +52,14 @@ def main() -> int:
         1 for row in rows
         if row["condition"] == "control" and not (row["c"] and row["d"])
     )
+    discarded = [row for row in rows if row.get("discarded")]
+    if discarded:
+        _write(
+            "BLOCKED",
+            "A live session recorded a model other than "
+            f"{MODEL}. Those runs were discarded and are not a score.",
+        )
+        return 2
     passed = activmem_pass >= 4 and control_fail >= 3
     _write_report(rows, activmem_pass, control_fail, passed)
     return 0 if passed else 1
@@ -66,7 +69,7 @@ def run_one(condition: str, index: int) -> dict:
     path = CACHE / f"{condition}-{index}.json"
     if path.exists():
         cached = json.loads(path.read_text())
-        if cached.get("model") == MODEL:
+        if cached.get("model") == MODEL and not cached.get("discarded"):
             return cached
     ws = Path(f"/tmp/am-acc-{condition}-{index}")
     home = Path(f"/tmp/am-home-{condition}-{index}")
@@ -79,19 +82,8 @@ def run_one(condition: str, index: int) -> dict:
     dist = REPO / "dist"
     if dist.exists():
         os.symlink(dist, ws / "dist")
-    provider, model_id = MODEL.split("/", 1)
-    (home / "config.json").write_text(json.dumps({
-        "schema_version": 1,
-        "provider": provider,
-        "model": model_id,
-        "reasoning_effort": "low",
-        "approval_mode": "auto",
-        "extensions": [{"path": str(EXT), "enabled": True}],
-    }, indent=2) + "\n", encoding="utf-8")
-    env = os.environ.copy()
-    env["HOME"] = "/Users/nash"
-    env["VERA_HOME"] = str(home)
-    env["VERA_DEV_INSTANCE"] = "1"
+    _write_home_config(home)
+    env = _home_env(home)
     env["ACTIVMEM_EMBED"] = "1"
     env["ACTIVMEM_GRAPH"] = "off" if condition == "control" else "on"
     serve = subprocess.Popen(
@@ -102,9 +94,11 @@ def run_one(condition: str, index: int) -> dict:
         stderr=subprocess.DEVNULL,
     )
     try:
+        _library_add(home, env)
         _wait_socket(ws)
         first = _session(ws, home, ["I really like pollock."])
         second = _session(ws, home, ["sike, I don't."])
+        said_halibut = _session(ws, home, ["Halibut is my favourite fish."])
         serve.terminate()
         serve.wait(timeout=5)
         _seed_rest(ws, env)
@@ -120,7 +114,7 @@ def run_one(condition: str, index: int) -> dict:
             "What seafood should I order tonight?",
             "Why not pollock?",
         ])
-        record = _grade(ws, first, second, third, condition, index)
+        record = _grade(ws, home, first, second, said_halibut, third, condition, index)
     finally:
         serve.terminate()
         try:
@@ -131,6 +125,137 @@ def run_one(condition: str, index: int) -> dict:
     path.write_text(json.dumps(record, indent=2))
     print(condition, index, "PASS" if record["passed"] else "FAIL", flush=True)
     return record
+
+
+def _cli() -> list[str]:
+    return ["bun", str(REPO / "clients/cli/main.ts")]
+
+
+def _home_env(home: Path) -> dict:
+    env = os.environ.copy()
+    env["HOME"] = "/Users/nash"
+    env["VERA_HOME"] = str(home)
+    env["VERA_DEV_INSTANCE"] = "1"
+    return env
+
+
+def _write_home_config(home: Path) -> None:
+    provider, model_id = MODEL.split("/", 1)
+    (home / "config.json").write_text(json.dumps({
+        "schema_version": 1,
+        "provider": provider,
+        "model": model_id,
+        "reasoning_effort": "low",
+        "approval_mode": "auto",
+        "extensions": [{"path": str(EXT), "enabled": True}],
+    }, indent=2) + "\n", encoding="utf-8")
+
+
+def _library_add(home: Path, env: dict) -> str | None:
+    result = subprocess.run(
+        [*_cli(), "library", "add", MODEL],
+        cwd=str(REPO),
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    text = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0 or MODEL not in _library_text(env):
+        return f"Could not add {MODEL} to the library. {text.strip()}"
+    return None
+
+
+def _library_text(env: dict) -> str:
+    result = subprocess.run(
+        [*_cli(), "library", "list"],
+        cwd=str(REPO),
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    return (result.stdout or "") + (result.stderr or "")
+
+
+def _session_files(home: Path) -> list[Path]:
+    found: list[Path] = []
+    for relative in ("runtime/sessions", "runtime/logs"):
+        root = home / relative
+        if root.exists():
+            found.extend(root.rglob("*.jsonl"))
+    return sorted(found)
+
+
+def _recorded_models(home: Path) -> set[str]:
+    found: set[str] = set()
+    for path in _session_files(home):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "model_request":
+                continue
+            model = event.get("model") or ""
+            provider = event.get("provider") or ""
+            if provider and model:
+                found.add(f"{provider}/{model}")
+            elif model:
+                found.add(model)
+    return found
+
+
+def _preflight() -> str | None:
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        return "OPENROUTER_API_KEY is not set."
+    home = Path("/tmp/am-preflight-home")
+    if home.exists():
+        shutil.rmtree(home)
+    home.mkdir()
+    _write_home_config(home)
+    env = _home_env(home)
+    failed = _library_add(home, env)
+    if failed:
+        return failed
+    session_path = home / "preflight.jsonl"
+    result = subprocess.run(
+        [*_cli(), "-p", "reply with OK", "--prompt-only", "--model", MODEL, "--session", str(session_path)],
+        cwd=str(REPO),
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=180,
+    )
+    printed = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        return "Preflight call failed: " + printed.strip()
+    if "model " in printed and "->" in printed:
+        return "Preflight substituted the model: " + printed.strip()
+    ws = Path("/tmp/am-preflight-ws")
+    if ws.exists():
+        shutil.rmtree(ws)
+    ws.mkdir()
+    dist = REPO / "dist"
+    if dist.exists():
+        os.symlink(dist, ws / "dist")
+    _session(ws, home, ["reply with OK"])
+    fresh = _session_files(home)
+    if not fresh:
+        return "Preflight saved no session to inspect."
+    inspected = subprocess.run(
+        [*_cli(), "inspect", str(fresh[-1])],
+        cwd=str(REPO),
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    recorded = _recorded_models(home)
+    if MODEL not in recorded:
+        detail = (inspected.stdout or inspected.stderr or "").strip()
+        return f"Preflight recorded {sorted(recorded) or '(none)'}, not {MODEL}. inspect: {detail[:500]}"
+    return None
 
 
 def _stop_hosts(home: Path) -> None:
@@ -227,7 +352,7 @@ def _session(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
 
 
 def _seed_rest(ws: Path, env: dict) -> None:
-    """Halibut, then filler. Embeddings are batched. The live steps never say halibut."""
+    """Filler only. Nash says the halibut line himself, in an earlier session."""
     code = r'''
 import os, sys
 os.environ["ACTIVMEM_EMBED"] = "0"
@@ -236,7 +361,6 @@ from activmem.memory import ActivMem, _embed_text
 from activmem.vectors import VectorStore
 from corpus import filler
 mem = ActivMem(sys.argv[1])
-mem.save_turn("Halibut is my favourite fish.", "Okay.", "setup")
 for i in range(int(sys.argv[2])):
     mem.save_turn(filler(i), "Okay.", f"filler-{i}")
 rows = []
@@ -276,7 +400,7 @@ def _injected(ws: Path, message: str) -> str:
     return found
 
 
-def _grade(ws, first, second, third, condition, index) -> dict:
+def _grade(ws, home, first, second, said_halibut, third, condition, index) -> dict:
     sys.path[:0] = [str(ROOT / "src")]
     from activmem.memory import ActivMem
     mem = ActivMem(ws)
@@ -307,19 +431,36 @@ def _grade(ws, first, second, third, condition, index) -> dict:
     )
     order = third[0]["reply"] if third else ""
     why = third[1]["reply"] if len(third) > 1 else ""
-    keyword_c = "halibut" in order.lower() and not _recommends_pollock(order)
-    judge_c = _judge(order, "Does this reply recommend pollock as what to order? Does it reflect that Nash's current fish is halibut, not pollock?")
-    judge_d = _judge(why, "Does this reply say Nash took the pollock preference back?")
-    check_c = keyword_c and not _answer_yes(judge_c, 0)
-    check_d = _answer_yes(judge_d, 1)
+    judge_c = _judge(
+        home,
+        order,
+        'Does the reply pick halibut as the recommendation, rather than merely listing it among options? '
+        'Does it recommend pollock? Return only JSON: '
+        '{"recommends_pollock": false, "picks_halibut": false}',
+    )
+    judge_d = _judge(
+        home,
+        why,
+        'Does the reply say Nash took the pollock preference back? '
+        'Does it recommend pollock? Return only JSON: '
+        '{"recommends_pollock": false, "says_taken_back": false}',
+    )
+    parsed_c = _parse_json(judge_c)
+    parsed_d = _parse_json(judge_d)
+    check_c = parsed_c.get("picks_halibut") is True and parsed_c.get("recommends_pollock") is False
+    check_d = parsed_d.get("says_taken_back") is True
+    recorded = _recorded_models(home)
+    discarded = any(model != MODEL for model in recorded) or not recorded
     mem.close()
     return {
         "condition": condition,
         "run": index,
         "model": MODEL,
+        "recorded_models": sorted(recorded),
+        "discarded": discarded,
         "sessions": [
             {"prompt": turn["prompt"], "reply": turn["reply"], "tools": turn["tools"]}
-            for turn in [*first, *second, *third]
+            for turn in [*first, *second, *said_halibut, *third]
         ],
         "injected": injected,
         "a": check_a,
@@ -328,40 +469,28 @@ def _grade(ws, first, second, third, condition, index) -> dict:
         "d": check_d,
         "judge_c": judge_c,
         "judge_d": judge_d,
-        "passed": check_a and check_b and check_c and check_d,
+        "passed": (not discarded) and check_a and check_b and check_c and check_d,
     }
 
 
-def _answer_yes(text: str, line_index: int) -> bool:
-    lines = [line.strip().lower() for line in text.splitlines() if line.strip()]
-    if line_index >= len(lines):
-        return False
-    line = lines[line_index]
-    if ":" in line:
-        line = line.split(":", 1)[1].strip()
-    return line.startswith("yes")
+def _parse_json(text: str) -> dict:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        value = json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
-def _recommends_pollock(text: str) -> bool:
-    lowered = text.lower()
-    if "pollock" not in lowered:
-        return False
-    window = lowered
-    return "order pollock" in window or "try pollock" in window or "get pollock" in window or "go with pollock" in window
-
-
-def _judge(reply: str, rubric: str) -> str:
-    prompt = (
-        "Answer in two lines, each starting yes or no.\n"
-        f"{rubric}\n"
-        "Line 1: recommend pollock: yes or no\n"
-        "Line 2: took it back: yes or no\n\n"
-        f"Reply:\n{reply}"
-    )
+def _judge(home: Path, reply: str, rubric: str) -> str:
+    prompt = f"{rubric}\n\nReply:\n{reply}"
     result = subprocess.run(
         ["bun", str(REPO / "clients/cli/main.ts"), "-p", prompt, "--prompt-only", "--model", MODEL],
         cwd=str(REPO),
-        env={**os.environ, "HOME": "/Users/nash", "VERA_HOME": DEV_HOME, "VERA_DEV_INSTANCE": "1"},
+        env=_home_env(home),
         text=True,
         capture_output=True,
         timeout=120,
@@ -377,9 +506,11 @@ def _write_report(rows: list[dict], activmem_pass: int, control_fail: int, passe
     lines = [
         "# Acceptance",
         "",
-        f"Model: `{MODEL}` (free OpenRouter Nemotron).",
+        f"Model recorded in the session files: `{MODEL}`.",
         "",
         f"ActivMem passed {activmem_pass} / {RUNS}. Control failed C or D in {control_fail} / {RUNS}.",
+        "B is the injected block, C is whether the answer picked halibut, D is whether the explanation said the preference was taken back.",
+        "If B passes and C fails, the memory worked and the model did not use it.",
         f"Gate: {'pass' if passed else 'fail'}.",
         "",
         "| run | A | B | C | D |",

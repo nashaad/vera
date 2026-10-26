@@ -77,6 +77,78 @@ def test_revision_is_invisible_before_it_was_learned(tmp_path):
     mem.close()
 
 
+def test_saying_it_again_after_taking_it_back_is_current(tmp_path):
+    from activmem.memory import ActivMem
+
+    mem = ActivMem(tmp_path)
+    first = mem.save("I really like pollock.", actor="nash")
+    correction = mem.save("sike, I don't", actor="nash")
+    mem.revise(correction, first)
+    second = mem.save("I really like pollock.", actor="nash")
+    assert second != first
+    result = mem.recall("What do I like?")
+    assert any(hit.item_id == second for hit in result.results), _dump(result)
+    assert all(hit.item_id != first for hit in result.results), _dump(result)
+    assert any(hit.item_id == first for hit in result.suppressed), _dump(result)
+    mem.close()
+
+
+class _LateVectors:
+    def __init__(self, hits):
+        self.hits = hits
+        self.embed_calls = 0
+
+    def query(self, text, k):
+        return self.hits[:k]
+
+    def known(self):
+        return set()
+
+    def has(self, item_id):
+        return False
+
+    def add(self, *args, **kwargs):
+        return None
+
+    def add_many(self, *args, **kwargs):
+        return None
+
+    def delete(self, item_id):
+        return None
+
+
+def test_late_vector_hit_on_a_revised_line_is_still_taken_back(tmp_path):
+    """Run 4 called memory_revises, then the seafood injection said taken back: none.
+
+    Filler crowded the top vector hits, so the old line was never reached.
+    """
+    from activmem.memory import ActivMem
+    from corpus import filler
+
+    mem = ActivMem(tmp_path)
+    pollock = mem.save("I really like pollock.", actor="nash", session="life")
+    correction = mem.save("sike, I don't", actor="nash", session="life")
+    mem.revise(correction, pollock)
+    halibut = mem.save("Halibut is my favourite fish.", actor="nash", session="now")
+    fillers = [mem.save(filler(i), actor="nash", session=f"f{i}") for i in range(10)]
+    ranked = [(halibut, 0.61)]
+    ranked.extend((item, 0.45 - index * 0.01) for index, item in enumerate(fillers))
+    ranked.append((pollock, 0.22))
+    mem.vectors = _LateVectors(ranked)
+    mem.config.vector_k = 8
+    mem.config.vector_scan = 32
+    result = mem.recall("What seafood should I order tonight?", k=12, seeds="vectors", carry=0)
+    assert any("halibut" in hit.text.lower() for hit in result.results), _dump(result)
+    assert any("pollock" in hit.text.lower() for hit in result.suppressed), _dump(result)
+    assert "sike" in result.suppressed[0].revising_text or any(
+        "sike" in hit.revising_text for hit in result.suppressed
+    )
+    assert "seafood" not in result.no_record_of
+    assert "order" not in result.no_record_of
+    assert "tonight" not in result.no_record_of
+    mem.close()
+
+
 @pytest.mark.slow
 def test_halibut_fifty_thousand(tmp_path):
     mem = seed_halibut(tmp_path, 50_000, annotate=True)

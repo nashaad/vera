@@ -9,6 +9,7 @@ def test_cod_is_no_record(tmp_path):
     mem.save("Halibut is my favourite fish.", actor="nash", session="s")
     result = mem.recall("Why do I love cod?")
     assert "cod" in result.no_record_of
+    assert "love" not in result.no_record_of
     assert all("cod" not in hit.text.lower() for hit in result.results)
     assert all("cod" not in hit.text.lower() for hit in result.suppressed)
     mem.close()
