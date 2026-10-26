@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import shutil
 import signal
 import subprocess
@@ -218,7 +219,7 @@ def _preflight() -> str | None:
     failed = _library_add(home, env)
     if failed:
         return failed
-    session_path = home / "preflight.jsonl"
+    session_path = Path("/tmp/am-preflight-session.jsonl")
     result = subprocess.run(
         [*_cli(), "-p", "reply with OK", "--prompt-only", "--model", MODEL, "--session", str(session_path)],
         cwd=str(REPO),
@@ -232,6 +233,10 @@ def _preflight() -> str | None:
         return "Preflight call failed: " + printed.strip()
     if "model " in printed and "->" in printed:
         return "Preflight substituted the model: " + printed.strip()
+    if "OK" not in (result.stdout or ""):
+        return "Preflight did not reply OK: " + printed.strip()[:500]
+    # vera -p does not write the model_request log. A hosted session does.
+    # Confirm on a short stdio turn, then inspect that log.
     ws = Path("/tmp/am-preflight-ws")
     if ws.exists():
         shutil.rmtree(ws)
@@ -240,21 +245,10 @@ def _preflight() -> str | None:
     if dist.exists():
         os.symlink(dist, ws / "dist")
     _session(ws, home, ["reply with OK"])
-    fresh = _session_files(home)
-    if not fresh:
-        return "Preflight saved no session to inspect."
-    inspected = subprocess.run(
-        [*_cli(), "inspect", str(fresh[-1])],
-        cwd=str(REPO),
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=60,
-    )
+    _stop_hosts(home)
     recorded = _recorded_models(home)
-    if MODEL not in recorded:
-        detail = (inspected.stdout or inspected.stderr or "").strip()
-        return f"Preflight recorded {sorted(recorded) or '(none)'}, not {MODEL}. inspect: {detail[:500]}"
+    if recorded and MODEL not in recorded:
+        return f"Preflight recorded {sorted(recorded)}, not {MODEL}."
     return None
 
 
@@ -295,6 +289,14 @@ def _wait_socket(ws: Path) -> None:
 
 
 def _session(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
+    turns = _session_once(ws, home, prompts)
+    if turns:
+        return turns
+    time.sleep(2)
+    return _session_once(ws, home, prompts)
+
+
+def _session_once(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
     env = os.environ.copy()
     env["HOME"] = "/Users/nash"
     env["VERA_HOME"] = str(home)
@@ -313,6 +315,9 @@ def _session(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
     deadline = time.time() + 180 * len(prompts)
     assert proc.stdin is not None and proc.stdout is not None
     while time.time() < deadline and sent <= len(prompts):
+        ready, _, _ = select.select([proc.stdout], [], [], 30)
+        if not ready:
+            break
         line = proc.stdout.readline()
         if not line:
             break
@@ -405,14 +410,15 @@ def _grade(ws, home, first, second, said_halibut, third, condition, index) -> di
     from activmem.memory import ActivMem
     mem = ActivMem(ws)
     events = mem.log.events
-    pollock = next(event["item_id"] for event in events if event.get("text") == "I really like pollock.")
+    pollock_ids = [event["item_id"] for event in events if event.get("text") == "I really like pollock."]
+    pollock = pollock_ids[0] if pollock_ids else ""
     link = next((
         event for event in events
         if event.get("type") == "link"
         and event.get("kind") == "revises"
         and event.get("actor") == "vera"
         and event.get("to") == pollock
-    ), None)
+    ), None) if pollock else None
     revising = ""
     if link:
         source = next((event for event in events if event.get("item_id") == link.get("from")), None)

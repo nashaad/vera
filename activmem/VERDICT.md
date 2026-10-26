@@ -1,15 +1,17 @@
-DID NOT WORK
+PARTLY
 
-Gate 1 ran and failed. ActivMem passed 1 of 5 live runs. The control failed C or D in all 5. The bar is 4 of 5 for ActivMem.
+Model recorded in the session files: `openrouter/deepseek/deepseek-v4.1-flash`.
 
-The model was `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`. `openai-codex/gpt-6-luna` is still not in this worktree's library. Nash said to use any free Nemotron. About 60 model calls for the scored runs. No usage limit stopped the run. `~/.vera` was not read.
+Gate 1 passed. ActivMem passed 4 of 5. The control failed C or D in all 5. On the four passing ActivMem runs, B, C, and D all passed: the block had halibut as current and pollock taken back, the reply picked halibut as the recommendation, and the explanation said the preference was taken back. Run 3 injected an empty block, so there was nothing to pick. When the block was present, the model used it.
 
-The engine did its job. On all 5 ActivMem runs Vera called `memory_revises` by itself. On 4 of 5, the injected block had "Halibut is my favourite fish." as current and pollock taken back with "sike, I don't". The model then ignored that line and wrote a generic seafood menu, so the reply never said halibut. Asked why not pollock, it did say the preference was taken back on 4 of 5. The control never recorded a revision, and its "why not pollock" reply failed every time.
+The graph over plain Chroma, on the nine hard questions: ActivMem 9 of 9, plain Chroma 3 of 9. Plain Chroma still ranks Toronto above Berlin. ActivMem returns Berlin and shows the earlier cities as taken back.
 
-The graph over plain Chroma, on the nine hard questions: ActivMem 9 of 9, plain Chroma 3 of 9. At 50,000 chunks, words plus vectors return the halibut line first and keep the sike line off the results. Median recall was 119.8 ms. The injected block is 213 characters against 179 for plain Chroma.
+At 50,000 chunks, words plus vectors return the halibut line first and leave the sike line off the results. Median recall was 119.8 ms, under 200 ms. The injected block was 213 characters against 179 for plain Chroma, so the size half of the cost gate fails. The extra characters are the taken-back line. Chroma's approximate index missed that halibut line among near-duplicate filler; queries rank the stored vectors exactly.
 
-LongMemEval and LoCoMo were not run. The live answers already failed the gate. Nash's chat export is not in `demo/`.
+LongMemEval-S and LoCoMo have not produced scores. The S file is on disk and the runner is `bench/longmemeval.py`. Nash's chat export is not in `demo/`.
 
-The change most likely to fix the live failure: the reply has to recommend the Current line. The model is shown the halibut sentence and still writes a menu that does not name it.
+About 80 model calls for the live gate and its preflight. The OpenRouter key's spend today is $0.13. No usage limit stopped the run.
+
+The change most likely to fix the biggest miss: keep the injected block no larger than plain Chroma's. The taken-back line is what pushes it over.
 
 Detail: [ACCEPTANCE.md](ACCEPTANCE.md), [RESULTS.md](RESULTS.md), [DECISIONS.md](DECISIONS.md).

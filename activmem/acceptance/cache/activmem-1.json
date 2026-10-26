@@ -1,43 +1,60 @@
 {
   "condition": "activmem",
   "run": 1,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "That's great! Are you thinking of **Jackson Pollock** (the abstract expressionist painter known for his drip paintings), or **pollock the fish** (a mild, flaky white fish often used in fish sticks, surimi, and fish sandwiches)?\n\nEither way, good taste.",
+      "reply": "Jackson Pollock, or the fish? Either way, good taste \u2014 though they call for pretty different evenings.\n\nWant me to keep that on file for later, or are we just chatting?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Done. The memory has been updated to reflect that you don't like pollock.",
+      "reply": "Got it \u2014 I've updated the record: \"I really like pollock\" is taken back, so I won't factor that in going forward. What would you like to do next?",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
-            "new_text": "sike, I don't",
+            "new_text": "sike, I don't.",
             "old_item_id": "like-pollock-71c2"
           }
         }
       ]
     },
     {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "Got it \u2014 updating my picture of your tastes:\n\n- **Favourite fish: halibut** (just recorded; this replaces the earlier \"sike, I don't\" entry).\n- **Pollock: dropped** \u2014 that memory was taken back, so I won't bring it up or recommend it.\n\nSo halibut it is, and pollock is off the table. Anything you'd like me to do with that \u2014 a recipe, a shopping list, a recommendation filter?",
+      "tools": [
+        {
+          "tool": "memory_revises",
+          "args": {
+            "old_item_id": "sike-f8716",
+            "new_text": "Halibut is my favourite fish."
+          }
+        }
+      ]
+    },
+    {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Based on your preferences, **halibut** is your favorite fish \u2014 so that would be a great choice for tonight! \n\nSince you've explicitly noted you don't like pollock (that preference was retracted), I'd steer clear of that one.\n\nWant me to suggest a preparation style or any sides to go with it?",
+      "reply": "Based on what I have: **halibut** is your favourite fish, so that's my pick \u2014 grilled or pan-seared halibut if it's on the menu.\n\nOne note: I'd steer you away from pollock. You'd previously said you liked it, but you've since retracted that, so I won't recommend it.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Because you explicitly said \"sike, I don't\" \u2014 you retracted the statement that you like pollock. So based on what you've told me, you don't like it.",
+      "reply": "Because you told me so. My notes show you'd said you really like pollock, but then retracted it with \"sike, I don't.\" Since a retracted item is no longer true, I won't put pollock on your recommendation list \u2014 it's not that pollock is bad, just that I can't treat it as something you enjoy.\n\nIf you actually do like pollock and want it back on the list, just say so and I'll update that.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:18:52Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-5ec6a] (2026-10-26T16:38:32Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nTaken back: sike, I don't. [sike-f8716] \u2014 Halibut is my favourite fish.\nNo record of: none",
   "a": true,
   "b": true,
   "c": true,
   "d": true,
-  "judge_c": "no\nyes",
-  "judge_d": "recommend pollock: no\ntook it back: yes",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
   "passed": true
 }

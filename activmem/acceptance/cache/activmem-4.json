@@ -1,16 +1,20 @@
 {
   "condition": "activmem",
   "run": 4,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "That's great! Jackson Pollock's drip paintings are such a distinctive, energetic body of work. There's something so visceral about the way he moved around those massive canvases on the floor\u2014painting as a kind of physical performance.\n\nDo you have a favorite piece or period? *Number 1A, 1948* and *Autumn Rhythm* always strike me as particularly alive.",
+      "reply": "Pollock's a good one \u2014 I'm partial to the late drip paintings myself, all that tangled energy. Are you thinking the artist, or the fish? (Both are worth liking.)",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Got it \u2014 the \"I really like pollock\" memory is now retracted.",
+      "reply": "Recorded \u2014 the memory that you really like pollock is retracted, so I won't treat it as true or recommend based on it.",
       "tools": [
         {
           "tool": "memory_revises",
@@ -22,22 +26,27 @@
       ]
     },
     {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "Got it \u2014 noted: **halibut** is your favourite fish, going forward.\n\nAnd to confirm the cleanup: pollock is off the table (you took that back), so I won't recommend it.\n\nNo memory revision was needed here \u2014 halibut is a brand-new fact, and your new message doesn't retract the existing \"sike, I don't\" record.",
+      "tools": []
+    },
+    {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on what you're in the mood for! Here are a few directions:\n\n**Light & clean:** Oysters on the half shell, ceviche, or a chilled shrimp cocktail  \n**Rich & buttery:** Lobster roll, crab cakes, or scallops in brown butter  \n**Bold & spicy:** Blackened fish tacos, shrimp fra diavolo, or a spicy seafood stew  \n**Comforting:** Clam chowder, fish & chips, or a simple grilled salmon with lemon-herb butter  \n\nWhat sounds good\u2014something fancy, casual, spicy, or simple?",
+      "reply": "Halibut \u2014 that's your favourite fish, so it's the safe order. Grilled or pan-seared with a butter-and-caper finish is hard to beat.\n\nIf you want something different in the same league, I'd look at sea bass or turbot rather than pollock, which is off the list.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Fair point\u2014scratch pollock then. Since you don't like it, what else appeals? Mild white fish (cod, halibut, sole), something oilier (salmon, mackerel), shellfish, or a mixed seafood dish?",
+      "reply": "Because you took it back. Earlier you told me you really liked pollock, then retracted it \u2014 \"sike, I don't\" \u2014 so I'm treating it as something you don't want, and I won't recommend it unless you tell me the retraction was wrong.\n\nThe halibut recommendation still stands on its own; that's the one you've confirmed.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:27:42Z, nash)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:47:42Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: none",
   "a": true,
-  "b": false,
-  "c": false,
-  "d": false,
-  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
-  "judge_d": "Line 1: recommend pollock: no\nLine 2: took it back: yes",
-  "passed": false
+  "b": true,
+  "c": true,
+  "d": true,
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
+  "passed": true
 }

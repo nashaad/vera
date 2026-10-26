@@ -1,35 +1,64 @@
 {
   "condition": "control",
   "run": 3,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Are you talking about the fish (great for fish tacos, fish and chips, or surimi) or Jackson Pollock's drip paintings?",
-      "tools": []
+      "reply": "I'll take a quick look at the workspace to see if there's any context for this.I checked the workspace \u2014 it only holds a Vera release build (`dist/release` with the annex, supervisor, and worker bundles), nothing related to that. Your scratch folder is empty too.\n\nSo I don't have anything to act on yet. Two things I'd want to pin down before doing anything:\n\n- Which Pollock \u2014 Jackson Pollock the painter, or pollock the fish?\n- What you'd like me to do with it: pick something out, track it somewhere, or is it just context for later?\n\nRight now I'll just treat it as a preference you've told me and not invent work from it. If you meant it as something to remember for this session, say so and I'll hold onto it; if it's the start of a task, tell me the task and I'll get going.",
+      "tools": [
+        {
+          "tool": "list",
+          "args": {
+            "path": "/private/tmp/am-acc-control-3"
+          }
+        },
+        {
+          "tool": "list",
+          "args": {
+            "path": "/private/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera/3d199e50-77d0-46a9-a03f-e3ad0a16905a"
+          }
+        },
+        {
+          "tool": "list",
+          "args": {
+            "path": "/private/tmp/am-acc-control-3/dist",
+            "recursive": true
+          }
+        }
+      ]
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "There's nothing to retract \u2014 no memories have been established yet in this session. What would you like to work on?",
+      "reply": "I don't have a prior claim from you on record to retract \u2014 just this session identity, amber-knoll:647e, and nothing else. So there's nothing for me to revise or stop recommending.\n\nWhat is it you don't? Give me the statement and I'll go from there.",
+      "tools": []
+    },
+    {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "Got it \u2014 halibut is your favourite fish. That's new to me, so I've noted it as a fresh fact (nothing to revise).",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "Great question! Here are some tasty seafood ideas for tonight:\n\n**Light & Quick**\n- **Shrimp** \u2013 saut\u00e9ed in garlic butter, tossed in tacos, or over pasta (cooks in 3\u20134 min)\n- **Scallops** \u2013 pan-seared with a lemon-caper sauce, ready in 5 minutes\n- **White fish (cod, halibut, tilapia)** \u2013 baked with herbs, fish tacos, or fish & chips\n\n**Richer & Satisfying**\n- **Salmon** \u2013 roasted, glazed (miso, honey-soy, maple-mustard), or in a bowl with rice/veg\n- **Tuna steak** \u2013 seared rare with sesame crust, or poke-style raw if sushi-grade\n- **Lobster roll** \u2013 if you\u2019re feeling indulgent and have a good market nearby\n\n**Shellfish Fun**\n- **Mussels or clams** \u2013 steamed in white wine, garlic, and herbs with crusty bread for dipping\n- **Crab** \u2013 crab cakes, crab pasta, or just cracked with melted butter\n\n**What sounds good to you?** If you tell me:\n- Cooking vs. takeout\n- How much time/effort you want\n- Any allergies or dislikes\n- What\u2019s available near you\n\nI can narrow it down.",
+      "reply": "Halibut \u2014 that's your favourite fish, so it's the obvious pick. If you want to build the meal around it, a simply grilled or pan-seared halibut fillet with lemon and capers is a safe bet tonight.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "You're right \u2014 pollock is a great call! I just didn't happen to list it. Since you like it, here are some pollock-specific ideas:\n\n**Pollock strengths**\n- Mild, flaky, lean \u2014 takes on any flavor\n- Usually the most affordable white fish at the counter\n- Alaska pollock is MSC-certified sustainable\n- Freezes well, so it's often high quality even \"fresh\"\n\n**Ways to cook it tonight**\n- **Fish tacos** \u2013 beer-battered or cornmeal-dusted, with slaw and crema\n- **Fish & chips** \u2013 classic pub style, holds shape better than cod\n- **Sheet-pan bake** \u2013 lemon, garlic, herbs, cherry tomatoes, asparagus (20 min)\n- **Fish sandwich** \u2013 crispy fried, tartar, pickles, brioche bun\n- **Chowder** \u2013 add near the end so it doesn't overcook\n- **Surimi-style** \u2013 if you buy imitation crab, that's pollock \u2014 cold crab salad, sushi rolls, crab melt\n\n**Heads-up:** It's leaner than cod/haddock, so it overcooks fast. Pull it at 135\u00b0F / opaque center.\n\nWant a quick recipe for any of these?",
+      "reply": "No reason at all \u2014 you're on record liking pollock, so it's a perfectly good call. Pollock is milder, flakier and usually cheaper; halibut is your declared favourite. Either works tonight, so pick by mood: halibut if you want it to feel like a treat, pollock if you want something lighter or easier on the wallet.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Nice! Are you talking about the fish (great for fish tacos, fish and chips, or surimi) or Jackson Pollock's drip paintings? [nice-talking-fish-93bc] (2026-10-26T15:40:40Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish. That's new to me, so I've noted it as a fresh fact (nothing to revise). [got-halibut-favourite-d16c] (2026-10-26T17:05:41Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
   "c": true,
   "d": false,
-  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
-  "judge_d": "Line 1: recommend pollock: yes\nLine 2: took it back: no",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": true, \"says_taken_back\": false}",
   "passed": false
 }

@@ -1,43 +1,99 @@
 {
   "condition": "activmem",
   "run": 3,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "That's great! Are you thinking of the fish (a mild, flaky white fish that's great for fish tacos or fish and chips) or Jackson Pollock's drip paintings?",
+      "reply": "Noted \u2014 Jackson Pollock, I assume. The drip canvases, *Autumn Rhythm*, *Number 1A*, all that controlled chaos.\n\nWhat would you like to do with that? I can pull images or background, plot something Pollock-inspired, or just keep it in mind while we work on whatever else you've got.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Got it \u2014 the memory about liking pollock has been retracted.",
+      "reply": "Recorded \u2014 \"I really like pollock\" is now retracted, so I won't recommend anything based on it.",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
-            "new_text": "sike, I don't",
+            "new_text": "sike, I don't.",
             "old_item_id": "like-pollock-71c2"
           }
         }
       ]
     },
     {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "I'll start by looking at the workspace and scratch dir to understand what's actually stored, since the answer hinges on the exact memory state.I found the full memory history in `.activmem/events.jsonl` and `.activmem/context-log.jsonl`, so I can see exactly what's going on across the three turns:\n\n- Turn 1 \u2014 Nash: \"I really like pollock.\" \u2192 recorded as `like-pollock-71c2`.\n- Turn 2 \u2014 Nash: \"sike, I don't.\" \u2192 that retracted pollock, which is why pollock is under \"Taken back.\"\n- Turn 3 (now) \u2014 Nash: \"Halibut is my favourite fish.\" Context flags \"No record of: halibut.\"\n\nSo the halibut statement is a **brand-new fact**, not a retraction of anything. The current line it could theoretically touch is the dangling retraction \"sike, I don't.\" (`sike-6c1a1`), and Nash's message doesn't take that back or deny it \u2014 it just asserts a new preference. The guidance is explicit: don't call `memory_revises` for a brand-new fact. So no revision call here.\n\nGot it \u2014 **halibut is your favourite fish.** That's a new fact, not a change to anything already on record, so I'm just noting it.\n\nAnd pollock stays off the table: the earlier \"I really like pollock\" is retracted and won't be recommended for anything.",
+      "tools": [
+        {
+          "tool": "list",
+          "args": {
+            "path": "/private/tmp/am-acc-activmem-3",
+            "recursive": true,
+            "max_results": 100
+          }
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "pwd; ls -la; git -C /private/tmp/am-acc-activmem-3 log --oneline -20 2>&1 | head -40",
+            "description": "Inspect workspace root and git log"
+          }
+        },
+        {
+          "tool": "list",
+          "args": {
+            "max_results": 200,
+            "path": "/private/tmp/am-acc-activmem-3/.activmem",
+            "recursive": true
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": "/private/tmp/am-acc-activmem-3/.activmem/events.jsonl"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": "/private/tmp/am-acc-activmem-3/.activmem/context-log.jsonl"
+          }
+        }
+      ]
+    },
+    {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on what you're in the mood for! Here are a few directions you could go:\n\n**Light & clean:**  \n- Oysters on the half shell (with mignonette)  \n- Ceviche or crudo  \n- Steamed mussels or clams in white wine broth  \n\n**Rich & buttery:**  \n- Lobster roll (warm with butter or cold with mayo)  \n- Black cod / sablefish (miso-glazed is classic)  \n- Scallops, seared hard with a brown-butter sauce  \n\n**Grilled / hearty:**  \n- Whole branzino or snapper, grilled with herbs  \n- Swordfish or tuna steak  \n- Shrimp skewers with garlic and chili  \n\n**Fried / comfort:**  \n- Fish & chips (cod or haddock)  \n- Fried clam bellies or soft-shell crab  \n- Calamari  \n\n**If you tell me:**  \n- What restaurant/cuisine you're ordering from  \n- Whether you want light vs. indulgent  \n- Any allergies or strong dislikes  \n\n\u2026I can narrow it down. Otherwise, you can't go wrong with **oysters to start + a whole grilled fish to share**.",
-      "tools": []
+      "reply": "I'll take a quick look at the workspace in case there's a menu or note relevant to tonight.\n\nNothing in the workspace \u2014 no menu, no notes \u2014 and I don't have any prior preferences of yours on record, so this one's coming from scratch.\n\nHere's how I'd pick:\n\n- **Want something rich and low-effort?** Oysters or a shrimp cocktail to start, then seared scallops. Scallops are hard to get wrong at a decent kitchen and feel like a treat.\n- **Something light and clean?** Ceviche or ahi tuna, or grilled octopus with lemon.\n- **Comfort food mood?** Fish and chips, or a lobster roll.\n- **Peak season in late October:** mussels and clams are excellent, and crab is coming into its own. A bowl of mussels with a big order of fries is about as good as it gets this time of year.\n\nMy pick if you want one answer: **seared scallops, with oysters to start.**\n\nTwo things would sharpen this a lot \u2014 is there a cuisine or restaurant you're choosing from, and any allergies or things you steer clear of (shellfish, etc.)? Tell me those and I'll narrow it to one dish.",
+      "tools": [
+        {
+          "tool": "list",
+          "args": {
+            "path": "."
+          }
+        },
+        {
+          "tool": "agent_roster",
+          "args": {}
+        }
+      ]
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Because you just told me you don't like it. \ud83d\ude04\n\nThe memory system shows you retracted \"I really like pollock\" with \"sike, I don't\" \u2014 so I crossed it off the list.",
+      "reply": "Fair question, and there's no objective knock against pollock \u2014 it's mild, flaky, sustainable, and it's literally the classic fish-and-chips fish. Nothing about it makes it a bad order.\n\nThe only reason it wasn't on my list is your own preference as I have it: you once told me you really like pollock, and then took that back. So I'm keeping it off the recommendations \u2014 you said you don't, and I'd rather not steer you toward something you've told me you don't want.\n\nIf that's off \u2014 if the \"actually I don't\" was the wrong note, or you're just in the mood anyway \u2014 say so and I'll put pollock right at the top. Pan-fried with a crisp batter or simply dredged and seared in butter, it's a great call.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:24:34Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: none\nTaken back: none\nNo record of: none",
   "a": true,
-  "b": true,
+  "b": false,
   "c": false,
   "d": true,
-  "judge_c": "recommend pollock: no\ntook it back: no",
-  "judge_d": "no\nyes",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": false}",
+  "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
   "passed": false
 }

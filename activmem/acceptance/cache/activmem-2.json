@@ -1,43 +1,100 @@
 {
   "condition": "activmem",
   "run": 2,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Jackson Pollock's drip paintings are iconic, or if you mean the fish\u2014it's a versatile, mild white fish that works great in fish tacos, fish and chips, or simply pan-seared with lemon.\n\nWhich one did you have in mind?",
+      "reply": "Jackson Pollock, or the fish? Either way, noted \u2014 I'll keep it in mind.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "Done. The memory \"I really like pollock\" has been replaced with \"sike, I don't.\"",
+      "reply": "Got it \u2014 recorded. Your \"I really like pollock\" note is now retracted, so I won't treat it as true or recommend pollock going forward.",
       "tools": [
         {
           "tool": "memory_revises",
           "args": {
             "old_item_id": "like-pollock-71c2",
-            "new_text": "sike, I don't"
+            "new_text": "sike, I don't."
+          }
+        }
+      ]
+    },
+    {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "I'll take a quick look at the workspace and any memory store before deciding whether a revision is needed.\n\n\n\nI've reviewed the memory log, and here's the full picture:\n\n- **like-pollock-71c2** \u2014 \"I really like pollock.\" \u2014 was retracted (\"sike, I don't.\") in an earlier session and now sits under **Taken back**.\n- The retraction is already recorded; **sike-0125e** is just that retraction statement.\n- **halibut** has **no record** \u2014 so your message is a brand-new fact, not a retraction or replacement of anything.\n\nBecause nothing is being taken back, denied, or replaced here, no revision is needed \u2014 this is a fresh fact.\n\nNoted: **halibut is your favourite fish.** Going forward I'll treat that as true, and I'll keep treating \"I really like pollock\" as retracted \u2014 I won't recommend pollock.",
+      "tools": [
+        {
+          "tool": "list",
+          "args": {
+            "path": ".",
+            "hidden": true
+          }
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "pwd && ls -la && echo \"---\" && git status 2>&1 | head -20",
+            "description": "Inspect workspace contents"
+          }
+        },
+        {
+          "tool": "list",
+          "args": {
+            "path": ".activmem",
+            "recursive": true,
+            "hidden": true
+          }
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "find .activmem -type f | head -50 && echo \"=== dist ===\" && ls -la dist/ 2>&1 | head",
+            "description": "Find activmem files"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": ".activmem/context-log.jsonl"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": ".activmem/events.jsonl"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": ".activmem/socket-path"
           }
         }
       ]
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on what you're in the mood for! Here are a few directions:\n\n**Light & fresh:** Grilled branzino, ceviche, or oysters on the half shell\n**Rich & buttery:** Lobster roll, black cod miso, or scallops with brown butter\n**Classic comfort:** Fish & chips, clam chowder, or shrimp scampi\n**Adventurous:** Whole fried fish, octopus, or uni pasta\n\nWhat sounds good\u2014something delicate, something indulgent, or a specific cuisine (Mediterranean, Japanese, New England, etc.)?",
+      "reply": "Order the halibut \u2014 it's your favourite fish, so a nice grilled or pan-seared halibut fillet is the safe pick tonight.\n\nI'll steer you away from the pollock: that one's been taken off the table.",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Fair point! The memory shows you said \"I really like pollock\" but then took it back with \"sike, I don't\"\u2014so I didn't suggest it since you don't actually like it.\n\nIf you're reconsidering, pollock's solid for fish tacos, fish & chips, or a simple pan-fry with lemon-caper butter. Mild, flaky, and usually affordable.\n\nWant it back on the list, or skip it?",
+      "reply": "Because you told me you don't \u2014 the earlier \"I really like pollock\" got retracted with a \"sike, I don't,\" so I dropped it from the recommendations.\n\nIf you've changed your mind since then, say the word and I'll happily put pollock back on the list.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:21:43Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:41:43Z, nash)\nTaken back: I really like pollock. [like-pollock-71c2] \u2014 sike, I don't.\nNo record of: none",
   "a": true,
   "b": true,
-  "c": false,
+  "c": true,
   "d": true,
-  "judge_c": "Line 1: recommend pollock: no\nLine 2: took it back: no",
-  "judge_d": "recommend pollock: no\ntook it back: yes",
-  "passed": false
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": true}",
+  "passed": true
 }

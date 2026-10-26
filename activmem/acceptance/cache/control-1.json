@@ -1,35 +1,44 @@
 {
   "condition": "control",
   "run": 1,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Jackson Pollock's drip paintings are iconic\u2014there's something mesmerizing about that controlled chaos. Or if you mean the fish, it's a solid choice for fish tacos or a simple pan-fry.\n\nWhich Pollock are we talking about?",
+      "reply": "Got it \u2014 I'll keep that in mind. Jackson Pollock the painter, or pollock the fish? (Happy to just take it as a general fact about you either way.)\n\nIs there something you'd like me to do with it \u2014 keep it in the workspace notes for this session, or were you just setting context?",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "There's no memory item to revise \u2014 the context shows no current memories or taken-back items. The \"sike, I don't\" appears to be a new statement without a prior memory to retract.\n\nWhat would you like help with?",
+      "reply": "Got it \u2014 nothing to retract, and nothing on record to revise. There's no existing memory item here (Current is empty, and \"sike\" isn't on record), so there's nothing for me to take back or replace. I'll leave it at that unless you want me to record something new.",
+      "tools": []
+    },
+    {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "Got it \u2014 halibut is your favourite fish, and I'll keep that in mind. I also have on record that you really like pollock, and nothing under \"Taken back,\" so I won't treat either as retracted.\n\nWant me to save this halibut preference somewhere specific, or just keep it in the conversation?",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on a few things! To give a useful suggestion, I'd need to know:\n\n1. **What's available near you** \u2014 a restaurant menu, a market, or delivery options?\n2. **Your preferences** \u2014 do you like mild (cod, halibut, shrimp), rich (salmon, mackerel, sablefish), sweet (scallops, lobster, crab), or briny (oysters, clams, mussels)?\n3. **Cooking style** \u2014 grilled, fried, raw (sashimi/ceviche), steamed, in a stew/chowder, pasta, tacos?\n4. **Any constraints** \u2014 budget, sustainability concerns, allergies, cooking skill/time if you're making it yourself?\n\nIf you tell me what's on the menu or at the market, I can help you pick. Or if you're cooking at home, what's in your fridge/pantry?",
+      "reply": "Based on what I have on record, I'd go with **halibut** \u2014 it's your favourite fish, so it's the safest bet that you'll actually enjoy tonight.\n\nIf you want a second option, **pollock** is the other one you've told me you really like (it's great fried, for fish and chips).\n\nSo: halibut if you want the sure thing, pollock if you feel like a change.\n\nOne caveat: I have nothing on record about a specific restaurant, a budget, or what kind of seafood you're in the mood for tonight, so this is purely a \"what fish do you like\" answer rather than a recommendation for a particular place or dish. Want to tell me where you're ordering from or what style you want (grilled, fried, raw), and I can get more specific?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Pollock is a great choice \u2014 especially since you like it! \ud83c\udfaf\n\n**Why pollock works well:**\n- **Mild, flaky, versatile** \u2014 takes on whatever flavor you give it (tacos, fish & chips, baked with lemon-herb butter, chowder, poached in tomato broth)\n- **Sustainable** \u2014 Alaska pollock is one of the best-managed, highest-volume wild fisheries in the world (MSC certified)\n- **Affordable** \u2014 usually noticeably cheaper than cod, halibut, or haddock\n- **Low mercury** \u2014 safe for frequent eating\n- **Lean protein** \u2014 ~20g protein / 90 kcal per 100g\n\n**Tonight-worthy ideas:**\n| Style | Quick take |\n|-------|------------|\n| Fish tacos | Corn tortillas, slaw, crema, salsa verde \u2014 20 min |\n| Sheet-pan bake | Lemon, garlic, capers, olives, cherry tomatoes \u2014 15 min at 425\u00b0F |\n| Fish & chips | Beer batter or panko, malt vinegar, mushy peas |\n| Chowder | Potatoes, corn, bacon, cream \u2014 cozy bowl |\n| Poached in miso-tomato broth | With spinach, tofu, scallions \u2014 light & warming |\n\nHow do you usually like it prepared? If you're ordering out, check if they have it grilled, blackened, or in a sandwich/taco \u2014 those tend to show it off best.",
+      "reply": "No reason against it \u2014 pollock is a perfectly good call, and I did put it on the table as your second option. The only reason I led with halibut is that halibut is on record as your *favourite* fish, while pollock is one you *really like*. Favourite vs. really like \u2014 that's the whole difference, and it's a thin one.\n\nSo if you're leaning pollock, order the pollock. Both are on record as things you enjoy, and nothing has been taken back. Do you want me to treat pollock as your top pick from now on?",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Okay. [okay-03b2] (2026-10-26T15:34:21Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish, and I'll keep that in mind. I also have on record that you really like pollock, and nothing under \"Taken back,\" so I won't treat either as retracted.\n\nWant me to save this halibut preference somewhere specific, or just keep it in the conversation? [got-halibut-favourite-8a66] (2026-10-26T16:58:40Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
   "c": true,
   "d": false,
-  "judge_c": "recommend pollock: no\ntook it back: no",
-  "judge_d": "Line 1: recommend pollock: yes\nLine 2: took it back: no",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": true, \"says_taken_back\": false}",
   "passed": false
 }

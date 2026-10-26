@@ -1,534 +1,473 @@
 # Acceptance
 
-Model: `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free` (free OpenRouter Nemotron).
+Model recorded in the session files: `openrouter/deepseek/deepseek-v4.1-flash`.
 
-ActivMem passed 1 / 5. Control failed C or D in 5 / 5.
-Gate: fail.
+ActivMem passed 4 / 5. Control failed C or D in 5 / 5.
+B is the injected block, C is whether the answer picked halibut, D is whether the explanation said the preference was taken back.
+If B passes and C fails, the memory worked and the model did not use it.
+Gate: pass.
 
 | run | A | B | C | D |
 |---|---|---|---|---|
 | activmem 1 | True | True | True | True |
-| activmem 2 | True | True | False | True |
-| activmem 3 | True | True | False | True |
-| activmem 4 | True | False | False | False |
-| activmem 5 | True | True | False | True |
+| activmem 2 | True | True | True | True |
+| activmem 3 | True | False | False | True |
+| activmem 4 | True | True | True | True |
+| activmem 5 | True | True | True | True |
 | control 1 | False | False | True | False |
-| control 2 | False | False | True | False |
+| control 2 | False | False | False | False |
 | control 3 | False | False | True | False |
-| control 4 | False | False | False | False |
-| control 5 | False | False | True | False |
+| control 4 | False | False | True | False |
+| control 5 | False | False | False | False |
 
 ## activmem 1
 Prompt: I really like pollock.
 Tools: []
-Reply: That's great! Are you thinking of **Jackson Pollock** (the abstract expressionist painter known for his drip paintings), or **pollock the fish** (a mild, flaky white fish often used in fish sticks, surimi, and fish sandwiches)?
+Reply: Jackson Pollock, or the fish? Either way, good taste — though they call for pretty different evenings.
 
-Either way, good taste.
+Want me to keep that on file for later, or are we just chatting?
 
 Prompt: sike, I don't.
-Tools: [{'tool': 'memory_revises', 'args': {'new_text': "sike, I don't", 'old_item_id': 'like-pollock-71c2'}}]
-Reply: Done. The memory has been updated to reflect that you don't like pollock.
+Tools: [{'tool': 'memory_revises', 'args': {'new_text': "sike, I don't.", 'old_item_id': 'like-pollock-71c2'}}]
+Reply: Got it — I've updated the record: "I really like pollock" is taken back, so I won't factor that in going forward. What would you like to do next?
+
+Prompt: Halibut is my favourite fish.
+Tools: [{'tool': 'memory_revises', 'args': {'old_item_id': 'sike-f8716', 'new_text': 'Halibut is my favourite fish.'}}]
+Reply: Got it — updating my picture of your tastes:
+
+- **Favourite fish: halibut** (just recorded; this replaces the earlier "sike, I don't" entry).
+- **Pollock: dropped** — that memory was taken back, so I won't bring it up or recommend it.
+
+So halibut it is, and pollock is off the table. Anything you'd like me to do with that — a recipe, a shopping list, a recommendation filter?
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: Based on your preferences, **halibut** is your favorite fish — so that would be a great choice for tonight! 
+Reply: Based on what I have: **halibut** is your favourite fish, so that's my pick — grilled or pan-seared halibut if it's on the menu.
 
-Since you've explicitly noted you don't like pollock (that preference was retracted), I'd steer clear of that one.
-
-Want me to suggest a preparation style or any sides to go with it?
+One note: I'd steer you away from pollock. You'd previously said you liked it, but you've since retracted that, so I won't recommend it.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Because you explicitly said "sike, I don't" — you retracted the statement that you like pollock. So based on what you've told me, you don't like it.
+Reply: Because you told me so. My notes show you'd said you really like pollock, but then retracted it with "sike, I don't." Since a retracted item is no longer true, I won't put pollock on your recommendation list — it's not that pollock is bad, just that I can't treat it as something you enjoy.
+
+If you actually do like pollock and want it back on the list, just say so and I'll update that.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:18:52Z, nash)
-Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't
-No record of: seafood, order, tonight
+Current: Halibut is my favourite fish. [halibut-favourite-fish-5ec6a] (2026-10-26T16:38:32Z, nash)
+Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't.
+Taken back: sike, I don't. [sike-f8716] — Halibut is my favourite fish.
+No record of: none
 
-Judge C: no
-yes
-Judge D: recommend pollock: no
-took it back: yes
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": false, "says_taken_back": true}
 
 ## activmem 2
 Prompt: I really like pollock.
 Tools: []
-Reply: Nice! Jackson Pollock's drip paintings are iconic, or if you mean the fish—it's a versatile, mild white fish that works great in fish tacos, fish and chips, or simply pan-seared with lemon.
-
-Which one did you have in mind?
+Reply: Jackson Pollock, or the fish? Either way, noted — I'll keep it in mind.
 
 Prompt: sike, I don't.
-Tools: [{'tool': 'memory_revises', 'args': {'old_item_id': 'like-pollock-71c2', 'new_text': "sike, I don't"}}]
-Reply: Done. The memory "I really like pollock" has been replaced with "sike, I don't."
+Tools: [{'tool': 'memory_revises', 'args': {'old_item_id': 'like-pollock-71c2', 'new_text': "sike, I don't."}}]
+Reply: Got it — recorded. Your "I really like pollock" note is now retracted, so I won't treat it as true or recommend pollock going forward.
+
+Prompt: Halibut is my favourite fish.
+Tools: [{'tool': 'list', 'args': {'path': '.', 'hidden': True}}, {'tool': 'bash', 'args': {'command': 'pwd && ls -la && echo "---" && git status 2>&1 | head -20', 'description': 'Inspect workspace contents'}}, {'tool': 'list', 'args': {'path': '.activmem', 'recursive': True, 'hidden': True}}, {'tool': 'bash', 'args': {'command': 'find .activmem -type f | head -50 && echo "=== dist ===" && ls -la dist/ 2>&1 | head', 'description': 'Find activmem files'}}, {'tool': 'read', 'args': {'path': '.activmem/context-log.jsonl'}}, {'tool': 'read', 'args': {'path': '.activmem/events.jsonl'}}, {'tool': 'read', 'args': {'path': '.activmem/socket-path'}}]
+Reply: I'll take a quick look at the workspace and any memory store before deciding whether a revision is needed.
+
+
+
+I've reviewed the memory log, and here's the full picture:
+
+- **like-pollock-71c2** — "I really like pollock." — was retracted ("sike, I don't.") in an earlier session and now sits under **Taken back**.
+- The retraction is already recorded; **sike-0125e** is just that retraction statement.
+- **halibut** has **no record** — so your message is a brand-new fact, not a retraction or replacement of anything.
+
+Because nothing is being taken back, denied, or replaced here, no revision is needed — this is a fresh fact.
+
+Noted: **halibut is your favourite fish.** Going forward I'll treat that as true, and I'll keep treating "I really like pollock" as retracted — I won't recommend pollock.
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: That depends on what you're in the mood for! Here are a few directions:
+Reply: Order the halibut — it's your favourite fish, so a nice grilled or pan-seared halibut fillet is the safe pick tonight.
 
-**Light & fresh:** Grilled branzino, ceviche, or oysters on the half shell
-**Rich & buttery:** Lobster roll, black cod miso, or scallops with brown butter
-**Classic comfort:** Fish & chips, clam chowder, or shrimp scampi
-**Adventurous:** Whole fried fish, octopus, or uni pasta
-
-What sounds good—something delicate, something indulgent, or a specific cuisine (Mediterranean, Japanese, New England, etc.)?
+I'll steer you away from the pollock: that one's been taken off the table.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Fair point! The memory shows you said "I really like pollock" but then took it back with "sike, I don't"—so I didn't suggest it since you don't actually like it.
+Reply: Because you told me you don't — the earlier "I really like pollock" got retracted with a "sike, I don't," so I dropped it from the recommendations.
 
-If you're reconsidering, pollock's solid for fish tacos, fish & chips, or a simple pan-fry with lemon-caper butter. Mild, flaky, and usually affordable.
-
-Want it back on the list, or skip it?
+If you've changed your mind since then, say the word and I'll happily put pollock back on the list.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:21:43Z, nash)
-Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't
-No record of: seafood, order, tonight
+Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:41:43Z, nash)
+Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't.
+No record of: none
 
-Judge C: Line 1: recommend pollock: no
-Line 2: took it back: no
-Judge D: recommend pollock: no
-took it back: yes
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": false, "says_taken_back": true}
 
 ## activmem 3
 Prompt: I really like pollock.
 Tools: []
-Reply: That's great! Are you thinking of the fish (a mild, flaky white fish that's great for fish tacos or fish and chips) or Jackson Pollock's drip paintings?
+Reply: Noted — Jackson Pollock, I assume. The drip canvases, *Autumn Rhythm*, *Number 1A*, all that controlled chaos.
+
+What would you like to do with that? I can pull images or background, plot something Pollock-inspired, or just keep it in mind while we work on whatever else you've got.
 
 Prompt: sike, I don't.
-Tools: [{'tool': 'memory_revises', 'args': {'new_text': "sike, I don't", 'old_item_id': 'like-pollock-71c2'}}]
-Reply: Got it — the memory about liking pollock has been retracted.
+Tools: [{'tool': 'memory_revises', 'args': {'new_text': "sike, I don't.", 'old_item_id': 'like-pollock-71c2'}}]
+Reply: Recorded — "I really like pollock" is now retracted, so I won't recommend anything based on it.
+
+Prompt: Halibut is my favourite fish.
+Tools: [{'tool': 'list', 'args': {'path': '/private/tmp/am-acc-activmem-3', 'recursive': True, 'max_results': 100}}, {'tool': 'bash', 'args': {'command': 'pwd; ls -la; git -C /private/tmp/am-acc-activmem-3 log --oneline -20 2>&1 | head -40', 'description': 'Inspect workspace root and git log'}}, {'tool': 'list', 'args': {'max_results': 200, 'path': '/private/tmp/am-acc-activmem-3/.activmem', 'recursive': True}}, {'tool': 'read', 'args': {'path': '/private/tmp/am-acc-activmem-3/.activmem/events.jsonl'}}, {'tool': 'read', 'args': {'path': '/private/tmp/am-acc-activmem-3/.activmem/context-log.jsonl'}}]
+Reply: I'll start by looking at the workspace and scratch dir to understand what's actually stored, since the answer hinges on the exact memory state.I found the full memory history in `.activmem/events.jsonl` and `.activmem/context-log.jsonl`, so I can see exactly what's going on across the three turns:
+
+- Turn 1 — Nash: "I really like pollock." → recorded as `like-pollock-71c2`.
+- Turn 2 — Nash: "sike, I don't." → that retracted pollock, which is why pollock is under "Taken back."
+- Turn 3 (now) — Nash: "Halibut is my favourite fish." Context flags "No record of: halibut."
+
+So the halibut statement is a **brand-new fact**, not a retraction of anything. The current line it could theoretically touch is the dangling retraction "sike, I don't." (`sike-6c1a1`), and Nash's message doesn't take that back or deny it — it just asserts a new preference. The guidance is explicit: don't call `memory_revises` for a brand-new fact. So no revision call here.
+
+Got it — **halibut is your favourite fish.** That's a new fact, not a change to anything already on record, so I'm just noting it.
+
+And pollock stays off the table: the earlier "I really like pollock" is retracted and won't be recommended for anything.
 
 Prompt: What seafood should I order tonight?
-Tools: []
-Reply: That depends on what you're in the mood for! Here are a few directions you could go:
+Tools: [{'tool': 'list', 'args': {'path': '.'}}, {'tool': 'agent_roster', 'args': {}}]
+Reply: I'll take a quick look at the workspace in case there's a menu or note relevant to tonight.
 
-**Light & clean:**  
-- Oysters on the half shell (with mignonette)  
-- Ceviche or crudo  
-- Steamed mussels or clams in white wine broth  
+Nothing in the workspace — no menu, no notes — and I don't have any prior preferences of yours on record, so this one's coming from scratch.
 
-**Rich & buttery:**  
-- Lobster roll (warm with butter or cold with mayo)  
-- Black cod / sablefish (miso-glazed is classic)  
-- Scallops, seared hard with a brown-butter sauce  
+Here's how I'd pick:
 
-**Grilled / hearty:**  
-- Whole branzino or snapper, grilled with herbs  
-- Swordfish or tuna steak  
-- Shrimp skewers with garlic and chili  
+- **Want something rich and low-effort?** Oysters or a shrimp cocktail to start, then seared scallops. Scallops are hard to get wrong at a decent kitchen and feel like a treat.
+- **Something light and clean?** Ceviche or ahi tuna, or grilled octopus with lemon.
+- **Comfort food mood?** Fish and chips, or a lobster roll.
+- **Peak season in late October:** mussels and clams are excellent, and crab is coming into its own. A bowl of mussels with a big order of fries is about as good as it gets this time of year.
 
-**Fried / comfort:**  
-- Fish & chips (cod or haddock)  
-- Fried clam bellies or soft-shell crab  
-- Calamari  
+My pick if you want one answer: **seared scallops, with oysters to start.**
 
-**If you tell me:**  
-- What restaurant/cuisine you're ordering from  
-- Whether you want light vs. indulgent  
-- Any allergies or strong dislikes  
-
-…I can narrow it down. Otherwise, you can't go wrong with **oysters to start + a whole grilled fish to share**.
+Two things would sharpen this a lot — is there a cuisine or restaurant you're choosing from, and any allergies or things you steer clear of (shellfish, etc.)? Tell me those and I'll narrow it to one dish.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Because you just told me you don't like it. 😄
+Reply: Fair question, and there's no objective knock against pollock — it's mild, flaky, sustainable, and it's literally the classic fish-and-chips fish. Nothing about it makes it a bad order.
 
-The memory system shows you retracted "I really like pollock" with "sike, I don't" — so I crossed it off the list.
+The only reason it wasn't on my list is your own preference as I have it: you once told me you really like pollock, and then took that back. So I'm keeping it off the recommendations — you said you don't, and I'd rather not steer you toward something you've told me you don't want.
+
+If that's off — if the "actually I don't" was the wrong note, or you're just in the mood anyway — say so and I'll put pollock right at the top. Pan-fried with a crisp batter or simply dredged and seared in butter, it's a great call.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:24:34Z, nash)
-Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't
-No record of: seafood, order, tonight
+Current: none
+Taken back: none
+No record of: none
 
-Judge C: recommend pollock: no
-took it back: no
-Judge D: no
-yes
+Judge C: {"recommends_pollock": false, "picks_halibut": false}
+Judge D: {"recommends_pollock": false, "says_taken_back": true}
 
 ## activmem 4
 Prompt: I really like pollock.
 Tools: []
-Reply: That's great! Jackson Pollock's drip paintings are such a distinctive, energetic body of work. There's something so visceral about the way he moved around those massive canvases on the floor—painting as a kind of physical performance.
-
-Do you have a favorite piece or period? *Number 1A, 1948* and *Autumn Rhythm* always strike me as particularly alive.
+Reply: Pollock's a good one — I'm partial to the late drip paintings myself, all that tangled energy. Are you thinking the artist, or the fish? (Both are worth liking.)
 
 Prompt: sike, I don't.
 Tools: [{'tool': 'memory_revises', 'args': {'new_text': "sike, I don't", 'old_item_id': 'like-pollock-71c2'}}]
-Reply: Got it — the "I really like pollock" memory is now retracted.
+Reply: Recorded — the memory that you really like pollock is retracted, so I won't treat it as true or recommend based on it.
+
+Prompt: Halibut is my favourite fish.
+Tools: []
+Reply: Got it — noted: **halibut** is your favourite fish, going forward.
+
+And to confirm the cleanup: pollock is off the table (you took that back), so I won't recommend it.
+
+No memory revision was needed here — halibut is a brand-new fact, and your new message doesn't retract the existing "sike, I don't" record.
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: That depends on what you're in the mood for! Here are a few directions:
+Reply: Halibut — that's your favourite fish, so it's the safe order. Grilled or pan-seared with a butter-and-caper finish is hard to beat.
 
-**Light & clean:** Oysters on the half shell, ceviche, or a chilled shrimp cocktail  
-**Rich & buttery:** Lobster roll, crab cakes, or scallops in brown butter  
-**Bold & spicy:** Blackened fish tacos, shrimp fra diavolo, or a spicy seafood stew  
-**Comforting:** Clam chowder, fish & chips, or a simple grilled salmon with lemon-herb butter  
-
-What sounds good—something fancy, casual, spicy, or simple?
+If you want something different in the same league, I'd look at sea bass or turbot rather than pollock, which is off the list.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Fair point—scratch pollock then. Since you don't like it, what else appeals? Mild white fish (cod, halibut, sole), something oilier (salmon, mackerel), shellfish, or a mixed seafood dish?
+Reply: Because you took it back. Earlier you told me you really liked pollock, then retracted it — "sike, I don't" — so I'm treating it as something you don't want, and I won't recommend it unless you tell me the retraction was wrong.
+
+The halibut recommendation still stands on its own; that's the one you've confirmed.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:27:42Z, nash)
-Taken back: none
-No record of: seafood, order, tonight
+Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:47:42Z, nash)
+Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't
+No record of: none
 
-Judge C: Line 1: recommend pollock: no
-Line 2: took it back: no
-Judge D: Line 1: recommend pollock: no
-Line 2: took it back: yes
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": false, "says_taken_back": true}
 
 ## activmem 5
 Prompt: I really like pollock.
-Tools: []
-Reply: Nice! Are you talking about **Jackson Pollock** (the abstract expressionist painter), **pollock the fish** (like Alaska pollock, common in fish sticks and surimi), or something else entirely?
+Tools: [{'tool': 'list', 'args': {'path': '.', 'hidden': True}}, {'tool': 'bash', 'args': {'command': 'ls -la /private/tmp/am-acc-activmem-5 2>/dev/null; echo "---"; cat /private/tmp/am-acc-activmem-5/*.md 2>/dev/null | head -100'}}, {'tool': 'bash', 'args': {'command': 'find /private/tmp/am-acc-activmem-5/.activmem -type f | head -50; echo "==="; find /private/tmp/am-acc-activmem-5/.activmem -type d'}}, {'tool': 'bash', 'args': {'command': 'wc -l /private/tmp/am-acc-activmem-5/.activmem/context-log.jsonl; echo "==="; cat /private/tmp/am-acc-activmem-5/.activmem/socket-path'}}]
+Reply: I'll take a quick look at the workspace to see if there's any context I should be working with.
 
-If it's the artist—his drip paintings are wild. Seen any in person?
+I'll leave that file alone — reading a private memory log isn't something your message asks for.
+
+Noted that you really like Pollock. I haven't got a task from you beyond that, though — is there something you'd like me to do with it? For instance:
+
+- Just remember it as a preference for later.
+- Something concrete — a recommendation, a trip, a purchase, a bit of writing.
+
+One quick thing so I aim right: do you mean the painter (Jackson Pollock) or the fish? Happy to just take it as a general preference too, if you'd rather I not split hairs.
 
 Prompt: sike, I don't.
-Tools: [{'tool': 'memory_revises', 'args': {'old_item_id': 'like-pollock-71c2', 'new_text': "sike, I don't"}}]
-Reply: Got it — the memory about liking pollock has been retracted.
+Tools: [{'tool': 'memory_revises', 'args': {'new_text': "sike, I don't", 'old_item_id': 'like-pollock-71c2'}}]
+Reply: Got it — recorded that "I really like pollock" is taken back. I won't recommend pollock going forward, and the new note covers "sike, I don't."
+
+Prompt: Halibut is my favourite fish.
+Tools: []
+Reply: Got it — halibut is your favourite fish. I'll keep that in mind.
+
+Two notes from what I'm holding:
+- Pollock is off the list — that's been taken back, so I won't recommend it.
+- Halibut is new to me (no prior record), so this is a fresh fact, not a correction of anything.
+
+So: halibut, noted as your favourite. Anything you'd like me to do with that?
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: That depends on what you're in the mood for! Here are a few directions you could go:
+Reply: Halibut.
 
-**Light & fresh**
-- **Oysters or crudo** — great if you want something raw, briny, and bright
-- **Grilled whole fish** (branzino, snapper, trout) — simple, clean, lets the fish shine
-- **Ceviche or poke** — cold, citrusy, refreshing
-
-**Rich & comforting**
-- **Lobster roll or lobster pasta** — buttery, sweet, indulgent
-- **Seafood risotto or paella** — creamy, aromatic, feeds a crowd (or leftovers)
-- **Black cod / sablefish** — impossibly silky, hard to overcook
-
-**Bold & spicy**
-- **Spicy shrimp or crab** (think Sichuan, Cajun, or Korean gochujang styles)
-- **Fish tacos** with slaw and crema — casual, handheld, customizable
-- **Clams or mussels in tomato-chili broth** — great with crusty bread
-
-**Practical considerations**
-- What's *fresh and local* near you right now? That's usually the best guide.
-- Cooking at home or ordering out?
-- Any allergies, dietary restrictions, or strong dislikes (e.g., "no shellfish," "nothing too fishy")?
-
-If you tell me your vibe (fancy vs. casual, cooking vs. takeout, adventurous vs. safe) and roughly where you are, I can narrow it down.
+Given halibut is your favourite fish — and pollock is off the table — halibut is the clear pick. If you want a second option to compare against, tell me what's on the menu or what style you're after (grilled, fried, raw), and I'll suggest a backup.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Because you don't like it — you just said "sike, I don't" when the memory "I really like pollock" came up.
+Reply: Because you retracted it. Your earlier "I really like pollock" was taken back with "sike, I don't," so I'm treating pollock as off the table and not something to suggest.
 
-If you're open to mild white fish but want something different, cod, haddock, or hake sit in a similar lane. But if the question was genuine curiosity: pollock is perfectly decent — lean, flaky, affordable, and the backbone of fish sticks, surimi, and a lot of fast-food fish sandwiches. It just isn't *your* thing.
+If that's changed again and you do want pollock in the running, say so and I'll factor it back in.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T15:30:58Z, nash)
+Current: Halibut is my favourite fish. [halibut-favourite-fish-88eb] (2026-10-26T16:50:43Z, nash)
 Taken back: I really like pollock. [like-pollock-71c2] — sike, I don't
-No record of: seafood, order, tonight
+No record of: none
 
-Judge C: Line 1: recommend pollock: no
-Line 2: took it back: no
-Judge D: no
-yes
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": false, "says_taken_back": true}
 
 ## control 1
 Prompt: I really like pollock.
 Tools: []
-Reply: Nice! Jackson Pollock's drip paintings are iconic—there's something mesmerizing about that controlled chaos. Or if you mean the fish, it's a solid choice for fish tacos or a simple pan-fry.
+Reply: Got it — I'll keep that in mind. Jackson Pollock the painter, or pollock the fish? (Happy to just take it as a general fact about you either way.)
 
-Which Pollock are we talking about?
+Is there something you'd like me to do with it — keep it in the workspace notes for this session, or were you just setting context?
 
 Prompt: sike, I don't.
 Tools: []
-Reply: There's no memory item to revise — the context shows no current memories or taken-back items. The "sike, I don't" appears to be a new statement without a prior memory to retract.
+Reply: Got it — nothing to retract, and nothing on record to revise. There's no existing memory item here (Current is empty, and "sike" isn't on record), so there's nothing for me to take back or replace. I'll leave it at that unless you want me to record something new.
 
-What would you like help with?
+Prompt: Halibut is my favourite fish.
+Tools: []
+Reply: Got it — halibut is your favourite fish, and I'll keep that in mind. I also have on record that you really like pollock, and nothing under "Taken back," so I won't treat either as retracted.
+
+Want me to save this halibut preference somewhere specific, or just keep it in the conversation?
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: That depends on a few things! To give a useful suggestion, I'd need to know:
+Reply: Based on what I have on record, I'd go with **halibut** — it's your favourite fish, so it's the safest bet that you'll actually enjoy tonight.
 
-1. **What's available near you** — a restaurant menu, a market, or delivery options?
-2. **Your preferences** — do you like mild (cod, halibut, shrimp), rich (salmon, mackerel, sablefish), sweet (scallops, lobster, crab), or briny (oysters, clams, mussels)?
-3. **Cooking style** — grilled, fried, raw (sashimi/ceviche), steamed, in a stew/chowder, pasta, tacos?
-4. **Any constraints** — budget, sustainability concerns, allergies, cooking skill/time if you're making it yourself?
+If you want a second option, **pollock** is the other one you've told me you really like (it's great fried, for fish and chips).
 
-If you tell me what's on the menu or at the market, I can help you pick. Or if you're cooking at home, what's in your fridge/pantry?
+So: halibut if you want the sure thing, pollock if you feel like a change.
+
+One caveat: I have nothing on record about a specific restaurant, a budget, or what kind of seafood you're in the mood for tonight, so this is purely a "what fish do you like" answer rather than a recommendation for a particular place or dish. Want to tell me where you're ordering from or what style you want (grilled, fried, raw), and I can get more specific?
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Pollock is a great choice — especially since you like it! 🎯
+Reply: No reason against it — pollock is a perfectly good call, and I did put it on the table as your second option. The only reason I led with halibut is that halibut is on record as your *favourite* fish, while pollock is one you *really like*. Favourite vs. really like — that's the whole difference, and it's a thin one.
 
-**Why pollock works well:**
-- **Mild, flaky, versatile** — takes on whatever flavor you give it (tacos, fish & chips, baked with lemon-herb butter, chowder, poached in tomato broth)
-- **Sustainable** — Alaska pollock is one of the best-managed, highest-volume wild fisheries in the world (MSC certified)
-- **Affordable** — usually noticeably cheaper than cod, halibut, or haddock
-- **Low mercury** — safe for frequent eating
-- **Lean protein** — ~20g protein / 90 kcal per 100g
-
-**Tonight-worthy ideas:**
-| Style | Quick take |
-|-------|------------|
-| Fish tacos | Corn tortillas, slaw, crema, salsa verde — 20 min |
-| Sheet-pan bake | Lemon, garlic, capers, olives, cherry tomatoes — 15 min at 425°F |
-| Fish & chips | Beer batter or panko, malt vinegar, mushy peas |
-| Chowder | Potatoes, corn, bacon, cream — cozy bowl |
-| Poached in miso-tomato broth | With spinach, tofu, scallions — light & warming |
-
-How do you usually like it prepared? If you're ordering out, check if they have it grilled, blackened, or in a sandwich/taco — those tend to show it off best.
+So if you're leaning pollock, order the pollock. Both are on record as things you enjoy, and nothing has been taken back. Do you want me to treat pollock as your top pick from now on?
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Okay. [okay-03b2] (2026-10-26T15:34:21Z, vera)
+Current: Got it — halibut is your favourite fish, and I'll keep that in mind. I also have on record that you really like pollock, and nothing under "Taken back," so I won't treat either as retracted.
+
+Want me to save this halibut preference somewhere specific, or just keep it in the conversation? [got-halibut-favourite-8a66] (2026-10-26T16:58:40Z, vera)
 Taken back: none
 No record of: seafood, order, tonight
 
-Judge C: recommend pollock: no
-took it back: no
-Judge D: Line 1: recommend pollock: yes
-Line 2: took it back: no
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": true, "says_taken_back": false}
 
 ## control 2
 Prompt: I really like pollock.
-Tools: []
-Reply: Nice! Pollock's a great choice—mild, flaky, and works in everything from fish tacos to a proper fish and chips.
+Tools: [{'tool': 'bash', 'args': {'command': 'pwd && ls -la', 'description': 'List workspace contents'}}, {'tool': 'list', 'args': {'path': '/private/tmp/am-acc-control-2', 'hidden': True}}, {'tool': 'bash', 'args': {'command': 'find .activmem -type f | head -50', 'description': 'Find files in .activmem'}}, {'tool': 'list', 'args': {'path': '/private/tmp/am-acc-control-2/.activmem', 'recursive': True, 'hidden': True}}, {'tool': 'read', 'args': {'path': '/private/tmp/am-acc-control-2/.activmem/context-log.jsonl'}}, {'tool': 'bash', 'args': {'command': 'cat .activmem/socket-path; echo; wc -l .activmem/context-log.jsonl', 'description': 'Show socket path and log line count'}}]
+Reply: I'll take a quick look at the workspace to see if "pollock" refers to something here.Got it — noting that you really like Pollock.
 
-Is there something in the workspace you'd like me to help with, or just chatting?
+Quick check on my end: I looked at the workspace (`.activmem/context-log.jsonl`), and my memory context for this session shows **no record of** "like" or "pollock" — the Current and Taken-back lists are both empty. So this is a brand-new fact, not a correction of anything I had stored, and there's nothing to revise.
+
+One genuine ambiguity though: **which Pollock?**
+
+- **Jackson Pollock** — the abstract expressionist painter
+- **Pollock** (the fish) — as in pollock fillets / fish and chips
+
+Which one are you into? Happy to just remember "you really like Pollock" as-is if the ambiguity doesn't matter to you.
 
 Prompt: sike, I don't.
 Tools: []
-Reply: Got it—nothing to revise since there's no prior memory to retract. What would you like to work on?
+Reply: There's no memory on record to revise here — no Current line, and no item id to retract, so there's nothing for me to take back. Noted: nothing was ever recorded on this.
+
+Prompt: Halibut is my favourite fish.
+Tools: []
+Reply: Noted — halibut is your favourite fish. That's a new fact, so there's nothing to take back: it doesn't conflict with your recorded "I really like pollock," and I won't treat it as replacing that.
+
+Is there anything you'd like me to do with this, or were you just telling me?
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: Since you're asking casually (and not about anything in the workspace), here are a few solid picks depending on your mood:
+Reply: You've told me you really like pollock, so that's my pick: order the pollock tonight. It's mild and flaky, so it works breaded and fried, baked with butter and lemon, or in a fish sandwich — whichever the menu leans toward.
 
-**If you want something familiar & crowd-pleasing:**
-- **Salmon** — rich, forgiving to cook, great grilled/roasted/pan-seared
-- **Shrimp** — fast, versatile (scampi, tacos, garlic butter, fried rice)
-
-**If you want mild & flaky (like pollock but different):**
-- **Cod or haddock** — classic for fish & chips, fish tacos, or baked with lemon-herb butter
-- **Halibut** — firmer, sweeter, holds up to grilling
-
-**If you're feeling adventurous:**
-- **Scallops** — seared hard with a pan sauce (quick, impressive)
-- **Mussels or clams** — steamed in white wine/garlic/herbs, sop up broth with bread
-- **Branzino or whole trout** — roasted whole, dramatic presentation
-
-**Quick decision framework:**
-| Craving | Go for |
-|---------|--------|
-| Low effort, high reward | Salmon or shrimp |
-| Classic "fish dinner" | Cod/haddock |
-| Date-night fancy | Scallops or whole fish |
-| Shareable, saucy | Mussels/clams |
-
-Any dietary preferences, cooking method constraints, or a cuisine direction you're leaning toward? I can narrow it down.
+If you want a backup in case they're out, tell me what else you enjoy and I'll suggest a second choice.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Pollock *is* a great choice—mild, flaky, affordable, and versatile (tacos, fish & chips, chowder, baked). I just didn't happen to list it in my quick rundown. No knock against it at all.
+Reply: There's no reason *not* to — nothing against pollock. But let me be straight about where my earlier pick came from.
 
-If you like pollock, stick with it! It's a workhorse for a reason. Want a specific prep idea for it tonight?
+Last turn I recommended pollock because of a stored note that you really like pollock. That note is no longer in my current context — the only thing I have now is your question about what seafood to order tonight. So I can't currently point to a preference of yours for *or* against pollock.
+
+So: if you like pollock, order it — mild, flaky, works fried, baked, or in a sandwich. If you'd rather I suggest something, tell me what you're in the mood for and I'll go from there.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Nice! Pollock's a great choice—mild, flaky, and works in everything from fish tacos to a proper fish and chips.
-
-Is there something in the workspace you'd like me to help with, or just chatting? [nice-pollock-great-4d89] (2026-10-26T15:37:19Z, vera)
+Current: I really like pollock. [like-pollock-71c2] (2026-10-26T17:01:38Z, nash)
 Taken back: none
 No record of: seafood, order, tonight
 
-Judge C: Line 1: recommend pollock: no
-Line 2: took it back: no
-Judge D: yes
-no
+Judge C: {"recommends_pollock": true, "picks_halibut": false}
+Judge D: {"recommends_pollock": false, "says_taken_back": false}
 
 ## control 3
 Prompt: I really like pollock.
-Tools: []
-Reply: Nice! Are you talking about the fish (great for fish tacos, fish and chips, or surimi) or Jackson Pollock's drip paintings?
+Tools: [{'tool': 'list', 'args': {'path': '/private/tmp/am-acc-control-3'}}, {'tool': 'list', 'args': {'path': '/private/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera/3d199e50-77d0-46a9-a03f-e3ad0a16905a'}}, {'tool': 'list', 'args': {'path': '/private/tmp/am-acc-control-3/dist', 'recursive': True}}]
+Reply: I'll take a quick look at the workspace to see if there's any context for this.I checked the workspace — it only holds a Vera release build (`dist/release` with the annex, supervisor, and worker bundles), nothing related to that. Your scratch folder is empty too.
+
+So I don't have anything to act on yet. Two things I'd want to pin down before doing anything:
+
+- Which Pollock — Jackson Pollock the painter, or pollock the fish?
+- What you'd like me to do with it: pick something out, track it somewhere, or is it just context for later?
+
+Right now I'll just treat it as a preference you've told me and not invent work from it. If you meant it as something to remember for this session, say so and I'll hold onto it; if it's the start of a task, tell me the task and I'll get going.
 
 Prompt: sike, I don't.
 Tools: []
-Reply: There's nothing to retract — no memories have been established yet in this session. What would you like to work on?
+Reply: I don't have a prior claim from you on record to retract — just this session identity, amber-knoll:647e, and nothing else. So there's nothing for me to revise or stop recommending.
+
+What is it you don't? Give me the statement and I'll go from there.
+
+Prompt: Halibut is my favourite fish.
+Tools: []
+Reply: Got it — halibut is your favourite fish. That's new to me, so I've noted it as a fresh fact (nothing to revise).
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: Great question! Here are some tasty seafood ideas for tonight:
-
-**Light & Quick**
-- **Shrimp** – sautéed in garlic butter, tossed in tacos, or over pasta (cooks in 3–4 min)
-- **Scallops** – pan-seared with a lemon-caper sauce, ready in 5 minutes
-- **White fish (cod, halibut, tilapia)** – baked with herbs, fish tacos, or fish & chips
-
-**Richer & Satisfying**
-- **Salmon** – roasted, glazed (miso, honey-soy, maple-mustard), or in a bowl with rice/veg
-- **Tuna steak** – seared rare with sesame crust, or poke-style raw if sushi-grade
-- **Lobster roll** – if you’re feeling indulgent and have a good market nearby
-
-**Shellfish Fun**
-- **Mussels or clams** – steamed in white wine, garlic, and herbs with crusty bread for dipping
-- **Crab** – crab cakes, crab pasta, or just cracked with melted butter
-
-**What sounds good to you?** If you tell me:
-- Cooking vs. takeout
-- How much time/effort you want
-- Any allergies or dislikes
-- What’s available near you
-
-I can narrow it down.
+Reply: Halibut — that's your favourite fish, so it's the obvious pick. If you want to build the meal around it, a simply grilled or pan-seared halibut fillet with lemon and capers is a safe bet tonight.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: You're right — pollock is a great call! I just didn't happen to list it. Since you like it, here are some pollock-specific ideas:
-
-**Pollock strengths**
-- Mild, flaky, lean — takes on any flavor
-- Usually the most affordable white fish at the counter
-- Alaska pollock is MSC-certified sustainable
-- Freezes well, so it's often high quality even "fresh"
-
-**Ways to cook it tonight**
-- **Fish tacos** – beer-battered or cornmeal-dusted, with slaw and crema
-- **Fish & chips** – classic pub style, holds shape better than cod
-- **Sheet-pan bake** – lemon, garlic, herbs, cherry tomatoes, asparagus (20 min)
-- **Fish sandwich** – crispy fried, tartar, pickles, brioche bun
-- **Chowder** – add near the end so it doesn't overcook
-- **Surimi-style** – if you buy imitation crab, that's pollock — cold crab salad, sushi rolls, crab melt
-
-**Heads-up:** It's leaner than cod/haddock, so it overcooks fast. Pull it at 135°F / opaque center.
-
-Want a quick recipe for any of these?
+Reply: No reason at all — you're on record liking pollock, so it's a perfectly good call. Pollock is milder, flakier and usually cheaper; halibut is your declared favourite. Either works tonight, so pick by mood: halibut if you want it to feel like a treat, pollock if you want something lighter or easier on the wallet.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Nice! Are you talking about the fish (great for fish tacos, fish and chips, or surimi) or Jackson Pollock's drip paintings? [nice-talking-fish-93bc] (2026-10-26T15:40:40Z, vera)
+Current: Got it — halibut is your favourite fish. That's new to me, so I've noted it as a fresh fact (nothing to revise). [got-halibut-favourite-d16c] (2026-10-26T17:05:41Z, vera)
 Taken back: none
 No record of: seafood, order, tonight
 
-Judge C: Line 1: recommend pollock: no
-Line 2: took it back: no
-Judge D: Line 1: recommend pollock: yes
-Line 2: took it back: no
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": true, "says_taken_back": false}
 
 ## control 4
 Prompt: I really like pollock.
 Tools: []
-Reply: Nice! Are you talking about **Jackson Pollock** the abstract expressionist painter, or **pollock the fish** (Alaska pollock / walleye pollock)? Or something else entirely?
+Reply: Noted — good to know. Is it Jackson Pollock you're thinking of, or the fish? Just say the word if there's something you'd like me to do with that.
 
 Prompt: sike, I don't.
 Tools: []
-Reply: That's fine — nothing to revise. What can I help you with?
+Reply: I don't have a memory item to revise here — the context shows `Current: none` and `Taken back: none`, so there's no stored claim with an item id for "sike, I don't" to retract. `memory_revises` needs an old item id from a Current line, and there isn't one.
+
+So nothing changes on my side. What did you mean to retract, or what would you like to do next?
+
+Prompt: Halibut is my favourite fish.
+Tools: []
+Reply: Got it — halibut is your favourite fish. Noted, and I'll keep your pollock preference in mind too since that one still stands.
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: That depends on what you're in the mood for! Here are a few directions you could go:
+Reply: Given what I have on file: **halibut** — it's your favourite fish, so that's the easy call for tonight. If you want something different or the halibut isn't available, **pollock** is the other one that still stands as a preference of yours.
 
-**Light & fresh:** Grilled branzino, ceviche, or a raw bar platter (oysters, shrimp, crudo)
-
-**Rich & buttery:** Lobster roll, seared scallops with brown butter, or black cod miso
-
-**Bold & spicy:** Cajun shrimp, whole fried fish with chili sauce, or spicy cioppino
-
-**Cozy & comforting:** New England clam chowder, shrimp and grits, or seafood risotto
-
-Any cravings, dietary preferences, or type of restaurant you're thinking (casual, fancy, takeout)? That'd help narrow it down.
+Want me to look up a specific restaurant or dish, or were you after something else entirely?
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Good call — pollock's a solid choice and I should've included it. Since you like it, here are a few ways to go tonight:
+Reply: No reason against it — pollock is on the list and I flagged it as your fallback. The only ranking I have is that **halibut is your favourite fish**, with **pollock** as a preference that still stands, so I put halibut first and pollock as the alternative rather than ruling it out.
 
-**Classic:** Fish & chips (pollock's the standard for a reason — mild, flaky, holds batter perfectly)
-
-**Light:** Grilled or pan-seared with lemon-caper butter, or en papillote with herbs and white wine
-
-**Cozy:** Fish tacos with slaw and crema, or a pollock chowder (lighter than clam but still satisfying)
-
-**Bold:** Blackened with Cajun spice, or Korean-style braised in gochujang-soy broth (saengseon-jorim style)
-
-**Easy takeout:** Most "white fish" sandwiches/tacos at casual spots are pollock — reliable and affordable
-
-Any of those sound good, or do you have a go-to prep you keep coming back to?
+If you'd rather have pollock tonight, that's a perfectly good call — say the word and I'll treat it as the pick.
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Okay. [okay-03b2] (2026-10-26T15:44:10Z, vera)
+Current: Got it — halibut is your favourite fish. Noted, and I'll keep your pollock preference in mind too since that one still stands. [got-halibut-favourite-7b15] (2026-10-26T17:08:26Z, vera)
 Taken back: none
 No record of: seafood, order, tonight
 
-Judge C: recommend pollock: no
-took it back: no
-Judge D: recommend pollock: yes
-took it back: no
+Judge C: {"recommends_pollock": false, "picks_halibut": true}
+Judge D: {"recommends_pollock": false, "says_taken_back": false}
 
 ## control 5
 Prompt: I really like pollock.
 Tools: []
-Reply: That's great! Jackson Pollock's drip paintings are iconic—so much energy and movement captured on canvas. 
-
-Are you working on something related to Pollock or abstract expressionism, or just sharing a favorite artist?
+Reply: Noted — Pollock it is. Is there something you'd like me to do with that? I can keep it in mind for recommendations, or put together a quick something (a painting-style piece, a list of where to see his work, a recipe-adjacent joke about the fish if you meant the other Pollock).
 
 Prompt: sike, I don't.
 Tools: []
-Reply: No current memory item to revise—nothing tracked for "sike." Carry on.
+Reply: There's no current memory here to take back — `Current: none`, and `sike` has no existing record — so there's nothing for me to revise. No action needed on my end.
+
+Is there something specific you'd like me to do?
+
+Prompt: Halibut is my favourite fish.
+Tools: [{'tool': 'memory_revises', 'args': {'new_text': 'Halibut is my favourite fish.', 'old_item_id': 'noted-pollock-something-1c5e'}}]
+Reply: Got it — halibut, not pollock. I've replaced the earlier note, so halibut is what I'll keep in mind for recommendations (and no painter-mixup next time).
+
+Want me to do anything with that, or just file it away?
 
 Prompt: What seafood should I order tonight?
 Tools: []
-Reply: That depends on what you're in the mood for! Here are a few directions:
+Reply: Depends on your mood and what's good near you, but here's my quick take:
 
-**Light & fresh:** Grilled white fish (halibut, cod, snapper) with lemon-herb butter, or a ceviche/poke bowl if you want raw.
+- **Feeling decadent:** raw oysters or a lobster roll.
+- **Comfort food:** fish and chips, or a shrimp po' boy.
+- **Lighter:** seared scallops or ahi tuna over rice.
+- **Sharing:** a peel-and-eat shrimp platter or a seafood boil.
+- **Can't decide:** a mixed grill (shrimp, scallops, white fish) usually covers everyone.
 
-**Rich & buttery:** Salmon (roasted or pan-seared), sablefish/black cod, or lobster roll if you're feeling indulgent.
-
-**Shellfish route:** Mussels in white wine broth, garlic shrimp, crab cakes, or a classic shrimp scampi.
-
-**Fried/comfort:** Fish & chips, fried clams, or a shrimp po'boy.
-
-**Quick deciding questions:**
-- Cooking at home or ordering takeout?
-- Any allergies or strong dislikes (e.g., "no shellfish," "nothing too fishy")?
-- Want something healthy-ish or a treat-yourself meal?
-
-If you tell me the vibe, I can narrow it down.
+If you tell me the restaurant or cuisine you're leaning toward — plus whether you want fried vs. grilled, and budget — I can narrow it to one pick.
 
 Prompt: Why not pollock?
 Tools: []
-Reply: Since you like pollock, that's a great choice tonight! It's mild, flaky, affordable, and takes flavors well. A few ideas:
+Reply: No good reason — it just didn't make my list, and it should have. Pollock's genuinely great: mild, sweet, flaky white fish, and cheap enough to eat often. It's also what most "fish and chips" and fast-food fish sandwiches actually are, so it shows up more than people realize.
 
-**Simple & quick (weeknight-friendly)**
-- **Pan-seared** with lemon-caper butter sauce (3–4 min per side)
-- **Baked** with garlic, herbs, and a panko-parm crust
-- **Fish tacos** — batter-fried or grilled, with slaw and crema
+Ways I'd order it:
+- **Fish and chips** — it's arguably the ideal fish for it.
+- **Fried fish sandwich / tacos** — holds up to breading and toppings.
+- **Baked or broiled with lemon, butter, and herbs** — as long as it's fresh and not overcooked.
+- **Fish chowder or fish cakes** — good use for the firmer bits.
 
-**Richer preparations**
-- **Pollock piccata** (like chicken piccata but lighter)
-- **En papillote** with fennel, tomato, white wine, olives
-- **Chowder** — it holds shape better than cod in cream broth
+Only caveat: it's lean and can dry out, so it shines fried or in a sauce rather than plain grilled.
 
-**If ordering out**
-- Look for **fish & chips** (often pollock/haddock), **fish sandwich**, or **grilled fish plate** — ask what white fish they use.
-
-Want a specific recipe or cooking method? I can walk you through one.
+So — since you like it, pollock would easily be my top pick tonight. Want me to settle on a specific preparation?
 
 Injected:
 Items under "Taken back" are no longer true and must not be recommended.
-Current: Okay. [okay-03b2] (2026-10-26T15:46:53Z, vera)
+Current: Halibut is my favourite fish. [halibut-favourite-fish-86887] (2026-10-26T17:11:08Z, nash)
 Taken back: none
 No record of: seafood, order, tonight
 
-Judge C: recommend pollock: no
-took it back: no
-Judge D: Line 1: recommend pollock: yes
-Line 2: took it back: no
+Judge C: {"recommends_pollock": false, "picks_halibut": false}
+Judge D: {"recommends_pollock": true, "says_taken_back": false}

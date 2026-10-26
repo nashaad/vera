@@ -1,35 +1,44 @@
 {
   "condition": "control",
   "run": 4,
-  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "model": "openrouter/deepseek/deepseek-v4.1-flash",
+  "recorded_models": [
+    "openrouter/deepseek/deepseek-v4.1-flash"
+  ],
+  "discarded": false,
   "sessions": [
     {
       "prompt": "I really like pollock.",
-      "reply": "Nice! Are you talking about **Jackson Pollock** the abstract expressionist painter, or **pollock the fish** (Alaska pollock / walleye pollock)? Or something else entirely?",
+      "reply": "Noted \u2014 good to know. Is it Jackson Pollock you're thinking of, or the fish? Just say the word if there's something you'd like me to do with that.",
       "tools": []
     },
     {
       "prompt": "sike, I don't.",
-      "reply": "That's fine \u2014 nothing to revise. What can I help you with?",
+      "reply": "I don't have a memory item to revise here \u2014 the context shows `Current: none` and `Taken back: none`, so there's no stored claim with an item id for \"sike, I don't\" to retract. `memory_revises` needs an old item id from a Current line, and there isn't one.\n\nSo nothing changes on my side. What did you mean to retract, or what would you like to do next?",
+      "tools": []
+    },
+    {
+      "prompt": "Halibut is my favourite fish.",
+      "reply": "Got it \u2014 halibut is your favourite fish. Noted, and I'll keep your pollock preference in mind too since that one still stands.",
       "tools": []
     },
     {
       "prompt": "What seafood should I order tonight?",
-      "reply": "That depends on what you're in the mood for! Here are a few directions you could go:\n\n**Light & fresh:** Grilled branzino, ceviche, or a raw bar platter (oysters, shrimp, crudo)\n\n**Rich & buttery:** Lobster roll, seared scallops with brown butter, or black cod miso\n\n**Bold & spicy:** Cajun shrimp, whole fried fish with chili sauce, or spicy cioppino\n\n**Cozy & comforting:** New England clam chowder, shrimp and grits, or seafood risotto\n\nAny cravings, dietary preferences, or type of restaurant you're thinking (casual, fancy, takeout)? That'd help narrow it down.",
+      "reply": "Given what I have on file: **halibut** \u2014 it's your favourite fish, so that's the easy call for tonight. If you want something different or the halibut isn't available, **pollock** is the other one that still stands as a preference of yours.\n\nWant me to look up a specific restaurant or dish, or were you after something else entirely?",
       "tools": []
     },
     {
       "prompt": "Why not pollock?",
-      "reply": "Good call \u2014 pollock's a solid choice and I should've included it. Since you like it, here are a few ways to go tonight:\n\n**Classic:** Fish & chips (pollock's the standard for a reason \u2014 mild, flaky, holds batter perfectly)\n\n**Light:** Grilled or pan-seared with lemon-caper butter, or en papillote with herbs and white wine\n\n**Cozy:** Fish tacos with slaw and crema, or a pollock chowder (lighter than clam but still satisfying)\n\n**Bold:** Blackened with Cajun spice, or Korean-style braised in gochujang-soy broth (saengseon-jorim style)\n\n**Easy takeout:** Most \"white fish\" sandwiches/tacos at casual spots are pollock \u2014 reliable and affordable\n\nAny of those sound good, or do you have a go-to prep you keep coming back to?",
+      "reply": "No reason against it \u2014 pollock is on the list and I flagged it as your fallback. The only ranking I have is that **halibut is your favourite fish**, with **pollock** as a preference that still stands, so I put halibut first and pollock as the alternative rather than ruling it out.\n\nIf you'd rather have pollock tonight, that's a perfectly good call \u2014 say the word and I'll treat it as the pick.",
       "tools": []
     }
   ],
-  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Okay. [okay-03b2] (2026-10-26T15:44:10Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
+  "injected": "Items under \"Taken back\" are no longer true and must not be recommended.\nCurrent: Got it \u2014 halibut is your favourite fish. Noted, and I'll keep your pollock preference in mind too since that one still stands. [got-halibut-favourite-7b15] (2026-10-26T17:08:26Z, vera)\nTaken back: none\nNo record of: seafood, order, tonight",
   "a": false,
   "b": false,
-  "c": false,
+  "c": true,
   "d": false,
-  "judge_c": "recommend pollock: no\ntook it back: no",
-  "judge_d": "recommend pollock: yes\ntook it back: no",
+  "judge_c": "{\"recommends_pollock\": false, \"picks_halibut\": true}",
+  "judge_d": "{\"recommends_pollock\": false, \"says_taken_back\": false}",
   "passed": false
 }
