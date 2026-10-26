@@ -214,10 +214,13 @@ def _shape(
     question_terms: set[str],
 ) -> tuple[list[RecallHit], list[SuppressedHit]]:
     results: list[RecallHit] = []
+    notes: list[RecallHit] = []
     suppressed: list[SuppressedHit] = []
     # Positive chunks are results even when leftover heat is below the firing
     # threshold. Revised chunks are suppressed when this turn reached them
-    # or they still hold activation.
+    # or they still hold activation. A chunk that only revises another is a
+    # note on that item, unless it is itself the new fact and nothing else
+    # current was reached.
     for node in set(activation) | set(touched):
         if node not in graph:
             continue
@@ -248,20 +251,25 @@ def _shape(
                 )
             )
             continue
-        if value > 0:
-            results.append(
-                RecallHit(
-                    item_id=node,
-                    text=data.get("text") or "",
-                    activation=value,
-                    actor=data.get("actor"),
-                    status=data.get("status"),
-                    learned_at=data.get("learned_at"),
-                    true_at=data.get("true_at"),
-                    session=data.get("session"),
-                    flag="inferred" if data.get("status") == "inferred" else "current",
-                    )
-            )
+        if value <= 0:
+            continue
+        hit = RecallHit(
+            item_id=node,
+            text=data.get("text") or "",
+            activation=value,
+            actor=data.get("actor"),
+            status=data.get("status"),
+            learned_at=data.get("learned_at"),
+            true_at=data.get("true_at"),
+            session=data.get("session"),
+            flag="inferred" if data.get("status") == "inferred" else "current",
+        )
+        if _revises_another(graph, node, as_of):
+            notes.append(hit)
+        else:
+            results.append(hit)
+    if not results:
+        results = notes
     # Activation is the rank. A tie (both clamped at the ceiling) prefers the
     # chunk that actually contains more of the question's terms.
     results.sort(
@@ -281,6 +289,14 @@ def _overlap(text: str, question_terms: set[str]) -> int:
     if not question_terms:
         return 0
     return sum(1 for term in term_tokens(text) if term in question_terms)
+
+
+def _revises_another(graph: nx.MultiDiGraph, node: str, as_of: str | None) -> bool:
+    """True when this chunk is the note that revises something else."""
+    for _src, _dest, _key, data in graph.out_edges(node, keys=True, data=True):
+        if data.get("kind") == "revises" and learned_ok(data.get("learned_at"), as_of):
+            return True
+    return False
 
 
 def _revision(graph: nx.MultiDiGraph, node: str, as_of: str | None) -> tuple[str, str] | None:
@@ -386,21 +402,26 @@ def format_explain(result: RecallResult, graph: nx.MultiDiGraph) -> str:
 
 
 def format_context(result: RecallResult) -> str:
-    """Excerpts injected into a Vera turn. Empty when there is nothing to say."""
-    lines: list[str] = []
-    for hit in result.results:
-        lines.append(f"[{hit.flag}] {hit.item_id} ({hit.actor}): {hit.text}")
-    for hit in result.suppressed:
-        lines.append(f"[revised] {hit.item_id} ({hit.actor}): {hit.text}")
-        lines.append(f"  taken back by {hit.revised_by}: {hit.revising_text}")
+    """Short block for a Vera turn. Recency alone never adds a line."""
+    lines = [
+        'Items under "Taken back" are no longer true and must not be recommended.',
+    ]
+    if result.results:
+        hit = result.results[0]
+        when = hit.learned_at or "unknown time"
+        who = hit.actor or "unknown"
+        lines.append(f"Current: {hit.text} ({when}, {who})")
+    else:
+        lines.append("Current: none")
+    if result.suppressed:
+        for hit in result.suppressed:
+            lines.append(f"Taken back: {hit.text} — {hit.revising_text}")
+    else:
+        lines.append("Taken back: none")
     if result.no_record_of:
-        lines.append("no record of: " + ", ".join(result.no_record_of))
-    if not lines:
-        return ""
-    lines.append(
-        "If Nash retracts or replaces one of these, call memory_revises "
-        "with the new wording and that item's id."
-    )
+        lines.append("No record of: " + ", ".join(result.no_record_of))
+    else:
+        lines.append("No record of: none")
     return "\n".join(lines)
 
 

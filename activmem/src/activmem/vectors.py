@@ -17,6 +17,7 @@ class VectorStore:
         self._collection = None
         self.embed_calls = 0
         self._known: set[str] | None = None
+        self._units_cache = None
 
     def _open(self):
         if self._collection is not None:
@@ -53,6 +54,7 @@ class VectorStore:
             metadatas=[clean or {"item_id": item_id}],
         )
         self.known().add(item_id)
+        self._units_cache = None
 
     def add_many(self, rows: list[tuple[str, str, str, dict]], batch: int = 128) -> None:
         """rows are (item_id, document, embed_text, metadata). Skips ids already stored."""
@@ -68,24 +70,52 @@ class VectorStore:
                 metadatas.append(clean or {"item_id": row[0]})
             self._open().upsert(ids=ids, documents=documents, embeddings=embedded, metadatas=metadatas)
             self.known().update(ids)
+        self._units_cache = None
 
     def query(self, text: str, k: int) -> list[tuple[str, float]]:
         if k <= 0 or not self.known():
             return []
-        found = self._open().query(query_texts=[text], n_results=min(k, len(self.known())))
-        ids = (found.get("ids") or [[]])[0]
-        distances = (found.get("distances") or [[]])[0]
-        hits = []
-        for item_id, distance in zip(ids, distances):
-            similarity = 1.0 - float(distance)
-            hits.append((item_id, similarity))
-        return hits
+        ids, matrix = self._units()
+        if not ids:
+            return []
+        import numpy as np
+
+        raw = np.asarray(self._embedding.embed_query([text])[0], dtype=np.float32)
+        norm = float(np.linalg.norm(raw))
+        if norm == 0:
+            return []
+        scores = matrix @ (raw / norm)
+        take = min(k, len(ids))
+        if take == len(ids):
+            order = np.argsort(scores)[::-1]
+        else:
+            picked = np.argpartition(scores, -take)[-take:]
+            order = picked[np.argsort(scores[picked])[::-1]]
+        return [(ids[int(index)], float(scores[int(index)])) for index in order]
+
+    def _units(self):
+        if self._units_cache is not None:
+            return self._units_cache
+        import numpy as np
+
+        got = self._open().get(include=["embeddings"])
+        ids = list(got.get("ids") or [])
+        rows = got.get("embeddings")
+        if not ids or rows is None or len(rows) == 0:
+            self._units_cache = ([], np.zeros((0, 1), dtype=np.float32))
+            return self._units_cache
+        matrix = np.asarray(rows, dtype=np.float32)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        self._units_cache = (ids, matrix / norms)
+        return self._units_cache
 
     def delete(self, item_id: str) -> None:
         if item_id not in self.known():
             return
         self._open().delete(ids=[item_id])
         self.known().discard(item_id)
+        self._units_cache = None
 
 
 class NullVectors:

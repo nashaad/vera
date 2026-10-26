@@ -80,7 +80,14 @@ def main() -> int:
         "nodes", result.nodes_touched,
         flush=True,
     )
-    print("top", result.results[0].text if result.results else None, flush=True)
+    top = result.results[0].text if result.results else ""
+    print("top", top, flush=True)
+    if "halibut" not in top.lower():
+        print("FAIL seafood top is not halibut", flush=True)
+        return 1
+    if any("sike" in hit.text.lower() for hit in result.results):
+        print("FAIL sike ranked as a result", flush=True)
+        return 1
     print("suppressed", [hit.text for hit in result.suppressed], flush=True)
     print("context_chars", graph_chars, "plain_chars", plain_chars, flush=True)
     mem.close()

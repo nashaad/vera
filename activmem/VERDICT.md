@@ -1,17 +1,11 @@
-DID NOT WORK
+BLOCKED
 
-Gate 1 ran and failed. ActivMem passed 1 of 5 live runs. The control failed C or D in all 5. The bar is 4 of 5 for ActivMem.
+`openai-codex/gpt-6-luna` is not in this worktree's library. `vera library list` in the development home shows only `openrouter/openai/gpt-5.6-luna`. No model was called, and the earlier OpenRouter live run does not count. Sign in from this worktree with `bun run dev:tui`, Ctrl+P, Configure providers, ChatGPT subscription, until that exact id is listed.
 
-The worktree home has no ChatGPT sign-in, so Luna on the Codex route was not available. Calls used OpenRouter's free `nvidia/nemotron-3-ultra-550b-a55b:free` through `vera stdio` and `vera -p`. `~/.vera` was not read. About 60 model calls. No usage limit stopped the run.
+What did run: the nine hard questions pass 9 of 9. Plain Chroma passes 3 of 9 (cod, the absent dog, and Maya). On the city chain, Chroma ranks Toronto above Berlin; ActivMem returns Berlin and shows Lisbon and Toronto as taken back. At 50,000 chunks, "What seafood do I like?" with words and vectors returns "Halibut is my favourite fish." and attaches "sike, I don't" to the pollock line. Words alone return the filler beside pollock. Vectors alone return halibut and do not reach the retraction. Median recall was 119.8 ms (min 115.7, max 126.1), under 200 ms. The injected block is 213 characters against 179 for plain Chroma, so the size half of the cost gate fails. The extra characters are the taken-back line.
 
-The engine usually did its job. On 4 of 5 ActivMem runs Vera called `memory_revises` by itself, and pollock was stored as revised with the sike line. The free model then ignored that. Asked what seafood to order, it wrote a generic menu and did not say halibut. Asked why not pollock, it often recommended pollock. One run did both answers right.
+LongMemEval-S and LoCoMo did not run. There were no model calls and no usage limit. Nash's chat export is not in `demo/`. Reopening the 50,000-chunk store re-embedded nothing.
 
-The graph over plain Chroma, on the nine hard questions: ActivMem 9 of 9, plain Chroma 3 of 9 (cod, the absent dog, and Maya, whose bakery sentence was already a near neighbour). On the city chain, Chroma ranks "I'm back in Toronto" (cosine 0.212) above "Berlin now" (0.135). ActivMem returns Berlin and suppresses Toronto and Lisbon. On a small store, "What seafood do I like?" is halibut at 0.98 with pollock suppressed. Words alone rank the sike line first.
-
-At 50,000 real Chroma chunks, median recall was 121 ms (min 108, max 188), under the 200 ms line. The injected context was 650 characters against 125 for plain Chroma, so the size half of gate 4 fails. That same seafood question ranked the sike line first. The word "like" wakes the correction harder than the vector wakes halibut once the index is large, and the three latest filler lines bury the fish fact in what Vera sees.
-
-LongMemEval and LoCoMo were not run. A 500-question sweep on this free model, after the live gate already failed, was not started. Nash's chat export is not in `demo/`.
-
-The change most likely to fix the live failure: inject only the top current excerpt and the suppressed line, not the three newest filler turns and the instruction essay. The model has to see "Halibut is my favourite fish." as the answer, not as one line in a pile.
+The change that unblocks the verdict is the Luna sign-in above. The cost miss is the taken-back line, which plain Chroma does not have.
 
 Detail: [ACCEPTANCE.md](ACCEPTANCE.md), [RESULTS.md](RESULTS.md), [DECISIONS.md](DECISIONS.md).

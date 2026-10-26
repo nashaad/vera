@@ -1,5 +1,6 @@
 import pytest
 
+from activmem.recall import format_context
 from corpus import seed_halibut
 
 
@@ -13,12 +14,18 @@ def assert_halibut(mem):
     result = mem.recall("What fish do I like?", explain=True)
     assert result.results, _dump(result)
     assert "halibut" in result.results[0].text.lower(), _dump(result)
+    assert all("sike" not in hit.text.lower() for hit in result.results), _dump(result)
     assert all("pollock" not in hit.text.lower() for hit in result.results), _dump(result)
     assert any("pollock" in hit.text.lower() for hit in result.suppressed), _dump(result)
     assert any("sike" in hit.revising_text.lower() for hit in result.suppressed), _dump(result)
     assert result.explain is not None
     assert result.ms >= 0
     assert result.nodes_touched > 0
+    block = format_context(result)
+    assert block.startswith('Items under "Taken back" are no longer true')
+    assert "Current: Halibut is my favourite fish." in block
+    assert "Taken back: I really like pollock." in block
+    assert "sike, I don't" in block
     return result
 
 
@@ -26,6 +33,23 @@ def test_halibut_two_thousand(tmp_path):
     mem = seed_halibut(tmp_path, 2000, annotate=True)
     result = assert_halibut(mem)
     assert result.nodes_touched < 2000
+    mem.close()
+
+
+def test_new_fact_that_revises_the_old_one_stays_current(tmp_path):
+    from activmem.memory import ActivMem
+
+    mem = ActivMem(tmp_path)
+    lisbon = mem.save("I live in Lisbon", actor="nash")
+    toronto = mem.save("I live in Toronto", actor="nash")
+    mem.revise(toronto, lisbon)
+    berlin = mem.save("I live in Berlin", actor="nash")
+    mem.revise(berlin, toronto)
+    result = mem.recall("Where do I live?")
+    assert result.results, _dump(result)
+    assert result.results[0].text == "I live in Berlin", _dump(result)
+    assert any("Lisbon" in hit.text for hit in result.suppressed), _dump(result)
+    assert any("Toronto" in hit.text for hit in result.suppressed), _dump(result)
     mem.close()
 
 

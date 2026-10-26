@@ -1,8 +1,7 @@
-"""Live halibut acceptance. Vera answers through a free OpenRouter model.
+"""Live halibut acceptance through Vera's ChatGPT subscription.
 
-Codex sign-in is not in this worktree's home, so calls use
-nvidia/nemotron-3-ultra-550b-a55b:free via OPENROUTER_API_KEY. The daily
-~/.vera home is never read. Results are cached under acceptance/cache.
+Every model call uses openai-codex/gpt-6-luna. If that id is not in the
+worktree home's `vera library list`, this exits 2 and does not call a model.
 """
 
 from __future__ import annotations
@@ -20,14 +19,23 @@ REPO = ROOT.parent
 EXT = REPO / "extensions" / "activmem"
 CACHE = ROOT / "acceptance" / "cache"
 REPORT = ROOT / "ACCEPTANCE.md"
-MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+MODEL = "openai-codex/gpt-6-luna"
+DEV_HOME = os.environ.get(
+    "ACTIVMEM_VERA_HOME",
+    "/var/folders/qs/72rgxnlj6djf0j_rwhx0l60m0000gn/T/vera-dev/faf872b0021f/.vera",
+)
 RUNS = int(os.environ.get("ACTIVMEM_ACCEPT_RUNS", "5"))
 FILLER = int(os.environ.get("ACTIVMEM_ACCEPT_FILLER", "3000"))
 
 
 def main() -> int:
-    if not os.environ.get("OPENROUTER_API_KEY"):
-        _write("BLOCKED", "OPENROUTER_API_KEY is not set, and this worktree's Vera home has no ChatGPT sign-in.")
+    library = _library()
+    if MODEL not in library:
+        _write(
+            "BLOCKED",
+            "openai-codex/gpt-6-luna is not in this worktree home's vera library list. "
+            f"The list is: {library or '(empty)'}. No other model was called.",
+        )
         return 2
     if not (EXT / "extension.ts").exists():
         _write("BLOCKED", f"Extension missing at {EXT}.")
@@ -54,25 +62,29 @@ def main() -> int:
 def run_one(condition: str, index: int) -> dict:
     path = CACHE / f"{condition}-{index}.json"
     if path.exists():
-        return json.loads(path.read_text())
+        cached = json.loads(path.read_text())
+        if cached.get("model") == MODEL:
+            return cached
     ws = Path(f"/tmp/am-acc-{condition}-{index}")
-    home = Path(f"/tmp/am-home-{condition}-{index}")
     if ws.exists():
         shutil.rmtree(ws)
-    if home.exists():
-        shutil.rmtree(home)
     ws.mkdir()
-    home.mkdir()
-    (home / "config.json").write_text(json.dumps({
-        "schema_version": 1,
-        "provider": "openrouter",
-        "model": MODEL,
-        "reasoning_effort": "low",
-        "approval_mode": "auto",
-        "extensions": [{"path": str(EXT), "enabled": True}],
-    }, indent=2))
+    config_path = Path(DEV_HOME) / "config.json"
+    original = config_path.read_text(encoding="utf-8")
+    cfg = json.loads(original)
+    provider, model_id = MODEL.split("/", 1)
+    cfg["provider"] = provider
+    cfg["model"] = model_id
+    extensions = [
+        item for item in cfg.get("extensions", [])
+        if item.get("path") != str(EXT)
+    ]
+    extensions.append({"path": str(EXT), "enabled": True})
+    cfg["extensions"] = extensions
+    config_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     env = os.environ.copy()
-    env["VERA_HOME"] = str(home)
+    env["VERA_HOME"] = DEV_HOME
+    env["VERA_DEV_INSTANCE"] = "1"
     env["ACTIVMEM_EMBED"] = "1"
     env["ACTIVMEM_GRAPH"] = "off" if condition == "control" else "on"
     serve = subprocess.Popen(
@@ -84,8 +96,8 @@ def run_one(condition: str, index: int) -> dict:
     )
     try:
         _wait_socket(ws)
-        first = _session(ws, home, ["I really like pollock."])
-        second = _session(ws, home, ["sike, I don't."])
+        first = _session(ws, ["I really like pollock."])
+        second = _session(ws, ["sike, I don't."])
         serve.terminate()
         serve.wait(timeout=5)
         _seed_rest(ws, env)
@@ -97,12 +109,13 @@ def run_one(condition: str, index: int) -> dict:
             stderr=subprocess.DEVNULL,
         )
         _wait_socket(ws)
-        third = _session(ws, home, [
+        third = _session(ws, [
             "What seafood should I order tonight?",
             "Why not pollock?",
         ])
-        record = _grade(ws, first, second, third, condition, index, home)
+        record = _grade(ws, first, second, third, condition, index)
     finally:
+        config_path.write_text(original, encoding="utf-8")
         serve.terminate()
         try:
             serve.wait(timeout=5)
@@ -111,6 +124,18 @@ def run_one(condition: str, index: int) -> dict:
     path.write_text(json.dumps(record, indent=2))
     print(condition, index, "PASS" if record["passed"] else "FAIL", flush=True)
     return record
+
+
+def _library() -> str:
+    result = subprocess.run(
+        ["bun", "clients/cli/main.ts", "library", "list"],
+        cwd=str(REPO),
+        env={**os.environ, "VERA_DEV_INSTANCE": "1", "VERA_HOME": DEV_HOME},
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    return (result.stdout or "") + (result.stderr or "")
 
 
 def _wait_socket(ws: Path) -> None:
@@ -124,11 +149,12 @@ def _wait_socket(ws: Path) -> None:
     raise RuntimeError("activmem serve did not publish a socket")
 
 
-def _session(ws: Path, home: Path, prompts: list[str]) -> list[dict]:
+def _session(ws: Path, prompts: list[str]) -> list[dict]:
     env = os.environ.copy()
-    env["VERA_HOME"] = str(home)
+    env["VERA_HOME"] = DEV_HOME
+    env["VERA_DEV_INSTANCE"] = "1"
     proc = subprocess.Popen(
-        ["vera", "stdio"],
+        ["bun", str(REPO / "clients/cli/main.ts"), "stdio"],
         cwd=str(ws),
         env=env,
         stdin=subprocess.PIPE,
@@ -215,7 +241,7 @@ mem.close()
     )
 
 
-def _grade(ws, first, second, third, condition, index, home) -> dict:
+def _grade(ws, first, second, third, condition, index) -> dict:
     sys.path[:0] = [str(ROOT / "src")]
     from activmem.memory import ActivMem
     mem = ActivMem(ws)
@@ -235,17 +261,20 @@ def _grade(ws, first, second, third, condition, index, home) -> dict:
     check_a = link is not None and "sike" in revising.lower()
     seafood = third[0]["prompt"] if third else ""
     injected = mem.context_for("session-3", seafood)["context"] if seafood else ""
+    lowered = injected.lower()
     check_b = (
-        "halibut" in injected.lower()
-        and "[revised]" in injected
-        and "pollock" in injected.lower()
-        and "sike" in injected.lower()
+        "current:" in lowered
+        and "halibut" in lowered
+        and "taken back:" in lowered
+        and "pollock" in lowered
+        and "sike" in lowered
+        and "no longer true" in lowered
     )
     order = third[0]["reply"] if third else ""
     why = third[1]["reply"] if len(third) > 1 else ""
     keyword_c = "halibut" in order.lower() and not _recommends_pollock(order)
-    judge_c = _judge(home, order, "Does this reply recommend pollock as what to order? Does it reflect that Nash's current fish is halibut, not pollock?")
-    judge_d = _judge(home, why, "Does this reply say Nash took the pollock preference back?")
+    judge_c = _judge(order, "Does this reply recommend pollock as what to order? Does it reflect that Nash's current fish is halibut, not pollock?")
+    judge_d = _judge(why, "Does this reply say Nash took the pollock preference back?")
     check_c = keyword_c and "recommend pollock: no" in judge_c.lower()
     check_d = "took it back: yes" in judge_d.lower() or "yes" in judge_d.lower()[:12]
     mem.close()
@@ -276,7 +305,7 @@ def _recommends_pollock(text: str) -> bool:
     return "order pollock" in window or "try pollock" in window or "get pollock" in window or "go with pollock" in window
 
 
-def _judge(home: Path, reply: str, rubric: str) -> str:
+def _judge(reply: str, rubric: str) -> str:
     prompt = (
         "Answer in two lines, each starting yes or no.\n"
         f"{rubric}\n"
@@ -285,9 +314,9 @@ def _judge(home: Path, reply: str, rubric: str) -> str:
         f"Reply:\n{reply}"
     )
     result = subprocess.run(
-        ["vera", "-p", prompt, "--prompt-only"],
-        cwd=str(home),
-        env={**os.environ, "VERA_HOME": str(home)},
+        ["bun", str(REPO / "clients/cli/main.ts"), "-p", prompt, "--prompt-only", "--model", MODEL],
+        cwd=str(REPO),
+        env={**os.environ, "VERA_HOME": DEV_HOME, "VERA_DEV_INSTANCE": "1"},
         text=True,
         capture_output=True,
         timeout=120,
@@ -303,7 +332,7 @@ def _write_report(rows: list[dict], activmem_pass: int, control_fail: int, passe
     lines = [
         "# Acceptance",
         "",
-        f"Model: `{MODEL}` on OpenRouter (free). Codex sign-in is not in this worktree home.",
+        f"Model: `{MODEL}`.",
         "",
         f"ActivMem passed {activmem_pass} / {RUNS}. Control failed C or D in {control_fail} / {RUNS}.",
         f"Gate: {'pass' if passed else 'fail'}.",

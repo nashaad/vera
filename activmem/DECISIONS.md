@@ -25,12 +25,15 @@
 - `revised_by` is 0.6 and `next`/`previous` are 0.15. At 1.0 and 0.3 the correction and the adjacent filler outranked the current fact once tanh let them separate.
 - Imports dedupe by source path and line (paragraph index for text files), not by sentence text. Saying a forgotten sentence again saves a new item.
 - `save_turn` stores the user as actor nash and the reply as actor vera. `forget(item)` records actor nash when the caller omits one.
-- Chroma lives at `.activmem/chroma`. The embedded text is speaker plus previous and next chunk; the stored document is the chunk alone. Replay embeds only ids missing from the collection. A new chunk refreshes the previous chunk's embedding.
+- Chroma lives at `.activmem/chroma`. The embedded text is the speaker, then the chunk's own sentence, then the previous and next chunk. The stored document is the chunk alone. Own sentence first, because leading with the neighbors made the next filler line outrank "Halibut is my favourite fish." Replay embeds only ids missing from the collection. A new chunk refreshes the previous chunk's embedding.
 - Word seeds and Chroma hits are merged with reciprocal rank fusion (k=60) and scaled so the strongest seed is `seed_activation`. A vector hit is kept only when cosine similarity is at least 0.2. Below that, "What's my dog's name?" stays empty; at 0.35 the seafood and city hits were dropped.
+- Chroma's HNSW index, at 50,000 near-duplicate filler vectors, returned a best cosine of 0.10 and missed halibut, whose true cosine was 0.33. Queries rank the stored vectors exactly. Chroma still stores them.
+- A vector hit has to be at least 0.95 of the best hit as well as at least 0.2. The next filler line embeds the fish sentence as context and was scoring 0.89 of halibut, which was enough for spreading to place it first.
 - `ACTIVMEM_GRAPH=off` returns Chroma top-k with no spreading and no suppression. `ACTIVMEM_EMBED=0` skips vectors. `fake` uses a hash embedder.
 - The socket is a short file under the temp dir because macOS rejects long Unix paths. `.activmem/socket-path` points at it.
-- This worktree's Vera home has no ChatGPT sign-in, so model calls use OpenRouter's free `nvidia/nemotron-3-ultra-550b-a55b:free` through `vera -p` / `vera stdio` and `OPENROUTER_API_KEY`. `~/.vera` is not read.
-- `context_for` also shows the three latest things Nash said. "sike, I don't" shares no words with the pollock line, so recall alone hides the id Vera must pass to `memory_revises`.
+- The OpenRouter free-model live run does not count. Every model call must be `openai-codex/gpt-6-luna`. That id is not in this worktree home's `vera library list` (the list has `openrouter/openai/gpt-5.6-luna` only), so the live gate and the benchmarks stop. `~/.vera` is not read.
+- A revising line is a note on the item it changes, so it is left out of the results when any other current chunk was reached. When the new fact is itself that revising line, as with "Berlin now", it stays the current result.
+- `context_for` injects one current line, the taken-back lines, and no-record. The three newest turns are not included. The block opens with the sentence that taken-back items must not be recommended.
 - `vera -p` does not load extensions. The live test drives `vera stdio`, which does.
 - Halibut is saved by the harness after the live retraction, because the acceptance steps never have Nash say it and check B requires that fish in memory.
 - Vera's extension host is TypeScript, so it cannot import ActivMem. `activmem serve` is the process the extension calls. A hook that misses the 300 ms budget lets the turn continue.
