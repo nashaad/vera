@@ -66,7 +66,20 @@ export interface ResidentAgentOptions {
     readonly onTurnFinished?: (update: TurnFinishedUpdate) => void;
     /** Called after attached clients have the started update. */
     readonly onCompactionStarted?: (update: CompactionUpdate) => void;
+    /** Called after an update that may change status, the open request, or context. */
+    readonly onSessionFactsChanged?: () => void;
 }
+
+const SESSION_FACT_UPDATES: ReadonlySet<AgentUpdate["type"]> = new Set([
+    "status",
+    "user_prompt",
+    "ui_request",
+    "ui_request_closed",
+    "context",
+    "turn_finished",
+    "agent_failed",
+    "history",
+]);
 
 interface QueuedCommand {
     readonly command: EngineCommand;
@@ -606,6 +619,13 @@ export class ResidentAgent {
                 // A listener that throws must not break the update it observed.
             }
         }
+        if (SESSION_FACT_UPDATES.has(snapshot.type)) {
+            try {
+                this.options.onSessionFactsChanged?.();
+            } catch {
+                // A listener that throws must not break the update it observed.
+            }
+        }
     }
 
     private notifyRunStateChanged(): void {
@@ -630,6 +650,20 @@ export class ResidentAgent {
 
     get pendingRequests(): readonly UiRequest[] {
         return [...this.openRequests.values()];
+    }
+
+    /** The oldest open request that holds the turn; out-of-band questions do not. */
+    get waitingRequest(): UiRequest | undefined {
+        for (const [requestId, request] of this.openRequests) {
+            if (!this.outOfBandRequests.has(requestId)) {
+                return request;
+            }
+        }
+        return undefined;
+    }
+
+    get context(): ContextMeasurement | undefined {
+        return this.lastContext;
     }
 
     get activeTool(): string | undefined {

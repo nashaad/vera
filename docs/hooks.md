@@ -500,6 +500,26 @@ another agent started the session, and the turn's prompt and reply text. It
 only observes: nothing waits for it, and a failure is logged without touching
 the session.
 
+An extension can follow what each session is doing with
+`registerSessionUpdated`, after declaring `hooks.session_updated`. It fires
+when a session the host runs starts, and again each time its status, title,
+context use or model changes. It gets the session ID, workspace, `status`
+(`idle`, `working` or `waiting`), `spawned`, and when Vera knows them,
+`title`, `context` (`tokens`, `capacity`, `estimated`) and `model`
+(`provider`, `model`). While the session waits, `waitingOn` says on what: a
+tool approval with the tool's name, a question, or setup the turn needs. Each
+call carries the whole state, and a call that would repeat the last one is
+not sent. It only observes, and a failure is logged without touching the
+session.
+
+```js
+vera.hooks.registerSessionUpdated((session) => {
+    if (session.waitingOn?.kind === "approval") {
+        crowsnest.flag(session.sessionId, `wants to run ${session.waitingOn.tool}`);
+    }
+});
+```
+
 An extension can run a function when a compaction starts with
 `registerPreCompact`, after declaring `hooks.pre_compact`. It fires for
 `/compact` and for automatic compaction in the sessions the host runs. It

@@ -11,6 +11,7 @@ import { EXTENSION_MESSAGE_KIND, extensionMessageFamily, parseExtensionMessage }
 import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { VeraSessionSendOutcome, VeraSessionTitleOutcome } from "../../sdk/extensions.ts";
+import { firstPromptEntry, listedTitle } from "./session-title.ts";
 
 export function applyAgentRosterEffect(reg: AgentRegistry, callerId: string, details: boolean): Promise<ToolOutput> {
         const caller = reg.agents.get(callerId);
@@ -391,6 +392,7 @@ export async function updateSessionName(reg: AgentRegistry, id: string, name: st
             return undefined;
         }
         await entry.store.appendName(name);
+        reg.announceSessionUpdated(entry);
         return entry.store.name() ?? null;
     }
 
@@ -405,6 +407,7 @@ export async function setTitleIfUnnamed(reg: AgentRegistry, id: string, title: s
             return "named";
         }
         reg.notifyRosterChanged();
+        reg.announceSessionUpdated(entry);
         return "set";
     }
 
@@ -438,21 +441,8 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
             .filter((entry) => !entry.ephemeral && !entry.pendingPublication)
             .map((entry) => {
                 const activeEntries = entry.store.activeEntries();
-                const firstUserEntry = activeEntries.find(
-                    (candidate) => candidate.message.role === "user"
-                        && candidate.message.internal !== true,
-                );
-                const firstUserMessage = firstUserEntry?.message;
-                const fallbackTitle = firstUserMessage?.role === "user"
-                    ? firstUserMessage.content
-                        .flatMap((content) => content.type === "text"
-                            ? [content.text]
-                            : [])
-                        .join(" ")
-                        .replaceAll(/\s+/g, " ")
-                        .trim()
-                    : undefined;
-                const title = entry.store.name() ?? fallbackTitle;
+                const firstUserEntry = firstPromptEntry(activeEntries);
+                const title = listedTitle(entry.store.name(), firstUserEntry);
                 const size = sizeOnDisk(entry.store.path);
                 return {
                     id: entry.agent.id,
@@ -477,9 +467,7 @@ export function list(reg: AgentRegistry): RegisteredAgentSummary[] {
                                 ? {}
                                 : { supervisor_pid: entry.worker.supervisor.pid }),
                         }),
-                    ...(title === undefined || title.length === 0
-                        ? {}
-                        : { title: title.slice(0, 80) }),
+                    ...(title === undefined ? {} : { title }),
                     has_user_content: firstUserEntry !== undefined,
                     ...(entry.store.header.origin === undefined
                         ? {}

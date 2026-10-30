@@ -480,6 +480,7 @@ export function commitBranch(reg: AgentRegistry, id: string): boolean {
         }
         entry.pendingPublication = false;
         reg.notifyRosterChanged();
+        reg.announceSessionUpdated(entry);
         return true;
     }
 
