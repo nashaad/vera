@@ -208,9 +208,10 @@ shows the error instead. If a model sends nothing for 5 minutes, Vera treats
 that as a timeout and retries. Retry activity shows the next attempt and total
 attempt count. Press Escape to cancel at any point, including while a request
 is stuck. Missing credentials or provider credit need your attention and stop
-immediately. Malformed tool arguments can also be retried when no tool could
-have run. If retries fail, Vera keeps the last partial response and shows the
-error.
+immediately. So does a spent subscription usage limit, such as an OpenAI Codex
+plan's 5-hour or weekly window; the error says when it resets. Malformed tool
+arguments can also be retried when no tool could have run. If retries fail,
+Vera keeps the last partial response and shows the error.
 
 ### Configure an overload fallback
 
@@ -227,8 +228,9 @@ provider:
 ```
 
 `after_failures` accepts 1, 2, or 3 consecutive rate-limit or server failures.
-Once selected, the backup stays active for the rest of the turn. This setting
-is separate from the Subagents default list.
+A spent subscription usage limit does not count, because the backup shares the
+same account. Once selected, the backup stays active for the rest of the turn.
+This setting is separate from the Subagents default list.
 
 ### Use a local model
 

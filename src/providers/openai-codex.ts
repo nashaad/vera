@@ -359,7 +359,7 @@ function httpFailure(error: OpenAICodexHttpError): ProviderFailure {
     if (usageLimit !== undefined) {
         return {
             kind: "rate_limit",
-            resolution: "retry",
+            resolution: "none",
             message: `OpenAI Codex usage limit reached: ${usageLimit.message}`,
             statusCode,
             providerErrorType: "usage_limit_reached",
