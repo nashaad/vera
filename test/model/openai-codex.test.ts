@@ -905,7 +905,7 @@ describe("OpenAI Codex adapter", () => {
         }
     });
 
-    test("reads the reset time from an exhausted usage limit", async () => {
+    test("stops at an exhausted usage limit and reads its reset time", async () => {
         const body = JSON.stringify({
             error: {
                 type: "usage_limit_reached",
@@ -915,6 +915,7 @@ describe("OpenAI Codex adapter", () => {
                 resets_in_seconds: 9000,
             },
         });
+        let requests = 0;
         const adapter = createOpenAICodexAdapter({
             authStorage: {
                 getCredential: () => ({
@@ -930,27 +931,38 @@ describe("OpenAI Codex adapter", () => {
                 deleteCredential() {},
             },
             now: () => 0,
-            fetch: (async () => new Response(body, {
-                status: 429,
-            })) as unknown as typeof fetch,
-        });
-        const stream = adapter.stream({
-            model: "gpt-5.6-sol",
-            messages: [],
+            fetch: (async () => {
+                requests += 1;
+                return new Response(body, { status: 429 });
+            }) as unknown as typeof fetch,
         });
         const observed: ModelStreamEvent[] = [];
+        let retries = 0;
+        let fallbacks = 0;
 
-        for await (const event of stream) {
-            observed.push(event);
-        }
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                fallback: { model: "gpt-5.6-terra", afterFailures: 1 },
+                onEvent: (event) => observed.push(event),
+                onRetry: () => { retries += 1; },
+                onFallback: () => { fallbacks += 1; },
+                wait: async () => {},
+            },
+        );
 
+        expect(requests).toBe(1);
+        expect(retries).toBe(0);
+        expect(fallbacks).toBe(0);
+        expect(message.stopReason).toBe("error");
         const error = observed.at(-1);
         expect(error?.type).toBe("error");
         if (error?.type === "error") {
             expect(error.error).toMatchObject({
                 failure: {
                     kind: "rate_limit",
-                    resolution: "retry",
+                    resolution: "none",
                     statusCode: 429,
                     providerErrorType: "usage_limit_reached",
                     providerMessage: "The usage limit has been reached",
