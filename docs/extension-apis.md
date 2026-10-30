@@ -87,6 +87,7 @@ The included `/recap` command is built on these two calls. See
 | `vera.hooks.registerTurnEnding(hook)` | `hooks.turn_ending` | Runs a function on a final reply, before the turn ends. See [Hooks](hooks.md). |
 | `vera.hooks.registerTurnFinished(hook)` | `hooks.turn_finished` | Runs a function after each finished turn. |
 | `vera.hooks.registerPreCompact(hook)` | `hooks.pre_compact` | Runs a function when a compaction starts. See [Hooks](hooks.md). |
+| `vera.hooks.registerSessionUpdated(hook)` | `hooks.session_updated` | Runs a function when a session's status, title, context use or model changes. See [Hooks](hooks.md). |
 | `vera.hooks.registerSessionEnd(hook)` | `hooks.session_end` | Runs a function when the host closes a session. See [Hooks](hooks.md). |
 | `vera.hooks.registerSubagentFinished(hook)` | `hooks.subagent_finished` | Runs a function when a subagent hands its result back. See [Hooks](hooks.md). |
 | `vera.sessions.setTitle(sessionId, title)` | `sessions.title` | Names a session that has never had a name. |

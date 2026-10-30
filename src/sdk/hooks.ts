@@ -222,6 +222,59 @@ export type TurnFinishedHook = (
     payload: TurnFinishedHookPayload,
 ) => void | Promise<void>;
 
+export interface SessionWaitingOnApproval {
+    readonly kind: "approval";
+    readonly tool: string;
+}
+
+export interface SessionWaitingOnQuestion {
+    readonly kind: "question";
+    readonly question: string;
+}
+
+export interface SessionWaitingOnConfiguration {
+    readonly kind: "configuration";
+    readonly reason: string;
+}
+
+export type SessionWaitingOn =
+    | SessionWaitingOnApproval
+    | SessionWaitingOnQuestion
+    | SessionWaitingOnConfiguration;
+
+export interface SessionUpdatedContext {
+    readonly tokens: number;
+    /** Absent for a model whose window Vera has no entry for. */
+    readonly capacity?: number;
+    readonly estimated: boolean;
+}
+
+export interface SessionUpdatedModel {
+    readonly provider: string;
+    readonly model: string;
+}
+
+export interface SessionUpdatedHookPayload {
+    readonly type: "session_updated";
+    readonly sessionId: string;
+    readonly workspace: string;
+    readonly status: "idle" | "working" | "waiting";
+    /** Set only while `status` is `waiting`. */
+    readonly waitingOn?: SessionWaitingOn;
+    /** The title Vera lists the session under. */
+    readonly title?: string;
+    readonly context?: SessionUpdatedContext;
+    /** Absent while the session has no model selected. */
+    readonly model?: SessionUpdatedModel;
+    /** True when another agent started this session. */
+    readonly spawned: boolean;
+}
+
+/** Observe only. Each call carries the full state; a call repeats nothing the last one said. */
+export type SessionUpdatedHook = (
+    payload: SessionUpdatedHookPayload,
+) => void | Promise<void>;
+
 export interface PreCompactHookPayload {
     readonly type: "pre_compact";
     readonly sessionId: string;

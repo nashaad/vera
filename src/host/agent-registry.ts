@@ -48,6 +48,7 @@ import type { SessionIdentity, SessionIdentityProvider, VeraInvestigateResult, V
 import { preCompactPayload } from "./agent-registry/pre-compact.ts";
 import type { SessionEndReason } from "../sdk/hooks.ts";
 import { turnFinishedPayload } from "./agent-registry/turn-finished.ts";
+import { changedSessionUpdate } from "./agent-registry/session-updated.ts";
 import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
 import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
 import { type SkillCommandCatalog, type SkillInvocationDecision } from "../skills/commands.ts";
@@ -614,6 +615,16 @@ export class AgentRegistry {
         return registryRoster.notifyRosterChanged(this);
     }
 
+    announceSessionUpdated(entry: RegisteredAgentEntry): void {
+        if (this.options.onSessionUpdated === undefined) {
+            return;
+        }
+        const payload = changedSessionUpdate(entry, this.defaultProvider);
+        if (payload !== undefined) {
+            this.options.onSessionUpdated(payload);
+        }
+    }
+
     list(): RegisteredAgentSummary[] {
         return registryRoster.list(this);
     }
@@ -693,6 +704,12 @@ export class AgentRegistry {
             attachImage: (path, signal, sourcePath) =>
                 imageAttachments.attachFile(path, signal, sourcePath),
             onRunStateChanged: () => this.notifyRosterChanged(),
+            onSessionFactsChanged: () => {
+                const current = this.agents.get(store.header.id);
+                if (current?.agent === agent) {
+                    this.announceSessionUpdated(current);
+                }
+            },
             ...(ephemeral || this.options.onTurnFinished === undefined
                 ? {}
                 : {

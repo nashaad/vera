@@ -48,6 +48,7 @@ import type {
     PreTurnHook,
     SessionStartHook,
     TurnFinishedHook,
+    SessionUpdatedHook,
     PreCompactHook,
     SessionEndHook,
     SubagentFinishedHook,
@@ -69,6 +70,7 @@ import {
     type ExtensionHostServices,
     type RegisteredPreCompactHook,
     type RegisteredSessionEndHook,
+    type RegisteredSessionUpdatedHook,
     type RegisteredSubagentFinishedHook,
     type RegisteredTurnFinishedHook,
 } from "./host-services.ts";
@@ -110,6 +112,7 @@ const SEARCH_PROVIDERS_REGISTER_CAPABILITY = "search.providers.register";
 const SEARCH_PROVIDERS_USE_CAPABILITY = "search.providers.use";
 const REQUESTS_HANDLE_CAPABILITY = "requests.handle";
 const TURN_FINISHED_HOOK_CAPABILITY = "hooks.turn_finished";
+const SESSION_UPDATED_HOOK_CAPABILITY = "hooks.session_updated";
 const PRE_COMPACT_HOOK_CAPABILITY = "hooks.pre_compact";
 const SESSION_END_HOOK_CAPABILITY = "hooks.session_end";
 const SUBAGENT_FINISHED_HOOK_CAPABILITY = "hooks.subagent_finished";
@@ -170,6 +173,7 @@ export interface ExtensionRegistry {
     turnEndingHooks(): readonly RegisteredTurnEndingHook[];
     sessionStartHooks(): readonly SessionStartHook[];
     turnFinishedHooks(): readonly RegisteredTurnFinishedHook[];
+    sessionUpdatedHooks(): readonly RegisteredSessionUpdatedHook[];
     preCompactHooks(): readonly RegisteredPreCompactHook[];
     sessionEndHooks(): readonly RegisteredSessionEndHook[];
     subagentFinishedHooks(): readonly RegisteredSubagentFinishedHook[];
@@ -221,6 +225,7 @@ interface LoadedRegistryExtension {
     readonly turnEndingHooks: readonly RegisteredTurnEndingHook[];
     readonly sessionStartHooks: readonly SessionStartHook[];
     readonly turnFinishedHooks: readonly RegisteredTurnFinishedHook[];
+    readonly sessionUpdatedHooks: readonly RegisteredSessionUpdatedHook[];
     readonly preCompactHooks: readonly RegisteredPreCompactHook[];
     readonly sessionEndHooks: readonly RegisteredSessionEndHook[];
     readonly subagentFinishedHooks: readonly RegisteredSubagentFinishedHook[];
@@ -428,6 +433,9 @@ export async function startExtensionRegistry(
         turnFinishedHooks(): readonly RegisteredTurnFinishedHook[] {
             return loaded.flatMap((extension) => extension.turnFinishedHooks);
         },
+        sessionUpdatedHooks(): readonly RegisteredSessionUpdatedHook[] {
+            return loaded.flatMap((extension) => extension.sessionUpdatedHooks);
+        },
         preCompactHooks(): readonly RegisteredPreCompactHook[] {
             return loaded.flatMap((extension) => extension.preCompactHooks);
         },
@@ -631,6 +639,7 @@ async function activateExtension(
     const turnEndingHooks: RegisteredTurnEndingHook[] = [];
     const sessionStartHooks: SessionStartHook[] = [];
     const turnFinishedHooks: RegisteredTurnFinishedHook[] = [];
+    const sessionUpdatedHooks: RegisteredSessionUpdatedHook[] = [];
     const preCompactHooks: RegisteredPreCompactHook[] = [];
     const sessionEndHooks: RegisteredSessionEndHook[] = [];
     const subagentFinishedHooks: RegisteredSubagentFinishedHook[] = [];
@@ -946,6 +955,20 @@ async function activateExtension(
                 turnFinishedHooks.push(registered);
                 return () => removeHook(turnFinishedHooks, registered);
             },
+            registerSessionUpdated(hook: SessionUpdatedHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error("Extension hooks must be registered during activation");
+                }
+                if (!loaded.manifest.capabilities.includes(SESSION_UPDATED_HOOK_CAPABILITY)) {
+                    throw new Error(`Extension did not declare ${SESSION_UPDATED_HOOK_CAPABILITY}`);
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid session-updated hook registration");
+                }
+                const registered = { extensionId: loaded.manifest.id, run: hook };
+                sessionUpdatedHooks.push(registered);
+                return () => removeHook(sessionUpdatedHooks, registered);
+            },
             registerPreCompact(hook: PreCompactHook): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error("Extension hooks must be registered during activation");
@@ -1128,6 +1151,7 @@ async function activateExtension(
             turnEndingHooks,
             sessionStartHooks,
             turnFinishedHooks,
+            sessionUpdatedHooks,
             preCompactHooks,
             sessionEndHooks,
             subagentFinishedHooks,

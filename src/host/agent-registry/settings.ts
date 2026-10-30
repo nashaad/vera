@@ -324,6 +324,7 @@ export async function applyModelSettings(reg: AgentRegistry, id: string, patch: 
         reg.defaultReasoningEffort = saved.reasoningEffort;
         entry.modelSettings = settings;
         entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
+        reg.announceSessionUpdated(entry);
         return settingsForClient(
             entry.modelSettings,
             entry.modelSettings.provider ?? reg.defaultProvider,
@@ -381,6 +382,7 @@ export async function applySessionModelSettings(reg: AgentRegistry, id: string, 
         await entry.store.appendModelSettings(resolved.settings, origin);
         entry.modelSettings = resolved.settings;
         entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
+        reg.announceSessionUpdated(entry);
         return {
             settings: settingsForClient(
                 entry.modelSettings,

@@ -10,6 +10,7 @@ import type {
 import type {
     PreCompactHook,
     SessionEndHook,
+    SessionUpdatedHook,
     SubagentFinishedHook,
     TurnFinishedHook,
     TurnFinishedHookPayload,
@@ -75,6 +76,11 @@ export interface ExtensionHostServices {
 export interface RegisteredTurnFinishedHook {
     readonly extensionId: string;
     readonly run: TurnFinishedHook;
+}
+
+export interface RegisteredSessionUpdatedHook {
+    readonly extensionId: string;
+    readonly run: SessionUpdatedHook;
 }
 
 export interface RegisteredPreCompactHook {
