@@ -18,6 +18,7 @@ import {
 import type {
     PreCompactHookPayload,
     SessionEndHookPayload,
+    SessionUpdatedHookPayload,
     SubagentFinishedHookPayload,
     TurnFinishedHookPayload,
 } from "../../src/sdk/hooks.ts";
@@ -435,6 +436,50 @@ test("session-end hooks need their capability and get the payload", async () => 
     notifyObservers(registry.sessionEndHooks(), ended, () => {});
     await waitFor(() => globals().__endSeen !== undefined);
     expect(globals().__endSeen).toBe("detached 3");
+    await registry.close();
+});
+
+test("session-updated hooks need their capability and get the payload", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-updated.extension", `
+        export function activate(vera) {
+            vera.hooks.registerSessionUpdated(() => {});
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.sessionUpdatedHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.session_updated");
+    await deniedRegistry.close();
+
+    const lookout = createExtension("lookout.extension", `
+        export function activate(vera) {
+            vera.hooks.registerSessionUpdated((payload) => {
+                globalThis.__updatedSeen = payload.status + " " + payload.waitingOn.tool;
+            });
+        }
+    `, ["hooks.session_updated"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(lookout)],
+    });
+    const updated: SessionUpdatedHookPayload = {
+        type: "session_updated",
+        sessionId: "session-1",
+        workspace: "/deck",
+        status: "waiting",
+        waitingOn: { kind: "approval", tool: "bash" },
+        title: "Raid the button factory",
+        context: { tokens: 42_000, capacity: 200_000, estimated: false },
+        model: { provider: "faux", model: "parrot-1" },
+        spawned: false,
+    };
+    expect(registry.sessionUpdatedHooks().map((hook) => hook.extensionId))
+        .toEqual(["lookout.extension"]);
+    notifyObservers(registry.sessionUpdatedHooks(), updated, () => {});
+    await waitFor(() => globals().__updatedSeen !== undefined);
+    expect(globals().__updatedSeen).toBe("waiting bash");
     await registry.close();
 });
 

@@ -9,6 +9,7 @@ import type {
     PreCompactHook,
     SessionEndHook,
     SubagentFinishedHook,
+    SessionUpdatedHook,
     TurnFinishedHook,
 } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
@@ -274,6 +275,8 @@ export interface VeraExtensionHooks {
     registerSessionStart(hook: SessionStartHook): VeraExtensionDisposer;
     /** Needs `hooks.turn_finished`. */
     registerTurnFinished(hook: TurnFinishedHook): VeraExtensionDisposer;
+    /** Needs `hooks.session_updated`. */
+    registerSessionUpdated(hook: SessionUpdatedHook): VeraExtensionDisposer;
     /** Needs `hooks.pre_compact`. */
     registerPreCompact(hook: PreCompactHook): VeraExtensionDisposer;
     /** Needs `hooks.session_end`. */
