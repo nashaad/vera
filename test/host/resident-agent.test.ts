@@ -946,3 +946,66 @@ test("a started compaction is reported once, after clients have it", async () =>
     first.detach();
     agent.close();
 });
+
+test("the turn-holding request and latest context are readable, and fact changes are reported", async () => {
+    let factChanges = 0;
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        onSessionFactsChanged: () => {
+            factChanges += 1;
+        },
+    });
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(agent.engine));
+    const router = new InboundCommandRouter(agent.engine, events);
+    const attachment = agent.attach();
+
+    try {
+        expect((await attachment.receive()).type).toBe("history");
+        expect(agent.waitingRequest).toBeUndefined();
+        expect(agent.context).toBeUndefined();
+
+        void router.requestUserQuestion({
+            question: "Admit the gull?",
+            choices: [{ id: "once", label: "Once" }],
+        }, { outOfBand: true });
+        expect((await attachment.receive()).type).toBe("ui_request");
+        expect(agent.status).toBe("idle");
+        expect(agent.waitingRequest).toBeUndefined();
+
+        void router.requestToolApproval(
+            { id: "call-1", name: "bash", input: { command: "ls ~/treasure" } },
+            "Reads outside the workspace",
+            { timeoutMs: 60_000 },
+        );
+        expect((await attachment.receive()).type).toBe("ui_request");
+        expect(agent.status).toBe("waiting");
+        expect(agent.waitingRequest).toMatchObject({
+            type: "tool_approval",
+            toolCall: { name: "bash" },
+        });
+
+        events.emit({
+            type: "context_measured",
+            model: "faux/test",
+            measurement: { tokens: 42_000, capacity: 200_000, estimated: false },
+        });
+        expect((await attachment.receive()).type).toBe("context");
+        expect(agent.context).toEqual({
+            tokens: 42_000,
+            capacity: 200_000,
+            estimated: false,
+        });
+
+        const before = factChanges;
+        events.emit({
+            type: "tool_execution_started",
+            toolCall: { type: "tool_call", id: "call-2", name: "read", input: {} },
+        });
+        expect((await attachment.receive()).type).toBe("tool_started");
+        expect(factChanges).toBe(before);
+        expect(before).toBe(3);
+    } finally {
+        attachment.detach();
+        agent.close();
+    }
+});

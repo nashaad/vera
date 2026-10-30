@@ -6,6 +6,7 @@ import type {
     SessionEndReason,
     SubagentFinishedHookPayload,
     TurnFinishedHookPayload,
+    SessionUpdatedHookPayload,
 } from "../../src/sdk/hooks.ts";
 import {
     mkdir,
@@ -1260,6 +1261,112 @@ test("turn-finished observers get the prompt, the reply, and the turn count", as
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("session-updated observers hear status, title and model once per change", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-session-updated-"));
+    const payloads: SessionUpdatedHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            textResponse("Course set for the button factory."),
+        ]),
+        model: "faux/test",
+        approvalMode: "auto",
+        onSessionUpdated: (payload) => payloads.push(payload),
+    });
+
+    try {
+        await registry.create({
+            id: "ship",
+            workspace: root,
+            sessionPath: join(root, "ship.jsonl"),
+        });
+        const attachment = registry.find("ship")!.attach();
+        await runPrompt(attachment, "plot a course");
+        await registry.updateSessionName("ship", "Button heist");
+        attachment.detach();
+
+        expect(payloads.map((payload) => [
+            payload.status,
+            payload.title,
+            payload.context === undefined,
+        ])).toEqual([
+            ["idle", undefined, true],
+            ["working", "plot a course", true],
+            ["working", "plot a course", false],
+            ["idle", "plot a course", false],
+            ["idle", "Button heist", false],
+        ]);
+        expect(payloads.at(-1)).toMatchObject({
+            type: "session_updated",
+            sessionId: "ship",
+            workspace: realpathSync(root),
+            model: { provider: "unknown", model: "faux/test" },
+            spawned: false,
+        });
+        expect(payloads.every((payload) => payload.waitingOn === undefined)).toBe(true);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a session waiting on an approval says which tool it waits on", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-session-waiting-"));
+    const outside = join(tmpdir(), `vera-session-waiting-${process.pid}.txt`);
+    const payloads: SessionUpdatedHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            {
+                role: "assistant",
+                content: [{
+                    type: "tool_call",
+                    id: "bury-map",
+                    name: "bash",
+                    input: { command: `printf map > ${outside}` },
+                }],
+                source: { provider: "faux", api: "scripted", model: "test" },
+                usage: emptyUsage(),
+                stopReason: "tool_use",
+            },
+            textResponse("The map stays aboard."),
+        ]),
+        model: "faux/test",
+        approvalMode: "ask",
+        onSessionUpdated: (payload) => payloads.push(payload),
+    });
+
+    try {
+        await registry.create({
+            id: "ship",
+            workspace: root,
+            sessionPath: join(root, "ship.jsonl"),
+        });
+        const attachment = registry.find("ship")!.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "bury the map ashore" });
+        const approval = await receiveToolApproval(attachment);
+        expect(payloads.at(-1)).toMatchObject({
+            status: "waiting",
+            waitingOn: { kind: "approval", tool: "bash" },
+        });
+
+        attachment.send({
+            type: "ui_response",
+            requestId: approval.requestId,
+            response: { type: "tool_approval", decision: "deny" },
+        });
+        while ((await attachment.receive()).type !== "turn_finished") {
+            // Drain to the end of the turn.
+        }
+        attachment.detach();
+        expect(payloads.at(-1)?.status).toBe("idle");
+        expect(payloads.at(-1)?.waitingOn).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { force: true });
     }
 });
 

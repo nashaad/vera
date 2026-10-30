@@ -938,6 +938,16 @@ export async function startResidentHost(
                 message,
             }),
         ),
+        onSessionUpdated: (payload) => notifyObservers(
+            extensions.sessionUpdatedHooks(),
+            payload,
+            (extensionId, message) => hostLog({
+                type: "session_updated_hook_failed",
+                level: "warn",
+                extensionId,
+                message,
+            }),
+        ),
         onPreCompact: (payload) => notifyHookObservers(
             configuredObservers<PreCompactHook>(currentConfig(), "pre_compact"),
             extensions.preCompactHooks(),
@@ -1099,6 +1109,7 @@ export async function startResidentHost(
                     await entry.store.appendModelSettings(settings, registry.originFor(entry, settings));
                     entry.modelSettings = settings;
                     registry.pushWorkerState(entry.agent.id);
+                    registry.announceSessionUpdated(entry);
                 }
                 return registry.readHostModelSettings(workspace);
             },

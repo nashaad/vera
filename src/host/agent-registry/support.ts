@@ -178,6 +178,7 @@ import type {
     SessionEndHookPayload,
     SubagentFinishedHookPayload,
     TurnFinishedHookPayload,
+    SessionUpdatedHookPayload,
 } from "../../sdk/hooks.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import { loopCompactionState, type LoopState } from "../../engine/host-protocol.ts";
@@ -306,6 +307,7 @@ export function importedSessionSummary(
 
 export interface AgentRegistryOptions {
     readonly onTurnFinished?: (payload: TurnFinishedHookPayload) => void;
+    readonly onSessionUpdated?: (payload: SessionUpdatedHookPayload) => void;
     readonly onPreCompact?: (payload: PreCompactHookPayload) => void;
     readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
     readonly onSubagentFinished?: (payload: SubagentFinishedHookPayload) => void;
@@ -800,6 +802,8 @@ export interface RegisteredAgentEntry {
     failure?: unknown;
     /** Set once session_end has been announced, so racing closes report it once. */
     sessionEnded?: boolean;
+    /** The last session_updated payload sent, as JSON. */
+    lastSessionUpdate?: string;
     spawnSubagent?: SpawnSubagent;
 }
 

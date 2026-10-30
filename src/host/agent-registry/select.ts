@@ -273,6 +273,7 @@ export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: Registere
             await entry.store.appendModelSettings(target, "agent-default");
             entry.modelSettings = target;
             entry.requestedReasoningEffort = undefined;
+            reg.announceSessionUpdated(entry);
         }
         return unresolvable
             ? `${definition.name} names the pair ${definition.defaultPair!.name}, which is not in your pool. The session kept the host default.`
