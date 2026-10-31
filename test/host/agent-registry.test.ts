@@ -1312,6 +1312,76 @@ test("session-updated observers hear status, title and model once per change", a
     }
 });
 
+test("a subagent's session updates name the session that started it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-session-parent-"));
+    const payloads: SessionUpdatedHookPayload[] = [];
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        onSessionUpdated: (payload) => payloads.push(payload),
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "send-lookout",
+                            name: "async_subagent",
+                            input: { description: "Climb the mast and find the island" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("The lookout is up the mast."),
+                    textResponse("The lookout found the island."),
+                ]);
+            }
+            return new FauxAdapter([
+                textResponse("Island two points off the bow."),
+            ], { delayMs: 100 });
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({ id: "parent", workspace: root });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({
+            type: "update_permissions",
+            requestId: "inherit-permissions",
+            mode: "full_access",
+        });
+        await receivePermissions(attachment);
+        await runPrompt(attachment, "Send a lookout up the mast", false);
+        const child = registry.list().find((agent) => agent.id !== "parent")!;
+        await waitForTaskNotification(attachment);
+        await finishTurnText(attachment);
+
+        const childUpdates = payloads.filter((payload) => payload.sessionId === child.id);
+        expect(childUpdates.map((payload) => payload.status)).toContain("working");
+        expect(childUpdates.every((payload) =>
+            payload.spawned && payload.parentId === "parent"
+        )).toBe(true);
+        const parentUpdates = payloads.filter((payload) => payload.sessionId === "parent");
+        expect(parentUpdates.length).toBeGreaterThan(0);
+        expect(parentUpdates.every((payload) =>
+            !payload.spawned && !("parentId" in payload)
+        )).toBe(true);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a session waiting on an approval says which tool it waits on", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-session-waiting-"));
     const outside = join(tmpdir(), `vera-session-waiting-${process.pid}.txt`);

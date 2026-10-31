@@ -506,7 +506,8 @@ when a session the host runs starts, and again each time its status, title,
 context use or model changes. It gets the session ID, workspace, `status`
 (`idle`, `working` or `waiting`), `spawned`, and when Vera knows them,
 `title`, `context` (`tokens`, `capacity`, `estimated`) and `model`
-(`provider`, `model`). While the session waits, `waitingOn` says on what: a
+(`provider`, `model`). A subagent's session also carries `parentId`, the
+session that started it. While the session waits, `waitingOn` says on what: a
 tool approval with the tool's name, a question, or setup the turn needs. Each
 call carries the whole state, and a call that would repeat the last one is
 not sent. It only observes, and a failure is logged without touching the
