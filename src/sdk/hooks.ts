@@ -268,6 +268,8 @@ export interface SessionUpdatedHookPayload {
     readonly model?: SessionUpdatedModel;
     /** True when another agent started this session. */
     readonly spawned: boolean;
+    /** The session that started this one, when Vera knows it. */
+    readonly parentId?: string;
 }
 
 /** Observe only. Each call carries the full state; a call repeats nothing the last one said. */

@@ -40,6 +40,7 @@ export function sessionUpdatedPayload(
             }),
         ...(model === undefined ? {} : { model }),
         spawned: sessionIsSubagent(entry.store.header),
+        ...(entry.parentId === undefined ? {} : { parentId: entry.parentId }),
     };
 }
 
