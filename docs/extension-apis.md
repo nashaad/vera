@@ -264,6 +264,53 @@ The result's `outcome` is `answered` with the reply in `text`, `failed` with
 an `error`, `cancelled` when your signal aborted, or `timed_out`. A
 conversation that is not open, or a bad request, rejects instead.
 
+## Watch a folder
+
+An extension can ask the host to watch a folder and put a note in the inbox
+when its files change. Declare the watch in the manifest. The watch itself
+needs no code, but every extension still needs an entrypoint that exports
+`activate`, even an empty one:
+
+```json
+{
+    "id": "acme.hoard",
+    "version": "1.0.0",
+    "sdk": "1",
+    "entrypoint": "./extension.ts",
+    "capabilities": [],
+    "contributes": {
+        "watches": [
+            {
+                "id": "loot",
+                "source_family": "filesystem",
+                "config": { "path": "/Users/crow/hoard", "interval_ms": 5000 }
+            }
+        ]
+    }
+}
+```
+
+```ts
+export function activate() {}
+```
+
+- `path` is the folder. `interval_ms` is how often it is checked, 1000 by
+  default. Set `"recursive": true` to include files in subfolders.
+- A link inside the folder is followed only when it points back inside it.
+- The first check only notes what is there. Each later change adds one
+  `filesystem.changed` entry naming the folder and how many files it holds,
+  including changes made while the host was stopped.
+- The first time one reaches a conversation, Vera asks whether to admit the
+  `filesystem` source.
+- Add `"address": "<conversation id>"` to send the entries to one
+  conversation. Without it, every open conversation can read them.
+- A user can change the config without editing the manifest, under
+  `watches.<id>` in the extension's `config.json` entry.
+
+A watch that keeps failing, for example because `path` is a file, stops until
+the host restarts. Changing a watch also needs the host restarted: choose
+**Reconnect host** from Ctrl+P.
+
 ## Annex pages
 
 An extension can add a page to the annex, the local web page `/usage` opens.
