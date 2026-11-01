@@ -1354,6 +1354,13 @@ export class SessionStore {
         return this.lineCount;
     }
 
+    /** Runs task with no append in flight and none able to start. An append made inside task never finishes. */
+    exclusively<T>(task: () => Promise<T>): Promise<T> {
+        const result = this.pendingAppend.then(task);
+        this.pendingAppend = result.then(() => {}, () => {});
+        return result;
+    }
+
     appendForeignRecord(
         record: Record<string, unknown>,
     ): Promise<number> {

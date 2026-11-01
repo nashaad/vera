@@ -86,6 +86,20 @@ export function residentWorkerSpawnCommand(
     return [process.execPath, residentWorkerEntrypoint()];
 }
 
+/** Reads the seed and starts the worker while no host append can run, so the seed and the echoed records join without a gap. */
+export function startSeededWorker(
+    options: Omit<StartWorkerOptions, "session">,
+    readSeed: (path: string) => Promise<WorkerSessionSeed>,
+): Promise<WorkerHandle> {
+    return options.store.exclusively(async () =>
+        startWorker({
+            ...options,
+            session: await readSeed(options.store.path),
+        })
+    );
+}
+
+/** Callers that read the seed themselves must do it inside `store.exclusively`. */
 export async function startWorker(
     options: StartWorkerOptions,
 ): Promise<WorkerHandle> {
@@ -201,6 +215,8 @@ export async function startWorker(
                 ),
             }),
     });
+
+    options.store.watchRecords(server.pushRecord);
 
     return {
         pid,

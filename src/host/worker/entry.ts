@@ -55,9 +55,15 @@ export async function runWorker(
             onFailure: () => {},
         });
     let failure: string | undefined;
+    let replicaDiverged: (error: Error) => void = () => {};
+    const replicaFailure = new Promise<never>((_resolve, reject) => {
+        replicaDiverged = reject;
+    });
+    replicaFailure.catch(() => {});
     try {
         const remote = createRemoteHostBoundary({
             pipe,
+            onReplicaDiverged: (error) => replicaDiverged(error),
             session: options.session,
             offers: options.offers,
             capabilities: options.capabilities,
@@ -97,15 +103,18 @@ export async function runWorker(
             receive(): Promise<AgentUpdate>;
         }, pipe);
 
-        await runHeadlessLoop(
-            channel.engine as never,
-            adapter,
-            options.model,
-            options.reasoningEffort,
-            options.data,
-            {},
-            remote.boundary,
-        );
+        await Promise.race([
+            runHeadlessLoop(
+                channel.engine as never,
+                adapter,
+                options.model,
+                options.reasoningEffort,
+                options.data,
+                {},
+                remote.boundary,
+            ),
+            replicaFailure,
+        ]);
     } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
     }

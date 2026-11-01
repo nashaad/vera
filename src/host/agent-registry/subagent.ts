@@ -14,7 +14,7 @@ import { HOST_OWNED_COMMANDS, WORKER_EXTENSIONS_ENV, WorkerCapReachedError, canc
 import { CHILD_TOOL_APPROVAL_TIMEOUT_MS, closeSubagentOutput, type PendingSubagentConfigurationBatch, type PendingSubagentLaunch, type RegisteredAgentEntry } from "./support.ts";
 import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
 import { ResidentAgent, type AgentAttachment } from "../resident-agent.ts";
-import { startWorker } from "../worker/handle.ts";
+import { startSeededWorker } from "../worker/handle.ts";
 import type { WorkerAdapterSpec } from "../worker/start.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 
@@ -89,9 +89,8 @@ export async function runInWorker(reg: AgentRegistry, options: {
             throw new WorkerCapReachedError(cap);
         }
         const workerExtensions = reg.workerExtensions();
-        const handle = await startWorker({
+        const handle = await startSeededWorker({
             store,
-            session: await readSessionSeed(store.path),
             model: reg.defaultModel,
             ...(reg.defaultReasoningEffort === undefined
                 ? {}
@@ -135,9 +134,8 @@ export async function runInWorker(reg: AgentRegistry, options: {
                     `Worker sent an unowned private update: ${update.type}`,
                 );
             },
-        });
+        }, readSessionSeed);
         options.entry.worker = handle;
-        store.watchRecords(handle.server.pushRecord);
         // The ledger stays in the host; the worker's events reach it on this bus.
         const stopRecordingFailures = services.modelFailureLedger === undefined
                 || services.eventBus === undefined
