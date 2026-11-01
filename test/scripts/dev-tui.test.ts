@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createConnection, createServer } from "node:net";
+import { fileURLToPath } from "node:url";
 
 import {
     candidateBuildId,
@@ -28,6 +29,7 @@ import {
     FACTORY_HELLO_SESSION_ID,
     synthesizeFactoryHome,
 } from "../../scripts/synthesize-factory-home.ts";
+import { devInstancePath, registerDevInstance } from "../../src/dev-instances.ts";
 
 function linkedWorktree(name: string): string {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-src-"));
@@ -599,6 +601,51 @@ test("--discard without confirmation keeps the instance", async () => {
         expect(stderr.join("")).toContain("Kept the development instance");
         expect(existsSync(candidateHomePath(worktree, join(root, "instances"))))
             .toBe(true);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("--discard removes the instance's registry record, and a declined discard keeps it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-record");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const devInstanceRoot = join(root, "registry");
+    try {
+        await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot,
+            spawnTui: async () => 0,
+        });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        registerDevInstance({
+            source: fileURLToPath(import.meta.url),
+            home,
+            root: devInstanceRoot,
+        });
+        const record = devInstancePath(home, devInstanceRoot);
+
+        await runDevTui(["--discard"], worktree, {
+            sourceHome,
+            temporaryRoot,
+            devInstanceRoot,
+            confirm: async () => false,
+            stderr: { write: () => true },
+        });
+        expect(existsSync(home)).toBe(true);
+        expect(existsSync(record)).toBe(true);
+
+        await runDevTui(["--discard"], worktree, {
+            sourceHome,
+            temporaryRoot,
+            devInstanceRoot,
+            confirm: async () => true,
+            stdout: { write: () => true },
+        });
+        expect(existsSync(home)).toBe(false);
+        expect(existsSync(record)).toBe(false);
     } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });

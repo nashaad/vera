@@ -53,6 +53,11 @@ that host and reports the PID and builds. It does not replace the daily host.
 | `vera prune` | List posted processes in this home and ask separately before stopping each. |
 | `vera host stop` | Stop this home's host and affect its attached clients. |
 | `bun run dev:tui --stop` | Stop the development host belonging to the current worktree. |
+| `bun run dev:sweep` | Stop processes that have run for two days or longer in the homes of registered development instances. It never stops the default home's host. |
+
+A host registers as a development instance only when it runs from a Git
+checkout or worktree on a home other than the default `~/.vera`. An installed
+release, and a checkout run on the default home, never register.
 
 A plain-shell `vera host stop` targets daily Vera. Use the development
 launcher to stop a trial.

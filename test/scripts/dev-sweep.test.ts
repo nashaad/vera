@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,11 +42,13 @@ function longRunningProcess(): number {
     return child.pid;
 }
 
-function instanceWithOneProcess(root: string): {
+function instanceWithOneProcess(
+    root: string,
+    parent = tempDir("vera-sweep-"),
+): {
     readonly veraHome: string;
     readonly pid: number;
 } {
-    const parent = tempDir("vera-sweep-");
     const veraHome = join(parent, ".vera");
     mkdirSync(veraHome, { recursive: true });
     const pid = longRunningProcess();
@@ -146,4 +148,43 @@ test("the sweep reaches every registered home, not just the first", async () => 
 
     expect(processIsAlive(first.pid)).toBe(false);
     expect(processIsAlive(second.pid)).toBe(false);
+});
+
+test("a registered entry for the default home is never swept", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const daily = instanceWithOneProcess(root, root);
+    expect(daily.veraHome).toBe(join(root, ".vera"));
+
+    const dryRun = await sweep({ maxAgeMs: 0, dryRun: true, root });
+    const real = await sweep({ maxAgeMs: 0, dryRun: false, root });
+
+    expect(dryRun).toContain("No development instances are registered.");
+    expect(real).toContain("No development instances are registered.");
+    expect(processIsAlive(daily.pid)).toBe(true);
+    expect(listLiveProcessesIn(daily.veraHome)).toHaveLength(1);
+});
+
+test("an entry whose home became a file is dropped and the sweep goes on", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const replaced = instanceWithOneProcess(root);
+    const trial = instanceWithOneProcess(root);
+    rmSync(replaced.veraHome, { recursive: true, force: true });
+    writeFileSync(replaced.veraHome, "not a directory\n");
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root });
+
+    expect(written).toContain("Stopped 1 process across 1 instance,");
+    expect(processIsAlive(trial.pid)).toBe(false);
+});
+
+test("the default home is skipped while another registered home is swept", async () => {
+    const root = tempDir("vera-sweep-root-");
+    const daily = instanceWithOneProcess(root, root);
+    const trial = instanceWithOneProcess(root);
+
+    const written = await sweep({ maxAgeMs: 0, dryRun: false, root });
+
+    expect(written).toContain("Stopped 1 process across 1 instance,");
+    expect(processIsAlive(trial.pid)).toBe(false);
+    expect(processIsAlive(daily.pid)).toBe(true);
 });
