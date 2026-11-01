@@ -1384,6 +1384,13 @@ export async function startResidentHost(
                 },
             });
             markAnnexOk(annex.url);
+            if (annex.movedFromPort !== undefined) {
+                hostLog({
+                    type: "annex_port_moved",
+                    previous_port: annex.movedFromPort,
+                    port: annex.port,
+                });
+            }
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             markAnnexFailed(reason);

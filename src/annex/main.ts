@@ -30,6 +30,7 @@ function stdinIsAParentsLifeline(): boolean {
 function parseArgs(argv: readonly string[]): {
     readonly home: string;
     readonly port: number;
+    readonly anyPortIfBusy: boolean;
     readonly assets: string | undefined;
     readonly extensions: readonly string[];
     readonly hostSocket: string | undefined;
@@ -38,6 +39,7 @@ function parseArgs(argv: readonly string[]): {
     let hostSocket: string | undefined;
     const extensions: string[] = [];
     let port: number | undefined;
+    let anyPortIfBusy = false;
     let assets: string | undefined;
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
@@ -55,6 +57,10 @@ function parseArgs(argv: readonly string[]): {
                 fail(`invalid --port: ${raw ?? "(missing)"}`);
             }
             port = parsed;
+            continue;
+        }
+        if (arg === "--any-port-if-busy") {
+            anyPortIfBusy = true;
             continue;
         }
         if (arg === "--assets") {
@@ -87,11 +93,13 @@ function parseArgs(argv: readonly string[]): {
     if (home === undefined || home.length === 0 || port === undefined) {
         fail("usage: vera-annex --home <vera-home> --port <n>");
     }
-    return { home, port, assets, extensions, hostSocket };
+    return { home, port, anyPortIfBusy, assets, extensions, hostSocket };
 }
 
 if (import.meta.main) {
-    const { home, port, assets, extensions, hostSocket } = parseArgs(Bun.argv.slice(2));
+    const { home, port, anyPortIfBusy, assets, extensions, hostSocket } = parseArgs(
+        Bun.argv.slice(2),
+    );
     process.env.VERA_HOME = home;
     const paths = annexPathsFromHome(home);
     try {
@@ -102,6 +110,7 @@ if (import.meta.main) {
             workflowDirectory: paths.workflowDirectory,
             authStoragePath: paths.authStoragePath,
             port,
+            anyPortIfBusy,
             extensionDirectories: extensions,
             ...(hostSocket === undefined ? {} : { hostSocketPath: hostSocket }),
             ...(assets === undefined ? {} : { webRoot: assets }),
