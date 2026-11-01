@@ -1695,10 +1695,13 @@ function accidentGuardForBash(
         }
     }
 
+    const nestedCommands = nestedShellCommands(command, commands);
     if (depth >= MAX_NESTED_SHELL_DEPTH) {
-        return undefined;
+        return nestedCommands.length === 0
+            ? undefined
+            : `Accident guard refused a command with shell nested more than ${MAX_NESTED_SHELL_DEPTH} levels deep, because it cannot check what the inner commands delete. Run this operation manually if it is intentional.`;
     }
-    for (const nested of nestedShellCommands(command, commands)) {
+    for (const nested of nestedCommands) {
         const reason = accidentGuardForBash(
             nested,
             workspace,

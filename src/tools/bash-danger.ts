@@ -237,6 +237,12 @@ function dollarCommandSubstitutions(command: string): string[] {
             continue;
         }
 
+        if (isArithmeticExpansion(command, index)) {
+            // Scan the expression for real substitutions inside it.
+            index += 2;
+            continue;
+        }
+
         const closingIndex = commandSubstitutionEnd(command, index + 2);
         if (closingIndex !== undefined) {
             substitutions.push(command.slice(index + 2, closingIndex));
@@ -244,6 +250,16 @@ function dollarCommandSubstitutions(command: string): string[] {
         }
     }
     return substitutions;
+}
+
+// `$((1+1))` is arithmetic. `$((cd /); ls)` is a substitution that starts
+// with a subshell, so the group opened by the second `(` must close at `))`.
+function isArithmeticExpansion(command: string, dollarIndex: number): boolean {
+    if (command[dollarIndex + 2] !== "(") {
+        return false;
+    }
+    const groupEnd = commandSubstitutionEnd(command, dollarIndex + 3);
+    return groupEnd !== undefined && command[groupEnd + 1] === ")";
 }
 
 function commandSubstitutionEnd(
