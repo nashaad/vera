@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+    chmodSync,
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -97,8 +104,10 @@ describe("filesystem watch config", () => {
 
 describe("listing digest", () => {
     test("a missing directory is empty rather than an error", async () => {
-        const result = await listingDigest(join(tempDir(), "absent"), false);
+        const dir = tempDir();
+        const result = await listingDigest(join(dir, "absent"), false);
         expect(result.count).toBe(0);
+        rmSync(dir, { recursive: true });
     });
 
     test("content changes move the digest even when size holds", async () => {
@@ -119,6 +128,169 @@ describe("listing digest", () => {
         expect((await listingDigest(dir, false)).count).toBe(0);
         expect((await listingDigest(dir, true)).count).toBe(1);
         rmSync(dir, { recursive: true });
+    });
+});
+
+describe("symlinks in the listing", () => {
+    // The sibling name starts with the watched name to catch a bare prefix check.
+    function layout(): { base: string; watched: string; sibling: string } {
+        const base = tempDir();
+        const watched = join(base, "watch");
+        const sibling = join(base, "watch-other");
+        mkdirSync(watched);
+        mkdirSync(sibling);
+        return { base, watched, sibling };
+    }
+
+    test("a link to a sibling directory is not walked when recursive", async () => {
+        const { base, watched, sibling } = layout();
+        writeFileSync(join(sibling, "outside.json"), "one");
+        symlinkSync(sibling, join(watched, "via"));
+
+        const first = await listingDigest(watched, true);
+        writeFileSync(join(sibling, "outside.json"), "two, and longer");
+        const second = await listingDigest(watched, true);
+
+        expect(first.count).toBe(0);
+        expect(second.digest).toBe(first.digest);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a link to a file outside the path is not listed when not recursive", async () => {
+        const { base, watched, sibling } = layout();
+        writeFileSync(join(sibling, "outside.json"), "one");
+        symlinkSync(join(sibling, "outside.json"), join(watched, "outside.json"));
+
+        const first = await listingDigest(watched, false);
+        writeFileSync(join(sibling, "outside.json"), "two, and longer");
+        const second = await listingDigest(watched, false);
+
+        expect(first.count).toBe(0);
+        expect(second.digest).toBe(first.digest);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("an unreadable directory behind an outside link does not fail the walk", async () => {
+        const { base, watched, sibling } = layout();
+        const locked = join(sibling, "locked");
+        mkdirSync(locked, { mode: 0o000 });
+        symlinkSync(locked, join(watched, "direct"));
+        symlinkSync(sibling, join(watched, "via"));
+        writeFileSync(join(watched, "kept.json"), "{}");
+
+        const result = await listingDigest(watched, true);
+
+        expect(result.count).toBe(1);
+        chmodSync(locked, 0o700);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a link whose target is missing is skipped without failing", async () => {
+        const { base, watched } = layout();
+        symlinkSync(join(base, "absent"), join(watched, "dangling"));
+
+        const result = await listingDigest(watched, true);
+
+        expect(result.count).toBe(0);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a link that climbs out through a nested directory is not walked", async () => {
+        const { base, watched, sibling } = layout();
+        mkdirSync(join(watched, "deep"));
+        writeFileSync(join(sibling, "outside.json"), "one");
+        symlinkSync(sibling, join(watched, "deep", "up"));
+
+        const result = await listingDigest(watched, true);
+
+        expect(result.count).toBe(0);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a file link that resolves inside the path is listed as its own row", async () => {
+        const { base, watched } = layout();
+        writeFileSync(join(watched, "a.json"), "a");
+        symlinkSync("a.json", join(watched, "b.json"));
+
+        expect((await listingDigest(watched, false)).count).toBe(2);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a link back to the watch path lists each real file once", async () => {
+        const { base, watched } = layout();
+        mkdirSync(join(watched, "sub"));
+        writeFileSync(join(watched, "a.json"), "a");
+        writeFileSync(join(watched, "sub", "b.json"), "b");
+        symlinkSync(".", join(watched, "loop"));
+        symlinkSync("..", join(watched, "sub", "up"));
+
+        const first = await listingDigest(watched, true);
+        const second = await listingDigest(watched, true);
+
+        expect(first.count).toBe(2);
+        expect(second.digest).toBe(first.digest);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a directory reached directly and through links is listed once", async () => {
+        const { base, watched } = layout();
+        mkdirSync(join(watched, "data"));
+        writeFileSync(join(watched, "data", "x.json"), "x");
+        symlinkSync("data", join(watched, "first"));
+        symlinkSync("data", join(watched, "second"));
+
+        expect((await listingDigest(watched, true)).count).toBe(1);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("a watch path that is itself a link to a directory is walked", async () => {
+        const { base, sibling } = layout();
+        writeFileSync(join(sibling, "inside.json"), "x");
+        const entry = join(base, "entry");
+        symlinkSync(sibling, entry);
+
+        expect((await listingDigest(entry, true)).count).toBe(1);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("under a linked watch path, only links within its real target are followed", async () => {
+        const { base, sibling } = layout();
+        const beyond = join(base, "watch-other-beyond");
+        mkdirSync(beyond);
+        writeFileSync(join(sibling, "inside.json"), "one");
+        writeFileSync(join(beyond, "outside.json"), "one");
+        symlinkSync("inside.json", join(sibling, "alias.json"));
+        symlinkSync(beyond, join(sibling, "gate"));
+        const entry = join(base, "entry");
+        symlinkSync(sibling, entry);
+
+        const first = await listingDigest(entry, true);
+        writeFileSync(join(beyond, "outside.json"), "two, and longer");
+        const second = await listingDigest(entry, true);
+
+        expect(first.count).toBe(2);
+        expect(second.digest).toBe(first.digest);
+        rmSync(base, { recursive: true, force: true });
+    });
+
+    test("editing a file behind an outside link emits no event", async () => {
+        const { base, watched, sibling } = layout();
+        writeFileSync(join(sibling, "outside.json"), "one");
+        symlinkSync(sibling, join(watched, "via"));
+        const inbox = Inbox.open(":memory:");
+        const controller = new AbortController();
+        const { context: ctx } = context(inbox, { path: watched, recursive: true }, controller);
+        const connector = createFilesystemConnector({
+            sleep: steppedSleep(controller, 3, (pass) => {
+                if (pass === 1) writeFileSync(join(sibling, "outside.json"), "two, and longer");
+            }),
+        });
+
+        await connector.run(ctx);
+
+        expect(inbox.readAfter(0, { limit: 10 }).length).toBe(0);
+        inbox.close();
+        rmSync(base, { recursive: true, force: true });
     });
 });
 
