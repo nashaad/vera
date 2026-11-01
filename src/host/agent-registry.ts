@@ -76,6 +76,7 @@ export * from "./agent-registry/helpers.ts";
 export class AgentRegistry {
     readonly agents = new Map<string, RegisteredAgentEntry>();
     readonly startingIds = new Set<string>();
+    readonly trashingIds = new Set<string>();
     readonly deliveryTasks = new Set<Promise<void>>();
     readonly suppressedCompletionDeliveries = new WeakSet<
         RegisteredAgentEntry
@@ -199,6 +200,13 @@ export class AgentRegistry {
         targetId: string,
     ): Promise<"trashed" | "busy" | "not_found" | "failed"> {
         return registryLifecycle.trashSession(this, targetId);
+    }
+
+    async trashStoredSession(
+        targetId: string,
+        locate: () => Promise<SessionArtifacts | undefined>,
+    ): Promise<"trashed" | "busy" | "not_found" | "failed"> {
+        return registryLifecycle.trashStoredSession(this, targetId, locate);
     }
 
     find(id: string): ResidentAgent | undefined {
@@ -1225,8 +1233,9 @@ export class AgentRegistry {
                         agent.sendSessionNameReply(ownerId, reply),
                 },
         };
-        entry.loopServices = loopServices;
         const adapterSpec = this.workerAdapterSpecFor(store, entry);
+        // Set only as the loop starts: a failed start reads it to decide whether a session_end may follow.
+        entry.loopServices = loopServices;
         entry.run = (adapterSpec === undefined
             ? runHeadlessLoop(
                 agent.engine,
