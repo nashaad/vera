@@ -53,6 +53,7 @@ export interface RemoteHostBoundaryOptions {
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
     readonly toolResults?: ToolResultLimits;
+    readonly onReplicaDiverged: (error: Error) => void;
 }
 
 export interface RemoteHostBoundary {
@@ -70,6 +71,7 @@ export function createRemoteHostBoundary(
         options.session.path,
         options.session.header,
     );
+    store.watchDivergence(options.onReplicaDiverged);
     for (const [index, record] of options.session.records.entries()) {
         store.applyHostRecord(index + 2, record);
     }
@@ -376,7 +378,11 @@ export function createRemoteHostBoundary(
                     readonly lineNumber: number;
                     readonly record: Record<string, unknown>;
                 };
-                store.applyHostRecord(record.lineNumber, record.record);
+                try {
+                    store.applyHostRecord(record.lineNumber, record.record);
+                } catch {
+                    // The store reported it through onReplicaDiverged.
+                }
                 return;
             }
             if (message.method === "state.changed") {
