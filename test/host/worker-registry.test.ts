@@ -663,6 +663,50 @@ test("agent selection queued in a worker is answered by the host over the bounda
     }
 }, 60_000);
 
+test("an agent the host refuses on access grounds is refused to the worker's client", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-select-refuse-"));
+    await mkdir(join(root, ".vera", "agents"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "agents", "sealed.md"),
+        "---\nforbidden_access: [ask, readonly]\n---\nNothing fits.",
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [text("done")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "refuse",
+            workspace: root,
+            sessionPath: join(root, "refuse.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "select_agent", requestId: "select-1", name: "sealed" });
+        const answer = await receiveUntil(
+            client,
+            (update) =>
+                update.type === "agent_selected" || update.type === "agent_rejected",
+        );
+        expect(answer).toMatchObject({ type: "agent_rejected", requestId: "select-1" });
+        expect((answer as { reason: string }).reason)
+            .toContain("sealed forbids permission mode ask");
+        expect(registry.approvalModeOf(agent.id)).toBe("ask");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
 test("skill commands list and run through a worker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-skills-"));
     const skillDirectory = join(root, ".vera", "skills", "deploy");

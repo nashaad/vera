@@ -728,6 +728,18 @@ export const BUILT_IN_PERMISSION_MODE_NAMES: readonly string[] = [
     "full_access",
 ];
 
+// Custom modes have no order, so one is never provably narrower than another.
+export function permissionModeNoWiderThan(
+    candidate: string,
+    ceiling: string,
+): boolean {
+    if (candidate === ceiling) return true;
+    const candidateRank = BUILT_IN_PERMISSION_MODE_NAMES.indexOf(candidate);
+    const ceilingRank = BUILT_IN_PERMISSION_MODE_NAMES.indexOf(ceiling);
+    return candidateRank >= 0 && ceilingRank >= 0
+        && candidateRank <= ceilingRank;
+}
+
 export function builtInPermissionMode(
     name: string,
 ): PermissionMode | undefined {

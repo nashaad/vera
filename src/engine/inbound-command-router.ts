@@ -45,6 +45,14 @@ export interface SessionModelSettingsResult {
     readonly origin: SessionSettingOrigin;
 }
 
+export interface SelectedAgentResult {
+    readonly name: string;
+    readonly tools?: readonly string[];
+    readonly skills?: readonly string[];
+    readonly posture?: string;
+    readonly notice?: string;
+}
+
 export const PERMISSION_SYNC_WARNING =
     "The permission change took effect, but synchronizing it failed.";
 
@@ -278,13 +286,9 @@ export interface InboundCommandRouterOptions {
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
-    readonly selectAgent?: (name: string) => Promise<{
-        readonly name: string;
-        readonly tools?: readonly string[];
-        readonly skills?: readonly string[];
-        readonly posture?: string;
-        readonly notice?: string;
-    } | undefined>;
+    readonly selectAgent?: (
+        name: string,
+    ) => Promise<SelectedAgentResult | undefined>;
     readonly listCustomizationSources?: () => Promise<import("../customize/types.ts").CustomizationCatalog>;
     readonly listAgents?: () => Promise<{
         readonly selected: string;
@@ -1513,7 +1517,17 @@ export class InboundCommandRouter {
             return;
         }
         const previousMode = this.options.readApprovalMode?.();
-        const selected = await this.options.selectAgent(select.name);
+        let selected: SelectedAgentResult | undefined;
+        try {
+            selected = await this.options.selectAgent(select.name);
+        } catch (error) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId: select.requestId,
+                reason: error instanceof Error ? error.message : String(error),
+            });
+            return;
+        }
         if (selected === undefined) {
             this.events.emit({
                 type: "agent_rejected",
