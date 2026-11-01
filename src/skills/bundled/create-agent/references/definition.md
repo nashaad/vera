@@ -34,6 +34,16 @@ supported; nudges are interactive notices, not instructions for doing the job.
 Unknown frontmatter fields are rejected. Do not add `model`, `agent_type`, or
 `reasoning_effort` fields.
 
+Frontmatter is the block of fields between two `---` lines, and it must open
+the file. A file is refused, with an error naming the fields, if it lists
+definition fields in a `---` block that does not start the file, whether or not
+the block is closed, or if it opens with `---`, lists definition fields and
+never closes the block. A block runs to the next `---` line or the end of the
+file. Apart from the frontmatter itself, a `---` line whose block lists no
+definition field, such as a horizontal rule, is ordinary text. Blank lines or a
+byte order mark before the opening line, and spaces or tabs after either `---`
+line, are allowed. Text after the closing `---` is never read as a second block.
+
 The bundled check validates built-in permission modes. If the user requests a
 custom mode, explain that it needs verification against the active installation;
 do not claim this check validates it. Put wording such as "factual" in the body,

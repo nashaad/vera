@@ -91,6 +91,16 @@ definition before saving it. See [Create an agent definition](skills.md#create-a
 
 An omitted tool list allows all available tools. An empty list allows none.
 
+Frontmatter is the block of fields between two `---` lines, and it must open
+the file. A file is refused, with an error naming the fields, if it lists
+definition fields in a `---` block that does not start the file, whether or not
+the block is closed, or if it opens with `---`, lists definition fields and
+never closes the block. A block runs to the next `---` line or the end of the
+file. Apart from the frontmatter itself, a `---` line whose block lists no
+definition field, such as a horizontal rule, is ordinary text. Blank lines or a
+byte order mark before the opening line, and spaces or tabs after either `---`
+line, are allowed. Text after the closing `---` is never read as a second block.
+
 A definition can bind delegated launches to a particular assignment with
 `subagent_assignment` in Markdown frontmatter, or `subagentAssignment` in an
 extension registration. That assignment replaces the ordinary Subagents list
