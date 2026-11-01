@@ -172,10 +172,14 @@ import {
 } from "./permissions.ts";
 import {
     createRoutedToolReviewer,
+    reviewCancelled,
     type ReviewToolCall,
     type ToolReviewerSettings,
 } from "./reviewer.ts";
-import { collectReviewerPathFacts } from "./reviewer-path-facts.ts";
+import {
+    collectReviewerPathFacts,
+    type ReviewerPathFacts,
+} from "./reviewer-path-facts.ts";
 import {
     createReviewCircuitBreaker,
     type ReviewCircuitBreaker,
@@ -2502,23 +2506,36 @@ async function executePreparedTool(
                     },
                 };
             }
-            const review = await reviewCall(
-                {
-                    toolCall: hookCall,
-                    workspace: state.toolRuntime.workspace,
-                    reason: permission.reason,
-                    pathFacts: await collectReviewerPathFacts(
-                        permissionContext.workspace,
-                        hookCall,
-                        permission.actions,
-                        signal,
-                    ),
-                    transcript: state.messages,
-                },
-                signal,
-            );
+            let pathFacts: readonly ReviewerPathFacts[] | undefined;
+            try {
+                pathFacts = await collectReviewerPathFacts(
+                    permissionContext.workspace,
+                    hookCall,
+                    permission.actions,
+                    signal,
+                );
+            } catch (error) {
+                if (!signal.aborted) {
+                    throw error;
+                }
+            }
+            // git can exit normally after the cancel, so the collector may still return facts.
+            const review = pathFacts === undefined || signal.aborted
+                ? reviewCancelled()
+                : await reviewCall(
+                    {
+                        toolCall: hookCall,
+                        workspace: state.toolRuntime.workspace,
+                        reason: permission.reason,
+                        pathFacts,
+                        transcript: state.messages,
+                    },
+                    signal,
+                );
+            // A cancel outranks a mode change made while the review ran; rechecking would start the tool.
             if (
-                (state.readApprovalMode?.() ?? state.approvalMode)
+                !signal.aborted
+                && (state.readApprovalMode?.() ?? state.approvalMode)
                     !== approvalMode
             ) {
                 continue permissionCheck;
