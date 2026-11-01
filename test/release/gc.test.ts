@@ -74,3 +74,19 @@ test("gcReleases deletes only unreferenced builds", () => {
         rmSync(prefix, { recursive: true, force: true });
     }
 });
+
+test("gcReleases leaves a pack's staging and retired directories alone", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-staging-"));
+    try {
+        writeRelease(prefix, "vera-keep");
+        writeRelease(prefix, "vera-drop");
+        writeCurrent(prefix, "vera-keep");
+        const staging = writeRelease(prefix, ".staging-1-vera-next");
+        const retired = writeRelease(prefix, ".retired-1-vera-next");
+        expect(gcReleases(prefix)).toEqual(["vera-drop"]);
+        expect(existsSync(staging)).toBe(true);
+        expect(existsSync(retired)).toBe(true);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});

@@ -1,9 +1,16 @@
 #!/usr/bin/env bun
 
-import { mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    renameSync,
+    rmSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { processIsAlive } from "../src/host/process-identity.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { activateRelease } from "../src/release/activate.ts";
 import { assembleRunnableRelease } from "../src/release/assemble.ts";
@@ -59,8 +66,23 @@ export async function packRelease(
     outputDirectory: string,
     options: PackReleaseOptions = {},
 ): Promise<PackReleaseResult> {
-    const cwd = options.cwd ?? REPO_ROOT;
     const target = resolve(outputDirectory);
+    const staged = await stageRelease(target, options);
+    await stampRelease(target, staged.manifest);
+    return {
+        outputDirectory: target,
+        manifest: staged.manifest,
+        packed: staged.packed,
+    };
+}
+
+// Writes everything but the stamp. The stamp is what marks a directory as a
+// finished pack, so it is written last, by stampRelease.
+async function stageRelease(
+    target: string,
+    options: PackReleaseOptions,
+): Promise<{ readonly manifest: ReleaseManifest; readonly packed: boolean }> {
+    const cwd = options.cwd ?? REPO_ROOT;
     const annexRoot = packedAnnexRoot(target);
     const identity = releaseSourceIdentity(cwd);
     const packed = await packWebAssets(annexRoot, {
@@ -80,20 +102,22 @@ export async function packRelease(
         built_at: (options.now ?? (() => new Date()))().toISOString(),
         artifacts: [...RELEASE_ARTIFACT_NAMES],
     };
-    await Bun.write(
-        releaseManifestPath(target),
-        serializeReleaseManifest(manifest),
-    );
     writeCheckoutPackWrappers(
         target,
         process.execPath,
         releaseSourceEntries(cwd),
     );
-    return {
-        outputDirectory: target,
-        manifest,
-        packed: packed.packed,
-    };
+    return { manifest, packed: packed.packed };
+}
+
+async function stampRelease(
+    target: string,
+    manifest: ReleaseManifest,
+): Promise<void> {
+    const path = releaseManifestPath(target);
+    const temporary = `${path}.${process.pid}.tmp`;
+    await Bun.write(temporary, serializeReleaseManifest(manifest));
+    renameSync(temporary, path);
 }
 
 export interface InstallReleaseOptions {
@@ -145,30 +169,90 @@ export async function packRunnableRelease(
     const sourceRoot = options.sourceRoot ?? REPO_ROOT;
     const identity = releaseSourceIdentity(cwd);
     const target = releaseDirectory(identity.buildId, prefix);
-    mkdirSync(target, { recursive: true, mode: 0o755 });
-    let manifest: ReleaseManifest | undefined;
+    const releasesRoot = dirname(target);
+    mkdirSync(releasesRoot, { recursive: true, mode: 0o755 });
+    removeAbandonedPackDirectories(releasesRoot);
+    let existing: ReleaseManifest | undefined;
     try {
-        manifest = readStampedRelease(target);
+        existing = readStampedRelease(target);
     } catch {
-        manifest = undefined;
+        existing = undefined;
     }
-    if (manifest?.build_id !== identity.buildId || options.force === true) {
-        const packed = await packRelease(target, {
+    if (existing?.build_id === identity.buildId && options.force !== true) {
+        return { prefix, releaseRoot: target, manifest: existing };
+    }
+    // Built beside the target and moved in whole: copying over an existing
+    // tree would nest each directory inside itself.
+    const staging = join(releasesRoot, `${STAGING_PREFIX}${process.pid}-${identity.buildId}`);
+    rmSync(staging, { recursive: true, force: true });
+    mkdirSync(staging, { recursive: true, mode: 0o755 });
+    let manifest: ReleaseManifest;
+    try {
+        const staged = await stageRelease(staging, {
             cwd,
             force: options.force ?? true,
             sourceRoot: join(sourceRoot, "clients", "annex"),
         });
-        assembleRunnableRelease(target, sourceRoot);
-        manifest = packed.manifest;
+        assembleRunnableRelease(staging, sourceRoot);
+        await stampRelease(staging, staged.manifest);
+        manifest = staged.manifest;
+    } catch (error) {
+        rmSync(staging, { recursive: true, force: true });
+        throw error;
     }
-    if (manifest === undefined) {
-        throw new Error(`No release stamp at ${releaseManifestPath(target)}`);
+    replaceReleaseDirectory(
+        target,
+        staging,
+        join(releasesRoot, `${RETIRED_PREFIX}${process.pid}-${identity.buildId}`),
+    );
+    return { prefix, releaseRoot: target, manifest };
+}
+
+const STAGING_PREFIX = ".staging-";
+const RETIRED_PREFIX = ".retired-";
+
+// A crash between the two renames leaves no target and a stamped staging
+// tree; the next pack's cleanup moves that tree into place.
+export function replaceReleaseDirectory(
+    target: string,
+    staging: string,
+    retired: string,
+    rename: (from: string, to: string) => void = renameSync,
+): void {
+    rmSync(retired, { recursive: true, force: true });
+    if (existsSync(target)) rename(target, retired);
+    rename(staging, target);
+    rmSync(retired, { recursive: true, force: true });
+}
+
+// The pid in the name says which pack made the directory; a live pid's pack
+// may still be running.
+function removeAbandonedPackDirectories(releasesRoot: string): void {
+    for (const name of readdirSync(releasesRoot)) {
+        const match = /^\.(staging|retired)-(\d+)-(.+)$/.exec(name);
+        if (match === null) continue;
+        const pid = Number(match[2]);
+        if (pid > 0 && processIsAlive(pid)) continue;
+        const path = join(releasesRoot, name);
+        const target = join(releasesRoot, match[3] ?? "");
+        if (
+            match[1] === "staging"
+            && !existsSync(target)
+            && stampedBuildId(path) === match[3]
+        ) {
+            renameSync(path, target);
+            continue;
+        }
+        rmSync(path, { recursive: true, force: true });
     }
-    return {
-        prefix,
-        releaseRoot: target,
-        manifest,
-    };
+}
+
+function stampedBuildId(releaseRoot: string): string | undefined {
+    try {
+        return readStampedRelease(releaseRoot).build_id;
+    } catch {
+        return undefined;
+    }
 }
 
 function parseArgs(argv: readonly string[]): {
