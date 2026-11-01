@@ -795,7 +795,7 @@ export class AgentRegistry {
                 append: (text) => agent.appendHarnessMessage(text, "soft"),
             }));
         }
-        void this.reconcileResumedSelectedAgent(entry, events);
+        const reconciled = this.reconcileResumedSelectedAgent(entry, events);
         if (storedFailure !== undefined) {
             agent.restoreFailure({
                 type: "history",
@@ -1003,6 +1003,8 @@ export class AgentRegistry {
             }
             entry.inbox.consumer.acknowledge(seq as number);
         };
+        // The loop reads the access mode once, so a resumed session's narrowing must land first.
+        await reconciled;
         const loopData: RunHeadlessLoopData = {
                 sessionStartReason,
                 eventLogPath,

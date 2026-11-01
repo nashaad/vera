@@ -15,6 +15,7 @@ import {
 } from "../store/session-store.ts";
 import type { ReviewLog } from "./review-log.ts";
 import { EngineEventBus } from "./events.ts";
+import { accessModeUnderAgent } from "../agents/access.ts";
 import type { AgentDefinition } from "../agents/definition.ts";
 import {
     resolveAgentSnapshot,
@@ -31,7 +32,11 @@ import {
     createInProcessChannel,
     type InProcessChannel,
 } from "./message-channel.ts";
-import type { ApprovalMode, PermissionMode } from "./permissions.ts";
+import {
+    BUILT_IN_PERMISSION_MODE_NAMES,
+    type ApprovalMode,
+    type PermissionMode,
+} from "./permissions.ts";
 import { sessionAttachmentName } from "../attachments/service.ts";
 import {
     createProtocolEncoder,
@@ -502,6 +507,7 @@ export function createSubagentSpawner(
         }
         let selected: AgentSnapshot | undefined;
         let agentDefault: SpawnModelDefault | undefined;
+        let childApprovalMode = context.approvalMode;
         if (effect.agent !== undefined) {
             if (options.loadAgent === undefined) {
                 return {
@@ -527,6 +533,22 @@ export function createSubagentSpawner(
                 resolveAgentSnapshot(definition),
                 context.selectedAgent,
             );
+            const narrowedMode = accessModeUnderAgent(
+                selected,
+                context.approvalMode,
+                [
+                    ...BUILT_IN_PERMISSION_MODE_NAMES,
+                    ...Object.keys(options.permissionModes ?? {}),
+                ],
+            );
+            if (narrowedMode === undefined) {
+                return {
+                    ok: false,
+                    error:
+                        `Agent ${definition.name} forbids permission mode ${context.approvalMode} and has no narrower mode to run in.`,
+                };
+            }
+            childApprovalMode = narrowedMode;
             if (
                 effect.model === undefined
                 && definition.defaultPair !== undefined
@@ -636,7 +658,7 @@ export function createSubagentSpawner(
                 ...(disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions,
                 }),
-                approvalMode: context.approvalMode,
+                approvalMode: childApprovalMode,
                 extensionTools: options.extensionTools,
                 ...(options.loadContextualContributions === undefined ? {} : {
                     loadContextualContributions:

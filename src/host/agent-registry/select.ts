@@ -1,8 +1,9 @@
 import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../../agents/catalog.ts";
+import { accessModeUnderAgent } from "../../agents/access.ts";
 import { DEFAULT_AGENT, type AgentDefinition } from "../../agents/definition.ts";
-import { agentSnapshotDrift, resolveAgentSnapshot } from "../../agents/snapshot.ts";
+import { agentSnapshotDrift, resolveAgentSnapshot, type AgentSnapshot } from "../../agents/snapshot.ts";
 import { writeAgentDefaultPair } from "../../agents/writer.ts";
-import { EngineEventBus } from "../../engine/events.ts";
+import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
 import type { ModelTurnSettings } from "../../engine/model-settings.ts";
 import { PermissionModeSyncError } from "../../engine/inbound-command-router.ts";
 import { BUILT_IN_PERMISSION_MODE_NAMES, builtInPermissionMode, isApprovalMode, type ApprovalMode } from "../../engine/permissions.ts";
@@ -222,23 +223,27 @@ export async function applySelectedAgent(reg: AgentRegistry, id: string, name: s
         const found = findCatalogAgent(catalog, name);
         if (found === undefined) return undefined;
         const snapshot = resolveAgentSnapshot(found.definition);
+        const mode = accessModeUnderAgent(snapshot, entry.approvalMode, [
+            ...BUILT_IN_PERMISSION_MODE_NAMES,
+            ...Object.keys(reg.options.permissionModes ?? {}),
+        ]);
+        if (
+            mode === undefined
+            || (mode !== entry.approvalMode && !isApprovalMode(mode))
+        ) {
+            throw new Error(
+                `Agent ${snapshot.name} forbids permission mode ${entry.approvalMode} and has no narrower mode to run in, so it was not selected.`,
+            );
+        }
+        // The mode is written first so a failed write never leaves a restricted
+        // agent selected under a wider mode. Memory changes after both writes.
+        const permissionChanged = mode !== entry.approvalMode;
+        if (permissionChanged) {
+            await entry.store.appendApprovalMode(mode, "agent-default");
+        }
         await entry.store.appendSelectedAgent(snapshot.name, snapshot);
         entry.selectedAgent = snapshot;
-        let permissionChanged = false;
-        if (snapshot.forbiddenAccess?.includes(entry.approvalMode) === true) {
-            const fallback = snapshot.posture !== undefined
-                    && !snapshot.forbiddenAccess!.includes(snapshot.posture)
-                ? snapshot.posture
-                : [
-                    ...BUILT_IN_PERMISSION_MODE_NAMES,
-                    ...Object.keys(reg.options.permissionModes ?? {}),
-                ].find((mode) => !snapshot.forbiddenAccess!.includes(mode));
-            if (fallback !== undefined && isApprovalMode(fallback)) {
-                await entry.store.appendApprovalMode(fallback, "agent-default");
-                entry.approvalMode = fallback;
-                permissionChanged = true;
-            }
-        }
+        entry.approvalMode = mode;
         const notice = await reg.adoptAgentDefaultPair(entry, found.definition);
         return {
             name: snapshot.name,
@@ -283,12 +288,16 @@ export async function adoptAgentDefaultPair(reg: AgentRegistry, entry: Registere
 export async function reconcileResumedSelectedAgent(reg: AgentRegistry, entry: RegisteredAgentEntry, events: EngineEventBus): Promise<void> {
         const recorded = entry.selectedAgent;
         if (recorded === undefined) return;
+        // start() awaits this, and the loop subscribes to the bus only after that.
+        const announce = (event: EngineEvent): void => {
+            setTimeout(() => events.emit(event), 0);
+        };
         try {
             const catalog = await reg.agentCatalogFor(entry);
             const found = findCatalogAgent(catalog, recorded.name);
             if (found === undefined) {
                 entry.selectedAgent = undefined;
-                events.emit({
+                announce({
                     type: "agent_selected",
                     update: {
                         requestId: RESUME_SELECT_REQUEST_ID,
@@ -300,10 +309,25 @@ export async function reconcileResumedSelectedAgent(reg: AgentRegistry, entry: R
                 return;
             }
             const current = resolveAgentSnapshot(found.definition);
+            const access = await narrowResumedAccess(reg, entry, current);
+            if (access.kind === "no_allowed_mode") {
+                entry.selectedAgent = undefined;
+                announce({
+                    type: "agent_selected",
+                    update: {
+                        requestId: RESUME_SELECT_REQUEST_ID,
+                        name: DEFAULT_AGENT.name,
+                        notice:
+                            `Switched to default because ${current.name} does not allow ${entry.approvalMode.replaceAll("_", " ")} access.`,
+                    },
+                });
+                return;
+            }
             entry.selectedAgent = current;
+            const narrowed = access.kind === "narrowed" ? access.mode : undefined;
             const drift = agentSnapshotDrift(recorded, current);
             if (drift.length > 0) {
-                events.emit({
+                announce({
                     type: "agent_selected",
                     update: {
                         requestId: RESUME_SELECT_REQUEST_ID,
@@ -317,15 +341,53 @@ export async function reconcileResumedSelectedAgent(reg: AgentRegistry, entry: R
                         ...(current.posture === undefined
                             ? {}
                             : { posture: current.posture }),
+                        ...(current.forbiddenAccess === undefined
+                            ? {}
+                            : { forbiddenAccess: current.forbiddenAccess }),
                         notice: `${recorded.name} changed since it was selected: ${
                             drift.join(", ")
-                        }.`,
+                        }.${
+                            narrowed === undefined
+                                ? ""
+                                : ` Access is now ${narrowed.replaceAll("_", " ")}.`
+                        }`,
                     },
                 });
             }
         } catch {
         }
     }
+
+type ResumedAccess =
+    | { readonly kind: "unchanged" }
+    | { readonly kind: "narrowed"; readonly mode: ApprovalMode }
+    | { readonly kind: "no_allowed_mode" };
+
+// Only forbidden_access is enforced on resume: a posture applies when the definition is
+// selected, and the user may have widened past it since. The narrowing holds in
+// memory even if the record fails to write, and the next resume repeats it.
+async function narrowResumedAccess(
+    reg: AgentRegistry,
+    entry: RegisteredAgentEntry,
+    current: AgentSnapshot,
+): Promise<ResumedAccess> {
+    if (current.forbiddenAccess?.includes(entry.approvalMode) !== true) {
+        return { kind: "unchanged" };
+    }
+    const mode = accessModeUnderAgent(current, entry.approvalMode, [
+        ...BUILT_IN_PERMISSION_MODE_NAMES,
+        ...Object.keys(reg.options.permissionModes ?? {}),
+    ]);
+    if (mode === undefined || !isApprovalMode(mode)) {
+        return { kind: "no_allowed_mode" };
+    }
+    entry.approvalMode = mode;
+    try {
+        await entry.store.appendApprovalMode(mode, "agent-default");
+    } catch {
+    }
+    return { kind: "narrowed", mode };
+}
 
 export async function updateAgentDefaultPairFor(reg: AgentRegistry, id: string, name: string, pair: { readonly name: string; readonly effort?: string } | null): Promise<string | undefined> {
         const entry = reg.agents.get(id);

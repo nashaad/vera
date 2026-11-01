@@ -219,6 +219,175 @@ test("agent changes skip disabled postures and agents without permitted access",
     ).toEqual({ kind: "ignore" });
 });
 
+const accessOf = (state: DialStripState): string | undefined =>
+    state.permissionModes[state.permissionIndex];
+
+const postureDial = (
+    overrides: Parameters<typeof openDialStrip>[0] = {},
+): DialStripState =>
+    opened({
+        agents: ["default", "plan", "builder", "custom"],
+        currentAgent: "default",
+        agentPostures: { plan: "readonly", builder: "auto", custom: "reviewer" },
+        permissionModes: ["readonly", "ask", "auto"],
+        currentPermission: "auto",
+        ...overrides,
+    });
+
+test("moving to an agent with a narrower posture previews that posture", () => {
+    const plan = press(postureDial(), "right");
+    expect(plan.agents[plan.agentIndex]).toBe("plan");
+    expect(accessOf(plan)).toBe("readonly");
+    expect(text(plan)).toContain("live: auto");
+    expect(handleDialStripKey(plan, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "plan",
+        permission: "readonly",
+    });
+});
+
+test("a posture equal to or wider than the session leaves the preview alone", () => {
+    const equal = press(press(postureDial(), "right"), "right");
+    expect(equal.agents[equal.agentIndex]).toBe("builder");
+    expect(accessOf(equal)).toBe("auto");
+    expect(equal.permissionEdited).toBeUndefined();
+    expect(handleDialStripKey(equal, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "builder",
+    });
+
+    const wider = press(
+        { ...postureDial({ currentPermission: "ask" }), lane: "agent" },
+        "right",
+    );
+    expect(accessOf(wider)).toBe("readonly");
+    const builder = press(wider, "right");
+    expect(builder.agents[builder.agentIndex]).toBe("builder");
+    expect(accessOf(builder)).toBe("ask");
+    expect(builder.permissionEdited).toBeUndefined();
+});
+
+test("a custom posture is never taken as narrower", () => {
+    const custom = press(postureDial(), "left");
+    expect(custom.agents[custom.agentIndex]).toBe("custom");
+    expect(accessOf(custom)).toBe("auto");
+    expect(custom.permissionEdited).toBeUndefined();
+});
+
+test("the preview follows the opened mode, not the previous agent's preview", () => {
+    const plan = press(postureDial(), "right");
+    expect(accessOf(plan)).toBe("readonly");
+    const builder = press(plan, "right");
+    expect(builder.agents[builder.agentIndex]).toBe("builder");
+    expect(accessOf(builder)).toBe("auto");
+    expect(builder.permissionEdited).toBeUndefined();
+    const back = press(press(builder, "left"), "left");
+    expect(back.agents[back.agentIndex]).toBe("default");
+    expect(accessOf(back)).toBe("auto");
+    expect(handleDialStripKey(back, { name: "enter" }, undefined))
+        .toEqual({ kind: "commit", agent: "default" });
+});
+
+test("an access mode chosen on the lane is what the next agent narrows", () => {
+    let state = press({ ...postureDial(), lane: "access" }, "left");
+    expect(accessOf(state)).toBe("ask");
+    state = press({ ...state, lane: "agent" }, "right");
+    expect(state.agents[state.agentIndex]).toBe("plan");
+    expect(accessOf(state)).toBe("readonly");
+    state = press(state, "right");
+    expect(state.agents[state.agentIndex]).toBe("builder");
+    expect(accessOf(state)).toBe("ask");
+    expect(handleDialStripKey(state, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "builder",
+        permission: "ask",
+    });
+});
+
+test("a forbidden current mode falls back to the posture or the narrowest allowed mode", () => {
+    const state = postureDial({
+        agents: ["default", "plan", "strict"],
+        agentPostures: { plan: "ask" },
+        agentForbiddenAccess: { plan: ["auto"], strict: ["readonly", "auto"] },
+    });
+    const plan = press(state, "right");
+    expect(accessOf(plan)).toBe("ask");
+    const strict = press(plan, "right");
+    expect(strict.agents[strict.agentIndex]).toBe("strict");
+    expect(accessOf(strict)).toBe("ask");
+});
+
+test("a forbidden current mode never previews a wider posture", () => {
+    const state = postureDial({
+        agents: ["default", "careful"],
+        agentPostures: { careful: "auto" },
+        agentForbiddenAccess: { careful: ["ask"] },
+        currentPermission: "ask",
+    });
+    const careful = press(state, "right");
+    expect(careful.agents[careful.agentIndex]).toBe("careful");
+    expect(accessOf(careful)).toBe("readonly");
+    expect(handleDialStripKey(careful, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "careful",
+        permission: "readonly",
+    });
+});
+
+test("a posture the lane cannot show is never previewed", () => {
+    const state = postureDial({
+        agents: ["default", "plan"],
+        agentPostures: { plan: "ask" },
+        agentForbiddenAccess: { plan: ["auto"] },
+        permissionModes: ["readonly", "auto"],
+        currentPermission: "auto",
+    });
+    const plan = press(state, "right");
+    expect(plan.agents[plan.agentIndex]).toBe("plan");
+    expect(plan.permissionIndex).toBeGreaterThanOrEqual(0);
+    expect(accessOf(plan)).toBe("readonly");
+});
+
+test("an agent with no mode the host would accept is never staged", () => {
+    const state = postureDial({
+        agents: ["default", "sealed", "plain"],
+        agentForbiddenAccess: { sealed: ["readonly", "ask"] },
+        currentPermission: "ask",
+    });
+    const skipped = press(state, "right");
+    expect(skipped.agents[skipped.agentIndex]).toBe("plain");
+
+    // The host judges the definition from the opened mode, so raising access first does not admit it.
+    const raised = press({ ...state, lane: "access" }, "right");
+    expect(accessOf(raised)).toBe("auto");
+    const next = press({ ...raised, lane: "agent" }, "right");
+    expect(next.agents[next.agentIndex]).toBe("plain");
+    expect(accessOf(next)).toBe("auto");
+});
+
+test("a full access session keeps full access unless the definition narrows or forbids it", () => {
+    const state = postureDial({
+        agents: ["default", "plain", "plan", "strict"],
+        agentPostures: { plan: "ask" },
+        agentForbiddenAccess: { strict: ["full_access"] },
+        currentPermission: "full_access",
+    });
+    const plain = press(state, "right");
+    expect(plain.agents[plain.agentIndex]).toBe("plain");
+    expect(plain.permissionEdited).toBeUndefined();
+    expect(handleDialStripKey(plain, { name: "enter" }, undefined))
+        .toEqual({ kind: "commit", agent: "plain" });
+
+    const plan = press(plain, "right");
+    expect(accessOf(plan)).toBe("ask");
+    expect(handleDialStripKey(plan, { name: "enter" }, undefined))
+        .toEqual({ kind: "commit", agent: "plan", permission: "ask" });
+
+    const strict = press(plan, "right");
+    expect(strict.agents[strict.agentIndex]).toBe("strict");
+    expect(accessOf(strict)).toBe("readonly");
+});
+
 test("the HUD windows a long lane instead of wrapping it", () => {
     const state = opened({
         agents: ["default", "researcher", "reviewer", "archaeologist"],

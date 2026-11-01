@@ -1,3 +1,4 @@
+import { accessModeUnderAgent } from "../../src/agents/access.ts";
 import { tuiBindingId } from "./keymap.ts";
 import { arrowMovesForward, sectionArrow } from "./section-keys.ts";
 
@@ -17,6 +18,8 @@ export interface DialStripState {
     readonly permissionIndex: number;
     readonly openedPermission?: string;
     readonly permissionEdited?: boolean;
+    // The mode picked on the access lane, which agent previews start from.
+    readonly accessChosen?: string;
 }
 
 export function openDialStrip(
@@ -81,14 +84,8 @@ function moveChoice(
         let agentIndex = state.agentIndex;
         for (let step = 0; step < state.agents.length; step += 1) {
             agentIndex = cycleIndex(agentIndex, delta, state.agents.length);
-            const agent = state.agents[agentIndex];
-            const current = state.permissionModes[state.permissionIndex];
-            if (dialAccessAllowed(state, current, agent)) return { ...state, agentIndex };
-            const posture = agent === undefined ? undefined : state.agentPostures[agent];
-            const permissionIndex = dialAccessAllowed(state, posture, agent)
-                ? state.permissionModes.indexOf(posture!)
-                : state.permissionModes.findIndex((mode) => dialAccessAllowed(state, mode, agent));
-            if (permissionIndex >= 0) return { ...state, agentIndex, permissionIndex, permissionEdited: true };
+            const staged = stageAgent(state, agentIndex);
+            if (staged !== undefined) return staged;
         }
         return state;
     }
@@ -100,10 +97,44 @@ function moveChoice(
         0,
         allowed.findIndex(({ index }) => index === state.permissionIndex),
     );
+    const permissionIndex = allowed[cycleIndex(at, delta, allowed.length)]!.index;
     return {
         ...state,
-        permissionIndex: allowed[cycleIndex(at, delta, allowed.length)]!.index,
+        permissionIndex,
+        accessChosen: state.permissionModes[permissionIndex],
         permissionEdited: true,
+    };
+}
+
+// Previews the access mode the definition would run in. It starts from the mode the
+// user opened or chose, not from a preview left by the previous agent. An agent the
+// host would refuse, which judges it from the opened mode, is never staged.
+function stageAgent(
+    state: DialStripState,
+    agentIndex: number,
+): DialStripState | undefined {
+    const agent = state.agents[agentIndex];
+    const from = state.accessChosen ?? state.openedPermission;
+    if (agent === undefined || from === undefined) return { ...state, agentIndex };
+    const own = {
+        posture: state.agentPostures[agent],
+        forbiddenAccess: state.agentForbiddenAccess[agent] ?? [],
+    };
+    const opened = state.openedPermission ?? from;
+    if (accessModeUnderAgent(own, opened, state.permissionModes) === undefined) return undefined;
+    const mode = accessModeUnderAgent(
+        { ...own, forbiddenAccess: [...own.forbiddenAccess, ...(state.disabledPermissionModes ?? [])] },
+        from,
+        state.permissionModes,
+    );
+    if (mode === undefined) return undefined;
+    const { permissionEdited: _, ...unedited } = state;
+    const edited = state.accessChosen !== undefined || mode !== state.openedPermission;
+    return {
+        ...unedited,
+        agentIndex,
+        permissionIndex: state.permissionModes.indexOf(mode),
+        ...(edited ? { permissionEdited: true } : {}),
     };
 }
 
@@ -230,8 +261,11 @@ export function handleDialStripKey(
         return { kind: "cancel" };
     }
     if (key.name === "return" || key.name === "enter") {
-        if ((state.permissionEdited === true || state.agents[state.agentIndex] !== state.openedAgent)
-            && !dialAccessAllowed(state, state.permissionModes[state.permissionIndex])) return { kind: "ignore" };
+        // A live mode the lane cannot show (full access) is never staged, so it is not checked.
+        const staged = state.permissionModes[state.permissionIndex];
+        const agentChanged = state.agents[state.agentIndex] !== state.openedAgent;
+        if ((state.permissionEdited === true || (agentChanged && staged !== undefined))
+            && !dialAccessAllowed(state, staged)) return { kind: "ignore" };
         return {
             kind: "commit",
             ...(state.agents[state.agentIndex] === undefined

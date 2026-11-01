@@ -24,8 +24,8 @@ conversation; it does not start a child or switch the conversation's model.
 | `description` | A concise statement of when to use this definition, at most 1,024 characters. |
 | `tools` | Exact allowed tool names. Omitted means all available tools; `[]` means none. |
 | `skills` | Exact allowed skill names. Omitted means all available skills; `[]` means none. |
-| `posture` | A permission mode: `readonly`, `ask`, `auto`, or `full_access`. It is not a tone or writing style. Restrictions cannot widen the session's access. |
-| `forbidden_access` | Permission modes that cannot be selected while this definition is active. |
+| `posture` | A permission mode: `readonly`, `ask`, `auto`, or `full_access`. It is not a tone or writing style. A narrower posture applies on selection and on delegation; a posture equal to or wider than the current mode changes nothing. A custom mode never counts as narrower, so a custom posture never applies. Restrictions cannot widen the session's access. |
+| `forbidden_access` | Permission modes that cannot be selected while this definition is active. If the current mode is forbidden, selection or delegation uses the posture when it is narrower and allowed, or the narrowest allowed mode, never a wider one. If none fits, the launch or the `/agent` selection is refused and nothing changes. Resuming a session narrows a forbidden mode the same way, or switches to the default agent when none fits. |
 | `subagent_assignment` | The named model assignment governing delegated launches, such as `eco`. |
 | `default_pair` | Optional preferred library entry: `{name: "existing-entry", effort: "supported-effort"}`. It must remain within the permitted assignment. Usually omit it. |
 

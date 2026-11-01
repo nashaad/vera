@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { realpathSync } from "node:fs";
 import type {
     PreCompactHookPayload,
@@ -6030,6 +6030,307 @@ test("an explicit forbidden permission switches the session back to default", as
         expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
     } finally {
         await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+for (const current of ["auto", "full_access"]) {
+    test(`selecting an agent with a readonly posture narrows a ${current} session`, async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-agent-posture-cap-"));
+        await mkdir(join(root, ".vera", "agents"), { recursive: true });
+        await writeFile(
+            join(root, ".vera", "agents", "plan.md"),
+            "---\nposture: readonly\n---\nPlan only.",
+        );
+        const registry = new AgentRegistry({
+            createAdapter: () => new FauxAdapter([]),
+            model: "faux/test",
+            approvalMode: current,
+        });
+
+        try {
+            const agent = await registry.create({
+                workspace: root,
+                sessionPath: join(root, "agent.jsonl"),
+            });
+            expect(await registry.selectAgentFor(agent.id, "plan")).toMatchObject({
+                name: "plan",
+                permissionChanged: true,
+            });
+            expect(registry.approvalModeOf(agent.id)).toBe("readonly");
+            expect((await SessionStore.open(join(root, "agent.jsonl"))).approvalModeOrigin())
+                .toBe("agent-default");
+        } finally {
+            await registry.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+}
+
+test("selecting an agent with a posture wider than the session changes nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-posture-wide-"));
+    await mkdir(join(root, ".vera", "agents"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "agents", "builder.md"),
+        "---\nposture: full_access\n---\nBuild it.",
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const selected = await registry.selectAgentFor(agent.id, "builder");
+        expect(selected).toMatchObject({ name: "builder" });
+        expect(selected).not.toHaveProperty("permissionChanged");
+        expect(registry.approvalModeOf(agent.id)).toBe("ask");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+async function agentRoot(
+    prefix: string,
+    agents: Record<string, string>,
+): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), prefix));
+    await mkdir(join(root, ".vera", "agents"), { recursive: true });
+    for (const [name, text] of Object.entries(agents)) {
+        await writeFile(join(root, ".vera", "agents", `${name}.md`), text);
+    }
+    return root;
+}
+
+test("a forbidden session mode does not select a wider posture", async () => {
+    const root = await agentRoot("vera-agent-posture-forbid-", {
+        careful: "---\nposture: auto\nforbidden_access: [ask]\n---\nBe careful.",
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        expect(await registry.selectAgentFor(agent.id, "careful")).toMatchObject({
+            name: "careful",
+            permissionChanged: true,
+        });
+        expect(registry.approvalModeOf(agent.id)).toBe("readonly");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an agent with no allowed mode is refused and nothing changes", async () => {
+    const root = await agentRoot("vera-agent-posture-refuse-", {
+        sealed: "---\nforbidden_access: [ask, readonly]\n---\nNothing fits.",
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "select_agent", requestId: "sealed-1", name: "sealed" });
+        let answer = await attachment.receive();
+        while (answer.type !== "agent_rejected" && answer.type !== "agent_selected") {
+            answer = await attachment.receive();
+        }
+        expect(answer).toMatchObject({
+            type: "agent_rejected",
+            requestId: "sealed-1",
+        });
+        expect((answer as { reason: string }).reason)
+            .toContain("sealed forbids permission mode ask");
+        expect(registry.approvalModeOf(agent.id)).toBe("ask");
+        expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
+        const store = await SessionStore.open(join(root, "agent.jsonl"));
+        expect(store.selectedAgent()).toBeUndefined();
+        expect(store.approvalModeOrigin()).not.toBe("agent-default");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a failed write while selecting an agent leaves the selection and mode unchanged", async () => {
+    const root = await agentRoot("vera-agent-select-fail-", {
+        plan: "---\nposture: readonly\n---\nPlan only.",
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const modeWrite = spyOn(SessionStore.prototype, "appendApprovalMode")
+            .mockRejectedValueOnce(new Error("disk full"));
+        await expect(registry.selectAgentFor(agent.id, "plan")).rejects.toThrow("disk full");
+        modeWrite.mockRestore();
+        expect(registry.approvalModeOf(agent.id)).toBe("auto");
+        expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
+        expect((await SessionStore.open(join(root, "agent.jsonl"))).selectedAgent())
+            .toBeUndefined();
+
+        const agentWrite = spyOn(SessionStore.prototype, "appendSelectedAgent")
+            .mockRejectedValueOnce(new Error("disk full"));
+        await expect(registry.selectAgentFor(agent.id, "plan")).rejects.toThrow("disk full");
+        agentWrite.mockRestore();
+        expect(registry.approvalModeOf(agent.id)).toBe("auto");
+        expect((await registry.listAgentsFor(agent.id)).selected).toBe("default");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("resuming narrows a session whose agent now forbids its mode", async () => {
+    const root = await agentRoot("vera-agent-resume-narrow-", {
+        plan: "---\ndescription: Plans.\n---\nPlan only.",
+    });
+    const sessionPath = join(root, "agent.jsonl");
+    const first = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    let second: AgentRegistry | undefined;
+
+    try {
+        const agent = await first.create({ workspace: root, sessionPath });
+        await first.selectAgentFor(agent.id, "plan");
+        expect(first.approvalModeOf(agent.id)).toBe("auto");
+        await first.close();
+
+        await writeFile(
+            join(root, ".vera", "agents", "plan.md"),
+            "---\nposture: readonly\nforbidden_access: [auto, full_access]\n---\nPlan only.",
+        );
+        second = new AgentRegistry({
+            createAdapter: () => new FauxAdapter([]),
+            model: "faux/test",
+            approvalMode: "auto",
+        });
+        const resumed = await second.resume({ sessionPath });
+        expect(second.approvalModeOf(resumed.id)).toBe("readonly");
+        const stored = await SessionStore.open(sessionPath);
+        expect(stored.approvalMode()).toBe("readonly");
+        expect(stored.approvalModeOrigin()).toBe("agent-default");
+
+        const attachment = resumed.attach();
+        let update = await attachment.receive();
+        while (update.type !== "agent_selected") update = await attachment.receive();
+        expect(update).toMatchObject({
+            name: "plan",
+            forbiddenAccess: ["auto", "full_access"],
+        });
+        expect((update as { notice?: string }).notice)
+            .toContain("Access is now readonly.");
+    } finally {
+        await first.close();
+        await second?.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("resuming switches to default when the agent now forbids every mode at or below the current one", async () => {
+    const root = await agentRoot("vera-agent-resume-none-", {
+        plan: "---\ndescription: Plans.\n---\nPlan only.",
+    });
+    const sessionPath = join(root, "agent.jsonl");
+    const first = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "readonly",
+    });
+    let second: AgentRegistry | undefined;
+
+    try {
+        const agent = await first.create({ workspace: root, sessionPath });
+        await first.selectAgentFor(agent.id, "plan");
+        await first.close();
+
+        await writeFile(
+            join(root, ".vera", "agents", "plan.md"),
+            "---\nforbidden_access: [readonly]\n---\nPlan only.",
+        );
+        second = new AgentRegistry({
+            createAdapter: () => new FauxAdapter([]),
+            model: "faux/test",
+            approvalMode: "readonly",
+        });
+        const resumed = await second.resume({ sessionPath });
+        expect((await second.listAgentsFor(resumed.id)).selected).toBe("default");
+        expect(second.approvalModeOf(resumed.id)).toBe("readonly");
+
+        const attachment = resumed.attach();
+        let update = await attachment.receive();
+        while (update.type !== "agent_selected") update = await attachment.receive();
+        expect(update).toMatchObject({ name: "default" });
+        expect((update as { notice?: string }).notice)
+            .toBe("Switched to default because plan does not allow readonly access.");
+    } finally {
+        await first.close();
+        await second?.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("resuming keeps a mode the definition does not forbid, even if its posture is narrower", async () => {
+    const root = await agentRoot("vera-agent-resume-keep-", {
+        plan: "---\ndescription: Plans.\n---\nPlan only.",
+    });
+    const sessionPath = join(root, "agent.jsonl");
+    const first = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+    let second: AgentRegistry | undefined;
+
+    try {
+        const agent = await first.create({ workspace: root, sessionPath });
+        await first.selectAgentFor(agent.id, "plan");
+        await first.close();
+
+        await writeFile(
+            join(root, ".vera", "agents", "plan.md"),
+            "---\nposture: readonly\n---\nPlan only.",
+        );
+        second = new AgentRegistry({
+            createAdapter: () => new FauxAdapter([]),
+            model: "faux/test",
+            approvalMode: "auto",
+        });
+        const resumed = await second.resume({ sessionPath });
+        expect(second.approvalModeOf(resumed.id)).toBe("auto");
+    } finally {
+        await first.close();
+        await second?.close();
         await rm(root, { recursive: true, force: true });
     }
 });
