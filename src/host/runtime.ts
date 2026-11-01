@@ -1233,32 +1233,36 @@ export async function startResidentHost(
                     return resident;
                 }
                 if (resident !== "not_found") return resident;
-                const sessionPath = await storedSessionPath(
+                const stored = await registry.trashStoredSession(
                     targetId,
-                    sessionDirectory,
-                    await storedSessions,
+                    async () => {
+                        const sessionPath = await storedSessionPath(
+                            targetId,
+                            sessionDirectory,
+                            await storedSessions,
+                        );
+                        if (sessionPath === undefined) return undefined;
+                        const workspace = storedSessionIndex.get(targetId)
+                            ?.workspace;
+                        return {
+                            sessionPath,
+                            attachmentsPath: `${sessionPath}.attachments`,
+                            ...(eventLogPathForId === undefined
+                                    || workspace === undefined
+                                ? {}
+                                : {
+                                    eventLogPath: eventLogPathForId(
+                                        targetId,
+                                        workspace,
+                                    ),
+                                }),
+                        };
+                    },
                 );
-                if (sessionPath === undefined) return "not_found";
-                const workspace = storedSessionIndex.get(targetId)?.workspace;
-                try {
-                    await registry.trashArtifacts({
-                        sessionPath,
-                        attachmentsPath: `${sessionPath}.attachments`,
-                        ...(eventLogPathForId === undefined
-                                || workspace === undefined
-                            ? {}
-                            : {
-                                eventLogPath: eventLogPathForId(
-                                    targetId,
-                                    workspace,
-                                ),
-                            }),
-                    });
-                } catch {
-                    return "failed";
+                if (stored === "trashed") {
+                    storedSessionIndex.delete(targetId);
                 }
-                storedSessionIndex.delete(targetId);
-                return "trashed";
+                return stored;
             },
             closeAgent: async (targetId, reason) => {
                 const treeIds = registry.ownedTreeIds(targetId);

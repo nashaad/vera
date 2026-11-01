@@ -28,6 +28,7 @@ interface TrashHarness {
 
 interface HarnessOptions {
     readonly moveToTrash?: (root: string) => Promise<void>;
+    readonly onSessionEnd?: (payload: SessionEndHookPayload) => void;
     readonly createToolHooks?: () => ToolHooks;
 }
 
@@ -58,7 +59,10 @@ async function withRegistry(
         model: "faux/test",
         approvalMode: "full_access",
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
-        onSessionEnd: (payload) => ended.push(payload),
+        onSessionEnd: (payload) => {
+            ended.push(payload);
+            options.onSessionEnd?.(payload);
+        },
         ...(options.createToolHooks === undefined
             ? {}
             : { createToolHooks: options.createToolHooks }),
@@ -454,5 +458,481 @@ test("a child that fails while starting again leaves no entry behind", async () 
                 return new ToolHooks();
             },
         },
+    );
+});
+
+interface Deferred {
+    readonly promise: Promise<void>;
+    readonly resolve: () => void;
+}
+
+function deferred(): Deferred {
+    let resolve: () => void = () => {};
+    const promise = new Promise<void>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
+}
+
+const TRASHING = "being moved to the trash";
+
+// Every way a member could register again while its tree is in the trash.
+function probeTrashingTree(
+    harness: TrashHarness,
+): Promise<PromiseSettledResult<unknown>[]> {
+    const { registry, root } = harness;
+    return Promise.allSettled([
+        ...["parent", "middle", "leaf"].map((id) =>
+            registry.resume({ sessionPath: join(root, `${id}.jsonl`) })
+        ),
+        registry.createWithKind(
+            {
+                id: "late",
+                workspace: root,
+                sessionPath: join(root, "late.jsonl"),
+            },
+            "background",
+            { approvalMode: "auto", parentId: "middle" },
+        ),
+    ]);
+}
+
+async function expectAllRefused(
+    probes: readonly Promise<PromiseSettledResult<unknown>[]>[],
+): Promise<void> {
+    expect(probes.length).toBeGreaterThan(0);
+    for (const outcomes of await Promise.all(probes)) {
+        expect(outcomes).toHaveLength(4);
+        for (const outcome of outcomes) {
+            expect(outcome.status).toBe("rejected");
+            expect((outcome as PromiseRejectedResult).reason.message)
+                .toContain(TRASHING);
+        }
+    }
+}
+
+async function openTreeOfThree(harness: TrashHarness): Promise<void> {
+    await openParent(harness);
+    await startChild(harness, "middle", "parent");
+    await startChild(harness, "leaf", "middle");
+    await untilSettled(harness.registry, ["middle", "leaf"]);
+}
+
+test("while a tree moves to the trash nothing from it can register and nothing is left after", async () => {
+    const moving = deferred();
+    const release = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+
+            const trashing = harness.registry.trashSession("parent");
+            await moving.promise;
+            expect(harness.registry.list()).toEqual([]);
+
+            await expectAllRefused([probeTrashingTree(harness)]);
+            expect(await harness.registry.trashSession("parent")).toBe("busy");
+            expect(await harness.registry.trashSession("middle")).toBe("busy");
+            expect(await harness.registry.branch({
+                sourceId: "parent",
+                position: "at",
+            })).toBeUndefined();
+            expect(harness.registry.list()).toEqual([]);
+
+            release.resolve();
+            expect(await trashing).toBe("trashed");
+
+            expect(harness.registry.list()).toEqual([]);
+            expect(harness.registry.agents.size).toBe(0);
+            expect(harness.registry.trashingIds.size).toBe(0);
+            expect(existsSync(join(harness.root, "late.jsonl"))).toBe(false);
+            expect(existsSync(join(harness.root, "parent.jsonl"))).toBe(false);
+            await harness.registry.resume({
+                sessionPath: join(harness.root, "middle.jsonl"),
+            });
+            expect(harness.registry.find("middle")).toBeDefined();
+        },
+        {
+            moveToTrash: async () => {
+                moving.resolve();
+                await release.promise;
+            },
+        },
+    );
+});
+
+test("a failed trash restores the tree once and then accepts requests again", async () => {
+    const moving = deferred();
+    const release = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+
+            const trashing = harness.registry.trashSession("parent");
+            await moving.promise;
+            await expectAllRefused([probeTrashingTree(harness)]);
+
+            release.resolve();
+            expect(await trashing).toBe("failed");
+
+            expect(
+                harness.registry.list()
+                    .map((agent) => [agent.id, agent.parent_id ?? null])
+                    .sort(),
+            ).toEqual([
+                ["leaf", "middle"],
+                ["middle", "parent"],
+                ["parent", null],
+            ]);
+            expect(harness.registry.trashingIds.size).toBe(0);
+            expect(existsSync(join(harness.root, "late.jsonl"))).toBe(false);
+            await expect(harness.registry.resume({
+                sessionPath: join(harness.root, "parent.jsonl"),
+            })).rejects.toThrow("already exists");
+            expect(await harness.registry.trashSession("parent")).toBe("failed");
+        },
+        {
+            moveToTrash: async () => {
+                moving.resolve();
+                await release.promise;
+                throw new Error("trash unavailable");
+            },
+        },
+    );
+});
+
+test("a resume or child created as the tree closes is refused", async () => {
+    const probes: Promise<PromiseSettledResult<unknown>[]>[] = [];
+    let harnessRef: TrashHarness | undefined;
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            harnessRef = harness;
+            await openTreeOfThree(harness);
+
+            expect(await harness.registry.trashSession("parent")).toBe("trashed");
+
+            expect(probes).toHaveLength(2);
+            await expectAllRefused(probes);
+            expect(harness.registry.agents.size).toBe(0);
+            expect(existsSync(join(harness.root, "late.jsonl"))).toBe(false);
+        },
+        {
+            // Runs once per member, after its loop stops and before it is reaped.
+            onSessionEnd: (payload) => {
+                if (payload.sessionId === "leaf" || payload.sessionId === "middle") {
+                    probes.push(probeTrashingTree(harnessRef!));
+                }
+            },
+        },
+    );
+});
+
+test("a child that began resuming before the trash is closed with it", async () => {
+    const moving = deferred();
+    const finishMove = deferred();
+    const resumeStarted = deferred();
+    const finishBind = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+            await harness.registry.closeAgentTree("middle");
+            const bind = harness.registry.bindSessionIdentity.bind(
+                harness.registry,
+            );
+            harness.registry.bindSessionIdentity = async (store) => {
+                resumeStarted.resolve();
+                await finishBind.promise;
+                return bind(store);
+            };
+
+            const late = harness.registry.resume({
+                sessionPath: join(harness.root, "middle.jsonl"),
+            });
+            await resumeStarted.promise;
+            const trashing = harness.registry.trashSession("parent");
+            await moving.promise;
+            finishBind.resolve();
+            await late;
+            expect(harness.registry.agents.has("middle")).toBe(true);
+
+            finishMove.resolve();
+            expect(await trashing).toBe("trashed");
+
+            expect(harness.registry.agents.size).toBe(0);
+            expect(existsSync(join(harness.root, "middle.jsonl"))).toBe(true);
+        },
+        {
+            moveToTrash: async () => {
+                moving.resolve();
+                await finishMove.promise;
+            },
+        },
+    );
+});
+
+test("a parent cannot be trashed while its child is still closing for the trash", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(4)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+
+            const childTrash = harness.registry.trashSession("middle");
+            expect(await harness.registry.trashSession("parent")).toBe("busy");
+            expect(await childTrash).toBe("trashed");
+            expect(await harness.registry.trashSession("parent")).toBe("trashed");
+            expect(harness.registry.agents.size).toBe(0);
+        },
+    );
+});
+
+test("a child whose trash fails after its parent was trashed stays closed", async () => {
+    const moving = deferred();
+    const release = deferred();
+    let moves = 0;
+    await withRegistry(
+        () => new FauxAdapter(replies(4)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+
+            const childTrash = harness.registry.trashSession("middle");
+            await moving.promise;
+            expect(await harness.registry.trashSession("parent")).toBe("trashed");
+            release.resolve();
+            expect(await childTrash).toBe("failed");
+
+            expect(harness.registry.agents.size).toBe(0);
+            expect(harness.registry.trashingIds.size).toBe(0);
+            expect(existsSync(join(harness.root, "middle.jsonl"))).toBe(true);
+        },
+        {
+            moveToTrash: async () => {
+                moves += 1;
+                if (moves > 1) return;
+                moving.resolve();
+                await release.promise;
+                throw new Error("trash unavailable");
+            },
+        },
+    );
+});
+
+test("a failed trash restarts a child whose parent was closed on its own", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(4)),
+        async (harness) => {
+            await openParent(harness);
+            await startChild(harness, "middle", "parent");
+            await untilSettled(harness.registry, ["middle"]);
+            await harness.registry.closeAgent("parent");
+            expect(harness.registry.agents.get("middle")?.parentId)
+                .toBe("parent");
+
+            expect(await harness.registry.trashSession("middle")).toBe("failed");
+
+            expect(
+                harness.registry.list()
+                    .map((agent) => [agent.id, agent.parent_id ?? null]),
+            ).toEqual([["middle", "parent"]]);
+            expect(harness.registry.find("middle")).toBeDefined();
+        },
+        { moveToTrash: failingMove },
+    );
+});
+
+test("a session that is still starting cannot be trashed", async () => {
+    const bindStarted = deferred();
+    const finishBind = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(2)),
+        async (harness) => {
+            await openParent(harness);
+            await harness.registry.closeAgent("parent");
+            const bind = harness.registry.bindSessionIdentity.bind(
+                harness.registry,
+            );
+            harness.registry.bindSessionIdentity = async (store) => {
+                bindStarted.resolve();
+                await finishBind.promise;
+                return bind(store);
+            };
+
+            const resuming = harness.registry.resume({
+                sessionPath: join(harness.root, "parent.jsonl"),
+            });
+            await bindStarted.promise;
+            expect(await harness.registry.trashSession("parent")).toBe("busy");
+            finishBind.resolve();
+            await resuming;
+
+            expect(harness.registry.find("parent")).toBeDefined();
+            expect(harness.moved).toEqual([]);
+            expect(existsSync(join(harness.root, "parent.jsonl"))).toBe(true);
+        },
+    );
+});
+
+// Holds the identity binding of the named sessions, which start() awaits before it registers.
+function holdIdentity(
+    registry: AgentRegistry,
+    ids: readonly string[],
+): { readonly started: Deferred; readonly release: Deferred } {
+    const started = deferred();
+    const release = deferred();
+    const bind = registry.bindSessionIdentity.bind(registry);
+    registry.bindSessionIdentity = async (store) => {
+        if (ids.includes(store.header.id)) {
+            started.resolve();
+            await release.promise;
+        }
+        return bind(store);
+    };
+    return { started, release };
+}
+
+test("a child restarted after its parent was trashed is closed again and keeps its file", async () => {
+    const childMoving = deferred();
+    const childRelease = deferred();
+    let moves = 0;
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const childTrash = harness.registry.trashSession("middle");
+            await childMoving.promise;
+            const held = holdIdentity(harness.registry, ["middle"]);
+            childRelease.resolve();
+            await held.started.promise;
+
+            expect(await harness.registry.trashSession("parent")).toBe("trashed");
+            held.release.resolve();
+            expect(await childTrash).toBe("failed");
+
+            expect(harness.registry.agents.size).toBe(0);
+            expect(harness.registry.trashingIds.size).toBe(0);
+            expect(existsSync(join(harness.root, "parent.jsonl"))).toBe(false);
+            expect(existsSync(join(harness.root, "middle.jsonl"))).toBe(true);
+            expect(existsSync(join(harness.root, "leaf.jsonl"))).toBe(true);
+        },
+        {
+            moveToTrash: async () => {
+                moves += 1;
+                if (moves > 1) return;
+                childMoving.resolve();
+                await childRelease.promise;
+                throw new Error("trash unavailable");
+            },
+        },
+    );
+});
+
+test("a grandchild is not restarted under a child the parent's trash closed", async () => {
+    const childMoving = deferred();
+    const childRelease = deferred();
+    const parentMoving = deferred();
+    const parentRelease = deferred();
+    let moves = 0;
+    await withRegistry(
+        () => new FauxAdapter(replies(6)),
+        async (harness) => {
+            await openTreeOfThree(harness);
+            const childTrash = harness.registry.trashSession("middle");
+            await childMoving.promise;
+            const middle = holdIdentity(harness.registry, ["middle"]);
+            childRelease.resolve();
+            await middle.started.promise;
+            const parentTrash = harness.registry.trashSession("parent");
+            await parentMoving.promise;
+            const leaf = holdIdentity(harness.registry, ["leaf"]);
+
+            // Middle registers while its parent moves; the leaf would follow it.
+            middle.release.resolve();
+            await Promise.race([leaf.started.promise, childTrash]);
+            parentRelease.resolve();
+            expect(await parentTrash).toBe("trashed");
+            leaf.release.resolve();
+            expect(await childTrash).toBe("failed");
+
+            expect(harness.registry.agents.size).toBe(0);
+            expect(harness.registry.trashingIds.size).toBe(0);
+            expect(existsSync(join(harness.root, "middle.jsonl"))).toBe(true);
+            expect(existsSync(join(harness.root, "leaf.jsonl"))).toBe(true);
+        },
+        {
+            moveToTrash: async () => {
+                moves += 1;
+                if (moves === 1) {
+                    childMoving.resolve();
+                    await childRelease.promise;
+                    throw new Error("trash unavailable");
+                }
+                parentMoving.resolve();
+                await parentRelease.promise;
+            },
+        },
+    );
+});
+
+test("a host that closes while a trash moves is not idle and restarts nothing", async () => {
+    const moving = deferred();
+    const release = deferred();
+    await withRegistry(
+        () => new FauxAdapter(replies(2)),
+        async (harness) => {
+            await openParent(harness);
+            expect(harness.registry.idleForShutdown()).toBe(true);
+
+            const trashing = harness.registry.trashSession("parent");
+            await moving.promise;
+            expect(harness.registry.idleForShutdown()).toBe(false);
+            expect(harness.registry.idleForReplacement()).toBe(false);
+            await harness.registry.close();
+            release.resolve();
+            expect(await trashing).toBe("failed");
+
+            expect(harness.registry.agents.size).toBe(0);
+            expect(existsSync(join(harness.root, "parent.jsonl"))).toBe(true);
+            expect(
+                harness.ended.map((payload) =>
+                    `${payload.sessionId}:${payload.reason}`
+                ),
+            ).toEqual(["parent:deleted"]);
+        },
+        {
+            moveToTrash: async () => {
+                moving.resolve();
+                await release.promise;
+                throw new Error("trash unavailable");
+            },
+        },
+    );
+});
+
+test("a restart that registers after the host closed is closed again", async () => {
+    await withRegistry(
+        () => new FauxAdapter(replies(2)),
+        async (harness) => {
+            await openParent(harness);
+            const held = holdIdentity(harness.registry, ["parent"]);
+
+            const trashing = harness.registry.trashSession("parent");
+            await held.started.promise;
+            await harness.registry.close();
+            held.release.resolve();
+            expect(await trashing).toBe("failed");
+
+            expect(harness.registry.agents.size).toBe(0);
+            expect(harness.registry.find("parent")).toBeUndefined();
+            expect(existsSync(join(harness.root, "parent.jsonl"))).toBe(true);
+        },
+        { moveToTrash: failingMove },
     );
 });

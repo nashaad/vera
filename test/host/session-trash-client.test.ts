@@ -99,6 +99,65 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
     },
 );
 
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a resume while a closed session moves to the trash is refused",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-stored-trash-resume-"));
+        const socketPath = join(root, "host.sock");
+        const sessionDirectory = join(root, "sessions");
+        let moveStarted: () => void = () => {};
+        const moving = new Promise<void>((resolve) => {
+            moveStarted = resolve;
+        });
+        let releaseMove: () => void = () => {};
+        const released = new Promise<void>((resolve) => {
+            releaseMove = resolve;
+        });
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+            eventLogDirectory: join(root, "logs"),
+            trashSessionArtifacts: (artifacts) =>
+                trashSessionArtifacts(artifacts, {
+                    moveToTrash: async () => {
+                        moveStarted();
+                        await released;
+                    },
+                }),
+        });
+        const sessionPath = join(sessionDirectory, "saved.jsonl");
+        try {
+            await host.registry.create({ id: "saved", workspace: root });
+            expect(await host.registry.closeAgent("saved")).toBe("closed");
+
+            const trashing = trashSessionThroughHost(socketPath, "saved");
+            await moving;
+            await expect(host.registry.resume({ sessionPath }))
+                .rejects.toThrow("This conversation is being moved to the trash.");
+            expect(await host.registry.trashSession("saved")).toBe("busy");
+            expect(host.registry.idleForShutdown()).toBe(false);
+            releaseMove();
+
+            expect(await trashing).toEqual({ status: "trashed" });
+            expect(host.registry.agents.has("saved")).toBe(false);
+            expect(await stat(sessionPath).then(() => true, () => false))
+                .toBe(false);
+        } finally {
+            releaseMove();
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
 async function trashParentOfFinishedChild(
     root: string,
     childSessionPath: string | undefined,
