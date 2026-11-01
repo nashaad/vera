@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import {
     existsSync,
     mkdirSync,
@@ -4563,6 +4563,108 @@ test("a turn cancelled during review stores the cancel on the withheld result", 
         classifierOutcome: { kind: "cancelled" },
     });
 });
+
+// A bash write names its path once; a structured write names it twice, which re-checks the signal.
+const pathFactCancelCases = [
+    { label: "a structured write", responses: () => outsideWriteResponses("../outside.txt"), widen: false },
+    { label: "a bash write", responses: () => bashCallResponses("printf x > ../outside.txt"), widen: false },
+    { label: "a write after access widens to full", responses: () => outsideWriteResponses("../outside.txt"), widen: true },
+];
+
+for (const { label, responses, widen } of pathFactCancelCases) {
+test(`a turn cancelled while path facts are collected for ${label} ends like a cancelled review`, async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cancel-path-facts-"));
+    temporaryWorkspaces.push(root);
+    const workspace = join(root, "workspace");
+    mkdirSync(workspace);
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let reviews = 0;
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => {
+            reviews += 1;
+            return {
+                decision: "allow",
+                reason: "unexpected",
+                riskLevel: "low",
+                userAuthorization: "high",
+            };
+        }),
+        toolRuntime: new ToolRuntime(workspace),
+        readApprovalMode: () => mode,
+    };
+    let mode: ApprovalMode = "auto";
+    // Path facts ask git about the target; a git that never answers keeps the
+    // collector in flight until the turn is cancelled.
+    let gitStarted: () => void = () => {};
+    const gitRunning = new Promise<void>((resolve) => {
+        gitStarted = resolve;
+    });
+    const realSpawn = Bun.spawn.bind(Bun);
+    const spawn = spyOn(Bun, "spawn").mockImplementation(((
+        command: string[],
+        options: { signal: AbortSignal },
+    ) => {
+        if (command[0] !== "git") {
+            return realSpawn(command, options);
+        }
+        gitStarted();
+        return {
+            exited: new Promise<number>((resolve) => {
+                options.signal.addEventListener("abort", () => resolve(143), {
+                    once: true,
+                });
+            }),
+        };
+    }) as unknown as typeof Bun.spawn);
+    try {
+        channel.client.send({ type: "prompt", content: "update the note" });
+        const turn = runTurn(
+            new FauxAdapter(responses()),
+            "test",
+            state,
+        );
+        await gitRunning;
+        if (widen) mode = "full_access";
+        channel.client.send({ type: "abort" });
+        const updates = await receiveThroughTurnFinished(channel);
+        const message = await turn;
+
+        expect(message.stopReason).toBe("aborted");
+        expect(reviews).toBe(0);
+        expect(existsSync(join(root, "outside.txt"))).toBe(false);
+        expect(updates.some((update) => update.type === "tool_started")).toBe(false);
+        expect(updates).toContainEqual(expect.objectContaining({
+            type: "tool_review",
+            decision: "unavailable",
+            reason: "The turn was cancelled before classification finished.",
+        }));
+        expect(state.messages[2]).toMatchObject({
+            role: "tool_result",
+            isError: true,
+            withheld: true,
+            classifierOutcome: { kind: "cancelled" },
+        });
+    } finally {
+        spawn.mockRestore();
+    }
+
+    channel.client.send({ type: "prompt", content: "try again" });
+    const next = runTurn(
+        new FauxAdapter([{
+            role: "assistant",
+            content: [{ type: "text", text: "ready again" }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "stop",
+        }]),
+        "test",
+        state,
+    );
+    await receiveThroughTurnFinished(channel);
+    await expect(next).resolves.toMatchObject({ stopReason: "stop" });
+});
+}
 
 test("repeated reviewer denials stop the turn", async () => {
     const channel = createInProcessChannel();

@@ -697,7 +697,7 @@ async function readClassifierReply(stream: ModelStream): Promise<ClassifierReply
     return { message: await stream.result() };
 }
 
-function reviewCancelled(): ToolReviewDecision {
+export function reviewCancelled(): ToolReviewDecision {
     return reviewFailed(
         "The turn was cancelled before classification finished.",
     );
