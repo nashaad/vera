@@ -193,7 +193,8 @@ export function openDials(rt: TuiRuntime): void {
             ) ?? [],
         ),
         permissionModes: ["readonly", "ask", "auto"],
-        currentPermission: focusedAgentState(rt).approvalMode ?? "ask",
+        // Unknown until the session reports it; lighting a guess would hide the real mode.
+        currentPermission: focusedAgentState(rt).approvalMode,
     });
     renderState(rt);
     focusActiveSurface(rt);

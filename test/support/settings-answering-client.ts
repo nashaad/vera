@@ -7,7 +7,8 @@ export interface SettingsAnsweringClientOptions {
     readonly agentId: string;
     readonly workspace?: string;
     readonly model: string;
-    readonly mode: ApprovalMode;
+    /** Left out, `get_permissions` goes to `onCommand`, which may answer it late or never. */
+    readonly mode?: ApprovalMode;
     /** Extra fields merged into every reported model settings payload. */
     readonly modelSettings?: Record<string, unknown>;
     /** Updates delivered before anything is asked for, such as replayed history. */
@@ -72,7 +73,7 @@ export function createSettingsAnsweringClient(
                 });
                 return;
             }
-            if (command.type === "get_permissions") {
+            if (command.type === "get_permissions" && options.mode !== undefined) {
                 updates.push({
                     type: "permissions",
                     requestId: command.requestId,

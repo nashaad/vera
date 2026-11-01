@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
+import { litDialValue } from "../../support/tui-dial-lit.ts";
 
 test("browse keeps the search text while Tab walks its sections, and Enter favorites", async () => {
     const commands: string[] = [];
@@ -86,5 +87,66 @@ test("the HUD stages agent and access, and Escape cancels both", async () => {
         expect(commands).not.toContain("update_model_settings");
         expect(commands).not.toContain("update_session_permission_mode");
         expect(commands).not.toContain("prompt");
+    } finally { await session.close(); }
+}, 15_000);
+
+test("a HUD opened before the mode arrives lights the mode once it is reported", async () => {
+    const changes: string[] = [];
+    let reportMode: (() => void) | undefined;
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-focus-hud-late-")), width: 120, height: 42,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies(),
+            client: createSettingsAnsweringClient({ agentId: "hud-late", model: "one/model",
+                onCommand: (command, push) => {
+                    if (command.type === "get_permissions") {
+                        reportMode = () => push({ type: "permissions", requestId: command.requestId, mode: "auto", pending: false, seq: 99 });
+                    }
+                    if (command.type === "update_session_permission_mode") changes.push(command.mode);
+                },
+            }),
+        }) });
+    try {
+        await session.waitForVisiblePane("permissions loading");
+        session.sendKey("BTab"); await session.waitForVisiblePane("› AGENT");
+        session.sendKey("Tab"); await session.waitForVisiblePane("› ACCESS");
+        await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBeUndefined();
+        expect(reportMode).toBeDefined();
+        reportMode!();
+        await session.waitForVisiblePane("default · auto");
+        await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBe("auto");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere((pane) => !pane.includes("ACCESS"), "the HUD to close");
+        await session.settle();
+        expect(changes).toEqual([]);
+    } finally { await session.close(); }
+}, 15_000);
+
+test("the HUD lights no access mode until the session reports one", async () => {
+    const changes: string[] = [];
+    const session = await startTuiTestSession({ home: mkdtempSync(join(tmpdir(), "vera-focus-hud-unknown-")), width: 120, height: 42,
+        dependencies: () => ({ ...createTuiCatalogRefreshDependencies(),
+            client: createSettingsAnsweringClient({ agentId: "hud-unknown", model: "one/model",
+                onCommand: (command) => {
+                    if (command.type === "update_session_permission_mode") changes.push(command.mode);
+                },
+            }),
+        }) });
+    try {
+        await session.waitForVisiblePane("permissions loading");
+        session.sendKey("BTab"); await session.waitForVisiblePane("› AGENT");
+        session.sendKey("Tab"); await session.waitForVisiblePane("› ACCESS");
+        await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBeUndefined();
+        session.sendKey("Right"); await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBe("readonly");
+        session.sendKey("Right"); await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBe("ask");
+        // A guessed live mode would show a "live:" note and swallow a pick that matches the guess.
+        expect(session.captureVisiblePane()).not.toContain("live:");
+        session.sendKey("Enter");
+        await session.waitForVisiblePaneWhere((pane) => !pane.includes("ACCESS"), "the HUD to close");
+        await session.settle();
+        expect(changes).toEqual(["ask"]);
     } finally { await session.close(); }
 }, 15_000);

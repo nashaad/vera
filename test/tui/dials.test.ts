@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    adoptReportedPermission,
     DIAL_EXIT_SEPARATOR,
     type DialLane,
     type DialStripState,
@@ -137,6 +138,61 @@ test("full access is not offered or changed without an explicit HUD move", () =>
     expect(text(state)).not.toContain("full access");
     const applied = handleDialStripKey(state, { name: "enter" }, undefined);
     expect(applied.kind === "commit" && applied.permission).toBeUndefined();
+});
+
+test("an access mode the session has not reported lights no cell", () => {
+    const state = opened({ currentPermission: undefined });
+    const access = text(state).split("\n").find((line) => line.includes("ACCESS"));
+    expect(access).not.toContain("›");
+    expect(access).not.toContain("live:");
+    const kept = handleDialStripKey(state, { name: "enter" }, undefined);
+    expect(kept.kind === "commit" && kept.permission).toBeUndefined();
+    const first = press({ ...state, lane: "access" }, "right");
+    expect(first.permissionModes[first.permissionIndex]).toBe("readonly");
+    const picked = press(press({ ...state, lane: "access" }, "left"), "left");
+    expect(picked.permissionModes[picked.permissionIndex]).toBe("ask");
+    expect(handleDialStripKey(picked, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "default",
+        permission: "ask",
+    });
+});
+
+test("a mode reported after the HUD opens lights the lane unless access was moved", () => {
+    const state = opened({ currentPermission: undefined });
+    const lit = adoptReportedPermission(state, "auto");
+    expect(lit.permissionModes[lit.permissionIndex]).toBe("auto");
+    expect(text(lit)).toContain("›auto");
+    expect(handleDialStripKey(lit, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "default",
+    });
+    const moved = press({ ...state, lane: "access" }, "right");
+    expect(adoptReportedPermission(moved, "auto")).toBe(moved);
+    expect(adoptReportedPermission(lit, "ask")).toBe(lit);
+});
+
+test("an agent picked before the mode arrives previews its posture once it does", () => {
+    const plan = press(postureDial({ currentPermission: undefined }), "right");
+    expect(plan.agents[plan.agentIndex]).toBe("plan");
+    const lit = adoptReportedPermission(plan, "auto");
+    expect(accessOf(lit)).toBe("readonly");
+    expect(text(lit)).toContain("live: auto");
+});
+
+test("an agent that refuses the reported mode hands the lane back to the opened agent", () => {
+    const writer = press(
+        opened({ currentPermission: undefined, agentForbiddenAccess: { reviewer: ["readonly"] } }),
+        "right",
+    );
+    expect(writer.agents[writer.agentIndex]).toBe("reviewer");
+    const lit = adoptReportedPermission(writer, "readonly");
+    expect(lit.agents[lit.agentIndex]).toBe("default");
+    expect(accessOf(lit)).toBe("readonly");
+    expect(handleDialStripKey(lit, { name: "enter" }, undefined)).toEqual({
+        kind: "commit",
+        agent: "default",
+    });
 });
 
 test("unavailable access values are marked and skipped", () => {

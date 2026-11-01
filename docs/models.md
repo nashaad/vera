@@ -168,6 +168,12 @@ open the quick controls.
 | Escape | Cancel the changes. |
 
 Access offers readonly, ask, and auto. Unavailable choices are skipped.
+Access starts on the conversation's current mode. While the footer still
+shows `permissions loading`, or on Home before you pick one, no access value
+is marked: Right then marks readonly and Left marks auto. On Home, the value
+you pick applies to the next conversation, and it is marked when you open
+the controls again. If the mode arrives while the controls are open and you
+have not moved Access, it is marked then.
 
 Model and effort are not here. Use `/model` and `/effort`. The composer footer
 shows all four values whether or not the quick controls are open.
