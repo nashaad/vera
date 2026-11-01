@@ -5,17 +5,15 @@ import {
     readdirSync,
     readFileSync,
     realpathSync,
+    statSync,
     unlinkSync,
     writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, sep } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import {
-    packedReleaseRoot,
-    releasesDirectory,
-    thisProcessReleaseRoot,
-} from "./release/layout.ts";
+import { packedReleaseRoot, thisProcessReleaseRoot } from "./release/layout.ts";
 import { thisProcessBuildId } from "./release/stamp.ts";
 import { veraHomeDirectory } from "./profile-paths.ts";
 
@@ -43,19 +41,36 @@ export function devInstancePath(home: string, root = homedir()): string {
 }
 
 /**
- * Code running from a packed release under the install prefix is the one Vera a
- * person runs on purpose. Anything else is a candidate build from a checkout.
- * The running file locates itself; a release stamp does not, because a checkout
- * with no pack of its own reports the daily install's stamp.
+ * Development means a source checkout or a linked worktree (a .git entry at the
+ * root of the tree being run) on a home of its own. The root alone is checked: a
+ * package installed inside a project would otherwise inherit that project's
+ * .git. Anything unknown is not development.
  */
 export function processIsDevelopmentInstance(
-    modulePath: string,
-    installedRoot = releasesDirectory(),
+    options: {
+        readonly treeRoot?: string;
+        readonly home?: string;
+        readonly userHome?: string;
+    } = {},
 ): boolean {
-    const installed = safeRealpath(installedRoot);
-    const resolved = safeRealpath(modulePath);
-    if (installed === undefined || resolved === undefined) return true;
-    return !resolved.startsWith(`${installed}${sep}`);
+    const root = safeRealpath(options.treeRoot ?? runningTreeRoot());
+    if (root === undefined || !existsSync(join(root, ".git"))) return false;
+    return !homeIsDefault(
+        options.home ?? veraHomeDirectory(),
+        options.userHome,
+    );
+}
+
+/** The daily home is never a development instance, whatever tree runs on it. */
+export function homeIsDefault(home: string, userHome = homedir()): boolean {
+    const defaultHome = veraHomeDirectory(userHome);
+    return (safeRealpath(home) ?? resolve(home))
+        === (safeRealpath(defaultHome) ?? resolve(defaultHome));
+}
+
+/** This file sits in src/, so the tree being run is its parent. */
+export function runningTreeRoot(): string {
+    return fileURLToPath(new URL("..", import.meta.url));
 }
 
 export function registerDevInstance(options: {
@@ -89,7 +104,7 @@ export function dropDevInstance(home: string, root?: string): void {
     }
 }
 
-/** Entries whose home is gone are dropped as they are read. */
+/** Entries whose home is gone or no longer a directory are dropped as read. */
 export function listDevInstances(root?: string): DevInstanceRecord[] {
     let names: string[];
     try {
@@ -103,16 +118,12 @@ export function listDevInstances(root?: string): DevInstanceRecord[] {
         if (!name.endsWith(".json")) continue;
         const path = join(devInstanceDirectory(root), name);
         const record = readDevInstanceFile(path);
-        if (record === undefined) {
+        if (record === undefined || !isDirectory(record.home)) {
             try {
                 unlinkSync(path);
             } catch {
-                // An unreadable entry must not block the rest of the sweep.
+                // An unremovable entry must not block the rest of the sweep.
             }
-            continue;
-        }
-        if (!existsSync(record.home)) {
-            dropDevInstance(record.home, root);
             continue;
         }
         records.push(record);
@@ -167,6 +178,14 @@ function buildIdOfRunningTree(): string | undefined {
         return thisProcessBuildId();
     } catch {
         return undefined;
+    }
+}
+
+function isDirectory(path: string): boolean {
+    try {
+        return statSync(path).isDirectory();
+    } catch {
+        return false;
     }
 }
 

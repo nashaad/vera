@@ -73,7 +73,7 @@ function noteDevelopmentInstance(): string | undefined {
     let source: string;
     try {
         source = fileURLToPath(import.meta.url);
-        if (!processIsDevelopmentInstance(source)) return undefined;
+        if (!processIsDevelopmentInstance()) return undefined;
     } catch {
         return undefined;
     }

@@ -17,6 +17,7 @@ import { basename, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
+import { dropDevInstance } from "../src/dev-instances.ts";
 import {
     assertDistinctSockets,
     cloneVeraHome,
@@ -170,6 +171,7 @@ export interface DevTuiDependencies extends EvictHomeOptions {
     ) => Promise<void>;
     readonly temporaryRoot?: string;
     readonly sourceHome?: string;
+    readonly devInstanceRoot?: string;
 }
 
 export interface EvictHomeOptions {
@@ -216,6 +218,7 @@ export async function runDevTui(
         const stranded = await evictHome(destinationHome, stderr, dependencies);
         if (stranded !== 0) return stranded;
         rmSync(instanceRoot, { recursive: true, force: true });
+        dropDevInstance(destinationHome, dependencies.devInstanceRoot);
         stdout.write(`Discarded ${destinationHome}\n`);
         return 0;
     }

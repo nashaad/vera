@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 
-import { listDevInstances, type DevInstanceRecord } from "../src/dev-instances.ts";
+import {
+    homeIsDefault,
+    listDevInstances,
+    type DevInstanceRecord,
+} from "../src/dev-instances.ts";
 import {
     dropLiveProcessIn,
     listLiveProcessesIn,
@@ -80,7 +84,9 @@ export async function sweepDevInstances(
     request: SweepRequest,
     write: (line: string) => void,
 ): Promise<number> {
-    const instances = listDevInstances(request.root);
+    const instances = listDevInstances(request.root).filter(
+        (instance) => !homeIsDefault(instance.home, request.root),
+    );
     if (instances.length === 0) {
         write("No development instances are registered.\n");
         return 0;
