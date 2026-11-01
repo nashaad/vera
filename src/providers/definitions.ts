@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isUserProviderUrl } from "./endpoint-url.ts";
 import { isSafeProviderId } from "./provider-id.ts";
 
 export const PROVIDER_DEFINITION_SCHEMA_VERSION = 1;
@@ -231,6 +232,9 @@ export function resolveProviders(
         if (current.definition.fixed_endpoint === true) {
             throw new Error(`Provider ${id} has a fixed endpoint`);
         }
+        if (!isUserProviderUrl(endpoint)) {
+            throw new Error(`Endpoint override for ${id}: unsafe base_url`);
+        }
         byId.set(id, { ...current, baseUrl: endpoint });
     }
     return [...byId.values()];
@@ -280,7 +284,7 @@ function declarationToDefinition(
         discovery: { mode: "models", path: "/models", credential: declaration.credential === "none" ? "none" : "required" },
         compatibility: { request: ["openai-chat"], response: ["openai-sse"], error: ["http-status"] },
         cache: declaration.cache ?? declaredProviderCacheDefault(declaration.protocol),
-    }, `declared provider ${id}`);
+    }, `declared provider ${id}`, { userAuthoredBaseUrl: true });
 }
 
 export function declaredProviderCacheDefault(
@@ -291,9 +295,15 @@ export function declaredProviderCacheDefault(
         : { mode: "automatic", usage: ["read"] };
 }
 
+export interface ParseProviderDefinitionOptions {
+    // The base URL came from the user's own declaration, so any http or https host is allowed.
+    readonly userAuthoredBaseUrl?: boolean;
+}
+
 export function parseProviderDefinition(
     value: unknown,
     context: string,
+    options: ParseProviderDefinitionOptions = {},
 ): ProviderDefinition {
     if (!isRecord(value)) throw new Error(`${context}: expected an object`);
     const requiredStrings = ["id", "label", "short_label", "default_base_url"];
@@ -310,8 +320,10 @@ export function parseProviderDefinition(
         throw new Error(`${context}: invalid access or credential`);
     }
     if (!isProviderProtocol(value.protocol)) throw new Error(`${context}: invalid protocol`);
-    if (typeof value.default_base_url !== "string" || !validProviderUrl(value.default_base_url)) {
-        throw new Error(`${context}: unsafe default_base_url`);
+    const userAuthored = options.userAuthoredBaseUrl === true;
+    const baseUrlAllowed = userAuthored ? isUserProviderUrl : validProviderUrl;
+    if (typeof value.default_base_url !== "string" || !baseUrlAllowed(value.default_base_url)) {
+        throw new Error(`${context}: unsafe ${userAuthored ? "base_url" : "default_base_url"}`);
     }
     if (value.fixed_endpoint !== undefined && typeof value.fixed_endpoint !== "boolean") {
         throw new Error(`${context}: fixed_endpoint must be boolean`);

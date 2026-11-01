@@ -5,6 +5,7 @@ import {
     resolveProviders,
     shippedProviderDefinitions,
 } from "../../src/providers/definitions.ts";
+import { configuredProviders } from "../../src/providers/registry.ts";
 
 const standard = {
     schema_version: 1,
@@ -158,4 +159,53 @@ test("duplicate contributed ids fail rather than silently changing precedence", 
 test("fixed endpoint overrides are rejected by the resolver", () => {
     expect(() => resolveProviders({ provider_endpoints: { "openai-codex": "https://proxy.example" } }))
         .toThrow(/fixed endpoint/);
+});
+
+test("an endpoint override must be http or https", () => {
+    expect(() => resolveProviders({ provider_endpoints: { ollama: "file:///secret" } }))
+        .toThrow(/unsafe base_url/);
+    const lan = resolveProviders({ provider_endpoints: { ollama: "http://192.168.1.20:11434" } })
+        .find((entry) => entry.id === "ollama");
+    expect(lan?.baseUrl).toBe("http://192.168.1.20:11434");
+});
+
+test("a custom provider on a LAN or named plain-HTTP host resolves", () => {
+    for (const baseUrl of ["http://192.168.1.20:8080/v1", "http://crow.local:1234/v1"]) {
+        const resolved = configuredProviders({
+            providers: {
+                "lan-crow": { protocol: "openai-chat", base_url: baseUrl, credential: "none" },
+            },
+        }).find((entry) => entry.id === "lan-crow");
+
+        expect(resolved?.baseUrl).toBe(baseUrl);
+    }
+});
+
+test("a custom provider URL must still be http or https", () => {
+    expect(() => resolveProviders({
+        providers: {
+            "lan-crow": { protocol: "openai-chat", base_url: "file:///secret", credential: "none" },
+        },
+    })).toThrow(/unsafe base_url/);
+});
+
+test("shipped and extension facts keep plain HTTP to loopback", () => {
+    const publicHttp = "http://models.example.com/v1";
+    expect(() => parseProviderDefinition({ ...standard, default_base_url: publicHttp }, "fixture"))
+        .toThrow(/unsafe default_base_url/);
+    expect(() => parseProviderDefinition({
+        ...standard,
+        discovery: { ...standard.discovery, base_url: publicHttp },
+    }, "fixture")).toThrow(/unsafe discovery base_url/);
+    expect(() => parseProviderDefinition({
+        ...standard,
+        request_options: {
+            behavior: "openrouter-provider-preferences",
+            label: "Routing",
+            explanation: "Choose upstream providers.",
+            documentation_url: publicHttp,
+        },
+    }, "fixture")).toThrow(/invalid request_options/);
+    expect(parseProviderDefinition({ ...standard, default_base_url: "http://localhost:11434" }, "fixture").default_base_url)
+        .toBe("http://localhost:11434");
 });

@@ -9,3 +9,14 @@ export function providerEndpointUrl(baseUrl: string, path: string): string {
         return `${trimmed}${suffix}`;
     }
 }
+
+// A URL the user wrote for their own provider: any http or https host. Config load and provider
+// resolution must both use this, or a saved provider can load and then fail to resolve.
+export function isUserProviderUrl(value: string): boolean {
+    try {
+        const protocol = new URL(value).protocol;
+        return protocol === "https:" || protocol === "http:";
+    } catch {
+        return false;
+    }
+}
