@@ -104,7 +104,15 @@ test("state written outside the known root names is named", () => {
     expect(unrecognisedHomeEntries(root)).toEqual(["chrome"]);
 });
 
-test("storage for an installed extension is owned", () => {
+test("extension data under extension-data is owned", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-home-"));
+    mkdirSync(join(root, ".vera", "extension-data", "vera.chrome"), {
+        recursive: true,
+    });
+    expect(unrecognisedHomeEntries(root)).toEqual([]);
+});
+
+test("a stray directory named like an installed extension is unrecognised", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "extensions", "chrome"), { recursive: true });
     writeFileSync(
@@ -112,13 +120,10 @@ test("storage for an installed extension is owned", () => {
         JSON.stringify({ id: "vera.chrome", version: "1.0.0" }),
     );
     mkdirSync(join(root, ".vera", "vera.chrome"));
-    expect(unrecognisedHomeEntries(root)).toEqual([]);
-
-    mkdirSync(join(root, ".vera", "vera.other"));
-    expect(unrecognisedHomeEntries(root)).toEqual(["vera.other"]);
+    expect(unrecognisedHomeEntries(root)).toEqual(["vera.chrome"]);
 });
 
-test("storage for a managed extension is owned", () => {
+test("a stray directory named like a managed extension is unrecognised", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "extensions", ".managed"), { recursive: true });
     writeFileSync(
@@ -126,7 +131,7 @@ test("storage for a managed extension is owned", () => {
         "{}",
     );
     mkdirSync(join(root, ".vera", "vera.btw"));
-    expect(unrecognisedHomeEntries(root)).toEqual([]);
+    expect(unrecognisedHomeEntries(root)).toEqual(["vera.btw"]);
 });
 
 test("a home that does not exist yet has nothing to complain about", () => {

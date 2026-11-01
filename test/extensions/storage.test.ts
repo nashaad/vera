@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readdirSync,
+    readFileSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -35,34 +43,41 @@ test("extension data sits under its own directory, not beside Vera's files", () 
     expect(existsSync(storage.profile)).toBe(true);
 });
 
-test("data left at the tier root moves to the new directory", () => {
+test("a home directory named like the extension id is left in place", () => {
     const home = useTemporaryHome();
-    mkdirSync(join(home, "vera.chrome"), { recursive: true });
-    writeFileSync(join(home, "vera.chrome", "pairing.json"), "{\"kept\":true}");
+    mkdirSync(join(home, "hooks"), { recursive: true });
+    writeFileSync(join(home, "hooks", "audit.json"), "{\"kept\":true}");
 
-    const moved = extensionStorage("vera.chrome").profile;
+    const path = extensionStorage("hooks").profile;
 
-    expect(moved).toBe(join(home, EXTENSION_DATA_DIRECTORY, "vera.chrome"));
-    expect(readFileSync(join(moved, "pairing.json"), "utf8")).toBe(
+    expect(path).toBe(join(home, EXTENSION_DATA_DIRECTORY, "hooks"));
+    expect(readdirSync(path)).toEqual([]);
+    expect(readFileSync(join(home, "hooks", "audit.json"), "utf8")).toBe(
         "{\"kept\":true}",
     );
-    expect(existsSync(join(home, "vera.chrome"))).toBe(false);
 });
 
-test("an already migrated extension leaves the old directory alone", () => {
+test("home files named like the extension id are left in place", () => {
     const home = useTemporaryHome();
-    mkdirSync(join(home, EXTENSION_DATA_DIRECTORY, "vera.chrome"), {
-        recursive: true,
-    });
-    writeFileSync(
-        join(home, EXTENSION_DATA_DIRECTORY, "vera.chrome", "state.json"),
-        "current",
+    mkdirSync(join(home, "machine"), { recursive: true });
+    writeFileSync(join(home, "config.json"), "{\"theme\":\"dark\"}");
+    writeFileSync(join(home, "machine", "auth.json"), "{\"token\":\"t\"}");
+
+    const config = extensionStorage("config.json");
+    const auth = extensionStorage("auth.json");
+
+    expect(config.profile).toBe(
+        join(home, EXTENSION_DATA_DIRECTORY, "config.json"),
     );
-    mkdirSync(join(home, "vera.chrome"), { recursive: true });
-    writeFileSync(join(home, "vera.chrome", "state.json"), "stale");
-
-    const path = extensionStorage("vera.chrome").profile;
-
-    expect(readFileSync(join(path, "state.json"), "utf8")).toBe("current");
-    expect(existsSync(join(home, "vera.chrome"))).toBe(true);
+    expect(auth.machine).toBe(
+        join(home, "machine", EXTENSION_DATA_DIRECTORY, "auth.json"),
+    );
+    expect(readFileSync(join(home, "config.json"), "utf8")).toBe(
+        "{\"theme\":\"dark\"}",
+    );
+    expect(readFileSync(join(home, "machine", "auth.json"), "utf8")).toBe(
+        "{\"token\":\"t\"}",
+    );
+    expect(statSync(config.profile).isDirectory()).toBe(true);
+    expect(statSync(auth.machine).isDirectory()).toBe(true);
 });

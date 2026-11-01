@@ -77,14 +77,6 @@ export const HOME_OWNED_ROOT_ENTRIES = [
     "rules",
 ] as const;
 
-/**
- * Ids of the extensions installed in this home. Extension storage at the
- * profile tier is `<home>/<id>`, so these directories are owned too.
- */
-export function installedExtensionIds(home?: string): readonly string[] {
-    return installedExtensionIdsIn(veraHomeDirectory(home));
-}
-
 export function installedExtensionIdsIn(veraHome: string): readonly string[] {
     const directory = join(veraHome, "extensions");
     let entries: string[];
@@ -135,10 +127,7 @@ function readExtensionManifestId(directory: string): string | undefined {
 export function unrecognisedHomeEntries(home?: string): readonly string[] {
     const root = veraHomeDirectory(home);
     if (!existsSync(root)) return [];
-    const owned = new Set<string>([
-        ...HOME_OWNED_ROOT_ENTRIES,
-        ...installedExtensionIds(home),
-    ]);
+    const owned = new Set<string>(HOME_OWNED_ROOT_ENTRIES);
     return readdirSync(root)
         .filter((entry) => !entry.startsWith("."))
         .filter((entry) => !owned.has(entry))
