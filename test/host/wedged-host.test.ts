@@ -117,6 +117,51 @@ test("discovery offers replacement of a wedged host and starts fresh", async () 
     expect(host).toEqual(record);
 });
 
+test("replacing a wedged host it cannot identify signals nothing and starts no new host", async () => {
+    const bystander = Bun.spawn(["sleep", "30"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        // A start time that does not parse can never be matched to the pid.
+        const unmatchable: HostLockRecord = {
+            ...record,
+            pid: bystander.pid,
+            started_at: "not a timestamp",
+        };
+        const lockfile: HostLockfile = {
+            publish(): Promise<HostLockRecord> {
+                throw new Error("not used");
+            },
+            async read(): Promise<HostLockRecord | undefined> {
+                return undefined;
+            },
+            async diagnose(): Promise<HostLockDiagnosis> {
+                return { record: unmatchable, wedged: true };
+            },
+        };
+        let starts = 0;
+        await expect(ensureResidentHost({
+            lockfile,
+            startHost: () => {
+                starts += 1;
+            },
+            confirmBusyUpgrade: () => true,
+            wait: async () => {},
+        })).rejects.toThrow(
+            `Could not confirm PID ${bystander.pid} is the Vera host (process`
+                + " start time unreadable); left it running and kept its"
+                + " lockfile. Try again. A new host was not started.",
+        );
+        expect(starts).toBe(0);
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+    }
+});
+
 test("a declined wedged replacement surfaces the unresponsive host", async () => {
     const lockfile: HostLockfile = {
         publish(): Promise<HostLockRecord> {

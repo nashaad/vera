@@ -16,7 +16,7 @@ import {
     type HostIdentity,
 } from "./protocol.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
-import { recordMatchesRunningProcess } from "./process-identity.ts";
+import { checkRecordIdentity } from "./process-identity.ts";
 import { thisProcessBuildId } from "../release/stamp.ts";
 
 export const HOST_LOCK_SCHEMA_VERSION = 3;
@@ -68,6 +68,7 @@ export interface HostLockfileOptions {
     readonly matchesRecord?: (
         record: Pick<HostLockRecord, "pid" | "started_at">,
     ) => boolean;
+    readonly readStartedAt?: (pid: number) => number | undefined;
 }
 
 export class HostProtocolMismatchError extends Error {
@@ -133,7 +134,11 @@ export function createHostLockfile(
     const startedAt = options.startedAt ?? currentProcessStartedAt();
     const inspectSocket = options.inspectSocket ?? requestHostIdentity;
     const isProcessAlive = options.isProcessAlive ?? processIsAlive;
-    const matchesRecord = options.matchesRecord ?? recordMatchesRunningProcess;
+    // An unreadable start time still counts as the host: the stop path
+    // re-checks and refuses to signal on anything short of a match.
+    const matchesRecord = options.matchesRecord
+        ?? ((candidate) =>
+            checkRecordIdentity(candidate, options.readStartedAt) !== "mismatch");
 
     return {
         async publish(): Promise<HostLockRecord> {

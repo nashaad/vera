@@ -2,7 +2,7 @@ import { readFileSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 
 import {
-    recordMatchesRunningProcess,
+    checkRecordIdentity,
     processIsAlive,
 } from "../../src/host/process-identity.ts";
 import {
@@ -93,11 +93,8 @@ function stopProcess(
     signaledAt: Map<string, number>,
     now: number,
 ): void {
-    const alive = processIsAlive(record.pid);
-    const matches = recordMatchesRunningProcess(record);
-    if (!alive || !matches) {
-        return;
-    }
+    if (!processIsAlive(record.pid)) return;
+    if (checkRecordIdentity(record) !== "match") return;
     const key = `${record.pid}:${record.started_at}`;
     const firstSignal = signaledAt.get(key);
     const signal = firstSignal === undefined || now - firstSignal < FORCE_AFTER_MS

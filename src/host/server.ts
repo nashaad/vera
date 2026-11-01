@@ -17,8 +17,8 @@ import {
 import type { SessionFactName } from "../store/session-facts.ts";
 import { pageSessionListing } from "./session-listing.ts";
 import {
+    checkRecordIdentity,
     processIsAlive,
-    recordMatchesRunningProcess,
 } from "./process-identity.ts";
 import {
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
@@ -2026,7 +2026,9 @@ async function clearSocketPathOrRefuse(
         && owner.socket_path === socketPath
         && owner.pid !== process.pid
         && processIsAlive(owner.pid)
-        && recordMatchesRunningProcess(owner)
+        // An unreadable start time still holds the socket; unlinking it would
+        // orphan a live host.
+        && checkRecordIdentity(owner) !== "mismatch"
     ) {
         throw new HostSocketHeldError(owner.pid, socketPath);
     }

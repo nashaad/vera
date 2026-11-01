@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 
 import { fileURLToPath } from "node:url";
+import { veraHomeDirectory } from "../src/profile-paths.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
 import {
     dropLiveProcess,
     installLiveProcess,
     listLiveProcesses,
+    listLiveProcessesIn,
     liveProcessDirectory,
     postLiveProcess,
     renderVeraPrune,
@@ -78,6 +80,37 @@ test("a live pid whose start time does not match is treated as reuse", () => {
     });
 
     expect(listLiveProcesses(home)).toEqual([]);
+});
+
+test("a live pid whose start time cannot be read is not listed and keeps its record", () => {
+    const home = tempHome();
+    const startedAt = new Date(Date.now() - process.uptime() * 1_000).toISOString();
+    postLiveProcess("host", {
+        home,
+        pid: process.pid,
+        startedAt,
+        runtimeDir: "/tmp/vera-daily",
+    });
+
+    expect(listLiveProcessesIn(veraHomeDirectory(home), () => undefined)).toEqual([]);
+    expect(readdirSync(liveProcessDirectory(home))).toEqual([`${process.pid}.json`]);
+    expect(listLiveProcesses(home)).toHaveLength(1);
+});
+
+test("a live pid whose measured start time matches is listed", () => {
+    const home = tempHome();
+    const startedAt = "2026-08-20T12:00:00.000Z";
+    const record = postLiveProcess("host", {
+        home,
+        pid: process.pid,
+        startedAt,
+        runtimeDir: "/tmp/vera-daily",
+    });
+
+    expect(listLiveProcessesIn(
+        veraHomeDirectory(home),
+        () => Date.parse(startedAt) + 2_000,
+    )).toEqual([record]);
 });
 
 test("an unreadable live file is dropped so the rest of the board still lists", () => {

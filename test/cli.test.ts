@@ -1344,6 +1344,36 @@ test("vera host stop --yes does not print Stopped if the pid is still there", as
     expect(output).not.toContain("Stopped");
 });
 
+test("vera host stop reports a host it could not identify and exits nonzero", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--yes"], {
+        stopHost: async () => ({ pid: 51639, endedBy: "unverified" }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toBe(
+        "Could not confirm PID 51639 is the Vera host (process start time"
+            + " unreadable); left it running and kept its lockfile. Try again.\n",
+    );
+    expect(output).not.toContain("Stopped");
+});
+
+test("vera host stop --force reports a host it could not identify and exits nonzero", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => ({ pid: 51639, endedBy: "unverified" }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toBe(
+        "Could not confirm PID 51639 is the Vera host (process start time"
+            + " unreadable); left it running and kept its lockfile. Try again.\n",
+    );
+    expect(output).not.toContain("Stopped");
+});
+
 test("vera names the recovery commands for an unresponsive host", async () => {
     let errorOutput = "";
     const exitCode = await runCliMain([], {

@@ -7,7 +7,10 @@ import {
     type HostLockfile,
     type HostLockRecord,
 } from "./lockfile.ts";
-import { forceStopHostProcess } from "./force-stop.ts";
+import {
+    forceStopHostProcess,
+    unverifiedHostMessage,
+} from "./force-stop.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownForReplacement,
@@ -375,6 +378,11 @@ async function terminateWedgedHost(record: HostLockRecord): Promise<void> {
             `Resident Vera host PID ${record.pid} did not stop, so a new one`
                 + " was not started. It is stuck in the kernel; wait for it or"
                 + " reboot.",
+        );
+    }
+    if (outcome.endedBy === "unverified") {
+        throw new Error(
+            `${unverifiedHostMessage(record.pid)} A new host was not started.`,
         );
     }
 }

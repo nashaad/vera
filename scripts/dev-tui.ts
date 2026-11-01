@@ -23,7 +23,10 @@ import {
     hashedInstanceRoot,
     scrubLiveIdentity,
 } from "../src/host/home-clone.ts";
-import { forceStopResidentHost } from "../src/host/force-stop.ts";
+import {
+    forceStopResidentHost,
+    unverifiedHostMessage,
+} from "../src/host/force-stop.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
 import { migrateHome } from "../src/home-migration.ts";
 import {
@@ -212,7 +215,11 @@ export async function runDevTui(
             stderr.write("Kept the development instance.\n");
             return 0;
         }
-        await stopCandidate(destinationHome, stderr);
+        const stopped = await stopCandidate(destinationHome, stderr);
+        if (stopped !== 0) {
+            stderr.write("Nothing was deleted.\n");
+            return stopped;
+        }
         const stranded = await evictHome(destinationHome, stderr, dependencies);
         if (stranded !== 0) return stranded;
         rmSync(instanceRoot, { recursive: true, force: true });
@@ -233,7 +240,11 @@ export async function runDevTui(
             stderr.write("Kept the existing development instance.\n");
             return 0;
         }
-        await stopCandidate(destinationHome, stderr);
+        const stopped = await stopCandidate(destinationHome, stderr);
+        if (stopped !== 0) {
+            stderr.write("Nothing was deleted.\n");
+            return stopped;
+        }
         const stranded = await evictHome(destinationHome, stderr, dependencies);
         if (stranded !== 0) return stranded;
         rmSync(destinationHome, { recursive: true, force: true });
@@ -457,11 +468,20 @@ async function stopCandidate(
         stderr.write("No development instance host is running.\n");
         return 0;
     }
-    if (outcome.endedBy === "survived") {
-        stderr.write(`Development host PID ${outcome.pid} did not stop.\n`);
-        return 1;
+    // No default arm: a new endedBy value must fail to compile here.
+    switch (outcome.endedBy) {
+        case "sigterm":
+        case "sigkill":
+        case "already_dead":
+        case "not_ours":
+            return 0;
+        case "survived":
+            stderr.write(`Development host PID ${outcome.pid} did not stop.\n`);
+            return 1;
+        case "unverified":
+            stderr.write(`${unverifiedHostMessage(outcome.pid)}\n`);
+            return 1;
     }
-    return 0;
 }
 
 const EVICTION_SIGTERM_GRACE_MS = 3_000;

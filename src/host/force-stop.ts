@@ -1,6 +1,6 @@
 import { unlink } from "node:fs/promises";
 
-import { recordMatchesRunningProcess } from "./process-identity.ts";
+import { checkRecordIdentity } from "./process-identity.ts";
 
 import {
     defaultHostLockPath,
@@ -15,7 +15,13 @@ export interface ForceStopOutcome {
         | "sigkill"
         | "already_dead"
         | "survived"
-        | "not_ours";
+        | "not_ours"
+        | "unverified";
+}
+
+export function unverifiedHostMessage(pid: number): string {
+    return `Could not confirm PID ${pid} is the Vera host (process start time`
+        + " unreadable); left it running and kept its lockfile. Try again.";
 }
 
 export class HostKillNotPermittedError extends Error {
@@ -41,6 +47,7 @@ export interface ForceStopOptions {
     readonly matchesRecord?: (
         record: Pick<HostLockRecord, "pid" | "started_at">,
     ) => boolean;
+    readonly readStartedAt?: (pid: number) => number | undefined;
     readonly escalateToKill?: boolean;
 }
 
@@ -55,8 +62,9 @@ export async function forceStopResidentHost(
     const record = await readHostLockRecordFile(lockPath);
     if (record === undefined) return undefined;
     const outcome = await forceStopHostProcess(record, options);
-    const clearable = outcome.endedBy === "not_ours"
-        || !(options.isProcessAlive ?? processIsAlive)(record.pid);
+    const clearable = outcome.endedBy !== "unverified"
+        && (outcome.endedBy === "not_ours"
+            || !(options.isProcessAlive ?? processIsAlive)(record.pid));
     if (clearable) {
         await removeFile(lockPath);
     }
@@ -73,8 +81,9 @@ export async function gracefulStopResidentHost(
         ...options,
         escalateToKill: false,
     });
-    const stillOurs = outcome.endedBy !== "not_ours"
-        && (options.isProcessAlive ?? processIsAlive)(record.pid);
+    const stillOurs = outcome.endedBy === "unverified"
+        || (outcome.endedBy !== "not_ours"
+            && (options.isProcessAlive ?? processIsAlive)(record.pid));
     if (!stillOurs) {
         await removeFile(lockPath);
     }
@@ -101,9 +110,14 @@ export async function forceStopHostProcess(
     if (!isProcessAlive(record.pid)) {
         return { pid: record.pid, endedBy: "already_dead" };
     }
-    const matchesRecord = options.matchesRecord ?? recordMatchesRunningProcess;
-    if (!matchesRecord(record)) {
+    const identity = options.matchesRecord === undefined
+        ? checkRecordIdentity(record, options.readStartedAt)
+        : options.matchesRecord(record) ? "match" : "mismatch";
+    if (identity === "mismatch") {
         return { pid: record.pid, endedBy: "not_ours" };
+    }
+    if (identity === "unknown") {
+        return { pid: record.pid, endedBy: "unverified" };
     }
     kill(record.pid, "SIGTERM");
     if (await waitUntilDead(options.sigtermGraceMs ?? DEFAULT_SIGTERM_GRACE_MS)) {

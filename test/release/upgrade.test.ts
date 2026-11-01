@@ -210,6 +210,55 @@ test("a drain that cannot stop the host leaves the previous release active", asy
     }
 });
 
+test("a drain that cannot identify the host refuses without signalling it or clearing its lockfile", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-upgrade-unverified-"));
+    const veraHome = join(root, "home");
+    const noPs = join(root, "bin");
+    mkdirSync(join(veraHome, "runtime"), { recursive: true });
+    mkdirSync(noPs);
+    const lockPath = join(veraHome, "runtime", "host.json");
+    const bystander = Bun.spawn(["sleep", "30"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: "2000-01-01T00:00:00.000Z",
+            socket_path: join(veraHome, "runtime", "host.sock"),
+        }));
+        const upgrade = join(import.meta.dir, "..", "..", "src", "release", "upgrade.ts");
+        const script = `
+            import { defaultDrainHost } from ${JSON.stringify(upgrade)};
+            try {
+                console.log("returned " + await defaultDrainHost());
+            } catch (error) {
+                console.log("threw " + (error as Error).message);
+            }
+        `;
+        const ran = Bun.spawnSync([process.execPath, "-e", script], {
+            env: { HOME: root, PATH: noPs, VERA_HOME: veraHome },
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(ran.exitCode, ran.stderr.toString()).toBe(0);
+        expect(ran.stdout.toString().trim()).toBe(
+            `threw Could not confirm PID ${bystander.pid} is the Vera host`
+                + " (process start time unreadable); left it running and kept"
+                + " its lockfile. Try again. Run 'bun run install:local' again."
+                + " The previous release is still active.",
+        );
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("recoverInterruptedUpgrade starts the new host after an interrupted start", async () => {
     const prefix = mkdtempSync(join(tmpdir(), "vera-upgrade-recover-new-"));
     try {
