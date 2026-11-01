@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
-import type { AssistantMessage } from "../../src/model/types.ts";
+import type {
+    AssistantMessage,
+    ModelInputMessage,
+    ModelUsage,
+} from "../../src/model/types.ts";
 
 test("a named Anthropic endpoint streams signed thinking and tool use", async () => {
     const requests: Request[] = [];
@@ -178,6 +182,158 @@ test("Anthropic thinking stays off unless the endpoint opts into adaptive mode",
     expect(body.thinking).toBeUndefined();
     expect(body.output_config).toBeUndefined();
 });
+
+test("three tool results from one turn go out as one user message", async () => {
+    const body = await sentBody([
+        userText("Check the three charts."),
+        toolTurn(["chart-1", "chart-2", "chart-3"]),
+        toolResult("chart-1", "north"),
+        toolResult("chart-2", "south"),
+        toolResult("chart-3", "east"),
+        assistantText("All three are dry."),
+        userText("Now fly to the first one."),
+    ]);
+
+    expect(body.messages.map((message) => message.role))
+        .toEqual(["user", "assistant", "user", "assistant", "user"]);
+    expect(body.messages[2]).toEqual({
+        role: "user",
+        content: [
+            { type: "tool_result", tool_use_id: "chart-1", content: "north" },
+            { type: "tool_result", tool_use_id: "chart-2", content: "south" },
+            { type: "tool_result", tool_use_id: "chart-3", content: "east" },
+        ],
+    });
+    expect(body.messages[4]).toEqual({ role: "user", content: "Now fly to the first one." });
+});
+
+test("user text right after the tool results follows them in the same message", async () => {
+    const body = await sentBody([
+        userText("Check the charts."),
+        toolTurn(["chart-1", "chart-2"]),
+        toolResult("chart-1", "north"),
+        toolResult("chart-2", "south"),
+        userText("Skip the rest."),
+    ]);
+
+    expect(body.messages.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(body.messages[2]).toEqual({
+        role: "user",
+        content: [
+            { type: "tool_result", tool_use_id: "chart-1", content: "north" },
+            { type: "tool_result", tool_use_id: "chart-2", content: "south" },
+            { type: "text", text: "Skip the rest." },
+        ],
+    });
+});
+
+test("tool results from separate assistant turns stay in separate user messages", async () => {
+    const body = await sentBody([
+        userText("Check the charts."),
+        toolTurn(["chart-1"]),
+        toolResult("chart-1", "north"),
+        toolTurn(["chart-2"]),
+        toolResult("chart-2", "south"),
+    ]);
+
+    expect(body.messages.map((message) => message.role))
+        .toEqual(["user", "assistant", "user", "assistant", "user"]);
+    expect(body.messages[2]?.content).toEqual([
+        { type: "tool_result", tool_use_id: "chart-1", content: "north" },
+    ]);
+    expect(body.messages[4]?.content).toEqual([
+        { type: "tool_result", tool_use_id: "chart-2", content: "south" },
+    ]);
+});
+
+interface SentMessage {
+    readonly role: string;
+    readonly content: unknown;
+}
+
+// Prompt caching is off so the bodies compare without cache markers.
+async function sentBody(
+    messages: readonly ModelInputMessage[],
+): Promise<{ readonly messages: SentMessage[] }> {
+    let request: Request | undefined;
+    const adapter = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "crow-messages",
+        model: "crow-model",
+        approval_mode: "ask",
+        providers: {
+            "crow-messages": {
+                protocol: "anthropic-messages",
+                base_url: "https://models.example.com/v1",
+                credential: "none",
+                cache: { mode: "none", usage: [] },
+            },
+        },
+    }, {
+        fetch: async (input, init) => {
+            request = new Request(String(input), init);
+            return anthropicStream([
+                { type: "message_start", message: { model: "crow-model", usage: { input_tokens: 1 } } },
+                { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+            ]);
+        },
+    });
+
+    const result = await adapter.stream({
+        model: "crow-model",
+        systemPrompt: "You are a pirate crow.",
+        messages,
+    }).result();
+    expect(result.errorMessage).toBeUndefined();
+    return await request!.json() as { messages: SentMessage[] };
+}
+
+const noUsage: ModelUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+};
+
+function userText(text: string): ModelInputMessage {
+    return { role: "user", content: [{ type: "text", text }] };
+}
+
+function toolTurn(ids: readonly string[]): AssistantMessage {
+    return {
+        role: "assistant",
+        content: ids.map((id) => ({
+            type: "tool_call" as const,
+            id,
+            name: "read_chart",
+            input: { path: `${id}.txt` },
+        })),
+        source: { provider: "crow-messages", api: "anthropic-messages", model: "crow-model" },
+        usage: noUsage,
+        stopReason: "tool_use",
+    };
+}
+
+function assistantText(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "crow-messages", api: "anthropic-messages", model: "crow-model" },
+        usage: noUsage,
+        stopReason: "stop",
+    };
+}
+
+function toolResult(toolCallId: string, text: string): ModelInputMessage {
+    return {
+        role: "tool_result",
+        toolCallId,
+        toolName: "read_chart",
+        content: [{ type: "text", text }],
+        isError: false,
+    };
+}
 
 function anthropicStream(events: readonly Record<string, unknown>[]): Response {
     return new Response(events.map((event) =>

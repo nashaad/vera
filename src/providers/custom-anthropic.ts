@@ -121,9 +121,9 @@ function encodeRequest(
         .map((message) => typeof message.content === "string" ? message.content : "")
         .filter((text) => text.length > 0)
         .join("\n\n");
-    const messages = request.messages
-        .filter((message) => message.role !== "system")
-        .map(encodeMessage);
+    const messages = encodeMessages(
+        request.messages.filter((message) => message.role !== "system"),
+    );
     const tools = request.tools === undefined
         ? []
         : request.tools.flatMap((tool) =>
@@ -184,18 +184,45 @@ function markLastUserBlock(
     return [...messages.slice(0, -1), { ...last, content: markLast(content, cache) }];
 }
 
-function encodeMessage(message: ChatMessages): Record<string, unknown> {
-    const raw = message as unknown as Record<string, unknown>;
-    if (message.role === "tool") {
-        return {
-            role: "user",
-            content: [{
+// The API wants every tool_result that answers one assistant turn in a single user message, ahead
+// of any text. Consecutive tool messages share one, and user text right after them joins it.
+function encodeMessages(messages: readonly ChatMessages[]): Record<string, unknown>[] {
+    const encoded: Record<string, unknown>[] = [];
+    let openResults: Record<string, unknown>[] | undefined;
+    for (const message of messages) {
+        const raw = message as unknown as Record<string, unknown>;
+        if (message.role === "tool") {
+            const result = {
                 type: "tool_result",
                 tool_use_id: raw.toolCallId,
                 content: raw.content,
-            }],
-        };
+            };
+            if (openResults === undefined) {
+                openResults = [result];
+                encoded.push({ role: "user", content: openResults });
+            } else {
+                openResults.push(result);
+            }
+            continue;
+        }
+        if (message.role === "user" && openResults !== undefined) {
+            openResults.push(...userContentBlocks(encodeUserContent(raw.content)));
+            openResults = undefined;
+            continue;
+        }
+        openResults = undefined;
+        encoded.push(encodeMessage(message));
     }
+    return encoded;
+}
+
+function userContentBlocks(content: string | Record<string, unknown>[]): Record<string, unknown>[] {
+    if (typeof content !== "string") return content;
+    return content.length === 0 ? [] : [{ type: "text", text: content }];
+}
+
+function encodeMessage(message: ChatMessages): Record<string, unknown> {
+    const raw = message as unknown as Record<string, unknown>;
     if (message.role === "user") {
         return { role: "user", content: encodeUserContent(raw.content) };
     }
@@ -234,7 +261,7 @@ function encodeMessage(message: ChatMessages): Record<string, unknown> {
     return { role: "assistant", content: blocks };
 }
 
-function encodeUserContent(value: unknown): unknown {
+function encodeUserContent(value: unknown): string | Record<string, unknown>[] {
     if (typeof value === "string") return value;
     if (!Array.isArray(value)) return "";
     return value.flatMap((part): Record<string, unknown>[] => {

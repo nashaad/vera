@@ -73,6 +73,7 @@ import {
     shippedProviderIds,
     type ProviderCacheDefinition,
 } from "./providers/definitions.ts";
+import { isUserProviderUrl } from "./providers/endpoint-url.ts";
 import { isSafeProviderId } from "./providers/provider-id.ts";
 import {
     parseModelReference,
@@ -634,7 +635,7 @@ export function migrateShippedProviderDeclarations(
             'provider "digitalocean" cannot migrate: api_key_env differs from the shipped definition',
         );
     }
-    if (typeof declaration.base_url !== "string" || !validProviderUrl(declaration.base_url)) {
+    if (typeof declaration.base_url !== "string" || !isUserProviderUrl(declaration.base_url)) {
         throw new VeraConfigError(
             path,
             'provider "digitalocean" cannot migrate: base_url is invalid',
@@ -1397,7 +1398,7 @@ function parseCustomProviders(
         ) {
             return undefined;
         }
-        if (typeof raw.base_url !== "string" || !validProviderUrl(raw.base_url)) {
+        if (typeof raw.base_url !== "string" || !isUserProviderUrl(raw.base_url)) {
             return undefined;
         }
         const credential = raw.credential ?? "api_key";
@@ -1506,27 +1507,13 @@ function parseProviderEndpoints(
             !isVeraProviderId(id)
             || isFixedEndpointProvider(id)
             || typeof rawUrl !== "string"
-            || !validProviderUrl(rawUrl.trim())
+            || !isUserProviderUrl(rawUrl.trim())
         ) {
             return undefined;
         }
         parsed[id] = rawUrl.trim().replace(/\/+$/, "");
     }
     return parsed;
-}
-
-/**
- * Providers reached over an endpoint that is not a host the user can move.
- * Codex is a subscription flow bound to the account it signs in to.
- */
-function validProviderUrl(value: string): boolean {
-    try {
-        const url = new URL(value);
-        return url.protocol === "https:"
-            || url.protocol === "http:";
-    } catch {
-        return false;
-    }
 }
 
 function isConfiguredProviderId(

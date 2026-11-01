@@ -17,6 +17,7 @@ import {
     VeraConfigError,
     type VeraCustomProviderConfig,
 } from "../../src/config.ts";
+import { configuredProviders } from "../../src/providers/registry.ts";
 
 const LOCAL: VeraCustomProviderConfig = {
     protocol: "openai-chat",
@@ -98,6 +99,28 @@ test("declaring one provider leaves the others alone", () => {
             "gateway",
             "workstation",
         ]);
+    });
+});
+
+test("a provider saved on a LAN http address resolves after it is loaded", () => {
+    withConfigFile((path) => {
+        updateVeraConfigDefaults(
+            {
+                custom_provider: {
+                    id: "lan-crow",
+                    declaration: {
+                        protocol: "openai-chat",
+                        base_url: "http://192.168.1.20:8080/v1",
+                        credential: "none",
+                    },
+                },
+            },
+            { path },
+        );
+        const config = loadVeraConfig({ path });
+
+        expect(configuredProviders(config).find((entry) => entry.id === "lan-crow")?.baseUrl)
+            .toBe("http://192.168.1.20:8080/v1");
     });
 });
 
