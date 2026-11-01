@@ -78,9 +78,13 @@ checks its inbox. The sender is not told when it is read.
 
 If you are watching the recipient, Vera asks once whether messages from
 other conversations may start a turn. You can allow it once, for this
-conversation, or always. A conversation running in the background with
-auto or full access permissions starts a turn on its own. One with ask
-permissions keeps the message until you return to it.
+conversation, or always. Dismissing the question with Escape is not an
+answer: the note stays unread, and Vera asks again when another message
+arrives for this conversation or when you reattach. A note that starts a turn
+while an earlier one is still waiting is marked read after the earlier one is
+read, and the model is not shown it twice. A conversation running in the
+background with auto or full access permissions starts a turn on its own. One
+with ask permissions keeps the message until you return to it.
 
 ## Create a definition
 

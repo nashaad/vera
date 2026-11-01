@@ -1002,6 +1002,7 @@ export class AgentRegistry {
                 throw new Error("inbox consumer closed before acknowledgement");
             }
             entry.inbox.consumer.acknowledge(seq as number);
+            entry.inbox.acknowledgeDelivered();
         };
         const loopData: RunHeadlessLoopData = {
                 sessionStartReason,

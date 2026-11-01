@@ -13,6 +13,7 @@ import {
     InboxDeliveryCoordinator,
     MAX_INBOX_NOTICE_COUNT,
     type AttachInboxConsumerRequest,
+    type InboxAdmissionDecision,
     type InboxNotice,
 } from "../../src/host/inbox-delivery.ts";
 import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
@@ -286,6 +287,249 @@ describe("inbox arrival notices", () => {
         inbox.close();
     });
 
+    test("a cancelled admission question is asked again at the next arrival, not on its own", async () => {
+        const inbox = Inbox.open(":memory:");
+        const consumers = new ConsumerRegistry(inbox, "node-a");
+        const answers: (InboxAdmissionDecision | undefined)[] = [
+            undefined,
+            undefined,
+            { mode: "once" },
+        ];
+        const asked: number[] = [];
+        const started: number[] = [];
+        const coordinator = new InboxDeliveryCoordinator(consumers);
+        coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+            requestAdmission: async (candidate) => {
+                asked.push(candidate.seq);
+                return answers.shift();
+            },
+        });
+
+        await coordinator.append(entry({
+            source: "watch/git",
+            kind: "filesystem.changed",
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(asked).toEqual([1]);
+        expect(started).toEqual([]);
+
+        await coordinator.append(entry({
+            source: "watch/git",
+            kind: "filesystem.changed",
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(asked).toEqual([1, 1]);
+        expect(started).toEqual([]);
+
+        await coordinator.append(entry({
+            source: "watch/git",
+            kind: "filesystem.changed",
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(asked).toEqual([1, 1, 1]);
+        expect(started).toEqual([1]);
+        inbox.close();
+    });
+
+    test("an admitted entry behind an unanswered head starts a turn", async () => {
+        const inbox = Inbox.open(":memory:");
+        const consumers = new ConsumerRegistry(inbox, "node-a");
+        const asked: number[] = [];
+        const started: number[] = [];
+        const coordinator = new InboxDeliveryCoordinator(consumers);
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+            requestAdmission: async (candidate) => {
+                asked.push(candidate.seq);
+                return undefined;
+            },
+        });
+
+        await coordinator.append(entry({
+            source: "watch/git",
+            kind: "filesystem.changed",
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(session.hasAdmittedPending()).toBe(false);
+
+        await coordinator.appendAdmitted(entry({
+            source: "example.scout",
+            kind: "extension_message",
+        }));
+
+        expect(started).toEqual([2]);
+        expect(session.hasAdmittedPending()).toBe(true);
+        expect(asked.every((seq) => seq === 1)).toBe(true);
+        inbox.close();
+    });
+
+    test("only the first unadmitted entry is asked about while an admitted one starts behind it", async () => {
+        const inbox = Inbox.open(":memory:");
+        const consumers = new ConsumerRegistry(inbox, "node-a");
+        const asked: string[] = [];
+        const started: number[] = [];
+        const coordinator = new InboxDeliveryCoordinator(consumers);
+        coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+            requestAdmission: (candidate, signal) => {
+                asked.push(`${candidate.seq}:${candidate.sourceFamily}`);
+                return new Promise((resolve) => {
+                    signal.addEventListener("abort", () => resolve(undefined), { once: true });
+                });
+            },
+        });
+
+        inbox.appendAll([
+            entry({ source: "watch/git", kind: "filesystem.changed" }),
+            entry({ source: "arc", kind: "arc.post" }),
+        ]);
+        await coordinator.appendAdmitted(entry({
+            source: "example.scout",
+            kind: "extension_message",
+        }));
+
+        expect(asked).toEqual(["1:filesystem"]);
+        expect(started).toEqual([3]);
+        inbox.close();
+    });
+
+    test("a dismissed question is asked again only by an arrival the conversation can see, or a reattach", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(
+            new ConsumerRegistry(inbox, "node-a"),
+        );
+        const asked: string[] = [];
+        const attachCrow = (label: string) => coordinator.attach({
+            label,
+            session: label,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            requestAdmission: async (candidate) => {
+                asked.push(`${label}:${candidate.seq}`);
+                return undefined;
+            },
+        });
+        const crowA = attachCrow("crow-a");
+        attachCrow("crow-b");
+        const watched = { source: "watch/git", kind: "filesystem.changed" };
+
+        await coordinator.append(entry({ ...watched, address: "crow-a" }));
+        await settle();
+        expect(asked).toEqual(["crow-a:1"]);
+
+        await coordinator.append(entry({ ...watched, address: "crow-b" }));
+        await settle();
+        expect(asked).toEqual(["crow-a:1", "crow-b:2"]);
+
+        await coordinator.append(entry({ ...watched, address: "crow-a" }));
+        await settle();
+        expect(asked).toEqual(["crow-a:1", "crow-b:2", "crow-a:1"]);
+
+        await coordinator.append(entry(watched));
+        await settle();
+        expect(asked.slice(3).sort()).toEqual(["crow-a:1", "crow-b:2"]);
+
+        crowA.clientAttachmentChanged(false);
+        await crowA.pump();
+        await settle();
+        expect(asked.slice(5)).toEqual(["crow-a:1"]);
+        inbox.close();
+    });
+
+    test("an arrival right after a dismissal asks again", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(
+            new ConsumerRegistry(inbox, "node-a"),
+        );
+        const asked: number[] = [];
+        let dismiss: (value: undefined) => void = () => undefined;
+        coordinator.attach({
+            label: "crow",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            requestAdmission: (candidate) => {
+                asked.push(candidate.seq);
+                return new Promise<undefined>((resolve) => { dismiss = resolve; });
+            },
+        });
+        const watched = { source: "watch/git", kind: "filesystem.changed" };
+        await coordinator.append(entry(watched));
+        await settle();
+        expect(asked).toEqual([1]);
+
+        dismiss(undefined);
+        await Promise.resolve();
+        await coordinator.append(entry(watched));
+        await settle();
+        expect(asked).toEqual([1, 1]);
+        inbox.close();
+    });
+
+    test("an entry delivered behind an unread one is acknowledged once, when the one before it is read", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(
+            new ConsumerRegistry(inbox, "node-a"),
+        );
+        const started: number[] = [];
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+            requestAdmission: async () => undefined,
+        });
+        await coordinator.append(entry({
+            source: "watch/git",
+            kind: "filesystem.changed",
+        }));
+        await coordinator.appendAdmitted(entry({
+            source: "example.scout",
+            kind: "extension_message",
+        }));
+        await coordinator.appendAdmitted(entry({
+            source: "example.scout",
+            kind: "extension_message",
+        }));
+        await settle();
+        expect(started).toEqual([2, 3]);
+        expect(session.hasAdmittedPending()).toBe(true);
+
+        session.noteDelivered(2);
+        session.noteDelivered(3);
+        expect(session.consumer.offset()).toBe(0);
+        expect(session.hasAdmittedPending()).toBe(false);
+
+        session.clientAttachmentChanged(false);
+        await session.pump();
+        await settle();
+        expect(started).toEqual([2, 3]);
+
+        session.consumer.acknowledge(1);
+        session.acknowledgeDelivered();
+        expect(session.consumer.offset()).toBe(3);
+        expect(session.hasAdmittedPending()).toBe(false);
+
+        session.acknowledgeDelivered();
+        expect(session.consumer.offset()).toBe(3);
+        inbox.close();
+    });
+
     test("admission persistence failures report and leave the entry held", async () => {
         const inbox = Inbox.open(":memory:");
         const consumers = new ConsumerRegistry(inbox, "node-a");
@@ -418,3 +662,8 @@ describe("inbox arrival notices", () => {
         rmSync(root, { recursive: true, force: true });
     });
 });
+
+async function settle(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+}

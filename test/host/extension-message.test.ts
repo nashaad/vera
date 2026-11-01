@@ -114,6 +114,167 @@ test("an extension message starts a turn without an admission prompt; a lookalik
     }
 });
 
+test("escaping an admission question holds the entry, asks again on the next arrival, and never blocks an extension message", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-extension-message-escape-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("Scout noted.")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const watchEntry = {
+        source: "watch/git",
+        kind: "filesystem.changed",
+        address: "deck",
+        payload: JSON.stringify({}),
+    };
+    try {
+        const deck = await registry.create({
+            id: "deck",
+            workspace: root,
+            sessionPath: join(root, "deck.jsonl"),
+        });
+        const attachment = deck.attach();
+        await attachment.receive();
+
+        await coordinator.append(watchEntry);
+        const first = await receiveType(attachment, "ui_request");
+        expect(first.request).toMatchObject({ type: "user_question" });
+        await cancelQuestion(attachment, first.requestId);
+        expect(await receiveTypeWithin(attachment, "ui_request", 200)).toBeUndefined();
+
+        expect(await registry.sendExtensionMessage(
+            "example.scout",
+            "deck",
+            "Scout report: gulls ahead.",
+        )).toBe("queued");
+        const updates = await receiveThrough(attachment, "turn_finished");
+        expect(updates.filter((update) => update.type === "task_notification"))
+            .toMatchObject([{ content: "Scout report: gulls ahead." }]);
+        const second = updates.find((update) => update.type === "ui_request");
+        expect(second).toBeDefined();
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+
+        attachment.send({
+            type: "ui_response",
+            requestId: second!.requestId,
+            response: {
+                type: "user_question",
+                outcome: "selected",
+                choiceId: "always",
+            },
+        });
+        const scope = await receiveType(attachment, "ui_request");
+        expect(scope.request).toMatchObject({
+            type: "user_question",
+            question: "Where should filesystem be admitted?",
+        });
+        await cancelQuestion(attachment, scope.requestId);
+        expect(await receiveTypeWithin(attachment, "ui_request", 200)).toBeUndefined();
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+
+        await coordinator.append(watchEntry);
+        const third = await receiveType(attachment, "ui_request");
+        expect(third.request).toMatchObject({ type: "user_question" });
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+        attachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("messages delivered behind a dismissed question are acknowledged when that entry is read, and never delivered twice", async () => {
+    const deck = await openDeckBehindWatchEntry([
+        textResponse("Noted the gulls."),
+        textResponse("Noted the fog."),
+        toolCall("read-watch", "agent_inbox", {}),
+        toolCall("read-again", "agent_inbox", {}),
+        textResponse("Watch entry read."),
+    ]);
+    try {
+        const { attachment, inbox, registry } = deck;
+        const notified: string[] = [];
+        const noteNotifications = (updates: readonly AgentUpdate[]): void => {
+            for (const update of updates) {
+                if (update.type === "task_notification") notified.push(update.content);
+            }
+        };
+
+        for (const text of ["Scout report: gulls ahead.", "Scout report: fog bank."]) {
+            const updates = await sendAndFinish(registry, attachment, text);
+            noteNotifications(updates);
+            await cancelQuestion(attachment, (await questionFrom(updates, attachment)).requestId);
+            expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+        }
+
+        attachment.detach();
+        const again = deck.agent.attach();
+        await again.receive();
+        const question = await receiveType(again, "ui_request");
+        again.send({
+            type: "ui_response",
+            requestId: question.requestId,
+            response: { type: "user_question", outcome: "selected", choiceId: "once" },
+        });
+        noteNotifications(await receiveThrough(again, "turn_finished"));
+
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(3);
+        expect(notified).toEqual(["Scout report: gulls ahead.", "Scout report: fog bank."]);
+        expect(deck.payloads).toHaveLength(3);
+        expect(deck.payloads[2]!.reply).toContain("Watch entry read.");
+        const results = await toolResults(deck.sessionPath);
+        expect(JSON.parse(results[0]!)).toMatchObject({ message_id: 1, kind: "filesystem.changed" });
+        expect(JSON.parse(results[1]!)).toEqual({ unread: false });
+        again.detach();
+    } finally {
+        await deck.close();
+    }
+});
+
+test("a question dismissed again leaves the messages behind it delivered once and unread", async () => {
+    const deck = await openDeckBehindWatchEntry([
+        textResponse("Noted the gulls."),
+        textResponse("Noted the fog."),
+    ]);
+    try {
+        const { attachment, inbox, registry } = deck;
+        for (const text of ["Scout report: gulls ahead.", "Scout report: fog bank."]) {
+            const updates = await sendAndFinish(registry, attachment, text);
+            await cancelQuestion(attachment, (await questionFrom(updates, attachment)).requestId);
+        }
+
+        attachment.detach();
+        const again = deck.agent.attach();
+        await again.receive();
+        await cancelQuestion(again, (await receiveType(again, "ui_request")).requestId);
+        expect(await receiveTypeWithin(again, "task_notification", 200)).toBeUndefined();
+
+        await deck.coordinator.append(WATCH_ENTRY);
+        await cancelQuestion(again, (await receiveType(again, "ui_request")).requestId);
+        expect(await receiveTypeWithin(again, "task_notification", 200)).toBeUndefined();
+
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "deck" })).toBe(0);
+        // Delivered entries are not a reason to start another delivery turn.
+        expect(registry.agents.get("deck")!.inbox!.hasAdmittedPending()).toBe(false);
+        expect(deck.payloads.map(({ reply }) => reply)).toEqual(["Noted the gulls.", "Noted the fog."]);
+        again.detach();
+    } finally {
+        await deck.close();
+    }
+});
+
 test("a turn an extension message starts reports no prompt and only its own reply", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-extension-message-turn-"));
     temporaryDirectories.push(root);
@@ -236,6 +397,32 @@ async function receiveType<T extends AgentUpdate["type"]>(
     }
 }
 
+async function cancelQuestion(
+    attachment: AgentAttachment,
+    requestId: string,
+): Promise<void> {
+    attachment.send({
+        type: "ui_response",
+        requestId,
+        response: { type: "user_question", outcome: "cancelled" },
+    });
+    await receiveType(attachment, "ui_request_closed");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function receiveThrough<T extends AgentUpdate["type"]>(
+    attachment: AgentAttachment,
+    type: T,
+): Promise<AgentUpdate[]> {
+    const signal = AbortSignal.timeout(3_000);
+    const seen: AgentUpdate[] = [];
+    while (true) {
+        const update = await attachment.receive(signal);
+        seen.push(update);
+        if (update.type === type) return seen;
+    }
+}
+
 async function receiveTypeWithin<T extends AgentUpdate["type"]>(
     attachment: AgentAttachment,
     type: T,
@@ -261,5 +448,97 @@ function textResponse(text: string): AssistantMessage {
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "stop",
+    };
+}
+
+const WATCH_ENTRY = {
+    source: "watch/git",
+    kind: "filesystem.changed",
+    address: "deck",
+    payload: JSON.stringify({}),
+};
+
+// A session whose first inbox entry is an unadmitted watch event with its question dismissed.
+async function openDeckBehindWatchEntry(script: readonly AssistantMessage[]) {
+    const root = await mkdtemp(join(tmpdir(), "vera-extension-message-behind-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(join(root, "inbox.db"));
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const payloads: TurnFinishedHookPayload[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(script),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+        onTurnFinished: (payload) => payloads.push(payload),
+    });
+    const sessionPath = join(root, "deck.jsonl");
+    const agent = await registry.create({ id: "deck", workspace: root, sessionPath });
+    const attachment = agent.attach();
+    await attachment.receive();
+    await coordinator.append(WATCH_ENTRY);
+    const question = await receiveType(attachment, "ui_request");
+    await cancelQuestion(attachment, question.requestId);
+    return {
+        agent,
+        attachment,
+        coordinator,
+        inbox,
+        payloads,
+        registry,
+        sessionPath,
+        close: async (): Promise<void> => {
+            await registry.close();
+            inbox.close();
+        },
+    };
+}
+
+async function sendAndFinish(
+    registry: AgentRegistry,
+    attachment: AgentAttachment,
+    text: string,
+): Promise<AgentUpdate[]> {
+    expect(await registry.sendExtensionMessage("example.scout", "deck", text)).toBe("queued");
+    return receiveThrough(attachment, "turn_finished");
+}
+
+// The question may arrive before or after the turn it rides alongside.
+async function questionFrom(
+    updates: readonly AgentUpdate[],
+    attachment: AgentAttachment,
+): Promise<Extract<AgentUpdate, { readonly type: "ui_request" }>> {
+    const seen = updates.find((update) => update.type === "ui_request");
+    return seen ?? await receiveType(attachment, "ui_request");
+}
+
+async function toolResults(path: string): Promise<string[]> {
+    const snapshot = await readSessionSnapshot(path);
+    return snapshot.messages.flatMap((message) =>
+        message.role === "tool_result"
+            ? [message.content.map((block) => block.text).join("\n")]
+            : []
+    );
+}
+
+function toolCall(
+    id: string,
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "tool_call", id, name, input }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
     };
 }

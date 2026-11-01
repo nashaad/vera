@@ -211,7 +211,7 @@ async function recordPeerMessage(reg: AgentRegistry, recipient: RegisteredAgentE
                 ...(message.reply_to === undefined ? {} : { replyTo: message.reply_to }),
             },
         });
-        acknowledgeIfNext(recipient, seq);
+        recipient.inbox?.noteDelivered(seq);
         return recorded;
     }
 
@@ -221,23 +221,6 @@ function peerSenderLabel(reg: AgentRegistry, seq: number): string | undefined {
         if (message === undefined) return undefined;
         const sender = reg.agents.get(message.from);
         return sender === undefined ? message.from : participantLabel(sender);
-    }
-
-// Acknowledging moves a cursor past everything before it, so only the next entry in line is acknowledged.
-function acknowledgeIfNext(recipient: RegisteredAgentEntry, seq: number): void {
-        const consumer = recipient.inbox?.consumer;
-        const next = consumer?.read({
-            limit: 1,
-            addresses: [recipient.agent.id],
-            excludeKinds: [RETIRED_PEER_READ_KIND],
-        })[0];
-        if (consumer !== undefined && next?.seq === seq) {
-            try {
-                consumer.acknowledge(seq);
-            } catch {
-                // Left unread, it is still readable with agent_inbox.
-            }
-        }
     }
 
 // An admitted turn for a peer message needs the notice, or the recipient wakes with nothing new to read.
@@ -309,7 +292,7 @@ async function recordExtensionNotice(reg: AgentRegistry, recipient: RegisteredAg
             kind: "attention",
             sourceKind: "extension",
         });
-        acknowledgeIfNext(recipient, seq);
+        recipient.inbox?.noteDelivered(seq);
         return recorded;
     }
 
