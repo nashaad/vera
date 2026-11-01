@@ -46,6 +46,20 @@ const KNOWN_KEYS = new Set([
     "nudges",
 ]);
 
+const LEADING_FENCE =
+    /^\uFEFF?(?:[ \t]*\r?\n)*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(\r?\n|$)/;
+
+const LEADING_OPENER = /^\uFEFF?(?:[ \t]*\r?\n)*---[ \t]*\r?\n/;
+
+const FIELD_LINE = new RegExp(
+    `^["']?(${[...KNOWN_KEYS].join("|")})["']?[ \\t]*:(?:[ \\t]|$)`,
+);
+
+const FLOW_FIELD = new RegExp(
+    `[{,][ \\t]*["']?(${[...KNOWN_KEYS].join("|")})["']?[ \\t]*:`,
+    "g",
+);
+
 const DEFINITION_KEYS = new Set([
     "name",
     "description",
@@ -96,7 +110,7 @@ export function parseAgentDefinition(
     if (source.length > MAX_AGENT_BYTES) {
         throw new Error(`Agent ${name} exceeds the ${MAX_AGENT_BYTES}-byte limit`);
     }
-    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
+    const match = findFrontmatter(name, source);
     const frontmatter = match === null ? {} : parseFrontmatter(name, match[1] ?? "");
     const instructions = (match === null ? source : source.slice(match[0].length))
         .trim();
@@ -119,6 +133,62 @@ export function parseAgentDefinition(
         nudges: frontmatter.nudges,
         instructions,
     }, options, false);
+}
+
+// The writer calls this too, so a rewrite refuses exactly what loading refuses.
+export function findFrontmatter(
+    name: string,
+    source: string,
+): RegExpExecArray | null {
+    const match = LEADING_FENCE.exec(source);
+    if (match === null) rejectMisplacedFrontmatter(name, source);
+    return match;
+}
+
+function rejectMisplacedFrontmatter(name: string, source: string): void {
+    const lines = source.split(/\r?\n/);
+    const first = lines.findIndex((line) => line.trim().length > 0);
+    const opensFile = LEADING_OPENER.test(source);
+    const fences: number[] = [];
+    lines.forEach((line, index) => {
+        if (line.trim() === "---") fences.push(index);
+    });
+    fences.forEach((fence, position) => {
+        const end = fences[position + 1] ?? lines.length;
+        const keys = definitionFieldsIn(lines.slice(fence + 1, end).join("\n"));
+        if (keys.length === 0) return;
+        if (opensFile && fence === first) {
+            throw new Error(
+                `Agent ${name} opens a --- block with ${keys.join(", ")} that is never closed; add a closing --- line`,
+            );
+        }
+        throw new Error(
+            `Agent ${name} has a --- block with ${keys.join(", ")} that does not start the file; frontmatter must begin on the first line`,
+        );
+    });
+}
+
+function definitionFieldsIn(text: string): string[] {
+    const keys = new Set<string>();
+    for (const line of text.split("\n")) {
+        const field = FIELD_LINE.exec(line);
+        if (field !== null) keys.add(field[1]!);
+        if (line.trimStart().startsWith("{")) {
+            for (const flow of line.matchAll(FLOW_FIELD)) keys.add(flow[1]!);
+        }
+    }
+    let value: unknown;
+    try {
+        value = Bun.YAML.parse(text);
+    } catch {
+        return [...keys];
+    }
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+        for (const key of Object.keys(value)) {
+            if (KNOWN_KEYS.has(key)) keys.add(key);
+        }
+    }
+    return [...keys];
 }
 
 interface AgentDefinitionFields {

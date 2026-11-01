@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { agentNameFromPath, findFrontmatter } from "./definition.ts";
+
 export interface AgentDefaultPair {
     readonly name: string;
     readonly effort?: string;
@@ -13,7 +15,7 @@ export async function writeAgentDefaultPair(
     pair: AgentDefaultPair | null,
 ): Promise<void> {
     const source = await readFile(path, "utf8");
-    const match = /^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/.exec(source);
+    const match = findFrontmatter(agentNameFromPath(path), source);
     const line = pair === null ? undefined : renderDefaultPair(pair);
     let next: string;
     if (match === null) {

@@ -61,6 +61,108 @@ test("omitted means all, and an empty list means none", () => {
     expect(agentAllowsSkill(snapshot, "anything")).toBe(true);
 });
 
+const SHIFTED_FENCES: readonly (readonly [string, string])[] = [
+    ["a byte order mark", "\uFEFF---\ntools: []\n---\nbody"],
+    ["leading blank lines", "\n\n---\ntools: []\n---\nbody"],
+    ["a space after the opening fence", "--- \ntools: []\n---\nbody"],
+    ["a tab after the closing fence", "---\ntools: []\n---\t\nbody"],
+    ["CRLF with a byte order mark and padded fences", "\uFEFF\r\n---  \r\ntools: []\r\n---\t\r\nbody"],
+];
+
+test.each(SHIFTED_FENCES)("a fence with %s still closes the tool list", (_label, source) => {
+    const agent = parseAgentDefinition("closed", source);
+    expect(agent.tools).toEqual([]);
+    expect(agent.instructions).toBe("body");
+});
+
+test.each([
+    ["a leading comment", "# role\n---\ntools: []\n---\nbody"],
+    ["a leading paragraph", "Read only.\n\n---\nskills: []\n---\nbody"],
+    ["an indented opening fence", " ---\ntools: []\n---\nbody"],
+    ["a rule before the block", "intro\n---\nnotes\n---\ntools: []\n---\nbody"],
+    ["an opening fence that never closes", "Intro.\n---\ntools: []"],
+    ["an unclosed fence after prose in its own block", "Intro.\n---\nSome notes.\ntools: []\nMore."],
+    ["an unclosed fence after a rule", "Intro.\n---\nnotes\n---\nskills: []\nMore."],
+    ["CRLF line endings", "Intro.\r\n---\r\ntools: []\r\nMore."],
+    ["a quoted key", "intro\n---\n\"tools\": []\n---\nbody"],
+    ["a flow mapping", "intro\n---\n{tools: []}\n---\nbody"],
+])("a restriction block after %s is refused, not loaded with every tool", (_label, source) => {
+    expect(() => parseAgentDefinition("closed", source))
+        .toThrow("does not start the file");
+});
+
+test("a refusal names every definition field in the block", () => {
+    expect(() =>
+        parseAgentDefinition("named", "Intro.\n---\ntools: []\nposture: readonly\n---\nbody")
+    ).toThrow("tools, posture");
+});
+
+test.each([
+    ["fields, then a blank line", "---\ntools: []\n\nYou are a reviewer."],
+    ["fields, then the end of the file", "---\nskills: []"],
+    ["byte order mark, CRLF and a padded opener", "\uFEFF\r\n---  \r\ntools: []\r\n\r\nbody"],
+    ["several fields", "---\ndescription: d\nposture: readonly\n\nbody"],
+    ["a field straight into prose", "---\ntools: []\nYou are a reviewer."],
+    ["a comment before the fields", "---\n# role\ntools: []\nBody"],
+    ["an unknown key before the fields", "---\ntitle: notes\ntools: []\nBody"],
+    ["prose before the fields", "---\nBe brief.\ntools: []\n\nbody"],
+    ["a blank line before the fields", "---\n\ntools: []\nbody"],
+    ["fields in a later paragraph", "---\nBe brief.\n\ntools: []\nbody"],
+    ["a closing fence that is indented", "---\ntools: []\n ---\nbody"],
+    ["a flow mapping", "---\n{tools: []}\nBody"],
+    ["a flow mapping with a later field", "---\n{ title: notes, \"posture\": readonly }\nBody"],
+    ["a flow mapping and a document end", "---\n{tools: []}\n...\nBody"],
+])("an opening fence that never closes is refused (%s)", (_label, source) => {
+    expect(() => parseAgentDefinition("open", source)).toThrow("is never closed");
+});
+
+test.each([
+    ["prose after it", "---\nBe brief and kind.\n\nSecond paragraph."],
+    ["prose with a colon after it", "---\nNote: check twice.\n\nThen answer."],
+    ["prose with a colon and no blank line", "---\nNote: check twice.\nMore prose."],
+    ["fields no definition has", "---\ntitle: notes\n\nbody"],
+    ["lone rule", "---"],
+    ["a lone rule between paragraphs", "Be brief.\n---\nCheck twice."],
+    ["a lone rule at the end", "Be brief.\n\n---"],
+    ["a field named mid-line", "Be brief.\n---\nUse the tools: carefully.\n---\nEnd."],
+    ["a colon with no space after it", "Be brief.\n---\ntools:[]\n---\nEnd."],
+    ["a field name in another case", "Be brief.\n---\nTools: all of them\n---\nEnd."],
+    ["an unknown key between rules", "Be brief.\n---\ntitle: notes\n---\nEnd."],
+])("an unclosed rule stays plain instructions (%s)", (_label, source) => {
+    const agent = parseAgentDefinition("plain", source);
+    expect(agent.tools).toBeUndefined();
+    expect(agent.instructions).toBe(source.trim());
+});
+
+test("horizontal rules around prose stay instructions", () => {
+    const source = [
+        "Be brief.",
+        "",
+        "---",
+        "",
+        "Check the rules twice.",
+        "",
+        "---",
+        "title: notes",
+        "---",
+        "a: [",
+        "---",
+        "End politely.",
+    ].join("\n");
+    const agent = parseAgentDefinition("plain", source);
+    expect(agent.tools).toBeUndefined();
+    expect(agent.instructions).toBe(source);
+});
+
+test("text after a real fence is never read as a second fence", () => {
+    const agent = parseAgentDefinition(
+        "once",
+        "---\ndescription: d\n---\nbody\n---\ntools: []\n---\nmore",
+    );
+    expect(agent.tools).toBeUndefined();
+    expect(agent.instructions).toBe("body\n---\ntools: []\n---\nmore");
+});
+
 test("a parse error is a refusal, never a silent no-op", () => {
     expect(() => parseAgentDefinition("x", "---\nwidgets: 3\n---\nb"))
         .toThrow("unknown key");
@@ -191,6 +293,27 @@ test("a broken agent file is named and skipped, not fatal", async () => {
     expect(catalog.notices.join(" ")).toContain("unknown key");
 });
 
+test("the catalog refuses a misplaced or unclosed fence instead of loading an agent", async () => {
+    const root = await agentRoot();
+    const userDirectory = join(root, "user");
+    await mkdir(userDirectory, { recursive: true });
+    await writeFile(join(userDirectory, "misplaced.md"), "Intro.\n---\ntools: []");
+    await writeFile(join(userDirectory, "unclosed.md"), "---\n# role\ntools: []\nBody");
+    await writeFile(join(userDirectory, "rules.md"), "Be brief.\n\n---\n\nCheck twice.\n\n---\n\nEnd.");
+    await writeFile(join(userDirectory, "closed.md"), "---\ntools: []\n---\nbody");
+
+    const catalog = await loadAgentCatalog({ projectRoot: root, userDirectory });
+
+    expect(findCatalogAgent(catalog, "misplaced")).toBeUndefined();
+    expect(findCatalogAgent(catalog, "unclosed")).toBeUndefined();
+    expect(catalog.notices.filter((notice) => notice.includes("misplaced.md")))
+        .toEqual([expect.stringContaining("does not start the file")]);
+    expect(catalog.notices.filter((notice) => notice.includes("unclosed.md")))
+        .toEqual([expect.stringContaining("is never closed")]);
+    expect(findCatalogAgent(catalog, "rules")?.definition.tools).toBeUndefined();
+    expect(findCatalogAgent(catalog, "closed")?.definition.tools).toEqual([]);
+});
+
 test("resume compares a snapshot, and a nudge-only edit still counts", () => {
     const before = resolveAgentSnapshot(parseAgentDefinition("r", REVIEWER));
     const after = resolveAgentSnapshot(parseAgentDefinition(
@@ -240,4 +363,38 @@ test("the writer adds the key to an agent that had no frontmatter", async () => 
     const agent = parseAgentDefinition("bare", await Bun.file(path).text());
     expect(agent.defaultPair).toEqual({ name: "sol" });
     expect(agent.instructions).toBe("just instructions");
+});
+
+test("the writer keeps a shifted fence closed after it rewrites the pair", async () => {
+    const root = await agentRoot();
+    const path = join(root, "shifted.md");
+    await writeFile(path, "\uFEFF\n---  \ntools: []\n---\nbody\n");
+    await writeAgentDefaultPair(path, { name: "sol" });
+    const agent = parseAgentDefinition("shifted", await Bun.file(path).text());
+    expect(agent.tools).toEqual([]);
+    expect(agent.defaultPair).toEqual({ name: "sol" });
+    expect(agent.instructions).toBe("body");
+});
+
+test.each([
+    ["a misplaced block", "Intro.\n---\ntools: []\n---\nbody\n", "does not start the file"],
+    ["a misplaced opener", "Intro.\n---\ntools: []\n", "does not start the file"],
+    ["an unclosed block", "---\n# role\ntools: []\nBody\n", "is never closed"],
+])("the writer refuses %s and leaves the file alone", async (_label, source, reason) => {
+    const root = await agentRoot();
+    const path = join(root, "broken.md");
+    await writeFile(path, source);
+    await expect(writeAgentDefaultPair(path, { name: "sol" })).rejects.toThrow(reason);
+    await expect(writeAgentDefaultPair(path, null)).rejects.toThrow(reason);
+    expect(await Bun.file(path).text()).toBe(source);
+});
+
+test("the writer still wraps a file with horizontal rules and no definition fields", async () => {
+    const root = await agentRoot();
+    const path = join(root, "rules.md");
+    await writeFile(path, "Be brief.\n\n---\n\nCheck twice.\n");
+    await writeAgentDefaultPair(path, { name: "sol" });
+    const agent = parseAgentDefinition("rules", await Bun.file(path).text());
+    expect(agent.defaultPair).toEqual({ name: "sol" });
+    expect(agent.instructions).toBe("Be brief.\n\n---\n\nCheck twice.");
 });
