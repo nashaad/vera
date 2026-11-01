@@ -4,6 +4,7 @@ import type { IdentifiedTuiAgentClient } from "../agent-client.ts";
 import { resolveTuiHostedAgentAddressing, type TuiHostedAgentAddressing } from "../agent-message-routing.ts";
 import type { TuiAgentPane } from "../agent-pane.ts";
 import { createTuiDiff, repaintTuiDiff } from "../diff.ts";
+import { adoptReportedPermission } from "../dials.ts";
 import { createTuiGutterEntry, repaintTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "../gutter.ts";
 import { assistantFollowsTools, defaultModelChangeNotice, isSettingsRetryTrigger, modelPickerActionOptions, notifyExtensionSettings, refreshSessionPicker, refreshWorkspaceSidebarRoster, rejectionNotice, renderSidebarJump, renderState, retryMissingAgentSettings, settleExtensionModelSettings, syncConfigurationRequiredRequest } from "../main.ts";
 import { hostOwnsPromptQueue, modelSettingsForOpenPicker, setSidebarFocused } from "../main/agents-dials.ts";
@@ -429,6 +430,9 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
         }
     } else if (update.type === "permissions") {
         rt.requestedPermissionChanges.delete(update.requestId);
+        if (rt.dialStrip !== undefined && rt.sidebar.isFocused() && rt.hostedSidebar.pane === pane) {
+            rt.dialStrip = adoptReportedPermission(rt.dialStrip, update.mode);
+        }
     } else if (update.type === "permissions_rejected") {
         const subject = rt.requestedPermissionChanges.get(update.requestId);
         rt.requestedPermissionChanges.delete(update.requestId);

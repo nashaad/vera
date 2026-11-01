@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { createTuiCatalogRefreshDependencies } from "../../support/tui-catalog-refresh-child.ts";
+import { litDialValue } from "../../support/tui-dial-lit.ts";
 import type { ModelOperation } from "../../../src/model/model-operations.ts";
 
 test("a favorite keeps through the host operation and verification can be left running", async () => {
@@ -211,8 +212,12 @@ test("Home stages access without creating a session, then the switcher applies t
         expect(dials).toContain("readonly");
         expect(dials).not.toContain("EFFORT");
         expect(dials).not.toContain("MODEL");
-        session.sendKey("Tab"); session.sendKey("Right");
-        await session.waitForVisiblePane("live: ask");
+        // Home has no session to report a mode, so no access value is lit yet.
+        session.sendKey("Tab"); await session.waitForVisiblePane("› ACCESS");
+        await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBeUndefined();
+        session.sendKey("Left"); await session.settle();
+        expect(litDialValue(session, "ACCESS")).toBe("auto");
         session.sendKey("Enter"); await session.waitForVisiblePane("V  E  R  A");
         expect(created).toBe(0);
         session.sendKey("C-p"); await session.waitForVisiblePane("Commands");

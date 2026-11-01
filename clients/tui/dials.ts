@@ -55,6 +55,25 @@ export function openDialStrip(
     };
 }
 
+// The session reported its mode after the HUD opened. A lane the user already moved keeps its pick.
+export function adoptReportedPermission(
+    state: DialStripState,
+    mode: string,
+): DialStripState {
+    if (state.openedPermission !== undefined || state.permissionEdited === true) return state;
+    const opened: DialStripState = {
+        ...state,
+        openedPermission: mode,
+        permissionIndex: state.permissionModes.indexOf(mode),
+    };
+    const openedAgentIndex = state.agents.indexOf(state.openedAgent ?? "");
+    if (state.agentIndex === openedAgentIndex) return opened;
+    // An agent picked while access was unknown previews its mode now that there is one.
+    // One that refuses that mode gives the lane back to the opened agent.
+    return stageAgent(opened, state.agentIndex)
+        ?? { ...opened, agentIndex: Math.max(0, openedAgentIndex) };
+}
+
 const DIAL_LANES = ["agent", "access"] as const;
 
 export function moveDialLane(
@@ -93,10 +112,8 @@ function moveChoice(
         .map((mode, index) => ({ mode, index }))
         .filter(({ mode }) => dialAccessAllowed(state, mode));
     if (allowed.length === 0) return state;
-    const at = Math.max(
-        0,
-        allowed.findIndex(({ index }) => index === state.permissionIndex),
-    );
+    // -1 when nothing is lit: cycleIndex then starts from the first or last value.
+    const at = allowed.findIndex(({ index }) => index === state.permissionIndex);
     const permissionIndex = allowed[cycleIndex(at, delta, allowed.length)]!.index;
     return {
         ...state,
