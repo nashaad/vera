@@ -6,12 +6,21 @@ import {
     releaseBinaryPath,
     thisProcessReleaseRoot,
 } from "../release/layout.ts";
+import {
+    DEFAULT_ANNEX_PORT,
+    readSavedAnnexPort,
+    saveAnnexPort,
+} from "./annex-port.ts";
+
 const LISTEN_DEADLINE_MS = 10_000;
 const STOP_GRACE_MS = 2_000;
 
 export interface AnnexProcess {
     readonly url: string;
     readonly pid: number;
+    readonly port: number;
+    /** The saved port this home moved off because it was taken. */
+    readonly movedFromPort: number | undefined;
     close(): Promise<void>;
 }
 
@@ -33,12 +42,14 @@ export async function startAnnexProcess(
         releaseBinaryPath(RELEASE_ANNEX_NAME),
     ];
     const [bin, ...prefix] = executable;
+    const savedPort = readSavedAnnexPort(options.home);
     const args = [
         ...prefix,
         "--home",
         options.home,
         "--port",
-        "0",
+        String(savedPort ?? DEFAULT_ANNEX_PORT),
+        "--any-port-if-busy",
         "--assets",
         options.assets ?? packedAnnexRoot(thisProcessReleaseRoot()),
         ...(options.extensionDirectories ?? []).flatMap((directory) => [
@@ -60,6 +71,14 @@ export async function startAnnexProcess(
     }
 
     const url = await waitForAnnexUrl(child);
+    const port = Number(new URL(url).port);
+    if (port !== savedPort) {
+        try {
+            saveAnnexPort(options.home, port);
+        } catch {
+            // Unsaved, the next start tries the old port again.
+        }
+    }
     let closing = false;
     child.once("exit", (code, signal) => {
         if (closing) return;
@@ -72,6 +91,10 @@ export async function startAnnexProcess(
     return {
         url,
         pid,
+        port,
+        movedFromPort: savedPort !== undefined && savedPort !== port
+            ? savedPort
+            : undefined,
         async close() {
             closing = true;
             await stopAnnexChild(child);

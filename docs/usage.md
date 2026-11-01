@@ -18,6 +18,16 @@ not appear as conversations in the table. The `/runs` page shows them per run.
 The page is served locally by the helper started with your host. Opening it
 leaves your conversation running.
 
+The helper keeps the same address for your Vera home across host restarts,
+so an open tab or a bookmark keeps working. A home's first start tries port
+8372 and keeps the port it gets: usually `http://127.0.0.1:8372/` for your
+first home, and another free port for a home started while that one runs.
+Chrome and Firefox also reach it at `http://vera.localhost:<port>/`; Safari
+needs `127.0.0.1` or `localhost`. If something else takes a home's port, the
+helper moves to a free one and keeps that. The port is saved in
+`runtime/annex.json` in the Vera home; to change it, edit that file while the
+host is stopped.
+
 ## Check subscription limits
 
 When ChatGPT is connected, the page asks the subscription service for your

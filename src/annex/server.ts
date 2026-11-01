@@ -5,6 +5,7 @@ import { createAuthStorage } from "../providers/auth-storage.ts";
 import { createOpenAICodexLimitsReader } from "../providers/openai-codex-limits.ts";
 import type { SubscriptionLimits } from "../providers/subscription-limits.ts";
 import { extensionPageRoutes } from "./extension-pages.ts";
+import { refuseForeignRequest } from "./request-guard.ts";
 import { foldRunDetail, foldRunRows, readRunBlob } from "./runs-report.ts";
 import {
     dispatchAnnexRoute,
@@ -37,6 +38,8 @@ export interface StartAnnexServerOptions {
     readonly webRoot?: string;
     readonly hostname?: string;
     readonly port?: number;
+    /** When `port` is taken, listen on any free port instead of failing. */
+    readonly anyPortIfBusy?: boolean;
     readonly fold?: (window: UsageWindowId) => Promise<UsageReport>;
     /** Extra pages. Adding one must not require a change under src/host/. */
     readonly extraRoutes?: readonly AnnexRoute[];
@@ -81,13 +84,16 @@ export async function startAnnexServer(
         ),
         ...(options.extraRoutes ?? []),
     ];
-    const server = Bun.serve({
+    const serveOn = (port: number) => Bun.serve({
         hostname,
-        port: options.port ?? 0,
+        port,
         fetch(request) {
+            const refused = refuseForeignRequest(request, server.port ?? 0);
+            if (refused !== undefined) return refused;
             return dispatchAnnexRoute(routes, request);
         },
     });
+    const server = listen(serveOn, options.port ?? 0, options.anyPortIfBusy === true);
     return {
         url: `http://${hostname}:${server.port}/`,
         port: server.port ?? 0,
@@ -95,6 +101,22 @@ export async function startAnnexServer(
             server.stop(true);
         },
     };
+}
+
+type BunServer = ReturnType<typeof Bun.serve>;
+
+function listen(
+    serveOn: (port: number) => BunServer,
+    port: number,
+    anyPortIfBusy: boolean,
+): BunServer {
+    try {
+        return serveOn(port);
+    } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        if (!anyPortIfBusy || port === 0 || code !== "EADDRINUSE") throw error;
+        return serveOn(0);
+    }
 }
 
 function usageRoutes(
