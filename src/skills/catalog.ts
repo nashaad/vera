@@ -134,6 +134,13 @@ export function findSkillByPath(
     return catalog.skills.find((skill) => skill.skillPath === skillPath);
 }
 
+export function findDisabledSkillByPath(
+    catalog: SkillCatalog,
+    skillPath: string,
+): CatalogSkill | undefined {
+    return catalog.disabledSkills.find((skill) => skill.skillPath === skillPath);
+}
+
 async function loadRoot(
     configuredRoot: string,
     scope: SkillScope,

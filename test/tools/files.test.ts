@@ -331,3 +331,58 @@ Body.
         await rm(cwd, { recursive: true, force: true });
     }
 });
+
+test("a skill matched by disabled_skills cannot be read through its SKILL.md", async () => {
+    const cwd = await workspace();
+    const home = await mkdtemp(join(tmpdir(), "vera-read-home-"));
+    const previousHome = process.env.VERA_HOME;
+    try {
+        await writeFile(join(home, "config.json"), JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "test/model",
+            disabled_skills: ["deploy"],
+        }));
+        const skillDir = join(cwd, ".vera", "skills", "deploy");
+        await mkdir(skillDir, { recursive: true });
+        await writeFile(join(skillDir, "SKILL.md"), `---
+name: deploy
+description: Ship the build.
+disable-model-invocation: true
+---
+SECRET BODY
+`);
+        const skillPath = join(".vera", "skills", "deploy", "SKILL.md");
+        process.env.VERA_HOME = home;
+
+        const runtime = new ToolRuntime(
+            cwd,
+            undefined,
+            undefined,
+            undefined,
+            cwd,
+        );
+        for (const allowedSkills of [undefined, [], ["deploy"]]) {
+            for (const userInvokedSkill of [undefined, "deploy"]) {
+                runtime.allowedSkills = allowedSkills;
+                runtime.userInvokedSkill = userInvokedSkill;
+                const result = await readTool.execute(
+                    { path: skillPath },
+                    runtime,
+                    new AbortController().signal,
+                );
+                expect(result.kind).toBe("output");
+                if (result.kind === "output") {
+                    expect(result.isError).toBe(true);
+                    expect(result.output).toContain("disabled by disabled_skills");
+                    expect(result.output).not.toContain("SECRET BODY");
+                }
+            }
+        }
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        await rm(cwd, { recursive: true, force: true });
+        await rm(home, { recursive: true, force: true });
+    }
+});

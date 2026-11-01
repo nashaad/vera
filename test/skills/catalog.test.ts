@@ -9,7 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+    findDisabledSkillByPath,
     findSkill,
+    findSkillByPath,
     loadSkillCatalog,
     projectSkillDirectory,
 } from "../../src/skills/catalog.ts";
@@ -161,6 +163,28 @@ test("disabled skills leave the catalog and are listed separately", async () => 
         "data-plot",
         "review",
     ]);
+});
+
+test("a disabled skill is found by path only through the disabled lookup", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const userDirectory = join(root, "user");
+    writeSkill(userDirectory, "review", "user review");
+    writeSkill(userDirectory, "deploy", "ship it");
+
+    const catalog = await loadSkillCatalog({
+        projectRoot: join(root, "project"),
+        userDirectory,
+        systemDirectory: join(root, "system"),
+        disabledSkills: ["deploy"],
+        extensionRoots: [],
+    });
+    const deploy = catalog.disabledSkills[0];
+
+    expect(deploy?.metadata.name).toBe("deploy");
+    expect(findSkillByPath(catalog, deploy!.skillPath)).toBeUndefined();
+    expect(findDisabledSkillByPath(catalog, deploy!.skillPath)).toBe(deploy);
+    const review = findSkill(catalog, "review");
+    expect(findDisabledSkillByPath(catalog, review!.skillPath)).toBeUndefined();
 });
 
 test("a lone star disables every skill including bundled ones", async () => {
