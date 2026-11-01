@@ -72,7 +72,7 @@ docker run --rm --init \
         test "$(cat "$VERA_HOME/memory/note.md")" = "from default"
 
         echo "== clean-machine install =="
-        bun run install:local --prefix /tmp/vera-prefix --force
+        VERA_HOME=/tmp/vera-install-home bun run install:local --prefix /tmp/vera-prefix --force
         export PATH=/tmp/vera-prefix/bin:$PATH
         vera --version
         vera --help >/tmp/vera-help.txt

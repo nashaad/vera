@@ -49,7 +49,10 @@ Change to your project directory, run `vera`, and follow
 From the checkout containing the version you want, run the same installation
 commands. Vera verifies the release before activating it. If a host is running,
 the installer stops it and starts the new release's host. A failed upgrade
-leaves the previous release active.
+leaves the previous release active. A test `--prefix` is refused unless
+`VERA_HOME` selects a private home, and the daily prefix is refused when
+`VERA_HOME` selects another home; see
+[Activate a new release](installed-command.md#activate-a-new-release).
 
 The installed command runs the activated release. Editing checkout files or
 restarting the TUI does not install those edits. See

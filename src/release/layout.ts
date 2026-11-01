@@ -2,7 +2,7 @@ import { existsSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-function userHome(): string {
+export function userHome(): string {
     const home = process.env.HOME;
     if (home !== undefined && home.length > 0) {
         return home;
