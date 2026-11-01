@@ -1363,8 +1363,19 @@ export class SessionStore {
                     "Cannot append after the terminal agent failure",
                 );
             }
-            const lineNumber = await this.writeRecordLine(record);
-            ingestSessionRecord(this.path, lineNumber, record, this.projection);
+            const stored = parseJsonObject(
+                this.path,
+                this.lineCount + 1,
+                jsonLine(record),
+            );
+            ingestSessionRecord(
+                this.path,
+                this.lineCount + 1,
+                stored,
+                copyProjectionState(this.projection),
+            );
+            const lineNumber = await this.writeRecordLine(stored);
+            ingestSessionRecord(this.path, lineNumber, stored, this.projection);
             return lineNumber;
         });
         this.pendingAppend = result.then(() => {}, () => {});
@@ -1663,6 +1674,37 @@ export function createSessionProjectionState(): SessionProjectionState {
         knownAttachmentIds: new Set(),
         agentFailure: undefined,
         leafId: null,
+    };
+}
+
+// Entries are shared with the original; ingest only appends and never edits one.
+function copyProjectionState(
+    state: SessionProjectionState,
+): SessionProjectionState {
+    return {
+        messageEntries: [...state.messageEntries],
+        deliveryEntries: [...state.deliveryEntries],
+        deliveryReceipts: new Set(state.deliveryReceipts),
+        legacyDeliveryMessageIds: new Map(state.legacyDeliveryMessageIds),
+        modelSettingsEntries: [...state.modelSettingsEntries],
+        selectedAgentEntries: [...state.selectedAgentEntries],
+        permissionsEntries: [...state.permissionsEntries],
+        harnessMessageEntries: [...state.harnessMessageEntries],
+        nameEntries: [...state.nameEntries],
+        identityEntries: [...state.identityEntries],
+        permissionGrantEntries: [...state.permissionGrantEntries],
+        permissionGrantRevocationEntries: [
+            ...state.permissionGrantRevocationEntries,
+        ],
+        attachmentEntries: [...state.attachmentEntries],
+        compactionEntries: [...state.compactionEntries],
+        askEntries: [...state.askEntries],
+        contextMeasurementEntries: [...state.contextMeasurementEntries],
+        knownMessageIds: new Set(state.knownMessageIds),
+        knownDeliveryIds: new Set(state.knownDeliveryIds),
+        knownAttachmentIds: new Set(state.knownAttachmentIds),
+        agentFailure: state.agentFailure,
+        leafId: state.leafId,
     };
 }
 
