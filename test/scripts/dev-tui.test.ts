@@ -336,6 +336,37 @@ test("leftover root files on a clone move into machine/leftover", () => {
     }
 });
 
+test("a root directory named like an installed extension id is a leftover", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-leftover-ext-"));
+    const home = join(root, ".vera");
+    const manifests = join(home, "extensions");
+    mkdirSync(join(manifests, "chrome"), { recursive: true });
+    writeFileSync(
+        join(manifests, "chrome", "vera.extension.json"),
+        JSON.stringify({ id: "vera.chrome", version: "1.0.0" }),
+    );
+    mkdirSync(join(manifests, ".managed"), { recursive: true });
+    writeFileSync(join(manifests, ".managed", "vera.btw.json"), "{}");
+    mkdirSync(join(home, "vera.chrome"));
+    writeFileSync(join(home, "vera.chrome", "pairing.json"), "{\"old\":true}");
+    mkdirSync(join(home, "vera.btw"));
+    mkdirSync(join(home, "extension-data", "vera.chrome"), { recursive: true });
+    try {
+        quarantineUnknownHomeEntries(home);
+        expect(existsSync(join(home, "vera.chrome"))).toBe(false);
+        expect(existsSync(join(home, "vera.btw"))).toBe(false);
+        expect(readFileSync(
+            join(home, "machine", "leftover", "vera.chrome", "pairing.json"),
+            "utf8",
+        )).toBe("{\"old\":true}");
+        expect(existsSync(join(home, "machine", "leftover", "vera.btw"))).toBe(true);
+        expect(existsSync(join(manifests, "chrome", "vera.extension.json"))).toBe(true);
+        expect(existsSync(join(home, "extension-data", "vera.chrome"))).toBe(true);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("a second leftover with the same name gets a unique path", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-leftover-again-"));
     const home = join(root, ".vera");
