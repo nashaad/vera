@@ -18,6 +18,7 @@ import {
     gracefulStopResidentHost,
 } from "../../src/host/force-stop.ts";
 import { thisProcessBuildId } from "../../src/release/stamp.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 
 const record: HostLockRecord = {
     schema_version: 2,
@@ -118,12 +119,11 @@ test("discovery offers replacement of a wedged host and starts fresh", async () 
 });
 
 test("replacing a wedged host it cannot identify signals nothing and starts no new host", async () => {
-    const bystander = Bun.spawn(["sleep", "30"], {
-        stdout: "ignore",
-        stderr: "ignore",
-    });
+    const root = await mkdtemp(join(tmpdir(), "vera-wedged-"));
+    const bystander = spawnVeraLookingProcess(root);
     try {
-        // A start time that does not parse can never be matched to the pid.
+        // A start time that does not parse can never be matched to the pid,
+        // and the command line looks like Vera, so it cannot be ruled out.
         const unmatchable: HostLockRecord = {
             ...record,
             pid: bystander.pid,
@@ -149,11 +149,55 @@ test("replacing a wedged host it cannot identify signals nothing and starts no n
             confirmBusyUpgrade: () => true,
             wait: async () => {},
         })).rejects.toThrow(
-            `Could not confirm PID ${bystander.pid} is the Vera host (process`
-                + " start time unreadable); left it running and kept its"
-                + " lockfile. Try again. A new host was not started.",
+            `Could not confirm PID ${bystander.pid} is the Vera host (its`
+                + " lockfile has no valid start time); left it running and kept"
+                + ` its lockfile. Check that PID ${bystander.pid} is a Vera host`
+                + " before you stop it. If it is not, deleting runtime/host.json"
+                + " in the Vera home is safe. A new host was not started.",
         );
         expect(starts).toBe(0);
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("replacing a wedged host whose lockfile has no valid start time and whose pid is not Vera starts a new host without signalling it", async () => {
+    const bystander = Bun.spawn(["sleep", "30"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        const stale: HostLockRecord = {
+            ...record,
+            pid: bystander.pid,
+            started_at: "not a timestamp",
+        };
+        let starts = 0;
+        const lockfile: HostLockfile = {
+            publish(): Promise<HostLockRecord> {
+                throw new Error("not used");
+            },
+            async read(): Promise<HostLockRecord | undefined> {
+                return starts > 0 ? record : undefined;
+            },
+            async diagnose(): Promise<HostLockDiagnosis> {
+                return { record: stale, wedged: true };
+            },
+        };
+        const host = await ensureResidentHost({
+            lockfile,
+            startHost: () => {
+                starts += 1;
+            },
+            confirmBusyUpgrade: () => true,
+            wait: async () => {},
+        });
+        expect(host).toEqual(record);
+        expect(starts).toBe(1);
         expect(bystander.signalCode).toBeNull();
         expect(bystander.exitCode).toBeNull();
     } finally {

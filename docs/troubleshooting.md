@@ -34,9 +34,13 @@ finish, or use the deliberate shutdown controls in
 [Development instances and process cleanup](runtime-and-worktrees.md).
 
 Reconnect host does not signal a process whose start time the system cannot
-report. If the unresponsive host is such a process, it says it could not
-confirm the PID, leaves the process and its lockfile alone, and starts no new
-host. Run it again.
+report, or whose lockfile records a start time that is not a valid time. If the
+unresponsive host is such a process, it says it could not confirm the PID,
+leaves the process and its lockfile alone, and starts no new host. Run it
+again. If the message says the lockfile has no valid start time, check that
+the PID is a Vera host before you stop it; if it is not, deleting
+`runtime/host.json` in the home is safe. A lockfile with no valid start time
+whose PID runs another program is stale, and Reconnect host replaces it.
 
 A socket file existing on disk does not prove the host is answering.
 

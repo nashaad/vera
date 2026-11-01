@@ -31,6 +31,7 @@ import {
     synthesizeFactoryHome,
 } from "../../scripts/synthesize-factory-home.ts";
 import { devInstancePath, registerDevInstance } from "../../src/dev-instances.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 
 function linkedWorktree(name: string): string {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-src-"));
@@ -439,6 +440,123 @@ test("--discard leaves the home and its host alone when the host cannot be ident
 
 test("--fresh on the same build leaves the home and its host alone when the host cannot be identified", async () => {
     await expectUnverifiedHostSurvives("unverified-fresh", ["--fresh", "--yes"]);
+});
+
+async function expectInvalidStartTimeSurvives(
+    name: string,
+    args: readonly string[],
+    buildId: (worktree: string) => string,
+): Promise<void> {
+    const root = mkdtempSync("/tmp/vera-dev-badtime-");
+    const worktree = linkedWorktree(name);
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const bystander = spawnVeraLookingProcess(root);
+    try {
+        await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        const lockPath = join(home, "runtime", "host.json");
+        const sessionPath = join(home, "runtime", "session.jsonl");
+        writeFileSync(sessionPath, "kept-session\n");
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: "not a timestamp",
+            socket_path: join(home, "runtime", "host.sock"),
+            build_id: buildId(worktree),
+        }));
+        let errors = "";
+        let launched = false;
+
+        const code = await runDevTui(args, worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: (text: string) => errors += text },
+            spawnTui: async () => {
+                launched = true;
+                return 0;
+            },
+        });
+
+        expect(code).toBe(1);
+        expect(errors).toContain(
+            `Could not confirm PID ${bystander.pid} is the Vera host (its lockfile`
+                + " has no valid start time)",
+        );
+        expect(launched).toBe(false);
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+        expect(readFileSync(sessionPath, "utf8")).toBe("kept-session\n");
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+}
+
+test("--discard keeps the home when the host lockfile has no valid start time", async () => {
+    await expectInvalidStartTimeSurvives(
+        "badtime-discard", ["--discard", "--yes"], candidateBuildId,
+    );
+});
+
+test("--fresh keeps the home when the host lockfile has no valid start time", async () => {
+    await expectInvalidStartTimeSurvives(
+        "badtime-fresh", ["--fresh", "--yes"], candidateBuildId,
+    );
+});
+
+test("--stop reports a host lockfile with no valid start time and exits nonzero", async () => {
+    await expectInvalidStartTimeSurvives(
+        "badtime-stop", ["--stop"], candidateBuildId,
+    );
+});
+
+test("a launch keeps a host of another build whose lockfile has no valid start time", async () => {
+    await expectInvalidStartTimeSurvives(
+        "badtime-launch", [], () => "vera-old-build",
+    );
+});
+
+test("--discard deletes the home when the host lockfile has no valid start time and its PID is not Vera", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-stale-");
+    const worktree = linkedWorktree("stale-discard");
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const bystander = Bun.spawn(["sleep", "60"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        writeFileSync(join(home, "runtime", "host.json"), JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: "not a timestamp",
+            socket_path: join(home, "runtime", "host.sock"),
+            build_id: candidateBuildId(worktree),
+        }));
+
+        const code = await runDevTui(["--discard", "--yes"], worktree, {
+            sourceHome,
+            temporaryRoot,
+            stdout: { write: () => true },
+            stderr: { write: () => true },
+        });
+
+        expect(code).toBe(0);
+        expect(existsSync(home)).toBe(false);
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
 });
 
 test("leftover root files on a clone move into machine/leftover", () => {

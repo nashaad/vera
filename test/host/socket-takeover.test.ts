@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import { processStartedAt } from "../../src/host/process-identity.ts";
 import { HostSocketHeldError, startHostServer } from "../../src/host/server.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 
 const directories: string[] = [];
 const servers: Server[] = [];
@@ -62,6 +63,66 @@ test("a new host refuses to take a live host's silent socket", async () => {
     await expect(attempt).rejects.toBeInstanceOf(HostSocketHeldError);
     await expect(attempt).rejects.toThrow("vera host stop --force");
     owner.kill();
+});
+
+test("a new host refuses a silent socket whose lockfile start time is not a time and whose owner looks like Vera", async () => {
+    const directory = temporaryDirectory();
+    const socketPath = join(directory, "host.sock");
+    const lockPath = join(directory, "host.json");
+    await listenSilently(socketPath);
+    const owner = spawnVeraLookingProcess(directory);
+    writeFileSync(lockPath, `${JSON.stringify({
+        schema_version: 2,
+        pid: owner.pid,
+        started_at: "not a timestamp",
+        socket_path: socketPath,
+    })}\n`);
+
+    try {
+        await expect(startHostServer({
+            socketPath,
+            lockPath,
+            pid: 4_242,
+            startedAt: "2026-08-20T12:00:00.000Z",
+        })).rejects.toBeInstanceOf(HostSocketHeldError);
+        expect(owner.exitCode).toBeNull();
+    } finally {
+        owner.kill("SIGKILL");
+        await owner.exited;
+    }
+});
+
+test("a silent socket whose lockfile start time is not a time and whose owner is not Vera is taken over", async () => {
+    const directory = temporaryDirectory();
+    const socketPath = join(directory, "host.sock");
+    const lockPath = join(directory, "host.json");
+    await listenSilently(socketPath);
+    const bystander = Bun.spawn(["sleep", "30"]);
+    writeFileSync(lockPath, `${JSON.stringify({
+        schema_version: 2,
+        pid: bystander.pid,
+        started_at: "not a timestamp",
+        socket_path: socketPath,
+    })}\n`);
+
+    try {
+        const host = await startHostServer({
+            socketPath,
+            lockPath,
+            pid: 4_242,
+            startedAt: "2026-08-20T12:00:00.000Z",
+        });
+        try {
+            expect(host.socketPath).toBe(socketPath);
+        } finally {
+            await host.close();
+        }
+        expect(bystander.exitCode).toBeNull();
+        expect(bystander.signalCode).toBeNull();
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+    }
 });
 
 test("a truly abandoned socket is still taken over", async () => {

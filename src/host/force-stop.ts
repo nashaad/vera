@@ -17,9 +17,20 @@ export interface ForceStopOutcome {
         | "survived"
         | "not_ours"
         | "unverified";
+    // Set with "unverified" when the lockfile's own start time is not a time.
+    readonly lockStartTimeInvalid?: boolean;
 }
 
-export function unverifiedHostMessage(pid: number): string {
+export function unverifiedHostMessage(
+    outcome: Pick<ForceStopOutcome, "pid" | "lockStartTimeInvalid">,
+): string {
+    const pid = outcome.pid;
+    if (outcome.lockStartTimeInvalid === true) {
+        return `Could not confirm PID ${pid} is the Vera host (its lockfile has`
+            + " no valid start time); left it running and kept its lockfile."
+            + ` Check that PID ${pid} is a Vera host before you stop it. If it`
+            + " is not, deleting runtime/host.json in the Vera home is safe.";
+    }
     return `Could not confirm PID ${pid} is the Vera host (process start time`
         + " unreadable); left it running and kept its lockfile. Try again.";
 }
@@ -48,6 +59,7 @@ export interface ForceStopOptions {
         record: Pick<HostLockRecord, "pid" | "started_at">,
     ) => boolean;
     readonly readStartedAt?: (pid: number) => number | undefined;
+    readonly readCommand?: (pid: number) => string | undefined;
     readonly escalateToKill?: boolean;
 }
 
@@ -111,13 +123,15 @@ export async function forceStopHostProcess(
         return { pid: record.pid, endedBy: "already_dead" };
     }
     const identity = options.matchesRecord === undefined
-        ? checkRecordIdentity(record, options.readStartedAt)
+        ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
         : options.matchesRecord(record) ? "match" : "mismatch";
     if (identity === "mismatch") {
         return { pid: record.pid, endedBy: "not_ours" };
     }
     if (identity === "unknown") {
-        return { pid: record.pid, endedBy: "unverified" };
+        return Number.isNaN(Date.parse(record.started_at))
+            ? { pid: record.pid, endedBy: "unverified", lockStartTimeInvalid: true }
+            : { pid: record.pid, endedBy: "unverified" };
     }
     kill(record.pid, "SIGTERM");
     if (await waitUntilDead(options.sigtermGraceMs ?? DEFAULT_SIGTERM_GRACE_MS)) {

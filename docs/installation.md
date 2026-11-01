@@ -54,7 +54,11 @@ leaves the previous release active. A test `--prefix` is refused unless
 `VERA_HOME` selects another home; see
 [Activate a new release](installed-command.md#activate-a-new-release). The
 installer does not signal a host whose start time the system cannot report; it
-says so, leaves that host running, and asks you to run the install again.
+says so, leaves that host running, and asks you to run the install again. A
+lockfile with no valid start time is treated as stale, and the installer goes
+ahead, only when the PID's command line can be read and is not Vera. Otherwise
+it is refused the same way: check that the PID is a Vera host before you stop
+it, and if it is not, delete `runtime/host.json` in the home.
 
 The installed command runs the activated release. Editing checkout files or
 restarting the TUI does not install those edits. See

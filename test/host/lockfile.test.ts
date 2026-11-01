@@ -16,6 +16,7 @@ import {
     defaultHostLockPath,
     defaultHostSocketPath,
     HostProtocolMismatchError,
+    readHostLockRecordFile,
 } from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
@@ -337,6 +338,28 @@ test("the socket owner replaces a malformed lockfile", async () => {
     const record = await lockfile.publish();
 
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(record);
+});
+
+test("a record whose start time is not a time is kept, not read as no lock", async () => {
+    const path = temporaryLockPath();
+    const record = await createTestLockfile(path).publish();
+    writeFileSync(path, `${JSON.stringify({
+        ...record,
+        started_at: "not a timestamp",
+    })}\n`);
+
+    expect(await readHostLockRecordFile(path)).toEqual({
+        ...record,
+        started_at: "not a timestamp",
+    });
+    writeFileSync(path, `${JSON.stringify({
+        ...record,
+        started_at: undefined,
+    })}\n`);
+    expect(await readHostLockRecordFile(path)).toEqual({
+        ...record,
+        started_at: "",
+    });
 });
 
 test("the record carries the host build id", async () => {

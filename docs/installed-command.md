@@ -40,6 +40,17 @@ The daily prefix goes with the default home, so an install without `--prefix`
 is refused when `VERA_HOME` selects another home. Unset `VERA_HOME` for a
 daily install.
 
+## Roll back
+
+`vera rollback` makes the previous release active again, without packing or
+using the network. If a host is running, it stops it first and starts the
+restored release's host afterward, as an install does. Failure leaves the
+release that was active before. `--prefix DIR` and `VERA_HOME` pair the same
+way as for an install. If an earlier install or rollback was interrupted,
+`vera rollback` finishes it, names the release that is now active if there is
+one, and rolls nothing back. If that is not the release you want, run
+`vera rollback` again.
+
 ## Run checkout code
 
 Use [development instances](runtime-and-worktrees.md) for isolated testing.

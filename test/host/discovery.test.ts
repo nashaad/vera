@@ -474,6 +474,64 @@ test("host discovery requires positive timing limits", async () => {
     })).rejects.toThrow("host polling interval must be a positive finite number");
 });
 
+test("replaceExisting waits for a host whose lockfile start time is not a time to leave", async () => {
+    // read() heals the start time from the answering host; diagnose() reports
+    // the file as written once the host stops answering.
+    const lockOnDisk: HostLockRecord = { ...runningHost, started_at: "not a time" };
+    const replacementHost: HostLockRecord = {
+        ...runningHost,
+        pid: 202,
+        started_at: "2026-08-30T12:00:00.000Z",
+    };
+    let reads = 0;
+    let silentPolls = 2;
+    let hostGone = false;
+    let starts = 0;
+    const lockfile: HostLockfile = {
+        publish(): Promise<HostLockRecord> {
+            throw new Error("not used");
+        },
+        async read(): Promise<HostLockRecord | undefined> {
+            reads += 1;
+            if (reads === 1) return runningHost;
+            return starts > 0 ? replacementHost : undefined;
+        },
+        async diagnose() {
+            if (silentPolls > 0) {
+                silentPolls -= 1;
+                return { record: lockOnDisk, wedged: true };
+            }
+            hostGone = true;
+            return {};
+        },
+    };
+
+    const host = await ensureResidentHost({
+        lockfile,
+        replaceExisting: true,
+        startHost: () => {
+            expect(hostGone).toBe(true);
+            starts += 1;
+        },
+        shutdownForReplacement: async () => ({
+            type: "shutdown_for_replacement_accepted",
+            pid: runningHost.pid,
+            started_at: runningHost.started_at,
+        }),
+        terminateHost: () => {
+            throw new Error("must not terminate");
+        },
+        terminateWedgedHost: () => {
+            throw new Error("must not terminate");
+        },
+        wait: async () => {},
+    });
+
+    expect(host).toEqual(replacementHost);
+    expect(silentPolls).toBe(0);
+    expect(starts).toBe(1);
+});
+
 function scriptedLockfile(
     readings: Array<HostLockRecord | undefined>,
 ): HostLockfile {

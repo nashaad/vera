@@ -116,11 +116,21 @@ export async function ensureResidentHost(
             startupTimeoutMs: remainingMs,
         });
     };
+    // A lockfile with no valid start time is healed from the answering host,
+    // so the same host can show two start times; only the PID can compare.
     const sameHost = (
         record: Pick<HostLockRecord, "pid" | "started_at">,
         expected: Pick<HostLockRecord, "pid" | "started_at">,
-    ): boolean => record.pid === expected.pid
-        && record.started_at === expected.started_at;
+    ): boolean => {
+        if (record.pid !== expected.pid) return false;
+        if (
+            Number.isNaN(Date.parse(record.started_at))
+            || Number.isNaN(Date.parse(expected.started_at))
+        ) {
+            return true;
+        }
+        return record.started_at === expected.started_at;
+    };
     const waitForHostDeparture = async (
         expected: Pick<HostLockRecord, "pid" | "started_at">,
     ): Promise<void> => {
@@ -382,7 +392,7 @@ async function terminateWedgedHost(record: HostLockRecord): Promise<void> {
     }
     if (outcome.endedBy === "unverified") {
         throw new Error(
-            `${unverifiedHostMessage(record.pid)} A new host was not started.`,
+            `${unverifiedHostMessage(outcome)} A new host was not started.`,
         );
     }
 }
