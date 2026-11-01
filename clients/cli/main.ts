@@ -41,6 +41,7 @@ import {
 import {
     forceStopResidentHost,
     gracefulStopResidentHost,
+    unverifiedHostMessage,
     type ForceStopOutcome,
 } from "../../src/host/force-stop.ts";
 import {
@@ -847,41 +848,18 @@ export async function runCli(
                 output.write("No resident Vera host is recorded.\n");
                 return 0;
             }
-            if (outcome.endedBy === "survived") {
-                output.write(
-                    `Resident Vera host PID ${outcome.pid} is still running`
-                        + " after SIGKILL, which means it is stuck in the"
-                        + " kernel. Its lockfile was left in place. Wait for"
-                        + " the operation it is blocked on, or reboot.\n",
-                );
-                return 1;
-            }
-            output.write(`Stopped resident Vera host PID ${outcome.pid} (${
-                outcome.endedBy === "sigkill"
-                    ? "killed after it ignored SIGTERM"
-                    : outcome.endedBy === "already_dead"
-                    ? "it was already dead; cleared its lockfile"
-                    : outcome.endedBy === "not_ours"
-                    ? "that PID belongs to another process now; cleared its"
-                        + " stale lockfile"
-                    : "SIGTERM"
-            }).\n`);
-            return 0;
+            const rendered = renderForceStopOutcome(outcome);
+            output.write(rendered.text);
+            return rendered.exitCode;
         }
         const outcome = await (dependencies.stopHost ?? gracefulStopResidentHost)();
         if (outcome === undefined) {
             output.write("No resident Vera host is running.\n");
             return 0;
         }
-        if (outcome.endedBy === "survived") {
-            output.write(
-                `Resident Vera host PID ${outcome.pid} is still running. `
-                    + "Run 'vera host stop --force' to kill it.\n",
-            );
-            return 1;
-        }
-        output.write(`Stopped resident Vera host PID ${outcome.pid}.\n`);
-        return 0;
+        const rendered = renderGracefulStopOutcome(outcome);
+        output.write(rendered.text);
+        return rendered.exitCode;
     }
 
     if (
@@ -1096,6 +1074,69 @@ export function renderImportableSessions(
         ? `Showing the newest ${listing.sessions.length}.\n`
         : "";
     return `${table}\n${more}Import one with: vera import <path>\n`;
+}
+
+interface StopRendering {
+    readonly text: string;
+    readonly exitCode: number;
+}
+
+// No default arm: a new endedBy value must fail to compile here.
+function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
+    const stopped = (how: string): StopRendering => ({
+        text: `Stopped resident Vera host PID ${outcome.pid} (${how}).\n`,
+        exitCode: 0,
+    });
+    switch (outcome.endedBy) {
+        case "sigterm":
+            return stopped("SIGTERM");
+        case "sigkill":
+            return stopped("killed after it ignored SIGTERM");
+        case "already_dead":
+            return stopped("it was already dead; cleared its lockfile");
+        case "not_ours":
+            return stopped(
+                "that PID belongs to another process now; cleared its stale"
+                    + " lockfile",
+            );
+        case "survived":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} is still running`
+                    + " after SIGKILL, which means it is stuck in the kernel."
+                    + " Its lockfile was left in place. Wait for the operation"
+                    + " it is blocked on, or reboot.\n",
+                exitCode: 1,
+            };
+        case "unverified":
+            return {
+                text: `${unverifiedHostMessage(outcome.pid)}\n`,
+                exitCode: 1,
+            };
+    }
+}
+
+function renderGracefulStopOutcome(outcome: ForceStopOutcome): StopRendering {
+    switch (outcome.endedBy) {
+        case "sigterm":
+        case "sigkill":
+        case "already_dead":
+        case "not_ours":
+            return {
+                text: `Stopped resident Vera host PID ${outcome.pid}.\n`,
+                exitCode: 0,
+            };
+        case "survived":
+            return {
+                text: `Resident Vera host PID ${outcome.pid} is still running. `
+                    + "Run 'vera host stop --force' to kill it.\n",
+                exitCode: 1,
+            };
+        case "unverified":
+            return {
+                text: `${unverifiedHostMessage(outcome.pid)}\n`,
+                exitCode: 1,
+            };
+    }
 }
 
 export function renderImportOutcome(

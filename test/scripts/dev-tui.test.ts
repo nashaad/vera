@@ -6,6 +6,7 @@ import {
     readFileSync,
     realpathSync,
     rmSync,
+    symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -306,6 +307,138 @@ test("a development host from another build is stopped before launch; one from t
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });
     }
+});
+
+/** Runs runDevTui in a child whose PATH has git but no ps, so process start times are unreadable. */
+function runDevTuiWithoutPs(
+    args: readonly string[],
+    worktree: string,
+    temporaryRoot: string,
+    binDirectory: string,
+): { readonly code: number; readonly stderr: string; readonly launched: boolean } {
+    const devTui = join(import.meta.dir, "..", "..", "scripts", "dev-tui.ts");
+    const script = `
+        import { runDevTui } from ${JSON.stringify(devTui)};
+        let launched = false;
+        const messages: string[] = [];
+        const code = await runDevTui(${JSON.stringify(args)}, ${JSON.stringify(worktree)}, {
+            temporaryRoot: ${JSON.stringify(temporaryRoot)},
+            stderr: { write: (text: string) => messages.push(text) },
+            spawnTui: async () => { launched = true; return 0; },
+        });
+        console.log(JSON.stringify({ code, stderr: messages.join(""), launched }));
+    `;
+    const ran = Bun.spawnSync([process.execPath, "-e", script], {
+        env: { PATH: binDirectory, HOME: temporaryRoot },
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    expect(ran.exitCode, ran.stderr.toString()).toBe(0);
+    return JSON.parse(ran.stdout.toString().trim());
+}
+
+test("a development host whose start time cannot be read is left running and the launch stops", async () => {
+    const root = mkdtempSync("/tmp/vera-dev-unverified-");
+    const worktree = linkedWorktree("unverified-host");
+    const temporaryRoot = join(root, "instances");
+    const binDirectory = join(root, "bin");
+    mkdirSync(binDirectory);
+    const git = Bun.which("git");
+    expect(git).not.toBeNull();
+    symlinkSync(git as string, join(binDirectory, "git"));
+    const bystander = Bun.spawn(["sleep", "60"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        const home = candidateHomePath(worktree, temporaryRoot);
+        mkdirSync(join(home, "runtime"), { recursive: true });
+        const lockPath = join(home, "runtime", "host.json");
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: new Date().toISOString(),
+            socket_path: join(home, "runtime", "host.sock"),
+            build_id: "vera-old-build",
+        }));
+        const message = `Could not confirm PID ${bystander.pid} is the Vera host`
+            + " (process start time unreadable); left it running and kept its"
+            + " lockfile. Try again.\n";
+
+        const stopped = runDevTuiWithoutPs(
+            ["--stop"], worktree, temporaryRoot, binDirectory,
+        );
+        expect(stopped.code).toBe(1);
+        expect(stopped.stderr).toBe(message);
+
+        const launch = runDevTuiWithoutPs([], worktree, temporaryRoot, binDirectory);
+        expect(launch.code).toBe(1);
+        expect(launch.stderr).toContain(message);
+        expect(launch.launched).toBe(false);
+
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+async function expectUnverifiedHostSurvives(
+    name: string,
+    args: readonly string[],
+): Promise<void> {
+    const root = mkdtempSync("/tmp/vera-dev-unverified-");
+    const worktree = linkedWorktree(name);
+    const temporaryRoot = join(root, "instances");
+    const binDirectory = join(root, "bin");
+    mkdirSync(binDirectory);
+    symlinkSync(Bun.which("git") as string, join(binDirectory, "git"));
+    const bystander = Bun.spawn(["sleep", "60"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        const home = candidateHomePath(worktree, temporaryRoot);
+        mkdirSync(join(home, "runtime"), { recursive: true });
+        const lockPath = join(home, "runtime", "host.json");
+        const sessionPath = join(home, "runtime", "session.jsonl");
+        writeFileSync(sessionPath, "kept-session\n");
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: new Date().toISOString(),
+            socket_path: join(home, "runtime", "host.sock"),
+            build_id: candidateBuildId(worktree),
+        }));
+
+        const ran = runDevTuiWithoutPs(args, worktree, temporaryRoot, binDirectory);
+
+        expect(ran.code).toBe(1);
+        expect(ran.stderr).toContain(`Could not confirm PID ${bystander.pid}`);
+        expect(ran.stderr).toContain("Nothing was deleted.");
+        expect(ran.launched).toBe(false);
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+        expect(readFileSync(sessionPath, "utf8")).toBe("kept-session\n");
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+}
+
+test("--discard leaves the home and its host alone when the host cannot be identified", async () => {
+    await expectUnverifiedHostSurvives("unverified-discard", ["--discard", "--yes"]);
+});
+
+test("--fresh on the same build leaves the home and its host alone when the host cannot be identified", async () => {
+    await expectUnverifiedHostSurvives("unverified-fresh", ["--fresh", "--yes"]);
 });
 
 test("leftover root files on a clone move into machine/leftover", () => {

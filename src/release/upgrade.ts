@@ -28,8 +28,11 @@ import {
     readHostLockRecordFile,
     type HostLockRecord,
 } from "../host/lockfile.ts";
-import { gracefulStopResidentHost } from "../host/force-stop.ts";
-import { recordMatchesRunningProcess } from "../host/process-identity.ts";
+import {
+    gracefulStopResidentHost,
+    unverifiedHostMessage,
+} from "../host/force-stop.ts";
+import { checkRecordIdentity } from "../host/process-identity.ts";
 import { veraHomeDirectory } from "../profile-paths.ts";
 
 export type UpgradePhase = "draining" | "activating" | "starting";
@@ -159,6 +162,12 @@ export async function clearUpgradeJournal(
 export async function defaultDrainHost(): Promise<"stopped" | "absent"> {
     const outcome = await gracefulStopResidentHost();
     if (outcome === undefined) return "absent";
+    if (outcome.endedBy === "unverified") {
+        throw new Error(
+            `${unverifiedHostMessage(outcome.pid)} Run 'bun run install:local'`
+                + " again. The previous release is still active.",
+        );
+    }
     if (outcome.endedBy === "survived") {
         throw new Error(
             `Resident Vera host PID ${outcome.pid} is still running. `
@@ -236,7 +245,7 @@ function assertPrefixMayManageHost(prefix: string): void {
 async function liveHostRecord(lockPath: string): Promise<HostLockRecord | undefined> {
     const record = await readHostLockRecordFile(lockPath);
     if (record === undefined || !processIsAlive(record.pid)) return undefined;
-    return recordMatchesRunningProcess(record) ? record : undefined;
+    return checkRecordIdentity(record) !== "mismatch" ? record : undefined;
 }
 
 function describeBuild(record: HostLockRecord): string {

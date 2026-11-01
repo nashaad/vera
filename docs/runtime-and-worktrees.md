@@ -39,7 +39,9 @@ bun run dev:tui --stop
 ```
 
 `--fresh` recreates the private home after confirmation. `--discard` removes
-the instance. Use `bun run factory:home` to refresh the factory configuration.
+the instance. Both stop the home's host first, and stop and delete nothing when
+the host cannot be confirmed as the Vera host. Use `bun run factory:home` to
+refresh the factory configuration.
 
 If the private home still has a host from an older build, the launcher replaces
 that host and reports the PID and builds. It does not replace the daily host.
@@ -78,6 +80,11 @@ host and reattaches the conversation. It refuses to replace a healthy busy host.
 If you intend to terminate that host despite active work, `vera host stop
 --force` sends SIGKILL. Ordinary `vera host stop` sends SIGTERM and waits;
 it prints Stopped only after the process exits, otherwise exits with status 1.
+Neither command signals a process whose start time the system cannot report.
+They print that the PID could not be confirmed as the host, keep its lockfile,
+and exit with status 1; run the command again. `bun run dev:tui --stop`
+refuses the same way, and so does a launch that would replace an older
+development host: the launch does not go ahead.
 A host that cannot finish closing, for example because a turn is stuck, exits
 anyway after a short deadline, and quitting the TUI does not wait on it.
 
@@ -88,7 +95,8 @@ Stopping and reconnecting do not install checkout changes.
 Prune reads process registrations in `~/.vera/machine/live/`. Registered
 hosts, clients, workers, watchdogs, supervisors, and the local helper can
 appear there. Shell commands, tool subprocesses, launch wrappers, and
-in-process SDK instances do not.
+in-process SDK instances do not. A registered process whose start time the
+system cannot report is not listed, and its registration is kept.
 
 An older process that never registered will not appear merely because Activity
 Monitor lists it. `vera prune` accepts no arguments; `--yes` belongs to doctor.

@@ -2,8 +2,8 @@ import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 
 import { join } from "node:path";
 
 import {
+    checkRecordIdentity,
     processIsAlive,
-    recordMatchesRunningProcess,
 } from "./host/process-identity.ts";
 import {
     veraHomeDirectory,
@@ -116,7 +116,10 @@ export function installLiveProcess(
     };
 }
 
-export function listLiveProcessesIn(veraHome: string): LiveProcessRecord[] {
+export function listLiveProcessesIn(
+    veraHome: string,
+    readStartedAt?: (pid: number) => number | undefined,
+): LiveProcessRecord[] {
     const directory = liveProcessDirectoryIn(veraHome);
     let names: string[];
     try {
@@ -138,10 +141,18 @@ export function listLiveProcessesIn(veraHome: string): LiveProcessRecord[] {
             }
             continue;
         }
-        if (!processIsAlive(record.pid) || !recordMatchesRunningProcess(record)) {
+        if (!processIsAlive(record.pid)) {
             dropLiveProcessIn(veraHome, record.pid);
             continue;
         }
+        // Prune and dev-sweep signal what this lists. An unreadable start time
+        // is neither listed nor dropped: the record may still be a live process.
+        const identity = checkRecordIdentity(record, readStartedAt);
+        if (identity === "mismatch") {
+            dropLiveProcessIn(veraHome, record.pid);
+            continue;
+        }
+        if (identity === "unknown") continue;
         records.push(record);
     }
     return records.sort((left, right) =>

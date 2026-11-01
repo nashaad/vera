@@ -52,7 +52,9 @@ the installer stops it and starts the new release's host. A failed upgrade
 leaves the previous release active. A test `--prefix` is refused unless
 `VERA_HOME` selects a private home, and the daily prefix is refused when
 `VERA_HOME` selects another home; see
-[Activate a new release](installed-command.md#activate-a-new-release).
+[Activate a new release](installed-command.md#activate-a-new-release). The
+installer does not signal a host whose start time the system cannot report; it
+says so, leaves that host running, and asks you to run the install again.
 
 The installed command runs the activated release. Editing checkout files or
 restarting the TUI does not install those edits. See

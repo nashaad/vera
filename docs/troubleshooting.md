@@ -33,6 +33,11 @@ A busy refusal protects active work. The composer stays usable. Let that work
 finish, or use the deliberate shutdown controls in
 [Development instances and process cleanup](runtime-and-worktrees.md).
 
+Reconnect host does not signal a process whose start time the system cannot
+report. If the unresponsive host is such a process, it says it could not
+confirm the PID, leaves the process and its lockfile alone, and starts no new
+host. Run it again.
+
 A socket file existing on disk does not prove the host is answering.
 
 ## Provider models look stale

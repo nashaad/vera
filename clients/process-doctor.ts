@@ -6,8 +6,8 @@ import {
     readHostLockRecordFile,
 } from "../src/host/lockfile.ts";
 import {
+    checkRecordIdentity,
     processIsAlive,
-    recordMatchesRunningProcess,
 } from "../src/host/process-identity.ts";
 import {
     VERA_HOME_ENV,
@@ -458,7 +458,9 @@ export async function livePidFromHostLockFile(
     const record = await readHostLockRecordFile(path);
     if (record === undefined) return undefined;
     if (!processIsAlive(record.pid)) return undefined;
-    if (!recordMatchesRunningProcess(record)) return undefined;
+    // Unknown keeps the pid: the result only shields the host from being
+    // listed as a stray.
+    if (checkRecordIdentity(record) === "mismatch") return undefined;
     return record.pid;
 }
 

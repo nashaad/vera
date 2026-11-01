@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -673,6 +673,50 @@ test("livePidFromHostLockFile trusts a live matching record without a handshake"
         }));
         expect(await livePidFromHostLockFile(path)).toBe(process.pid);
     } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+function currentHostPidSeenFrom(options: {
+    readonly lockPath: string;
+    readonly path: string;
+}): string {
+    const doctor = join(import.meta.dir, "..", "clients", "process-doctor.ts");
+    const script = `
+        import { livePidFromHostLockFile } from ${JSON.stringify(doctor)};
+        console.log(String(await livePidFromHostLockFile(${JSON.stringify(options.lockPath)})));
+    `;
+    const ran = Bun.spawnSync([process.execPath, "-e", script], {
+        env: { PATH: options.path },
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    expect(ran.exitCode).toBe(0);
+    return ran.stdout.toString().trim();
+}
+
+test("livePidFromHostLockFile keeps a live pid whose start time cannot be read", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const lockPath = join(directory, "host.json");
+    const noPs = join(directory, "bin");
+    mkdirSync(noPs);
+    const host = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: host.pid,
+            started_at: "2000-01-01T00:00:00.000Z",
+            socket_path: join(directory, "host.sock"),
+        }));
+        expect(currentHostPidSeenFrom({ lockPath, path: noPs }))
+            .toBe(String(host.pid));
+        expect(currentHostPidSeenFrom({
+            lockPath,
+            path: process.env.PATH ?? "/usr/bin:/bin",
+        })).toBe("undefined");
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
         rmSync(directory, { recursive: true, force: true });
     }
 });
