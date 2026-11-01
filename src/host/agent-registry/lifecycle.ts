@@ -9,7 +9,7 @@ import { copySessionMessageAttachments, createSessionBranch } from "../../store/
 import { SessionStore, defaultSessionPath } from "../../store/session-store.ts";
 import { ProviderUnavailableError, UserFacingError } from "../../user-facing-error.ts";
 import { delegationAllows, isSessionIdentity, materializeSessionIdentity, publishBranchAttachments, removePublishedBranchAttachments, type PublishedBranchAttachments } from "./helpers.ts";
-import { LIVE_IDLE_WINDOW_MS, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
+import { LIVE_IDLE_WINDOW_MS, entryIsLive, entryUpdatedAt, resolveAgentWorkspace, type BoundSessionIdentity, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type InheritedAgentSettings, type RegisteredAgentEntry, type RegisteredAgentKind, type ResumeRegisteredAgentOptions } from "./support.ts";
 import { ResidentAgent } from "../resident-agent.ts";
 import type { AgentRegistry } from "../agent-registry.ts";
 import type { SessionEndReason } from "../../sdk/hooks.ts";
@@ -420,25 +420,24 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return "not_found";
         }
+        const descendants = reg.liveDescendantsOf(targetId).flatMap(
+            (id) => reg.agents.get(id) ?? [],
+        );
         if (
-            entry.kind !== "interactive"
-            || !entry.agent.idleForShutdown()
-            || [...reg.agents.values()].some(
-                (candidate) =>
-                    candidate.parentId === targetId
-                    && candidate.failure === undefined
-                    && !candidate.agent.failed
-                    && !candidate.agent.closed
-                    && (
-                        !candidate.completed
-                        || candidate.pendingCompletionDeliveries > 0
-                    ),
-            )
+            !entry.agent.idleForShutdown()
+            || entry.pendingAsyncTurns > 0
+            || entry.pendingCompletionDeliveries > 0
+            || descendants.some(descendantBlocksTrash)
         ) {
             return "busy";
         }
 
-        await reg.closeAgent(targetId, "deleted");
+        // Parents first, so a restart registers a child after its parent.
+        const restartable = [
+            restartPlan(entry),
+            ...descendants.toReversed().filter(entryIsLive).map(restartPlan),
+        ];
+        await reg.closeAgentTree(targetId, "deleted");
         try {
             await reg.trashArtifacts({
                 sessionPath: entry.store.path,
@@ -447,21 +446,94 @@ export async function trashSession(reg: AgentRegistry, targetId: string): Promis
             });
             return "trashed";
         } catch {
-            try {
-                const store = await SessionStore.open(entry.store.path);
-                await reg.start(
-                    store,
-                    entry.kind,
-                    entry.eventLogPath,
-                    undefined,
-                    undefined,
-                    false,
-                    false,
-                    "resume",
-                );
-            } catch {
-            }
+            await restartClosedAgents(reg, restartable);
             return "failed";
+        }
+    }
+
+function descendantBlocksTrash(entry: RegisteredAgentEntry): boolean {
+        if (!entryIsLive(entry)) {
+            return false;
+        }
+        return !entry.completed
+            || entry.pendingCompletionDeliveries > 0
+            || !entry.agent.idleForShutdown();
+    }
+
+interface RestartPlan {
+        readonly id: string;
+        readonly sessionPath: string;
+        readonly kind: RegisteredAgentKind;
+        readonly eventLogPath: string | undefined;
+        readonly parentId: string | undefined;
+        readonly completed: boolean;
+    }
+
+function restartPlan(entry: RegisteredAgentEntry): RestartPlan {
+        return {
+            id: entry.agent.id,
+            sessionPath: entry.store.path,
+            kind: entry.kind,
+            eventLogPath: entry.eventLogPath,
+            parentId: entry.parentId,
+            completed: entry.completed,
+        };
+    }
+
+// A child is restarted only when its parent in the plan restarted, so no child links to a missing parent.
+async function restartClosedAgents(reg: AgentRegistry, plans: readonly RestartPlan[]): Promise<void> {
+        const planned = new Set(plans.map((plan) => plan.id));
+        const restarted = new Set<string>();
+        for (const plan of plans) {
+            if (
+                plan.parentId !== undefined
+                && planned.has(plan.parentId)
+                && !restarted.has(plan.parentId)
+            ) {
+                continue;
+            }
+            if (await restartClosedAgent(reg, plan)) {
+                restarted.add(plan.id);
+            }
+        }
+    }
+
+async function restartClosedAgent(reg: AgentRegistry, plan: RestartPlan): Promise<boolean> {
+        try {
+            const store = await SessionStore.open(plan.sessionPath);
+            await reg.start(
+                store,
+                plan.kind,
+                plan.eventLogPath,
+                plan.parentId,
+                undefined,
+                false,
+                false,
+                "resume",
+            );
+        } catch {
+            await discardFailedRestart(reg, plan.id).catch(() => {});
+            return false;
+        }
+        const restarted = reg.agents.get(plan.id);
+        if (restarted !== undefined && plan.completed) {
+            restarted.completed = true;
+        }
+        return true;
+    }
+
+// start() registers the entry before it can still throw; a left-over entry would block a later resume.
+async function discardFailedRestart(reg: AgentRegistry, id: string): Promise<void> {
+        const failed = reg.agents.get(id);
+        if (failed === undefined) {
+            return;
+        }
+        try {
+            failed.agent.close();
+            await failed.run;
+        } finally {
+            await reg.reapClosedAgent(id, failed);
+            reg.notifyRosterChanged();
         }
     }
 
