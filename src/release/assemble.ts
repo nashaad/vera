@@ -1,11 +1,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import {
-    packedAnnexRoot,
-    RELEASE_BUN_NAME,
-    releaseManifestPath,
-} from "./layout.ts";
+import { packedAnnexRoot, RELEASE_BUN_NAME } from "./layout.ts";
 import { writeSelfContainedWrappers } from "./wrappers.ts";
 
 const RUNTIME_ENTRIES = [
@@ -25,12 +21,6 @@ export function assembleRunnableRelease(
     sourceRoot: string,
     bunPath: string = process.execPath,
 ): void {
-    if (!existsSync(releaseManifestPath(releaseRoot))) {
-        throw new Error(
-            `No release stamp at ${releaseManifestPath(releaseRoot)}. `
-                + "Pack this tree first with bun run pack:release.",
-        );
-    }
     if (!existsSync(packedAnnexRoot(releaseRoot))) {
         throw new Error(
             `Packed annex assets missing at ${packedAnnexRoot(releaseRoot)}`,

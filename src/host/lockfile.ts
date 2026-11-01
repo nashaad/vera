@@ -69,6 +69,7 @@ export interface HostLockfileOptions {
         record: Pick<HostLockRecord, "pid" | "started_at">,
     ) => boolean;
     readonly readStartedAt?: (pid: number) => number | undefined;
+    readonly readCommand?: (pid: number) => string | undefined;
 }
 
 export class HostProtocolMismatchError extends Error {
@@ -138,7 +139,11 @@ export function createHostLockfile(
     // re-checks and refuses to signal on anything short of a match.
     const matchesRecord = options.matchesRecord
         ?? ((candidate) =>
-            checkRecordIdentity(candidate, options.readStartedAt) !== "mismatch");
+            checkRecordIdentity(
+                candidate,
+                options.readStartedAt,
+                options.readCommand,
+            ) !== "mismatch");
 
     return {
         async publish(): Promise<HostLockRecord> {
@@ -209,9 +214,11 @@ export function createHostLockfile(
                 && matchesRecord(record);
             return wedged ? { record, wedged: true } : {};
         }
+        const startTimeUnreadable = Number.isNaN(Date.parse(record.started_at));
         if (
             identity.pid !== record.pid
-            || identity.started_at !== record.started_at
+            || (!startTimeUnreadable
+                && identity.started_at !== record.started_at)
         ) {
             return {};
         }
@@ -223,7 +230,10 @@ export function createHostLockfile(
                 socketPath,
             );
         }
-        return { record };
+        // The answering host supplies the start time the file lacks.
+        return startTimeUnreadable
+            ? { record: { ...record, started_at: identity.started_at } }
+            : { record };
     }
 }
 
@@ -299,8 +309,6 @@ function parseHostLock(source: string): HostLockRecord | undefined {
             && record.schema_version !== HOST_LOCK_SCHEMA_VERSION)
         || !Number.isInteger(record.pid)
         || (record.pid as number) <= 0
-        || typeof record.started_at !== "string"
-        || Number.isNaN(Date.parse(record.started_at))
         || typeof record.socket_path !== "string"
         || record.socket_path.length === 0
         || (record.build_id !== undefined
@@ -318,7 +326,11 @@ function parseHostLock(source: string): HostLockRecord | undefined {
     return {
         schema_version: record.schema_version as 1 | 2 | 3,
         pid: record.pid as number,
-        started_at: record.started_at as string,
+        // A start time that is not a valid time stays in the record so the
+        // identity check, not the parser, decides whether the lock is stale.
+        started_at: typeof record.started_at === "string"
+            ? record.started_at
+            : "",
         socket_path: record.socket_path as string,
         ...(typeof record.build_id === "string" && record.build_id.length > 0
             ? { build_id: record.build_id }

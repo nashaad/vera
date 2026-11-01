@@ -478,7 +478,7 @@ async function stopCandidate(
             stderr.write(`Development host PID ${outcome.pid} did not stop.\n`);
             return 1;
         case "unverified":
-            stderr.write(`${unverifiedHostMessage(outcome.pid)}\n`);
+            stderr.write(`${unverifiedHostMessage(outcome)}\n`);
             return 1;
     }
 }

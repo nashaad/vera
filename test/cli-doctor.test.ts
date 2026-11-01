@@ -18,6 +18,7 @@ import {
     type VeraProcessSample,
 } from "../clients/process-doctor.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
+import { spawnVeraLookingProcess } from "./support/vera-looking-process.ts";
 import { veraRuntimeDirectory } from "../src/profile-paths.ts";
 
 test("process parsing finds Vera hosts and clients without claiming other Bun work", () => {
@@ -717,6 +718,50 @@ test("livePidFromHostLockFile keeps a live pid whose start time cannot be read",
     } finally {
         host.kill("SIGKILL");
         await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("livePidFromHostLockFile keeps a Vera-looking pid whose lockfile start time is not a time", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const lockPath = join(directory, "host.json");
+    const host = spawnVeraLookingProcess(directory);
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: host.pid,
+            started_at: "not a timestamp",
+            socket_path: join(directory, "host.sock"),
+        }));
+        expect(currentHostPidSeenFrom({
+            lockPath,
+            path: process.env.PATH ?? "/usr/bin:/bin",
+        })).toBe(String(host.pid));
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("livePidFromHostLockFile drops a non-Vera pid whose lockfile start time is not a time", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const lockPath = join(directory, "host.json");
+    const bystander = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: "not a timestamp",
+            socket_path: join(directory, "host.sock"),
+        }));
+        expect(currentHostPidSeenFrom({
+            lockPath,
+            path: process.env.PATH ?? "/usr/bin:/bin",
+        })).toBe("undefined");
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
         rmSync(directory, { recursive: true, force: true });
     }
 });

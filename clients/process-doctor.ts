@@ -7,7 +7,9 @@ import {
 } from "../src/host/lockfile.ts";
 import {
     checkRecordIdentity,
+    classifyVeraProcess,
     processIsAlive,
+    type VeraProcessKind,
 } from "../src/host/process-identity.ts";
 import {
     VERA_HOME_ENV,
@@ -19,13 +21,7 @@ const DEFAULT_SAMPLE_INTERVAL_MS = 750;
 const DEFAULT_HIGH_CPU_PERCENT = 50;
 const MAX_QUIET_UNRECOGNIZED_HOSTS = 5;
 
-export type VeraProcessKind =
-    | "host"
-    | "client"
-    | "watchdog"
-    | "worker"
-    | "supervisor"
-    | "test_fixture";
+export type { VeraProcessKind };
 
 export interface VeraProcessSample {
     readonly pid: number;
@@ -462,40 +458,6 @@ export async function livePidFromHostLockFile(
     // listed as a stray.
     if (checkRecordIdentity(record) === "mismatch") return undefined;
     return record.pid;
-}
-
-function classifyVeraProcess(command: string): VeraProcessKind | undefined {
-    if (/(?:^|\s)(?:\S*\/)?clients\/host\/main\.ts(?:\s|$)/.test(command)) {
-        return "host";
-    }
-    if (/(?:^|\s)(?:\S*\/)?clients\/tui\/flight-watchdog\.ts(?:\s|$)/.test(
-        command,
-    )) {
-        return "watchdog";
-    }
-    if (
-        /(?:^|\s)\S*\/\.bun\/bin\/vera(?:\s|$)/.test(command)
-        || /(?:^|\s)(?:\S*\/)?clients\/(?:cli|tui)\/main\.ts(?:\s|$)/.test(
-            command,
-        )
-    ) {
-        return "client";
-    }
-    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker-supervisor\.ts(?:\s|$)/.test(
-        command,
-    )) {
-        return "supervisor";
-    }
-    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)) {
-        return "worker";
-    }
-    if (
-        /(?:^|\s)(?:\S*\/)?test\/support\/\S+-(?:child|resident-host)\.ts(?:\s|$)/
-            .test(command)
-    ) {
-        return "test_fixture";
-    }
-    return undefined;
 }
 
 function compareProcesses(

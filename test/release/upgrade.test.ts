@@ -30,6 +30,7 @@ import {
     upgradeLocalInstall,
     writeUpgradeJournal,
 } from "../../src/release/upgrade.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 
 function writeDummyRelease(prefix: string, buildId: string): string {
     const root = releaseDirectory(buildId, prefix);
@@ -252,6 +253,86 @@ test("a drain that cannot identify the host refuses without signalling it or cle
         expect(bystander.signalCode).toBeNull();
         expect(bystander.exitCode).toBeNull();
         expect(existsSync(lockPath)).toBe(true);
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+function drainInSubprocess(
+    root: string,
+    veraHome: string,
+    operation: "install" | "rollback",
+): string {
+    const upgrade = join(import.meta.dir, "..", "..", "src", "release", "upgrade.ts");
+    const script = `
+        import { defaultDrainHost } from ${JSON.stringify(upgrade)};
+        try {
+            console.log("returned " + await defaultDrainHost(${JSON.stringify(operation)}));
+        } catch (error) {
+            console.log("threw " + (error as Error).message);
+        }
+    `;
+    const ran = Bun.spawnSync([process.execPath, "-e", script], {
+        env: { HOME: root, PATH: process.env.PATH ?? "", VERA_HOME: veraHome },
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    expect(ran.exitCode, ran.stderr.toString()).toBe(0);
+    return ran.stdout.toString().trim();
+}
+
+test("a rollback drain refuses a Vera-looking host whose lockfile start time is not a time, without signalling it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-upgrade-badtime-"));
+    const veraHome = join(root, "home");
+    mkdirSync(join(veraHome, "runtime"), { recursive: true });
+    const lockPath = join(veraHome, "runtime", "host.json");
+    const host = spawnVeraLookingProcess(root);
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: host.pid,
+            started_at: "not a timestamp",
+            socket_path: join(veraHome, "runtime", "host.sock"),
+        }));
+        expect(drainInSubprocess(root, veraHome, "rollback")).toBe(
+            `threw Could not confirm PID ${host.pid} is the Vera host (its lockfile`
+                + " has no valid start time); left it running and kept its lockfile."
+                + ` Check that PID ${host.pid} is a Vera host before you stop it. If it`
+                + " is not, deleting runtime/host.json in the Vera home is safe."
+                + " Run 'vera rollback' again. Nothing was rolled back.",
+        );
+        expect(host.signalCode).toBeNull();
+        expect(host.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("a drain clears a lockfile with no valid start time whose PID is not Vera, without signalling it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-upgrade-stale-"));
+    const veraHome = join(root, "home");
+    mkdirSync(join(veraHome, "runtime"), { recursive: true });
+    const lockPath = join(veraHome, "runtime", "host.json");
+    const bystander = Bun.spawn(["sleep", "30"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 2,
+            pid: bystander.pid,
+            started_at: "not a timestamp",
+            socket_path: join(veraHome, "runtime", "host.sock"),
+        }));
+        expect(drainInSubprocess(root, veraHome, "install")).toBe("returned absent");
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(false);
     } finally {
         bystander.kill("SIGKILL");
         await bystander.exited;

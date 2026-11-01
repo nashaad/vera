@@ -84,7 +84,14 @@ Neither command signals a process whose start time the system cannot report.
 They print that the PID could not be confirmed as the host, keep its lockfile,
 and exit with status 1; run the command again. `bun run dev:tui --stop`
 refuses the same way, and so does a launch that would replace an older
-development host: the launch does not go ahead.
+development host: the launch does not go ahead. A lockfile whose recorded
+start time is not a valid time is cleared as stale only when its PID's command
+line can be read and is not Vera; the command then goes ahead without
+signalling that process. Otherwise it is refused the same way, and so is
+`bun run dev:tui --discard`, which deletes nothing. Running the command again
+does not help in that case: check that the PID in `runtime/host.json` is a
+Vera host before you stop it. If it is not, deleting `runtime/host.json` in
+the home is safe.
 A host that cannot finish closing, for example because a turn is stuck, exits
 anyway after a short deadline, and quitting the TUI does not wait on it.
 

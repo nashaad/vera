@@ -59,7 +59,11 @@ import {
     RetainedReleaseMissingError,
 } from "../../src/release/dispatch.ts";
 import { defaultInstallPrefix } from "../../src/release/layout.ts";
-import { rollbackLocalInstall } from "../../src/release/rollback.ts";
+import {
+    rollbackLocalInstall,
+    type FinishedInterruptedSwitch,
+    type RolledBackRelease,
+} from "../../src/release/rollback.ts";
 import {
     HomeMigrationError,
     migrateHome,
@@ -227,6 +231,10 @@ interface PrintOutcome {
     readonly notes: readonly string[];
 }
 
+type RollbackInstallResult =
+    | Pick<RolledBackRelease, "kind" | "fromBuildId" | "toBuildId">
+    | Pick<FinishedInterruptedSwitch, "kind" | "activeBuildId">;
+
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
     readonly closeAgent?: (agentId: string) => Promise<CloseAgentResult>;
@@ -307,10 +315,7 @@ export interface CliDependencies {
     readonly dispatchToHostRelease?: (
         argv: readonly string[],
     ) => Promise<number | undefined>;
-    readonly rollbackInstall?: (prefix: string) => {
-        readonly fromBuildId: string | undefined;
-        readonly toBuildId: string;
-    };
+    readonly rollbackInstall?: (prefix: string) => Promise<RollbackInstallResult>;
     readonly migrateHome?: (home: string) => HomeMigrationResult;
     readonly rollbackHomeMigration?: (home: string) => HomeMigrationResult;
 }
@@ -1081,6 +1086,22 @@ interface StopRendering {
     readonly exitCode: number;
 }
 
+function clearedExitedHostLockfile(pid: number): StopRendering {
+    return {
+        text: `Resident Vera host PID ${pid} had already exited; cleared its`
+            + " lockfile.\n",
+        exitCode: 0,
+    };
+}
+
+function clearedStaleLockfile(pid: number): StopRendering {
+    return {
+        text: `PID ${pid} is no longer a Vera host; cleared its stale`
+            + " lockfile.\n",
+        exitCode: 0,
+    };
+}
+
 // No default arm: a new endedBy value must fail to compile here.
 function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
     const stopped = (how: string): StopRendering => ({
@@ -1093,12 +1114,9 @@ function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
         case "sigkill":
             return stopped("killed after it ignored SIGTERM");
         case "already_dead":
-            return stopped("it was already dead; cleared its lockfile");
+            return clearedExitedHostLockfile(outcome.pid);
         case "not_ours":
-            return stopped(
-                "that PID belongs to another process now; cleared its stale"
-                    + " lockfile",
-            );
+            return clearedStaleLockfile(outcome.pid);
         case "survived":
             return {
                 text: `Resident Vera host PID ${outcome.pid} is still running`
@@ -1109,7 +1127,7 @@ function renderForceStopOutcome(outcome: ForceStopOutcome): StopRendering {
             };
         case "unverified":
             return {
-                text: `${unverifiedHostMessage(outcome.pid)}\n`,
+                text: `${unverifiedHostMessage(outcome)}\n`,
                 exitCode: 1,
             };
     }
@@ -1119,12 +1137,14 @@ function renderGracefulStopOutcome(outcome: ForceStopOutcome): StopRendering {
     switch (outcome.endedBy) {
         case "sigterm":
         case "sigkill":
-        case "already_dead":
-        case "not_ours":
             return {
                 text: `Stopped resident Vera host PID ${outcome.pid}.\n`,
                 exitCode: 0,
             };
+        case "already_dead":
+            return clearedExitedHostLockfile(outcome.pid);
+        case "not_ours":
+            return clearedStaleLockfile(outcome.pid);
         case "survived":
             return {
                 text: `Resident Vera host PID ${outcome.pid} is still running. `
@@ -1133,7 +1153,7 @@ function renderGracefulStopOutcome(outcome: ForceStopOutcome): StopRendering {
             };
         case "unverified":
             return {
-                text: `${unverifiedHostMessage(outcome.pid)}\n`,
+                text: `${unverifiedHostMessage(outcome)}\n`,
                 exitCode: 1,
             };
     }
@@ -1523,12 +1543,12 @@ function renderHomeMigration(result: HomeMigrationResult): string {
     return `Migrated ${result.home}.${backup}${extra}${unknown}${resumed}\n`;
 }
 
-function runRollbackCommand(
+async function runRollbackCommand(
     flags: readonly string[],
     output: CliOutput,
     errorOutput: CliOutput,
     dependencies: CliDependencies,
-): number {
+): Promise<number> {
     let prefix: string | undefined;
     for (let i = 0; i < flags.length; i++) {
         const flag = flags[i];
@@ -1549,8 +1569,18 @@ function runRollbackCommand(
     }
     const target = prefix ?? defaultInstallPrefix();
     try {
-        const result = (dependencies.rollbackInstall ?? rollbackLocalInstall)(target);
-        if (result.fromBuildId === undefined) {
+        const result = await (dependencies.rollbackInstall ?? rollbackLocalInstall)(target);
+        if (result.kind === "finished_interrupted") {
+            // The pin may already point back at the release this switch left, so
+            // the advice stays conditional on the active release.
+            output.write(
+                result.activeBuildId === undefined
+                    ? "Finished an interrupted install or rollback.\n"
+                    : "Finished an interrupted install or rollback;"
+                        + ` ${result.activeBuildId} is active. If that is not the`
+                        + " release you want, run 'vera rollback'.\n",
+            );
+        } else if (result.fromBuildId === undefined) {
             output.write(`Activated ${result.toBuildId}\n`);
         } else {
             output.write(`Activated ${result.toBuildId} (was ${result.fromBuildId})\n`);

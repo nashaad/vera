@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -7,6 +7,7 @@ import {
     runCli,
     runCliMain,
 } from "../clients/cli/main.ts";
+import { gracefulStopResidentHost } from "../src/host/force-stop.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
 import type { VeraDoctorReport } from "../clients/process-doctor.ts";
@@ -1214,7 +1215,8 @@ test("vera rollback does not dispatch to a retained host client", async () => {
             hops += 1;
             return 0;
         },
-        rollbackInstall: () => ({
+        rollbackInstall: async () => ({
+            kind: "rolled_back",
             fromBuildId: "vera-broken",
             toBuildId: "vera-good",
         }),
@@ -1225,10 +1227,39 @@ test("vera rollback does not dispatch to a retained host client", async () => {
     expect(output).toBe("Activated vera-good (was vera-broken)\n");
 });
 
+test("vera rollback reports that it finished an interrupted switch instead of rolling back", async () => {
+    let output = "";
+    const exitCode = await runCli(["rollback", "--prefix", "/tmp/vera-rollback-cli"], {
+        rollbackInstall: async () => ({
+            kind: "finished_interrupted",
+            activeBuildId: "vera-good",
+        }),
+        stdout: { write: (text: string) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "Finished an interrupted install or rollback; vera-good is active."
+            + " If that is not the release you want, run 'vera rollback'.\n",
+    );
+});
+
+test("vera rollback gives no rollback advice when the interrupted switch it finished left no active release", async () => {
+    let output = "";
+    const exitCode = await runCli(["rollback", "--prefix", "/tmp/vera-rollback-cli"], {
+        rollbackInstall: async () => ({
+            kind: "finished_interrupted",
+            activeBuildId: undefined,
+        }),
+        stdout: { write: (text: string) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toBe("Finished an interrupted install or rollback.\n");
+});
+
 test("vera rollback reports a missing pin without a stack trace", async () => {
     let errorOutput = "";
     const exitCode = await runCli(["rollback"], {
-        rollbackInstall: () => {
+        rollbackInstall: async () => {
             throw new Error("No rollback pin. There is no retained known-good release to restore.");
         },
         stderr: { write: (text: string) => errorOutput += text },
@@ -1253,6 +1284,19 @@ test("vera host stop confirms the explicit resident-host shutdown", async () => 
     expect(exitCode).toBe(0);
     expect(stopped).toBe(true);
     expect(output).toBe("Stopped resident Vera host PID 51639.\n");
+});
+
+test("vera host stop says it cleared the lockfile of a host that had already exited", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--yes"], {
+        stopHost: async () => ({ pid: 51639, endedBy: "already_dead" }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "Resident Vera host PID 51639 had already exited; cleared its lockfile.\n",
+    );
 });
 
 test("vera host stop leaves the host running when confirmation is declined", async () => {
@@ -1357,6 +1401,102 @@ test("vera host stop reports a host it could not identify and exits nonzero", as
             + " unreadable); left it running and kept its lockfile. Try again.\n",
     );
     expect(output).not.toContain("Stopped");
+});
+
+test("vera host stop does not read a lockfile with an invalid start time as no host", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-stop-"));
+    const lockPath = join(root, "host.json");
+    try {
+        writeFileSync(lockPath, `${JSON.stringify({
+            schema_version: 2,
+            pid: 51639,
+            started_at: "not a timestamp",
+            socket_path: join(root, "host.sock"),
+        })}\n`);
+        const signals: string[] = [];
+        let output = "";
+        const exitCode = await runCli(["host", "stop", "--yes"], {
+            stopHost: () => gracefulStopResidentHost({
+                lockPath,
+                kill: (pid, signal) => signals.push(`${signal}:${pid}`),
+                isProcessAlive: () => true,
+                readStartedAt: () => Date.now(),
+                readCommand: () => "bun /opt/vera/clients/host/main.ts",
+            }),
+            stdout: { write: (text) => output += text },
+        });
+
+        expect(exitCode).toBe(1);
+        expect(output).toContain(
+            "Could not confirm PID 51639 is the Vera host (its lockfile has no"
+                + " valid start time)",
+        );
+        expect(output).not.toContain("No resident Vera host");
+        expect(signals).toEqual([]);
+        expect(readFileSync(lockPath, "utf8")).toContain("not a timestamp");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("vera host stop clears a lockfile with an invalid start time whose pid is not Vera", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-stop-"));
+    const lockPath = join(root, "host.json");
+    try {
+        writeFileSync(lockPath, `${JSON.stringify({
+            schema_version: 2,
+            pid: 51639,
+            started_at: "not a timestamp",
+            socket_path: join(root, "host.sock"),
+        })}\n`);
+        const signals: string[] = [];
+        let output = "";
+        const exitCode = await runCli(["host", "stop", "--yes"], {
+            stopHost: () => gracefulStopResidentHost({
+                lockPath,
+                kill: (pid, signal) => signals.push(`${signal}:${pid}`),
+                isProcessAlive: () => true,
+                readStartedAt: () => Date.now(),
+                readCommand: () => "/usr/sbin/syslogd",
+            }),
+            stdout: { write: (text) => output += text },
+        });
+
+        expect(exitCode).toBe(0);
+        expect(output).toBe(
+            "PID 51639 is no longer a Vera host; cleared its stale lockfile.\n",
+        );
+        expect(signals).toEqual([]);
+        expect(existsSync(lockPath)).toBe(false);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("vera host stop --force says it cleared the lockfile of a host that had already exited", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => ({ pid: 51639, endedBy: "already_dead" }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "Resident Vera host PID 51639 had already exited; cleared its lockfile.\n",
+    );
+});
+
+test("vera host stop --force says a PID that is no longer a Vera host only had its stale lockfile cleared", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => ({ pid: 51639, endedBy: "not_ours" }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "PID 51639 is no longer a Vera host; cleared its stale lockfile.\n",
+    );
 });
 
 test("vera host stop --force reports a host it could not identify and exits nonzero", async () => {

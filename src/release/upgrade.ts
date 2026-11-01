@@ -37,6 +37,19 @@ import { veraHomeDirectory } from "../profile-paths.ts";
 
 export type UpgradePhase = "draining" | "activating" | "starting";
 
+// Names the command a message tells the user to run again.
+export type UpgradeOperation = "install" | "rollback";
+
+function retryCommand(operation: UpgradeOperation): string {
+    return operation === "rollback" ? "'vera rollback'" : "'bun run install:local'";
+}
+
+function unchangedReleaseNote(operation: UpgradeOperation): string {
+    return operation === "rollback"
+        ? "Nothing was rolled back."
+        : "The previous release is still active.";
+}
+
 export interface UpgradeJournal {
     readonly phase: UpgradePhase;
     readonly from_build_id: string | null;
@@ -54,6 +67,7 @@ export interface UpgradeLocalOptions {
     readonly verify?: (releaseRoot: string) => void;
     readonly drainHost?: () => Promise<"stopped" | "absent">;
     readonly startHost?: (releaseRoot: string) => Promise<void>;
+    readonly operation?: UpgradeOperation;
 }
 
 export interface UpgradedLocal {
@@ -159,28 +173,38 @@ export async function clearUpgradeJournal(
     }
 }
 
-export async function defaultDrainHost(): Promise<"stopped" | "absent"> {
+// "stopped" means a running host was stopped, so the new release starts one.
+export async function defaultDrainHost(
+    operation: UpgradeOperation = "install",
+): Promise<"stopped" | "absent"> {
     const outcome = await gracefulStopResidentHost();
     if (outcome === undefined) return "absent";
-    if (outcome.endedBy === "unverified") {
-        throw new Error(
-            `${unverifiedHostMessage(outcome.pid)} Run 'bun run install:local'`
-                + " again. The previous release is still active.",
-        );
+    switch (outcome.endedBy) {
+        case "unverified":
+            throw new Error(
+                `${unverifiedHostMessage(outcome)} Run ${retryCommand(operation)}`
+                    + ` again. ${unchangedReleaseNote(operation)}`,
+            );
+        case "survived":
+            throw new Error(
+                `Resident Vera host PID ${outcome.pid} is still running. `
+                    + "Stop it with 'vera host stop --force' and run "
+                    + `${retryCommand(operation)} again. `
+                    + unchangedReleaseNote(operation),
+            );
+        case "already_dead":
+        case "not_ours":
+            return "absent";
+        case "sigterm":
+        case "sigkill":
+            return "stopped";
     }
-    if (outcome.endedBy === "survived") {
-        throw new Error(
-            `Resident Vera host PID ${outcome.pid} is still running. `
-                + "Stop it with 'vera host stop --force' and run "
-                + "'bun run install:local' again. The previous release is still active.",
-        );
-    }
-    return "stopped";
 }
 
 export interface EnsureHostOptions {
     readonly publishTimeoutMs?: number;
     readonly exitGraceMs?: number;
+    readonly operation?: UpgradeOperation;
 }
 
 // Thrown when the host this command started cannot be stopped. Rolling back must
@@ -220,7 +244,10 @@ function canonicalPath(path: string, hops = 0): string {
 }
 
 // The daily prefix goes with the default home, and a test prefix with a private one.
-function assertPrefixMayManageHost(prefix: string): void {
+function assertPrefixMayManageHost(
+    prefix: string,
+    operation: UpgradeOperation,
+): void {
     const dailyPrefix = canonicalPath(prefix) === canonicalPath(defaultInstallPrefix());
     const selectedHome = veraHomeDirectory();
     const dailyHome = veraHomeDirectory(userHome());
@@ -228,16 +255,16 @@ function assertPrefixMayManageHost(prefix: string): void {
     if (dailyPrefix === selectsDailyHome) return;
     if (dailyPrefix) {
         throw new Error(
-            `This install would switch the daily release under ${prefix} but stop `
-                + `and start only the host of ${selectedHome}, which VERA_HOME selects. `
-                + "Unset VERA_HOME for a daily install, or add --prefix for a test "
-                + "install. Nothing was changed.",
+            `This ${operation} would switch the daily release under ${prefix} but `
+                + `stop and start only the host of ${selectedHome}, which VERA_HOME `
+                + `selects. Unset VERA_HOME for a daily ${operation}, or add --prefix `
+                + `for a test ${operation}. Nothing was changed.`,
         );
     }
     throw new Error(
-        `--prefix ${prefix} is a test prefix, and this install would stop and `
+        `--prefix ${prefix} is a test prefix, and this ${operation} would stop and `
             + `start the host of the default Vera home, ${dailyHome}. `
-            + "Set VERA_HOME to a private home for a test install. "
+            + `Set VERA_HOME to a private home for a test ${operation}. `
             + "Nothing was changed.",
     );
 }
@@ -284,6 +311,7 @@ export async function defaultEnsureHost(
     options: EnsureHostOptions = {},
 ): Promise<void> {
     const expected = readStampedRelease(releaseRoot).build_id;
+    const retry = retryCommand(options.operation ?? "install");
     const lockPath = defaultHostLockPath();
     const existing = await liveHostRecord(lockPath);
     if (existing !== undefined) {
@@ -291,7 +319,7 @@ export async function defaultEnsureHost(
         throw new Error(
             `Resident Vera host PID ${existing.pid} is running ${describeBuild(existing)}, `
                 + `not ${expected}. Stop it with 'vera host stop' and run `
-                + "'bun run install:local' again.",
+                + `${retry} again.`,
         );
     }
     const child = spawn(join(releaseRoot, RELEASE_HOST_NAME), [], {
@@ -326,8 +354,8 @@ export async function defaultEnsureHost(
     if (stopped) throw new Error(`${message}The host it started was stopped.`);
     throw new StartedHostSurvivedError(
         `${message}The host it started (PID ${child.pid}) is still running; `
-            + "stop it with 'vera host stop --force'. The next "
-            + "'bun run install:local' starts the host again.",
+            + `stop it with 'vera host stop --force'. The next ${retry} starts `
+            + "the host again.",
     );
 }
 
@@ -335,9 +363,11 @@ export async function recoverInterruptedUpgrade(
     options: {
         readonly prefix?: string;
         readonly startHost?: (releaseRoot: string) => Promise<void>;
+        readonly operation?: UpgradeOperation;
     } = {},
 ): Promise<{ readonly recovered: boolean; readonly buildId: string | undefined }> {
     const prefix = options.prefix ?? defaultInstallPrefix();
+    const operation = options.operation ?? "install";
     const journal = await readUpgradeJournal(prefix);
     if (journal === undefined) {
         return { recovered: false, buildId: currentReleaseBuildId(prefix) };
@@ -346,8 +376,13 @@ export async function recoverInterruptedUpgrade(
         ?? (journal.phase === "starting" ? journal.to_build_id : journal.from_build_id)
         ?? undefined;
     if (journal.host_was_running && current !== undefined) {
-        if (options.startHost === undefined) assertPrefixMayManageHost(prefix);
-        await (options.startHost ?? defaultEnsureHost)(releaseDirectory(current, prefix));
+        const releaseRoot = releaseDirectory(current, prefix);
+        if (options.startHost === undefined) {
+            assertPrefixMayManageHost(prefix, operation);
+            await defaultEnsureHost(releaseRoot, { operation });
+        } else {
+            await options.startHost(releaseRoot);
+        }
     }
     await clearUpgradeJournal(prefix);
     return { recovered: true, buildId: current };
@@ -376,15 +411,17 @@ export async function upgradeLocalInstall(
     options: UpgradeLocalOptions,
 ): Promise<UpgradedLocal> {
     const prefix = options.prefix ?? defaultInstallPrefix();
+    const operation = options.operation ?? "install";
     if (options.drainHost === undefined || options.startHost === undefined) {
-        assertPrefixMayManageHost(prefix);
+        assertPrefixMayManageHost(prefix, operation);
     }
-    const startHost = options.startHost ?? defaultEnsureHost;
-    const drainHost = options.drainHost ?? defaultDrainHost;
+    const startHost = options.startHost
+        ?? ((releaseRoot: string) => defaultEnsureHost(releaseRoot, { operation }));
+    const drainHost = options.drainHost ?? (() => defaultDrainHost(operation));
     const verify = options.verify
         ?? ((releaseRoot: string) => verifyPackedRelease(releaseRoot, prefix));
 
-    await recoverInterruptedUpgrade({ prefix, startHost });
+    await recoverInterruptedUpgrade({ prefix, startHost, operation });
     const fromBuildId = currentReleaseBuildId(prefix) ?? null;
 
     const packed = await options.pack();

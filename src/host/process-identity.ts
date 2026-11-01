@@ -38,19 +38,84 @@ export function processStartedAt(pid: number): number | undefined {
     return startedAt >= 0 ? startedAt : undefined;
 }
 
+export function processCommandLine(pid: number): string | undefined {
+    let output: string;
+    try {
+        // -ww: a truncated line could drop the entry path that marks a host.
+        output = execFileSync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+        });
+    } catch {
+        return undefined;
+    }
+    const command = output.trim();
+    return command.length > 0 ? command : undefined;
+}
+
+export type VeraProcessKind =
+    | "host"
+    | "client"
+    | "watchdog"
+    | "worker"
+    | "supervisor"
+    | "test_fixture";
+
+export function classifyVeraProcess(command: string): VeraProcessKind | undefined {
+    if (/(?:^|\s)(?:\S*\/)?clients\/host\/main\.ts(?:\s|$)/.test(command)) {
+        return "host";
+    }
+    if (/(?:^|\s)(?:\S*\/)?clients\/tui\/flight-watchdog\.ts(?:\s|$)/.test(
+        command,
+    )) {
+        return "watchdog";
+    }
+    if (
+        /(?:^|\s)\S*\/\.bun\/bin\/vera(?:\s|$)/.test(command)
+        || /(?:^|\s)(?:\S*\/)?clients\/(?:cli|tui)\/main\.ts(?:\s|$)/.test(
+            command,
+        )
+    ) {
+        return "client";
+    }
+    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker-supervisor\.ts(?:\s|$)/.test(
+        command,
+    )) {
+        return "supervisor";
+    }
+    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)) {
+        return "worker";
+    }
+    if (
+        /(?:^|\s)(?:\S*\/)?test\/support\/\S+-(?:child|resident-host)\.ts(?:\s|$)/
+            .test(command)
+    ) {
+        return "test_fixture";
+    }
+    return undefined;
+}
+
 export type RecordIdentity = "match" | "mismatch" | "unknown";
 
 /** "unknown" means the start time could not be measured. Never signal on it. */
 export function checkRecordIdentity(
     record: { readonly pid: number; readonly started_at: string },
     lookup: (pid: number) => number | undefined = processStartedAt,
+    readCommand: (pid: number) => string | undefined = processCommandLine,
 ): RecordIdentity {
     const startedAt = lookup(record.pid);
     if (startedAt === undefined || Number.isNaN(new Date(startedAt).getTime())) {
         return "unknown";
     }
     const recorded = Date.parse(record.started_at);
-    if (Number.isNaN(recorded)) return "unknown";
+    if (Number.isNaN(recorded)) {
+        // With no recorded start time, the command line can only rule a
+        // process out. A mismatch here must never lead to a signal.
+        const command = readCommand(record.pid);
+        return command !== undefined && classifyVeraProcess(command) === undefined
+            ? "mismatch"
+            : "unknown";
+    }
     return Math.abs(startedAt - recorded) <= START_TIME_TOLERANCE_MS
         ? "match"
         : "mismatch";

@@ -46,6 +46,8 @@ export function gcReleases(
     const referenced = referencedBuildIds(prefix);
     const removed: string[] = [];
     for (const name of readdirSync(root)) {
+        // Dot entries belong to a pack that may still be running.
+        if (name.startsWith(".")) continue;
         if (referenced.has(name)) continue;
         const path = releaseDirectory(name, prefix);
         rmSync(path, { recursive: true, force: false });
