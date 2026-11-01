@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { listTool } from "../../src/tools/list.ts";
+import { executeToolHandler } from "../../src/tools/execute.ts";
+import { isUnderDirectory, listTool } from "../../src/tools/list.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import {
     decideToolPermission,
@@ -79,6 +80,114 @@ test("list respects recursive and glob filters", async () => {
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
+});
+
+async function withOutsideFile(
+    run: (workspace: string, outside: string) => Promise<void>,
+): Promise<void> {
+    const parent = await mkdtemp(join(tmpdir(), "vera-list-"));
+    try {
+        const workspace = join(parent, "workspace");
+        await mkdir(join(workspace, "sub"), { recursive: true });
+        await writeFile(join(workspace, "inside.txt"), "");
+        await writeFile(join(workspace, "sub", "nested.txt"), "");
+        await writeFile(join(parent, "secret-outside.txt"), "");
+        await run(workspace, parent);
+    } finally {
+        await rm(parent, { recursive: true, force: true });
+    }
+}
+
+test("list refuses a glob with a parent segment", async () => {
+    await withOutsideFile(async (workspace) => {
+        for (
+            const [path, glob] of [
+                [".", "../*"],
+                ["sub", "../../*"],
+                [".", "sub/../*"],
+                [".", "./../**"],
+                [".", "{..,x}/*"],
+                [".", ".."],
+            ] as const
+        ) {
+            await expect(listTool.execute(
+                { path, glob },
+                new ToolRuntime(workspace),
+                new AbortController().signal,
+            )).rejects.toThrow(/cannot contain a "\.\." segment/);
+        }
+    });
+});
+
+test("list refuses an absolute glob", async () => {
+    await withOutsideFile(async (workspace, outside) => {
+        await expect(listTool.execute(
+            { path: ".", glob: `${outside}/*` },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        )).rejects.toThrow(/cannot be an absolute path/);
+    });
+});
+
+test("list reports a refused glob as an error result", async () => {
+    await withOutsideFile(async (workspace) => {
+        const result = await executeToolHandler(
+            {
+                type: "tool_call",
+                id: "call_1",
+                name: "list",
+                input: { path: ".", glob: "../*" },
+            },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+        expect(result).toMatchObject({ kind: "output", isError: true });
+        if (result.kind === "output") {
+            expect(result.output).not.toContain("secret-outside");
+        }
+    });
+});
+
+test("list keeps a glob that only contains dots in names", async () => {
+    await withOutsideFile(async (workspace) => {
+        await writeFile(join(workspace, "a..b.txt"), "");
+        const result = await listTool.execute(
+            { path: ".", glob: "a..*" },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+        expect(result).toMatchObject({ kind: "output", isError: false });
+        if (result.kind === "output") {
+            expect(result.output).toContain("a..b.txt");
+        }
+    });
+});
+
+test("list does not walk through a symlink that points outside", async () => {
+    await withOutsideFile(async (workspace, outside) => {
+        await symlink(outside, join(workspace, "link-out"));
+        const result = await listTool.execute(
+            { path: ".", recursive: true },
+            new ToolRuntime(workspace),
+            new AbortController().signal,
+        );
+        expect(result).toMatchObject({ kind: "output", isError: false });
+        if (result.kind === "output") {
+            expect(result.output).not.toContain("secret-outside");
+        }
+    });
+});
+
+test("list keeps only emitted paths under the listed directory", () => {
+    const directory = "/work/space";
+    expect(isUnderDirectory("/work/space/a.txt", directory)).toBe(true);
+    expect(isUnderDirectory("/work/space/sub/b.txt", directory)).toBe(true);
+    expect(isUnderDirectory("/work/secret.txt", directory)).toBe(false);
+    expect(isUnderDirectory("/work", directory)).toBe(false);
+    expect(isUnderDirectory("/work/space", directory)).toBe(false);
+    expect(isUnderDirectory("/work/space-other/a.txt", directory)).toBe(false);
+    expect(isUnderDirectory("/work/space/a.txt", "/work/space/")).toBe(true);
+    expect(isUnderDirectory("/etc/passwd", "/")).toBe(true);
 });
 
 test("list caps entries and reports the window so the model can page", async () => {

@@ -1,3 +1,5 @@
+import { isAbsolute, sep } from "node:path";
+
 import type { RegisteredTool, ToolOutput } from "./types.ts";
 import { resolveReadPath } from "./files.ts";
 
@@ -43,6 +45,9 @@ export const listTool: RegisteredTool = {
         if (globValue !== undefined && typeof globValue !== "string") {
             throw new Error("list tool glob must be a string");
         }
+        if (globValue !== undefined) {
+            assertGlobStaysInside(globValue);
+        }
         const maxResults = parseMaxResults(input.max_results);
         const offset = parseOffset(input.offset);
         const pattern = `${recursive ? "**/" : ""}${globValue ?? "*"}`;
@@ -57,7 +62,9 @@ export const listTool: RegisteredTool = {
                 absolute: true,
             })
         ) {
-            paths.push(entry);
+            if (isUnderDirectory(entry, targetPath)) {
+                paths.push(entry);
+            }
         }
         paths.sort();
         return {
@@ -67,6 +74,28 @@ export const listTool: RegisteredTool = {
         };
     },
 };
+
+// The trailing separator keeps a sibling such as `space-other` from matching.
+export function isUnderDirectory(entry: string, directory: string): boolean {
+    const prefix = directory.endsWith(sep) ? directory : `${directory}${sep}`;
+    return entry.startsWith(prefix);
+}
+
+function assertGlobStaysInside(glob: string): void {
+    if (isAbsolute(glob)) {
+        throw new Error(
+            "list tool glob cannot be an absolute path: it is matched "
+                + "inside the listed path. Pass the directory as path instead.",
+        );
+    }
+    if (glob.split(/[/\\{},]/).includes("..")) {
+        throw new Error(
+            'list tool glob cannot contain a ".." segment: results must '
+                + "stay under the listed path. List the parent directory "
+                + "as path instead.",
+        );
+    }
+}
 
 function formatEntries(
     paths: readonly string[],
