@@ -825,6 +825,93 @@ test("accident guard refuses protected recursive deletion in every profile", () 
     }
 });
 
+test("accident guard refuses protected deletion at every shell nesting depth", () => {
+    for (let wrappers = 0; wrappers <= 6; wrappers += 1) {
+        for (const mode of modes()) {
+            const decision = decide(
+                mode,
+                bash(wrapInShells("rm -rf /", wrappers)),
+            );
+            expect(decision.behavior).toBe("deny");
+            if (decision.behavior === "deny") {
+                expect(decision.source).toBe("accident_guard");
+            }
+        }
+    }
+});
+
+test("accident guard refuses shell nested deeper than it can inspect", () => {
+    for (const wrappers of [5, 6]) {
+        for (const mode of modes()) {
+            const decision = decide(
+                mode,
+                bash(wrapInShells("echo hello", wrappers)),
+            );
+            expect(decision.behavior).toBe("deny");
+            if (decision.behavior === "deny") {
+                expect(decision.source).toBe("accident_guard");
+            }
+        }
+    }
+});
+
+test("accident guard follows shell inside backticks and process substitution past the nesting cap", () => {
+    const commands = [
+        "echo `bash -c 'rm -rf /'`",
+        "cat <(bash -c 'rm -rf /')",
+    ];
+    for (const command of commands) {
+        for (let wrappers = 0; wrappers <= 6; wrappers += 1) {
+            for (const mode of modes()) {
+                const decision = decide(
+                    mode,
+                    bash(wrapInShells(command, wrappers)),
+                );
+                expect(decision.behavior).toBe("deny");
+                if (decision.behavior === "deny") {
+                    expect(decision.source).toBe("accident_guard");
+                }
+            }
+        }
+    }
+});
+
+test("arithmetic expansion at the nesting cap is not mistaken for a substitution", () => {
+    const command = bash(wrapInShells("echo $((1+1))", 4));
+    expect(decide("ask", command).behavior).toBe("ask");
+    expect(decide("auto", command).behavior).toBe("review");
+    expect(decide("full_access", command).behavior).toBe("allow");
+});
+
+test("substitutions at the nesting cap are still refused next to arithmetic", () => {
+    const commands = [
+        "echo $(echo hi)",
+        "echo $((1+1)) $(echo hi)",
+        "echo $(( $(echo hi) + 1 ))",
+        "echo $((cd /tmp); echo hi)",
+    ];
+    for (const command of commands) {
+        for (const mode of modes()) {
+            const decision = decide(mode, bash(wrapInShells(command, 4)));
+            expect(decision.behavior).toBe("deny");
+            if (decision.behavior === "deny") {
+                expect(decision.source).toBe("accident_guard");
+            }
+        }
+    }
+});
+
+test("shell nested within the inspected depth keeps its ordinary decision", () => {
+    for (let wrappers = 0; wrappers <= 4; wrappers += 1) {
+        const command = bash(wrapInShells("echo hello", wrappers));
+        expect(decide("ask", command).behavior)
+            .toBe(wrappers === 0 ? "allow" : "ask");
+        expect(decide("auto", command).behavior)
+            .toBe(wrappers === 0 ? "allow" : "review");
+        expect(decide("full_access", command).behavior).toBe("allow");
+    }
+});
+
 test("accident guard does not guess unresolved deletion targets", () => {
     expect(decide(
         "full_access",
@@ -1158,6 +1245,14 @@ function actions(command: string) {
         workspace,
         homeDirectory,
     });
+}
+
+function wrapInShells(command: string, wrappers: number): string {
+    let wrapped = command;
+    for (let layer = 0; layer < wrappers; layer += 1) {
+        wrapped = `bash -c "${wrapped.replace(/[\\"`$]/g, "\\$&")}"`;
+    }
+    return wrapped;
 }
 
 function bash(command: string): HookToolCall {

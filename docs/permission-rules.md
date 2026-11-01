@@ -51,6 +51,8 @@ workspace. This check runs before the mode, so an Always answer or a Session
 grant cannot allow it. Run the deletion yourself if you mean it. The check reads
 the command as written, so a target built from a variable or a command
 substitution, such as `$HOME`, is not caught.
+Shell nested more than four levels deep, such as `bash -c` inside `bash -c`
+five times, is refused too, because Vera cannot check what runs inside it.
 
 ## Answer a prompt
 
