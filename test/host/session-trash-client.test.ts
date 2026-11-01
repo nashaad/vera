@@ -5,9 +5,11 @@ import { join } from "node:path";
 
 import { trashSessionThroughHost } from "../../src/host/session-trash-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { AgentAttachError, attachAgent } from "../../src/host/attached-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { trashSessionArtifacts } from "../../src/host/session-trash.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { emptyUsage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
@@ -92,6 +94,121 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
             )).not.toContain("saved");
         } finally {
             await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+async function trashParentOfFinishedChild(
+    root: string,
+    childSessionPath: string | undefined,
+): Promise<void> {
+    const socketPath = join(root, "host.sock");
+    const sessionDirectory = join(root, "sessions");
+    const host = await startResidentHost({
+        config: {
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            approval_mode: "auto",
+        },
+        createAdapter: () => new FauxAdapter(
+            Array.from({ length: 4 }, () => ({
+                role: "assistant" as const,
+                content: [{
+                    type: "text" as const,
+                    text: "The crow is done.",
+                }],
+                source: {
+                    provider: "faux",
+                    api: "scripted",
+                    model: "test",
+                },
+                usage: emptyUsage(),
+                stopReason: "stop" as const,
+            })),
+        ),
+        socketPath,
+        lockPath: join(root, "host.json"),
+        sessionDirectory,
+        eventLogDirectory: join(root, "logs"),
+        trashSessionArtifacts: (artifacts) =>
+            trashSessionArtifacts(artifacts, { moveToTrash: async () => {} }),
+    });
+    try {
+        await host.registry.create({ id: "parent", workspace: root });
+        await host.registry.createWithKind(
+            {
+                id: "child",
+                workspace: root,
+                ...(childSessionPath === undefined
+                    ? {}
+                    : { sessionPath: childSessionPath }),
+            },
+            "background",
+            { approvalMode: "auto", parentId: "parent" },
+        );
+        host.registry.find("child")!.sendPrompt("bury the treasure");
+        host.registry.trackAsyncSubagentTurn("child");
+        const deadline = Date.now() + 3_000;
+        while (
+            !host.registry.list().every((agent) =>
+                host.registry.find(agent.id)?.idleForShutdown() === true
+            )
+            || host.registry.list().find((agent) => agent.id === "child")
+                ?.status !== "completed"
+        ) {
+            if (Date.now() > deadline) {
+                throw new Error("the child did not finish");
+            }
+            await Bun.sleep(10);
+        }
+
+        expect(await trashSessionThroughHost(socketPath, "parent"))
+            .toEqual({ status: "trashed" });
+
+        expect(host.registry.list()).toEqual([]);
+        expect(await stat(join(sessionDirectory, "parent.jsonl"))
+            .then(() => true, () => false)).toBe(false);
+        await expect(attachAgent({ socketPath, agentId: "parent" }))
+            .rejects.toBeInstanceOf(AgentAttachError);
+        const listed = await listAgentsThroughHost(socketPath);
+        expect(listed.map((agent) => agent.id)).toEqual(["child"]);
+        expect(listed[0]).toMatchObject({
+            live: false,
+            session_path: childSessionPath
+                ?? join(sessionDirectory, "child.jsonl"),
+        });
+        const client = await attachAgent({ socketPath, agentId: "child" });
+        expect(client.agentId).toBe("child");
+        client.close();
+    } finally {
+        await host.close();
+    }
+}
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host keeps a finished child listed after its parent is trashed",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-trash-finished-child-"));
+        try {
+            await trashParentOfFinishedChild(root, undefined);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host lists a finished child by its own session path after its parent is trashed",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-trash-elsewhere-child-"));
+        try {
+            await trashParentOfFinishedChild(
+                root,
+                join(root, "elsewhere", "child.jsonl"),
+            );
+        } finally {
             await rm(root, { recursive: true, force: true });
         }
     },

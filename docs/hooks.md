@@ -549,7 +549,7 @@ the hook fires when the host closes it. It gets the session ID, workspace,
 | `detached` | The last client left: quitting, `/new`, or switching sessions. |
 | `closed` | A client or the parent agent closed it. |
 | `idle` | The host parked it after it sat idle. |
-| `deleted` | It was moved to the trash. |
+| `deleted` | It was moved to the trash. A finished subagent closed with a trashed conversation gets this too; its own file stays. |
 | `shutdown` | The host stopped. |
 
 Closing a session also ends the subagents it started, each with

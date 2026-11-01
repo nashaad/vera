@@ -1217,9 +1217,19 @@ export async function startResidentHost(
             commitBranch: (agentId) => registry.commitBranch(agentId),
             syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
             trashSession: async (targetId) => {
+                // Read before closing: a child's file need not sit in sessionDirectory.
+                const closedWithTarget = registry.ownedTreeIds(targetId)
+                    .filter((id) => id !== targetId)
+                    .flatMap((id) => registry.agents.get(id)?.store.path ?? []);
                 const resident = await registry.trashSession(targetId);
                 if (resident === "trashed") {
                     storedSessionIndex.delete(targetId);
+                    for (const sessionPath of closedWithTarget) {
+                        await indexStoredSession(
+                            sessionPath,
+                            storedSessionIndex,
+                        );
+                    }
                     return resident;
                 }
                 if (resident !== "not_found") return resident;
