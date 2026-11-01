@@ -60,6 +60,10 @@ export class InboxDeliverySession {
     private readonly onceEntries = new Set<number>();
     private readonly lastWoken = new Map<string, number>();
     private readonly lastAdmissionAttempt = new Map<string, number>();
+    // Newest visible entry when a family's question was dismissed; only a later arrival asks again.
+    private readonly dismissedThrough = new Map<string, number>();
+    // Delivered whole while an earlier unread entry holds the cursor back; acknowledged once it is next.
+    private readonly deliveredAhead = new Set<number>();
     private readonly pendingAdmissionFamilies = new Map<
         string,
         AbortController
@@ -105,6 +109,7 @@ export class InboxDeliverySession {
         this.onceEntries.clear();
         this.lastWoken.clear();
         this.lastAdmissionAttempt.clear();
+        this.dismissedThrough.clear();
         for (const controller of this.pendingAdmissionFamilies.values()) {
             controller.abort();
         }
@@ -118,12 +123,40 @@ export class InboxDeliverySession {
             addresses: [this.handle.label],
             excludeKinds: UNCOUNTED_INBOX_KINDS,
         });
-        for (const entry of entries) {
-            const candidate = candidateFor(entry);
-            if (this.isAdmitted(candidate)) return true;
-            return false;
+        return entries.some((entry) =>
+            !this.deliveredAhead.has(entry.seq)
+            && this.isAdmitted(candidateFor(entry))
+        );
+    }
+
+    /** The entry's text is in the conversation: acknowledge it now if it is next, else when it becomes next. */
+    noteDelivered(seq: number): void {
+        if (this.released) return;
+        this.deliveredAhead.add(seq);
+        this.acknowledgeDelivered();
+    }
+
+    /** Acknowledges the run of delivered entries now at the front. Call after every other acknowledgement. */
+    acknowledgeDelivered(): void {
+        if (this.released) return;
+        const offset = this.handle.offset();
+        for (const seq of this.deliveredAhead) {
+            if (seq <= offset) this.deliveredAhead.delete(seq);
         }
-        return false;
+        while (this.deliveredAhead.size > 0) {
+            const next = this.handle.read({
+                limit: 1,
+                addresses: [this.handle.label],
+                excludeKinds: [RETIRED_PEER_READ_KIND],
+            })[0];
+            if (next === undefined || !this.deliveredAhead.has(next.seq)) return;
+            try {
+                this.handle.acknowledge(next.seq);
+            } catch {
+                return;
+            }
+            this.deliveredAhead.delete(next.seq);
+        }
     }
 
     isAdmittedSource(sourceFamily: string): boolean {
@@ -148,16 +181,29 @@ export class InboxDeliverySession {
             addresses: [this.handle.label],
             excludeKinds: UNCOUNTED_INBOX_KINDS,
         });
+        // Only the first unadmitted entry is asked about; admitted entries behind it still start turns.
+        let questionOffered = false;
+        const newestSeq = entries.at(-1)?.seq ?? 0;
         for (const entry of entries) {
+            if (this.deliveredAhead.has(entry.seq)) continue;
             const candidate = candidateFor(entry);
-            const admitted = this.isAdmitted(candidate);
-            if (admitted) {
+            if (this.isAdmitted(candidate)) {
                 this.maybeStartTurn(candidate);
                 continue;
             }
-            this.maybeRequestAdmission(candidate);
-            break;
+            if (questionOffered) continue;
+            questionOffered = true;
+            this.maybeRequestAdmission(candidate, newestSeq);
         }
+    }
+
+    private newestVisibleSeq(): number {
+        const entries = this.handle.read({
+            limit: MAX_INBOX_NOTICE_COUNT,
+            addresses: [this.handle.label],
+            excludeKinds: UNCOUNTED_INBOX_KINDS,
+        });
+        return entries.at(-1)?.seq ?? 0;
     }
 
     private isAdmitted(candidate: InboxAdmissionCandidate): boolean {
@@ -179,7 +225,10 @@ export class InboxDeliverySession {
         }
     }
 
-    private maybeRequestAdmission(candidate: InboxAdmissionCandidate): void {
+    private maybeRequestAdmission(
+        candidate: InboxAdmissionCandidate,
+        newestSeq: number,
+    ): void {
         if (
             this.requestAdmission === undefined
             || !this.canStartTurn()
@@ -189,6 +238,9 @@ export class InboxDeliverySession {
         }
         const previous = this.lastAdmissionAttempt.get(candidate.sourceFamily);
         if (previous !== undefined && candidate.seq <= previous) return;
+        const dismissed = this.dismissedThrough.get(candidate.sourceFamily);
+        if (dismissed !== undefined && newestSeq <= dismissed) return;
+        this.dismissedThrough.delete(candidate.sourceFamily);
         this.lastAdmissionAttempt.set(candidate.sourceFamily, candidate.seq);
         const controller = new AbortController();
         this.pendingAdmissionFamilies.set(candidate.sourceFamily, controller);
@@ -196,7 +248,25 @@ export class InboxDeliverySession {
             candidate,
             controller.signal,
         ).then(async (decision) => {
-            if (decision === undefined || !this.canStartTurn()) return;
+            if (decision === undefined) {
+                // A dismissed question is not an answer: the next arrival visible here asks again.
+                if (!controller.signal.aborted && !this.released) {
+                    // Cleared here, not in finally, so an arrival pumped before finally can ask.
+                    if (
+                        this.pendingAdmissionFamilies.get(candidate.sourceFamily)
+                        === controller
+                    ) {
+                        this.pendingAdmissionFamilies.delete(candidate.sourceFamily);
+                    }
+                    this.lastAdmissionAttempt.delete(candidate.sourceFamily);
+                    this.dismissedThrough.set(
+                        candidate.sourceFamily,
+                        this.newestVisibleSeq(),
+                    );
+                }
+                return;
+            }
+            if (!this.canStartTurn()) return;
             if (decision.mode === "session") {
                 this.sessionFamilies.add(candidate.sourceFamily);
             } else if (decision.mode === "once") {

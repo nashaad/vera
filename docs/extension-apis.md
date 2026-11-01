@@ -218,7 +218,9 @@ const outcome = await vera.sessions.send(
 `queued` means the message is in the conversation's inbox. It starts a turn
 without asking the user, because installing an extension that declares
 `sessions.send` is the consent. If a turn is running, the new one starts after
-it, and the transcript shows your text.
+it, and the transcript shows your text. A question about another message in
+the same inbox that the user has not answered does not delay yours. Your
+message is marked read once the messages before it have been read.
 
 If the host restarts before the message is read, it waits in the inbox and
 Vera asks whether to admit its source: the last part of your extension ID, so
