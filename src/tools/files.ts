@@ -4,7 +4,11 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileChangePresentation } from "./diff-presentation.ts";
 import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
-import { findSkillByPath, loadSkillCatalog } from "../skills/catalog.ts";
+import {
+    findDisabledSkillByPath,
+    findSkillByPath,
+    loadSkillCatalog,
+} from "../skills/catalog.ts";
 import { invocationRefusal } from "../skills/invocation-gate.ts";
 import { SKILL_FILENAME } from "../skills/package.ts";
 
@@ -51,6 +55,14 @@ export const readTool: RegisteredTool = {
             const catalog = await loadSkillCatalog({
                 projectRoot: context.instructionRoot,
             });
+            const disabled = findDisabledSkillByPath(catalog, safePath);
+            if (disabled !== undefined) {
+                return {
+                    kind: "output",
+                    output: `Skill ${disabled.metadata.name} is disabled by disabled_skills.`,
+                    isError: true,
+                };
+            }
             const skill = findSkillByPath(catalog, safePath);
             if (
                 skill !== undefined
