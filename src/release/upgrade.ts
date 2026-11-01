@@ -1,11 +1,13 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import {
     mkdirSync,
+    readlinkSync,
+    realpathSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
 import { readFile, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve as resolvePath } from "node:path";
 
 import { activateRelease } from "./activate.ts";
 import {
@@ -16,14 +18,19 @@ import {
     RELEASE_HOST_NAME,
     releaseDirectory,
     upgradeJournalPath,
+    userHome,
 } from "./layout.ts";
 import type { ReleaseManifest } from "./manifest.ts";
+import { readStampedRelease } from "./stamp.ts";
 import { verifyPackedRelease } from "./verify.ts";
 import {
     defaultHostLockPath,
     readHostLockRecordFile,
+    type HostLockRecord,
 } from "../host/lockfile.ts";
 import { gracefulStopResidentHost } from "../host/force-stop.ts";
+import { recordMatchesRunningProcess } from "../host/process-identity.ts";
+import { veraHomeDirectory } from "../profile-paths.ts";
 
 export type UpgradePhase = "draining" | "activating" | "starting";
 
@@ -162,11 +169,121 @@ export async function defaultDrainHost(): Promise<"stopped" | "absent"> {
     return "stopped";
 }
 
-export async function defaultEnsureHost(releaseRoot: string): Promise<void> {
+export interface EnsureHostOptions {
+    readonly publishTimeoutMs?: number;
+    readonly exitGraceMs?: number;
+}
+
+// Thrown when the host this command started cannot be stopped. Rolling back must
+// not start the previous host next to it.
+export class StartedHostSurvivedError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "StartedHostSurvivedError";
+    }
+}
+
+const DEFAULT_PUBLISH_TIMEOUT_MS = 10_000;
+const UNPUBLISHED_HOST_EXIT_MS = 3_000;
+
+const MAX_LINK_HOPS = 40;
+
+// A VERA_HOME or prefix that is a symlink to the daily path must compare equal
+// to it, even when the link dangles or the path does not exist yet.
+function canonicalPath(path: string, hops = 0): string {
+    const absolute = resolvePath(path);
+    try {
+        return realpathSync(absolute);
+    } catch {
+        // A missing or dangling component: resolve the parent, then follow a link.
+    }
+    const parent = dirname(absolute);
+    if (parent === absolute) return absolute;
+    const candidate = join(canonicalPath(parent, hops), basename(absolute));
+    if (hops >= MAX_LINK_HOPS) return candidate;
+    let target: string;
+    try {
+        target = readlinkSync(candidate);
+    } catch {
+        return candidate;
+    }
+    return canonicalPath(resolvePath(dirname(candidate), target), hops + 1);
+}
+
+// The daily prefix goes with the default home, and a test prefix with a private one.
+function assertPrefixMayManageHost(prefix: string): void {
+    const dailyPrefix = canonicalPath(prefix) === canonicalPath(defaultInstallPrefix());
+    const selectedHome = veraHomeDirectory();
+    const dailyHome = veraHomeDirectory(userHome());
+    const selectsDailyHome = canonicalPath(selectedHome) === canonicalPath(dailyHome);
+    if (dailyPrefix === selectsDailyHome) return;
+    if (dailyPrefix) {
+        throw new Error(
+            `This install would switch the daily release under ${prefix} but stop `
+                + `and start only the host of ${selectedHome}, which VERA_HOME selects. `
+                + "Unset VERA_HOME for a daily install, or add --prefix for a test "
+                + "install. Nothing was changed.",
+        );
+    }
+    throw new Error(
+        `--prefix ${prefix} is a test prefix, and this install would stop and `
+            + `start the host of the default Vera home, ${dailyHome}. `
+            + "Set VERA_HOME to a private home for a test install. "
+            + "Nothing was changed.",
+    );
+}
+
+async function liveHostRecord(lockPath: string): Promise<HostLockRecord | undefined> {
+    const record = await readHostLockRecordFile(lockPath);
+    if (record === undefined || !processIsAlive(record.pid)) return undefined;
+    return recordMatchesRunningProcess(record) ? record : undefined;
+}
+
+function describeBuild(record: HostLockRecord): string {
+    return record.build_id ?? "an unknown build";
+}
+
+function hasExited(child: ChildProcess): boolean {
+    return child.exitCode !== null || child.signalCode !== null;
+}
+
+function waitForExit(child: ChildProcess, ms: number): Promise<boolean> {
+    if (hasExited(child)) return Promise.resolve(true);
+    return new Promise<boolean>((done) => {
+        const onExit = (): void => {
+            clearTimeout(timer);
+            done(true);
+        };
+        const timer = setTimeout(() => {
+            child.off("exit", onExit);
+            done(false);
+        }, ms);
+        child.once("exit", onExit);
+    });
+}
+
+async function stopUnpublishedHost(child: ChildProcess, graceMs: number): Promise<boolean> {
+    if (hasExited(child)) return true;
+    child.kill("SIGTERM");
+    if (await waitForExit(child, graceMs)) return true;
+    child.kill("SIGKILL");
+    return waitForExit(child, graceMs);
+}
+
+export async function defaultEnsureHost(
+    releaseRoot: string,
+    options: EnsureHostOptions = {},
+): Promise<void> {
+    const expected = readStampedRelease(releaseRoot).build_id;
     const lockPath = defaultHostLockPath();
-    const existing = await readHostLockRecordFile(lockPath);
-    if (existing !== undefined && processIsAlive(existing.pid)) {
-        return;
+    const existing = await liveHostRecord(lockPath);
+    if (existing !== undefined) {
+        if (existing.build_id === expected) return;
+        throw new Error(
+            `Resident Vera host PID ${existing.pid} is running ${describeBuild(existing)}, `
+                + `not ${expected}. Stop it with 'vera host stop' and run `
+                + "'bun run install:local' again.",
+        );
     }
     const child = spawn(join(releaseRoot, RELEASE_HOST_NAME), [], {
         argv0: "vera-host",
@@ -180,16 +297,28 @@ export async function defaultEnsureHost(releaseRoot: string): Promise<void> {
         });
         child.once("error", reject);
     });
-    const deadline = Date.now() + 10_000;
+    const timeoutMs = options.publishTimeoutMs ?? DEFAULT_PUBLISH_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    let published: HostLockRecord | undefined;
     while (Date.now() < deadline) {
-        const record = await readHostLockRecordFile(lockPath);
-        if (record !== undefined && processIsAlive(record.pid)) {
-            return;
-        }
+        published = await liveHostRecord(lockPath);
+        if (published?.build_id === expected) return;
         await waitFor(50);
     }
-    throw new Error(
-        `The host from ${releaseRoot} did not publish ${lockPath} in time.`,
+    const stopped = await stopUnpublishedHost(
+        child,
+        options.exitGraceMs ?? UNPUBLISHED_HOST_EXIT_MS,
+    );
+    const shows = published === undefined
+        ? "no live host"
+        : `host PID ${published.pid} on ${describeBuild(published)}`;
+    const message = `The host from ${releaseRoot} did not publish build ${expected} in `
+        + `${lockPath} within ${timeoutMs} ms; the lock shows ${shows}. `;
+    if (stopped) throw new Error(`${message}The host it started was stopped.`);
+    throw new StartedHostSurvivedError(
+        `${message}The host it started (PID ${child.pid}) is still running; `
+            + "stop it with 'vera host stop --force'. The next "
+            + "'bun run install:local' starts the host again.",
     );
 }
 
@@ -207,9 +336,9 @@ export async function recoverInterruptedUpgrade(
     const current = currentReleaseBuildId(prefix)
         ?? (journal.phase === "starting" ? journal.to_build_id : journal.from_build_id)
         ?? undefined;
-    const startHost = options.startHost ?? defaultEnsureHost;
     if (journal.host_was_running && current !== undefined) {
-        await startHost(releaseDirectory(current, prefix));
+        if (options.startHost === undefined) assertPrefixMayManageHost(prefix);
+        await (options.startHost ?? defaultEnsureHost)(releaseDirectory(current, prefix));
     }
     await clearUpgradeJournal(prefix);
     return { recovered: true, buildId: current };
@@ -220,11 +349,14 @@ async function restorePreviousRelease(
     fromBuildId: string | null,
     hostWasRunning: boolean,
     startHost: (releaseRoot: string) => Promise<void>,
+    startedHostSurvived: boolean,
 ): Promise<void> {
     const current = currentReleaseBuildId(prefix);
     if (fromBuildId !== null && current !== fromBuildId) {
         activateRelease(releaseDirectory(fromBuildId, prefix), prefix);
     }
+    // The journal stays, so the next install starts the host once the survivor is gone.
+    if (startedHostSurvived) return;
     if (hostWasRunning && fromBuildId !== null) {
         await startHost(releaseDirectory(fromBuildId, prefix));
     }
@@ -235,6 +367,9 @@ export async function upgradeLocalInstall(
     options: UpgradeLocalOptions,
 ): Promise<UpgradedLocal> {
     const prefix = options.prefix ?? defaultInstallPrefix();
+    if (options.drainHost === undefined || options.startHost === undefined) {
+        assertPrefixMayManageHost(prefix);
+    }
     const startHost = options.startHost ?? defaultEnsureHost;
     const drainHost = options.drainHost ?? defaultDrainHost;
     const verify = options.verify
@@ -291,6 +426,7 @@ export async function upgradeLocalInstall(
                 fromBuildId,
                 hostWasRunning,
                 startHost,
+                error instanceof StartedHostSurvivedError,
             );
         } catch (restoreError) {
             const first = error instanceof Error ? error.message : String(error);

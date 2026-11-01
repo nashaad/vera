@@ -33,7 +33,12 @@ existing host, it starts the new release's host afterward. Failure leaves the
 previous release active.
 
 `--prefix DIR` chooses a test installation prefix. The daily prefix is
-`$HOME/.local`.
+`$HOME/.local`. A test prefix stops and starts only the host of the home that
+`VERA_HOME` selects. Set `VERA_HOME` to a private home for a test install.
+Against the default home the install is refused before anything is stopped.
+The daily prefix goes with the default home, so an install without `--prefix`
+is refused when `VERA_HOME` selects another home. Unset `VERA_HOME` for a
+daily install.
 
 ## Run checkout code
 
