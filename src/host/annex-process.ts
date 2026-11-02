@@ -6,11 +6,8 @@ import {
     releaseBinaryPath,
     thisProcessReleaseRoot,
 } from "../release/layout.ts";
-import {
-    DEFAULT_ANNEX_PORT,
-    readSavedAnnexPort,
-    saveAnnexPort,
-} from "./annex-port.ts";
+import { defaultVeraHomeDirectory } from "../profile-paths.ts";
+import { saveAnnexPort, wantedAnnexPort } from "./annex-port.ts";
 
 const LISTEN_DEADLINE_MS = 10_000;
 const STOP_GRACE_MS = 2_000;
@@ -19,8 +16,8 @@ export interface AnnexProcess {
     readonly url: string;
     readonly pid: number;
     readonly port: number;
-    /** The saved port this home moved off because it was taken. */
-    readonly movedFromPort: number | undefined;
+    /** The port this home wanted, when something else held it for this run. */
+    readonly busyPort: number | undefined;
     close(): Promise<void>;
 }
 
@@ -32,6 +29,8 @@ export interface StartAnnexProcessOptions {
     /** Page servers call their extension's host handlers through it. */
     readonly hostSocketPath?: string;
     readonly command?: readonly string[];
+    /** The home that may use the default port. Defaults to the one used without VERA_HOME. */
+    readonly defaultHome?: string;
     readonly onExit?: (reason: string) => void;
 }
 
@@ -42,13 +41,16 @@ export async function startAnnexProcess(
         releaseBinaryPath(RELEASE_ANNEX_NAME),
     ];
     const [bin, ...prefix] = executable;
-    const savedPort = readSavedAnnexPort(options.home);
+    const wanted = wantedAnnexPort(
+        options.home,
+        options.defaultHome ?? defaultVeraHomeDirectory(),
+    );
     const args = [
         ...prefix,
         "--home",
         options.home,
         "--port",
-        String(savedPort ?? DEFAULT_ANNEX_PORT),
+        String(wanted.port ?? 0),
         "--any-port-if-busy",
         "--assets",
         options.assets ?? packedAnnexRoot(thisProcessReleaseRoot()),
@@ -72,11 +74,15 @@ export async function startAnnexProcess(
 
     const url = await waitForAnnexUrl(child);
     const port = Number(new URL(url).port);
-    if (port !== savedPort) {
+    const busyPort = wanted.port !== undefined && wanted.port !== port
+        ? wanted.port
+        : undefined;
+    // A stand-in port is never saved, so the next start asks for the wanted one again.
+    if (!wanted.saved && busyPort === undefined) {
         try {
             saveAnnexPort(options.home, port);
         } catch {
-            // Unsaved, the next start tries the old port again.
+            // Unsaved, the next start chooses again.
         }
     }
     let closing = false;
@@ -92,9 +98,7 @@ export async function startAnnexProcess(
         url,
         pid,
         port,
-        movedFromPort: savedPort !== undefined && savedPort !== port
-            ? savedPort
-            : undefined,
+        busyPort,
         async close() {
             closing = true;
             await stopAnnexChild(child);

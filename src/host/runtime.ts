@@ -1384,10 +1384,10 @@ export async function startResidentHost(
                 },
             });
             markAnnexOk(annex.url);
-            if (annex.movedFromPort !== undefined) {
+            if (annex.busyPort !== undefined) {
                 hostLog({
-                    type: "annex_port_moved",
-                    previous_port: annex.movedFromPort,
+                    type: "annex_port_busy",
+                    wanted_port: annex.busyPort,
                     port: annex.port,
                 });
             }

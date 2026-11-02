@@ -1,11 +1,31 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-// "VERA" on a phone keypad.
+// "VERA" on a phone keypad. Only the default Vera home asks for it.
 export const DEFAULT_ANNEX_PORT = 8372;
+
+export interface WantedAnnexPort {
+    // undefined means any free port will do.
+    readonly port: number | undefined;
+    readonly saved: boolean;
+}
 
 export function annexPortPath(veraHome: string): string {
     return join(veraHome, "runtime", "annex.json");
+}
+
+// Any other home never asks for 8372, even with it saved, so it cannot keep
+// the default home off its port.
+export function wantedAnnexPort(veraHome: string, defaultHome: string): WantedAnnexPort {
+    const isDefaultHome = resolve(veraHome) === resolve(defaultHome);
+    const saved = readSavedAnnexPort(veraHome);
+    if (saved !== undefined && (isDefaultHome || saved !== DEFAULT_ANNEX_PORT)) {
+        return { port: saved, saved: true };
+    }
+    return {
+        port: isDefaultHome ? DEFAULT_ANNEX_PORT : undefined,
+        saved: false,
+    };
 }
 
 export function readSavedAnnexPort(veraHome: string): number | undefined {

@@ -10,6 +10,11 @@ export function veraHomeDirectory(home?: string): string {
     if (home !== undefined) return join(home, ".vera");
     const override = process.env[VERA_HOME_ENV]?.trim();
     if (override !== undefined && override.length > 0) return override;
+    return defaultVeraHomeDirectory();
+}
+
+// The home a Vera uses when VERA_HOME is unset.
+export function defaultVeraHomeDirectory(): string {
     return join(homedir(), ".vera");
 }
 
