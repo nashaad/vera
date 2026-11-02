@@ -131,7 +131,7 @@ describe("inbox notice hardening", () => {
         inbox.close();
     });
 
-    test("filtered unread status exposes count and oldest age without payloads", () => {
+    test("filtered unread status exposes count, oldest age and newest seq without payloads", () => {
         const { inbox, consumers } = bench();
         const handle = consumers.hello({ label: "worker" });
         inbox.appendAll([
@@ -147,6 +147,7 @@ describe("inbox notice hardening", () => {
         }, Date.parse("2026-08-09T12:00:10.000Z"))).toEqual({
             count: 1,
             oldestAgeMs: 8_000,
+            newestSeq: 1,
         });
         expect(handle.offset()).toBe(0);
         inbox.close();

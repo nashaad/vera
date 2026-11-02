@@ -268,7 +268,7 @@ export interface InboundCommandRouterOptions {
             readonly tone: "primary" | "soft" | "error";
         },
     ) => Promise<void>;
-    readonly hasPendingDeliveryTurn?: () => boolean;
+    readonly hasPendingDeliveryTurn?: () => boolean | Promise<boolean>;
     readonly onDeliveryTurnDiscarded?: () => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
@@ -431,6 +431,8 @@ export class InboundCommandRouter {
     private receiveFailed = false;
     private pendingPromptCount = 0;
     private deliveryTurnQueued = false;
+    private askingHostForDelivery = false;
+    private wakeSeenWhileAsking = false;
     private contextAppend: Promise<void> | undefined;
     private compactionAbort: AbortController | undefined;
     private compactionInFlight: Promise<void> | undefined;
@@ -491,10 +493,25 @@ export class InboundCommandRouter {
                         }
                         queued = prompt;
                     }
-                    if (
-                        queued.triggeredByDelivery !== true
-                        || this.options.hasPendingDeliveryTurn?.() !== false
-                    ) {
+                    let proceed = queued.triggeredByDelivery !== true;
+                    while (!proceed) {
+                        this.wakeSeenWhileAsking = false;
+                        const pending = this.options.hasPendingDeliveryTurn?.();
+                        // Only a worker's answer is a promise; awaiting a plain boolean would add a yield here.
+                        if (!(pending instanceof Promise)) {
+                            proceed = pending !== false;
+                            break;
+                        }
+                        this.askingHostForDelivery = true;
+                        try {
+                            proceed = (await pending) !== false;
+                        } finally {
+                            this.askingHostForDelivery = false;
+                        }
+                        // A wake that arrived during the question may be for an entry the answer predates.
+                        if (proceed || !this.wakeSeenWhileAsking) break;
+                    }
+                    if (proceed) {
                         if (queued.triggeredByDelivery === true) {
                             this.deliveryTurnQueued = false;
                         }
@@ -1112,6 +1129,11 @@ export class InboundCommandRouter {
                 if (command.type === "trigger_delivery_turn") {
                     await this.contextAppend;
                     if (this.deliveryTurnQueued) {
+                        // Folded into the queued wake, so the host stops counting this one as running.
+                        if (this.askingHostForDelivery) {
+                            this.wakeSeenWhileAsking = true;
+                        }
+                        this.options.onDeliveryTurnDiscarded?.();
                         continue;
                     }
                     this.deliveryTurnQueued = true;

@@ -663,6 +663,414 @@ describe("inbox arrival notices", () => {
     });
 });
 
+describe("inbox delivery edges", () => {
+    test("an admitted entry past the first window of unread entries still starts a turn", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"));
+        const started: number[] = [];
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+            requestAdmission: (_candidate, signal) => new Promise((resolve) => {
+                signal.addEventListener("abort", () => resolve(undefined), { once: true });
+            }),
+        });
+        inbox.appendAll(Array.from(
+            { length: MAX_INBOX_NOTICE_COUNT },
+            () => entry({ source: "watch/git", kind: "filesystem.changed" }),
+        ));
+
+        await coordinator.appendAdmitted(entry({
+            source: "example.scout",
+            kind: "extension_message",
+        }));
+
+        expect(started).toEqual([MAX_INBOX_NOTICE_COUNT + 1]);
+        expect(session.hasAdmittedPending()).toBe(true);
+        inbox.close();
+    });
+
+    test("an admitted family behind a full window of held entries still starts a turn", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+        });
+        const started: number[] = [];
+        coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+        });
+        inbox.appendAll(Array.from(
+            { length: MAX_INBOX_NOTICE_COUNT },
+            () => entry({ source: "watch/git", kind: "filesystem.changed" }),
+        ));
+
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+
+        expect(started).toEqual([MAX_INBOX_NOTICE_COUNT + 1]);
+        inbox.close();
+    });
+
+    test("an arrival past the first window asks again after a dismissal", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"));
+        const asked: number[] = [];
+        coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            requestAdmission: async (candidate) => {
+                asked.push(candidate.seq);
+                return undefined;
+            },
+        });
+        inbox.appendAll(Array.from(
+            { length: MAX_INBOX_NOTICE_COUNT + 20 },
+            () => entry({ source: "watch/git", kind: "filesystem.changed" }),
+        ));
+        await coordinator.pumpAll();
+        await settle();
+        expect(asked).toEqual([1]);
+
+        await coordinator.append(entry({ source: "watch/git", kind: "filesystem.changed" }));
+        await settle();
+
+        expect(asked).toEqual([1, 1]);
+        inbox.close();
+    });
+
+    test("a start that fails asynchronously is retried at the next pump", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+        });
+        const started: number[] = [];
+        let failNext = true;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: async (candidate) => {
+                started.push(candidate.seq);
+                if (failNext) {
+                    failNext = false;
+                    throw new Error("the delivery could not be recorded");
+                }
+            },
+        });
+
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        await settle();
+        expect(started).toEqual([1]);
+
+        await session.pump();
+        await settle();
+
+        expect(started).toEqual([1, 1]);
+        await session.pump();
+        await settle();
+        expect(started).toEqual([1, 1]);
+        inbox.close();
+    });
+
+    test("a start that throws keeps the earlier wake of its family", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+        });
+        const started: number[] = [];
+        let failSecond = true;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => {
+                started.push(candidate.seq);
+                if (candidate.seq === 2 && failSecond) {
+                    failSecond = false;
+                    throw new Error("recipient closed");
+                }
+            },
+        });
+        inbox.appendAll([
+            entry({ source: "arc", kind: "arc.post" }),
+            entry({ source: "arc", kind: "arc.post" }),
+        ]);
+
+        await session.pump();
+        await session.pump();
+
+        expect(started).toEqual([1, 2, 2]);
+        inbox.close();
+    });
+
+    test("a failed start does not start a later entry of the same family a second time", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+            retryDelaysMs: [],
+        });
+        const started: number[] = [];
+        let rejectFirst: ((error: Error) => void) | undefined;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => {
+                started.push(candidate.seq);
+                if (candidate.seq === 1 && started.length === 1) {
+                    return new Promise<void>((_resolve, reject) => { rejectFirst = reject; });
+                }
+            },
+        });
+        inbox.appendAll([
+            entry({ source: "arc", kind: "arc.post" }),
+            entry({ source: "arc", kind: "arc.post" }),
+        ]);
+        await session.pump();
+        expect(started).toEqual([1, 2]);
+
+        rejectFirst?.(new Error("the delivery could not be recorded"));
+        await settle();
+        await session.pump();
+
+        expect(started).toEqual([1, 2, 1]);
+        session.release();
+        inbox.close();
+    });
+
+    test("a start that keeps failing is retried a few times, then reported once", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+            retryDelaysMs: [5, 5],
+        });
+        const started: number[] = [];
+        const reported: number[] = [];
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: async (candidate) => {
+                started.push(candidate.seq);
+                if (candidate.seq === 1) throw new Error("the delivery could not be recorded");
+            },
+            onStartFailure: (candidate) => { reported.push(candidate.seq); },
+        });
+
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        await Bun.sleep(150);
+
+        expect(started).toEqual([1, 1, 1]);
+        expect(reported).toEqual([1]);
+
+        // A later arrival still gets one more try, and the entry is not reported again.
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        await Bun.sleep(150);
+        expect(started.filter((seq) => seq === 1)).toHaveLength(4);
+        expect(reported).toEqual([1]);
+        session.release();
+        inbox.close();
+    });
+
+    test("a retry that succeeds is not reported and stops retrying", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+            retryDelaysMs: [5, 5],
+        });
+        const started: number[] = [];
+        const reported: number[] = [];
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: async (candidate) => {
+                started.push(candidate.seq);
+                if (started.length === 1) throw new Error("the delivery could not be recorded");
+            },
+            onStartFailure: (candidate) => { reported.push(candidate.seq); },
+        });
+
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        await Bun.sleep(100);
+
+        expect(started).toEqual([1, 1]);
+        expect(reported).toEqual([]);
+        session.release();
+        inbox.close();
+    });
+
+    test("releasing the session cancels a pending retry", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+            retryDelaysMs: [20],
+        });
+        const started: number[] = [];
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: async (candidate) => {
+                started.push(candidate.seq);
+                throw new Error("the delivery could not be recorded");
+            },
+        });
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        await settle();
+        expect(started).toEqual([1]);
+
+        session.release();
+        await Bun.sleep(80);
+
+        expect(started).toEqual([1]);
+        inbox.close();
+    });
+
+    test("a client that reattaches sees a delivery failure reported again", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+            retryDelaysMs: [5, 5],
+        });
+        const started: number[] = [];
+        const reported: number[] = [];
+        let attached = true;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => attached,
+            startTurn: async (candidate) => {
+                started.push(candidate.seq);
+                throw new Error("the delivery could not be recorded");
+            },
+            onStartFailure: (candidate) => { reported.push(candidate.seq); },
+        });
+
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        await Bun.sleep(100);
+        expect(reported).toEqual([1]);
+
+        attached = false;
+        session.clientAttachmentChanged(false);
+        attached = true;
+        session.clientAttachmentChanged(true);
+        await session.pump();
+        await Bun.sleep(100);
+
+        expect(started).toHaveLength(6);
+        expect(reported).toEqual([1, 1]);
+        session.release();
+        inbox.close();
+    });
+
+    test("a start from a detached attachment that fails late leaves the new attachment's mark alone", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"), {
+            admission: new InboxAdmissionPolicy({ user: ["arc"] }),
+            retryDelaysMs: [5],
+        });
+        const started: number[] = [];
+        let attached = true;
+        let rejectOld: ((error: Error) => void) | undefined;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => attached,
+            startTurn: (candidate) => {
+                started.push(candidate.seq);
+                if (started.length === 1) {
+                    return new Promise<void>((_resolve, reject) => { rejectOld = reject; });
+                }
+                return new Promise<void>(() => undefined);
+            },
+        });
+        await coordinator.append(entry({ source: "arc", kind: "arc.post" }));
+        expect(started).toEqual([1]);
+
+        attached = false;
+        session.clientAttachmentChanged(false);
+        attached = true;
+        session.clientAttachmentChanged(true);
+        await session.pump();
+        expect(started).toEqual([1, 1]);
+
+        rejectOld?.(new Error("the delivery could not be recorded"));
+        await settle();
+        await session.pump();
+        await Bun.sleep(50);
+
+        expect(started).toEqual([1, 1]);
+        session.release();
+        inbox.close();
+    });
+
+    test("releasing the session aborts a pending admission question", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"));
+        let signal: AbortSignal | undefined;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            requestAdmission: (_candidate, questionSignal) => {
+                signal = questionSignal;
+                return new Promise((resolve) => {
+                    questionSignal.addEventListener("abort", () => resolve(undefined), { once: true });
+                });
+            },
+        });
+        await coordinator.append(entry({ source: "watch/git", kind: "filesystem.changed" }));
+        expect(signal?.aborted).toBe(false);
+
+        session.release();
+        await settle();
+
+        expect(signal?.aborted).toBe(true);
+        inbox.close();
+    });
+
+    test("an answer that arrives after release starts nothing", async () => {
+        const inbox = Inbox.open(":memory:");
+        const coordinator = new InboxDeliveryCoordinator(new ConsumerRegistry(inbox, "node-a"));
+        const started: number[] = [];
+        let answer: ((decision: InboxAdmissionDecision) => void) | undefined;
+        const session = coordinator.attach({
+            label: "worker",
+            session: SESSION,
+            notify: () => undefined,
+            canStartTurn: () => true,
+            startTurn: (candidate) => { started.push(candidate.seq); },
+            requestAdmission: () => new Promise((resolve) => { answer = resolve; }),
+        });
+        await coordinator.append(entry({ source: "watch/git", kind: "filesystem.changed" }));
+
+        session.release();
+        answer?.({ mode: "once" });
+        await settle();
+
+        expect(started).toEqual([]);
+        inbox.close();
+    });
+});
+
 async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));

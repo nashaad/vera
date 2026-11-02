@@ -808,6 +808,48 @@ test("a delivery wake the engine discards stops blocking shutdown", async () => 
     agent.close();
 });
 
+test("a discarded wake leaves the conversation busy while a later wake is still outstanding", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    agent.attach().detach();
+    await agent.engine.receive();
+
+    agent.triggerDeliveryTurn();
+    expect(await agent.engine.receive()).toEqual({ type: "trigger_delivery_turn" });
+    agent.triggerDeliveryTurn();
+    expect(await agent.engine.receive()).toEqual({ type: "trigger_delivery_turn" });
+
+    agent.deliveryTurnDiscarded();
+    expect(agent.idleForReplacement()).toBeFalse();
+    agent.deliveryTurnDiscarded();
+    expect(agent.idleForReplacement()).toBeTrue();
+
+    // A report with nothing outstanding does not owe the next wake a credit.
+    agent.deliveryTurnDiscarded();
+    agent.triggerDeliveryTurn();
+    await agent.engine.receive();
+    expect(agent.idleForReplacement()).toBeFalse();
+    agent.deliveryTurnDiscarded();
+    expect(agent.idleForReplacement()).toBeTrue();
+    agent.close();
+});
+
+test("a turn that starts settles every wake that was outstanding", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    agent.attach().detach();
+    await agent.engine.receive();
+
+    agent.triggerDeliveryTurn();
+    await agent.engine.receive();
+    agent.triggerDeliveryTurn();
+    await agent.engine.receive();
+    expect(agent.idleForReplacement()).toBeFalse();
+
+    agent.engine.send({ type: "status", state: "working", seq: 1 });
+    agent.engine.send({ type: "turn_finished", seq: 2 });
+    expect(agent.idleForReplacement()).toBeTrue();
+    agent.close();
+});
+
 test("two prompts accepted before either starts keep their own pending state", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const attachment = agent.attach();

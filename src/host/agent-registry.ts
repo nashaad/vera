@@ -1288,7 +1288,23 @@ export class AgentRegistry {
                 },
                 canStartTurn: () => agent.attached,
                 startTurn: (candidate) => {
-                    this.trackDelivery(registryRoster.startAdmittedInboxTurn(this, entry, candidate));
+                    const started = registryRoster.startAdmittedInboxTurn(this, entry, candidate);
+                    // The inbox handles a rejection; the tracked copy only waits for the task to end.
+                    this.trackDelivery(started.catch(() => undefined));
+                    return started;
+                },
+                onStartFailure: (candidate: InboxAdmissionCandidate) => {
+                    if (!agent.closed && !agent.failed && agent.attached) {
+                        events.emit({
+                            type: "task_notification",
+                            deliveryId: `inbox-start:${candidate.seq}`,
+                            sourceAgentId: agent.id,
+                            content:
+                                `Could not record a message from ${candidate.sourceFamily}; `
+                                + "the inbox entry is still held.",
+                            kind: "attention",
+                        });
+                    }
                 },
                 ...(admissionPath ? {
                     requestAdmission: (candidate: InboxAdmissionCandidate, signal: AbortSignal) =>

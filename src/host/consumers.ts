@@ -29,14 +29,19 @@ export interface ConsumerHelloRequest {
 
 export interface ConsumerReadOptions {
     readonly limit: number;
+    readonly afterSeq?: number;
     readonly addresses?: readonly string[];
     readonly excludeSelfEcho?: boolean;
     readonly excludeKinds?: readonly string[];
 }
 
+// A count that skipped part of the unread run would misreport it, so unreadStatus takes no afterSeq.
+export type ConsumerUnreadOptions = Omit<ConsumerReadOptions, "afterSeq">;
+
 export interface ConsumerUnreadStatus {
     readonly count: number;
     readonly oldestAgeMs: number | null;
+    readonly newestSeq: number | null;
 }
 
 export interface ConsumerStatus {
@@ -105,6 +110,7 @@ export class ConsumerHandle {
         this.assertLive();
         return this.inbox.read(this.id, {
             limit: options.limit,
+            ...(options.afterSeq === undefined ? {} : { afterSeq: options.afterSeq }),
             ...(options.addresses === undefined
                 ? {}
                 : { addresses: options.addresses }),
@@ -118,7 +124,7 @@ export class ConsumerHandle {
     }
 
     unreadStatus(
-        options: ConsumerReadOptions,
+        options: ConsumerUnreadOptions,
         nowMs: number = Date.now(),
     ): ConsumerUnreadStatus {
         this.assertLive();
@@ -140,6 +146,7 @@ export class ConsumerHandle {
             oldestAgeMs: Number.isFinite(oldestMs)
                 ? Math.max(0, nowMs - oldestMs)
                 : null,
+            newestSeq: stats.newestSeq,
         };
     }
 

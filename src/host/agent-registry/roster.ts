@@ -224,27 +224,18 @@ function peerSenderLabel(reg: AgentRegistry, seq: number): string | undefined {
     }
 
 // An admitted turn for a peer message needs the notice, or the recipient wakes with nothing new to read.
+// A notice that cannot be recorded rejects, so the inbox starts the entry again at its next pump.
 export async function startAdmittedInboxTurn(reg: AgentRegistry, recipient: RegisteredAgentEntry, candidate: InboxAdmissionCandidate): Promise<void> {
         if (candidate.kind === PEER_MESSAGE_KIND) {
             const sender = peerSenderLabel(reg, candidate.seq);
             // A notice already recorded by a detached wake is not repeated, and its turn is not run twice.
             if (sender !== undefined) {
-                let recorded: boolean;
-                try {
-                    recorded = await recordPeerMessage(reg, recipient, sender, candidate.seq);
-                } catch {
-                    recorded = false;
-                }
+                const recorded = await recordPeerMessage(reg, recipient, sender, candidate.seq);
                 if (!recorded) return;
             }
         }
         if (candidate.kind === EXTENSION_MESSAGE_KIND) {
-            let recorded: boolean;
-            try {
-                recorded = await recordExtensionNotice(reg, recipient, candidate.seq);
-            } catch {
-                recorded = false;
-            }
+            const recorded = await recordExtensionNotice(reg, recipient, candidate.seq);
             if (!recorded) return;
         }
         try {

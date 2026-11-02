@@ -580,10 +580,19 @@ export async function runHeadlessLoop(
         compactNow: async (turnActive, signal) => {
             await compactOnRequest?.(turnActive, signal);
         },
-        hasPendingDeliveryTurn: () =>
-            store.pendingDeliveries().length > 0
-            || store.hasUnansweredDeliveryTurn()
-            || router.hasPendingDeliveryTurn?.() === true,
+        hasPendingDeliveryTurn: () => {
+            const inSession = (): boolean =>
+                store.pendingDeliveries().length > 0 || store.hasUnansweredDeliveryTurn();
+            if (inSession()) {
+                return true;
+            }
+            const hostPending = router.hasPendingDeliveryTurn?.();
+            if (hostPending instanceof Promise) {
+                // The session can gain the entry while the host answers, so ask it again after.
+                return hostPending.then((pending) => pending || inSession());
+            }
+            return hostPending === true;
+        },
         ...(router.onDeliveryTurnDiscarded === undefined ? {} : {
             onDeliveryTurnDiscarded: router.onDeliveryTurnDiscarded,
         }),

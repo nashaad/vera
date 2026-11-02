@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import { join } from "node:path";
 import {
     Inbox,
     type ConsumerId,
+    orderedReadQuery,
     type InboxEntryInput,
 } from "../../src/store/inbox.ts";
 
@@ -87,6 +89,77 @@ test("reads honour the caller limit and stay in seq order", () => {
     expect(page.map((row) => row.seq)).toEqual([1, 2]);
     inbox.advance(watcher, page[1]!.seq);
     expect(inbox.read(watcher, { limit: 2 }).map((row) => row.seq)).toEqual([3, 4]);
+    inbox.close();
+});
+
+test("afterSeq narrows every read that accepts it, never below the consumer offset", () => {
+    const inbox = Inbox.open(":memory:");
+    inbox.registerConsumer(watcher);
+    for (let index = 0; index < 6; index += 1) {
+        inbox.append(entry({ kind: `k${index}` }));
+    }
+
+    expect(inbox.read(watcher, { limit: 10, afterSeq: 3 }).map((row) => row.seq))
+        .toEqual([4, 5, 6]);
+    expect(inbox.readAfter(0, { limit: 10, afterSeq: 4 }).map((row) => row.seq))
+        .toEqual([5, 6]);
+    expect(inbox.unreadStats(watcher, { limit: 10, afterSeq: 4 })).toMatchObject({
+        count: 2,
+        newestSeq: 6,
+    });
+
+    inbox.advance(watcher, 5);
+    expect(inbox.read(watcher, { limit: 10, afterSeq: 2 }).map((row) => row.seq))
+        .toEqual([6]);
+    inbox.close();
+});
+
+test("an ordered read merges one index search per address instead of scanning or sorting", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-inbox-plan-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "inbox.db");
+    Inbox.open(path).close();
+
+    const { sql, parameters } = orderedReadQuery(5, {
+        limit: 99,
+        addresses: ["reviewer", "builder"],
+        excludeKinds: ["noise"],
+        excludeOrigin: { actor: "nash", session: "opus-91" },
+    });
+    const database = new Database(path);
+    const plan = database
+        .query<{ detail: string }, (string | number | null)[]>(`EXPLAIN QUERY PLAN ${sql}`)
+        .all(...parameters)
+        .map((row) => row.detail)
+        .join("\n");
+    database.close();
+
+    // A seq scan or temp sort pays for every row after the cursor, including other conversations' rows.
+    expect(plan).toContain("MERGE (UNION ALL)");
+    expect(plan.match(/SEARCH entries USING INDEX entries_address \(address=\? AND seq>\?\)/g)).toHaveLength(3);
+    expect(plan).not.toContain("SCAN");
+    expect(plan).not.toContain("TEMP B-TREE");
+    expect(plan).not.toContain("MULTI-INDEX OR");
+});
+
+test("an ordered read interleaves addresses and broadcasts in seq order and lists a repeated address once", () => {
+    const inbox = Inbox.open(":memory:");
+    inbox.registerConsumer(watcher);
+    inbox.appendAll([
+        entry({ address: "reviewer" }),
+        entry({ address: "other" }),
+        entry({ address: null }),
+        entry({ address: "builder" }),
+        entry({ address: "reviewer" }),
+    ]);
+
+    const seqs = (addresses: readonly string[], limit: number): number[] =>
+        inbox.read(watcher, { limit, addresses }).map((read) => read.seq);
+
+    expect(seqs(["reviewer", "builder", "reviewer"], 99)).toEqual([1, 3, 4, 5]);
+    expect(seqs(["reviewer", "builder"], 3)).toEqual([1, 3, 4]);
+    expect(seqs([], 99)).toEqual([3]);
+    expect(inbox.read(watcher, { limit: 99 }).map((read) => read.seq)).toEqual([1, 2, 3, 4, 5]);
     inbox.close();
 });
 
