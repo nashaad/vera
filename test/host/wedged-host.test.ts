@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { ensureResidentHost } from "../../src/host/discovery.ts";
 import {
     createHostLockfile,
+    defaultHostLockPath,
     HostUnresponsiveError,
     readHostLockRecordFile,
     type HostLockDiagnosis,
@@ -152,8 +153,8 @@ test("replacing a wedged host it cannot identify signals nothing and starts no n
             `Could not confirm PID ${bystander.pid} is the Vera host (its`
                 + " lockfile has no valid start time); left it running and kept"
                 + ` its lockfile. Check that PID ${bystander.pid} is a Vera host`
-                + " before you stop it. If it is not, deleting runtime/host.json"
-                + " in the Vera home is safe. A new host was not started.",
+                + ` before you stop it. If it is not, deleting ${defaultHostLockPath()}`
+                + " is safe. A new host was not started.",
         );
         expect(starts).toBe(0);
         expect(bystander.signalCode).toBeNull();

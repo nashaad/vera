@@ -469,11 +469,16 @@ test("the unverified message names the pid and says the lockfile was kept", () =
         "Could not confirm PID 101 is the Vera host (process start time"
             + " unreadable); left it running and kept its lockfile. Try again.",
     );
-    expect(unverifiedHostMessage({ pid: 101, lockStartTimeInvalid: true })).toBe(
+    expect(
+        unverifiedHostMessage(
+            { pid: 101, lockStartTimeInvalid: true },
+            "/tmp/vera/runtime/host.json",
+        ),
+    ).toBe(
         "Could not confirm PID 101 is the Vera host (its lockfile has no valid"
             + " start time); left it running and kept its lockfile. Check that"
             + " PID 101 is a Vera host before you stop it. If it is not, deleting"
-            + " runtime/host.json in the Vera home is safe.",
+            + " /tmp/vera/runtime/host.json is safe.",
     );
 });
 
@@ -575,6 +580,93 @@ test("a host that outlives SIGKILL is reported, not claimed as stopped", async (
         expect(outcome).toEqual({ pid: 101, endedBy: "survived" });
         // A live host keeps its record; clearing it would let a second start.
         expect(existsSync(path)).toBe(true);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("force stop does not send SIGKILL to a pid reused while it waited out SIGTERM", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-reuse-"));
+    const path = join(root, "host.json");
+    try {
+        await writeFile(path, `${JSON.stringify(record)}\n`);
+        const signals: string[] = [];
+        let reused = false;
+        const outcome = await forceStopResidentHost({
+            lockPath: path,
+            sigtermGraceMs: 10,
+            sigkillGraceMs: 10,
+            pollIntervalMs: 1,
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                if (signal === "SIGTERM") reused = true;
+            },
+            isProcessAlive: () => true,
+            matchesRecord: () => !reused,
+            wait: async () => {},
+        });
+
+        expect(signals).toEqual(["SIGTERM:101"]);
+        expect(outcome).toEqual({ pid: 101, endedBy: "not_ours" });
+        // The recorded host is gone, so its record is cleared.
+        expect(existsSync(path)).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("force stop does not send SIGKILL when the pid can no longer be identified", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-reuse-"));
+    const path = join(root, "host.json");
+    try {
+        await writeFile(path, `${JSON.stringify(record)}\n`);
+        const signals: string[] = [];
+        let termSent = false;
+        const outcome = await forceStopResidentHost({
+            lockPath: path,
+            sigtermGraceMs: 10,
+            sigkillGraceMs: 10,
+            pollIntervalMs: 1,
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                if (signal === "SIGTERM") termSent = true;
+            },
+            isProcessAlive: () => true,
+            readStartedAt: () => termSent ? undefined : Date.parse(record.started_at),
+            wait: async () => {},
+        });
+
+        expect(signals).toEqual(["SIGTERM:101"]);
+        expect(outcome).toEqual({ pid: 101, endedBy: "unverified" });
+        expect(existsSync(path)).toBe(true);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("force stop reports a host that exited during the SIGTERM wait without a SIGKILL", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-reuse-"));
+    const path = join(root, "host.json");
+    try {
+        await writeFile(path, `${JSON.stringify(record)}\n`);
+        const signals: string[] = [];
+        let waits = 0;
+        const outcome = await forceStopResidentHost({
+            lockPath: path,
+            sigtermGraceMs: 0,
+            pollIntervalMs: 1,
+            kill: (pid, signal) => signals.push(`${signal}:${pid}`),
+            // Alive at the first check, at the poll, then gone before the kill.
+            isProcessAlive: () => {
+                waits += 1;
+                return waits <= 2;
+            },
+            matchesRecord: () => true,
+            wait: async () => {},
+        });
+
+        expect(signals).toEqual(["SIGTERM:101"]);
+        expect(outcome).toEqual({ pid: 101, endedBy: "sigterm" });
     } finally {
         await rm(root, { recursive: true, force: true });
     }

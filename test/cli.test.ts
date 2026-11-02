@@ -7,10 +7,14 @@ import {
     runCli,
     runCliMain,
 } from "../clients/cli/main.ts";
-import { gracefulStopResidentHost } from "../src/host/force-stop.ts";
+import {
+    forceStopResidentHost,
+    gracefulStopResidentHost,
+} from "../src/host/force-stop.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
 import type { VeraDoctorReport } from "../clients/process-doctor.ts";
+import type { LiveProcessReads } from "../src/live-process.ts";
 import {
     HostBuildMismatchError,
     HostProtocolMismatchError,
@@ -426,6 +430,26 @@ test("vera doctor stops stray processes once the caller confirms", async () => {
     expect(output).toContain("Stopped 1 stray process.");
 });
 
+test("vera doctor prints why a confirmed stray was left running", async () => {
+    let output = "";
+    const exitCode = await runCli(["doctor"], {
+        doctor: async () => strayReport(),
+        providerDoctor: async () => ({ providers: [], networkChecked: false }),
+        confirmStopStrayProcesses: async () => true,
+        stopStrayProcesses: async (_strays, report) => {
+            report.onSkipped?.("PID 4242 is no longer the process that was listed; left it alone.\n");
+            return 0;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toContain(
+        "PID 4242 is no longer the process that was listed; left it alone.\n"
+        + "Stopped 0 stray processes.",
+    );
+});
+
 test("vera doctor leaves stray processes running when the caller declines", async () => {
     let output = "";
     let stopCalled = false;
@@ -553,6 +577,107 @@ test("vera prune lists posted processes and stops only the ones confirmed", asyn
     expect(output).toContain("PID 502");
     expect(output).toContain("/tmp/vera-work");
     expect(output).toContain("Stopped 1 process.");
+});
+
+// Far above any real PID, so a stop that is not intercepted signals nothing.
+const prunedPid = 2_000_000_801;
+const prunedStart = Date.parse("2026-08-29T12:00:00.000Z");
+
+async function pruneWithReads(
+    reads: (state: { reused: boolean }) => LiveProcessReads,
+    onConfirm?: (state: { reused: boolean }) => void,
+): Promise<{ output: string; signals: string[] }> {
+    const home = mkdtempSync(join(tmpdir(), "vera-cli-prune-"));
+    const previous = process.env.VERA_HOME;
+    process.env.VERA_HOME = join(home, ".vera");
+    try {
+        const state = { reused: false };
+        const signals: string[] = [];
+        let output = "";
+        const exitCode = await runCli(["prune"], {
+            prune: async () => [{
+                schema_version: 1,
+                pid: prunedPid,
+                kind: "worker",
+                started_at: new Date(prunedStart).toISOString(),
+                runtime_dir: "/tmp/vera-daily",
+            }],
+            confirmPruneProcess: async () => {
+                onConfirm?.(state);
+                return true;
+            },
+            liveProcessReads: {
+                isAlive: () => true,
+                readCommand: () => "bun /work/vera/src/worker.ts",
+                kill: (pid, signal) => { signals.push(`${signal}:${pid}`); },
+                ...reads(state),
+            },
+            stdout: { write: (text) => output += text },
+        });
+        expect(exitCode).toBe(0);
+        return { output, signals };
+    } finally {
+        if (previous === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previous;
+        rmSync(home, { recursive: true, force: true });
+    }
+}
+
+test("vera prune signals a confirmed process that is still the one listed", async () => {
+    const { output, signals } = await pruneWithReads(() => ({
+        readStartedAt: () => prunedStart,
+    }));
+
+    expect(signals).toEqual([`SIGKILL:-${prunedPid}`, `SIGKILL:${prunedPid}`]);
+    expect(output).toContain("Stopped 1 process.");
+});
+
+test("vera prune leaves a PID alone when another process holds it by the time of the signal", async () => {
+    const { output, signals } = await pruneWithReads(() => ({
+        readStartedAt: () => prunedStart + 3_600_000,
+    }));
+
+    expect(signals).toEqual([]);
+    expect(output).toContain(
+        `PID ${prunedPid} is no longer the process that was listed; left it alone.`,
+    );
+    expect(output).toContain("Left every listed process running.");
+});
+
+test("vera prune catches a PID reused while the user was being asked", async () => {
+    const { output, signals } = await pruneWithReads(
+        (state) => ({
+            readStartedAt: () => state.reused ? prunedStart + 3_600_000 : prunedStart,
+        }),
+        (state) => { state.reused = true; },
+    );
+
+    expect(signals).toEqual([]);
+    expect(output).toContain("no longer the process that was listed");
+});
+
+test("vera prune leaves a process whose command line changed alone", async () => {
+    const { output, signals } = await pruneWithReads(() => {
+        const commands = ["bun /work/vera/src/worker.ts", "/usr/sbin/syslogd"];
+        return {
+            readStartedAt: () => prunedStart,
+            readCommand: () => commands.shift() ?? "/usr/sbin/syslogd",
+        };
+    });
+
+    expect(signals).toEqual([]);
+    expect(output).toContain("no longer the process that was listed");
+});
+
+test("vera prune does not signal a process it cannot confirm", async () => {
+    const { output, signals } = await pruneWithReads(() => ({
+        readStartedAt: () => undefined,
+    }));
+
+    expect(signals).toEqual([]);
+    expect(output).toContain(
+        `Could not confirm PID ${prunedPid} is still the process that was listed; left it running.`,
+    );
 });
 
 test("vera prune leaves every listed process running when each stop is declined", async () => {
@@ -1512,6 +1637,124 @@ test("vera host stop --force reports a host it could not identify and exits nonz
             + " unreadable); left it running and kept its lockfile. Try again.\n",
     );
     expect(output).not.toContain("Stopped");
+});
+
+const veraHostCommand = "bun /opt/vera/clients/host/main.ts";
+
+test("vera host stop does not say no host is running when the lockfile has no readable pid", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-stop-"));
+    const lockPath = join(root, "host.json");
+    try {
+        writeFileSync(lockPath, '{ "schema_version": 3, "pid": 51');
+        for (const force of [false, true]) {
+            const signals: string[] = [];
+            const stop = (): ReturnType<typeof gracefulStopResidentHost> =>
+                (force ? forceStopResidentHost : gracefulStopResidentHost)({
+                    lockPath,
+                    kill: (pid, signal) => signals.push(`${signal}:${pid}`),
+                    isProcessAlive: () => true,
+                });
+            let output = "";
+            let errorOutput = "";
+            const exitCode = await runCli(
+                ["host", "stop", ...(force ? ["--force"] : []), "--yes"],
+                {
+                    stopHost: stop,
+                    forceStopHost: stop,
+                    stdout: { write: (text) => output += text },
+                    stderr: { write: (text) => errorOutput += text },
+                },
+            );
+
+            expect(exitCode).toBe(1);
+            expect(errorOutput).toContain(lockPath);
+            expect(errorOutput).toContain("cannot tell whether a Vera host is running");
+            expect(output).not.toContain("No resident Vera host");
+            expect(signals).toEqual([]);
+            expect(existsSync(lockPath)).toBe(true);
+        }
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("vera host stop does not read a lockfile missing its socket path as no host", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-stop-"));
+    const lockPath = join(root, "host.json");
+    try {
+        writeFileSync(lockPath, `${JSON.stringify({
+            schema_version: 3,
+            pid: 51639,
+            started_at: new Date().toISOString(),
+            build_id: "vera-abc",
+        })}\n`);
+        const signals: string[] = [];
+        let output = "";
+        const exitCode = await runCli(["host", "stop", "--yes"], {
+            stopHost: () => gracefulStopResidentHost({
+                lockPath,
+                kill: (pid, signal) => signals.push(`${signal}:${pid}`),
+                isProcessAlive: () => true,
+                readStartedAt: () => Date.now(),
+                readCommand: () => veraHostCommand,
+            }),
+            stdout: { write: (text) => output += text },
+        });
+
+        expect(exitCode).toBe(1);
+        expect(output).toContain(
+            "Could not confirm PID 51639 is the Vera host (its lockfile is damaged)",
+        );
+        expect(output).not.toContain("No resident Vera host");
+        expect(signals).toEqual([]);
+        expect(existsSync(lockPath)).toBe(true);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("vera host stop clears a damaged lockfile whose pid is not Vera or is gone", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-cli-stop-"));
+    const lockPath = join(root, "host.json");
+    const damaged = '{ "schema_version": 3, "pid": 51639, "started_at": "2026-08';
+    try {
+        writeFileSync(lockPath, damaged);
+        let output = "";
+        let exitCode = await runCli(["host", "stop", "--yes"], {
+            stopHost: () => gracefulStopResidentHost({
+                lockPath,
+                kill: () => {},
+                isProcessAlive: () => true,
+                readStartedAt: () => Date.now(),
+                readCommand: () => "/usr/sbin/syslogd",
+            }),
+            stdout: { write: (text) => output += text },
+        });
+        expect(exitCode).toBe(0);
+        expect(output).toBe(
+            "PID 51639 is no longer a Vera host; cleared its damaged lockfile.\n",
+        );
+        expect(existsSync(lockPath)).toBe(false);
+
+        writeFileSync(lockPath, damaged);
+        output = "";
+        exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+            forceStopHost: () => forceStopResidentHost({
+                lockPath,
+                kill: () => {},
+                isProcessAlive: () => false,
+            }),
+            stdout: { write: (text) => output += text },
+        });
+        expect(exitCode).toBe(0);
+        expect(output).toBe(
+            "Resident Vera host PID 51639 had already exited; cleared its"
+                + " damaged lockfile.\n",
+        );
+        expect(existsSync(lockPath)).toBe(false);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
 });
 
 test("vera names the recovery commands for an unresponsive host", async () => {

@@ -17,7 +17,12 @@ import {
     type VeraProcessKind,
     type VeraProcessSample,
 } from "../clients/process-doctor.ts";
-import { processIsAlive } from "../src/host/process-identity.ts";
+import {
+    processCommandLine,
+    processIsAlive,
+    processStartedAt,
+} from "../src/host/process-identity.ts";
+import type { LiveProcessReads } from "../src/live-process.ts";
 import { spawnVeraLookingProcess } from "./support/vera-looking-process.ts";
 import { veraRuntimeDirectory } from "../src/profile-paths.ts";
 
@@ -64,6 +69,20 @@ test("process parsing finds orphaned workers and test fixtures", () => {
         "supervisor",
         "test_fixture",
     ]);
+});
+
+test("process parsing derives the start from etime and reads only the C-locale lstart layout", () => {
+    const sampledAt = Date.UTC(2026, 7, 14, 12, 5, 0);
+    const [sample] = parseVeraProcessList(
+        "  201     1   201    05:00  12.0 Fri Aug 14 12:00:00 2026 bun src/host/worker/entry.ts\n",
+        sampledAt,
+    );
+    expect(sample?.startedAtMs).toBe(Date.UTC(2026, 7, 14, 12, 0, 0));
+    // en_GB puts the day before the month, so the doctor asks ps for C.
+    expect(parseVeraProcessList(
+        "  201     1   201    05:00  12.0 Fri 14 Aug 12:00:00 2026 bun src/host/worker/entry.ts\n",
+        sampledAt,
+    )).toEqual([]);
 });
 
 test("doctor flags extra hosts and only calls CPU sustained across both samples", async () => {
@@ -636,6 +655,23 @@ test("colorizeVeraDoctor paints Result and roles when color is on", () => {
     );
 });
 
+function runningStray(pid: number, pgid: number): DiagnosedVeraProcess {
+    const startedAtMs = processStartedAt(pid);
+    const command = processCommandLine(pid);
+    if (startedAtMs === undefined || command === undefined) {
+        throw new Error(`PID ${pid} cannot be read`);
+    }
+    return {
+        ...processSample(pid, "test_fixture", 0),
+        pgid,
+        startedAtMs,
+        command,
+        currentHost: false,
+        sustainedHighCpu: false,
+        stray: true,
+    };
+}
+
 test("stopStrayVeraProcesses kills a stray's process group", async () => {
     const child = Bun.spawn(
         [process.execPath, "-e", "await Bun.sleep(300000)"],
@@ -643,14 +679,9 @@ test("stopStrayVeraProcesses kills a stray's process group", async () => {
     );
     try {
         expect(processIsAlive(child.pid)).toBe(true);
-        const stray: DiagnosedVeraProcess = {
-            ...processSample(child.pid, "test_fixture", 0),
-            pgid: child.pid,
-            currentHost: false,
-            sustainedHighCpu: false,
-            stray: true,
-        };
-        const stopped = stopStrayVeraProcesses([stray]);
+        const stopped = stopStrayVeraProcesses([
+            runningStray(child.pid, child.pid),
+        ]);
         expect(stopped).toBe(1);
         const deadline = Date.now() + 3_000;
         while (Date.now() < deadline && processIsAlive(child.pid)) {
@@ -658,8 +689,239 @@ test("stopStrayVeraProcesses kills a stray's process group", async () => {
         }
         expect(processIsAlive(child.pid)).toBe(false);
     } finally {
-        if (processIsAlive(child.pid)) child.kill("SIGKILL");
+        child.kill("SIGKILL");
+        await child.exited;
     }
+});
+
+test("stopStrayVeraProcesses leaves a process that started after the stray was listed", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-stray-reuse-"));
+    const reused = spawnVeraLookingProcess(directory);
+    try {
+        const listed: DiagnosedVeraProcess = {
+            ...runningStray(reused.pid, reused.pid),
+            startedAtMs: Date.UTC(2026, 7, 14, 12, 0, 0),
+        };
+        const lines: string[] = [];
+        const stopped = stopStrayVeraProcesses([listed], {
+            onSkipped: (line) => lines.push(line),
+        });
+        expect(stopped).toBe(0);
+        expect(processIsAlive(reused.pid)).toBe(true);
+        expect(lines).toEqual([
+            `PID ${reused.pid} is no longer the process that was listed; left it alone.\n`,
+        ]);
+    } finally {
+        reused.kill("SIGKILL");
+        await reused.exited;
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("stopStrayVeraProcesses leaves a process whose command line changed", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-stray-command-"));
+    const reused = spawnVeraLookingProcess(directory);
+    try {
+        const listed: DiagnosedVeraProcess = {
+            ...runningStray(reused.pid, reused.pid),
+            command: "bun /somewhere/else/clients/host/main.ts",
+        };
+        const stopped = stopStrayVeraProcesses([listed]);
+        expect(stopped).toBe(0);
+        expect(processIsAlive(reused.pid)).toBe(true);
+    } finally {
+        reused.kill("SIGKILL");
+        await reused.exited;
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+const strayPid = 2_000_000_811;
+const strayStartedAtMs = Date.UTC(2026, 7, 14, 12, 0, 0);
+
+function listedStray(pgid: number): DiagnosedVeraProcess {
+    return {
+        ...processSample(strayPid, "worker", 0),
+        pgid,
+        startedAtMs: strayStartedAtMs,
+        currentHost: false,
+        sustainedHighCpu: false,
+        stray: true,
+    };
+}
+
+function strayReads(
+    signals: string[],
+    overrides: LiveProcessReads = {},
+): LiveProcessReads {
+    return {
+        isAlive: () => true,
+        readStartedAt: () => strayStartedAtMs,
+        readCommand: () => `bun src/host/worker/entry.ts`,
+        kill: (pid, signal) => {
+            signals.push(`${signal}:${pid}`);
+        },
+        ...overrides,
+    };
+}
+
+test("stopStrayVeraProcesses signals a group leader's group, then the process", () => {
+    const signals: string[] = [];
+    const stopped = stopStrayVeraProcesses([listedStray(strayPid)], {
+        reads: strayReads(signals),
+    });
+    expect(stopped).toBe(1);
+    expect(signals).toEqual([`SIGKILL:-${strayPid}`, `SIGKILL:${strayPid}`]);
+});
+
+test("stopStrayVeraProcesses signals only the process when it leads no group", () => {
+    const signals: string[] = [];
+    const stopped = stopStrayVeraProcesses([listedStray(strayPid - 1)], {
+        reads: strayReads(signals),
+    });
+    expect(stopped).toBe(1);
+    expect(signals).toEqual([`SIGKILL:${strayPid}`]);
+});
+
+test("stopStrayVeraProcesses re-checks identity before the second signal", () => {
+    const signals: string[] = [];
+    let replaced = false;
+    const stopped = stopStrayVeraProcesses([listedStray(strayPid)], {
+        reads: strayReads(signals, {
+            readCommand: () => replaced
+                ? "bun /unrelated/server.ts"
+                : "bun src/host/worker/entry.ts",
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+                replaced = true;
+            },
+        }),
+    });
+    expect(signals).toEqual([`SIGKILL:-${strayPid}`]);
+    expect(stopped).toBe(1);
+});
+
+test("stopStrayVeraProcesses signals nothing it cannot confirm", () => {
+    const signals: string[] = [];
+    const lines: string[] = [];
+    const stopped = stopStrayVeraProcesses([listedStray(strayPid)], {
+        reads: strayReads(signals, { readStartedAt: () => undefined }),
+        onSkipped: (line) => lines.push(line),
+    });
+    expect(stopped).toBe(0);
+    expect(signals).toEqual([]);
+    expect(lines).toEqual([
+        `Could not confirm PID ${strayPid} is still the process that was listed; left it running.\n`,
+    ]);
+});
+
+test("stopStrayVeraProcesses reports a stray that already exited", () => {
+    const signals: string[] = [];
+    const lines: string[] = [];
+    const stopped = stopStrayVeraProcesses([listedStray(strayPid)], {
+        reads: strayReads(signals, { isAlive: () => false }),
+        onSkipped: (line) => lines.push(line),
+    });
+    expect(stopped).toBe(0);
+    expect(signals).toEqual([]);
+    expect(lines).toEqual([`PID ${strayPid} had already exited.\n`]);
+});
+
+const DOCTOR_PATH = join(import.meta.dir, "..", "clients", "process-doctor.ts");
+
+function runDoctorScript(
+    script: string,
+    environment: Record<string, string>,
+): unknown {
+    const ran = Bun.spawnSync([process.execPath, "-e", script], {
+        env: environment,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    expect(ran.stderr.toString()).toBe("");
+    expect(ran.exitCode).toBe(0);
+    return JSON.parse(ran.stdout.toString());
+}
+
+test("the doctor asks ps for the C locale so a non-English lstart still lists the process", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-doctor-locale-"));
+    try {
+        const shim = join(directory, "bin");
+        mkdirSync(shim);
+        const worker = "bun src/host/worker/entry.ts";
+        writeFileSync(join(shim, "ps"), [
+            "#!/bin/sh",
+            `if [ "$1" = "eww" ]; then`,
+            `    echo "  777 ${worker} VERA_HOME=${directory}"`,
+            "    exit 0",
+            "fi",
+            `if [ "$LC_ALL" = "C" ] && [ "$LANG" = "C" ]; then`,
+            `    echo "  777     1   777    05:00   0.0 Fri Aug 14 12:00:00 2026 ${worker}"`,
+            "else",
+            `    echo "  777     1   777    05:00   0.0 Fri 14 Aug 12:00:00 2026 ${worker}"`,
+            "fi",
+            "",
+        ].join("\n"), { mode: 0o755 });
+        const listed = runDoctorScript(`
+            import { diagnoseVeraProcesses } from ${JSON.stringify(DOCTOR_PATH)};
+            const report = await diagnoseVeraProcesses({
+                readHostOwnership: async () => ({}),
+                listWorkerSessions: async () => [],
+                wait: async () => {},
+                runtimeDir: ${JSON.stringify(join(directory, "runtime"))},
+            });
+            console.log(JSON.stringify(report.processes.map((p) => ({
+                pid: p.pid,
+                stray: p.stray,
+                startedAtMs: p.startedAtMs,
+            }))));
+        `, { PATH: `${shim}:/usr/bin:/bin` }) as {
+            pid: number;
+            stray: boolean;
+            startedAtMs?: number;
+        }[];
+        expect(listed).toHaveLength(1);
+        expect(listed[0]?.pid).toBe(777);
+        expect(listed[0]?.stray).toBe(true);
+        expect(Math.abs(
+            (listed[0]?.startedAtMs ?? 0) - (Date.now() - 300_000),
+        )).toBeLessThan(60_000);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("a stray listed in the repeated fall-back hour is still the process at stop time", () => {
+    // 01:30 happens twice in New York on 2026-11-01. Date.parse of the
+    // lstart text picks the first, an hour before this process started.
+    const outcome = runDoctorScript(`
+        import {
+            parseVeraProcessList,
+            stopStrayVeraProcesses,
+        } from ${JSON.stringify(DOCTOR_PATH)};
+        const line = "  777     1   777    05:00   0.0 Sun Nov  1 01:30:00 2026 bun src/host/worker/entry.ts";
+        const [sample] = parseVeraProcessList(line, Date.UTC(2026, 10, 1, 6, 35, 0));
+        const signals = [];
+        const stopped = stopStrayVeraProcesses(
+            [{ ...sample, currentHost: false, sustainedHighCpu: false, stray: true }],
+            { reads: {
+                isAlive: () => true,
+                readStartedAt: () => Date.UTC(2026, 10, 1, 6, 30, 0),
+                readCommand: () => "bun src/host/worker/entry.ts",
+                kill: (pid, signal) => { signals.push(signal + ":" + pid); },
+            } },
+        );
+        console.log(JSON.stringify({
+            stopped,
+            signals,
+            lstartAsParsed: Date.parse("Sun Nov  1 01:30:00 2026"),
+        }));
+    `, { PATH: process.env.PATH ?? "/usr/bin:/bin", TZ: "America/New_York" });
+    expect(outcome).toEqual({
+        stopped: 1,
+        signals: ["SIGKILL:-777", "SIGKILL:777"],
+        lstartAsParsed: Date.UTC(2026, 10, 1, 5, 30, 0),
+    });
 });
 
 test("livePidFromHostLockFile trusts a live matching record without a handshake", async () => {
@@ -755,6 +1017,48 @@ test("livePidFromHostLockFile drops a non-Vera pid whose lockfile start time is 
             started_at: "not a timestamp",
             socket_path: join(directory, "host.sock"),
         }));
+        expect(currentHostPidSeenFrom({
+            lockPath,
+            path: process.env.PATH ?? "/usr/bin:/bin",
+        })).toBe("undefined");
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("livePidFromHostLockFile keeps a Vera-looking pid from a lockfile that is missing its socket path", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const lockPath = join(directory, "host.json");
+    const host = spawnVeraLookingProcess(directory);
+    try {
+        writeFileSync(lockPath, JSON.stringify({
+            schema_version: 3,
+            pid: host.pid,
+            started_at: new Date().toISOString(),
+            build_id: "vera-abc",
+        }));
+        expect(currentHostPidSeenFrom({
+            lockPath,
+            path: process.env.PATH ?? "/usr/bin:/bin",
+        })).toBe(String(host.pid));
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("livePidFromHostLockFile drops a non-Vera pid from a cut-off lockfile", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const lockPath = join(directory, "host.json");
+    const bystander = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    try {
+        writeFileSync(
+            lockPath,
+            `{ "schema_version": 3, "pid": ${bystander.pid}, "started_at": "2026-0`,
+        );
         expect(currentHostPidSeenFrom({
             lockPath,
             path: process.env.PATH ?? "/usr/bin:/bin",

@@ -92,6 +92,11 @@ signalling that process. Otherwise it is refused the same way, and so is
 does not help in that case: check that the PID in `runtime/host.json` is a
 Vera host before you stop it. If it is not, deleting `runtime/host.json` in
 the home is safe.
+A lockfile that cannot be read as a whole is damaged, not absent. The same
+commands read its PID when they can and refuse a Vera PID the same way. When
+no PID can be read, they print the lockfile's path, say they cannot tell
+whether a host is running, and exit with status 1; they do not report that no
+host is running.
 A host that cannot finish closing, for example because a turn is stuck, exits
 anyway after a short deadline, and quitting the TUI does not wait on it.
 
@@ -104,6 +109,17 @@ hosts, clients, workers, watchdogs, supervisors, and the local helper can
 appear there. Shell commands, tool subprocesses, launch wrappers, and
 in-process SDK instances do not. A registered process whose start time the
 system cannot report is not listed, and its registration is kept.
+
+Before each signal, `vera prune`, `bun run dev:sweep` and the stray-process
+cleanup in `vera doctor` check again that the PID still belongs to the process
+that was listed. The start time must match and the command line must be
+unchanged. If the command line could not be read when the process was listed,
+the start time alone decides. This includes the SIGKILL that follows an
+unanswered SIGTERM. A PID that another process has taken over is not signalled,
+and the command says so. A process whose start time or command line cannot be
+read at that moment is left running and reported. If that happens after a
+signal was already sent, `bun run dev:sweep` reports that it could not confirm
+the process exited and keeps its registration.
 
 An older process that never registered will not appear merely because Activity
 Monitor lists it. `vera prune` accepts no arguments; `--yes` belongs to doctor.

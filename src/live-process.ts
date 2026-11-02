@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
     checkRecordIdentity,
+    processCommandLine,
     processIsAlive,
 } from "./host/process-identity.ts";
 import {
@@ -187,20 +188,143 @@ export function renderVeraPrune(
     return `${lines.join("\n")}\n`;
 }
 
-export function stopLivePid(pid: number): boolean {
-    let signaled = false;
+export interface LiveProcessReads {
+    readonly isAlive?: (pid: number) => boolean;
+    readonly readStartedAt?: (pid: number) => number | undefined;
+    readonly readCommand?: (pid: number) => string | undefined;
+    readonly kill?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+export interface ProcessIdentityRecord {
+    readonly pid: number;
+    readonly started_at: string;
+}
+
+// A record as it was when listed. A PID can be reused after that, so the
+// command line is kept to compare against the process found at signal time.
+export interface ListedProcess<
+    Record extends ProcessIdentityRecord = LiveProcessRecord,
+> {
+    readonly record: Record;
+    readonly command: string | undefined;
+}
+
+export type ListedProcessState = "same" | "gone" | "replaced" | "unverified";
+
+export type SignalResult =
+    | "sent"
+    | "not_delivered"
+    | Exclude<ListedProcessState, "same">;
+
+export type ListedStopResult =
+    | "stopped"
+    | "not_delivered"
+    | Exclude<ListedProcessState, "same">;
+
+// Take this when the process is listed, before anything is prompted or stopped.
+export function claimListedProcess(
+    record: LiveProcessRecord,
+    reads: LiveProcessReads = {},
+): ListedProcess {
+    return {
+        record,
+        command: (reads.readCommand ?? processCommandLine)(record.pid),
+    };
+}
+
+// "same" needs the start time to match and the command line to be unchanged.
+// A command line unreadable when listed leaves the start time to decide.
+export function checkListedProcess(
+    listed: ListedProcess<ProcessIdentityRecord>,
+    reads: LiveProcessReads = {},
+): ListedProcessState {
+    const { record } = listed;
+    if (!(reads.isAlive ?? processIsAlive)(record.pid)) return "gone";
+    const readCommand = reads.readCommand ?? processCommandLine;
+    const identity = checkRecordIdentity(record, reads.readStartedAt, readCommand);
+    if (identity === "mismatch") return "replaced";
+    if (identity === "unknown") return "unverified";
+    if (listed.command === undefined) return "same";
+    const command = readCommand(record.pid);
+    if (command === undefined) return "unverified";
+    return command === listed.command ? "same" : "replaced";
+}
+
+// Checks identity immediately before this one signal; callers sending
+// several signals call it once per signal.
+export function signalListedProcess(
+    listed: ListedProcess<ProcessIdentityRecord>,
+    signal: NodeJS.Signals,
+    options: { readonly group?: boolean; readonly reads?: LiveProcessReads } = {},
+): SignalResult {
+    const reads = options.reads ?? {};
+    const state = checkListedProcess(listed, reads);
+    if (state !== "same") return state;
+    const pid = listed.record.pid;
     try {
-        process.kill(-pid, "SIGKILL");
-        signaled = true;
+        (reads.kill ?? defaultKill)(options.group === true ? -pid : pid, signal);
+        return "sent";
     } catch {
+        return "not_delivered";
     }
-    try {
-        process.kill(pid, "SIGKILL");
-        signaled = true;
-    } catch {
+}
+
+function defaultKill(pid: number, signal: NodeJS.Signals): void {
+    process.kill(pid, signal);
+}
+
+// SIGKILLs the group (when asked), then the process itself, checking identity
+// before each. "stopped" means at least one signal was delivered.
+export function stopListedProcess(
+    listed: ListedProcess<ProcessIdentityRecord>,
+    options: { readonly group?: boolean; readonly reads?: LiveProcessReads } = {},
+): ListedStopResult {
+    const targets = options.group === false ? [false] : [true, false];
+    let signalled = false;
+    for (const group of targets) {
+        const result = signalListedProcess(listed, "SIGKILL", {
+            group,
+            ...(options.reads === undefined ? {} : { reads: options.reads }),
+        });
+        if (result === "sent") {
+            signalled = true;
+            continue;
+        }
+        if (result === "unverified" || result === "gone" || result === "replaced") {
+            return signalled ? "stopped" : result;
+        }
     }
-    dropLiveProcess(pid);
-    return signaled;
+    return signalled ? "stopped" : "not_delivered";
+}
+
+// The board row is dropped unless the process could not be confirmed or signalled.
+export function stopListedLiveProcess(
+    listed: ListedProcess,
+    reads: LiveProcessReads = {},
+): ListedStopResult {
+    const result = stopListedProcess(listed, { reads });
+    if (result === "stopped" || result === "gone" || result === "replaced") {
+        dropLiveProcess(listed.record.pid);
+    }
+    return result;
+}
+
+export function skippedProcessLine(
+    pid: number,
+    result: Exclude<ListedStopResult, "stopped">,
+): string {
+    switch (result) {
+        case "gone":
+            return `PID ${pid} had already exited.\n`;
+        case "replaced":
+            return `PID ${pid} is no longer the process that was listed;`
+                + " left it alone.\n";
+        case "unverified":
+            return `Could not confirm PID ${pid} is still the process that was`
+                + " listed; left it running.\n";
+        case "not_delivered":
+            return `Could not signal PID ${pid}; left it running.\n`;
+    }
 }
 
 function readLiveProcessFile(path: string): LiveProcessRecord | undefined {

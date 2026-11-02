@@ -10,12 +10,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { defaultHostLockPath } from "../../src/host/lockfile.ts";
+import { spawnVeraLookingProcess } from "../support/vera-looking-process.ts";
 import {
     currentSymlinkPath,
     rollbackSymlinkPath,
     veraShareRoot,
 } from "../../src/release/layout.ts";
 import {
+    damagedHostLockHold,
     isReleaseReferenced,
     listReleaseReferences,
     referencedBuildIds,
@@ -120,4 +122,99 @@ test("a rollback pin protects that build", () => {
     } finally {
         rmSync(prefix, { recursive: true, force: true });
     }
+});
+
+function withHostLock(contents: string, body: () => void): void {
+    const lockPath = defaultHostLockPath();
+    mkdirSync(dirname(lockPath), { recursive: true });
+    writeFileSync(lockPath, contents);
+    try {
+        body();
+    } finally {
+        rmSync(lockPath, { force: true });
+    }
+}
+
+const DEAD_PID = 2_147_483_647;
+
+test("a damaged host.json naming a live Vera process holds every release", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-damaged-live-"));
+    const directory = mkdtempSync(join(tmpdir(), "vera-ref-damaged-host-"));
+    const host = spawnVeraLookingProcess(directory);
+    try {
+        withHostLock(
+            `{"schema_version": 3, "pid": ${host.pid}, "started_at": "20`,
+            () => {
+                const hold = damagedHostLockHold();
+                expect(hold).toContain(`PID ${host.pid}`);
+                expect(hold).toContain("damaged");
+                expect(isReleaseReferenced("vera-any-build", prefix)).toBe(true);
+                expect(referenceReasons("vera-any-build", prefix)).toEqual([
+                    "host-lock-damaged",
+                ]);
+            },
+        );
+    } finally {
+        host.kill("SIGKILL");
+        await host.exited;
+        rmSync(directory, { recursive: true, force: true });
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a damaged host.json with no readable pid holds every release", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-damaged-nopid-"));
+    try {
+        withHostLock(`{"schema_version": 3, "socket_pa`, () => {
+            expect(damagedHostLockHold()).toContain("no PID");
+            expect(isReleaseReferenced("vera-any-build", prefix)).toBe(true);
+        });
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a damaged host.json naming a dead process does not hold releases", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-damaged-dead-"));
+    try {
+        withHostLock(`{"schema_version": 3, "pid": ${DEAD_PID}, "star`, () => {
+            expect(damagedHostLockHold()).toBeUndefined();
+            expect(isReleaseReferenced("vera-any-build", prefix)).toBe(false);
+        });
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a damaged host.json naming a live process that is not Vera does not hold releases", async () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-damaged-other-"));
+    const other = Bun.spawn(
+        [process.execPath, "-e", "await Bun.sleep(60000)"],
+        { stdin: "ignore", stdout: "ignore", stderr: "ignore" },
+    );
+    try {
+        withHostLock(`{"schema_version": 3, "pid": ${other.pid}, "star`, () => {
+            expect(damagedHostLockHold()).toBeUndefined();
+            expect(isReleaseReferenced("vera-any-build", prefix)).toBe(false);
+        });
+    } finally {
+        other.kill("SIGKILL");
+        await other.exited;
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("a valid host.json does not hold every release", () => {
+    withHostLock(
+        `${JSON.stringify({
+            schema_version: 3,
+            pid: process.pid,
+            started_at: new Date().toISOString(),
+            socket_path: "/tmp/vera-ref-valid.sock",
+            build_id: "vera-valid-host",
+        })}\n`,
+        () => {
+            expect(damagedHostLockHold()).toBeUndefined();
+        },
+    );
 });

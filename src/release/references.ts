@@ -1,8 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { defaultHostLockPath } from "../host/lockfile.ts";
-import { processIsAlive } from "../host/process-identity.ts";
+import {
+    defaultHostLockPath,
+    inspectHostLockFileSync,
+} from "../host/lockfile.ts";
+import {
+    checkRecordIdentity,
+    processIsAlive,
+} from "../host/process-identity.ts";
 import {
     currentReleaseBuildId,
     defaultInstallPrefix,
@@ -12,6 +18,7 @@ import {
 
 export type ReleaseReferenceReason =
     | "activated"
+    | "host-lock-damaged"
     | "live-host"
     | "rollback"
     | "upgrade";
@@ -63,16 +70,38 @@ export function isReleaseReferenced(
     buildId: string,
     prefix = defaultInstallPrefix(),
 ): boolean {
-    return referencedBuildIds(prefix).has(buildId);
+    return referenceReasons(buildId, prefix).length > 0;
 }
 
 export function referenceReasons(
     buildId: string,
     prefix = defaultInstallPrefix(),
 ): readonly ReleaseReferenceReason[] {
-    return listReleaseReferences(prefix)
+    const reasons = listReleaseReferences(prefix)
         .filter((item) => item.buildId === buildId)
         .map((item) => item.reason);
+    return damagedHostLockHold() === undefined
+        ? reasons
+        : [...reasons, "host-lock-damaged"];
+}
+
+// A damaged lockfile cannot say which release its host runs, so every release
+// is held unless its PID is dead or clearly not Vera. Returns why, or undefined.
+export function damagedHostLockHold(
+    lockPath: string = defaultHostLockPath(),
+): string | undefined {
+    const inspection = inspectHostLockFileSync(lockPath);
+    if (inspection.state !== "damaged") return undefined;
+    const keeping = "Keeping every release until it is fixed or deleted.";
+    const pid = inspection.pid;
+    if (pid === undefined) {
+        return `The host lockfile ${lockPath} is damaged and names no PID, so Vera cannot tell which release a running host uses. ${keeping}`;
+    }
+    if (!processIsAlive(pid)) return undefined;
+    if (checkRecordIdentity({ pid, started_at: "" }) === "mismatch") {
+        return undefined;
+    }
+    return `The host lockfile ${lockPath} is damaged and PID ${pid} may be a running Vera host, so Vera cannot tell which release it uses. ${keeping}`;
 }
 
 /** File-only read of host.json. GC must not handshake: a wedged host still uses its release, and a hang would block the one command that should leave that release alone. */

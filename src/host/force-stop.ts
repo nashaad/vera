@@ -1,10 +1,14 @@
 import { unlink } from "node:fs/promises";
 
-import { checkRecordIdentity } from "./process-identity.ts";
+import {
+    checkRecordIdentity,
+    type RecordIdentity,
+} from "./process-identity.ts";
 
 import {
     defaultHostLockPath,
-    readHostLockRecordFile,
+    HostLockUnreadableError,
+    inspectHostLockFile,
     type HostLockRecord,
 } from "./lockfile.ts";
 
@@ -19,17 +23,29 @@ export interface ForceStopOutcome {
         | "unverified";
     // Set with "unverified" when the lockfile's own start time is not a time.
     readonly lockStartTimeInvalid?: boolean;
+    // Set when the lockfile did not parse as a whole and only its PID was read.
+    readonly lockDamaged?: boolean;
 }
 
 export function unverifiedHostMessage(
-    outcome: Pick<ForceStopOutcome, "pid" | "lockStartTimeInvalid">,
+    outcome: Pick<
+        ForceStopOutcome,
+        "pid" | "lockStartTimeInvalid" | "lockDamaged"
+    >,
+    lockPath: string = defaultHostLockPath(),
 ): string {
     const pid = outcome.pid;
+    if (outcome.lockDamaged === true) {
+        return `Could not confirm PID ${pid} is the Vera host (its lockfile is`
+            + " damaged); left it running and kept its lockfile."
+            + ` Check that PID ${pid} is a Vera host before you stop it. If it`
+            + ` is not, deleting ${lockPath} is safe.`;
+    }
     if (outcome.lockStartTimeInvalid === true) {
         return `Could not confirm PID ${pid} is the Vera host (its lockfile has`
             + " no valid start time); left it running and kept its lockfile."
             + ` Check that PID ${pid} is a Vera host before you stop it. If it`
-            + " is not, deleting runtime/host.json in the Vera home is safe.";
+            + ` is not, deleting ${lockPath} is safe.`;
     }
     return `Could not confirm PID ${pid} is the Vera host (process start time`
         + " unreadable); left it running and kept its lockfile. Try again.";
@@ -67,13 +83,48 @@ export const DEFAULT_SIGTERM_GRACE_MS = 3_000;
 const DEFAULT_SIGKILL_GRACE_MS = 2_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 
+interface StopTarget {
+    readonly record: Pick<HostLockRecord, "pid" | "started_at">;
+    readonly damaged: boolean;
+}
+
+// A damaged lock has no trusted start time: a Vera-looking live PID stays
+// unverified, and only a dead or non-Vera PID lets the lock be cleared.
+// Throws HostLockUnreadableError when no PID can be read from it.
+async function readStopTarget(
+    lockPath: string,
+): Promise<StopTarget | undefined> {
+    const inspection = await inspectHostLockFile(lockPath);
+    if (inspection.state === "absent") return undefined;
+    if (inspection.state === "valid") {
+        return { record: inspection.record, damaged: false };
+    }
+    if (inspection.pid === undefined) {
+        throw new HostLockUnreadableError(lockPath);
+    }
+    return { record: { pid: inspection.pid, started_at: "" }, damaged: true };
+}
+
+function markDamaged(
+    outcome: ForceStopOutcome,
+    damaged: boolean,
+): ForceStopOutcome {
+    if (!damaged) return outcome;
+    const { lockStartTimeInvalid: _ignored, ...rest } = outcome;
+    return { ...rest, lockDamaged: true };
+}
+
 export async function forceStopResidentHost(
     options: ForceStopOptions = {},
 ): Promise<ForceStopOutcome | undefined> {
     const lockPath = options.lockPath ?? defaultHostLockPath();
-    const record = await readHostLockRecordFile(lockPath);
-    if (record === undefined) return undefined;
-    const outcome = await forceStopHostProcess(record, options);
+    const target = await readStopTarget(lockPath);
+    if (target === undefined) return undefined;
+    const { record } = target;
+    const outcome = markDamaged(
+        await forceStopHostProcess(record, options),
+        target.damaged,
+    );
     const clearable = outcome.endedBy !== "unverified"
         && (outcome.endedBy === "not_ours"
             || !(options.isProcessAlive ?? processIsAlive)(record.pid));
@@ -87,12 +138,16 @@ export async function gracefulStopResidentHost(
     options: ForceStopOptions = {},
 ): Promise<ForceStopOutcome | undefined> {
     const lockPath = options.lockPath ?? defaultHostLockPath();
-    const record = await readHostLockRecordFile(lockPath);
-    if (record === undefined) return undefined;
-    const outcome = await forceStopHostProcess(record, {
-        ...options,
-        escalateToKill: false,
-    });
+    const target = await readStopTarget(lockPath);
+    if (target === undefined) return undefined;
+    const { record } = target;
+    const outcome = markDamaged(
+        await forceStopHostProcess(record, {
+            ...options,
+            escalateToKill: false,
+        }),
+        target.damaged,
+    );
     const stillOurs = outcome.endedBy === "unverified"
         || (outcome.endedBy !== "not_ours"
             && (options.isProcessAlive ?? processIsAlive)(record.pid));
@@ -122,9 +177,15 @@ export async function forceStopHostProcess(
     if (!isProcessAlive(record.pid)) {
         return { pid: record.pid, endedBy: "already_dead" };
     }
-    const identity = options.matchesRecord === undefined
-        ? checkRecordIdentity(record, options.readStartedAt, options.readCommand)
-        : options.matchesRecord(record) ? "match" : "mismatch";
+    const identityNow = (): RecordIdentity =>
+        options.matchesRecord === undefined
+            ? checkRecordIdentity(
+                record,
+                options.readStartedAt,
+                options.readCommand,
+            )
+            : options.matchesRecord(record) ? "match" : "mismatch";
+    const identity = identityNow();
     if (identity === "mismatch") {
         return { pid: record.pid, endedBy: "not_ours" };
     }
@@ -139,6 +200,17 @@ export async function forceStopHostProcess(
     }
     if (options.escalateToKill === false) {
         return { pid: record.pid, endedBy: "survived" };
+    }
+    // The host may have exited during the wait and its PID been reused.
+    if (!isProcessAlive(record.pid)) {
+        return { pid: record.pid, endedBy: "sigterm" };
+    }
+    const beforeKill = identityNow();
+    if (beforeKill === "mismatch") {
+        return { pid: record.pid, endedBy: "not_ours" };
+    }
+    if (beforeKill === "unknown") {
+        return { pid: record.pid, endedBy: "unverified" };
     }
     kill(record.pid, "SIGKILL");
     const dead = await waitUntilDead(

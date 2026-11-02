@@ -305,6 +305,7 @@ test("a development host from another build is stopped before launch; one from t
         expect(await leftover.exited).not.toBe(0);
     } finally {
         leftover.kill("SIGKILL");
+        await leftover.exited;
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });
     }
@@ -517,6 +518,80 @@ test("--stop reports a host lockfile with no valid start time and exits nonzero"
 test("a launch keeps a host of another build whose lockfile has no valid start time", async () => {
     await expectInvalidStartTimeSurvives(
         "badtime-launch", [], () => "vera-old-build",
+    );
+});
+
+async function expectDamagedLockSurvives(
+    name: string,
+    args: readonly string[],
+    lock: (home: string, hostPid: number) => string,
+    expectedError: (hostPid: number, lockPath: string) => string,
+): Promise<void> {
+    const root = mkdtempSync("/tmp/vera-dev-damaged-");
+    const worktree = linkedWorktree(name);
+    const sourceHome = dailyHome(root);
+    const temporaryRoot = join(root, "instances");
+    const bystander = spawnVeraLookingProcess(root);
+    try {
+        await runDevTui([], worktree, { sourceHome, temporaryRoot, spawnTui: async () => 0 });
+        const home = candidateHomePath(worktree, temporaryRoot);
+        const lockPath = join(home, "runtime", "host.json");
+        const sessionPath = join(home, "runtime", "session.jsonl");
+        writeFileSync(sessionPath, "kept-session\n");
+        writeFileSync(lockPath, lock(home, bystander.pid));
+        let errors = "";
+
+        const code = await runDevTui(args, worktree, {
+            sourceHome,
+            temporaryRoot,
+            stderr: { write: (text: string) => errors += text },
+            spawnTui: async () => 0,
+        });
+
+        expect(code).toBe(1);
+        expect(errors).toContain(expectedError(bystander.pid, lockPath));
+        expect(errors).not.toContain("No development instance host is running");
+        expect(bystander.signalCode).toBeNull();
+        expect(bystander.exitCode).toBeNull();
+        expect(existsSync(lockPath)).toBe(true);
+        expect(readFileSync(sessionPath, "utf8")).toBe("kept-session\n");
+    } finally {
+        bystander.kill("SIGKILL");
+        await bystander.exited;
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+}
+
+test("--stop does not report no host for a lockfile with no readable PID", async () => {
+    await expectDamagedLockSurvives(
+        "damaged-nopid-stop",
+        ["--stop"],
+        () => '{ "schema_version": 3, "pid": 51',
+        (_pid, lockPath) => `The host lockfile ${lockPath} exists but cannot be read`,
+    );
+});
+
+test("--discard keeps the home when the host lockfile has no readable PID", async () => {
+    await expectDamagedLockSurvives(
+        "damaged-nopid-discard",
+        ["--discard", "--yes"],
+        () => "",
+        (_pid, lockPath) => `The host lockfile ${lockPath} exists but cannot be read`,
+    );
+});
+
+test("--discard keeps the home when a lockfile missing its socket path names a Vera-looking PID", async () => {
+    await expectDamagedLockSurvives(
+        "damaged-socket-discard",
+        ["--discard", "--yes"],
+        (_home, pid) => JSON.stringify({
+            schema_version: 3,
+            pid,
+            started_at: new Date().toISOString(),
+            build_id: "vera-old",
+        }),
+        (pid) => `Could not confirm PID ${pid} is the Vera host (its lockfile is damaged)`,
     );
 });
 
